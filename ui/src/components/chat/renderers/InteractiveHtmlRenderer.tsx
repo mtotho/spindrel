@@ -50,8 +50,15 @@ import { useThemeStore } from "../../../stores/theme";
 import { getAuthToken } from "../../../stores/auth";
 import { pushWidgetLog } from "../../../stores/widgetLog";
 import { useIsAdmin } from "../../../hooks/useScope";
+import { toast } from "../../../stores/toast";
+import { useDashboardPinsStore } from "../../../stores/dashboardPins";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
 import { WIDGET_ICON_SPRITE, WIDGET_ICON_NAMES } from "./widgetIcons";
+
+// Dedupes missing-file toasts across renderer re-mounts and 3s polls.
+// Key: dashboard pin id when pinned, else `${channelId}|${path}` for chat
+// envelopes. Lives at module scope so remount / HMR doesn't reset it.
+const MISSING_WIDGET_TOAST_KEYS = new Set<string>();
 
 interface WidgetTokenResponse {
   token: string;
@@ -2228,9 +2235,61 @@ export function InteractiveHtmlRenderer({
     queryFn: () =>
       apiFetch<{ path: string; content: string }>(contentEndpoint!),
     enabled: pathMode && !!contentEndpoint,
-    refetchInterval: 3000,
+    // 404 = file deleted/renamed. Permanent, not a blip — stop polling
+    // and don't retry, otherwise we spam the network tab every 3s for a
+    // widget the user may not even realize is mounted somewhere offscreen.
+    refetchInterval: (query) => {
+      const err = query.state.error;
+      if (err instanceof ApiError && err.status === 404) return false;
+      return 3000;
+    },
+    retry: (failureCount, err) => {
+      if (err instanceof ApiError && err.status === 404) return false;
+      return failureCount < 3;
+    },
     refetchOnWindowFocus: true,
   });
+
+  // Fire a sticky toast when a path-mode widget's source file is missing.
+  // Deduped at module scope so glitched/offscreen widgets don't stack
+  // duplicate toasts on every remount. Pinned widgets get a "Remove pin"
+  // action; chat envelopes auto-dismiss after ~6s since there's nothing
+  // to delete (the envelope lives in message history).
+  useEffect(() => {
+    const err = fileQuery.error;
+    const is404 = err instanceof ApiError && err.status === 404;
+    if (!is404 || !sourcePath) return;
+    const key = dashboardPinId ?? `${sourceChannelId ?? "-"}|${sourcePath}`;
+    if (MISSING_WIDGET_TOAST_KEYS.has(key)) return;
+    MISSING_WIDGET_TOAST_KEYS.add(key);
+    if (dashboardPinId) {
+      toast({
+        kind: "error",
+        message: `Widget HTML missing: ${sourcePath}`,
+        durationMs: 0,
+        action: {
+          label: "Remove pin",
+          onClick: () => {
+            useDashboardPinsStore
+              .getState()
+              .unpinWidget(dashboardPinId)
+              .catch(() => {
+                toast({
+                  kind: "error",
+                  message: `Failed to remove pin for ${sourcePath}`,
+                });
+              });
+          },
+        },
+      });
+    } else {
+      toast({
+        kind: "error",
+        message: `Widget HTML missing: ${sourcePath}`,
+        durationMs: 6000,
+      });
+    }
+  }, [fileQuery.error, sourcePath, sourceChannelId, dashboardPinId]);
 
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   useEffect(() => {
@@ -2466,8 +2525,14 @@ export function InteractiveHtmlRenderer({
     }
   }, [hoverScrollbars]);
 
+  // 404 is handled by a sticky toast (see fileQuery effect above) so a
+  // glitched/offscreen widget still surfaces its own "I'm broken" signal.
+  // Transient errors (5xx / network) keep the in-card banner since those
+  // are worth seeing next to the widget you're looking at.
+  const fileErrorIs404 =
+    fileQuery.error instanceof ApiError && fileQuery.error.status === 404;
   const errorOverlay =
-    pathMode && fileQuery.error ? (
+    pathMode && fileQuery.error && !fileErrorIs404 ? (
       <div
         style={{
           padding: "6px 10px",

@@ -7,7 +7,7 @@ import { Extension, InputRule } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import { Markdown } from "tiptap-markdown";
 import { useCompletions } from "../../api/hooks/useModels";
-import { AutocompleteMenu, scoreMatch } from "../shared/LlmPrompt";
+import { AutocompleteMenu, clusterSkillPacks, scoreMatch } from "../shared/LlmPrompt";
 import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem } from "../../types/api";
 import { filterSlashCommands } from "./slashCommands";
@@ -159,13 +159,14 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         if (!comps) return [];
         // In multi-bot channels, allow @-mentioning the primary bot too
         const excludeValue = (!isMultiBotRef.current && currentBotIdRef.current) ? `bot:${currentBotIdRef.current}` : "";
-        return comps
+        const ranked = comps
           .filter((c: CompletionItem) => !excludeValue || c.value !== excludeValue)
           .map((c: CompletionItem) => ({ c, s: scoreMatch(c.value, c.label, query) }))
           .filter((x: { s: number }) => x.s > 0)
           .sort((a: { s: number }, b: { s: number }) => b.s - a.s)
           .map((x: { c: CompletionItem }) => x.c)
           .slice(0, 10);
+        return clusterSkillPacks(ranked);
       },
       render: () => ({
         onStart: (props: SuggestionProps<CompletionItem>) => {

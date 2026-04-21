@@ -39,11 +39,68 @@ export function scoreMatch(value: string, label: string, query: string): number 
 // paired with semantic token foregrounds where possible
 const TAG_COLORS: Record<string, { bg: string; fg: string }> = {
   skill: { bg: "#1e1b4b", fg: "#4f46e5" },
+  pack: { bg: "#312e81", fg: "#a5b4fc" },
   tool: { bg: "#14532d", fg: "#16a34a" },
   "tool-pack": { bg: "#14532d", fg: "#16a34a" },
   knowledge: { bg: "#3b0764", fg: "#7c3aed" },
   bot: { bg: "#1e3a5f", fg: "#38bdf8" },
 };
+
+// Skill packs (folder layout: skills/foo/index.md → id "foo", skills/foo/bar.md → id "foo/bar")
+// arrive flat from the API. Cluster children under their pack's index entry, with the
+// index pulled to the top of its group, so the picker visually groups them.
+const SKILL_PREFIX = "skill:";
+
+function isSkill(it: CompletionItem): boolean {
+  return it.value.startsWith(SKILL_PREFIX);
+}
+
+function skillIdOf(it: CompletionItem): string {
+  return it.value.slice(SKILL_PREFIX.length);
+}
+
+function packPathOf(skillId: string): string {
+  const i = skillId.lastIndexOf("/");
+  return i > 0 ? skillId.slice(0, i) : "";
+}
+
+export function clusterSkillPacks(items: CompletionItem[]): CompletionItem[] {
+  if (items.length < 2) return items;
+  const skillIds = new Set(items.filter(isSkill).map(skillIdOf));
+  type Entry = { item: CompletionItem; origIdx: number; groupKey: string; isPackIndex: boolean };
+  const entries: Entry[] = items.map((item, origIdx) => {
+    if (!isSkill(item)) {
+      return { item, origIdx, groupKey: `_other_${origIdx}`, isPackIndex: false };
+    }
+    const id = skillIdOf(item);
+    const pack = packPathOf(id);
+    const isPackChild = pack !== "" && skillIds.has(pack);
+    const isPackIndex = items.some(
+      (o) => o !== item && isSkill(o) && packPathOf(skillIdOf(o)) === id,
+    );
+    return { item, origIdx, groupKey: isPackChild ? pack : id, isPackIndex };
+  });
+
+  const groupOrder: string[] = [];
+  const grouped = new Map<string, Entry[]>();
+  for (const e of entries) {
+    if (!grouped.has(e.groupKey)) {
+      grouped.set(e.groupKey, []);
+      groupOrder.push(e.groupKey);
+    }
+    grouped.get(e.groupKey)!.push(e);
+  }
+  const out: CompletionItem[] = [];
+  for (const key of groupOrder) {
+    const arr = grouped.get(key)!;
+    arr.sort((a, b) => {
+      if (a.isPackIndex !== b.isPackIndex) return a.isPackIndex ? -1 : 1;
+      return a.origIdx - b.origIdx;
+    });
+    for (const e of arr) out.push(e.item);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Generate button (shared between inline + fullscreen + standalone)
@@ -222,6 +279,28 @@ export function AutocompleteMenu({
     anchor === "bottom"
       ? { bottom: window.innerHeight - menuPos.top }
       : { top: menuPos.top };
+
+  // Per-row pack metadata derived from the (already clustered) item list.
+  const skillIdsInList = new Set(items.filter(isSkill).map(skillIdOf));
+  const childCounts = new Map<string, number>();
+  for (const it of items) {
+    if (!isSkill(it)) continue;
+    const pack = packPathOf(skillIdOf(it));
+    if (pack && skillIdsInList.has(pack)) {
+      childCounts.set(pack, (childCounts.get(pack) ?? 0) + 1);
+    }
+  }
+  const packMeta = items.map((it) => {
+    if (!isSkill(it)) return { isPackIndex: false, isPackChild: false, packPath: "" };
+    const id = skillIdOf(it);
+    const pack = packPathOf(id);
+    const isPackChild = pack !== "" && skillIdsInList.has(pack);
+    const isPackIndex = items.some(
+      (o) => o !== it && isSkill(o) && packPathOf(skillIdOf(o)) === id,
+    );
+    return { isPackIndex, isPackChild, packPath: isPackChild ? pack : "" };
+  });
+
   return createPortal(
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
@@ -231,7 +310,7 @@ export function AutocompleteMenu({
           ...posStyle,
           left: menuPos.left,
           width: menuPos.width,
-          maxHeight: 200,
+          maxHeight: 240,
           zIndex: 10011,
           background: t.surfaceRaised,
           border: `1px solid ${t.surfaceBorder}`,
@@ -243,11 +322,17 @@ export function AutocompleteMenu({
         {items.map((item, i) => {
           const hasPrefix = item.value.includes(":");
           const prefix = hasPrefix ? item.value.split(":")[0] : "";
-          const colors = TAG_COLORS[prefix] || { bg: "#374151", fg: t.contentText };
           const path = hasPrefix ? item.value.split(":").slice(1).join(":") : item.value;
           const leaf = path.split("/").filter(Boolean).pop() || path;
           const hasSubPath = path !== leaf;
           const isActive = i === activeIdx;
+          const meta = packMeta[i];
+          const badgeKey = meta.isPackIndex ? "pack" : prefix;
+          const badgeText = meta.isPackIndex ? "PACK" : prefix;
+          const colors = TAG_COLORS[badgeKey] || { bg: "#374151", fg: t.contentText };
+          const childCount = meta.isPackIndex ? (childCounts.get(skillIdOf(item)) ?? 0) : 0;
+          const packIndent = meta.isPackChild ? 18 : 0;
+          const skillBg = TAG_COLORS.skill.bg;
           return (
             <div
               key={item.value}
@@ -255,39 +340,64 @@ export function AutocompleteMenu({
               onMouseEnter={() => onHover(i)}
               style={{
                 padding: "7px 12px",
+                paddingLeft: 12 + packIndent,
                 cursor: "pointer",
                 display: "flex",
                 flexDirection: "row",
                 alignItems: "flex-start",
                 gap: 9,
                 background: isActive ? t.surfaceOverlay : "transparent",
+                position: "relative",
               }}
             >
+              {meta.isPackChild && (
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 16,
+                    top: 4,
+                    bottom: 4,
+                    width: 2,
+                    borderRadius: 1,
+                    background: skillBg,
+                    opacity: 0.8,
+                  }}
+                />
+              )}
               {prefix && (
                 <span style={{
                   fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 3,
                   background: colors.bg, color: colors.fg,
                   textTransform: "uppercase", letterSpacing: "0.05em",
                   marginTop: 1, flexShrink: 0,
+                  minWidth: 38, textAlign: "center",
                 }}>
-                  {prefix}
+                  {badgeText}
                 </span>
               )}
               <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1, gap: 1 }}>
                 <span style={{
-                  fontSize: 13, fontWeight: 600, color: t.text,
+                  fontSize: 13, fontWeight: meta.isPackIndex ? 700 : 600, color: t.text,
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
                   {leaf}
                 </span>
-                {hasSubPath && (
+                {meta.isPackIndex && childCount > 0 ? (
+                  <span style={{
+                    fontSize: 11, color: TAG_COLORS.pack.fg, fontWeight: 500,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    Pack overview · {childCount} skill{childCount === 1 ? "" : "s"} inside
+                  </span>
+                ) : hasSubPath && !meta.isPackChild ? (
                   <span style={{
                     fontFamily: "monospace", fontSize: 10, color: t.textDim,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>
                     {path}
                   </span>
-                )}
+                ) : null}
                 {item.description ? (
                   <span style={{
                     fontSize: 11, color: t.textDim,
@@ -343,8 +453,9 @@ function usePromptAutocomplete(
       setAtStart(atIdx);
       const scored = completions.map((c) => ({ c, s: scoreMatch(c.value, c.label, query) }))
         .filter((x) => x.s > 0).sort((a, b) => b.s - a.s).map((x) => x.c).slice(0, 10);
+      const clustered = clusterSkillPacks(scored);
       setActiveIdx(0);
-      setFiltered(scored);
+      setFiltered(clustered);
       if (scored.length > 0 && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         setMenuPos({ top: rect.bottom + 2, left: rect.left, width: Math.min(rect.width, 500) });

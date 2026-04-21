@@ -262,8 +262,21 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   /* ──────────────────────────────────────────────────────────── */
 
   /* ── Icons ────────────────────────────────────────────────── */
-  /* <svg class="sd-icon"><use href="#sd-icon-check"/></svg> */
-  .sd-icon { display: inline-block; width: 16px; height: 16px; flex: 0 0 auto; vertical-align: middle; color: currentColor; }
+  /* <svg class="sd-icon"><use href="#sd-icon-check"/></svg>
+     Presentation attributes MUST live on the referencing <svg>, not the
+     sprite root — <use> doesn't cascade stroke/fill from the sprite. */
+  .sd-icon {
+    display: inline-block;
+    width: 16px; height: 16px;
+    flex: 0 0 auto;
+    vertical-align: middle;
+    color: currentColor;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
   .sd-icon--sm { width: 14px; height: 14px; }
   .sd-icon--lg { width: 20px; height: 20px; }
   .sd-icon--xl { width: 28px; height: 28px; }
@@ -273,6 +286,9 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-icon--success { color: var(--sd-success); }
   .sd-icon--danger { color: var(--sd-danger); }
   .sd-icon--warning { color: var(--sd-warning); }
+  /* Some icons use polygons/rects (star, grid, pause) — those want fill
+     rather than stroke. Opt-in modifier keeps the default stroke pattern. */
+  .sd-icon--filled { fill: currentColor; stroke: none; }
 
   /* ── Focus ring (shared) ──────────────────────────────────── */
   .sd-btn:focus-visible,
@@ -299,15 +315,16 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-check__box {
     position: relative;
     display: inline-flex; align-items: center; justify-content: center;
-    width: 16px; height: 16px;
-    border: 1.5px solid var(--sd-input-border);
+    width: 18px; height: 18px;
+    border: 2px solid var(--sd-surface-border);
     background: var(--sd-input-bg);
     border-radius: var(--sd-radius-sm);
-    transition: background 120ms, border-color 120ms;
+    transition: background 120ms, border-color 120ms, box-shadow 120ms;
     flex: 0 0 auto;
   }
+  .sd-check:hover .sd-check__box { box-shadow: 0 0 0 3px var(--sd-accent-subtle); }
   .sd-check__mark {
-    width: 12px; height: 12px;
+    width: 14px; height: 14px;
     stroke: white; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none;
     stroke-dasharray: 24; stroke-dashoffset: 24;
     transition: stroke-dashoffset 180ms ease-out;
@@ -391,27 +408,34 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
     display: flex; align-items: stretch;
     background: var(--sd-input-bg);
     border: 1px solid var(--sd-input-border);
-    border-radius: var(--sd-radius-sm);
-    transition: border-color 120ms;
-    min-height: 30px;
+    border-radius: var(--sd-radius-md);
+    transition: border-color 120ms, box-shadow 120ms;
+    min-height: 36px;
   }
-  .sd-input-group:focus-within { border-color: var(--sd-accent); }
+  .sd-input-group:hover { border-color: var(--sd-surface-border); }
+  .sd-input-group:focus-within {
+    border-color: var(--sd-accent);
+    box-shadow: 0 0 0 3px var(--sd-accent-subtle);
+  }
   .sd-input-group > .sd-input,
   .sd-input-group > .sd-select,
   .sd-input-group > .sd-textarea {
     flex: 1 1 auto; min-width: 0;
     background: transparent; border: none; outline: none;
-    padding: 4px 8px;
+    padding: 6px 10px;
+    font-size: var(--sd-font-size);
   }
   .sd-input-group__icon {
     display: inline-flex; align-items: center; justify-content: center;
-    padding: 0 4px 0 8px;
+    padding: 0 2px 0 10px;
     color: var(--sd-text-muted);
     width: auto; height: auto;
   }
   .sd-input-group__action {
-    margin: 2px; border-radius: calc(var(--sd-radius-sm) - 1px);
+    margin: 3px; padding: 4px 14px;
+    border-radius: calc(var(--sd-radius-md) - 2px);
     flex: 0 0 auto;
+    font-weight: 600;
   }
   .sd-input-group__addon {
     display: inline-flex; align-items: center; padding: 0 8px;
@@ -439,11 +463,11 @@ export function buildWidgetThemeCss({ tokens: t, isDark }: WidgetThemeInput): st
   .sd-list--gap { gap: var(--sd-gap-xs); }
   .sd-row {
     position: relative;
-    display: flex; align-items: center; gap: var(--sd-gap-sm);
-    padding: 6px 6px;
-    border-radius: var(--sd-radius-sm);
+    display: flex; align-items: center; gap: var(--sd-gap-md);
+    padding: 8px 8px;
+    border-radius: var(--sd-radius-md);
     transition: background 120ms;
-    min-height: 32px;
+    min-height: 36px;
   }
   .sd-row:hover { background: var(--sd-overlay-light); }
   .sd-row--interactive { cursor: pointer; }

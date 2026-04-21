@@ -461,6 +461,14 @@ function EphemeralChatSession({
   const [dockExpanded, setDockExpanded] = useState(
     shape === "dock" && (initiallyExpanded ?? false),
   );
+  // No-FAB mode: re-sync `dockExpanded` whenever `open` flips back to true.
+  // ChatSessionDock's own effect collapses expanded→false on dismissal, and
+  // without a FAB there's no way to re-expand, so subsequent opens would
+  // render nothing. Only applies when dismissMode !== "collapse" (the
+  // dashboard FAB path keeps its minimize-to-button state on purpose).
+  useEffect(() => {
+    if (open && dismissMode !== "collapse") setDockExpanded(true);
+  }, [open, dismissMode]);
 
   // Measure the composer overlay height so messages scroll BEHIND the
   // frosted composer instead of being clipped by it. Mirrors ChannelChatSession
@@ -828,6 +836,11 @@ function ThreadChatSession({
   const [dockExpanded, setDockExpanded] = useState(
     shape === "dock" && (initiallyExpanded ?? false),
   );
+  // Mirror EphemeralChatSession: no-FAB docks need dockExpanded re-synced
+  // to `open` so the dock is reachable again after scrim/Escape/X dismissal.
+  useEffect(() => {
+    if (open && dismissMode !== "collapse") setDockExpanded(true);
+  }, [open, dismissMode]);
 
   const submitChat = useSubmitChat();
   const spawnThread = useSpawnThread();

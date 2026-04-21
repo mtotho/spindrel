@@ -1,10 +1,63 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-20 (Phase 7 hardening — atomic thread outbox + race-safe external thread resolution)
+updated: 2026-04-21 (Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 8 polish — bot visibility + mobile dock + cross-device scratch (shipped 2026-04-21)
+
+After Phases 6 + 7 + 7-hardening landed, three gaps surfaced in everyday use:
+
+1. **Bots couldn't see sub-sessions.** `read_conversation_history(section='recent')` returned only the latest *channel* session; `list_sub_sessions` filtered on `Task.run_isolation='sub_session'` so thread sessions (no Task) were invisible; memory hygiene's `## Recent Activity` snapshot joined messages through `Session.channel_id`, hiding every thread / scratch user message. Dreaming / skill review ran without knowing any of it happened.
+2. **Mobile dock broke with the keyboard open.** `ChatSessionDock` used `h-[80vh]` anchored at `bottom: 0`; the soft keyboard pushed the top above the visual viewport.
+3. **Scratch was device-local.** `useEphemeralSession.ts` stored `session_id` in localStorage keyed by `channel:<id>:scratch`. Desktop scratch was invisible on phone and vice versa; reset on one device orphaned the session on the other.
+
+### What shipped
+
+- **Bot visibility (Phase 1)** — `list_sub_sessions` unions Task-backed runs + thread sessions (filtered by parent message's channel) + scratch sessions (matched via `parent_channel_id`); rows carry `kind ∈ {pipeline,eval,thread,scratch}`. `read_conversation_history(section='recent')` appends a `--- Sub-sessions ---` index. `_build_recent_activity_snapshot` widens its query with `OR parent_channel_id` + `OR parent_message_id IN (channel's messages)` and tags rows `[thread]` / `[scratch]`. Dream prompts (`DEFAULT_MEMORY_HYGIENE_PROMPT` Step 1, `DEFAULT_SKILL_REVIEW_PROMPT` Step 1) now mention sub-sessions explicitly.
+- **Mobile dock (Phase 2)** — `ChatSessionDock` switched to `h-[80dvh]`, added a `visualViewport` listener that applies the keyboard overlap as a `bottom` offset so the top never clips, and grew a mobile-only drag handle with touch-based swipe-down dismiss (80px threshold). New optional `onDismiss` prop replaces the FAB-collapse path with an explicit close — `ChatSession` threads a `dismissMode?: 'collapse' | 'close'` prop through; channel-screen scratch + thread default to `close` (no FAB on chat screen), dashboard widget ephemerals would pass `collapse`.
+- **Cross-device scratch (Phase 3)** — migration **232** adds `sessions.parent_channel_id`, `sessions.owner_user_id`, `sessions.is_current` + partial unique index enforcing one current scratch per (user, channel). `spawn_ephemeral_session` accepts the new fields. Three new endpoints in `app/routers/api_v1_sessions.py`: `GET /sessions/scratch/current` (resolve-or-spawn), `POST /sessions/scratch/reset` (archive + spawn), `GET /sessions/scratch/list` (history, sorted by `is_current DESC, created_at DESC`). Client hooks `useScratchSession` / `useResetScratchSession` / `useScratchHistory` in `useEphemeralSession.ts`. `EphemeralChatSession` branches on a new `scratchBoundChannelId` source flag — set by the channel page — and resolves the session id from the server query. localStorage kept as first-paint cache for model override only.
+- **Scratch history UI** — `ScratchHistoryModal` opens from a new History icon in the scratch dock header. Selecting a row navigates to `/channels/:channelId/scratch/:sessionId`, rendered by a new `ScratchViewer` that mounts `SessionChatView` without a composer.
+
+### Key decisions
+
+- Scratch pointer lives on the Session row, not a side table. Session already owns every identity axis we need (channel, user, type); a separate `scratch_session_pointer` would duplicate FKs.
+- Reset is archive-not-delete. The DB row stays; only `is_current` flips. History list returns every prior scratch session so nothing is lost on reset.
+- List endpoint sorts by `is_current DESC, created_at DESC`. Pure `created_at DESC` is flaky when reset + spawn happen in the same tick (the test caught it immediately).
+- Old scratch sessions open read-only for now. Full reply-into-archive UX is parked — `SessionChatView` without a composer is enough for the MVP "view old sessions" story.
+- No FAB on chat-screen docks. User's explicit request: "on the chat screen we intentionally don't show a fab; only accessible from header. on the dashboard widget screen, we collapse to fab." Encoded as `onDismiss` override.
+
+### Files
+
+- `app/tools/local/sub_sessions.py` — thread + scratch collectors, unified row ordering.
+- `app/tools/local/conversation_history.py` — sub-session index appended to `section='recent'`.
+- `app/services/memory_hygiene.py` — widened `_build_recent_activity_snapshot` query.
+- `app/config.py` — `DEFAULT_MEMORY_HYGIENE_PROMPT` + `DEFAULT_SKILL_REVIEW_PROMPT` updates.
+- `migrations/versions/232_session_scratch_pointer.py` — schema + partial unique index.
+- `app/db/models.py::Session` — three new columns.
+- `app/services/sub_sessions.py::spawn_ephemeral_session` — new kwargs.
+- `app/routers/api_v1_sessions.py` — three new endpoints + response models.
+- `ui/src/api/hooks/useEphemeralSession.ts` — `useScratchSession` / `useResetScratchSession` / `useScratchHistory`.
+- `ui/src/components/chat/ChatSessionDock.tsx` — dvh + visualViewport + swipe-down + `onDismiss` prop.
+- `ui/src/components/chat/ChatSession.tsx` — `dismissMode` plumbing + scratch-bound branch + History header icon + modal mount.
+- `ui/src/components/chat/ScratchHistoryModal.tsx` — new.
+- `ui/app/(app)/channels/[channelId]/ScratchViewer.tsx` — new.
+- `ui/app/(app)/channels/[channelId]/index.tsx` — `scratchBoundChannelId` wired into scratchSource.
+- `ui/src/router.tsx` — `scratch/:sessionId` route.
+- `tests/integration/test_scratch_sessions.py` — new; 6 cases covering current + reset + list. 194 adjacent tests green. UI tsc clean.
+
+### Follow-ups parked
+
+- Dashboard widget ephemeral mount doesn't currently exist in the codebase — the only dashboard `<ChatSession>` is `kind:"channel"`. If/when a widget-dashboard ephemeral appears, it must pass `dismissMode='collapse'` explicitly.
+- Thread sessions don't get a parallel "history" surface — they're already discoverable via their parent message + `list_sub_sessions`.
+
+### Plan
+
+`~/.claude/plans/snug-wibbling-simon.md`. Session log: `Sessions/agent-server/2026-04-21-02-sub-session-polish.md`.
+
+---
 
 ## Phase 7 hardening — atomic thread outbox + race-safe external thread resolution (shipped 2026-04-20)
 
