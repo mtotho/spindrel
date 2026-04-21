@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, sdk, framework]
 status: active
-updated: 2026-04-21 (Ambient debug trace + Widget Inspector — closes the DX loop that was costing broken widgets)
+updated: 2026-04-21 (control-dashboard reactivity docs strengthened after HA widget full-section rerender bug)
 ---
 
 # Track — Widget SDK (from scripts to a framework)
@@ -11,6 +11,8 @@ updated: 2026-04-21 (Ambient debug trace + Widget Inspector — closes the DX lo
 > **Phase B in flight — B.0–B.4 shipped 2026-04-19/04-20.** Plan: `~/.claude/plans/modular-sparking-naur.md`. Manifest parsing (B.0), `spindrel.db` server SQLite per bundle (B.1), `widget.py` `@on_action` in-process handlers (B.2), `@on_cron` scheduler (B.3), `@on_event` channel-event subscribers (B.4) all live. Remaining: B.5 `widget_reload` SSE signal, B.6 showcase widget (Cost Tracker scope rethought — plan to re-target when we get there; see B-row status). Phase C.0 (unified widget catalog) also shipped; rest of Phase C (DX-5b unblock + integration admin-page widgets tab + version upgrades) still pending — do not close this track until Phase C's exit criteria land.
 >
 > **DX — Ambient debug trace + Widget Inspector (shipped 2026-04-21).** Plan: `~/.claude/plans/magical-frolicking-kurzweil.md`. The inert dev-panel "Widget log" tab (0 entries, ever) is gone. Every `callTool` / `loadAttachment` / `loadAsset` invocation, every uncaught JS error, every unhandled promise rejection, every `console.*` call, and every `spindrel.log.*` entry is now auto-captured and POSTed to a server-side per-pin event ring (`app/services/widget_debug.py`, 50 entries cap, in-memory). Two readers: a new `WidgetInspector` side-panel triggered by a Bug icon on any pinned tile, and a new `inspect_widget_pin(pin_id, limit?)` readonly tool so the authoring bot can iterate against real envelope shapes instead of guessing. Also new: `GET /api/v1/tools/{name}/signature` + `window.spindrel.toolSchema(name)` so bots can look up `returns=` schemas at authoring time (null for MCP — fall back to the trace). Skills `sdk.md` / `tool-dispatch.md` rewritten: documents `loadAttachment`, `toolSchema`, the iteration recipe ("probe → pin → `inspect_widget_pin` → rewrite against confirmed path"), and the canonical envelope shapes for `frigate_snapshot` + `ha_get_state`. Fallback-chain guidance deleted — the anti-pattern that caused the kitchen-dashboard bug. 20 new tests (9 unit + 7 integration + 4 tool). Root cause: widget authoring runs ahead of any real invocation + MCP protocol has no `outputSchema` slot, so the bot had nothing to check its guesses against and no signal when they failed.
+>
+> **2026-04-21 doc follow-up — control-dashboard rerender rule made explicit.** After reviewing a bot-authored Home Assistant dashboard that toggled lights by rebuilding the entire lights list and refetching unrelated surfaces, `skills/widgets/tool-dispatch.md` now spells out the intended pattern for HA/control dashboards: split local state by surface (`lights`, `climate`, `cameraUrls`, `featuredCamera`), patch only the touched row/card on click, and keep `onToolResult` / `onReload` as reconciliation rather than the primary click-response path. `skills/widgets/sdk.md` now points at that section from the subscription docs so authors hit it from either entrypoint. New invariant: a control click should not cause unrelated camera/image sections to blink or refetch.
 
 ## North Star
 

@@ -93,10 +93,57 @@ async function setEntity(entityId, tool, args) {
 - **Reconciliation** — after the mutation returns, fetch or extract the real new state and patch local state.
 - **Host refresh as backup** — `onToolResult()` / `onReload()` are for later consistency, not for the primary button-response path.
 
+### Control dashboards — split state by surface, not by "one big refresh"
+
+For HA-style dashboards, keep separate local slices for each visual surface:
+
+- `lightsById` / `busyLights` for toggle rows
+- `climate` for temperature/humidity cards
+- `cameraUrlsById` for snapshots
+- `featuredCameraId` for the hero image
+
+Then give each surface its own render function:
+
+```js
+const state = {
+  lightsById: new Map(),
+  busyLights: new Set(),
+  climate: null,
+  cameraUrlsById: new Map(),
+  featuredCameraId: "kitchen",
+};
+
+function renderLightRow(lightId) { /* patch one row */ }
+function renderOfficeSummary() { /* patch one summary card */ }
+function renderClimate() { /* patch climate card only */ }
+function renderFeaturedCamera() { /* patch hero image only */ }
+function renderCameraTile(cameraId) { /* patch one thumbnail only */ }
+```
+
+Light-toggle flow:
+
+1. mark only that light busy
+2. optimistically patch only that row (and any summary card derived from it)
+3. run `callTool(...)`
+4. do a follow-up `ha_get_state(...)` if needed
+5. patch only that light's local state
+6. rerender only that row / summary card
+
+Do **not** handle a light click by rerunning:
+
+- `refreshLights()` that rebuilds the entire list
+- `init()` for the whole dashboard
+- camera refresh functions
+- featured-image fetches
+
+If the click was "Kitchen lights off", the camera wall should not blink, refetch, or rebuild its DOM.
+
 ### What causes the "whole thing is reloading" feel
 
 - Re-running `init()` on every click and rebuilding the entire DOM tree.
 - Replacing `root.innerHTML` for the whole widget after every button press.
+- Rebuilding a whole section (`lights-list`, `camera-grid`, etc.) just to update one control.
+- Refetching unrelated data (camera snapshots, featured image, weather card) after a light toggle.
 - Using `location.reload()` or forcing iframe reloads instead of local rerender.
 - Waiting for a host-driven refresh before updating button state at all.
 

@@ -48,7 +48,6 @@ import {
 import {
   SortableContext,
   arrayMove,
-  horizontalListSortingStrategy,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -71,7 +70,6 @@ import {
   SortableTile,
   pointerToCell,
   clampPlacement,
-  sequentialXLayout,
   sequentialYLayout,
   useCanvasMeasure,
   type ExternalDragBinding,
@@ -82,15 +80,10 @@ import {
 // Widths mirror the runtime OmniPanel (300px default) + WidgetDockRight (320px).
 const RAIL_WIDTH_PX = 300;
 const DOCK_WIDTH_PX = 320;
-// Header strip rendered as a compact 12-cell grid so chips can span 1-12 cells.
-const HEADER_COLS = 12;
-// Chip row height matches ChannelHeaderChip's h-8 pill.
-const HEADER_ROW_HEIGHT = 32;
-// Chat screen's header chip strip = 3 chips × 180px + 2 × 6px gap = 552px. V1
-// locks the dashboard header drop zone to this width (centered) so chips on
-// the dashboard render at the same proportions they'd get in the channel
-// header. Future phase may open a wider / configurable header canvas.
-const HEADER_CANVAS_WIDTH_PX = 560;
+// Header is temporarily one fixed chip slot that mirrors the chat runtime.
+const HEADER_SLOT_WIDTH_PX = 180;
+const HEADER_SLOT_HEIGHT_PX = 32;
+const HEADER_FIXED_LAYOUT = { x: 0, y: 0, w: 1, h: 1 } as const;
 const GAP_PX = 12;
 // Matches the inner `p-3` padding on the canvas content wrappers — kept in a
 // constant so pointerToCell math and the ghost target overlay agree.
@@ -120,6 +113,15 @@ function toGridLayout(pin: WidgetDashboardPin): GridLayoutItem {
     return gl as GridLayoutItem;
   }
   return { x: 0, y: 0, w: 1, h: 6 };
+}
+
+function boxesOverlap(a: GridLayoutItem, b: GridLayoutItem): boolean {
+  return (
+    a.x < b.x + b.w
+    && a.x + a.w > b.x
+    && a.y < b.y + b.h
+    && a.y + a.h > b.y
+  );
 }
 
 interface Props {
@@ -217,13 +219,41 @@ export function ChannelDashboardMultiCanvas({
         case "dock":
           return { w: 1, h: 6 };
         case "header":
-          return { w: 2, h: 1 };
+          return { w: HEADER_FIXED_LAYOUT.w, h: HEADER_FIXED_LAYOUT.h };
         case "grid":
         default:
           return { w: preset.defaultTile.w, h: preset.defaultTile.h };
       }
     },
     [preset.defaultTile],
+  );
+
+  const nextGridPlacement = useCallback(
+    (excludeIds: string[] = []): GridLayoutItem => {
+      const size = { w: preset.defaultTile.w, h: preset.defaultTile.h };
+      const occupied = pins
+        .filter((p) => p.zone === "grid" && !excludeIds.includes(p.id))
+        .map(toGridLayout);
+      const maxSlots = Math.max(occupied.length + pins.length + 4, 8);
+      for (let slot = 0; slot < maxSlots; slot += 1) {
+        const candidate: GridLayoutItem = {
+          x: (slot % 2) * size.w,
+          y: Math.floor(slot / 2) * size.h,
+          w: size.w,
+          h: size.h,
+        };
+        if (!occupied.some((existing) => boxesOverlap(candidate, existing))) {
+          return candidate;
+        }
+      }
+      return {
+        x: 0,
+        y: Math.ceil(occupied.length / 2) * size.h,
+        w: size.w,
+        h: size.h,
+      };
+    },
+    [pins, preset.defaultTile.h, preset.defaultTile.w],
   );
 
   /** DOM-measure the insertion index for a vertical list canvas (rail/dock).
@@ -326,34 +356,11 @@ export function ChannelDashboardMultiCanvas({
         return;
       }
 
-      // Header: free-placement by pointer X. Each chip is absolutely
-      // positioned on a 12-cell grid, so the dropped pin should LAND where
-      // the user released — not get swept back to x=0 by a tight repack.
-      // Siblings stay put; a rare collision is resolvable by a follow-up
-      // drag and far less surprising than "dropped at col 5, landed at 0".
+      // Header: one fixed slot only.
       if (targetZone === "header") {
-        const hrect = headerMeasure.rect;
-        let x = 0;
-        if (hrect) {
-          const { x: snapX } = pointerToCell(
-            clientX - hrect.left,
-            0,
-            {
-              cols: HEADER_COLS,
-              rowHeight: HEADER_ROW_HEIGHT,
-              // Chip gap is 4px (see header grid render below).
-              gap: 4,
-              canvasWidth: hrect.width,
-              // Header pill has px-3 horizontal padding.
-              paddingLeft: 12,
-              paddingTop: 0,
-            },
-          );
-          x = Math.max(0, Math.min(HEADER_COLS - size.w, snapX));
-        }
         try {
           await applyLayout([
-            { id: pinId, zone: "header", x, y: 0, w: size.w, h: 1 },
+            { id: pinId, zone: "header", ...HEADER_FIXED_LAYOUT },
           ]);
           pulseMoved(pinId);
         } catch (err) {
@@ -399,7 +406,6 @@ export function ChannelDashboardMultiCanvas({
       defaultSizeForZone,
       pulseMoved,
       gridMeasure.rect,
-      headerMeasure.rect,
       preset.cols.lg,
       preset.rowHeight,
       insertionIndexByY,
@@ -407,17 +413,14 @@ export function ChannelDashboardMultiCanvas({
   );
 
   const commitSortableReorder = useCallback(
-    async (zone: "rail" | "dock" | "header", fromId: string, toId: string) => {
+    async (zone: "rail" | "dock", fromId: string, toId: string) => {
       // Match the filter/sort used by the render so arrayMove operates on the
       // same array the user sees. Otherwise the reorder index math drifts
       // from the visual order.
-      const sortKey = zone === "header"
-        ? (p: WidgetDashboardPin) => toGridLayout(p).x
-        : (p: WidgetDashboardPin) => toGridLayout(p).y;
       const zonePins = pins
         .filter((p) => p.zone === zone)
         .slice()
-        .sort((a, b) => sortKey(a) - sortKey(b));
+        .sort((a, b) => toGridLayout(a).y - toGridLayout(b).y);
       const ids = zonePins.map((p) => p.id);
       const from = ids.indexOf(fromId);
       const to = ids.indexOf(toId);
@@ -426,10 +429,7 @@ export function ChannelDashboardMultiCanvas({
       const byId = new Map<string, GridLayoutItem>(
         zonePins.map((p) => [p.id, toGridLayout(p)]),
       );
-      const nextLayout =
-        zone === "header"
-          ? sequentialXLayout(reordered, byId)
-          : sequentialYLayout(reordered, 6, byId);
+      const nextLayout = sequentialYLayout(reordered, 6, byId);
       const items = reordered.map((id) => {
         const coords = nextLayout.get(id)!;
         return { id, ...coords };
@@ -512,6 +512,36 @@ export function ChannelDashboardMultiCanvas({
       const releaseY = (pe?.clientY ?? 0) + e.delta.y;
 
       if (targetZone !== active.zone) {
+        if (targetZone === "header") {
+          const displaced = pins
+            .filter((p) => p.zone === "header" && p.id !== activeId)
+            .slice()
+            .sort((a, b) => toGridLayout(a).x - toGridLayout(b).x)[0];
+          const items: Array<{
+            id: string;
+            zone: ChatZone;
+            x: number;
+            y: number;
+            w: number;
+            h: number;
+          }> = [
+            { id: activeId, zone: "header", ...HEADER_FIXED_LAYOUT },
+          ];
+          if (displaced) {
+            items.push({
+              id: displaced.id,
+              zone: "grid",
+              ...nextGridPlacement([activeId, displaced.id]),
+            });
+          }
+          try {
+            await applyLayout(items);
+            pulseMoved(activeId);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to move widget");
+          }
+          return;
+        }
         // Cross-canvas move — pointer-aware placement.
         await commitCrossCanvasMove(activeId, targetZone, releaseX, releaseY);
         return;
@@ -524,8 +554,8 @@ export function ChannelDashboardMultiCanvas({
         return;
       }
 
-      // Sortable reorder within rail / header / dock:
-      if (overId !== activeId && !overId.startsWith("canvas:")) {
+      // Sortable reorder within rail / dock only.
+      if (targetZone !== "header" && overId !== activeId && !overId.startsWith("canvas:")) {
         await commitSortableReorder(
           targetZone,
           activeId,
@@ -533,36 +563,16 @@ export function ChannelDashboardMultiCanvas({
         );
       }
     },
-    [pins, commitCrossCanvasMove, commitGridMove, commitSortableReorder],
+    [pins, applyLayout, commitCrossCanvasMove, commitGridMove, commitSortableReorder, nextGridPlacement, pulseMoved],
   );
 
   const activePin = activeDragId ? pins.find((p) => p.id === activeDragId) ?? null : null;
 
-  /** Ghost target box for the header canvas — x-only, 1 row tall. Lets
-   *  the user see the destination cell span before release, paralleling the
-   *  grid canvas ghost. Null unless dragging over the header. */
+  /** Header has one fixed slot — the ghost is simply "show the slot". */
   const headerGhost = useMemo(() => {
-    if (overZone !== "header" || !dragPointer || !activePin) return null;
-    const rect = headerMeasure.rect;
-    if (!rect) return null;
-    const size =
-      activePin.zone === "header"
-        ? { w: toGridLayout(activePin).w }
-        : { w: defaultSizeForZone("header").w };
-    const { x } = pointerToCell(
-      dragPointer.x - rect.left,
-      0,
-      {
-        cols: HEADER_COLS,
-        rowHeight: HEADER_ROW_HEIGHT,
-        gap: 4,
-        canvasWidth: rect.width,
-        paddingLeft: 12,
-        paddingTop: 0,
-      },
-    );
-    return { x: Math.max(0, Math.min(HEADER_COLS - size.w, x)), w: size.w };
-  }, [overZone, dragPointer, activePin, headerMeasure.rect, defaultSizeForZone]);
+    if (overZone !== "header" || !dragPointer || !activePin) return false;
+    return true;
+  }, [overZone, dragPointer, activePin]);
 
   /** Ghost target box for the grid canvas — the snapped cell where the
    *  active drag will land on release. Null unless dragging over the grid.
@@ -743,7 +753,7 @@ interface CanvasSharedProps {
 
 interface HeaderCanvasProps extends CanvasSharedProps {
   measure: ReturnType<typeof useCanvasMeasure>;
-  ghost: { x: number; w: number } | null;
+  ghost: boolean;
 }
 
 function HeaderCanvas({
@@ -763,24 +773,12 @@ function HeaderCanvas({
   ghost,
 }: HeaderCanvasProps) {
   const t = useThemeTokens();
-  // Live width resize preview — swap in the pending `w` so the chip snaps
-  // during the drag. Clears on commit; store's optimistic update takes over.
-  const [resizePreview, setResizePreview] = useState<{ id: string; w: number } | null>(null);
-
-  // Cell width in px — derived from the strip's measured inner width. Used
-  // by the chip's `e`-edge resize handle to convert pointer delta to column
-  // delta. Falls back until the first measure lands.
-  const cellWidthPx = useMemo(() => {
-    const innerW = measure.rect ? Math.max(0, measure.rect.width - 24) : 480;
-    return (innerW - (HEADER_COLS - 1) * 4) / HEADER_COLS;
-  }, [measure.rect]);
-
   // All hooks must run before any early return so React's hook order stays
   // stable when edit mode or pin count toggles the empty-state branch.
   if (!editMode && pins.length === 0) return null;
   // Chip scope in BOTH modes so the author sees exactly what the chat shows.
   const chipScope: WidgetScope = { kind: "channel", channelId, compact: "chip" };
-  const ids = pins.map((p) => p.id);
+  const pin = pins[0] ?? null;
 
   return (
     <DroppableCanvas
@@ -795,23 +793,19 @@ function HeaderCanvas({
       <div
         className={
           "relative flex items-center justify-center px-3 py-1.5 rounded-full "
-          + (pins.length > 0
+          + (pin
               ? "bg-surface-raised/50 backdrop-blur-md shadow-sm"
               : editMode
                 ? "bg-surface-raised/30"
                 : "")
         }
         style={{
-          minHeight: HEADER_ROW_HEIGHT + 12,
-          // V1: pin the drop zone to the chat screen's chip-strip width so the
-          // dashboard matches runtime proportions instead of spanning the full
-          // row. Empty edit mode still renders the drop target at this width
-          // so the hit target is predictable.
-          width: HEADER_CANVAS_WIDTH_PX,
+          minHeight: HEADER_SLOT_HEIGHT_PX + 12,
+          width: HEADER_SLOT_WIDTH_PX + 24,
           maxWidth: "100%",
         }}
       >
-        {pins.length === 0 ? (
+        {pin == null ? (
           editMode ? (
             <div className="relative w-full flex items-center justify-center">
               {ghost && (
@@ -819,127 +813,77 @@ function HeaderCanvas({
                   aria-hidden
                   style={{
                     position: "absolute",
-                    left: `calc(${(ghost.x / HEADER_COLS) * 100}% + 12px)`,
-                    width: `calc(${(ghost.w / HEADER_COLS) * 100}% - 4px)`,
+                    left: 12,
+                    width: HEADER_SLOT_WIDTH_PX,
                     top: 0,
                     bottom: 0,
                     border: `1.5px dashed ${t.accent}`,
                     borderRadius: 9999,
                     background: `${t.accent}14`,
-                    transition: "left 90ms ease-out, width 90ms ease-out",
                     pointerEvents: "none",
                   }}
                 />
               )}
-              <EmptyCanvasHint message="Drop widgets here — they'll show as compact chips above the chat" />
+              <EmptyCanvasHint message="Drop a widget here — it will render as the one centered chip above chat" />
             </div>
           ) : null
         ) : (
-          <SortableContext items={ids} strategy={horizontalListSortingStrategy}>
+          <div
+            className={
+              "relative w-full flex items-center justify-center "
+              + (justMovedId === pin.id ? "pin-flash" : "")
+            }
+          >
+            {ghost && (
+              <div
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  left: 12,
+                  width: HEADER_SLOT_WIDTH_PX,
+                  top: 0,
+                  bottom: 0,
+                  border: `1.5px dashed ${t.accent}`,
+                  borderRadius: 9999,
+                  background: `${t.accent}14`,
+                  pointerEvents: "none",
+                }}
+              />
+            )}
             <div
               style={{
-                // CSS grid so each chip's `gl.x` maps to a real horizontal
-                // position within the 12-cell header row, mirroring the main
-                // grid canvas. Flex-row honored gap only, not x, which made
-                // a chip dropped at col 5 render flush-left — fixed here.
-                display: "grid",
-                gridTemplateColumns: `repeat(${HEADER_COLS}, minmax(0, 1fr))`,
-                gridAutoRows: `${HEADER_ROW_HEIGHT}px`,
-                columnGap: 4,
-                width: "100%",
+                width: HEADER_SLOT_WIDTH_PX,
+                minWidth: 0,
               }}
             >
-              {ghost && (
-                <div
-                  aria-hidden
-                  style={{
-                    gridColumn: `${ghost.x + 1} / span ${ghost.w}`,
-                    gridRow: 1,
-                    border: `1.5px dashed ${t.accent}`,
-                    borderRadius: 9999,
-                    background: `${t.accent}14`,
-                    transition: "grid-column 90ms ease-out",
-                    pointerEvents: "none",
-                  }}
-                />
-              )}
-              {pins.map((p) => {
-                const gl = toGridLayout(p);
-                // Clamp defensively. Stale grid_layout from earlier presets
-                // could carry w>12 or x≥12; letting that through would break
-                // CSS grid placement (line numbers out of range). Server
-                // normalises on next write; this keeps render sane today.
-                const rawW = resizePreview?.id === p.id ? resizePreview.w : gl.w;
-                const effX = Math.max(0, Math.min(HEADER_COLS - 1, gl.x));
-                const effW = Math.max(
-                  1,
-                  Math.min(HEADER_COLS - effX, rawW),
-                );
-                return (
-                  <SortableTile key={p.id} id={p.id}>
-                    {(binding) => (
-                      <div
-                        ref={binding.setNodeRef}
-                        {...binding.attributes}
-                        data-pin-id={p.id}
-                        className={
-                          "relative "
-                          + (justMovedId === p.id ? "pin-flash" : "")
-                        }
-                        style={{
-                          ...binding.style,
-                          gridColumn: `${effX + 1} / span ${effW}`,
-                          gridRow: 1,
-                          minWidth: 0,
-                        }}
-                      >
-                        <TileShell
-                          binding={{ ...binding, setNodeRef: () => {} }}
-                          pin={p}
-                          editMode={editMode}
-                          chrome={chrome}
-                          scope={chipScope}
-                          onUnpin={onUnpin}
-                          onEnvelopeUpdate={onEnvelopeUpdate}
-                          onEditPin={onEditPin}
-                          resize={
-                            editMode
-                              ? {
-                                  edges: ["e", "w"] as ResizeEdge[],
-                                  initial: { x: gl.x, y: 0, w: gl.w, h: 1 },
-                                  cellPx: {
-                                    w: cellWidthPx + 4,
-                                    h: HEADER_ROW_HEIGHT,
-                                  },
-                                  clampW: { min: 1, max: HEADER_COLS },
-                                  clampH: { min: 1, max: 1 },
-                                  showRest: true,
-                                  onResizing: ({ w }) =>
-                                    setResizePreview({ id: p.id, w }),
-                                  onCommit: ({ x, w }) => {
-                                    setResizePreview(null);
-                                    void applyLayout([
-                                      {
-                                        id: p.id,
-                                        x,
-                                        y: 0,
-                                        w,
-                                        h: 1,
-                                        zone: "header",
-                                      },
-                                    ]).then(() => onTileMoved?.(p.id));
-                                  },
-                                }
-                              : null
-                          }
-                        />
-                      </div>
-                    )}
-                  </SortableTile>
-                );
-              })}
+              <SortableTile id={pin.id}>
+                {(binding) => (
+                  <div
+                    ref={binding.setNodeRef}
+                    {...binding.attributes}
+                    data-pin-id={pin.id}
+                    className="relative"
+                    style={{
+                      ...binding.style,
+                      minWidth: 0,
+                    }}
+                  >
+                    <TileShell
+                      binding={{ ...binding, setNodeRef: () => {} }}
+                      pin={pin}
+                      editMode={editMode}
+                      chrome={chrome}
+                      scope={chipScope}
+                      onUnpin={onUnpin}
+                      onEnvelopeUpdate={onEnvelopeUpdate}
+                      onEditPin={onEditPin}
+                      resize={null}
+                    />
+                  </div>
+                )}
+              </SortableTile>
             </div>
-          </SortableContext>
+          </div>
         )}
       </div>
     </DroppableCanvas>

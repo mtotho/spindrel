@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-21
+updated: 2026-04-21 (streaming liveness cursor kept visible during tool-only turns)
 ---
 # Track — UI Polish
 
@@ -80,6 +80,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Scratch full-page warning folded into the real chat header** — removed the duplicate standalone scratch banner that was overlapping the header chip strip; scratch routes now show a compact header-owned state pill + amber subtitle in the channel header, with archive sessions rendered as muted read-only state instead of a warning.
 - [x] **Scratch view context budget now respects the active session** — the header budget indicator no longer stays pinned to the channel's latest turn while you're inside scratch; backend `context-budget` endpoints now accept optional `session_id`, and the scratch route prefers the scratch session's live SSE budget/store slot plus a session-scoped fallback fetch.
 - [x] **Scratch empty state now carries the guidance instead of the header** — removed the extra “messages here…” helper row from the scratch header and replaced the generic empty chat placeholder with scratch-specific copy/treatment in both docked and full-page scratch views.
+- [x] **Tool-only streaming stays visibly alive** — `StreamingIndicator` now keeps a blinking cursor footer visible while a turn is still open but the only visible activity is tool cards / thinking / auto-injected skills. This closes the long-conversation “is it still streaming?” gap where repeated tool use hid every liveness affordance until the next text delta arrived.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`

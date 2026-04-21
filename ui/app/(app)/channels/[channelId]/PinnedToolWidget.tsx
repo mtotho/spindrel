@@ -106,7 +106,12 @@ export function PinnedToolWidget({
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.
   const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
-  const keepAliveKey = isDashboard ? `dashboard-pin:${widget.id}` : null;
+  // InteractiveHtmlRenderer pools iframes by dashboard pin id for every
+  // pinned widget surface, including channel-scope chip rendering inside the
+  // channel-dashboard editor. Keep the readiness gate keyed the same way so
+  // cross-panel moves do not re-show the preload skeleton forever after the
+  // pooled iframe is reattached under a different host.
+  const keepAliveKey = `dashboard-pin:${widget.id}`;
 
   const t = useThemeTokens();
   const [currentEnvelope, setCurrentEnvelope] = useState(widget.envelope);

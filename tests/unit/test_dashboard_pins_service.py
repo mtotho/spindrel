@@ -198,9 +198,7 @@ async def test_apply_layout_bulk_persists(db_session):
 
 @pytest.mark.asyncio
 async def test_apply_layout_normalizes_header_zone(db_session):
-    """Writing zone=header clamps to y=0, h=1, w ≤ 12 so stale 24-col
-    coords from an earlier preset can't land in the horizontal chip strip
-    and blow the flex row past the viewport at render time."""
+    """Writing zone=header now snaps to the one supported fixed chip slot."""
     pin = await create_pin(
         db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
     )
@@ -211,7 +209,7 @@ async def test_apply_layout_normalizes_header_zone(db_session):
     rows = {r.id: r for r in await list_pins(db_session)}
     row = rows[pin.id]
     assert row.zone == "header"
-    assert row.grid_layout == {"x": 0, "y": 0, "w": 12, "h": 1}
+    assert row.grid_layout == {"x": 0, "y": 0, "w": 1, "h": 1}
 
 
 @pytest.mark.asyncio
@@ -245,4 +243,4 @@ async def test_list_pins_heals_stale_header_coords(db_session):
 
     rows = await list_pins(db_session)
     row = next(r for r in rows if r.id == pin.id)
-    assert row.grid_layout == {"x": 0, "y": 0, "w": 12, "h": 1}
+    assert row.grid_layout == {"x": 0, "y": 0, "w": 1, "h": 1}

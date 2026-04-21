@@ -609,6 +609,12 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
+  const hasVisibleActivity =
+    !!displayThinking ||
+    (autoInjectedSkills?.length ?? 0) > 0 ||
+    toolCalls.length > 0 ||
+    !!llmStatus;
+  const showFooterCursor = !displayContent && hasVisibleActivity;
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
@@ -658,7 +664,7 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
               }}
             />
           </div>
-        ) : toolCalls.length === 0 ? (
+        ) : !hasVisibleActivity ? (
           /* Typing indicator dots — with optional LLM status badge */
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
             {llmStatus ? (
@@ -677,6 +683,25 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
         {llmStatus && (toolCalls.length > 0 || displayContent) && (
           <div style={{ padding: "2px 0" }}>
             <LlmStatusBadge status={llmStatus} t={t} />
+          </div>
+        )}
+
+        {/* Keep a live cursor visible while the turn is still open, even if
+            the only visible activity is tool use / thinking and no text delta
+            is currently streaming. */}
+        {showFooterCursor && (
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: isTerminalMode ? "4px 0 0" : "6px 0 0" }}>
+            <span
+              aria-label="Still streaming"
+              style={{
+                display: "inline-block",
+                width: 2,
+                height: 17,
+                backgroundColor: t.purple,
+                opacity: 0.8,
+                animation: "blink 1s step-end infinite",
+              }}
+            />
           </div>
         )}
       </div>

@@ -172,6 +172,8 @@ off();
 
 Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DOM events on `window`. `onConfig` is sugar over `toolresult` that debounces — your callback only fires when `toolResult.config` actually changed, not on every envelope refresh.
 
+For control surfaces, don't treat `onToolResult` or `autoReload` as the primary click-response path. Keep local per-surface state and rerender only the touched row/card first; use subscriptions for later reconciliation. The concrete pattern lives in `widgets/tool-dispatch.md` under "Control dashboards — split state by surface, not by 'one big refresh'".
+
 ## Bundled assets (images, icons, media)
 
 The sandbox blocks cross-origin network but allows `data:` / `blob:` / same-origin images. Since `<img src>` can't carry a bearer token (and workspace files are bearer-authed), use **`window.spindrel.loadAsset(path)`** to fetch a binary file with auth and get back a `blob:` object URL you can drop into any `src` attribute:

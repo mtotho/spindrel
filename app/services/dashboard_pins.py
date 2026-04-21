@@ -542,16 +542,16 @@ async def update_pin_scope(
 _VALID_ZONES = {"rail", "header", "dock", "grid"}
 
 # Zone invariants enforced at write-time so chat-surface canvases always
-# receive coords they can render. Header is a single-row 12-col strip; Rail
-# and Dock are 1-wide vertical lists. Grid has no sub-zone constraints — the
-# dashboard's preset owns column count for that canvas.
-_HEADER_COLS = 12
+# receive coords they can render. Header is temporarily a single fixed chip
+# slot; Rail and Dock are 1-wide vertical lists. Grid has no sub-zone
+# constraints — the dashboard's preset owns column count for that canvas.
+_HEADER_FIXED_LAYOUT = {"x": 0, "y": 0, "w": 1, "h": 1}
 
 
 def _normalize_coords_for_zone(coords: dict[str, int], zone: str) -> dict[str, int]:
     """Clamp ``coords`` to the invariants of ``zone``.
 
-    Header → ``y=0, h=1, 1 ≤ w ≤ 12, 0 ≤ x ≤ 11``.
+    Header → single fixed slot.
     Rail / Dock → ``x=0, w=1`` (h/y pass through).
     Grid → pass through (preset-wide validation happens at drag-commit).
     """
@@ -560,9 +560,7 @@ def _normalize_coords_for_zone(coords: dict[str, int], zone: str) -> dict[str, i
     w = coords.get("w", 1)
     h = coords.get("h", 1)
     if zone == "header":
-        w = max(1, min(_HEADER_COLS, w))
-        x = max(0, min(_HEADER_COLS - w, x))
-        return {"x": x, "y": 0, "w": w, "h": 1}
+        return dict(_HEADER_FIXED_LAYOUT)
     if zone in ("rail", "dock"):
         return {"x": 0, "y": max(0, y), "w": 1, "h": max(1, h)}
     return {"x": max(0, x), "y": max(0, y), "w": max(1, w), "h": max(1, h)}

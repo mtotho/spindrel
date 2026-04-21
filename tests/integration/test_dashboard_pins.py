@@ -569,6 +569,108 @@ class TestRefresh:
         assert r.status_code == 400
 
 
+class TestChannelHeaderSlot:
+    @pytest.mark.asyncio
+    async def test_layout_normalizes_header_to_single_fixed_slot(self, client):
+        channel_id = str(uuid.uuid4())
+        slug = f"channel:{channel_id}"
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "dashboard_key": slug,
+                "source_kind": "channel",
+                "source_channel_id": channel_id,
+                "tool_name": "t",
+                "envelope": _make_envelope("header"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert create.status_code == 200, create.text
+        pin_id = create.json()["id"]
+
+        r = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={
+                "dashboard_key": slug,
+                "items": [
+                    {"id": pin_id, "x": 9, "y": 3, "w": 6, "h": 4, "zone": "header"},
+                ],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+
+        listing = await client.get(
+            "/api/v1/widgets/dashboard",
+            params={"slug": slug},
+            headers=AUTH_HEADERS,
+        )
+        pin = listing.json()["pins"][0]
+        assert pin["zone"] == "header"
+        assert pin["grid_layout"] == {"x": 0, "y": 0, "w": 1, "h": 1}
+
+    @pytest.mark.asyncio
+    async def test_header_replacement_moves_existing_pin_back_to_grid(self, client):
+        channel_id = str(uuid.uuid4())
+        slug = f"channel:{channel_id}"
+        created_ids = []
+        for label in ("first", "second"):
+            create = await client.post(
+                "/api/v1/widgets/dashboard/pins",
+                json={
+                    "dashboard_key": slug,
+                    "source_kind": "channel",
+                    "source_channel_id": channel_id,
+                    "tool_name": f"tool-{label}",
+                    "envelope": _make_envelope(label),
+                },
+                headers=AUTH_HEADERS,
+            )
+            assert create.status_code == 200, create.text
+            created_ids.append(create.json()["id"])
+
+        first_id, second_id = created_ids
+        default_grid = {"x": 0, "y": 0, "w": 6, "h": 10}
+        displaced_grid = {"x": 6, "y": 0, "w": 6, "h": 10}
+
+        move_first = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={
+                "dashboard_key": slug,
+                "items": [
+                    {"id": first_id, "x": 0, "y": 0, "w": 1, "h": 1, "zone": "header"},
+                ],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert move_first.status_code == 200, move_first.text
+
+        replace = await client.post(
+            "/api/v1/widgets/dashboard/pins/layout",
+            json={
+                "dashboard_key": slug,
+                "items": [
+                    {"id": second_id, "x": 0, "y": 0, "w": 1, "h": 1, "zone": "header"},
+                    {"id": first_id, "x": displaced_grid["x"], "y": displaced_grid["y"], "w": displaced_grid["w"], "h": displaced_grid["h"], "zone": "grid"},
+                ],
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert replace.status_code == 200, replace.text
+
+        listing = await client.get(
+            "/api/v1/widgets/dashboard",
+            params={"slug": slug},
+            headers=AUTH_HEADERS,
+        )
+        pins_by_id = {p["id"]: p for p in listing.json()["pins"]}
+        assert pins_by_id[second_id]["zone"] == "header"
+        assert pins_by_id[second_id]["grid_layout"] == {"x": 0, "y": 0, "w": 1, "h": 1}
+        assert pins_by_id[first_id]["zone"] == "grid"
+        assert pins_by_id[first_id]["grid_layout"] == displaced_grid
+        assert pins_by_id[first_id]["grid_layout"] != default_grid
+
+
 class TestChannelPinsBatchEndpoint:
     """``GET /api/v1/widgets/dashboards/channel-pins`` — powers the
     "Add widget → From channel" tab on the global dashboard."""
