@@ -655,25 +655,42 @@ async def persist_turn(
     # True for thread turns because the bus-level session_id tagging logic
     # in turn_worker is gated on the same flag — we still want the outbox
     # fanout though, so the decision here is intentionally independent.
-    thread_messages_to_enqueue: list[Message] = []
+    #
+    # Enqueue inline, pre-commit: message inserts and outbox rows land in
+    # the same transaction, matching the channel branch's atomicity. A
+    # failure here rolls back the whole turn so we never end up with a
+    # persisted assistant message that has no delivery row.
     if channel_id is None and persisted_records:
         session_row = await db.get(Session, session_id)
         if session_row is not None and session_row.session_type == "thread":
-            thread_messages_to_enqueue = list(persisted_records)
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.message import Message as DomainMessage
+            from app.domain.payloads import MessagePayload
+            from app.services import outbox as _outbox
+            from app.services.dispatch_resolution import (
+                apply_session_thread_refs,
+                resolve_targets,
+            )
+            from app.services.sub_session_bus import resolve_bus_channel_id
+
+            bus_ch = await resolve_bus_channel_id(db, session_id)
+            if bus_ch is not None:
+                channel_row = await db.get(Channel, bus_ch)
+                if channel_row is not None:
+                    targets = await resolve_targets(channel_row)
+                    targets = apply_session_thread_refs(session_row, targets)
+                    for record in persisted_records:
+                        domain_msg = DomainMessage.from_orm(
+                            record, channel_id=None,
+                        )
+                        event = ChannelEvent(
+                            channel_id=bus_ch,
+                            kind=ChannelEventKind.NEW_MESSAGE,
+                            payload=MessagePayload(message=domain_msg),
+                        )
+                        await _outbox.enqueue(db, bus_ch, event, targets)
 
     await db.commit()
-
-    # Thread-session outbox fanout — runs after commit so the helper (which
-    # opens its own db session) sees the newly-inserted rows. Each Message
-    # fans out through the parent channel's integrations with thread-ref
-    # overrides applied.
-    if thread_messages_to_enqueue:
-        from app.domain.message import Message as DomainMessage
-        from app.services.outbox_publish import enqueue_new_message_for_thread_session
-
-        for record in thread_messages_to_enqueue:
-            domain_msg = DomainMessage.from_orm(record, channel_id=None)
-            await enqueue_new_message_for_thread_session(session_id, domain_msg)
 
     # Link orphaned attachments to the correct message in this turn.
     # User-uploaded attachments (posted_by IS NULL) → first user message.

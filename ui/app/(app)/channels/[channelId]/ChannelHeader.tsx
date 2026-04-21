@@ -2,7 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
-  Cog, PanelRight, Plug,
+  Cog, PanelRight, Plug, StickyNote,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
   User as UserIcon,
 } from "lucide-react";
@@ -43,6 +43,9 @@ export interface ChannelHeaderProps {
   findingsPanelOpen?: boolean;
   toggleFindingsPanel?: () => void;
   findingsCount?: number;
+  /** Open the scratch-chat dock. Button is rendered on every viewport. */
+  scratchOpen?: boolean;
+  onOpenScratch?: () => void;
 }
 
 export function ChannelHeader({
@@ -58,6 +61,8 @@ export function ChannelHeader({
   findingsPanelOpen,
   toggleFindingsPanel,
   findingsCount = 0,
+  scratchOpen,
+  onOpenScratch,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -300,6 +305,26 @@ export function ChannelHeader({
               {findingsCount > 9 ? "9+" : findingsCount}
             </span>
           )}
+        </button>
+      )}
+
+      {/* Scratch chat opener. Always visible; stays put when the dock is
+          open (clicking again is a no-op — dock's own X closes). Active
+          styling signals that the dock is currently up. */}
+      {channelId && onOpenScratch && (
+        <button
+          className="header-icon-btn"
+          style={{
+            width: iconSize,
+            height: iconSize,
+            backgroundColor: scratchOpen ? t.surfaceOverlay : undefined,
+          }}
+          onClick={onOpenScratch}
+          title="Scratch chat"
+          aria-label="Open scratch chat"
+          aria-pressed={!!scratchOpen}
+        >
+          <StickyNote size={16} color={scratchOpen ? t.accent : t.textDim} />
         </button>
       )}
 

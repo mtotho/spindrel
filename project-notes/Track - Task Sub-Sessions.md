@@ -1,10 +1,42 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-20 (Phase 7 — Slack thread_ts mirroring + web thread UX polish)
+updated: 2026-04-20 (Phase 7 hardening — atomic thread outbox + race-safe external thread resolution)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
+
+## Phase 7 hardening — atomic thread outbox + race-safe external thread resolution (shipped 2026-04-20)
+
+Codex adversarial review of the Phase 7 diff surfaced two durability bugs and one test gap. Fixed in three commits on `development`, sequenced smallest-diff-first.
+
+### What shipped
+
+**Commit 1 — Thread outbox enqueue became atomic** (`app/services/sessions.py`)
+
+Phase 7's `persist_turn` committed the message first and *then* called `enqueue_new_message_for_thread_session`, which opened its own session and swallowed exceptions — a dispatch-side failure left the assistant message persisted with no outbox row (silent message loss on the Slack side). Lifted the thread-branch enqueue adjacent to the channel branch, pre-commit, inline. Same reused utilities (`resolve_targets` / `apply_session_thread_refs` / `resolve_bus_channel_id` / `outbox.enqueue`) as before — just inside the caller's transaction so it's all-or-nothing with `Message` insertion. Deleted `enqueue_new_message_for_thread_session` from `outbox_publish.py` (only `persist_turn` was calling it).
+
+**Commit 2 — Race-safe external thread resolution** (`app/services/sub_sessions.py`, migration 231)
+
+Phase 7's `resolve_or_spawn_external_thread_session` was read-then-create with no DB-level uniqueness; migration 230's `ix_sessions_slack_thread_lookup` was non-unique. Two inbound Slack replies in the same `thread_ts` landing concurrently could both miss step 1 and spawn duplicate Spindrel thread sessions, permanently splitting the external thread. Migration 231 drops the non-unique index and recreates it as a **partial unique index** on `(integration_thread_refs->'slack'->>'channel', integration_thread_refs->'slack'->>'thread_ts') WHERE session_type='thread' AND thread_ts IS NOT NULL` (precedent: migration 224 `postgresql_where=`). SQLite doesn't enforce the partial clause at index-creation time; the app-level retry branch is what the test suite exercises. App-side: extracted the step-1 lookup into an inner `_lookup()` helper; wrapped the spawn in `db.begin_nested()` + `db.flush()` inside a `try` so the unique constraint fires while we can still catch it; on `IntegrityError`, re-runs `_lookup()` and returns the winner without punching through the caller's outer transaction.
+
+**Commit 3 — Approval-gate regression test for cross-bot widget handler dispatch** (`tests/integration/test_todo_bot_bridge.py`)
+
+No production code change. Exploration confirmed `widget.*.*` tools already pass through `_check_tool_policy` (`app/agent/tool_dispatch.py:509-605`) before the `is_widget_handler_tool_name(name)` dispatch branch — the approval gate does fire per manifest `safety_tier`. Added `test_cross_bot_widget_handler_triggers_approval_gate` to pin that contract so a future refactor can't silently strip the gate: two bots (Alice pins, Bob calls), `TOOL_POLICY_DEFAULT_ACTION=require_approval`, asserts `ToolApproval` created in `awaiting_approval` state + handler body did not execute pre-approval + post-approval runs under Alice's `source_bot_id` (pin-bot-is-ceiling invariant).
+
+### Key decisions
+
+- **Pre-commit thread enqueue, not post-commit retry worker.** Matched the channel branch's shape exactly rather than introducing a durable-outbox retry mechanism for the thread fanout step — the whole point of the outbox is that the enqueue itself must be atomic with message insert. A retry worker on top of a still-lossy enqueue would have been the wrong abstraction.
+- **Partial unique index + SAVEPOINT, not advisory lock.** Advisory lock would have worked but requires a lock key per `(integration, channel, thread_ts)` tuple and adds lock-ordering concerns across migrations. The partial unique index is declarative, no code has to remember to acquire it, and the SAVEPOINT retry is the idiomatic "optimistic concurrency" shape for "spawn if not exists" paths in SQLAlchemy.
+- **Test-pin the current trust model rather than redesign it.** The "pin-bot-is-ceiling, shared channel dashboard is the trust surface" framing is deliberate and matches iframe / cron / event paths. A future ACL/grant primitive on dashboards would build on the test contract commit 3 pinned, not replace it.
+
+### Files
+
+**Backend**: `app/services/sessions.py` (thread fanout lifted pre-commit); `app/services/sub_sessions.py` (`_lookup()` + `begin_nested()` + `IntegrityError` retry); `app/services/outbox_publish.py` (deleted `enqueue_new_message_for_thread_session`); `migrations/versions/231_session_slack_thread_refs_unique.py` (new — partial unique index).
+
+**Tests**: `tests/unit/test_thread_mirroring.py` (+2 — `test_thread_enqueue_failure_rolls_back_message_insert`, `test_resolve_or_spawn_external_thread_session_handles_conflict`); `tests/integration/test_todo_bot_bridge.py` (+1 — `test_cross_bot_widget_handler_triggers_approval_gate`). 24/24 green on focused suites; 50/52 green on the regression surface (2 pre-existing unrelated `test_slack_end_to_end.py` failures independent of this work).
+
+Plan: `~/.claude/plans/soft-inventing-hellman.md`. Codex-review origin for all three items.
 
 ## Phase 7 — Slack thread_ts mirroring + thread UX polish (shipped 2026-04-20)
 

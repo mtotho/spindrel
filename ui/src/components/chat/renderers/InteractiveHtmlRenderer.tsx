@@ -1810,10 +1810,12 @@ export function InteractiveHtmlRenderer({
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   // Start from the measured grid height when the caller knows it — otherwise
-  // fall back to the legacy 200px default for inline chat rendering.
-  const [height, setHeight] = useState(() =>
-    gridDimensions?.height && gridDimensions.height > 0 ? gridDimensions.height : 200,
-  );
+  // fall back to the legacy 200px default for inline chat rendering. Chips are
+  // fixed-height; seeding them at 200 then shrinking to ~32 flashes visibly.
+  const [height, setHeight] = useState(() => {
+    if (gridDimensions?.height && gridDimensions.height > 0) return gridDimensions.height;
+    return layout === "chip" ? 32 : 200;
+  });
   const themeMode = useThemeStore((s) => s.mode);
   const isDark = themeMode === "dark";
 
@@ -2143,8 +2145,13 @@ export function InteractiveHtmlRenderer({
         // sized to viewport (min-height:100vh from bot CSS) which would
         // feedback-loop against the iframe's own height.
         const root = doc.getElementById("__sd_root") ?? doc.body;
-        const h = Math.min(root.scrollHeight + 24, MAX_IFRAME_HEIGHT);
-        setHeight(Math.max(80, h));
+        // Chips (32px compact variant) are content-measured: no 24px buffer
+        // (would let the 80px min win every time) and no 80px floor (would
+        // oversize the iframe and overflow the h-8 host wrapper, pushing the
+        // chip HTML out the top under `items-center`).
+        const isChipLayout = layout === "chip";
+        const h = Math.min(root.scrollHeight + (isChipLayout ? 0 : 24), MAX_IFRAME_HEIGHT);
+        setHeight(Math.max(isChipLayout ? 0 : 80, h));
       } catch {
         // Edge case: contentDocument not accessible. Stay at last height.
       }
@@ -2176,7 +2183,7 @@ export function InteractiveHtmlRenderer({
       iframe.removeEventListener("load", onLoad);
       if (observer) observer.disconnect();
     };
-  }, [bodyWithoutPreamble]);
+  }, [bodyWithoutPreamble, layout]);
 
   // Keep the hover-scrollbars attribute in sync when the dashboard toggle
   // flips after the iframe has already loaded. Tolerates contentDocument

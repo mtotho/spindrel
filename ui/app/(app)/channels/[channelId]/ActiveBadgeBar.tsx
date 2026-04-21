@@ -1,44 +1,24 @@
 import { useNavigate } from "react-router-dom";
-import {
-  FileText, Wrench, BookOpen, Plug,
-  MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle,
-} from "lucide-react";
+import { FileText, Wrench } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useActivatableIntegrations, useChannelSettings, useChannel } from "@/src/api/hooks/useChannels";
+import { useActivatableIntegrations, useChannelSettings } from "@/src/api/hooks/useChannels";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
-import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
-import { prettyIntegrationName } from "@/src/utils/format";
-
-/** Map lucide icon name strings to components. */
-const ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
-  MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
-};
-function resolveIcon(name: string | undefined): React.ComponentType<{ size: number; color: string }> {
-  return (name && ICON_MAP[name]) || Plug;
-}
 
 /**
  * Compact horizontal strip showing what's active on this channel:
- * template badge, active/bound integration badges, tool/skill counts.
+ * template badge + tool/skill count. Integration badges are deliberately
+ * omitted — desktop shows them inline in the ChannelHeader subtitle, and the
+ * mobile sub-header stays quieter to match.
  * Clicking a badge navigates to the relevant settings tab.
  */
 export function ActiveBadgeBar({ channelId, compact }: { channelId: string; compact?: boolean }) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const { data: settings } = useChannelSettings(channelId);
-  const { data: channel } = useChannel(channelId);
   const { data: activatable } = useActivatableIntegrations(channelId);
   const { data: templates } = usePromptTemplates(undefined, "workspace_schema");
-  const { data: iconsData } = useIntegrationIcons();
-  const icons = iconsData?.icons ?? {};
 
   const activeIntegrations = activatable?.filter((ig) => ig.activated) ?? [];
-  const activeTypes = new Set(activeIntegrations.map((ig) => ig.integration_type));
-
-  // Bound integrations that are NOT activated (just connected — e.g., Slack dispatch)
-  const boundOnly = (channel?.integrations ?? []).filter(
-    (b) => !activeTypes.has(b.integration_type)
-  );
 
   const templateId = settings?.workspace_schema_template_id;
   const template = templateId ? templates?.find((tpl) => tpl.id === templateId) : null;
@@ -67,8 +47,11 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
     );
   }
 
-  // Nothing to show? Don't render the bar
-  const hasAnything = template || activeIntegrations.length > 0 || boundOnly.length > 0;
+  // Nothing to show? Don't render the bar.
+  // Integration badges are intentionally omitted here to stay consistent with
+  // desktop's channel subtitle (the sub-header shouldn't double up on that
+  // signal). Template + tool-count are all that remain.
+  const hasAnything = template || totalTools > 0;
   if (!hasAnything) return null;
 
   const nav = (hash: string) => navigate(`/channels/${channelId}/settings#${hash}`);
@@ -97,28 +80,9 @@ export function ActiveBadgeBar({ channelId, compact }: { channelId: string; comp
         </button>
       )}
 
-      {/* Activated integrations — green dot + name */}
-      {activeIntegrations.map((ig) => {
-        const Icon = resolveIcon(icons[ig.integration_type]);
-        return (
-          <button key={ig.integration_type} onClick={() => nav("integrations")} style={pillStyle}>
-            <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.success, display: "inline-block", flexShrink: 0 }} />
-            <span style={{ fontSize: 10, color: t.textMuted, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
-              {prettyIntegrationName(ig.integration_type)}
-            </span>
-          </button>
-        );
-      })}
-
-      {/* Bound-only integrations — dim dot + name */}
-      {boundOnly.map((b) => (
-        <button key={b.id} onClick={() => nav("integrations")} style={pillStyle}>
-          <span style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.textDim, opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
-          <span style={{ fontSize: 10, color: t.textDim, fontWeight: 500, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", textTransform: "uppercase" as const, letterSpacing: 0.5 }}>
-            {prettyIntegrationName(b.integration_type)}
-          </span>
-        </button>
-      ))}
+      {/* Integration badges intentionally omitted on mobile — desktop surfaces
+          them inline in the ChannelHeader subtitle, and doubling up here made
+          the mobile sub-header noisy without adding information. */}
 
       {/* Tool/skill counts — inline text, no pill */}
       {totalTools > 0 && (

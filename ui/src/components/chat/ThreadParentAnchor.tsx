@@ -19,7 +19,7 @@ export const ThreadParentAnchor = memo(function ThreadParentAnchor({
 }: Props) {
   if (!message) {
     return (
-      <div className="shrink-0 px-4 py-2.5 bg-surface-overlay/40">
+      <div className="shrink-0 px-4 py-2.5">
         <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-dim">
           <CornerDownRight size={11} />
           <span>Replying to a message that has been deleted</span>
@@ -28,7 +28,7 @@ export const ThreadParentAnchor = memo(function ThreadParentAnchor({
     );
   }
   return (
-    <div className="shrink-0 bg-surface-overlay/40">
+    <div className="shrink-0">
       <div className="flex items-center gap-1.5 px-4 pt-2 text-[10px] uppercase tracking-wider text-text-dim">
         <CornerDownRight size={11} />
         <span>Replying to</span>

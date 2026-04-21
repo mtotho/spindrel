@@ -12,7 +12,7 @@ category: core
 Most real dashboards keep a little state that outlives the current render: which phase a project is in, which items are starred, what the user's last filter was. Put it in a JSON file in the widget's bundle and use `window.spindrel.data` to read/merge/write it:
 
 ```html
-<!-- data/widgets/project-status/index.html (emitted from a channel chat) -->
+<!-- widget://bot/project-status/index.html (emitted from a channel chat) -->
 <div class="sd-card">
   <header class="sd-card-header">
     <h3 class="sd-title" id="title">Project status</h3>
@@ -86,7 +86,7 @@ Four shapes to recognize. They compose — a real dashboard is usually a mix.
 You want to show where a project stands and let the user advance it. See the `state.json` example above. Use when the user says *"build me a status dashboard for <project>"* or *"I want a live view of where we are on <thing>"*.
 
 Key moves:
-- Bundle under `data/widgets/<project>-status/` (channel-scoped). Non-channel roots arrive with DX-5b.
+- Bundle under `widget://bot/<project>-status/` (or `widget://workspace/...` if every bot in the workspace should share it).
 - `state.json` holds the single source of truth. Never duplicate into the HTML.
 - Buttons save patches; `state_poll` not needed because the file drives everything.
 
@@ -170,21 +170,21 @@ Pair with a file picker (`listWorkspaceFiles` + a `<select>`) to browse a whole 
 
 When the user says "build me a dashboard for X":
 
-1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
-2. **Pick a root** — channel-scoped `data/widgets/<slug>/` (the default, works today). Non-channel roots arrive with DX-5b.
+1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had. `widget_library_list()` to see what bundles already exist.
+2. **Pick a scope** — `widget://bot/<name>/...` (your bot's private library) or `widget://workspace/<name>/...` (shared with every bot in this workspace).
 3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two.
-4. **One-shot the bundle** — `file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", content=<full doc>)` plus any `state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
-5. **Emit** — `emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", display_label="<Slug>")`. Same absolute path you used to write. User pins it to the dashboard.
-6. **Iterate** — tweaks via `file(edit, path=..., find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
+4. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
+5. **Emit** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. User pins it to the dashboard.
+6. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
 7. **Record it** — leave breadcrumbs in your memory (see "Remember what you built" below) so future-you knows the widget exists and where to find it.
 
-This is the highest-leverage pattern: path mode + a bundle folder + the `file` tool turns "build me a widget" into a live, iteratively-editable surface.
+This is the highest-leverage pattern: a `widget://` bundle + the `file` tool + `library_ref` emission turns "build me a widget" into a live, iteratively-editable surface.
 
 ## Remember what you built
 
 Widgets disappear from your attention once they're pinned. A future turn might be the first time in a week you're aware of the dashboard — and without breadcrumbs, you'll rebuild things that already exist, or forget design decisions that will bite you.
 
-Frontmatter inside the `.html` is the first breadcrumb — it's what the catalog shows and what a future you sees when scanning `data/widgets/` listings. The reference file below is the second. Write both.
+Frontmatter inside the `.html` is the first breadcrumb — it's what the catalog shows and what a future you sees when scanning `widget_library_list()` output. The reference file below is the second. Write both.
 
 **Required after every new widget you ship:**
 
@@ -194,11 +194,11 @@ Under a `## Widgets I've built` section (create it if missing), add one line:
 
 ```markdown
 ## Widgets I've built
-- **Project status** — `/workspace/channels/<cid>/data/widgets/project-status/` — live phase tracker with RMW state.json. Notes: `memory/reference/project-status.md`.
-- **Home control** — `/workspace/channels/<cid>/data/widgets/home-control/` — one-click scenes + device toggles via `callTool("HassTurnOn", ...)`. Notes: `memory/reference/home-control.md`.
+- **Project status** — `widget://bot/project-status/` — live phase tracker with RMW state.json. Notes: `memory/reference/project-status.md`.
+- **Home control** — `widget://bot/home-control/` — one-click scenes + device toggles via `callTool("HassTurnOn", ...)`. Notes: `memory/reference/home-control.md`.
 ```
 
-Format: `**<display_label>** — <absolute bundle path> — <one-line what it does>. Notes: <reference file>.`
+Format: `**<display_label>** — <widget:// URI> — <one-line what it does>. Notes: <reference file>.`
 
 ### 2. Create `memory/reference/<widget-slug>.md` with the widget's design memory
 
@@ -207,7 +207,7 @@ Template:
 ```markdown
 # <display_label>
 
-**Path**: `/workspace/channels/<cid>/data/widgets/<slug>/`
+**Path**: `widget://bot/<name>/` (or `widget://workspace/<name>/`)
 **Pinned**: <yes/no + dashboard location>
 **Shipped**: <YYYY-MM-DD>
 

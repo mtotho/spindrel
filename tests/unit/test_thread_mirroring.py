@@ -165,6 +165,22 @@ class TestApplySessionThreadRefs:
         assert out[1][1].thread_ts == "1.1"
 
 
+def engine_session(db_session):
+    """Open a fresh ``AsyncSession`` bound to the same engine as ``db_session``.
+
+    Used by the rollback-on-failure test: after ``persist_turn`` raises, the
+    caller's transactional state is broken and reusing it to verify
+    post-rollback state triggers greenlet errors in SQLAlchemy. A sibling
+    session on the same engine avoids the contaminated state.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    factory = async_sessionmaker(
+        db_session.bind, class_=AsyncSession, expire_on_commit=False,
+    )
+    return factory()
+
+
 async def _make_channel_session(db_session, bot_id: str = "bot1"):
     parent_session = Session(
         id=uuid.uuid4(),
@@ -272,6 +288,234 @@ class TestResolveOrSpawnExternalThreadSession:
             "channel": "C1",
             "thread_ts": "1700000000.9",
         }
+
+
+class TestResolveOrSpawnExternalThreadSessionRace:
+    """Concurrent inbound replies for the same external thread must not spawn duplicates.
+
+    SQLite doesn't enforce migration 231's partial unique index, so these
+    tests drive the app-level retry branch by simulating an
+    ``IntegrityError`` on the savepoint flush. In production on postgres
+    the index is the actual gatekeeper; this test pins the handling path.
+    """
+
+    async def test_integrity_error_during_spawn_returns_winner(
+        self, db_session, monkeypatch,
+    ):
+        """If the spawn flush raises IntegrityError, re-lookup returns the winner."""
+        from sqlalchemy.exc import IntegrityError
+
+        from app.services import sub_sessions as mod
+
+        channel, parent_session = await _make_channel_session(db_session)
+
+        ref = {"channel": "C1", "thread_ts": "1700000000.42"}
+
+        # Seed the "winner" row — the concurrent insert that beat us.
+        winner = Session(
+            id=uuid.uuid4(),
+            client_id="thread",
+            bot_id="bot1",
+            channel_id=None,
+            parent_session_id=parent_session.id,
+            root_session_id=parent_session.id,
+            depth=1,
+            session_type=SESSION_TYPE_THREAD,
+            integration_thread_refs={"slack": ref},
+        )
+        db_session.add(winner)
+        await db_session.flush()
+
+        # Hide the winner from the initial lookup so the code falls through
+        # to the spawn branch. The post-conflict re-lookup uses the real
+        # helper and finds it.
+        call_count = 0
+        real_finder = mod._find_external_thread_session
+
+        async def finder(db, integration_id, r):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return None
+            return await real_finder(db, integration_id, r)
+
+        monkeypatch.setattr(
+            "app.services.sub_sessions._find_external_thread_session",
+            finder,
+        )
+
+        # Force the flush inside the savepoint to raise IntegrityError,
+        # simulating the partial-unique-index rejection.
+        real_flush = db_session.flush
+        flush_calls = 0
+
+        async def flaky_flush(*args, **kwargs):
+            nonlocal flush_calls
+            flush_calls += 1
+            if flush_calls == 1:
+                raise IntegrityError(
+                    "uq_sessions_slack_thread_ref", None,
+                    Exception("simulated unique violation"),
+                )
+            return await real_flush(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "flush", flaky_flush)
+
+        out = await mod.resolve_or_spawn_external_thread_session(
+            db_session,
+            integration_id="slack",
+            channel=channel,
+            ref=ref,
+            bot_id="bot1",
+        )
+        assert out.id == winner.id
+        assert call_count == 2  # initial miss, then post-conflict resolve
+
+        # Restore the real flush before asserting final state.
+        monkeypatch.setattr(db_session, "flush", real_flush)
+
+        # Exactly one thread session exists for that ref — the winner,
+        # not a second orphan from our rolled-back savepoint.
+        from sqlalchemy import select
+
+        rows = (await db_session.execute(
+            select(Session).where(
+                Session.session_type == SESSION_TYPE_THREAD,
+            )
+        )).scalars().all()
+        matching = [
+            s for s in rows
+            if (s.integration_thread_refs or {}).get("slack") == ref
+        ]
+        assert len(matching) == 1
+        assert matching[0].id == winner.id
+
+
+class TestPersistTurnThreadOutboxAtomic:
+    """Thread-session outbox enqueue must be transactional with message persist.
+
+    The channel path enqueues outbox rows inside the same ``persist_turn``
+    transaction as the message inserts; the thread path was previously
+    committing messages first, then enqueueing in a fresh session with a
+    broad try/except that silently swallowed failures. That split allowed
+    the assistant message to be persisted with no outbox row, so the
+    drainer never attempted delivery — a hard-to-detect message loss mode
+    for threaded integrations. These tests pin the post-fix invariant.
+    """
+
+    async def _make_thread_session(self, db_session):
+        channel, parent_session = await _make_channel_session(db_session)
+        parent_msg = await _add_msg(
+            db_session,
+            session_id=parent_session.id,
+            role="assistant",
+            content="parent",
+            metadata={"slack_channel": "C1", "slack_ts": "1700000000.5"},
+        )
+        thread = Session(
+            id=uuid.uuid4(),
+            client_id="thread",
+            bot_id="bot1",
+            channel_id=None,
+            parent_session_id=parent_session.id,
+            root_session_id=parent_session.id,
+            depth=1,
+            parent_message_id=parent_msg.id,
+            session_type=SESSION_TYPE_THREAD,
+            integration_thread_refs={
+                "slack": {"channel": "C1", "thread_ts": "1700000000.5"},
+            },
+        )
+        db_session.add(thread)
+        await db_session.commit()
+        return channel, thread
+
+    async def test_thread_enqueue_success_writes_outbox_row_in_txn(
+        self, db_session, monkeypatch,
+    ):
+        """Success path: one assistant message → one outbox row on the parent channel."""
+        from unittest.mock import AsyncMock
+
+        from app.db.models import Outbox
+        from app.services.sessions import persist_turn
+        from sqlalchemy import select
+
+        channel, thread = await self._make_thread_session(db_session)
+        fake_target = SlackTarget(channel_id="C1", token="xoxb-test")
+        monkeypatch.setattr(
+            "app.services.dispatch_resolution.resolve_targets",
+            AsyncMock(return_value=[("slack", fake_target)]),
+        )
+
+        from app.agent.bots import BotConfig
+        bot = BotConfig(id="bot1", name="Bot", model="gpt-4o", system_prompt="")
+
+        await persist_turn(
+            db_session, thread.id, bot,
+            [{"role": "assistant", "content": "reply"}],
+            from_index=0, channel_id=None,
+        )
+
+        rows = (await db_session.execute(
+            select(Outbox).where(Outbox.channel_id == channel.id)
+        )).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].target_integration_id == "slack"
+        # apply_session_thread_refs should have rewritten the target with the thread_ts.
+        assert rows[0].target.get("thread_ts") == "1700000000.5"
+
+    async def test_thread_enqueue_failure_rolls_back_message_insert(
+        self, db_session, monkeypatch,
+    ):
+        """If outbox.enqueue raises mid-turn, the message insert is rolled back.
+
+        Pre-fix, the assistant message was committed before the thread
+        enqueue ran (in a separate session), so a failure left a persisted
+        message with no corresponding outbox row. Post-fix the whole turn
+        shares one transaction — a raise here must propagate AND take the
+        message insert with it.
+        """
+        from unittest.mock import AsyncMock
+
+        from app.db.models import Message as MessageModel, Outbox
+        from app.services.sessions import persist_turn
+        from sqlalchemy import select
+
+        channel, thread = await self._make_thread_session(db_session)
+        channel_id = channel.id
+        thread_id = thread.id
+        fake_target = SlackTarget(channel_id="C1", token="xoxb-test")
+        monkeypatch.setattr(
+            "app.services.dispatch_resolution.resolve_targets",
+            AsyncMock(return_value=[("slack", fake_target)]),
+        )
+        monkeypatch.setattr(
+            "app.services.outbox.enqueue",
+            AsyncMock(side_effect=RuntimeError("simulated dispatch failure")),
+        )
+
+        from app.agent.bots import BotConfig
+        bot = BotConfig(id="bot1", name="Bot", model="gpt-4o", system_prompt="")
+
+        with pytest.raises(RuntimeError, match="simulated dispatch failure"):
+            await persist_turn(
+                db_session, thread_id, bot,
+                [{"role": "assistant", "content": "reply"}],
+                from_index=0, channel_id=None,
+            )
+
+        # Verify with a fresh session — the outer db_session is in a broken
+        # transactional state after the raise and can't be safely reused.
+        await db_session.rollback()
+        async with engine_session(db_session) as verify:
+            msgs = (await verify.execute(
+                select(MessageModel).where(MessageModel.session_id == thread_id)
+            )).scalars().all()
+            assert msgs == []  # no orphan message persisted
+            outbox_rows = (await verify.execute(
+                select(Outbox).where(Outbox.channel_id == channel_id)
+            )).scalars().all()
+            assert outbox_rows == []  # no orphan outbox row either
 
 
 class TestSpawnThreadSessionRefsPremint:

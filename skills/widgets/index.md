@@ -89,19 +89,19 @@ Inline mode (`emit_html_widget(html="...")`) is for one-off snapshots — a sing
 - Simple text / Markdown reply → just reply normally.
 - Entity detail the existing `tool_widgets:` templates already cover → component widget is nicer.
 - A link or file the user wants to open → `send_file` or a plain URL.
-- Reusable parameterized widget across many channels → defer to the user; the non-channel `/workspace/widgets/<slug>/` root is queued (DX-5b) and not yet resolvable, so the current answer is "emit it per-channel for now".
+- Reusable across channels → author under `widget://bot/<name>/...` (bot-private library) or `widget://workspace/<name>/...` (shared-workspace library). Bundles live once in the library and render anywhere via `library_ref="<name>"`.
 
 ## Workflow — build an evolving dashboard
 
 When the user says *"build me a dashboard for X"*:
 
-1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had.
-2. **Pick a root** — channel-scoped `data/widgets/<slug>/` (the default, works today). Non-channel roots arrive with DX-5b.
+1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had. `widget_library_list()` to see what bundles already exist.
+2. **Pick a scope** — `widget://bot/<name>/...` (your bot's own library, always available) or `widget://workspace/<name>/...` (shared with every bot in this workspace, shared-workspace bots only). `widget://core/...` is read-only.
 3. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
-4. **One-shot the bundle** — `file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", content=<full doc>)` plus any `state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
-5. **Emit** — `emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/<slug>/index.html", display_label="<Slug>")`. Same absolute path you used to write. User pins it to the dashboard.
-6. **Iterate** — tweaks via `file(edit, path=..., find=..., replace=...)`. The pinned widget refreshes within ~3 s. No re-emit needed. When you hit a suspicious error — a CSP rejection, a missing manifest field, a path that won't resolve — call **`preview_widget(...)`** first with the same args you'd pass to `emit_html_widget`; it returns structured `{ok, envelope, errors}` so you can fix the bundle before the next emit. See `widgets/html.md#dry-run-first`.
-7. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<slug>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
+4. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
+5. **Emit** — `emit_html_widget(library_ref="<name>", display_label="<Name>")`. The library resolves bot → workspace → core for unscoped refs; prefix with `bot/` or `workspace/` to disambiguate. User pins it to the dashboard.
+6. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed. When you hit a suspicious error — a CSP rejection, a missing manifest field, a path that won't resolve — call **`preview_widget(...)`** first with the same args you'd pass to `emit_html_widget`; it returns structured `{ok, envelope, errors}` so you can fix the bundle before the next emit. See `widgets/html.md#dry-run-first`.
+7. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
 
 ## See also
 

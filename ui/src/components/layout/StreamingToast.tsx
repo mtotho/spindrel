@@ -23,9 +23,14 @@ export function StreamingToast() {
   const [visible, setVisible] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // Find first streaming channel that the user is NOT currently viewing
+  // Find first streaming *channel* that the user is NOT currently viewing.
+  // Ephemeral session ids also live in streamingIds, but they aren't present
+  // in the channels list (their dock lives inside a channel URL), so we'd
+  // otherwise surface "Processing in #channel..." while the user is actively
+  // focused on that very dock. Requiring a real channel match scopes the
+  // toast to genuine background streams.
   const backgroundStreamId = streamingIds.find(
-    (id) => !pathname.includes(id),
+    (id) => !pathname.includes(id) && !!channels?.some((ch) => ch.id === id),
   );
 
   const channel = backgroundStreamId

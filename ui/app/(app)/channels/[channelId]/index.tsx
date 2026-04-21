@@ -58,7 +58,7 @@ import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
-import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
+import { MessageCircle, X as CloseIcon } from "lucide-react";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
@@ -787,6 +787,8 @@ export default function ChatScreen() {
           findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}
           toggleFindingsPanel={isSystemChannel ? () => setFindingsPanelOpen((p) => !p) : undefined}
           findingsCount={isSystemChannel ? findingsCount : 0}
+          scratchOpen={scratchOpen}
+          onOpenScratch={() => setScratchOpen(true)}
         />
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.
             Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
@@ -814,11 +816,12 @@ export default function ChatScreen() {
   // the top of the three-column row so it floats without consuming vertical
   // space. Desktop only; mobile surfaces these in the drawer's Widgets tab.
   // `pointer-events-none` on the wrapper lets clicks pass through dead space
-  // to the chat below; the inner pill re-enables pointer events for itself.
+  // to the chat below; the chip itself re-enables pointer events. The chip
+  // already carries its own surface + border, so no enclosing pill chrome.
   const headerChipOverlay =
     !isMobile && channelId && hasHeaderChips && showHeaderChips ? (
       <div className="absolute left-1/2 -translate-x-1/2 top-1 z-20 pointer-events-none flex justify-center">
-        <div className="pointer-events-auto px-3 py-1.5 rounded-full bg-surface-raised/50 backdrop-blur-md shadow-sm">
+        <div className="pointer-events-auto">
           <ChannelHeaderChip channelId={channelId} />
         </div>
       </div>
@@ -1198,18 +1201,8 @@ export default function ChatScreen() {
           open={scratchOpen}
           onClose={handleScratchClose}
           title="Scratch chat"
+          initiallyExpanded
         />
-      )}
-      {channelId && !activeThread && !scratchOpen && (
-        <button
-          type="button"
-          onClick={() => setScratchOpen(true)}
-          title="Scratch chat — talk to the bot about this channel without touching the feed"
-          aria-label="Open scratch chat"
-          className="fixed bottom-6 right-6 z-[30] w-11 h-11 rounded-full bg-surface-raised border border-surface-border hover:border-accent/60 hover:bg-surface-raised/90 text-text-dim hover:text-text shadow-lg flex items-center justify-center transition-colors"
-        >
-          <StickyNote size={18} />
-        </button>
       )}
     </div>
   );

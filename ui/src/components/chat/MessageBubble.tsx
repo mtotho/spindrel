@@ -434,6 +434,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             fullTurnText={fullTurnText}
             correlationId={message.correlation_id}
             onBotClick={handleBotClick}
+            canReplyInThread={canReplyInThread && !!onReplyInThread}
+            onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined}
             t={t}
           />
           {isMemberBot && (

@@ -16,7 +16,7 @@ When something's wrong, search this file for the exact error string or symptom. 
 | Widget body is blank, no errors visible | `html=` passed an empty string, or `path=` resolved to an empty file | Inspect the file with `file(read, path=...)` before emitting; if inline, log the string length before passing to `emit_html_widget`. |
 | Red banner "Widget auth failed" | Bot has no API key configured | Ask the user to provision an API key in the admin UI — bot scopes are the widget's ceiling. See `widgets/html.md#auth`. |
 | Red error-boundary banner with a **Reload** button | Uncaught JS error or unhandled promise rejection in the widget | Click Reload to remount. Then fix the JS — check the browser devtools console and `window.spindrel.log` via the Dev Panel's Widgets → Dev → Recent → "Widget log" subtab. |
-| Widget shows "loose" badge in the catalog | `.html` is matched only by the `window.spindrel.*` reference heuristic, not by living under a `widgets/` folder | Move into `<workspace>/data/widgets/<slug>/index.html`. See `widgets/html.md#widget-metadata-yaml-frontmatter`. |
+| Widget shows "loose" badge in the catalog | `.html` is matched only by the `window.spindrel.*` reference heuristic, not by living under a library bundle | Move into `widget://bot/<name>/index.html` (or `widget://workspace/<name>/...`). See `widgets/html.md#widget-metadata-yaml-frontmatter`. |
 | Card title falls back to slug (`project-status` instead of `Project status`) | Missing, malformed, or mis-placed YAML frontmatter | Frontmatter must be the very first thing in the file. See `widgets/html.md#widget-metadata-yaml-frontmatter`. |
 
 ## Network / API errors
@@ -41,9 +41,10 @@ When something's wrong, search this file for the exact error string or symptom. 
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Workspace file not found (or path escapes workspace)` from `emit_html_widget` | `file` tool wrote to bot-workspace path, but `emit_html_widget` is scoping relative paths to the channel workspace | Pass the same **absolute** `/workspace/channels/<CHANNEL_ID>/...` path to both tools. See `widgets/html.md#path-grammar`. |
-| Relative path `./state.json` throws | Inline widget (no `widgetPath`) — relative paths require path mode | Switch to path mode: write the bundle with `file(create, ...)` and emit with `emit_html_widget(path=...)`. See `widgets/sdk.md#relative-paths`. |
-| `/workspace/widgets/<slug>/...` path rejected with clear error | That root is reserved for DX-5b and isn't resolvable yet | Use `/workspace/channels/<channel_id>/data/widgets/<slug>/...` instead. See `widgets/html.md#path-grammar`. |
+| `Workspace file not found (or path escapes workspace)` from `emit_html_widget` | Tried to emit a file that doesn't exist, or mixed up grammar between the `file` and `emit_html_widget` tools | Author bundles under `widget://bot/<name>/...` via `file(create, ...)` and emit with `emit_html_widget(library_ref="<name>")` — one grammar, both tools agree. See `widgets/html.md#path-grammar`. |
+| Relative path `./state.json` throws from inside the iframe | Inline widget (no `widgetPath`) — relative paths require library-ref or path mode | Switch to library-ref mode: write the bundle with `file(create, path="widget://bot/<name>/...", ...)` and emit with `emit_html_widget(library_ref="<name>")`. See `widgets/sdk.md#relative-paths`. |
+| `widget://core/...` write rejected | Core library is read-only at runtime (ships in-repo, version-controlled) | Author under `widget://bot/<name>/...` instead. To fork a core widget, `file(read, path="widget://core/<name>/index.html")` → `file(create, path="widget://bot/<name>/index.html", content=...)`. |
+| `widget://workspace/...` rejected with "requires a shared workspace" | Bot isn't a member of a shared workspace, so the workspace scope has no on-disk root | Use `widget://bot/<name>/...` instead — bot scope is always available. Shared-workspace membership is a bot-config concern the user has to enable. |
 | `extra_csp` validation error ("invalid origin") | Passed a full URL, wildcard, or non-https scheme | Origins only (`https://host[:port]`), no `*`, no `'self'`, no `data:` / `blob:` / `http:`. Max 10 per directive. See `widgets/html.md#loading-third-party-scripts--tiles--fonts-extra_csp`. |
 
 ## State / DB errors
@@ -69,7 +70,7 @@ When something's wrong, search this file for the exact error string or symptom. 
 | Hand-rolled `.card { border: 1px solid #e5e7eb; ... }` | `class="sd-card"` | The vocabulary already covers this. |
 | `html=...` + `path=...` together | Exactly one | Tool errors — pick inline OR path |
 | Path mode pointing at a non-existent file | Create the file first with `file(create, ...)` | Tool refuses if the path doesn't resolve |
-| `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | Use the same absolute `/workspace/channels/<channel_id>/data/widgets/foo/index.html` for **both** tools | `file`'s relative paths root at the bot workspace; `emit_html_widget`'s relative paths root at the channel workspace. Pass the absolute form to both and the ambiguity goes away. |
+| `file(create, path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` | `file(create, path="widget://bot/foo/index.html")` + `emit_html_widget(library_ref="foo")` | `widget://` is one grammar both tools agree on; library-ref emission reuses the same bundle across channels and cron contexts. Channel-scoped paths work, but the bundle is then tied to one channel. |
 | Emitting a just-authored bundle and hoping it renders | Call `preview_widget(library_ref=..., ...)` first; inspect `errors[]` | Dry-run catches manifest / CSP / path / library_ref errors as structured output before the user pins anything. See `widgets/html.md#dry-run-first`. |
 | Shipping a widget without updating `memory/MEMORY.md` | Add index entry + `memory/reference/<slug>.md` same turn | Future turns lose the bundle. You'll rebuild or debug blind. |
 | Dumping loose `.html` at the workspace root | Put each widget in its own bundle folder | Bundles move/rename/delete atomically; the root stays legible |

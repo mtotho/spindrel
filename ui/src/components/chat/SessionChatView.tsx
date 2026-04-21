@@ -27,6 +27,9 @@ export interface SessionChatViewProps {
   botId?: string;
   /** Custom empty-state node (pre-message pane can render description, etc). */
   emptyStateComponent?: React.ReactNode;
+  /** Reserve space at the bottom of the scroll area so messages scroll
+   *  BEHIND an overlay composer. Forwarded to ChatMessageArea. */
+  scrollPaddingBottom?: number;
 }
 
 /**
@@ -46,6 +49,7 @@ export function SessionChatView({
   parentChannelId,
   botId,
   emptyStateComponent,
+  scrollPaddingBottom,
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -198,6 +202,7 @@ export function SessionChatView({
       isProcessing={chatState.isProcessing}
       t={t}
       emptyStateComponent={emptyStateComponent}
+      scrollPaddingBottom={scrollPaddingBottom}
     />
   );
 }

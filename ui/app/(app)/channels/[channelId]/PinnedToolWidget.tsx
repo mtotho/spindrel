@@ -551,7 +551,12 @@ export function PinnedToolWidget({
           />
         )}
         <div
-          className="flex-1 min-w-0 overflow-hidden [mask-image:linear-gradient(to_right,black_80%,transparent)]"
+          // self-stretch so the iframe wrapper fills the h-8 cross-axis; the
+          // grip icon + unpin button stay centered via the parent's
+          // items-center. Without this, an oversized iframe (or any future
+          // content > 32px) would vertically center and overflow upward out
+          // of the clip box, cutting the chip HTML off the top.
+          className="flex-1 min-w-0 self-stretch overflow-hidden [mask-image:linear-gradient(to_right,black_80%,transparent)]"
         >
           <RichToolResult
             envelope={currentEnvelope}

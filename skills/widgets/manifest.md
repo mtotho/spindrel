@@ -90,7 +90,7 @@ Bundles with a valid `widget.yaml` show a "manifest" badge in the HTML Widgets s
 ## Where the manifest lives
 
 ```
-data/widgets/<slug>/
+widget://bot/<name>/          (or widget://workspace/<name>/, widget://core/<name>/)
 ├── index.html       # HTML frontmatter (display-only metadata)
 ├── widget.yaml      # manifest (backend capabilities) — sibling of index.html
 ├── widget.py        # handlers (if declared in manifest)

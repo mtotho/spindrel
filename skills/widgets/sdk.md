@@ -15,7 +15,7 @@ window.spindrel.channelId                  // emitting channel UUID, or null
 window.spindrel.botId                      // your bot id (the one running this)
 window.spindrel.botName                    // display name, e.g. "crumb"
 window.spindrel.dashboardPinId             // UUID when pinned to a dashboard, else undefined
-window.spindrel.widgetPath                 // absolute-within-channel path of this widget's HTML (e.g. "data/widgets/x/index.html"), null for inline widgets
+window.spindrel.widgetPath                 // path of this widget's HTML (e.g. "widget://bot/x/index.html"), null for inline widgets
 window.spindrel.resolvePath(input)         // resolve a relative path (./ or ../) against widgetPath's directory (see "Relative paths" below)
 
 // Authenticated network
@@ -136,7 +136,7 @@ Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DO
 The sandbox blocks cross-origin network but allows `data:` / `blob:` / same-origin images. Since `<img src>` can't carry a bearer token (and workspace files are bearer-authed), use **`window.spindrel.loadAsset(path)`** to fetch a binary file with auth and get back a `blob:` object URL you can drop into any `src` attribute:
 
 ```js
-// widget emitted from data/widgets/home-control/index.html
+// widget emitted from widget://bot/home-control/index.html
 const logoUrl = await window.spindrel.loadAsset("./assets/logo.svg");
 document.getElementById("logo").src = logoUrl;
 
@@ -161,9 +161,9 @@ list_attachments(channel_id=<id>)
   → [{id: "abc-123...", filename: "sunrise.jpg", mime_type: "image/jpeg", size: 240_000}, ...]
 
 save_attachment(attachment_id="abc-123...",
-                path="/workspace/channels/<CHANNEL_ID>/data/widgets/gallery/assets/sunrise.jpg")
+                path="widget://bot/gallery/assets/sunrise.jpg")
 
-emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/gallery/index.html", ...)
+emit_html_widget(library_ref="gallery", ...)
 ```
 
 Inside the widget:
@@ -204,20 +204,20 @@ Use the `list_attachments` tool from the bot turn to discover IDs; use `/api/v1/
 Inside a path-mode widget, you know where your bundle lives but you don't want to hard-code it. `readWorkspaceFile`, `writeWorkspaceFile`, and all `data.*` helpers accept **relative paths** that resolve against `dirname(widgetPath)`:
 
 ```js
-// widget emitted from data/widgets/project-status/index.html
+// widget emitted from widget://bot/project-status/index.html
 const state = await window.spindrel.data.load("./state.json");
-// → reads data/widgets/project-status/state.json
+// → reads widget://bot/project-status/state.json
 
 const sibling = await window.spindrel.readWorkspaceFile("../shared/config.json");
-// → reads data/widgets/shared/config.json
+// → reads widget://bot/shared/config.json
 ```
 
 Rules:
 
-- `./foo` and `../foo` — resolved against the widget's directory. Requires path mode (`widgetPath` is null for inline widgets).
-- `foo/bar` with no leading `./` or `/` — treated as channel-workspace-absolute as-is (current default). `data.load("data/widgets/other/state.json")` works unchanged.
-- `/workspace/...` (leading slash) — **reserved for DX-5b** and currently throws. When that ships, it will let widgets target non-channel bundles and explicit channel roots.
-- `..` that escapes the workspace root throws before hitting the backend.
+- `./foo` and `../foo` — resolved against the widget's directory. Requires library-ref or path mode (`widgetPath` is null for inline widgets).
+- `foo/bar` with no leading `./` or `/` — treated as a bare path, resolved against the workspace the widget was emitted from.
+- `/workspace/...` (leading slash) — currently throws inside iframes; use `./foo` / `../foo` for everything inside your own bundle, and `spindrel.api(...)` for anything that needs to reach another channel or workspace.
+- `..` that escapes the bundle throws before hitting the backend.
 
 Use `window.spindrel.resolvePath(input)` directly if you need the resolved string for your own bookkeeping (e.g. logging, debugging).
 
@@ -277,7 +277,7 @@ await window.spindrel.state.save("./state.json", {
 
 **Downgrade refusal.** If the file was written by a newer bundle (`file_version > declared`), `state.load` throws rather than silently dropping fields. Widgets that roll back after a schema bump need to either pin to the old version or clear the file.
 
-**Concurrency caveat.** The per-path mutex covers one iframe. Two widgets in different iframes (or two tabs on the same dashboard) sharing the same `data/widgets/<slug>/state.json` inherit the same RMW race as `spindrel.data.patch` — last write wins. If this matters, write small and scope each widget's state to its own path (common) or use `spindrel.db` (backend-serialized; see `widgets/db.md`).
+**Concurrency caveat.** The per-path mutex covers one iframe. Two widgets in different iframes (or two tabs on the same dashboard) sharing the same `widget://<scope>/<name>/state.json` inherit the same RMW race as `spindrel.data.patch` — last write wins. If this matters, write small and scope each widget's state to its own path (common) or use `spindrel.db` (backend-serialized; see `widgets/db.md`).
 
 **Not in client-side `state`.** Multi-step migration chains (`{from: 1, to: 3}`), down-migrations, transactional rollback of a failed migration, cross-bundle state sharing. If a migration throws mid-way, the disk file keeps its old version; next load retries the same step.
 

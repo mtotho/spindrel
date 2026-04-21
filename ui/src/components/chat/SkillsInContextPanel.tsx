@@ -35,13 +35,22 @@ export interface UseSkillsInContextArgs {
   composerText?: string;
 }
 
+// Stable empty reference so the Zustand selector snapshot is identity-stable
+// when there is no channelId. Returning a fresh `[]` made every getSnapshot
+// call look like a change, which drove `useSyncExternalStore` into an infinite
+// rerender loop (React #185) the moment an ephemeral/scratch session mounted
+// without a sessionId.
+const EMPTY_MESSAGES: never[] = [];
+
 /** Derives the loaded+queued skill count from chat messages + composer text.
  *  Cheap — no network. Safe to call from any composer button that just needs a badge count. */
 export function useSkillsInContext({
   channelId,
   composerText = "",
 }: UseSkillsInContextArgs): { entries: LoadedEntry[]; count: number } {
-  const messages = useChatStore((s) => (channelId ? s.getChannel(channelId).messages : []));
+  const messages = useChatStore((s) =>
+    channelId ? s.getChannel(channelId).messages : EMPTY_MESSAGES,
+  );
   return useMemo(() => deriveEntries(messages, composerText), [messages, composerText]);
 }
 

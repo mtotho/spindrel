@@ -399,6 +399,7 @@ function EphemeralChatSession({
   onClose,
   title = "Chat",
   emptyState,
+  initiallyExpanded,
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
   const qc = useQueryClient();
@@ -417,7 +418,27 @@ function EphemeralChatSession({
   const modelProviderId = stored?.modelProviderId ?? null;
 
   const [mode, setMode] = useState<"dock" | "modal">(shape);
-  const [dockExpanded, setDockExpanded] = useState(false);
+  // For ephemeral docks we always land on the panel (no FAB intermediate) —
+  // the entry point is the channel header button, so a collapsed FAB state
+  // would be redundant chrome. Collapse requests become full closes below.
+  const [dockExpanded, setDockExpanded] = useState(
+    shape === "dock" && (initiallyExpanded ?? false),
+  );
+
+  // Measure the composer overlay height so messages scroll BEHIND the
+  // frosted composer instead of being clipped by it. Mirrors ChannelChatSession
+  // and the main channel screen.
+  const inputOverlayRef = useRef<HTMLDivElement>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
 
   const persistRef = useRef<(patch: Partial<StoredEphemeralState>) => void>(() => {});
   persistRef.current = (patch: Partial<StoredEphemeralState>) => {
@@ -532,10 +553,12 @@ function EphemeralChatSession({
     setResetArmed(false);
   }, [resetArmed, sessionStorageKey]);
 
+  // Ephemeral session: X always closes. No FAB-collapse intermediate (the
+  // only entry point is the channel header button, so a minimized dock-FAB
+  // would be redundant chrome).
   const handleHeaderClose = useCallback(() => {
-    if (mode === "dock") setDockExpanded(false);
-    else onClose();
-  }, [mode, onClose]);
+    onClose();
+  }, [onClose]);
 
   const expandTitle = mode === "dock" ? "Expand to full view" : "Minimize to dock";
   const ExpandIcon = mode === "dock" ? Maximize2 : Minimize2;
@@ -617,33 +640,39 @@ function EphemeralChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
+            scrollPaddingBottom={inputOverlayHeight + 16}
           />
         ) : (
           <div
             className="absolute inset-0 flex items-center justify-center text-text-dim text-sm px-4 text-center"
+            style={{ paddingBottom: inputOverlayHeight + 16 }}
           >
             {emptyState ?? "Send a message to start the conversation"}
           </div>
         )}
-      </div>
-      {sendError && (
-        <div className="px-4 py-1.5 text-[11px] text-red-400 border-t border-red-500/20 bg-red-500/5 shrink-0">
-          {sendError}
+        {/* Composer overlay — messages scroll behind the frosted card
+            (mirrors ChannelChatSession + the main channel screen). No
+            border-top wrapper; the card's own elevation separates it. */}
+        <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+          {sendError && (
+            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+              {sendError}
+            </div>
+          )}
+          <MessageInput
+            onSend={handleSend}
+            disabled={!botId}
+            isStreaming={isSending}
+            currentBotId={botId || undefined}
+            channelId={sessionId ?? undefined}
+            modelOverride={modelOverride}
+            modelProviderIdOverride={modelProviderId}
+            onModelOverrideChange={setModelOverride}
+            defaultModel={bots?.find((b) => b.id === botId)?.model}
+            configOverhead={overheadPct}
+            compact
+          />
         </div>
-      )}
-      <div className="shrink-0" style={{ borderTop: `1px solid ${t.surfaceBorder}` }}>
-        <MessageInput
-          onSend={handleSend}
-          disabled={!botId}
-          isStreaming={isSending}
-          currentBotId={botId || undefined}
-          channelId={sessionId ?? undefined}
-          modelOverride={modelOverride}
-          modelProviderIdOverride={modelProviderId}
-          onModelOverrideChange={setModelOverride}
-          defaultModel={bots?.find((b) => b.id === botId)?.model}
-          configOverhead={overheadPct}
-        />
       </div>
     </div>
   );
@@ -660,7 +689,13 @@ function EphemeralChatSession({
     <ChatSessionDock
       open={open}
       expanded={dockExpanded}
-      onExpandedChange={setDockExpanded}
+      // Collapse → close. Never drop back into the FAB shell; the only
+      // entry point is the channel header button, so re-minimizing to a
+      // FAB would duplicate chrome.
+      onExpandedChange={(next) => {
+        if (next) setDockExpanded(true);
+        else onClose();
+      }}
       title={title}
     >
       {body}

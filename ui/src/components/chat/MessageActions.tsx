@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Check, Activity, Cog, FileText, MessageCircle } from "lucide-react";
+import { Copy, Check, Activity, Cog, FileText, MessageCircle, CornerDownRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { writeToClipboard } from "../../utils/clipboard";
@@ -116,6 +116,10 @@ export interface TimestampActionsProps {
   correlationId?: string;
   /** When defined, this is a bot message and "View bot info" becomes available */
   onBotClick?: () => void;
+  /** When true, show "Reply in thread" — the primary mobile affordance for
+   *  starting a thread, since the desktop hover action bar isn't reachable. */
+  canReplyInThread?: boolean;
+  onReplyInThread?: () => void;
   t: ThemeTokens;
 }
 
@@ -125,6 +129,8 @@ export function TimestampActions({
   fullTurnText,
   correlationId,
   onBotClick,
+  canReplyInThread,
+  onReplyInThread,
   t,
 }: TimestampActionsProps) {
   const navigate = useNavigate();
@@ -180,7 +186,8 @@ export function TimestampActions({
   };
 
   const hasFullTurn = !!fullTurnText && fullTurnText !== text && fullTurnText.length > text.length;
-  const nothingToShow = !correlationId && !onBotClick && !text;
+  const showReply = !!(canReplyInThread && onReplyInThread);
+  const nothingToShow = !correlationId && !onBotClick && !text && !showReply;
   if (nothingToShow) {
     return (
       <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -206,6 +213,17 @@ export function TimestampActions({
             zIndex: 10040,
           }}
         >
+          {showReply && (
+            <MenuItem
+              icon={<CornerDownRight size={14} />}
+              label="Reply in thread"
+              t={t}
+              onClick={() => {
+                setOpen(false);
+                onReplyInThread!();
+              }}
+            />
+          )}
           {correlationId && (
             <MenuItem
               icon={<Activity size={14} />}

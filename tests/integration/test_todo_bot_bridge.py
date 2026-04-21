@@ -186,6 +186,62 @@ async def test_iframe_and_bot_paths_see_same_state(
 
 
 @pytest.mark.asyncio
+async def test_cross_bot_widget_handler_triggers_approval_gate(
+    seeded, db_session, channel,
+):
+    """Widget handler tool names flow through the standard approval gate.
+
+    The widget-handler bridge was flagged as a potential trust-boundary
+    break: bot A's turn invoking a handler on bot B's pinned widget runs
+    the handler under bot B's identity. The design answer is that the
+    pin bot is the ceiling AND the standard tool-policy approval gate
+    still fires per the configured rule set.
+
+    This test pins the approval-gate half of that contract:
+    ``evaluate_tool_policy`` receives a ``widget.todo.add_todo`` tool name
+    from a caller bot that does NOT own the pin, and an explicit
+    ``ToolPolicyRule`` with a ``widget.todo.*`` glob turns the call into
+    ``require_approval`` — the same decision shape any other mutating
+    tool would produce. No special-case bypass, no silent allow.
+    """
+    from app.db.models import ToolPolicyRule
+    from app.services.tool_policies import evaluate_tool_policy
+
+    with _bot_patch():
+        await _create_pin(db_session, channel)
+
+    # Global rule — bot_id is NULL so it applies to any caller bot.
+    rule = ToolPolicyRule(
+        bot_id=None,
+        tool_name="widget.todo.*",
+        action="require_approval",
+        priority=50,
+        reason="Mutating Todo widget handlers require approval",
+        enabled=True,
+    )
+    db_session.add(rule)
+    await db_session.commit()
+
+    # Caller bot_id is intentionally different from the pin owner (_BOT_ID)
+    # so this doubles as a cross-bot invocation.
+    caller_bot_id = "some-other-bot"
+    decision = await evaluate_tool_policy(
+        db_session, caller_bot_id, "widget.todo.add_todo",
+        {"title": "pay bills"},
+    )
+    assert decision.action == "require_approval"
+    assert decision.rule_id == str(rule.id)
+
+    # Readonly handlers on the same widget also route through the gate —
+    # the glob catches them — and the same policy choice applies.
+    decision_ro = await evaluate_tool_policy(
+        db_session, caller_bot_id, "widget.todo.list_todos", {},
+    )
+    assert decision_ro.action == "require_approval"
+    assert decision_ro.rule_id == str(rule.id)
+
+
+@pytest.mark.asyncio
 async def test_bot_path_mutation_visible_in_iframe_path(
     client, seeded, db_session, channel,
 ):

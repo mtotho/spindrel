@@ -49,48 +49,49 @@ Rules:
 
 The scanner walks any `.html` under a directory named `widgets/` plus any `.html` anywhere in the channel workspace that references `window.spindrel.*`. Files matched only by the second rule show a "loose" badge — move them into a `widgets/<slug>/` folder to clear it.
 
-### Path grammar — use absolute `/workspace/channels/<channel_id>/...` for both tools
+### Path grammar — author under `widget://` and emit by `library_ref`
 
-The cleanest pattern is **symmetric**: pass the same absolute path to `file` and `emit_html_widget`. Both accept the `/workspace/channels/<channel_id>/...` form, and using it removes any ambiguity about where the file lands.
+Bots never touch filesystem paths for widget source. Address bundles by **virtual URI** with the `file` tool, and emit them by **library ref**. Three scopes:
+
+| Scope | URI | Writable? | When |
+|---|---|---|---|
+| **bot** | `widget://bot/<name>/...` | Yes | Default. Your bot's private library. Always available. |
+| **workspace** | `widget://workspace/<name>/...` | Yes | Shared across every bot in the workspace. Shared-workspace bots only — standalone bots can't use this scope. |
+| **core** | `widget://core/<name>/...` | No | In-repo widgets that ship with the server. Read-only — copy one into `widget://bot/<name>/...` if you want to fork it. |
 
 ```
 # 1. WRITE the bundle
 file(create,
-     path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html",
+     path="widget://bot/project-status/index.html",
      content="<!doctype html>...")
 
-# 2. EMIT the widget — same absolute path
+# 2. EMIT the widget — by library ref
 emit_html_widget(
-    path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html",
+    library_ref="project-status",
     display_label="Project status")
 ```
 
-Your **current channel ID** is in your system context (pinned-widget chrome + turn context). You can also discover it inside the widget at runtime via `window.spindrel.channelId`.
+Unscoped refs (`library_ref="project-status"`) resolve in the order **bot → workspace → core**, so a bot-authored widget naturally shadows a core name. Prefix with `bot/`, `workspace/`, or `core/` to disambiguate: `library_ref="core/project_status"` always hits the shipped core copy.
 
-**Why this form is better** than the relative shortcut:
+**Why virtual paths** — bundles live in one place and render anywhere (any channel, cron runs, non-channel contexts). You never encode a channel ID, never fight the "which workspace does this path resolve against" question, and `file(list_files, path="widget://bot/")` gives you a clean catalogue walk.
 
-- Works **even when you're outside a channel** (cron-triggered tasks, autoresearch, task pipelines). Relative paths require a current channel to scope against; absolute paths carry their own target channel.
-- Lets you emit widgets that target a **different channel** than the one you're replying in — useful for cross-channel dashboards.
-- Matches what the `file` tool needs anyway (its relative paths are rooted at the bot workspace, not the channel workspace), so you avoid the two-grammar trap.
+### `path=` — explicit file overrides
 
-### Shortcut: relative paths (in-channel only)
+`emit_html_widget(path=...)` stays around for the rare case where you want to render a one-off HTML file that isn't part of the library. Accepts:
 
-`emit_html_widget` still accepts channel-workspace-relative paths like `data/widgets/foo/index.html` when you're inside a channel — it scopes them to the current channel. But be aware:
+- `/workspace/channels/<channel_id>/<rest>` — a specific channel's workspace (from outside that channel, e.g. cron).
+- A channel-workspace-relative path like `data/widgets/foo/index.html` — resolves against your current channel.
 
-- The `file` tool's relative paths resolve to the **bot workspace** (`{ws}/{bot}/`), not the channel workspace. So `file(path="data/widgets/foo/index.html")` + `emit_html_widget(path="data/widgets/foo/index.html")` point at **different files**. You'll see `Workspace file not found (or path escapes workspace)`.
-- If you go the relative-path route, use `file(path="channels/<CHANNEL_ID>/data/widgets/foo/index.html")` (note the `channels/<id>/` prefix) so both tools land on the same file.
-
-**Recommended**: just use the absolute form everywhere. It's longer to type, but it's the form that always works.
-
-**Non-channel absolute paths** (`/workspace/widgets/<slug>/...`) are reserved for DX-5b and currently rejected with a clear error.
+Don't reach for `path=` for anything reusable. If the user will pin it or you might iterate, write to `widget://bot/<name>/...` and emit by `library_ref` instead.
 
 ### The bundle shape
 
-Each widget is a folder:
+Each widget is a folder under its library scope:
 
 ```
-/workspace/channels/<channel_id>/data/widgets/<widget-slug>/
-├── index.html          ← the widget itself (emit_html_widget path target)
+widget://bot/<name>/
+├── index.html          ← the widget itself (library_ref target)
+├── widget.yaml         ← manifest — needed for handlers/db/layout hints (optional)
 ├── state.json          ← mutable state the widget reads/writes (optional)
 ├── data.json           ← static bundled data (optional)
 ├── README.md           ← your own notes about what this widget does (optional)
@@ -98,36 +99,27 @@ Each widget is a folder:
 └── assets/             ← images, icons, sub-data files (optional)
 ```
 
-Scope rules:
-
-| Scope | Root | Status |
-|---|---|---|
-| **Channel-specific** — tied to this channel's data or project | `/workspace/channels/<channel_id>/data/widgets/<slug>/` (file tool) → `data/widgets/<slug>/` (emit_html_widget) | **Default.** Works today. |
-| **Non-channel-scoped** — reusable across channels | `/workspace/widgets/<slug>/` | **Queued (DX-5b).** Not resolvable yet; passing a `/workspace/widgets/...` path currently fails. Stick to channel-scoped. |
-
 Conventions:
 
-- **Slug is kebab-case**: `project-status`, `sprint-burndown`, `sonarr-queue`, `home-control`.
-- **Always path-mode** for anything you want to iterate on — inline mode is for one-off snapshots. Path mode hot-reloads within ~3 s of a file edit.
+- **Name is `[a-zA-Z0-9_-]+`**: `project_status`, `sprint-burndown`, `sonarr_queue`, `home_control`. Names disambiguate across scopes, so pick something specific enough that it won't collide.
 - **Relative paths work inside the bundle** — `./state.json`, `../shared/config.json`, `./assets/logo.svg` resolve against the widget's `index.html` directory inside the iframe. See `widgets/sdk.md#relative-paths`.
-- **One folder per widget.** Keep the tree legible; a bundle can then be renamed/moved/deleted atomically.
+- **One folder per widget.** Bundles rename / move / delete atomically via `file(move, ...)` on the `widget://` URI.
 
-Discover the current channel id at runtime:
+Discover the current channel id at runtime (for API calls scoped to this channel):
 
 ```js
 window.spindrel.channelId   // the emitting channel's UUID, or null if unbound
 ```
 
-If you're building inside an ephemeral widget-dashboard session: you inherit the parent channel's workspace and channel context, so use the parent channel's ID in `/workspace/channels/<parent_channel_id>/data/widgets/<slug>/` with the `file` tool. (Non-channel roots arrive with DX-5b.)
-
 ## The two modes
 
 | Mode | Signature | When | Auto-updates |
 |---|---|---|---|
+| **Library ref** | `emit_html_widget(library_ref="<name>", display_label?)` | **Default.** You authored (or want to reuse) a bundle under `widget://bot|workspace|core/<name>/`. | Yes — re-fetches the bundle |
 | **Inline** | `emit_html_widget(html=..., js?, css?, display_label?)` | One-off snapshot. You assemble the widget from data you already have. | No — static snapshot |
-| **Path** | `emit_html_widget(path="data/widgets/foo/index.html", display_label?)` — channel-workspace-relative | You wrote (or will iterate on) a workspace file. The widget re-renders when the file changes. | Yes — polls the file every 3 s |
+| **Path** | `emit_html_widget(path="/workspace/channels/<id>/...", display_label?)` | Explicit workspace-file override. Use for ad-hoc files outside the library. | Yes — polls the file every 3 s |
 
-Exactly one of `html` / `path` is required.
+Exactly one of `library_ref` / `html` / `path` is required.
 
 ### Inline Example
 
@@ -151,14 +143,12 @@ emit_html_widget(
 )
 ```
 
-### Path Example (the default for dashboards)
+### Library-ref Example (the default for dashboards)
 
 ```
-1. file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html", content="<html>… full doc …</html>")
-2. file(create, path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/state.json", content='{"phase":"Planning","progress":0}')
-3. emit_html_widget(path="/workspace/channels/<CHANNEL_ID>/data/widgets/project-status/index.html", display_label="Project status")
-
-Same path for both tools. `emit_html_widget` parses the `/workspace/channels/<channel_id>/` prefix and scopes to that channel regardless of whether you're currently in it.
+1. file(create, path="widget://bot/project-status/index.html", content="<html>… full doc …</html>")
+2. file(create, path="widget://bot/project-status/state.json", content='{"phase":"Planning","progress":0}')
+3. emit_html_widget(library_ref="project-status", display_label="Project status")
 ```
 
 After pinning, further edits to files in that bundle refresh the pinned widget within ~3 seconds. Iterate on the folder; no need to re-emit.
@@ -169,7 +159,7 @@ For widgets meant to BE the dashboard — a single self-contained mini-app rathe
 
 ```
 emit_html_widget(
-    path="/workspace/channels/<CHANNEL_ID>/data/widgets/control-room/index.html",
+    library_ref="control-room",
     display_label="Control room",
     display_mode="panel",
 )
@@ -214,7 +204,7 @@ Some widgets need to pull in external libraries that can't be inlined — Google
 
 ```python
 emit_html_widget(
-    path="data/widgets/home-map/index.html",
+    library_ref="home-map",
     display_label="Home map",
     extra_csp={
         "script_src":  ["https://maps.googleapis.com", "https://maps.gstatic.com"],
