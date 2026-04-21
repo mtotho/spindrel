@@ -72,8 +72,9 @@ export function ScratchHistoryModal({ open, onClose, channelId }: ScratchHistory
                   <button
                     onClick={() => {
                       onClose();
+                      const archiveQuery = row.is_current ? "" : "&archive=true";
                       navigate(
-                        `/channels/${channelId}/scratch/${row.session_id}`,
+                        `/channels/${channelId}/session/${row.session_id}?scratch=true${archiveQuery}`,
                       );
                     }}
                     className="w-full text-left px-4 py-3 hover:bg-white/5 transition-colors flex flex-col gap-1"

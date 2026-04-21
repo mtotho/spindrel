@@ -26,7 +26,7 @@ Bots need only `model` + `system_prompt` — everything else is discovered at ru
 
 ### Widget Dashboards + Interactive HTML Widgets
 
-Tool results become **live, interactive control surfaces**. Pin them to a **channel dashboard** (lazy-created per channel, surfaces in the OmniPanel rail) or to a **user dashboard** (Home Assistant-style grid, drag + resize). Bots can author their own HTML widgets via `emit_html_widget` — full-iframe dashboards with `window.spindrel.*` helpers for tool dispatch, workspace file read/write, and deep-merge RMW over JSON state. Widgets authenticate as the emitting bot via short-lived JWTs, not the viewer.
+Tool results become **live, interactive control surfaces**. Pin them to a **channel dashboard** (lazy-created per channel and mapped onto the channel layout zones: left rail, center dashboard, right rail, and top-center chips) or to a **user dashboard** (Home Assistant-style grid, drag + resize). Bots can author their own HTML widgets via `emit_html_widget` — full-iframe dashboards with `window.spindrel.*` helpers for tool dispatch, workspace file read/write, and deep-merge RMW over JSON state. Widgets authenticate as the emitting bot via short-lived JWTs, not the viewer.
 
 ### Task Pipelines + Sub-Sessions
 
@@ -50,7 +50,7 @@ Bots create their own skills at runtime via `manage_bot_skill`. Three learning n
 
 ### Integration Framework
 
-Pluggable integrations with auto-discovery. Shipped: Slack (with App Home, modals, ephemeral messages, reaction intents), GitHub, Discord, Gmail, Frigate (cameras + event timeline), Home Assistant (device control), Excalidraw (collaborative whiteboard), OpenWeather, Web Search, Wyoming (STT/TTS), Mission Control, Arr, Claude Code, BlueBubbles, Google Workspace, Firecrawl, VS Code, Ingestion. Each provides routers, dispatchers, tools, lifecycle hooks, and in-chat HUD widgets. Extend with your own via `INTEGRATION_DIRS`.
+Pluggable integrations with auto-discovery. Shipped: Slack (with App Home, modals, ephemeral messages, reaction intents), GitHub, Discord, Gmail, Frigate (cameras + event timeline), Home Assistant (device control), Excalidraw (collaborative whiteboard), Browser Live (real logged-in browser control), OpenWeather, Web Search, Wyoming (STT/TTS), Mission Control, Arr, Claude Code, BlueBubbles, Google Workspace, Firecrawl, VS Code, Ingestion. Each provides routers, dispatchers, tools, lifecycle hooks, and in-chat HUD widgets. Extend with your own via `INTEGRATION_DIRS`.
 
 ### Sub-Agents
 
@@ -93,6 +93,8 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 |-------|-------------|
 | [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, templates, activation, capabilities, and how they compose. |
 | [Setup Guide](setup.md) | Installation, providers, workspaces, integrations, troubleshooting. |
+| [Feature Status](guides/feature-status.md) | High-level product-feature snapshot: what is working, partial, advanced, experimental, or deprecated. |
+| [Integration Status](guides/integration-status.md) | Honest snapshot of which integrations are working, partial, untested, or experimental. |
 | [LLM Providers](guides/providers.md) | All seven provider types, feature matrix, ChatGPT Subscription OAuth walkthrough. |
 | [Templates & Activation](guides/templates-and-activation.md) | Activate integrations on channels, pick workspace templates, instant project setup. |
 | [Slack Integration](guides/slack.md) | Connect Spindrel to Slack via Socket Mode. |
@@ -101,6 +103,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Gmail Integration](guides/gmail.md) | Gmail integration for email-driven workflows. |
 | [Home Assistant](guides/homeassistant.md) | Device control via MCP — toggle + brightness widgets, live state polling, targeting grammar. |
 | [Excalidraw](guides/excalidraw.md) | Hand-drawn-style diagrams from Excalidraw JSON or Mermaid. |
+| [Browser Live](guides/browser-live.md) | Pair a Chrome extension and let bots drive your real logged-in browser session. |
 | [Delegation](guides/delegation.md) | Bot-to-bot delegation — immediate and deferred. |
 | [Secrets & Redaction](guides/secrets.md) | Secret vault, automatic redaction, and user input detection. |
 | [Content Ingestion](guides/ingestion.md) | Security pipeline for content feeds with sidebar dashboard and feed health HUD. |
@@ -112,7 +115,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
 | [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external capabilities and skills. |
-| [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards, channel dashboards, and the OmniPanel rail. How component widgets and HTML widgets live side-by-side. |
+| [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards plus channel-dashboard zones: left rail, center dashboard, right rail, and top-center chips. |
 | [HTML Widgets](guides/html-widgets.md) | Bot-authored live dashboards. How the bot-scoped iframe auth works and how to provision bots that can build them. |
 | [Widget Templates](widget-templates.md) | YAML widget templates that render tool results as live, interactive UI. Component templates, HTML templates, and the `state_poll` field. |
 | [Developer Panel](guides/dev-panel.md) | `/widgets/dev` — browse the catalog, author templates with live preview, call tools in a sandbox, inspect recent results. |

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { useChannelContextBreakdown } from "@/src/api/hooks/useChannels";
+import { useChannelContextBreakdown, type ContextBreakdownMode } from "@/src/api/hooks/useChannels";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
@@ -161,7 +161,8 @@ function ContextPreview({ channelId }: { channelId: string }) {
 // ---------------------------------------------------------------------------
 export function ContextTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
-  const { data, isLoading } = useChannelContextBreakdown(channelId);
+  const [mode, setMode] = useState<ContextBreakdownMode>("last_turn");
+  const { data, isLoading } = useChannelContextBreakdown(channelId, mode);
 
   const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
     static:       { bar: t.accent, dot: "#60a5fa" },
@@ -188,6 +189,38 @@ export function ContextTab({ channelId }: { channelId: string }) {
 
   return (
     <>
+      {/* Mode toggle: Last turn (matches header) vs Next-turn forecast */}
+      <div style={{
+        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
+        padding: "8px 12px", marginBottom: 12,
+        background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
+      }}>
+        <div style={{ display: "flex", flexDirection: "row", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${t.surfaceBorder}` }}>
+          {(["last_turn", "next_turn"] as const).map((m) => {
+            const active = mode === m;
+            return (
+              <button
+                key={m}
+                onClick={() => setMode(m)}
+                style={{
+                  padding: "5px 12px", fontSize: 11, fontWeight: 600,
+                  background: active ? t.accent : "transparent",
+                  color: active ? "#fff" : t.textMuted,
+                  border: "none", cursor: "pointer",
+                }}
+              >
+                {m === "last_turn" ? "Last turn" : "Next-turn forecast"}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: t.textDim, flex: 1 }}>
+          {mode === "last_turn"
+            ? "Total tokens reflect what the most recent turn actually consumed (matches the chat header)."
+            : "Total tokens are a forecast of what the next turn would consume given the current configuration."}
+        </div>
+      </div>
+
       {/* Summary card */}
       <Section title="Summary">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>

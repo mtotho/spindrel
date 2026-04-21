@@ -65,6 +65,61 @@ Still next in queue from the audit:
 - Add a proper `browser_live` guide under `docs/guides/` and wire it into nav/index.
 - Update `dev-panel.md`, `widget-dashboards.md`, and `task-sub-sessions.md` for widget-library flow, dashboard "Developer tools" entry, scratch history/current-pointer endpoints, and panel mode.
 
+### 2026-04-21 progress — second docs batch
+
+Shipped the next missing-docs pass:
+
+- **New guide:** `docs/guides/browser-live.md` covering pairing, architecture, safety model, and operator flow. Wired into both `docs/index.md` and `mkdocs.yml`.
+- **`docs/guides/dev-panel.md`** updated for the current dashboard entry point (`Add widget` split-button → `Developer tools`), the Library tab's actual purpose (core/bot/workspace library widgets via `/api/v1/widgets/library-widgets`), and the correct shipped file reference (`LibraryWidgetsTab.tsx`).
+- **`docs/guides/task-sub-sessions.md`** updated for the current scratch-session model: `/sessions/scratch/current`, `/reset`, `/list`, cross-device current-pointer behavior, `ScratchHistoryModal`, and `ScratchViewer`.
+
+Remaining docs from the audit are now narrower:
+
+- `widget-dashboards.md` still needs panel-mode / promote-to-panel coverage and a brief note about the Library-tab pin flow.
+- `api.md` could use explicit mention of `/api/v1/widgets/library-widgets`, scratch endpoints, and browser_live admin endpoints if we want the API guide to stay exhaustive.
+
+### 2026-04-21 progress — third docs batch
+
+Closed the remaining narrow user-doc gaps from the audit:
+
+- **`docs/guides/widget-dashboards.md`** now covers the Add-widget split-button, Library-tab pin flow, and panel mode / promote-to-panel behavior.
+- **`docs/guides/api.md`** now explicitly documents `/api/v1/widgets/library-widgets`, panel-mode endpoints, scratch current/reset/list routes, and the `browser_live` admin endpoints outside `/api/v1/`.
+
+At this point the original audit's concrete gaps are mostly closed. Remaining work is now polish-oriented rather than "missing core docs":
+
+- broader terminology cleanup where older "Mission Control" framing may still be too dominant
+- screenshot replacement as the new image set lands
+- optional additional API-guide exhaustiveness passes when new endpoints ship
+
+### 2026-04-21 progress — integration transparency page
+
+Added a new public guide, **`docs/guides/integration-status.md`**, linked from `docs/index.md` and `mkdocs.yml`.
+
+Purpose:
+
+- Give users an explicit, dated, non-marketing snapshot of integration maturity
+- Mark integrations conservatively as `working`, `working (beta)`, `partial`, `untested`, or `experimental`
+- Make it easy to say things like "Slack is solid, Discord is not yet validated, BlueBubbles is partial" without hiding that reality inside roadmap prose
+
+Intentional omission:
+
+- **Gmail** left out of the matrix per current product direction ("on the way out")
+
+### 2026-04-21 progress — high-level feature readiness page
+
+Added a second transparency-oriented guide, **`docs/guides/feature-status.md`**, linked from `docs/index.md` and `mkdocs.yml`.
+
+Purpose:
+
+- Give users a product-level readiness map separate from the integration matrix
+- Cover the high-level features people actually evaluate: discovery, self-improving agents, markdown/file memory, archived chat history, pipelines/heartbeats, provider support, widgets, extensibility, command execution, APIs, security posture, mobile/PWA, backup/setup, etc.
+- Keep the labels blunt (`working`, `working (beta)`, `partial`, `advanced`, `experimental`, `deprecated`) instead of collapsing everything into a generic feature list
+
+Follow-up refinement the same day:
+
+- Split the page into **readiness** and **confidence** instead of pretending those are the same thing
+- Confidence is now explicitly grounded in operator usage feedback (e.g. command palette = high confidence from constant use; usage tracking = working but medium confidence because cost estimates are best-effort; tool policies = works but not yet polished; webhooks = documented but low-confidence due to limited recent exercise)
+
 ### What shipped in session 19 (Phase B finish + Phase D + Phase E nav)
 
 **Phase D — all 7 missing guides created** (this session)

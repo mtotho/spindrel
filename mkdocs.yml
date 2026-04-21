@@ -33,6 +33,8 @@ nav:
   - Home: index.md
   - Getting Started:
     - Setup: setup.md
+    - Feature Status: guides/feature-status.md
+    - Integration Status: guides/integration-status.md
     - LLM Providers: guides/providers.md
     - Docker Deployment: docker-deployment.md
     - Migration: migration.md
@@ -77,6 +79,7 @@ nav:
     - Gmail: guides/gmail.md
     - Home Assistant: guides/homeassistant.md
     - Excalidraw: guides/excalidraw.md
+    - Browser Live: guides/browser-live.md
   - Reference:
     - Architecture: reference/architecture.md
     - RAG Pipeline: reference/rag-pipeline.md

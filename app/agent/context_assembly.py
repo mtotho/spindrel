@@ -206,6 +206,38 @@ def _render_channel_workspace_prompt(
         return _dialect_render(DEFAULT_CHANNEL_WORKSPACE_PROMPT, style).format_map(replacements)
 
 
+async def _build_tagged_skill_hint_lines(skill_ids: list[str]) -> list[str]:
+    """Build one hint line per tagged skill — ``- <id> — <name>: <description>``.
+
+    Looks up SkillRow by id (no chunk fetch, no ephemeral embedding). Unknown
+    ids are skipped silently. Descriptions truncate to 160 chars.
+    """
+    if not skill_ids:
+        return []
+    from sqlalchemy import select
+    from app.db.engine import async_session
+    from app.db.models import Skill as SkillRow
+
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(SkillRow.id, SkillRow.name, SkillRow.description)
+            .where(SkillRow.id.in_(skill_ids))
+            .where(SkillRow.archived_at.is_(None))
+        )).all()
+    by_id = {r.id: r for r in rows}
+    lines: list[str] = []
+    for sid in skill_ids:
+        row = by_id.get(sid)
+        if row is None:
+            continue
+        desc = (row.description or "").strip()
+        if len(desc) > 160:
+            desc = desc[:157] + "..."
+        head = f"- `{sid}` — {row.name}" if row.name else f"- `{sid}`"
+        lines.append(f"{head}: {desc}" if desc else head)
+    return lines
+
+
 def _compact_tool_usage(name: str, fn: dict[str, Any]) -> str:
     """Compact usage hint with types + enums so the bot can skip get_tool_info.
 
@@ -287,6 +319,11 @@ class AssemblyResult:
     effective_local_tools: list[str] | None = None
     auto_inject_skills: list[dict[str, Any]] = field(default_factory=list)
     active_skills: list[dict[str, Any]] = field(default_factory=list)
+    # Per-category injection chars — populated by assemble_context for callers
+    # that want the breakdown without scraping trace events (e.g. dev-panel
+    # next-turn forecast). Mirrors the dict written into the
+    # `context_injection_summary` trace event.
+    inject_chars: dict[str, int] = field(default_factory=dict)
 
 
 async def _inject_memory_scheme(
@@ -1148,16 +1185,22 @@ async def assemble_context(
         set_ephemeral_skills(_merged)
 
     if _tagged:
-        # Inject tagged skill chunks (bypasses similarity threshold)
+        # Tagged skills are pointers, not auto-injections. We surface a compact
+        # hint (name + truncated description) so the model can decide whether
+        # to load the skill via get_skill(skill_id=...). This avoids burning
+        # tokens on every turn when the user just wants to remind the bot a
+        # skill exists.
         if _tagged_skill_names:
-            _tagged_skill_chunks: list[str] = []
-            for _sid in _tagged_skill_names:
-                _tagged_skill_chunks.extend(await fetch_skill_chunks_by_id(_sid))
-            if _tagged_skill_chunks:
+            _hint_lines = await _build_tagged_skill_hint_lines(_tagged_skill_names)
+            if _hint_lines:
                 messages.append({
                     "role": "system",
-                    "content": "Tagged skill context (explicitly requested):\n\n"
-                               + "\n\n---\n\n".join(_tagged_skill_chunks),
+                    "content": (
+                        "Tagged skill context (explicitly requested): the user "
+                        "tagged these skills. Call "
+                        'get_skill(skill_id="...") to load any you need — '
+                        "otherwise ignore.\n\n" + "\n".join(_hint_lines)
+                    ),
                 })
 
         yield {
@@ -1260,13 +1303,47 @@ async def assemble_context(
                 parts.append(f" [{', '.join(r.triggers)}]")
             return "".join(parts)
 
+        def _skill_category(r) -> str:
+            cat = getattr(r, "category", None)
+            if cat:
+                return cat
+            if "/" in r.id:
+                return r.id.split("/", 1)[0]
+            return "misc"
+
+        def _render_grouped_skill_lines(rows_in_order: list, relevant_ids: set) -> str:
+            categories: dict[str, list[str]] = {}
+            cat_order: list[str] = []
+            for _r in rows_in_order:
+                _c = _skill_category(_r)
+                if _c not in categories:
+                    categories[_c] = []
+                    cat_order.append(_c)
+                categories[_c].append(_fmt_skill_line(_r, relevant=_r.id in relevant_ids))
+            if len(rows_in_order) < 5 or len(cat_order) < 2:
+                return "\n".join(
+                    _fmt_skill_line(_r, relevant=_r.id in relevant_ids)
+                    for _r in rows_in_order
+                )
+            if "core" in cat_order:
+                cat_order.remove("core")
+                cat_order.insert(0, "core")
+            chunks: list[str] = []
+            for _c in cat_order:
+                chunks.append(f"[{_c}]")
+                chunks.extend(categories[_c])
+            return "\n".join(chunks)
+
         # Working set: load metadata for already-enrolled skills.
         if bot.skills:
             _enrolled_ids = [s.id for s in bot.skills]
             try:
                 async with _async_session() as _db:
                     _enrolled_rows = (await _db.execute(
-                        _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
+                        _sa_select(
+                            _SkillRow.id, _SkillRow.name, _SkillRow.description,
+                            _SkillRow.triggers, _SkillRow.category,
+                        )
                         .where(_SkillRow.id.in_(_enrolled_ids))
                     )).all()
             except Exception:
@@ -1307,10 +1384,8 @@ async def assemble_context(
                             _sorted_ids.append(r.id)
 
                     _has_relevant = bool(_ranked_relevant)
-                    _working_lines = "\n".join(
-                        _fmt_skill_line(_row_map[sid], relevant=sid in _ranked_relevant)
-                        for sid in _sorted_ids if sid in _row_map
-                    )
+                    _ordered_rows = [_row_map[sid] for sid in _sorted_ids if sid in _row_map]
+                    _working_lines = _render_grouped_skill_lines(_ordered_rows, set(_ranked_relevant))
                     _header = (
                         "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
                         "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content. "
@@ -1321,10 +1396,8 @@ async def assemble_context(
                         "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
                     )
                 else:
-                    # No ranking (disabled, no user_message, or failure) — flat list
-                    _working_lines = "\n".join(
-                        _fmt_skill_line(r) for r in _enrolled_rows
-                    )
+                    # No ranking (disabled, no user_message, or failure) — grouped flat list
+                    _working_lines = _render_grouped_skill_lines(list(_enrolled_rows), set())
                     _header = (
                         "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
                         "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
@@ -2124,6 +2197,11 @@ async def assemble_context(
     if budget is not None:
         result.budget_utilization = budget.utilization
 
+    # Mirror the per-category breakdown onto the result so dry-run / preview
+    # callers can read it without scraping trace events.
+    if _inject_chars:
+        result.inject_chars = dict(_inject_chars)
+
     # --- injection summary trace ---
     if correlation_id is not None and _inject_chars:
         _summary_data: dict[str, Any] = {
@@ -2199,6 +2277,118 @@ async def assemble_context(
             event_type="discovery_summary",
             data=_discovery_data,
         ))
+
+
+# ---------------------------------------------------------------------------
+# Dry-run preview — same assembly path the live turn uses, no LLM call,
+# no trace events written.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PreviewResult:
+    """What `assemble_for_preview` returns to the dev panel."""
+    messages: list[dict[str, Any]]
+    inject_chars: dict[str, int]
+    assembly: AssemblyResult
+    budget: "ContextBudget"
+    bot_id: str
+    model: str
+
+
+async def assemble_for_preview(
+    channel_id: uuid.UUID,
+    *,
+    user_message: str = "",
+) -> PreviewResult:
+    """Run `assemble_context` for a channel without dispatching to the LLM.
+
+    Loads the channel's most recent session messages, then drives
+    `assemble_context` to completion with `correlation_id=None` so no trace
+    events are persisted. Returns the assembled messages, the per-category
+    breakdown, the budget snapshot, and the AssemblyResult.
+
+    Used by the dev panel's "next-turn forecast" view — same code path the
+    live turn would take, so the displayed numbers are guaranteed to match
+    the next turn's actual context (modulo any retrievals that depend on
+    `user_message`).
+    """
+    from app.agent.bots import get_bot
+    from app.agent.context_budget import ContextBudget, get_model_context_window
+    from app.db.engine import async_session
+    from app.db.models import Channel, Session
+    from app.services.sessions import _load_messages
+    from sqlalchemy import select
+
+    async with async_session() as db:
+        channel = await db.get(Channel, channel_id)
+        if channel is None:
+            raise ValueError(f"Channel not found: {channel_id}")
+        bot = get_bot(channel.bot_id)
+
+        # Find the most recent session for this channel; fall back to a
+        # synthetic empty list if none exist yet.
+        sess_row = await db.execute(
+            select(Session)
+            .where(Session.channel_id == channel_id)
+            .order_by(Session.created_at.desc())
+            .limit(1)
+        )
+        session = sess_row.scalar_one_or_none()
+        if session is not None:
+            messages = await _load_messages(db, session)
+            session_id = session.id
+        else:
+            messages = []
+            session_id = None
+
+    # Resolve effective model (channel override > bot default) for the budget.
+    effective_model = getattr(channel, "model_override", None) or bot.model
+    effective_provider = (
+        getattr(channel, "model_provider_id_override", None)
+        or bot.model_provider_id
+    )
+    window = get_model_context_window(effective_model, effective_provider)
+    reserve = int(window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
+    budget = ContextBudget(total_tokens=window, reserve_tokens=reserve)
+
+    result = AssemblyResult()
+    # Drain the generator. correlation_id=None disables trace event writes,
+    # so this is genuinely a read-only preview.
+    async for _ in assemble_context(
+        messages=messages,
+        bot=bot,
+        user_message=user_message,
+        session_id=session_id,
+        client_id=None,
+        correlation_id=None,
+        channel_id=channel_id,
+        audio_data=None,
+        audio_format=None,
+        attachments=None,
+        native_audio=False,
+        result=result,
+        system_preamble=None,
+        budget=budget,
+        task_mode=False,
+        skip_skill_inject=False,
+    ):
+        pass
+
+    # Mirror the post-assembly tool-schema accounting that loop.py performs.
+    if result.pre_selected_tools:
+        tool_schema_chars = sum(len(json.dumps(t)) for t in result.pre_selected_tools)
+        from app.agent.context_budget import estimate_tokens as _est
+        budget.consume("tool_schemas", _est("x" * tool_schema_chars))
+
+    return PreviewResult(
+        messages=messages,
+        inject_chars=dict(result.inject_chars),
+        assembly=result,
+        budget=budget,
+        bot_id=bot.id,
+        model=effective_model,
+    )
 
 
 

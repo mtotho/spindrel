@@ -1751,19 +1751,30 @@ async def admin_channel_compaction_logs(
 @router.get("/channels/{channel_id}/context-breakdown")
 async def admin_channel_context_breakdown(
     channel_id: uuid.UUID,
+    mode: str = "last_turn",
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
-    """Compute a detailed context breakdown for the channel's active conversation."""
+    """Detailed context breakdown for the channel's active conversation.
+
+    ``mode=last_turn`` (default) — the headline ``total_tokens_approx`` is
+    the API-reported ``prompt_tokens`` from the most recent turn, so the
+    dev panel agrees with the chat header.
+
+    ``mode=next_turn`` — the headline total is a forecast over the channel's
+    current static configuration. May differ from the chat header by design.
+    """
     from app.services.context_breakdown import compute_context_breakdown
     from dataclasses import asdict
 
+    if mode not in {"last_turn", "next_turn"}:
+        raise HTTPException(status_code=422, detail="mode must be 'last_turn' or 'next_turn'")
+
     try:
-        result = await compute_context_breakdown(str(channel_id), db)
+        result = await compute_context_breakdown(str(channel_id), db, mode=mode)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    # Convert dataclasses to dicts for JSON serialization
     return {
         "channel_id": result.channel_id,
         "session_id": result.session_id,
@@ -1777,6 +1788,8 @@ async def admin_channel_context_breakdown(
             k: {"value": v.value, "source": v.source}
             for k, v in result.effective_settings.items()
         },
+        "context_budget": result.context_budget,
+        "mode": mode,
         "disclaimer": result.disclaimer,
     }
 

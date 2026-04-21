@@ -13,6 +13,7 @@ import {
 } from "@/src/api/hooks/useDiagnostics";
 import { OperationsPanel } from "./OperationsPanel";
 import { DiskUsageSection } from "./DiskUsageSection";
+import { InstallCacheSection } from "./InstallCacheSection";
 import { StorageSection } from "./StorageSection";
 import { SecurityAuditSection } from "./SecurityAuditSection";
 
@@ -270,6 +271,9 @@ export default function DiagnosticsScreen() {
 
             {/* Disk Usage */}
             <DiskUsageSection />
+
+            {/* Install Cache (persistent Docker volumes across rebuilds) */}
+            <InstallCacheSection />
 
             {/* Data Retention & Storage */}
             <div>

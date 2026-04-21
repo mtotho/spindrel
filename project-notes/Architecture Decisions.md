@@ -8,6 +8,17 @@
 
 ## Key Decisions
 
+### Install caches persist via two named volumes; binaries reinstall from cache
+**Decided 2026-04-21.** Runtime-installed integration dependencies (chromium, claude CLI, playwright browsers, pip/npm packages, arbitrary agent-installed files) now survive `spindrel pull` rebuilds via two named Docker volumes: `spindrel-home:/home/spindrel` (user-home writes — `~/.local/bin`, `~/.cache/pip`, `~/.cache/ms-playwright`, `~/.npm`, `~/.claude`) and `spindrel-apt-archives:/var/cache/apt/archives` (downloaded `.deb` files).
+
+**Chose not to persist `/usr/bin` or `/usr/lib`** — too invasive (would shadow the image's system Python, built-in tools, etc.). Instead the existing `integration_deps` reinstall-on-boot loop (`app/services/integration_deps.py:218-304`) still re-runs `apt-get install` for manifest-declared packages, but with archives cached the apt client skips downloads and installs from the volume — ~5–10× faster for large packages like chromium.
+
+**Dockerfile change.** Removed Debian-slim's `/etc/apt/apt.conf.d/docker-clean` and wrote `Binary::apt::APT::Keep-Downloaded-Packages "true"` to `/etc/apt/apt.conf.d/keep-cache` so apt stops auto-wiping archives after each install. Also dropped `rm -rf /var/lib/apt/lists/*` from the three install RUN blocks; the lists ride on the volume and speed up subsequent `apt-get update`.
+
+**Reset surface.** Admin-scoped `GET/POST /api/v1/admin/install-cache[/clear]` (`app/routers/api_v1_admin/install_cache.py`). Clear never removes the mount points themselves (would break the volume binding until restart); home branch does `rm -rf <contents>` + recreates skeleton in-process, apt branch shells out to `sudo apt-get clean` (pre-existing narrow sudoers rule). Surfaced as an "Install Cache" card on the admin Diagnostics page.
+
+**Unrelated concerns intentionally kept out.** `/workspace-data` (agent-authored files) is orthogonal and uncleared by this. Re-embedding skills/tools on rebuild is not a real problem — they're bind-mounted (no image COPY), embeddings live in `pgdata`, upserts are SHA256 content-hash-gated. Supersedes the "System deps lost on every Docker rebuild" Loose End (surfaced 2026-04-15, shipped 2026-04-21).
+
 ### Thread-session outbox enqueue is transactional with message persist
 **Decided 2026-04-20.** The thread branch of `persist_turn` (`app/services/sessions.py`) enqueues outbox rows *before* `db.commit()`, inside the same transaction that inserts the assistant `Message`. Previously it committed the message first and then called a helper (`enqueue_new_message_for_thread_session`) that opened its own session and swallowed failures — a dispatch-side problem would silently leave a persisted message with no outbound delivery. The new shape matches the channel branch exactly: `resolve_targets(channel_row)` + `apply_session_thread_refs(session_row, targets)` + per-record `outbox.enqueue(db, bus_ch, event, targets)`, all before `db.commit()`. Delivery is now all-or-nothing with persistence, same durability contract the channel path has always had. `enqueue_new_message_for_thread_session` deleted from `outbox_publish.py` — `persist_turn` was its only caller. Triggered by Codex adversarial review of Phase 7. See [[Track - Task Sub-Sessions#Phase 7 hardening — atomic thread outbox + race-safe external thread resolution (shipped 2026-04-20)]].
 

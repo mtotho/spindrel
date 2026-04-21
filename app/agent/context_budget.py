@@ -27,17 +27,9 @@ class Priority(IntEnum):
 # ---------------------------------------------------------------------------
 # Token estimation
 # ---------------------------------------------------------------------------
-
-def estimate_tokens(text: str) -> int:
-    """Fast heuristic token estimate.
-
-    Uses chars / 3.5 which is conservative for mixed natural-language + code
-    content.  The 15% reserve margin in ContextBudget compensates for
-    estimation error.
-    """
-    if not text:
-        return 0
-    return max(1, int(len(text) / 3.5))
+# Re-export from the unified tokenization module so the hot path keeps a sync
+# helper while everything else routes through the per-provider counter.
+from app.agent.tokenization import estimate_tokens  # noqa: E402, F401
 
 
 # ---------------------------------------------------------------------------

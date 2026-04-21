@@ -12,7 +12,7 @@ use_when: >
   `when:` conditions, or debugging why a template / step state / resolve
   call isn't behaving as expected.
 triggers: pipeline, task pipeline, steps, step definition, pipeline json, create pipeline, edit pipeline, pipeline authoring, multi-step task, step executor, pipeline schema, user_prompt, foreach, approval gate, widget template
-category: core
+category: pipelines
 ---
 
 # Pipeline Authoring Reference

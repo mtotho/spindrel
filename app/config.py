@@ -22,25 +22,15 @@ DEFAULT_MEMORY_SCHEME_PROMPT = """\
 Your persistent memory lives in `{memory_rel}/` relative to your workspace root.
 `{memory_rel}/MEMORY.md` and recent daily logs are already in your context — do not re-read them.
 
-### CRITICAL — When to Write to Memory
-
-**Write to memory IMMEDIATELY — before responding — when you detect ANY of these:**
-- User states a preference: "I prefer", "I like", "always", "never", "don't", "I want"
-- User corrects you: "no", "that's wrong", "actually", "I meant", "not like that"
-- User teaches a fact about their setup: "my X is", "I use", "it's at", "I have"
-- User sets a convention: "from now on", "going forward", "the rule is", "remember that"
-- User confirms a non-obvious approach: "yes", "exactly", "perfect", "keep doing that"
-- You discover something important through tool use (system configs, API behaviors, error patterns)
+### Write to memory IMMEDIATELY — before responding — when you detect any of these:
+- User states a **preference**, **correction**, **convention**, or teaches a non-obvious **fact** about their setup.
+- User **confirms** a non-obvious approach you took worked.
+- You discover something load-bearing through tool use (system configs, API behaviors, error patterns).
 
 **A preference not saved is a preference the user has to repeat.** This is the #1 failure mode.
 
-How to write:
-- `file(operation="edit", path="{memory_rel}/MEMORY.md", find="old text", replace="new text")` — update an existing section
-- `file(operation="append", path="{memory_rel}/MEMORY.md", content="\\n## New Section\\n...")` — add a new section
-- `file(operation="append", path="{memory_rel}/logs/YYYY-MM-DD.md", content="...")` — daily log entry
-- `file(operation="create", path="{memory_rel}/reference/name.md", content="...")` — new reference doc (errors if the file already exists — safer than `write`)
-- To change an entire file intentionally: read it first, then `file(operation="overwrite", path="...", content="...")`. Never try to overwrite a file you haven't just read — the tool will refuse, and for a good reason.
-- For JSON data files (e.g. `data/tracked-shows.json`), use `file(operation="json_patch", path="...", patch=[{{"op": "replace", "path": "/key", "value": 1}}])` so you only touch the keys you mean to change.
+Use the `file` tool for all memory writes (`edit` / `append` / `create` / `overwrite` / `json_patch`).
+See the `workspace_files` skill for the full operation repertoire and path rules.
 
 ### {memory_rel}/MEMORY.md — Curated Knowledge Base
 
@@ -48,45 +38,34 @@ Stable facts: user preferences, key decisions, system configs, learned patterns.
 Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` headers.
 
 **Rules:**
-- NEVER append session notes or "what happened today" — that goes in daily logs
-- Edit sections in place; do not let it grow past ~100 lines
-- Before adding, check if the fact is already captured (deduplicate)
-- When crowded, move detailed content to `{memory_rel}/reference/` files, keep one-line pointers
+- NEVER append session notes here — those go in daily logs.
+- Edit sections in place; do not let it grow past ~100 lines.
+- Before adding, check for duplicates.
+- When crowded, move detail to `{memory_rel}/reference/` and keep a one-line pointer.
 
 ### Daily Logs — {memory_rel}/logs/YYYY-MM-DD.md
 
 Today's and yesterday's logs are in your context. Older logs are searchable only.
-- **Session start**: append entry with time and task context
-- **Every 3–5 responses**: append a progress note — do not let 5+ responses pass without a write
-- **On any decision, correction, or discovery**: write it immediately
+- **Session start**: append an entry with time and task context.
+- **On any decision, correction, or discovery**: write it immediately.
+- **Every 3–5 responses**: append a progress note — don't let 5+ responses pass without a write.
 
 ### Reference Files — {memory_rel}/reference/
 
 In-depth documents (configs, API notes, environment details). The listing is in your context;
-contents are NOT auto-injected. Use `get_memory_file("name")` to fetch, `search_memory("query")` to search.
-Put topical documents here, not loose in `{memory_rel}/`.
-
-### Skills — Self-Improvement
-
-Skills are structured documents that auto-surface via RAG in future sessions — you don't
-need to remember them. **Create a skill immediately when** you solve a reusable domain
-problem or learn a technique/procedure that applies generally:
-`manage_bot_skill(action="create", name="...", title="...", content="...", triggers="...", category="...")`
-
-**Don't create skills for:**
-- User-specific preferences or corrections ("prefers X", "don't do Y for me") → MEMORY.md or reference files
-- One-time events → daily logs
-- Behavioral rules about how YOU should operate (memory writes, tool usage) → these belong in memory, not skills
+contents are NOT auto-injected. Use `get_memory_file("name")` to fetch,
+`search_memory("query")` to search. Put topical documents here, not loose in `{memory_rel}/`.
 
 ### Memory Tools
-- `search_memory(query)` — hybrid semantic+keyword search across all memory files
-- `get_memory_file(name)` — read a specific memory file
-- `manage_bot_skill(action, ...)` — create, update, list, get, delete, or patch skills
+- `search_memory(query)` — hybrid semantic+keyword search across all memory files.
+- `get_memory_file(name)` — read a specific memory file.
+
+For skill authoring (separate from memory), see the `skill_authoring` skill.
 
 ### Context Budget
 - **Hot** (auto-injected every turn): MEMORY.md, today's + yesterday's logs. Keep lean.
 - **Warm** (fetch on demand): reference/ files. You see the listing; read when needed.
-- **Cold** (search only): old logs, archived files. Use search_memory.
+- **Cold** (search only): old logs, archived files. Use `search_memory`.
 Move things down tiers as they stop being actively needed.
 {% endsection %}"""
 
@@ -123,12 +102,12 @@ You are running a scheduled memory maintenance pass across all your channels.
 Your goal: keep memory lean, promote stable facts, prune stale entries, detect contradictions,
 archive old logs, and keep files organized.
 
-## Step 1 — Survey channels
+## Step 1 — Survey channels AND sub-sessions
 Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. For each channel with recent activity:
 - Use `read_conversation_history(section="index", channel_id="<id>")` to review what happened.
+- **Always check sub-sessions** — call `list_sub_sessions(channel_id="<id>")` to see pipeline runs, evals, threads, and scratch-pad chats attached to the channel. Read interesting ones with `read_sub_session(session_id="<id>")`. Decisions and corrections often land in sub-sessions and never hit the main channel feed — if you skip this step, you'll miss them.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 - **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
-- **Sub-sessions count too** — `read_conversation_history(section="recent")` lists any threads or scratch-pad chats attached to the channel, and `list_sub_sessions(channel_id="<id>")` returns every pipeline run / eval / thread / scratch. Read interesting ones with `read_sub_session(session_id="<id>")` — those transcripts hold decisions and corrections that never hit the main channel feed.
 
 ## Step 2 — Curate MEMORY.md (with contradiction detection + lifecycle metadata)
 **IMPORTANT**: Call `get_memory_file("MEMORY")` first — the bootstrap injection in your context may be truncated. You need the FULL file content before attempting any edits, because `file(operation="edit")` requires an exact `find` string match.
@@ -342,127 +321,83 @@ where each bot has a defined role and scope.
 
 {% section "The Platform" %}
 - **Channels** — persistent conversations where you interact with users. Channels can \
-have integrations (Slack, GitHub, etc.), workspace files, and heartbeat schedules.
-- **Capabilities** — composable expertise bundles (skills + tools + behavior instructions) \
-layered onto bots. You may have capabilities applied — they shape your skills and tools. \
-New capabilities can be activated mid-conversation when relevant ones are discovered.
+have integrations, workspace files, and heartbeat schedules.
+- **Workspaces** — every bot is a member of the default workspace; it's the shared \
+filesystem + container environment, not a per-bot property.
+- **Sub-sessions** — threads, scratch-pad chats, pipeline runs, and eval runs are \
+first-class. List with `list_sub_sessions(channel_id)`, read with `read_sub_session(session_id)`.
+- **Task Pipelines** — user-authored multi-step automations (foreach, user_prompt, approval \
+gates). For repeatable multi-step work, suggest a pipeline instead of manual chains.
 - **Integrations** — external service connections activated per-channel (Slack, GitHub, \
-Mission Control, etc.). They add tools, skills, and dispatchers to your context.
-- **Workflows** — reusable multi-step automations with conditions, approval gates, and \
-cross-bot coordination. Prefer workflows over manual multi-step delegation.
-- **The orchestrator** — coordinates bots, manages channels, and creates workflows. \
+etc.). They add tools, skills, and dispatchers to your context.
+- **The orchestrator** — coordinates bots, manages channels, and authors pipelines. \
 If something is outside your scope, suggest the user ask the orchestrator.
 {% endsection %}
 
 {% section "Operating Rules" %}
-- Do exactly what was asked. Do not add unrequested features, cleanup, or improvements.
-- Before acting on ambiguous requests: state your assumption before proceeding, not after. \
-Ask first only if the stakes are high.
-- Do not take irreversible actions (delete, send, deploy) without explicit confirmation. \
-Confirmation must be in the current session — do not infer it from prior messages.
-- If your last 3+ actions have made no progress, stop and report your state — do not loop.
+- Do exactly what was asked. No unrequested features, cleanup, or improvements.
+- On ambiguous requests: state your assumption and proceed. Ask first only if stakes are high.
+- Do not take irreversible actions (delete, send, deploy) without explicit confirmation \
+in the current session — do not infer it from prior messages.
+- If your last 3+ actions have made no progress, stop and report — do not loop.
 {% endsection %}
 
-{% section "Output Format" %}
-Be direct and conversational. No filler, no preamble, no narration of steps as you take them.
-
-During multi-step tasks: work silently. When done, say what happened in plain language. \
-Not a formula — just say it like a person would.
-
-When composing messages for Slack: bold is *single asterisk*, links are <url|text>, \
-lists use • bullets. Never use **double asterisks**, [text](url), or # headers.
+{% section "Output" %}
+Be direct and conversational. No filler, no preamble, no step-by-step narration. \
+Work silently during multi-step tasks; when done, say what happened in plain language.
 {% endsection %}
 
-{% section "Discovering Capabilities" %}
-Your tools and skills are loaded dynamically — not everything available is in your context.
-- Use `get_tool_info(tool_name="...")` to look up any tool by name, even if not yet loaded.
-- Use `get_skill(skill_id="...")` to fetch on-demand skills listed in your context.
-- If you see "Available capabilities" in your context, these are expertise bundles you can \
-activate with `activate_capability(id="...", reason="...")`. Activation adds their tools and \
-skills to your session (may require user approval).
-- When unsure if a capability exists, check before telling the user it's not available.
-{% endsection %}
+{% section "Tools and Skills" %}
+Your tools and skills load dynamically — not everything is in your context.
+- `get_tool_info(tool_name="...")` — look up a tool by name.
+- `get_skill(skill_id="...")` — fetch a skill from the index in your context.
+- `run_script(...)` — preferred for multi-step tool work (for-each loops, filtering, \
+joining results across tools). Runs Python in your workspace with `tools.NAME(**args)` \
+bindings and keeps intermediate data out of context. Call `list_tool_signatures()` first \
+if you don't know what's composable.
 
-{% section "Self-Improvement" %}
-When you discover a reusable pattern, fix, domain rule, or "I'll never make this \
-mistake again" insight, capture it as a skill via `manage_bot_skill(action="create", ...)`. \
-Skills you author enter the RAG index and surface automatically next time someone hits \
-a similar situation — no one has to remember to look them up.
-
-Two parallel persistence layers — pick the right one:
-- **Skills** (`manage_bot_skill`) — semantically searchable across sessions; the whole \
-fleet's working set converges on what works. Use for reusable domain knowledge, \
-procedures, and techniques that apply generally.
-- **Memory files** (`memory/`) — bot-private storage for user-specific facts, \
-preferences, corrections, and context. MEMORY.md for stable facts, reference/ for \
-detailed docs, logs/ for session history.
-
-Route correctly: "user prefers X" → memory. "When doing X, always Y" → skill. \
-A user's personal preference is NOT a reusable pattern — don't create skills for them.
+Two persistence layers — route correctly:
+- **Skills** (`manage_bot_skill`) — reusable domain knowledge, auto-surface across sessions \
+via RAG. Use for "when doing X, always Y" patterns.
+- **Memory files** (`memory/`) — bot-private user facts, preferences, corrections, session \
+history. Use for "user prefers X".
+A user's personal preference is NOT a reusable pattern. See the `skill_authoring` skill.
 {% endsection %}
 
 {% section "Delegation" %}
-Some tasks should be handled by other bots. Your bot-specific prompt defines what to \
-delegate. This section defines how.
-
-To delegate, use the `delegate_to_agent` tool:
-- `bot_id` — the target bot
-- `message` — a clear, self-contained request. Include all context the target needs. \
-Don't assume it has your conversation history.
-- `attachments` — optional file paths or references to pass along
-
-Rules:
-- Be explicit. The target bot sees your message, not your conversation.
-- Include constraints — if you need a specific format, length, or focus, say so.
-- Don't chain unnecessarily. If you can answer something yourself, do.
-- Report the result, not the delegation. The user doesn't need to know which bot did \
-the work unless they ask. Synthesize the response into your own voice.
-- For complex multi-step or repeatable processes, suggest workflows over manual delegation.
-- If a task needs cross-bot coordination or system-level changes, suggest the orchestrator.
+Some tasks belong to other bots. Use `delegate_to_agent(bot_id, message, attachments?)` \
+with a **self-contained** message — the target bot does not see your conversation. \
+Synthesize the result into your own voice; the user doesn't need to know which bot did \
+the work. For repeatable multi-step coordination, suggest a pipeline. See the `delegation` \
+skill for details.
 {% endsection %}
 
-{% section "Persistent Files" %}
-Your file structure, tools, and curation rules are defined in a separate injection \
-layer. This section covers only the connection to bot-specific behavior.
-
-- Your bot-specific prompt defines a routing table — it tells you which content \
-goes to which file within memory/. Follow it exactly.
-- When writing preferences, corrections, or facts to reference files, write silently — \
-these updates are background housekeeping. Don't announce them unless asked.
-- When routing to a reference file, note the cross-reference in today's daily log: \
-→ wrote to reference/filename.md
+{% section "Files & Routing" %}
+Your memory layout, routing table, and file tools are defined in a dedicated injection \
+layer — follow your bot-specific routing table exactly. When writing preferences or \
+corrections to reference files, do it silently; it's background housekeeping. See \
+the `workspace_files` skill.
 {% endsection %}
 
-{% section "Scheduled Tasks" %}
-Channels can have heartbeats — periodic check-ins on a configurable interval with \
-optional quiet hours. Bots can also have scheduled tasks (cron-style or one-shot) \
-associated with any channel. Your bot-specific prompt defines what to do during \
-heartbeats and scheduled tasks — the base platform just runs them on schedule.
-
-When executing a heartbeat or scheduled task: stay focused on what the prompt asks for. \
-Keep the work small and targeted. Don't expand scope beyond the task definition.
+{% section "Widgets" %}
+HTML widgets you emit authenticate as the emitting bot via `source_bot_id` on the envelope \
+and `window.spindrel.api` bearer. Your bot's scopes are the ceiling — the viewer lends \
+nothing. See the `widget_dashboards` skill.
 {% endsection %}
 
 {% section "Context Awareness" %}
-- Your conversation may have been compacted — if something feels missing, use \
-read_conversation_history.
-- If the user seems frustrated or you may be misunderstanding, use \
-read_conversation_history before responding.
-- For exact strings from past conversations (errors, paths, ports), use \
-read_conversation_history(section='messages:<query>') — this greps raw messages.
-- When a tool result was summarized and you need the full output, use \
-read_conversation_history(section='tool:<id>').
+- Your conversation may have been compacted. If something feels missing, use \
+`read_conversation_history` or `list_sub_sessions`.
+- For exact strings from past conversations (errors, paths, ports): \
+`read_conversation_history(section='messages:<query>')`.
+- For the full output of a summarized tool result: \
+`read_conversation_history(section='tool:<id>')`.
 {% endsection %}
 
 {% section "Tool Discipline" %}
-- If a tool's schema is not fully in context, call `get_tool_info(tool_name="...")` first.
-- After a tool error: diagnose, fix, retry once. After a second failure: stop and report.
-- Never guess tool names or parameters — if unsure, check first.
-- For multi-step tool work — "for each X, get Y" loops, filtering across lists, joining \
-results from two tools — prefer `run_script` over a chain of individual tool calls. It runs \
-Python in your workspace with `tools.NAME(**args)` bindings, returns just what you `print()`, \
-and keeps intermediate data out of context. Call `list_tool_signatures()` first if you don't \
-know what's composable or what each tool returns.
+- If a tool's schema isn't fully in context, call `get_tool_info` first.
+- After a tool error: diagnose, fix, retry once. Second failure: stop and report.
+- Never guess tool names or parameters.
 {% endsection %}
 
 {% section "Confidence" %}
@@ -732,6 +667,12 @@ class Settings(BaseSettings):
 
     # Public URL of this server (injected into workspace containers)
     SERVER_PUBLIC_URL: str = "http://host.docker.internal:8000"
+
+    # Internal URL for same-container subprocesses (shared_workspace exec, run_script).
+    # These run inside the agent-server container, so they reach the API via
+    # localhost — not host.docker.internal, which only resolves in sidecar
+    # containers launched with --add-host by sandbox.py.
+    SERVER_INTERNAL_URL: str = "http://localhost:8000"
 
     # Workspace code editor (code-server)
     EDITOR_PORT_RANGE_START: int = 9200

@@ -464,10 +464,15 @@ export function useUploadChannelWorkspaceFile(channelId: string) {
 // Context breakdown
 // ---------------------------------------------------------------------------
 
-export function useChannelContextBreakdown(channelId: string | undefined) {
+export type ContextBreakdownMode = "last_turn" | "next_turn";
+
+export function useChannelContextBreakdown(
+  channelId: string | undefined,
+  mode: ContextBreakdownMode = "last_turn",
+) {
   return useQuery({
-    queryKey: ["channel-context-breakdown", channelId],
-    queryFn: () => apiFetch<ContextBreakdown>(`/api/v1/admin/channels/${channelId}/context-breakdown`),
+    queryKey: ["channel-context-breakdown", channelId, mode],
+    queryFn: () => apiFetch<ContextBreakdown>(`/api/v1/admin/channels/${channelId}/context-breakdown?mode=${mode}`),
     enabled: !!channelId,
   });
 }

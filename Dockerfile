@@ -9,19 +9,27 @@ RUN npm run build
 # ── Stage 2: Server ─────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
+# Keep apt download cache around so a persistent volume at
+# /var/cache/apt/archives can survive rebuilds. Debian-slim ships
+# /etc/apt/apt.conf.d/docker-clean which deletes archives after every
+# install; remove it and affirmatively keep downloaded .deb files.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean \
+    && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+       > /etc/apt/apt.conf.d/keep-cache
+
 # Workspace tools — git, ripgrep, jq, build tools, etc.
 # These run in-process via subprocess when bots use exec_tool.
 # gosu: drop from root to the non-privileged 'spindrel' user in entrypoint.
+# NOTE: do not `rm -rf /var/lib/apt/lists/*` — the lists are useful on the
+# persistent volume for fast `apt-get update` after rebuilds.
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
     curl wget git jq ripgrep fd-find tree unzip zip gosu sudo \
-    build-essential sqlite3 openssh-client ca-certificates gnupg \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential sqlite3 openssh-client ca-certificates gnupg
 
 # Node.js + claude CLI — required for the Claude Code integration.
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y -qq nodejs \
-    && npm install -g @anthropic-ai/claude-code \
-    && rm -rf /var/lib/apt/lists/*
+    && npm install -g @anthropic-ai/claude-code
 
 # Docker CLI — needed for integration sidecar containers (SearXNG, Wyoming, etc.)
 # Only the CLI binary; the daemon runs on the host via mounted socket.
@@ -29,8 +37,7 @@ RUN install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian bookworm stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update -qq && \
-    apt-get install -y -qq --no-install-recommends docker-ce-cli docker-compose-plugin && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y -qq --no-install-recommends docker-ce-cli docker-compose-plugin
 
 WORKDIR /app
 

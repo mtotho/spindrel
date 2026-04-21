@@ -1,0 +1,191 @@
+"""Integration tests for the ``mode`` parameter on context-breakdown.
+
+The two modes answer different questions:
+
+- ``last_turn`` reads the API-reported ``prompt_tokens`` from the most recent
+  ``token_usage`` trace event. This is what the chat header shows.
+- ``next_turn`` is a forecast over the channel's static configuration.
+
+These tests pin both behaviors so the header and dev panel can't silently
+drift apart again.
+"""
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import Channel, Session, TraceEvent
+
+
+AUTH_HEADERS = {"Authorization": "Bearer test-key"}
+
+
+async def _seed_channel_with_token_usage(
+    db_session: AsyncSession,
+    *,
+    api_prompt_tokens: int,
+    estimate_consumed: int = 999,
+    estimate_total: int = 200_000,
+) -> str:
+    """Create a channel + session and write the two trace events the
+    breakdown service joins on."""
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+
+    db_session.add(Channel(
+        id=channel_id, name="ctx-mode-test", bot_id="test-bot",
+        active_session_id=session_id,
+    ))
+    db_session.add(Session(
+        id=session_id, bot_id="test-bot",
+        client_id=f"c-{channel_id.hex[:8]}", channel_id=channel_id,
+    ))
+
+    # Earlier event: pre-call estimate (carries `total_tokens` for the budget block).
+    db_session.add(TraceEvent(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        bot_id="test-bot",
+        event_type="context_injection_summary",
+        data={
+            "breakdown": {"system_prompt": 1000, "memory": 500},
+            "total_chars": 1500,
+            "context_budget": {
+                "consumed_tokens": estimate_consumed,
+                "total_tokens": estimate_total,
+                "utilization": round(estimate_consumed / estimate_total, 3),
+            },
+        },
+        created_at=now,
+    ))
+    # Later event: API-reported usage (the truth).
+    db_session.add(TraceEvent(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        bot_id="test-bot",
+        event_type="token_usage",
+        data={
+            "prompt_tokens": api_prompt_tokens,
+            "completion_tokens": 42,
+            "total_tokens": api_prompt_tokens + 42,
+        },
+        created_at=now,
+    ))
+    await db_session.commit()
+    return str(channel_id)
+
+
+class TestBreakdownModes:
+    @pytest.mark.asyncio
+    async def test_last_turn_total_matches_api_prompt_tokens(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """In last_turn mode, total_tokens_approx == API prompt_tokens.
+
+        This is the invariant that keeps the dev-panel total in lockstep
+        with the chat-header value.
+        """
+        cid = await _seed_channel_with_token_usage(
+            db_session, api_prompt_tokens=12345, estimate_consumed=8000,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-breakdown?mode=last_turn",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["mode"] == "last_turn"
+        assert data["total_tokens_approx"] == 12345
+
+    @pytest.mark.asyncio
+    async def test_next_turn_total_uses_forecast_not_api(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """next_turn forecasts from current state — independent of the API count."""
+        cid = await _seed_channel_with_token_usage(
+            db_session, api_prompt_tokens=12345,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-breakdown?mode=next_turn",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["mode"] == "next_turn"
+        # Forecast comes from summing categories, not from the API event.
+        assert data["total_tokens_approx"] != 12345
+
+    @pytest.mark.asyncio
+    async def test_invalid_mode_is_422(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        cid = await _seed_channel_with_token_usage(
+            db_session, api_prompt_tokens=100,
+        )
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-breakdown?mode=bogus",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_context_budget_endpoint_prefers_api_usage(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """The header endpoint must source from token_usage, not the estimate."""
+        cid = await _seed_channel_with_token_usage(
+            db_session, api_prompt_tokens=54321, estimate_consumed=999,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-budget",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["consumed_tokens"] == 54321
+        assert data["source"] == "api"
+
+    @pytest.mark.asyncio
+    async def test_context_budget_falls_back_when_no_api_usage(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """No token_usage event yet → fall back to the estimate."""
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        db_session.add(Channel(
+            id=channel_id, name="ctx-fallback", bot_id="test-bot",
+            active_session_id=session_id,
+        ))
+        db_session.add(Session(
+            id=session_id, bot_id="test-bot",
+            client_id=f"c-{channel_id.hex[:8]}", channel_id=channel_id,
+        ))
+        db_session.add(TraceEvent(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            bot_id="test-bot",
+            event_type="context_injection_summary",
+            data={"context_budget": {
+                "consumed_tokens": 777, "total_tokens": 200_000, "utilization": 0.004,
+            }},
+            created_at=now,
+        ))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-budget",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["consumed_tokens"] == 777
+        assert data["source"] == "estimate"

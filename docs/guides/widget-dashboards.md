@@ -5,7 +5,7 @@ Dashboards are Spindrel's answer to "I want my agent's output *on a wall*, not b
 There are two shapes of dashboard, and both are used by the same pins, grid, and editing tools:
 
 - **Named user dashboards** at `/widgets/<slug>` — your personal pinboards (`default`, plus any you create: `home`, `monitoring`, etc.). Cross-channel; mix tools from any bot on any channel.
-- **Channel dashboards** at `/widgets/channel/:channelId` — one per channel, lazy-created. The left column also surfaces in the channel's **OmniPanel** (sidebar), so pinning there lets a widget live next to the conversation that produced it.
+- **Channel dashboards** at `/widgets/channel/:channelId` — one per channel, lazy-created. Unlike user dashboards, these map onto the actual chat layout zones: left rail, center dashboard, right rail, and the top-center chip/header zone.
 
 You reach the `/widgets` page from the left sidebar rail ("Widgets" tab). Channel dashboards are reachable from the channel header's `LayoutDashboard` icon and the command palette ("Channel dashboard" under THIS CHANNEL).
 
@@ -35,8 +35,10 @@ The `/widgets` page shows a tab strip of your user dashboards (channel dashboard
 **Adding widgets:**
 
 - **From chat** — every widget card has a pin icon (`📌`). Click and it lands on the **channel** dashboard (the conversation-local board). From there you can move it into a named dashboard using "Add from channel" (below).
-- **From `/widgets`** — the "Add widget" button opens the `AddFromChannelSheet`: browse pins on any channel's dashboard, search by name, add to the currently-viewed dashboard. Adding here doesn't remove it from the source — pins are copied by envelope.
+- **From `/widgets`** — the "Add widget" split-button opens the `AddFromChannelSheet`: browse pins on any channel's dashboard, search by name, or switch to the **Library** tab to pin reusable widget bundles from the core/bot/workspace library. Adding here doesn't remove a source pin — pins are copied by envelope.
 - **From a bot** — ask the bot to pin its output. Bots can author HTML widgets via `emit_html_widget`; the user still confirms the pin.
+
+The split-button's secondary menu also exposes **Developer tools**, which jumps straight into `/widgets/dev` with the current dashboard preserved as the origin target.
 
 ## Channel dashboards
 
@@ -44,16 +46,29 @@ Every channel gets an implicit widget dashboard under slug `channel:<uuid>`, cre
 
 **Two views onto the same pins:**
 
-- **Full dashboard** at `/widgets/channel/:channelId` — the whole grid, identical editing UI to user dashboards.
-- **OmniPanel rail** on the channel itself — a subset of the full grid, always visible alongside the conversation.
+- **Full dashboard** at `/widgets/channel/:channelId` — the editing surface where you place pins into channel-layout zones.
+- **Live chat layout** on the channel page — the same pins rendered back into the channel chrome around the conversation.
 
-**The rail rule:** a pin is in the rail when `grid_layout.x < railZoneCols` (6 on the standard preset, 12 on fine). No opt-in flag — rail membership is a pure function of where you placed the widget on the grid. Drop a widget in the leftmost band and it shows up in the OmniPanel; drag it right and it leaves the rail without being unpinned. Edit mode on the full channel dashboard draws a `SidebarRailOverlay` band over those columns so the zone is visible while you work.
+### Channel layout zones
 
-**OmniPanel structure:**
+Channel dashboards are not just "a grid plus a left rail." They map onto four distinct zones:
 
-- **Widgets section** — the rail subset of the channel dashboard, each rendered as a `PinnedToolWidget` with its own drag handle, refresh, unpin.
-- **Files section** — channel-scoped file tree (orthogonal to widgets).
-- **Mobile** — the OmniPanel becomes a bottom sheet (tall ≈88vh + dismissed). Tabs remember your last choice; default is Widgets.
+- **Left rail** — supporting widgets to the left of the conversation
+- **Center dashboard** — the main dashboard canvas in the middle
+- **Right rail** — supporting widgets to the right of the conversation
+- **Top-center chip/header zone** — compact chip-style widgets above the channel content
+
+The edit surface reflects those zones so you can place pins where they will actually live in chat, not in an abstract dashboard-only layout.
+
+### What shows where
+
+- **Rail zones** are for persistent side widgets that flank the conversation
+- **Center dashboard** is for the main, larger widget canvas
+- **Top-center chip/header zone** is for compact status/control chips that sit above the main channel content
+
+This matters because the same pin can feel completely different depending on zone: a large HTML widget belongs in the center dashboard; a tiny control or status widget may belong in the header chip zone instead.
+
+**Mobile note:** the channel side surfaces collapse into mobile-friendly sheets/drawers, but the underlying pin zones are still the same.
 
 ## Layout, editing, and grid presets
 
@@ -66,12 +81,45 @@ Under the hood the grid is `react-grid-layout` — drag to move, corner-handle t
 
 **Grid presets:**
 
-| Preset | Columns | Row height | Rail zone | Best for |
+| Preset | Columns | Row height | Main use | Best for |
 |---|---|---|---|---|
-| **Standard** (default) | 12 | 30 px | `x < 6` | Most dashboards; friendlier grid |
-| **Fine** | 24 | 15 px | `x < 12` | Information-dense boards; half-tile increments |
+| **Standard** (default) | 12 | 30 px | Balanced channel/user dashboards | Most dashboards; friendlier grid |
+| **Fine** | 24 | 15 px | Denser placement and alignment | Information-dense boards; half-tile increments |
 
 Switch from `EditDashboardDrawer`. Rescaling is atomic and integer-safe (std↔fine = ×2), so the visual arrangement survives the switch.
+
+## Panel mode
+
+Some dashboards want one large "main panel" and a strip of supporting widgets instead of an all-grid wall. Panel mode does that.
+
+### What it is
+
+- One pin is marked as the dashboard's **main panel**
+- The dashboard flips from grid layout to a **two-column panel view**
+- The main panel gets the large content area
+- The remaining pins stay visible in the side rail strip
+
+On mobile, the panel stacks above the supporting rail instead of staying side-by-side.
+
+### How to use it
+
+In edit mode, eligible interactive HTML pins expose a **Promote to panel** action in the pin editor. Promoting a pin:
+
+- marks that pin as the dashboard's main panel
+- clears any previous panel pin in the same dashboard
+- flips `grid_config.layout_mode` to `"panel"`
+
+Demoting the panel pin (or deleting it) returns the dashboard to normal grid mode.
+
+### When it fits
+
+Use panel mode when one widget is clearly the star:
+
+- a large bot-authored HTML dashboard
+- a room-control or system-control surface
+- a notes or todo panel you actively work inside
+
+Keep grid mode when the dashboard is more of a status wall than a focused workspace.
 
 ## Authorization and ownership
 
@@ -82,8 +130,10 @@ Switch from `EditDashboardDrawer`. Rescaling is atomic and integer-safe (std↔f
 
 | Symptom | Usual cause |
 |---|---|
-| Widget pinned from chat doesn't show in the OmniPanel | Its `grid_layout.x` is outside the rail zone. Open the full channel dashboard, drag it left of column 6 (standard) / 12 (fine). |
-| "No widgets pinned" on the channel dashboard even though you see pins in the OmniPanel | You're probably on a user dashboard, not the channel one. The channel dashboard URL is `/widgets/channel/:channelId`; the page shows a breadcrumb instead of the tab strip when you're on it. |
+| Widget is showing in the wrong part of the channel UI | It was pinned into the wrong channel zone. Open the full channel dashboard and move it between left rail, center dashboard, right rail, or header/chip zone. |
+| "No widgets pinned" on the channel dashboard even though you see widgets in chat | You're probably on a user dashboard, not the channel one. The channel dashboard URL is `/widgets/channel/:channelId`; the page shows a breadcrumb instead of the tab strip when you're on it. |
+| A library widget previews but won't load when pinned | Bot/workspace library widgets need a bot context for auth and workspace resolution. Pick the correct bot before pinning from the Library tab. |
+| The "Promote to panel" action is missing | Panel mode is only offered on eligible interactive HTML pins, not every component tile. |
 | Widget says "Widget auth failed" | It's an HTML widget and the emitting bot has no API key. Admin UI → Bots → this bot → API Permissions. |
 | Clicking a component widget toggle 403s | The bot doesn't have the scope the tool requires. Broaden the bot's scopes, not yours. |
 | Mobile bottom sheet feels stuck | The sheet has two snap points only (tall + dismissed). Swipe down to dismiss; tap the handle to reopen. The middle "half" state is intentionally gone. |

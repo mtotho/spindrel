@@ -9,7 +9,7 @@
  * Pin-ready: accepts optional widgetId + onPin for future side-panel pinning.
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Pin, ChevronDown } from "lucide-react";
+import { Pin, Plus, ChevronDown } from "lucide-react";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
@@ -339,10 +339,12 @@ export function WidgetCard({
                 botId: botId ?? currentEnvelope.source_bot_id ?? null,
               });
             }}
-            className="p-0.5 rounded hover:bg-white/[0.06] transition-colors duration-150"
-            title="Pin to side panel"
+            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100"
+            style={{ color: t.textDim }}
+            title="Add to dashboard"
           >
-            <Pin size={12} style={{ color: t.textDim, opacity: 0.5 }} />
+            <Plus size={11} />
+            <span>Add to dashboard</span>
           </button>
         )}
       </div>

@@ -4,7 +4,6 @@ Used by the admin UI to show what goes into each agent turn.
 """
 from __future__ import annotations
 
-import math
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,11 +79,16 @@ class ContextBreakdownResult:
 
 
 def _chars_to_tokens(chars: int) -> int:
-    # Use chars / 3.5 to match estimate_tokens() in context_budget.py
+    """Sign-preserving wrapper around the shared chars/3.5 estimator.
+
+    Pruning savings are negative; the unified estimator only handles
+    non-negative text, so we mirror the sign here.
+    """
+    from app.agent.tokenization import estimate_tokens
     if chars > 0:
-        return max(1, int(math.ceil(chars / 3.5)))
-    elif chars < 0:
-        return min(-1, -int(math.ceil(abs(chars) / 3.5)))
+        return estimate_tokens("x" * chars)
+    if chars < 0:
+        return -estimate_tokens("x" * abs(chars))
     return 0
 
 
@@ -92,17 +96,25 @@ async def fetch_latest_context_budget(
     channel_id: str | Any,
     db: AsyncSession,
 ) -> dict[str, Any]:
-    """Latest `context_budget` across any session in this channel.
+    """Latest context utilization for this channel — API ground truth when available.
 
-    Reads the most recent ``context_injection_summary`` TraceEvent on any of
-    the channel's sessions and returns its ``context_budget`` dict, or a
-    sentinel with null fields when no turn has been recorded yet.
+    Resolution order:
 
-    Shared by the admin endpoint (``/api/v1/admin/channels/{id}/context-budget``)
-    and the public endpoint (``/api/v1/channels/{id}/context-budget``) so the
-    two cannot drift.
+    1. Most recent ``token_usage`` trace event on any session in the channel
+       — this carries the API-reported ``prompt_tokens`` (Anthropic
+       ``input_tokens``). When present this is the canonical answer; the
+       header and dev-panel "last turn" view both source it.
+    2. Fall back to the most recent ``context_injection_summary``'s
+       ``context_budget`` dict (pre-call estimate) when no turn has been
+       sent yet, or when the model's response didn't include usage.
+    3. Sentinel with null fields when no turn has been recorded.
+
+    Shared by ``GET /admin/channels/{id}/context-budget`` and
+    ``GET /channels/{id}/context-budget`` so the two cannot drift.
     """
-    row = await db.execute(
+    # Latest pre-call estimate carries `total_tokens` (the model's window)
+    # which the API usage event doesn't, so we read both and merge.
+    inj_row = await db.execute(
         select(TraceEvent.data)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
@@ -112,14 +124,45 @@ async def fetch_latest_context_budget(
         .order_by(TraceEvent.created_at.desc())
         .limit(1)
     )
-    data = row.scalar_one_or_none()
-    budget = data.get("context_budget") if data else None
-    if not budget:
-        return {"utilization": None, "consumed_tokens": None, "total_tokens": None}
+    inj_data = inj_row.scalar_one_or_none()
+    inj_budget = (inj_data or {}).get("context_budget") or {}
+    total_tokens = inj_budget.get("total_tokens")
+    est_consumed = inj_budget.get("consumed_tokens")
+
+    usage_row = await db.execute(
+        select(TraceEvent.data)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(
+            Session.channel_id == channel_id,
+            TraceEvent.event_type == "token_usage",
+        )
+        .order_by(TraceEvent.created_at.desc())
+        .limit(1)
+    )
+    usage_data = usage_row.scalar_one_or_none() or {}
+    api_prompt_tokens = usage_data.get("prompt_tokens")
+
+    if api_prompt_tokens is None and est_consumed is None:
+        return {
+            "utilization": None,
+            "consumed_tokens": None,
+            "total_tokens": None,
+            "source": "none",
+        }
+
+    consumed = api_prompt_tokens if api_prompt_tokens is not None else est_consumed
+    utilization = None
+    if total_tokens and consumed is not None and total_tokens > 0:
+        utilization = round(consumed / total_tokens, 3)
+    elif api_prompt_tokens is None:
+        # No API number AND no total — preserve the estimator's utilization
+        utilization = inj_budget.get("utilization")
+
     return {
-        "utilization": budget.get("utilization"),
-        "consumed_tokens": budget.get("consumed_tokens"),
-        "total_tokens": budget.get("total_tokens"),
+        "utilization": utilization,
+        "consumed_tokens": consumed,
+        "total_tokens": total_tokens,
+        "source": "api" if api_prompt_tokens is not None else "estimate",
     }
 
 
@@ -135,7 +178,22 @@ def _resolve_setting(channel_val, bot_val, global_val, channel_attr: str) -> Eff
 async def compute_context_breakdown(
     channel_id: str,
     db: AsyncSession,
+    *,
+    mode: str = "last_turn",
 ) -> ContextBreakdownResult:
+    """Compute the dev-panel context breakdown for a channel.
+
+    ``mode`` controls how the totals reconcile with the chat-header value:
+
+    - ``last_turn`` (default) — categories describe the channel's *current*
+      configuration (what would be assembled now), but the headline
+      ``total_tokens_approx`` is overridden with the API-reported
+      ``prompt_tokens`` from the most recent ``token_usage`` trace event.
+      This guarantees the dev panel total matches the chat header.
+    - ``next_turn`` — same categories, but the headline total comes from the
+      live tokenizer (``count_text_tokens_sync`` against the assembled char
+      count). May differ from the chat header by design.
+    """
     from app.agent.base_prompt import render_base_prompt
     from app.agent.bots import get_bot
     from app.agent.persona import get_persona
@@ -620,40 +678,68 @@ async def compute_context_breakdown(
     # Finalize: compute totals and percentages
     # -----------------------------------------------------------------------
     total_chars = sum(c.chars for c in categories)
-    total_tokens = _chars_to_tokens(total_chars)
     # Use gross (positive-only) chars as denominator so percentages are intuitive:
     # positive components sum to ~100%, pruning savings shows as a negative percentage.
     gross_chars = sum(c.chars for c in categories if c.chars > 0)
 
+    # Resolve effective model+provider once for both the per-category token
+    # counter and the budget block.
+    from app.agent.loop import _resolve_effective_provider
+    from app.agent.tokenization import count_text_tokens_sync
+    _model = channel.model_override or bot.model
+    _provider = _resolve_effective_provider(
+        channel.model_override,
+        getattr(channel, "model_provider_id_override", None),
+        bot.model_provider_id,
+    )
+
+    def _tokens_for(chars: int) -> int:
+        if chars > 0:
+            return count_text_tokens_sync("x" * chars, _model)
+        if chars < 0:
+            return -count_text_tokens_sync("x" * abs(chars), _model)
+        return 0
+
     for cat in categories:
-        cat.tokens_approx = _chars_to_tokens(cat.chars)
+        cat.tokens_approx = _tokens_for(cat.chars)
         cat.percentage = round((cat.chars / gross_chars * 100) if gross_chars > 0 else 0, 1)
+
+    forecast_total_tokens = _tokens_for(total_chars)
 
     # Context budget info (if enabled)
     _budget_info = None
+    api_total_tokens: int | None = None
     if settings.CONTEXT_BUDGET_ENABLED:
         try:
-            from app.agent.context_budget import get_model_context_window, estimate_tokens
-            from app.agent.loop import _resolve_effective_provider
-            _model = channel.model_override or bot.model
-            _provider = _resolve_effective_provider(
-                channel.model_override,
-                getattr(channel, "model_provider_id_override", None),
-                bot.model_provider_id,
-            )
+            from app.agent.context_budget import get_model_context_window
             _window = get_model_context_window(_model, _provider)
             _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
             _available = _window - _reserve
-            _est_consumed = _chars_to_tokens(total_chars)
+            # Pull the API-reported prompt_tokens for last_turn alignment.
+            _latest = await fetch_latest_context_budget(channel_id, db)
+            api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
             _budget_info = {
                 "model_context_window": _window,
                 "reserve_tokens": _reserve,
                 "available_tokens": _available,
-                "estimated_consumed_tokens": _est_consumed,
-                "estimated_utilization": round(_est_consumed / _available, 3) if _available > 0 else 1.0,
+                "estimated_consumed_tokens": forecast_total_tokens,
+                "estimated_utilization": round(forecast_total_tokens / _available, 3) if _available > 0 else 1.0,
+                "api_consumed_tokens": api_total_tokens,
+                "api_utilization": (
+                    round(api_total_tokens / _window, 3)
+                    if api_total_tokens and _window > 0
+                    else None
+                ),
             }
         except Exception:
-            pass
+            logger.debug("budget block compute failed", exc_info=True)
+
+    # Headline total: API ground truth in last_turn mode (when available),
+    # forecast otherwise.
+    if mode == "last_turn" and api_total_tokens is not None:
+        total_tokens = api_total_tokens
+    else:
+        total_tokens = forecast_total_tokens
 
     return ContextBreakdownResult(
         channel_id=str(channel_id),

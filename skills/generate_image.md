@@ -2,7 +2,7 @@
 name: Image Generation
 description: Generate, edit, and combine images with provider-specific guidance (OpenAI vs Gemini)
 triggers: generate image, create image, edit image, combine images, dall-e, gpt-image, image generation
-category: core
+category: media
 ---
 
 # generate_image Tool Guide

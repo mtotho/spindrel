@@ -1302,17 +1302,24 @@ async def get_channel_context_budget(
 @router.get("/{channel_id}/context-breakdown")
 async def get_channel_context_breakdown(
     channel_id: uuid.UUID,
+    mode: str = "last_turn",
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
-    """Per-category context breakdown for this channel's active session."""
+    """Per-category context breakdown for this channel's active session.
+
+    See the admin variant for ``mode`` semantics.
+    """
     await _auth_channel_context(channel_id, auth, db)
 
     from app.services.context_breakdown import compute_context_breakdown
     from dataclasses import asdict
 
+    if mode not in {"last_turn", "next_turn"}:
+        raise HTTPException(status_code=422, detail="mode must be 'last_turn' or 'next_turn'")
+
     try:
-        result = await compute_context_breakdown(str(channel_id), db)
+        result = await compute_context_breakdown(str(channel_id), db, mode=mode)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1326,6 +1333,7 @@ async def get_channel_context_breakdown(
         "compaction": asdict(result.compaction),
         "reranking": asdict(result.reranking),
         "context_budget": result.context_budget,
+        "mode": mode,
         "disclaimer": result.disclaimer,
     }
 

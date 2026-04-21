@@ -388,7 +388,7 @@ export function AutocompleteMenu({
                     fontSize: 11, color: TAG_COLORS.pack.fg, fontWeight: 500,
                     overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                   }}>
-                    Pack overview · {childCount} skill{childCount === 1 ? "" : "s"} inside
+                    Index only · {childCount} sub-skill{childCount === 1 ? "" : "s"} loaded on demand
                   </span>
                 ) : hasSubPath && !meta.isPackChild ? (
                   <span style={{

@@ -1,4 +1,5 @@
 import { memo, useMemo, useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Brain, ChevronRight } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 import { formatTimeShort } from "../../utils/time";
@@ -15,7 +16,6 @@ import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColo
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
-import { useUIStore } from "../../stores/ui";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
 
@@ -111,12 +111,13 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const t = useThemeTokens();
   const narrow = isMobile || compactLayout;
   const [compact] = useToolResultCompact(channelId ?? "");
-  const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+  const navigate = useNavigate();
 
-  // Pin the inline widget to the channel's implicit dashboard (slug
+  // Add the inline widget to the channel's implicit dashboard (slug
   // `channel:<uuid>`). Hydrate the store to that slug first so the pin
-  // lands in the right scope — the store re-hydrates lazily on navigation,
-  // so from the chat view we may be looking at a different slug.
+  // lands in the right scope, then navigate to the dashboard in edit
+  // mode with the new tile highlighted so the user sees where it landed
+  // and can immediately position it.
   const handlePinWidget = useCallback(
     async (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string | null }) => {
       const toolShort = info.toolName.includes("-") ? info.toolName.slice(info.toolName.indexOf("-") + 1) : info.toolName;
@@ -129,7 +130,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         await store.hydrate(slug);
       }
       try {
-        await useDashboardPinsStore.getState().pinWidget({
+        const created = await useDashboardPinsStore.getState().pinWidget({
           source_kind: "channel",
           source_channel_id: info.channelId,
           source_bot_id: info.botId,
@@ -137,6 +138,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           envelope: info.envelope,
           display_label: displayName,
         });
+        navigate(
+          `/widgets/channel/${info.channelId}?edit=true&highlight=${encodeURIComponent(created.id)}`,
+        );
       } catch (err) {
         // Surface the server's detail (e.g. "Bot 'X' has no API permissions")
         // instead of the generic ApiError string. The bare console.error
@@ -156,9 +160,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           // Toast store unavailable — console message above is enough.
         }
       }
-      setExplorerOpen(true);
     },
-    [setExplorerOpen],
+    [navigate],
   );
   const meta = message.metadata || {};
   // Extract text from content (handles JSON-array content blocks). Current

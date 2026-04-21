@@ -11,7 +11,7 @@ use_when: >
   step types, wiring up params for a reusable pipeline, or picking
   user_prompt vs agent-asks-a-question for an approval gate.
 triggers: create pipeline, pipeline task, multi-step task, schedule pipeline, automate steps, when to pipeline, build automation, approval gate, batch operation, iterate list
-category: core
+category: pipelines
 ---
 
 # Pipeline Creation Guide

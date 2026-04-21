@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, sdk, framework]
 status: active
-updated: 2026-04-20 (Phase A continued polish — `spindrel.image` SDK helper + grid-derived iframe pre-sizing + iframe `ready` handshake; frigate_snapshot rebased onto the helper)
+updated: 2026-04-21 (Ambient debug trace + Widget Inspector — closes the DX loop that was costing broken widgets)
 ---
 
 # Track — Widget SDK (from scripts to a framework)
@@ -9,6 +9,8 @@ updated: 2026-04-20 (Phase A continued polish — `spindrel.image` SDK helper + 
 > **Phase A complete 2026-04-19.** Plans: `~/.claude/plans/drifting-purring-kahan.md` (A.1), `~/.claude/plans/witty-waddling-moonbeam.md` (A.2b). Sessions 25–30 collectively shipped the full iframe-only SDK: `bus`, `cache`, `notify`, `log`, `ui.status`, `ui.table`, `ui.chart`, `form`, `stream`, `state`, error boundary, host-chrome toast listener, Dev Panel "Widget log" subtab, and three showcase widgets.
 >
 > **Phase B in flight — B.0–B.4 shipped 2026-04-19/04-20.** Plan: `~/.claude/plans/modular-sparking-naur.md`. Manifest parsing (B.0), `spindrel.db` server SQLite per bundle (B.1), `widget.py` `@on_action` in-process handlers (B.2), `@on_cron` scheduler (B.3), `@on_event` channel-event subscribers (B.4) all live. Remaining: B.5 `widget_reload` SSE signal, B.6 showcase widget (Cost Tracker scope rethought — plan to re-target when we get there; see B-row status). Phase C.0 (unified widget catalog) also shipped; rest of Phase C (DX-5b unblock + integration admin-page widgets tab + version upgrades) still pending — do not close this track until Phase C's exit criteria land.
+>
+> **DX — Ambient debug trace + Widget Inspector (shipped 2026-04-21).** Plan: `~/.claude/plans/magical-frolicking-kurzweil.md`. The inert dev-panel "Widget log" tab (0 entries, ever) is gone. Every `callTool` / `loadAttachment` / `loadAsset` invocation, every uncaught JS error, every unhandled promise rejection, every `console.*` call, and every `spindrel.log.*` entry is now auto-captured and POSTed to a server-side per-pin event ring (`app/services/widget_debug.py`, 50 entries cap, in-memory). Two readers: a new `WidgetInspector` side-panel triggered by a Bug icon on any pinned tile, and a new `inspect_widget_pin(pin_id, limit?)` readonly tool so the authoring bot can iterate against real envelope shapes instead of guessing. Also new: `GET /api/v1/tools/{name}/signature` + `window.spindrel.toolSchema(name)` so bots can look up `returns=` schemas at authoring time (null for MCP — fall back to the trace). Skills `sdk.md` / `tool-dispatch.md` rewritten: documents `loadAttachment`, `toolSchema`, the iteration recipe ("probe → pin → `inspect_widget_pin` → rewrite against confirmed path"), and the canonical envelope shapes for `frigate_snapshot` + `ha_get_state`. Fallback-chain guidance deleted — the anti-pattern that caused the kitchen-dashboard bug. 20 new tests (9 unit + 7 integration + 4 tool). Root cause: widget authoring runs ahead of any real invocation + MCP protocol has no `outputSchema` slot, so the bot had nothing to check its guesses against and no signal when they failed.
 
 ## North Star
 

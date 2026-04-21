@@ -435,15 +435,17 @@ class TestBasePromptContent:
         """Verify key platform concepts are mentioned in the base prompt."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
-        for concept in ["capabilit", "integration", "workflow", "orchestrator"]:
+        # Capabilities/carapace + workflows removed pre-main-release (2026-04-21);
+        # replaced by task pipelines and sub-sessions as first-class concepts.
+        for concept in ["integration", "pipeline", "sub-session", "orchestrator"]:
             assert concept.lower() in DEFAULT_GLOBAL_BASE_PROMPT.lower(), (
                 f"Base prompt missing platform concept: {concept}"
             )
 
-    def test_base_prompt_capability_discovery(self):
-        """Verify capability discovery guidance is present."""
+    def test_base_prompt_tool_and_skill_discovery(self):
+        """Verify tool + skill discovery guidance is present."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
         assert "get_tool_info" in DEFAULT_GLOBAL_BASE_PROMPT
         assert "get_skill" in DEFAULT_GLOBAL_BASE_PROMPT
-        assert "Discovering Capabilities" in DEFAULT_GLOBAL_BASE_PROMPT
+        assert "Tools and Skills" in DEFAULT_GLOBAL_BASE_PROMPT

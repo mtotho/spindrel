@@ -1132,9 +1132,11 @@ function GridCanvas({
     return (innerW - (preset.cols.lg - 1) * GAP_PX) / preset.cols.lg;
   }, [measuredRect, preset.cols.lg]);
 
-  // All hooks must run before any early return so React's hook order stays
-  // stable when edit mode or pin count toggles the empty-state branch.
-  if (!editMode && pins.length === 0) return null;
+  // Grid canvas stays rendered even when empty in view mode: it's the
+  // middle column of a three-column row (rail / grid / dock), and collapsing
+  // it would let rail + dock pack together flush against each other. Reserve
+  // the flex space; suppress the drop hint outside edit mode so the empty
+  // canvas reads as intentional whitespace, not a missing affordance.
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
 
   const gridStyle: CSSProperties = {

@@ -13,12 +13,22 @@ import type { ThemeTokens } from "../../theme/tokens";
 // Inline markdown parsing
 // ---------------------------------------------------------------------------
 
-type InlineNode = string | { tag: string; content: string; href?: string };
+type InlineNode =
+  | string
+  | { tag: string; content: string; href?: string }
+  | { tag: "mention"; prefix: string; name: string };
+
+// Mirrors app/agent/tags.py::_TAG_RE: negative lookbehind skips Slack <@USERID>
+// and email addresses; names start with letter/underscore and allow slashes.
+// Only prefixed forms (`skill:` / `tool:` / `tool-pack:` / `bot:`) become
+// chips — bare `@name` stays plain text because we can't classify it client-side.
+const MENTION_RE =
+  /(?<![<\w@])@(skill|tool-pack|tool|bot):([A-Za-z_][\w\-\.\/]*)/g;
 
 function parseInline(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
   const pattern =
-    /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\_[^_]+\_)|(~[^~]+~)|(\[([^\]]+)\]\(([^)]+)\))|(<(https?:\/\/[^>]+)>)/g;
+    /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*]+\*)|(\_[^_]+\_)|(~[^~]+~)|(\[([^\]]+)\]\(([^)]+)\))|(<(https?:\/\/[^>]+)>)|((?<![<\w@])@(skill|tool-pack|tool|bot):([A-Za-z_][\w\-\.\/]*))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = pattern.exec(text)) !== null) {
@@ -30,11 +40,23 @@ function parseInline(text: string): InlineNode[] {
     else if (m[5]) nodes.push({ tag: "strike", content: m[5].slice(1, -1) });
     else if (m[6]) nodes.push({ tag: "link", content: m[7], href: m[8] });
     else if (m[9]) nodes.push({ tag: "link", content: m[10], href: m[10] });
+    else if (m[11]) nodes.push({ tag: "mention", prefix: m[12], name: m[13] });
     last = m.index + m[0].length;
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes;
 }
+
+// Matches the composer badge palette in ui/src/components/shared/LlmPrompt.tsx.
+const MENTION_COLORS: Record<string, { bg: string; fg: string }> = {
+  skill: { bg: "#1e1b4b", fg: "#a5b4fc" },
+  tool: { bg: "#14532d", fg: "#86efac" },
+  "tool-pack": { bg: "#14532d", fg: "#86efac" },
+  bot: { bg: "#1e3a5f", fg: "#7dd3fc" },
+};
+
+// Suppress unused-var warning for MENTION_RE (exported for tests).
+export { MENTION_RE };
 
 function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
   return (
@@ -84,11 +106,36 @@ function InlineRenderer({ nodes, t }: { nodes: InlineNode[]; t: ThemeTokens }) {
                 onMouseEnter={(e) => { (e.target as HTMLElement).style.textDecorationColor = t.linkColor; }}
                 onMouseLeave={(e) => { (e.target as HTMLElement).style.textDecorationColor = `${t.linkColor}50`; }}
               >
-                {n.content}
+                {"content" in n ? n.content : ""}
               </a>
             );
+          case "mention": {
+            if (!("prefix" in n)) return null;
+            const colors = MENTION_COLORS[n.prefix] ?? { bg: "#374151", fg: t.contentText };
+            return (
+              <span
+                key={i}
+                data-type={n.prefix}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  fontSize: "0.9em",
+                  fontWeight: 500,
+                  padding: "1px 7px",
+                  margin: "0 1px",
+                  borderRadius: 4,
+                  background: colors.bg,
+                  color: colors.fg,
+                  verticalAlign: "baseline",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                @{n.prefix}:{n.name}
+              </span>
+            );
+          }
           default:
-            return <span key={i}>{n.content}</span>;
+            return <span key={i}>{"content" in n ? n.content : ""}</span>;
         }
       })}
     </>

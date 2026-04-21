@@ -22,6 +22,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock        # integration sidecar containers
       - ${WORKSPACE_HOST_DIR:-~/.spindrel-workspaces}:/workspace-data  # workspace files
       - fastembed-cache:/app/.fastembed-cache  # local embedding model cache
+      # Persistent install cache — survives `spindrel pull` rebuilds.
+      # See app/routers/api_v1_admin/install_cache.py for the admin reset.
+      - spindrel-home:/home/spindrel                   # npm-global, pip cache, playwright, claude CLI, agent ~/.local
+      - spindrel-apt-archives:/var/cache/apt/archives  # cached .deb downloads (fast re-install on rebuild)
       # Config state auto-export: uncomment after first run creates the file
       # (bind-mounting a non-existent file makes Docker create a directory)
       # - ./config-state.json:/app/config-state.json
@@ -50,3 +54,5 @@ services:
 volumes:
   pgdata:
   fastembed-cache:
+  spindrel-home:
+  spindrel-apt-archives:

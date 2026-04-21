@@ -38,7 +38,8 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
-import { ChatSession } from "@/src/components/chat/ChatSession";
+import { ChatSession, type ChatSource } from "@/src/components/chat/ChatSession";
+import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 
 /** True when a pin currently lives on the chat sidebar rail canvas. Zone
  *  is stored explicitly on the pin; this is a convenience predicate so the
@@ -165,7 +166,33 @@ export default function WidgetsDashboardPage() {
 
   const { kiosk, enterKiosk, exitKiosk, idle: kioskIdle } = useKioskMode();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
+
+  // `?dock=expanded` — the channel screen's Minimize button navigates here
+  // with this flag so the dock opens already expanded (landing continuity).
+  // Read once, scrub from the URL on mount so a later refresh doesn't re-open.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
+
+  /** Edit mode is URL-driven via `?edit=true` so deep-links from the chat
+   *  screen's "Add to dashboard" button (and page refreshes) land the user
+   *  in edit mode without a separate client-state bootstrap. Toggling the
+   *  "Edit layout" button rewrites the URL param. */
+  const editMode = searchParams.get("edit") === "true";
+  const setEditMode = useCallback(
+    (next: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const patch = new URLSearchParams(prev);
+          if (next) patch.set("edit", "true");
+          else patch.delete("edit");
+          return patch;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
   /** Current RGL breakpoint. We only persist layout edits at `lg` — smaller
    *  breakpoints are auto-reflowed by RGL and their coordinates should not
    *  become the canonical `grid_layout` (otherwise narrowing the window in
@@ -213,11 +240,6 @@ export default function WidgetsDashboardPage() {
    *  by the streaming / React #185 bugs on the ephemeral path (Track §4.0a/c). */
   const chatDockNoop = useCallback(() => {}, []);
 
-  // `?dock=expanded` — the channel screen's Minimize button navigates here
-  // with this flag so the dock opens already expanded (landing continuity).
-  // Read once, scrub from the URL on mount so a later refresh doesn't re-open.
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
   useEffect(() => {
     const patch = new URLSearchParams(searchParams);
     let changed = false;
@@ -233,9 +255,18 @@ export default function WidgetsDashboardPage() {
       changed = true;
       enterKiosk();
     }
+    // `?highlight=<pinId>` — chat "Add to dashboard" flow deep-links here
+    // with this param so the newly pinned tile scrolls into view and flashes.
+    // Consume once and strip; `highlightPin` does the pulse + scroll.
+    const highlightId = patch.get("highlight");
+    if (highlightId) {
+      patch.delete("highlight");
+      changed = true;
+      highlightPin(highlightId);
+    }
     if (changed) setSearchParams(patch, { replace: true });
-    // Mount-only: subsequent ?dock / ?kiosk changes are ignored unless the
-    // user manually edits the URL.
+    // Mount-only: subsequent ?dock / ?kiosk / ?highlight changes are ignored
+    // unless the user manually edits the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -372,7 +403,7 @@ export default function WidgetsDashboardPage() {
       {pins.length > 0 && !isMobile && (
         <button
           type="button"
-          onClick={() => setEditMode((v) => !v)}
+          onClick={() => setEditMode(!editMode)}
           className={
             "inline-flex items-center gap-1.5 h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors " +
             (editMode
@@ -440,7 +471,16 @@ export default function WidgetsDashboardPage() {
       {isChannelScoped && channelScopedId && !isMobile && (
         <button
           type="button"
-          onClick={() => navigate(`/channels/${channelScopedId}?from=dock`)}
+          onClick={() => {
+            // If the user got here from a scratch full-page, bring them
+            // back to the same scratch context instead of the main chat.
+            const sid = useScratchReturnStore.getState().byChannel[channelScopedId];
+            if (sid) {
+              navigate(`/channels/${channelScopedId}/session/${sid}?scratch=true`);
+            } else {
+              navigate(`/channels/${channelScopedId}?from=dock`);
+            }
+          }}
           className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
           aria-label="Switch to chat view"
           title="Switch to chat view"
@@ -629,18 +669,71 @@ export default function WidgetsDashboardPage() {
       {/* ChatSession dock — channel-scoped dashboards only. Streams the same
           chat as the channel's full screen; maximize navigates there. Kiosk +
           mobile omit the dock to keep the presentation / small-screen layouts
-          unchanged. */}
+          unchanged.
+          When the user arrived here from a scratch full-page (scratchReturn
+          store has an entry for this channel), the dock mounts against the
+          scratch session instead so "back to chat" + the dock content stay
+          consistent with the scratch context the user left. */}
       {isChannelScoped && channelScopedId && !kiosk && !isMobile && (
-        <ChatSession
-          source={{ kind: "channel", channelId: channelScopedId }}
-          shape="dock"
-          open
-          onClose={chatDockNoop}
-          title={channelRow?.name ? `#${channelRow.name}` : "Channel chat"}
+        <DashboardChatDock
+          channelId={channelScopedId}
+          botId={channelRow?.bot_id}
+          channelName={channelRow?.name}
           initiallyExpanded={initialDockExpanded}
         />
       )}
     </div>
+  );
+}
+
+/** Chat dock mounted on channel-scoped widget dashboards. Normally mirrors
+ *  the channel's main chat. When the user arrived from a scratch full-page
+ *  (scratchReturn store has the channel's scratch session id), the dock
+ *  swaps to render against the scratch session so "back to chat" flows and
+ *  the dock content stay consistent with the scratch context. */
+function DashboardChatDock({
+  channelId,
+  botId,
+  channelName,
+  initiallyExpanded,
+}: {
+  channelId: string;
+  botId: string | undefined;
+  channelName: string | undefined;
+  initiallyExpanded: boolean;
+}) {
+  const scratchReturnSessionId = useScratchReturnStore(
+    (s) => s.byChannel[channelId] ?? null,
+  );
+  const source: ChatSource = scratchReturnSessionId
+    ? {
+        kind: "ephemeral",
+        sessionStorageKey: `channel:${channelId}:scratch`,
+        parentChannelId: channelId,
+        defaultBotId: botId,
+        context: {
+          page_name: "channel_scratch",
+          payload: { channel_id: channelId },
+        },
+        scratchBoundChannelId: channelId,
+      }
+    : { kind: "channel", channelId };
+  const title = scratchReturnSessionId
+    ? channelName
+      ? `Scratch · #${channelName}`
+      : "Scratch pad"
+    : channelName
+      ? `#${channelName}`
+      : "Channel chat";
+  return (
+    <ChatSession
+      source={source}
+      shape="dock"
+      open
+      onClose={() => {}}
+      title={title}
+      initiallyExpanded={initiallyExpanded}
+    />
   );
 }
 

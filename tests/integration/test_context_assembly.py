@@ -844,9 +844,16 @@ class TestSkillAutoInject:
                 result=result,
             ))
 
-        # The skill should appear from @-tag injection
-        tag_msgs = [m for m in messages if "Skill content." in m.get("content", "")]
-        assert len(tag_msgs) >= 1, "Tagged skill content should be injected via @-tag"
+        # Tagged skills now produce a hint, not a chunk dump.
+        hint_msgs = [
+            m for m in messages
+            if "Tagged skill context" in m.get("content", "")
+            and "tagged-skill" in m.get("content", "")
+        ]
+        assert len(hint_msgs) == 1, "Tagged skill hint should be appended"
+        assert "Skill content." not in hint_msgs[0]["content"], (
+            "Full chunk content must not leak into the hint"
+        )
 
         # Auto-inject should NOT record the already-tagged skill
         assert result.auto_inject_skills == [], "Already-tagged skill should NOT be auto-injected"

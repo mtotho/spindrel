@@ -120,8 +120,11 @@ class SharedWorkspaceService:
         for k, v in (ws.env or {}).items():
             if k and self._ENV_NAME_RE.match(k) and "\x00" not in str(v):
                 env[k] = str(v)
-        # Auto-inject server API access (setdefault so workspace env can override)
-        env.setdefault("AGENT_SERVER_URL", settings.SERVER_PUBLIC_URL)
+        # Auto-inject server API access (setdefault so workspace env can override).
+        # Same-container subprocesses use SERVER_INTERNAL_URL (localhost) — they
+        # can't resolve host.docker.internal, which is only wired into sidecar
+        # containers launched by sandbox.py.
+        env.setdefault("AGENT_SERVER_URL", settings.SERVER_INTERNAL_URL)
         return env
 
     # ── Write protection ───────────────────────────────────────────

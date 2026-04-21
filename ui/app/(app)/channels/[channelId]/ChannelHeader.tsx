@@ -4,7 +4,7 @@ import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, Plug, StickyNote,
   MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
-  User as UserIcon,
+  User as UserIcon, History, RotateCcw,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -46,6 +46,15 @@ export interface ChannelHeaderProps {
   /** Open the scratch-chat dock. Button is rendered on every viewport. */
   scratchOpen?: boolean;
   onOpenScratch?: () => void;
+  /** When the current URL is the scratch full-page route, the header
+   *  grows History + Reset icon buttons so the user can manage the
+   *  scratch session from chrome that sits outside the chat column. */
+  scratchFullpageMode?: {
+    onOpenHistory: () => void;
+    onReset: () => void;
+    resetArmed: boolean;
+    archive?: boolean;
+  };
 }
 
 export function ChannelHeader({
@@ -63,6 +72,7 @@ export function ChannelHeader({
   findingsCount = 0,
   scratchOpen,
   onOpenScratch,
+  scratchFullpageMode,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
@@ -310,7 +320,10 @@ export function ChannelHeader({
 
       {/* Scratch chat opener. Always visible; stays put when the dock is
           open (clicking again is a no-op — dock's own X closes). Active
-          styling signals that the dock is currently up. */}
+          styling signals that the dock is currently up. When the URL is
+          on the scratch full-page route, clicking navigates back to the
+          main chat (canonical minimize) and the button shows pressed
+          state so the user can see which context they're in. */}
       {channelId && onOpenScratch && (
         <button
           className="header-icon-btn"
@@ -320,12 +333,45 @@ export function ChannelHeader({
             backgroundColor: scratchOpen ? t.surfaceOverlay : undefined,
           }}
           onClick={onOpenScratch}
-          title="Scratch chat"
-          aria-label="Open scratch chat"
+          title={scratchFullpageMode ? "Minimize scratch (back to channel chat)" : "Scratch chat"}
+          aria-label={scratchFullpageMode ? "Minimize scratch and return to channel" : "Open scratch chat"}
           aria-pressed={!!scratchOpen}
         >
           <StickyNote size={16} color={scratchOpen ? t.accent : t.textDim} />
         </button>
+      )}
+
+      {/* Scratch-mode extras — History + Reset. Only surface while the URL
+          is on the scratch full-page route (or archive deep-link) so the
+          main-chat header stays uncluttered. Reset is hidden on archive
+          reads — you can't reset an archived session in place. */}
+      {channelId && scratchFullpageMode && (
+        <>
+          <button
+            className="header-icon-btn"
+            style={{ width: iconSize, height: iconSize }}
+            onClick={scratchFullpageMode.onOpenHistory}
+            title="Scratch history"
+            aria-label="Open scratch history"
+          >
+            <History size={16} color={t.textDim} />
+          </button>
+          {!scratchFullpageMode.archive && (
+            <button
+              className="header-icon-btn"
+              style={{
+                width: iconSize,
+                height: iconSize,
+                backgroundColor: scratchFullpageMode.resetArmed ? "rgba(239,68,68,0.1)" : undefined,
+              }}
+              onClick={scratchFullpageMode.onReset}
+              title={scratchFullpageMode.resetArmed ? "Click again within 3 s to reset the session" : "Reset scratch session"}
+              aria-label="Reset scratch session"
+            >
+              <RotateCcw size={16} color={scratchFullpageMode.resetArmed ? "#ef4444" : t.textDim} />
+            </button>
+          )}
+        </>
       )}
 
       {/* Settings — primary chrome. */}

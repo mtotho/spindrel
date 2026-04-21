@@ -9,7 +9,7 @@ Think of it as Postman for Spindrel tools plus a widget authoring IDE, with one 
 ## Getting there
 
 - Direct URL: `/widgets/dev`
-- From any dashboard, click the **Widgets** kebab → **Developer panel**.
+- From a dashboard, use the **Add widget** split-button and pick **Developer tools**.
 - Deep link a tab: `/widgets/dev#tools`, `#templates`, `#library`, `#recent`.
 
 The panel honors a `?from=<slug>` origin hint — when you arrive from a specific dashboard, the back-arrow in the PageHeader returns there, and the DashboardTargetPicker in the tab bar pre-fills the pin target.
@@ -20,7 +20,7 @@ The panel honors a `?from=<slug>` origin hint — when you arrive from a specifi
 
 | Tab | What it's for |
 |---|---|
-| **Library** | Browse the catalog of widget packages shipped by integrations. Read-only per-package seed view. |
+| **Library** | Browse reusable HTML/widget-library entries from core, bot, and workspace scopes. Preview them and pin them directly. |
 | **Templates** | Author / edit / fork packages: YAML + Python + sample payload with live preview. |
 | **Call tools** | Pick a tool, fill the args form, run it, render the widget against the real envelope. Pin the result to a dashboard. |
 | **Recent** | Inspect recent tool invocations across the server. Filter by tool or bot. Import-into-Templates handoff seeds the editor with a real payload. |
@@ -117,11 +117,37 @@ Pin-a-generic-view is also available on this tab — useful for sending a one-of
 
 ---
 
-## Library — read-only catalog
+## Library — reusable widget bundles
 
-Browse every package the server knows about. Filter by integration, by tool name, by source (seed / user). Each row opens a read-only view showing the package's YAML, transform, and sample. Fork to edit — that's the path from Library into Templates.
+The Library tab is distinct from the Templates catalog. It surfaces **library widgets** discoverable from three scopes:
 
-This tab is the cheapest way to understand the widget grammar: open a shipped package (start with `frigate_snapshot` or `get_weather` for HTML templates, or `HassLightSet` for component templates), read what it does, then mimic the pattern.
+| Scope | What it means |
+|---|---|
+| `core` | Built-in library widgets shipped with Spindrel |
+| `bot` | Bot-authored widgets under that bot's library directory |
+| `workspace` | Shared workspace-authored widgets |
+
+Core widgets always show. Bot/workspace widgets require a bot selection so the panel can resolve the right workspace roots and auth context.
+
+### What you do here
+
+- Browse the catalog returned by `GET /api/v1/widgets/library-widgets`
+- Preview a library widget with the real renderer
+- Pin it directly to a dashboard
+- See whether an item is already pinned
+
+Library widgets are usually HTML-backed bundles, not per-tool template packages. The pin stores the `library_ref`, and the rendered envelope carries `source_kind: "library"` / `source_library_ref` so the runtime can load the bundle body later.
+
+### Preview behavior
+
+Preview uses the same `RichToolResult` pipeline as chat and dashboards. If the widget needs a bot context for auth and you have not selected one, the panel shows that explicitly rather than silently rendering a broken iframe.
+
+This is also where the split between **authoring a reusable bundle** and **authoring a template for a tool result** becomes obvious:
+
+- **Library** = reusable widget bundle you can pin directly
+- **Templates** = renderer logic for a tool's result envelope
+
+Use Library when you want a concrete widget asset. Use Templates when you want "tool X should render like Y."
 
 ---
 
@@ -142,7 +168,7 @@ This tab is the cheapest way to understand the widget grammar: open a shipped pa
 | Tools sandbox | `ui/app/(app)/widgets/dev/ToolsSandbox.tsx` |
 | Template editor | `ui/app/(app)/widgets/dev/editor/WidgetEditor.tsx` |
 | Recent tab | `ui/app/(app)/widgets/dev/RecentTab.tsx` |
-| Library tab | `ui/app/(app)/widgets/dev/LibraryTab.tsx` |
+| Library tab | `ui/app/(app)/widgets/LibraryWidgetsTab.tsx` |
 | Admin execute endpoint | `app/routers/api_v1_admin/tools.py:143` |
 | Tool context flags | `@register(requires_bot_context=True, requires_channel_context=True)` |
 

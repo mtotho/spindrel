@@ -2,7 +2,7 @@
 name: Widget Dashboards
 description: How to read, propose, and modify widget dashboard layouts with describe_dashboard, pin_widget, move_pins, unpin_widget, promote_panel, demote_panel — zones (rail/header/dock/grid), chat view vs full dashboard, ASCII mockups, first-free-slot placement, panel mode
 triggers: widget dashboard, dashboard layout, pin widget, unpin widget, move widget, rearrange dashboard, dashboard rail, dashboard dock, dashboard zones, chat widgets, header chip, dashboard panel, panel mode, describe dashboard, show me the dashboard, where is this pinned, change layout
-category: core
+category: widgets
 ---
 
 # Widget Dashboards — Layout Tools

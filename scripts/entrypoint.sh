@@ -24,6 +24,10 @@ run_startup_as() {
 if [ "$(id -u)" = "0" ] && id spindrel >/dev/null 2>&1; then
     chown -R spindrel:spindrel /app 2>/dev/null || true
     chown -R spindrel:spindrel /workspace-data 2>/dev/null || true
+    # /home/spindrel is the persistent install-cache volume (npm-global,
+    # pip cache, playwright browsers, agent ~/.local). First boot after
+    # adding the volume leaves it root-owned — align to UID 1000.
+    chown -R spindrel:spindrel /home/spindrel 2>/dev/null || true
 
     # The spindrel user needs the host docker-socket GID in its group
     # list to use /var/run/docker.sock (integration sidecar containers,

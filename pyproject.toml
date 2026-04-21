@@ -37,6 +37,7 @@ dependencies = [
     "fastembed",
     "ddgs",
     "anthropic>=0.45.0",
+    "tiktoken>=0.7",
     "jsonpatch>=1.33",
     "croniter>=2.0",
     "pywebpush>=2.0",

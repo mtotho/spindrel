@@ -67,6 +67,8 @@ The portal shell (`PipelineRunModal.tsx`) routes between `PipelineRunPreRun` and
 
 Used for ephemeral ad-hoc chats (e.g. the "ask a bot about this widget" panel on a widget dashboard). Same session primitive, different chrome — a small docked overlay in the bottom-right that doesn't take the screen. Implemented in `EphemeralSessionDock.tsx`.
 
+As of the April 21 pass, scratch sessions also have a **history view** and a **server-owned current pointer** so the same scratch chat follows you across devices for a given `(user, channel)`.
+
 Both shells reuse the **normal chat renderer** — `SessionChatView` + `ChatMessageArea` + `MessageInput`. There is no parallel streaming pipeline, no parallel renderer, no duplicate bus wiring. Message lists, thinking indicators, tool widgets, approvals — all behave the same as the parent channel.
 
 ---
@@ -144,6 +146,41 @@ Today this is used for:
 
 ---
 
+## Scratch sessions — current pointer + history
+
+Scratch sessions are the main user-facing ephemeral sub-session today. They are no longer just a client-local modal state; the server owns a **current scratch session** per `(user, channel)` and keeps older scratch sessions queryable.
+
+### Current scratch session
+
+`GET /api/v1/sessions/scratch/current` resolves or creates the current scratch session for:
+
+- the authenticated user
+- the current channel
+- the selected bot
+
+That means the scratch panel you open on desktop is the same scratch conversation you can reopen on another device later.
+
+### Reset
+
+`POST /api/v1/sessions/scratch/reset` archives the current scratch session and spawns a fresh one. The old conversation does not disappear; it simply leaves the "current" slot.
+
+### History
+
+`GET /api/v1/sessions/scratch/list` returns newest-first scratch history for the current user/channel pair. The UI exposes this via `ScratchHistoryModal`, and older sessions open in a read-only `ScratchViewer` route at:
+
+`/channels/:channelId/scratch/:sessionId`
+
+This is intentionally different from the live dock:
+
+- **Current scratch** = interactive, docked, composer enabled
+- **Scratch history entry** = browsable transcript, no composer
+
+### Why the pointer lives on the server
+
+The old localStorage-only model broke down across devices and tabs. The DB-backed `is_current` pointer makes scratch feel like a first-class conversation surface instead of a per-browser toy.
+
+---
+
 ## Ephemeral skill / tool injection
 
 Pipeline steps can declare ephemeral skills or tools in their `execution_config` that apply to the agent runs inside the sub-session only:
@@ -181,9 +218,12 @@ The task loop calls `set_ephemeral_skills(...)` and the context assembler inject
 | Live shell | `ui/app/(app)/channels/[channelId]/PipelineRunLive.tsx` |
 | Shared modal primitive | `ui/src/components/chat/EphemeralSessionModal.tsx` |
 | Bottom-right dock | `ui/src/components/chat/EphemeralSessionDock.tsx` |
+| Scratch history modal | `ui/src/components/chat/ScratchHistoryModal.tsx` |
+| Scratch viewer route | `ui/app/(app)/channels/[channelId]/ScratchViewer.tsx` |
 | Anchor renderer | `ui/src/components/chat/TaskRunEnvelope.tsx` |
 | Channel event hook (filter) | `ui/src/api/hooks/useChannelEvents.ts` |
 | Session event hook | `ui/src/api/hooks/useSessionEvents.ts` |
+| Scratch hooks | `ui/src/api/hooks/useEphemeralSession.ts` |
 
 ## See also
 

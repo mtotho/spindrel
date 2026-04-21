@@ -36,7 +36,6 @@ const SettingsBotsPage = lazy(() => import("@/app/(app)/settings/bots"));
 const NewChannelPage = lazy(() => import("@/app/(app)/channels/new"));
 const ChannelPage = lazy(() => import("@/app/(app)/channels/[channelId]/index"));
 const ChannelSettings = lazy(() => import("@/app/(app)/channels/[channelId]/settings"));
-const ScratchViewer = lazy(() => import("@/app/(app)/channels/[channelId]/ScratchViewer"));
 
 // Channel tabs / sub-components used as pages
 
@@ -148,9 +147,11 @@ export const router = createBrowserRouter([
               // screen against the thread session with a "Replying to …"
               // header + close-X that returns to the channel.
               { path: "threads/:threadSessionId", element: <ChannelPage /> },
-              // Read-only archive of a historical scratch-pad session
-              // (from scratch-history modal).
-              { path: "scratch/:sessionId", element: <ScratchViewer /> },
+              // Session sub-view. `?scratch=true` = scratch-pad full-page;
+              // `?scratch=true&archive=true` = read-only archived scratch.
+              // Path is deliberately generic so future session-switching
+              // (non-scratch) flavors can share this route.
+              { path: "session/:sessionId", element: <ChannelPage /> },
             ],
           },
 

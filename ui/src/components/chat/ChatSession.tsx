@@ -69,6 +69,15 @@ export type ChatSource =
        *  continuity. Only meaningful for the channel-page "Scratch" mount;
        *  dashboard ad-hoc ephemerals leave it undefined and stay local. */
       scratchBoundChannelId?: string;
+      /** Explicit session id override. When set, the component loads
+       *  messages from this session instead of resolving one via
+       *  scratch-pointer or localStorage. Powers deep links to a
+       *  specific scratch session (current or archived) on the full-page
+       *  /channels/:id/session/:sid?scratch=true route. */
+      pinnedSessionId?: string;
+      /** Read-only rendering — hides the composer + reset button. Used
+       *  for archived scratch sessions. */
+      readOnly?: boolean;
     }
   | {
       kind: "thread";
@@ -94,8 +103,17 @@ export type ChatSource =
 
 export interface ChatSessionProps {
   source: ChatSource;
-  /** Display mode — the controller renders the appropriate shell. */
-  shape: "modal" | "dock";
+  /** Display mode — the controller renders the appropriate shell.
+   *
+   *   - ``dock`` — bottom-right panel with header chrome.
+   *   - ``modal`` — centered overlay with header chrome.
+   *   - ``fullpage`` — chrome-less column body for embedding directly in a
+   *     page layout (e.g. the scratch full-page swap on ChannelPage). The
+   *     controller still renders a small header row with bot picker +
+   *     history + reset, but omits maximize/close (the host page owns
+   *     navigation via the ScratchBanner). Only supported for the
+   *     ``ephemeral`` source kind today. */
+  shape: "modal" | "dock" | "fullpage";
   /** Controlled open state (caller owns open/close). */
   open: boolean;
   onClose: () => void;
@@ -419,9 +437,18 @@ function EphemeralChatSession({
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const { data: bots } = useBots();
 
-  const { sessionStorageKey, parentChannelId, defaultBotId, context, scratchBoundChannelId } = source;
+  const {
+    sessionStorageKey,
+    parentChannelId,
+    defaultBotId,
+    context,
+    scratchBoundChannelId,
+    pinnedSessionId,
+    readOnly,
+  } = source;
   const resolvedDefault = defaultBotId ?? bots?.[0]?.id ?? "";
 
   const [stored, setStored] = useState<StoredEphemeralState | null>(() =>
@@ -445,16 +472,18 @@ function EphemeralChatSession({
     ? scratchQuery.data?.bot_id ?? null
     : null;
 
-  const sessionId = scratchBoundChannelId
-    ? serverSessionId
-    : (stored?.sessionId && stored.sessionId.length > 0 ? stored.sessionId : null);
+  const sessionId = pinnedSessionId
+    ? pinnedSessionId
+    : scratchBoundChannelId
+      ? serverSessionId
+      : (stored?.sessionId && stored.sessionId.length > 0 ? stored.sessionId : null);
   const botId = scratchBoundChannelId
     ? (serverBotId ?? stored?.botId ?? resolvedDefault)
     : (stored?.botId ?? resolvedDefault);
   const modelOverride = stored?.modelOverride ?? undefined;
   const modelProviderId = stored?.modelProviderId ?? null;
 
-  const [mode, setMode] = useState<"dock" | "modal">(shape);
+  const [mode, setMode] = useState<"dock" | "modal" | "fullpage">(shape);
   // For ephemeral docks we always land on the panel (no FAB intermediate) —
   // the entry point is the channel header button, so a collapsed FAB state
   // would be redundant chrome. Collapse requests become full closes below.
@@ -629,8 +658,24 @@ function EphemeralChatSession({
     onClose();
   }, [onClose]);
 
-  const expandTitle = mode === "dock" ? "Expand to full view" : "Minimize to dock";
+  const isFullpage = mode === "fullpage";
+  // Scratch docks navigate to a dedicated full-page route instead of
+  // promoting to a modal — the expand becomes a URL change so the user
+  // can deep-link / share / back-button the scratch view.
+  const canNavigateFullpage = !!scratchBoundChannelId && !!sessionId;
+  const expandTitle = canNavigateFullpage
+    ? "Open full scratch page"
+    : mode === "dock"
+      ? "Expand to full view"
+      : "Minimize to dock";
   const ExpandIcon = mode === "dock" ? Maximize2 : Minimize2;
+  const handleExpandClick = useCallback(() => {
+    if (canNavigateFullpage && scratchBoundChannelId && sessionId) {
+      navigate(`/channels/${scratchBoundChannelId}/session/${sessionId}?scratch=true`);
+      return;
+    }
+    setMode((m) => (m === "dock" ? "modal" : "dock"));
+  }, [canNavigateFullpage, scratchBoundChannelId, sessionId, navigate]);
   const overheadColor = useMemo(() => {
     if (overheadPct == null) return null;
     if (overheadPct >= 0.4) return "#ef4444";
@@ -665,14 +710,16 @@ function EphemeralChatSession({
             style={{ backgroundColor: overheadColor, border: "none", cursor: "help" }}
           />
         )}
-        <button
-          onClick={() => setMode((m) => (m === "dock" ? "modal" : "dock"))}
-          title={expandTitle}
-          aria-label={expandTitle}
-          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
-        >
-          <ExpandIcon size={13} />
-        </button>
+        {!isFullpage && (
+          <button
+            onClick={handleExpandClick}
+            title={expandTitle}
+            aria-label={expandTitle}
+            className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          >
+            <ExpandIcon size={13} />
+          </button>
+        )}
         {scratchBoundChannelId && (
           <button
             onClick={() => setHistoryOpen(true)}
@@ -683,7 +730,7 @@ function EphemeralChatSession({
             <History size={13} />
           </button>
         )}
-        {sessionId && (
+        {sessionId && !readOnly && (
           <button
             onClick={handleReset}
             title={resetArmed ? "Click again within 3 s to reset the session" : "Reset session"}
@@ -697,14 +744,24 @@ function EphemeralChatSession({
             <RotateCcw size={13} />
           </button>
         )}
-        <button
-          onClick={handleHeaderClose}
-          title={mode === "dock" ? "Collapse to button" : "Close"}
-          aria-label={mode === "dock" ? "Collapse to button" : "Close"}
-          className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
-        >
-          <X size={13} />
-        </button>
+        {readOnly && (
+          <span
+            className="px-1.5 py-0.5 rounded bg-surface-overlay text-[10px] uppercase tracking-wider text-text-dim"
+            title="This is an archived scratch session"
+          >
+            Archive
+          </span>
+        )}
+        {!isFullpage && (
+          <button
+            onClick={handleHeaderClose}
+            title={mode === "dock" ? "Collapse to button" : "Close"}
+            aria-label={mode === "dock" ? "Collapse to button" : "Close"}
+            className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -731,27 +788,31 @@ function EphemeralChatSession({
         )}
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors ChannelChatSession + the main channel screen). No
-            border-top wrapper; the card's own elevation separates it. */}
-        <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
-          {sendError && (
-            <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
-              {sendError}
-            </div>
-          )}
-          <MessageInput
-            onSend={handleSend}
-            disabled={!botId}
-            isStreaming={isSending}
-            currentBotId={botId || undefined}
-            channelId={sessionId ?? undefined}
-            modelOverride={modelOverride}
-            modelProviderIdOverride={modelProviderId}
-            onModelOverrideChange={setModelOverride}
-            defaultModel={bots?.find((b) => b.id === botId)?.model}
-            configOverhead={overheadPct}
-            compact
-          />
-        </div>
+            border-top wrapper; the card's own elevation separates it.
+            Hidden in read-only mode so archived sessions display as a
+            transcript only. */}
+        {!readOnly && (
+          <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+            {sendError && (
+              <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
+                {sendError}
+              </div>
+            )}
+            <MessageInput
+              onSend={handleSend}
+              disabled={!botId}
+              isStreaming={isSending}
+              currentBotId={botId || undefined}
+              channelId={sessionId ?? undefined}
+              modelOverride={modelOverride}
+              modelProviderIdOverride={modelProviderId}
+              onModelOverrideChange={setModelOverride}
+              defaultModel={bots?.find((b) => b.id === botId)?.model}
+              configOverhead={overheadPct}
+              compact
+            />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -763,6 +824,15 @@ function EphemeralChatSession({
       channelId={scratchBoundChannelId}
     />
   ) : null;
+
+  if (mode === "fullpage") {
+    return (
+      <>
+        <div className="flex flex-col h-full w-full min-h-0">{body}</div>
+        {historyModal}
+      </>
+    );
+  }
 
   if (mode === "modal") {
     return (
@@ -832,7 +902,7 @@ function ThreadChatSession({
   const effectiveSessionId = source.threadSessionId ?? lazySpawnedId;
   const hasSession = !!effectiveSessionId;
 
-  const [mode, setMode] = useState<"dock" | "modal">(shape);
+  const [mode, setMode] = useState<"dock" | "modal" | "fullpage">(shape);
   const [dockExpanded, setDockExpanded] = useState(
     shape === "dock" && (initiallyExpanded ?? false),
   );

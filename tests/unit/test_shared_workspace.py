@@ -102,7 +102,7 @@ class TestBuildEnv:
         ws = MagicMock()
         ws.env = {"CUSTOM": "value"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
-            mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
+            mock_settings.SERVER_INTERNAL_URL = "http://localhost:8000"
             env = svc._build_env(ws)
         assert env["CUSTOM"] == "value"
         assert env["AGENT_SERVER_URL"] == "http://localhost:8000"
@@ -113,9 +113,26 @@ class TestBuildEnv:
         ws = MagicMock()
         ws.env = {"AGENT_SERVER_URL": "http://custom.com"}
         with patch("app.services.shared_workspace.settings") as mock_settings:
-            mock_settings.SERVER_PUBLIC_URL = "http://localhost:8000"
+            mock_settings.SERVER_INTERNAL_URL = "http://localhost:8000"
             env = svc._build_env(ws)
         assert env["AGENT_SERVER_URL"] == "http://custom.com"
+
+    def test_uses_internal_not_public_url(self):
+        """Subprocess runs in-container — must use localhost, not host.docker.internal.
+
+        Regression guard: SERVER_PUBLIC_URL ('host.docker.internal:8000' by
+        default) only resolves in sidecar containers that sandbox.py launches
+        with --add-host. The agent-server container has no such alias, so
+        shared_workspace subprocesses (run_script, exec_command) would fail DNS.
+        """
+        svc = SharedWorkspaceService()
+        ws = MagicMock()
+        ws.env = {}
+        with patch("app.services.shared_workspace.settings") as mock_settings:
+            mock_settings.SERVER_INTERNAL_URL = "http://localhost:8000"
+            mock_settings.SERVER_PUBLIC_URL = "http://host.docker.internal:8000"
+            env = svc._build_env(ws)
+        assert env["AGENT_SERVER_URL"] == "http://localhost:8000"
 
 
 class TestListFiles:

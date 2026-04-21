@@ -298,6 +298,28 @@ Returns a dashboard (implicit channel dashboards use the slug shape `channel:<uu
 
 Additional endpoints under `/api/v1/widgets/dashboard` (see `app/routers/api_v1_dashboard.py`) cover: create/rename dashboards, CRUD pins, bulk `POST /pins/layout` to persist grid coordinates on drag-end, `PATCH /pins/{id}` for per-pin fields (display_label, widget_config, source_bot_id), and `DELETE /pins/{id}`.
 
+### Widget Library
+
+`GET /api/v1/widgets/library-widgets`
+
+Returns reusable widget-library bundles across three scopes:
+
+- `core`
+- `bot`
+- `workspace`
+
+Without `bot_id`, only `core` is guaranteed. Supplying `?bot_id=<id>` lets the server resolve that bot's workspace roots and enumerate bot/workspace-authored bundles too. This is the endpoint that powers the dashboard add-sheet's **Library** tab.
+
+### Panel-mode endpoints
+
+`POST /api/v1/widgets/dashboard/pins/{pin_id}/promote-panel`
+
+Marks a pin as the dashboard's main panel and flips the dashboard into panel mode.
+
+`DELETE /api/v1/widgets/dashboard/pins/{pin_id}/promote-panel`
+
+Clears `is_main_panel` from that pin. If no panel pin remains, the dashboard falls back to grid mode.
+
 ### Widget Auth (bot-scoped tokens)
 
 `POST /api/v1/widget-auth/mint`
@@ -309,6 +331,44 @@ Described above in [Widget Tokens](#widget-tokens-short-lived-bot-scoped). Reser
 `GET /api/v1/favicon?domain=<host>`
 
 Thin server-side proxy that fetches a favicon for the given host. Used by widgets that render link cards (web_search, custom HTML dashboards) so cross-origin icon loads stay inside the CSP.
+
+## Scratch sessions
+
+These routes back the cross-device scratch-sub-session flow described in [Task Sub-Sessions](task-sub-sessions.md).
+
+### Current scratch session
+
+`GET /api/v1/sessions/scratch/current?parent_channel_id=<uuid>&bot_id=<bot>`
+
+Resolves or spawns the authenticated user's current scratch session for a `(channel, user)` pair. Scope: `chat`.
+
+### Reset scratch
+
+`POST /api/v1/sessions/scratch/reset`
+
+Archives the current scratch session for that `(channel, user)` pair and creates a fresh one. Scope: `chat`.
+
+### Scratch history
+
+`GET /api/v1/sessions/scratch/list?parent_channel_id=<uuid>`
+
+Lists current + archived scratch sessions for the authenticated user/channel pair, newest first with the current scratch pinned to the top. Scope: `chat`.
+
+## Browser Live admin endpoints
+
+The `browser_live` integration also exposes a small operator surface outside `/api/v1/...`:
+
+### Status
+
+`GET /integrations/browser_live/admin/status`
+
+Lists currently paired browser connections. Admin auth required.
+
+### Rotate pairing token
+
+`POST /integrations/browser_live/admin/token/rotate`
+
+Generates a new global pairing token for the integration. Rotating the token disconnects existing paired browsers until they re-pair. Admin auth required.
 
 ## Common Patterns
 
