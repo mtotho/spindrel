@@ -319,6 +319,26 @@ class TestBotCreate:
         assert row.memory_scheme == "workspace-files"
         _TEST_REGISTRY.pop("fresh-bot", None)
 
+    async def test_when_created_then_bot_gets_widget_friendly_default_api_permissions(self, client, db_session):
+        payload = {"id": "widget-bot", "name": "Widget Bot", "model": "test/m"}
+
+        with patch("app.agent.bots.reload_bots", _register_new_bot_on_reload("widget-bot", "Widget Bot")):
+            resp = await client.post("/api/v1/admin/bots", json=payload, headers=AUTH_HEADERS)
+
+        from app.db.models import ApiKey, Bot as BotRow
+
+        row = await db_session.get(BotRow, "widget-bot")
+        assert resp.status_code == 201
+        assert row is not None
+        assert row.api_key_id is not None
+
+        api_key = await db_session.get(ApiKey, row.api_key_id)
+        assert api_key is not None
+        assert api_key.is_active is True
+        assert api_key.scopes == ["attachments:read", "channels:read"]
+        assert resp.json()["api_permissions"] == ["attachments:read", "channels:read"]
+        _TEST_REGISTRY.pop("widget-bot", None)
+
 
 # ---------------------------------------------------------------------------
 # POST /api/v1/admin/bots/{bot_id}/memory-hygiene/trigger

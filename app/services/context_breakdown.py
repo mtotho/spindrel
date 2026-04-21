@@ -712,10 +712,12 @@ async def compute_context_breakdown(
     # positive components sum to ~100%, pruning savings shows as a negative percentage.
     gross_chars = sum(c.chars for c in categories if c.chars > 0)
 
-    # Resolve effective model+provider once for both the per-category token
-    # counter and the budget block.
+    # Resolve effective model+provider for the budget block. Per-category
+    # tokens use the cheap chars/3.5 estimate — running tiktoken against
+    # `"x" * chars` is both bogus (chars are placeholders, not real text)
+    # and expensive on large categories. The headline total still comes from
+    # the real API count in last_turn mode, which is what users actually see.
     from app.agent.loop import _resolve_effective_provider
-    from app.agent.tokenization import count_text_tokens_sync
     _model = channel.model_override or bot.model
     _provider = _resolve_effective_provider(
         channel.model_override,
@@ -723,18 +725,11 @@ async def compute_context_breakdown(
         bot.model_provider_id,
     )
 
-    def _tokens_for(chars: int) -> int:
-        if chars > 0:
-            return count_text_tokens_sync("x" * chars, _model)
-        if chars < 0:
-            return -count_text_tokens_sync("x" * abs(chars), _model)
-        return 0
-
     for cat in categories:
-        cat.tokens_approx = _tokens_for(cat.chars)
+        cat.tokens_approx = _chars_to_tokens(cat.chars)
         cat.percentage = round((cat.chars / gross_chars * 100) if gross_chars > 0 else 0, 1)
 
-    forecast_total_tokens = _tokens_for(total_chars)
+    forecast_total_tokens = _chars_to_tokens(total_chars)
 
     # Context budget info (if enabled)
     _budget_info = None

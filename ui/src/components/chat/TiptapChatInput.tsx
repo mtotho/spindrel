@@ -13,6 +13,7 @@ import type { CompletionItem } from "../../types/api";
 import { filterSlashCommands } from "./slashCommands";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import "./tiptap-input.css";
+import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 // Extend Mention with markdown serialization so getMarkdown() outputs @value,
 // and emit a data-type="<prefix>" attr so CSS can color chips by kind
@@ -49,6 +50,8 @@ export interface TiptapChatInputProps {
   onSubmit: () => void;
   onImagePaste?: (files: File[]) => void;
   onSlashCommand?: (id: string) => void;
+  slashSurface?: SlashCommandSurface;
+  availableSlashCommands?: SlashCommandId[];
   disabled?: boolean;
   autoFocus?: boolean;
   isMobile?: boolean;
@@ -69,7 +72,7 @@ export interface TiptapChatInputHandle {
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default" }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default" }, ref) {
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -137,7 +140,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       // Only trigger at start of otherwise-empty input (no spaces, no newlines)
       if (trimmed.startsWith("/") && !trimmed.includes(" ") && !trimmed.includes("\n")) {
         const query = trimmed.slice(1);
-        const items = filterSlashCommands(query);
+        const items = filterSlashCommands(query, slashSurface, availableSlashCommands);
         cmdFilteredRef.current = items;
         cmdActiveIdxRef.current = 0;
         showCmdMenuRef.current = items.length > 0;
@@ -151,7 +154,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         setShowCmdMenu(false);
         setCmdFiltered([]);
       }
-    }, [updateMenuPos]);
+    }, [availableSlashCommands, slashSurface, updateMenuPos]);
 
     // Mention suggestion config — stable via refs
     const suggestion = useMemo(() => ({

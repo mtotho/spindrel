@@ -4,7 +4,7 @@ import { apiFetch } from "../client";
 import { useChatStore } from "../../stores/chat";
 import { useChannel, useUpdateChannelSettings } from "./useChannels";
 import { useChannelEvents } from "./useChannelEvents";
-import { useSubmitChat } from "./useChat";
+import { useCancelChat, useSubmitChat } from "./useChat";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessagePage, PAGE_SIZE } from "@/app/(app)/channels/[channelId]/chatUtils";
 import type { ChatRequest, Message } from "../../types/api";
@@ -20,6 +20,8 @@ export interface UseChannelChatSourceReturn {
   hasNextPage: boolean | undefined;
   fetchNextPage: () => void;
   handleSend: (text: string) => void;
+  handleCancel: () => void;
+  syncCancelledState: () => void;
   isStreaming: boolean;
   sendError: string | null;
   modelOverride: string | undefined;
@@ -134,6 +136,7 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   }, [channelId, pages]);
 
   const submitChat = useSubmitChat();
+  const cancelChat = useCancelChat();
   const [sendError, setSendError] = useState<string | null>(null);
 
   // Model override is persisted on the channel itself. The picker reads the
@@ -156,6 +159,23 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   );
 
   const isStreaming = turnsCount > 0 || chatState.isProcessing || submitChat.isPending;
+
+  const syncCancelledState = useCallback(() => {
+    const ch = useChatStore.getState().getChannel(channelId);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().finishTurn(channelId, turnId);
+    }
+    useChatStore.getState().clearProcessing(channelId);
+  }, [channelId]);
+
+  const handleCancel = useCallback(() => {
+    if (!channel) return;
+    cancelChat.mutate({
+      client_id: channel.client_id ?? "",
+      bot_id: channel.bot_id,
+    });
+    syncCancelledState();
+  }, [cancelChat, channel, syncCancelledState]);
 
   const handleSend = useCallback(
     (text: string) => {
@@ -202,6 +222,8 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
     hasNextPage,
     fetchNextPage: fetchNextPageCb,
     handleSend,
+    handleCancel,
+    syncCancelledState,
     isStreaming,
     sendError,
     modelOverride,

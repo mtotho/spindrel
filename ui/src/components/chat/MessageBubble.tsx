@@ -1,4 +1,5 @@
 import { memo, useMemo, useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Brain, ChevronRight } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
@@ -19,12 +20,54 @@ import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
+import { SlashCommandResultCard } from "./SlashCommandResultCard";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
 export { MarkdownContent } from "./MarkdownContent";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+const WIDGET_LIBRARY_URI_RE = /^widget:\/\/(bot|workspace)\/([^/]+)(?:\/|$)/i;
+const FILE_WRITE_OPERATIONS = new Set([
+  "create",
+  "overwrite",
+  "append",
+  "edit",
+  "json_patch",
+  "delete",
+  "mkdir",
+  "move",
+  "restore",
+]);
+
+function extractWidgetLibraryRef(rawPath: unknown): string | null {
+  if (typeof rawPath !== "string") return null;
+  const match = WIDGET_LIBRARY_URI_RE.exec(rawPath.trim());
+  if (!match) return null;
+  return `${match[1].toLowerCase()}/${match[2]}`;
+}
+
+function collectInvalidatedLibraryRefs(toolCalls?: ToolCall[]): string[] {
+  if (!toolCalls?.length) return [];
+  const refs = new Set<string>();
+  for (const call of toolCalls) {
+    const norm = normalizeToolCall(call);
+    const shortName = norm.name.includes("-") ? norm.name.slice(norm.name.lastIndexOf("-") + 1) : norm.name;
+    if (shortName !== "file") continue;
+    try {
+      const parsed = JSON.parse(norm.arguments);
+      const operation = typeof parsed?.operation === "string" ? parsed.operation.toLowerCase() : "";
+      if (!FILE_WRITE_OPERATIONS.has(operation)) continue;
+      const pathRef = extractWidgetLibraryRef(parsed?.path);
+      const destinationRef = extractWidgetLibraryRef(parsed?.destination);
+      if (pathRef) refs.add(pathRef);
+      if (destinationRef) refs.add(destinationRef);
+    } catch {
+      // Ignore malformed persisted args.
+    }
+  }
+  return Array.from(refs);
+}
 
 interface Props {
   message: Message;
@@ -115,6 +158,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const t = useThemeTokens();
   const narrow = isMobile || compactLayout;
   const isTerminalMode = chatMode === "terminal";
+  const queryClient = useQueryClient();
   const [compact] = useToolResultCompact(channelId ?? "");
   const navigate = useNavigate();
 
@@ -185,6 +229,10 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const llmStatus = meta.llm_status as { retries?: number; fallback_model?: string; vision_fallback?: boolean } | undefined;
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
+  const widgetLibraryInvalidations = useMemo(
+    () => collectInvalidatedLibraryRefs(msgToolCalls),
+    [msgToolCalls],
+  );
   const triggerBadge = trigger === "workflow"
     ? { label: meta.workflow_name || "workflow", icon: "\u27f3", color: "#6366f1" }
     : trigger === "heartbeat"
@@ -198,6 +246,10 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           : meta.is_heartbeat
             ? { label: "heartbeat", icon: "\ud83d\udc93", color: "#ec4899" }
             : null;
+
+  if (meta.kind === "slash_command_result") {
+    return <SlashCommandResultCard message={message} />;
+  }
 
   // Partition tool results: extract inline widget envelopes for WidgetCard rendering.
   // Widget tools are fully owned by WidgetCard — no badge or collapsed result shown.
@@ -263,6 +315,24 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       broadcastEnvelope(channelId, w.toolName, w.envelope);
     }
   }, [channelId, message.id, inlineWidgets, broadcastEnvelope]);
+
+  const invalidatedWidgetLibrariesRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!widgetLibraryInvalidations.length) return;
+    if (invalidatedWidgetLibrariesRef.current === message.id) return;
+    invalidatedWidgetLibrariesRef.current = message.id;
+    for (const ref of widgetLibraryInvalidations) {
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey;
+          return Array.isArray(key)
+            && key[0] === "interactive-html-widget-content"
+            && key[1] === "library"
+            && key[4] === ref;
+        },
+      });
+    }
+  }, [message.id, queryClient, widgetLibraryInvalidations]);
 
   // Collapsed non-dispatched heartbeat messages
   const isNonDispatchedHeartbeat = (trigger === "heartbeat" || meta.is_heartbeat) && meta.dispatched === false;

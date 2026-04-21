@@ -117,7 +117,10 @@ export function SessionChatView({
   }, [pages]);
 
   const renderedData = useMemo<Message[]>(
-    () => [...invertedData, ...syntheticMessages],
+    () =>
+      [...invertedData, ...syntheticMessages].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+      ),
     [invertedData, syntheticMessages],
   );
 

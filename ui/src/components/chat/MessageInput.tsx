@@ -6,9 +6,11 @@ import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
+import { resolveSlashCommand } from "./slashCommands";
 import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
+import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -36,6 +38,8 @@ interface Props {
   channelId?: string;
   /** Handler for slash commands typed in the input */
   onSlashCommand?: (id: string) => void;
+  slashSurface?: SlashCommandSurface;
+  availableSlashCommands?: SlashCommandId[];
   /** Whether a message is queued behind the current response */
   isQueued?: boolean;
   /** Cancel a queued message */
@@ -71,7 +75,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default" }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default" }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -121,13 +125,32 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
+    if (slashCommand && pendingFiles.length === 0) {
+      onSlashCommand?.(slashCommand);
+      if (channelId) clearDraft(channelId);
+      else { setLocalText(""); setLocalFiles([]); }
+      editorRef.current?.clear();
+      editorRef.current?.focus();
+      return;
+    }
     tapHaptic(8);
     onSend(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
     editorRef.current?.clear();
     editorRef.current?.focus();
-  }, [text, pendingFiles, disabled, onSend, channelId, clearDraft]);
+  }, [
+    text,
+    pendingFiles,
+    disabled,
+    slashSurface,
+    availableSlashCommands,
+    onSlashCommand,
+    onSend,
+    channelId,
+    clearDraft,
+  ]);
 
   // --- Audio recording ---
   const handleMicToggle = useCallback(async () => {
@@ -230,13 +253,32 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSendNowLocal = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
+    const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
+    if (slashCommand && pendingFiles.length === 0) {
+      onSlashCommand?.(slashCommand);
+      if (channelId) clearDraft(channelId);
+      else { setLocalText(""); setLocalFiles([]); }
+      editorRef.current?.clear();
+      editorRef.current?.focus();
+      return;
+    }
     tapHaptic([4, 30, 8]);
     onSendNow?.(message, pendingFiles.length > 0 ? pendingFiles : undefined);
     if (channelId) clearDraft(channelId);
     else { setLocalText(""); setLocalFiles([]); }
     editorRef.current?.clear();
     editorRef.current?.focus();
-  }, [text, pendingFiles, disabled, onSendNow, channelId, clearDraft]);
+  }, [
+    text,
+    pendingFiles,
+    disabled,
+    slashSurface,
+    availableSlashCommands,
+    onSlashCommand,
+    onSendNow,
+    channelId,
+    clearDraft,
+  ]);
 
   const sendBtnBg = showStop ? "#ef4444"
       : recorder.isRecording ? "#ef4444"
@@ -460,6 +502,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   onSubmit={handleSend}
                   onImagePaste={handleImagePaste}
                   onSlashCommand={onSlashCommand}
+                  slashSurface={slashSurface}
+                  availableSlashCommands={availableSlashCommands}
                   disabled={disabled}
                   autoFocus={!isMobile}
                   isMobile={isMobile}

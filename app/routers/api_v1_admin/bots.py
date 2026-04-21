@@ -30,6 +30,16 @@ from ._schemas import BotListOut, BotOut
 router = APIRouter()
 
 
+# New bots should be widget-ready without inheriting broad mutation access.
+# This read-only bundle covers the stock HTML widget helpers:
+# - attachments:read → loadAttachment()
+# - channels:read    → loadAsset() / channel workspace reads
+DEFAULT_NEW_BOT_API_PERMISSIONS: list[str] = [
+    "attachments:read",
+    "channels:read",
+]
+
+
 # ---------------------------------------------------------------------------
 # List / detail
 # ---------------------------------------------------------------------------
@@ -775,6 +785,12 @@ async def admin_bot_create(
     db.add(row)
     await db.commit()
 
+    # Interactive HTML widgets authenticate as the emitting bot, so new bots
+    # need a minimal scoped key from day one. Keep the default strictly
+    # read-only; admins can widen it later in the Permissions tab.
+    await _sync_bot_api_key(db, row, DEFAULT_NEW_BOT_API_PERMISSIONS)
+    await db.commit()
+
     if persona_content_val:
         await write_persona(data.id, persona_content_val)
 
@@ -796,7 +812,7 @@ async def admin_bot_create(
     await reload_bots()
 
     bot = get_bot(data.id)
-    return _bot_to_out(bot)
+    return _bot_to_out(bot, api_permissions=await _get_bot_api_permissions(db, row))
 
 
 # ---------------------------------------------------------------------------
@@ -1561,4 +1577,3 @@ async def admin_bot_enrolled_tool_remove(
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Tool enrollment not found: {bot_id}/{tool_name}")
     return None
-

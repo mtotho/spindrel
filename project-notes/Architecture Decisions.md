@@ -8,6 +8,32 @@
 
 ## Key Decisions
 
+### Slash commands are backend-owned commands with typed results; web renders them as synthetic chat rows
+**Decided 2026-04-21.** Slash commands are not a web-only input trick. The command registry and execution contract live on the backend so web, Slack, and CLI can share one semantic layer and only differ in presentation.
+
+**Contract.**
+- Backend owns the command id, availability, auth boundary, and typed `result_type` + `payload`.
+- Clients may render the result however their surface allows, but the payload is renderer-neutral. No JSX, Slack Block Kit, or terminal formatting lives in the contract.
+- Web is allowed to insert a non-persisted synthetic transcript row for command results. That row is UX state, not the source of truth.
+
+**First implementation.**
+- `/api/v1/slash-commands` lists supported commands.
+- `/api/v1/slash-commands/execute` returns a normalized result envelope.
+- `/context` is the proving-ground command. Channel scope uses the existing context budget/breakdown data; session scope summarizes assembled session context into the same `context_summary` result type.
+- Channel chat, scratch/session chat, and thread chat all execute the same backend command and render the returned payload as a lightweight in-chat card.
+- Side-effect commands use the same envelope with `result_type="side_effect"` so `/stop` and `/compact` can stay server-owned without pretending to be chat messages.
+- Pure navigation helpers may stay client-local for now. Current example: `/scratch` in web, which opens the scratch-pad route and is intentionally not part of the backend command registry yet.
+
+**Why this shape.**
+- A web-only slash-command layer would drift immediately once Slack and CLI need parity.
+- Persisted assistant messages are too heavy for command feedback in v1; synthetic rows keep the UX fast without inventing new durable message semantics yet.
+- Existing context/debug endpoints are implementation inputs, not the public slash-command contract.
+
+**Invariants.**
+- Do not compute slash-command semantics separately per client.
+- Do not make slash-command output renderer-specific on the backend.
+- If a future client cannot render rich cards, it should consume the same result via `fallback_text`, not a separate code path.
+
 ### Apt packages install into a volume-backed prefix (no `apt-get install`, no reinstall on rebuild)
 **Decided 2026-04-21.** `install_system_package()` does **not** run `apt-get install`. It runs `apt-get download` followed by `dpkg -x <deb> /opt/spindrel-pkg/` so package files land in a named Docker volume (`spindrel-pkg`) instead of the image layer. Transitive runtime deps get the same treatment, resolved by `apt-cache depends --recurse`; anything already in the base image is filtered out via `dpkg-query`.
 
@@ -109,6 +135,16 @@ Plan: `~/.claude/plans/scalable-prancing-music.md`. Superseded: [[Track - Task S
 **Load-bearing implementation choices.**
 - **Bot scope requirement is explicit.** Widgets need `channels:read` on their bot's API key; on 403 they degrade to a clear warning panel pointing at Admin → Bots → Permissions, not a silent failure. Default bot scopes unchanged — that's a separate policy call.
 - **No new service code.** Public routes reuse `compute_context_breakdown()` verbatim and the same trace-event query (now extracted as `fetch_latest_context_budget`).
+
+### New bots auto-mint a read-only widget key
+**Decided 2026-04-21.** `POST /api/v1/admin/bots` now creates a scoped API key for every new bot immediately, with the minimal read-only bundle `attachments:read` + `channels:read`. Before this, new bots had no key at all, so any interactive HTML widget they emitted failed `/api/v1/widget-auth/mint` until an admin manually visited the bot's Permissions tab.
+
+**Why this shape.** Interactive widgets execute on behalf of the emitting bot, not the viewing user. A zero-scope/default-null bot looked fine at creation time but broke as soon as it emitted a widget that called `loadAttachment()` or read channel/workspace-backed assets. The fix needed to make new bots widget-ready by default without sneaking in broad write access.
+
+**Load-bearing implementation choices.**
+- **Read-only only.** `attachments:read` covers attachment fetches; `channels:read` covers channel-bound dashboard reads and channel-workspace asset/file reads. No write or chat scope is granted by default.
+- **Create-time mint, not lazy-on-first-widget.** The bot always has a stable scoped identity from day one, so widget auth, dashboard validation, and permissions UI all see the same model.
+- **Permissions tab remains the widening point.** Any bot that needs mutation scopes, chat-scoped helpers, or direct API/tool access still gets that explicitly under Admin → Bots → Permissions; creation only handles the safe baseline.
 
 ### `WidgetScope.dashboard` carries optional `channelId`
 **Decided 2026-04-20.** The TypeScript discriminator on `ui/src/types/api.ts` `WidgetScope` now allows `{kind:"dashboard", channelId?: string}` instead of the earlier channel-less `{kind:"dashboard"}`. Channel dashboards (`slug: channel:<uuid>`) plumb their channelId through `ChannelDashboardMultiCanvas` into every pin's scope so `window.spindrel.channelId` resolves correctly inside pinned HTML widgets across all four canvases (rail / dock / header / grid). Also deleted the `envelope.source_channel_id` fallback in `InteractiveHtmlRenderer` — the scope prop is authoritative now; the fallback was papering over the plumbing gap.

@@ -23,8 +23,8 @@
  * Two input modes (mirrors the tool):
  * - **Inline**: `envelope.body` is the full assembled body content.
  * - **Path**: `envelope.source_path` + `envelope.source_channel_id` —
- *   renderer fetches the file, polls every 3s so edits to the file
- *   propagate to the widget without a page reload.
+ *   renderer fetches the file, keeps it cached across remounts, and
+ *   revalidates mutable sources on a relaxed cadence.
  *
  * The injected ``window.spindrel`` helper gives bot-written JS a small
  * API surface for common tasks (read/write workspace files, call any
@@ -39,7 +39,7 @@
  * classes and `var(--sd-*)` tokens so widgets stay consistent with the
  * rest of the app and pick up dark mode automatically.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Bot as BotIcon, RefreshCw } from "lucide-react";
@@ -54,10 +54,92 @@ import { useDashboardPinsStore } from "../../../stores/dashboardPins";
 import { buildWidgetThemeCss, buildWidgetThemeObject } from "./widgetTheme";
 import { WIDGET_ICON_SPRITE, WIDGET_ICON_NAMES } from "./widgetIcons";
 
-// Dedupes missing-file toasts across renderer re-mounts and 3s polls.
+// Dedupes missing-file toasts across renderer re-mounts and periodic polls.
 // Key: dashboard pin id when pinned, else `${channelId}|${path}` for chat
 // envelopes. Lives at module scope so remount / HMR doesn't reset it.
 const MISSING_WIDGET_TOAST_KEYS = new Set<string>();
+const WIDGET_AUTH_STALE_MS = 11 * 60 * 1000;
+const WIDGET_AUTH_GC_MS = 20 * 60 * 1000;
+const MUTABLE_WIDGET_SOURCE_STALE_MS = 60 * 1000;
+const MUTABLE_WIDGET_SOURCE_GC_MS = 10 * 60 * 1000;
+const IMMUTABLE_WIDGET_SOURCE_GC_MS = 30 * 60 * 1000;
+const PINNED_WIDGET_IFRAME_IDLE_TTL_MS = 5 * 60 * 1000;
+const MAX_PINNED_WIDGET_IFRAMES = 12;
+type PooledPinnedWidgetIframe = {
+  iframe: HTMLIFrameElement;
+  srcDoc: string;
+  parkedAt: number | null;
+  cleanupTimer: number | null;
+};
+const PINNED_WIDGET_IFRAME_POOL = new Map<string, PooledPinnedWidgetIframe>();
+let pinnedWidgetIframeParkingLot: HTMLDivElement | null = null;
+
+function getPinnedWidgetIframeParkingLot(): HTMLDivElement | null {
+  if (typeof document === "undefined") return null;
+  if (pinnedWidgetIframeParkingLot?.isConnected) return pinnedWidgetIframeParkingLot;
+  const lot = document.createElement("div");
+  lot.setAttribute("data-spindrel-widget-iframe-lot", "1");
+  lot.style.position = "fixed";
+  lot.style.left = "-10000px";
+  lot.style.top = "0";
+  lot.style.width = "1px";
+  lot.style.height = "1px";
+  lot.style.overflow = "hidden";
+  lot.style.opacity = "0";
+  lot.style.pointerEvents = "none";
+  lot.style.zIndex = "-1";
+  document.body.appendChild(lot);
+  pinnedWidgetIframeParkingLot = lot;
+  return lot;
+}
+
+function evictPinnedWidgetIframe(key: string): void {
+  const entry = PINNED_WIDGET_IFRAME_POOL.get(key);
+  if (!entry) return;
+  if (entry.cleanupTimer != null) {
+    window.clearTimeout(entry.cleanupTimer);
+  }
+  PINNED_WIDGET_IFRAME_POOL.delete(key);
+  if (entry.iframe.parentElement) {
+    entry.iframe.parentElement.removeChild(entry.iframe);
+  }
+  entry.iframe.srcdoc = "";
+}
+
+function schedulePinnedWidgetIframeEviction(key: string): void {
+  const entry = PINNED_WIDGET_IFRAME_POOL.get(key);
+  if (!entry) return;
+  if (entry.cleanupTimer != null) {
+    window.clearTimeout(entry.cleanupTimer);
+  }
+  entry.parkedAt = Date.now();
+  entry.cleanupTimer = window.setTimeout(() => {
+    evictPinnedWidgetIframe(key);
+  }, PINNED_WIDGET_IFRAME_IDLE_TTL_MS);
+}
+
+function touchPinnedWidgetIframeEntry(key: string): PooledPinnedWidgetIframe | undefined {
+  const entry = PINNED_WIDGET_IFRAME_POOL.get(key);
+  if (!entry) return undefined;
+  if (entry.cleanupTimer != null) {
+    window.clearTimeout(entry.cleanupTimer);
+    entry.cleanupTimer = null;
+  }
+  entry.parkedAt = null;
+  PINNED_WIDGET_IFRAME_POOL.delete(key);
+  PINNED_WIDGET_IFRAME_POOL.set(key, entry);
+  return entry;
+}
+
+function trimPinnedWidgetIframePool(): void {
+  if (PINNED_WIDGET_IFRAME_POOL.size <= MAX_PINNED_WIDGET_IFRAMES) return;
+  for (const [key, entry] of PINNED_WIDGET_IFRAME_POOL) {
+    if (entry.parkedAt != null) {
+      evictPinnedWidgetIframe(key);
+      if (PINNED_WIDGET_IFRAME_POOL.size <= MAX_PINNED_WIDGET_IFRAMES) return;
+    }
+  }
+}
 
 interface WidgetTokenResponse {
   token: string;
@@ -2268,7 +2350,8 @@ export function InteractiveHtmlRenderer({
   layout,
   t,
 }: Props) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const iframeHostRef = useRef<HTMLDivElement | null>(null);
   // Start from the measured grid height when the caller knows it — otherwise
   // fall back to the legacy 200px default for inline chat rendering. Chips are
   // fixed-height; seeding them at 200 then shrinking to ~32 flashes visibly.
@@ -2372,10 +2455,14 @@ export function InteractiveHtmlRenderer({
         }),
       }),
     enabled: shouldMint,
+    staleTime: WIDGET_AUTH_STALE_MS,
+    gcTime: WIDGET_AUTH_GC_MS,
     // 15-minute server TTL; re-mint at 12 min so the widget never sees a
     // 401 mid-call. Short TTL = short screenshot exposure.
     refetchInterval: 12 * 60 * 1000,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     retry: 1,
   });
   // Effective bearer: minted bot token when available, else the viewer's
@@ -2447,6 +2534,8 @@ export function InteractiveHtmlRenderer({
     queryFn: () =>
       apiFetch<{ path: string; content: string }>(contentEndpoint!),
     enabled: pathMode && !!contentEndpoint,
+    staleTime: isMutableSource ? MUTABLE_WIDGET_SOURCE_STALE_MS : Infinity,
+    gcTime: isMutableSource ? MUTABLE_WIDGET_SOURCE_GC_MS : IMMUTABLE_WIDGET_SOURCE_GC_MS,
     // Immutable sources: no polling. Mutable sources: 30s. 404 → stop
     // regardless so a deleted file doesn't keep firing.
     refetchInterval: (query) => {
@@ -2459,7 +2548,9 @@ export function InteractiveHtmlRenderer({
       if (err instanceof ApiError && err.status === 404) return false;
       return failureCount < 3;
     },
+    refetchOnMount: false,
     refetchOnWindowFocus: isMutableSource,
+    refetchOnReconnect: false,
   });
 
   // Fire a sticky toast when a path-mode widget's source file is missing.
@@ -2684,6 +2775,7 @@ export function InteractiveHtmlRenderer({
       }
     };
     iframe.addEventListener("load", onLoad);
+    onLoad();
     return () => {
       iframe.removeEventListener("load", onLoad);
       if (observer) observer.disconnect();
@@ -2762,6 +2854,108 @@ export function InteractiveHtmlRenderer({
     return { reason, message, bot_id: detailBotId, bot_name: detailBotName };
   })();
   const authError = authErrorInfo?.message ?? null;
+  const keepAliveKey = dashboardPinId ? `dashboard-pin:${dashboardPinId}` : null;
+  const iframeTitle = envelope.display_label || "Interactive HTML widget";
+  const srcDoc = useMemo(
+    () => `${wrapHtml(
+      bodyWithoutPreamble,
+      effectiveChannelId,
+      sourceBotId,
+      botName,
+      widgetToken,
+      frozenInitialToolResultRef.current,
+      themeCss,
+      themeJson,
+      isDark,
+      dashboardPinId ?? null,
+      sourcePath,
+      cspString,
+      frozenGridDimensionsRef.current,
+      layout ?? "grid",
+    )}\n<!-- reload:${reloadNonce} -->`,
+    [
+      bodyWithoutPreamble,
+      effectiveChannelId,
+      sourceBotId,
+      botName,
+      widgetToken,
+      themeCss,
+      themeJson,
+      isDark,
+      dashboardPinId,
+      sourcePath,
+      cspString,
+      layout,
+      reloadNonce,
+    ],
+  );
+
+  useLayoutEffect(() => {
+    const host = iframeHostRef.current;
+    if (!host) return;
+    let iframe: HTMLIFrameElement;
+    if (keepAliveKey) {
+      const pooled = touchPinnedWidgetIframeEntry(keepAliveKey);
+      if (pooled) {
+        iframe = pooled.iframe;
+      } else {
+        iframe = document.createElement("iframe");
+        PINNED_WIDGET_IFRAME_POOL.set(keepAliveKey, {
+          iframe,
+          srcDoc: "",
+          parkedAt: null,
+          cleanupTimer: null,
+        });
+        trimPinnedWidgetIframePool();
+      }
+    } else {
+      iframe = document.createElement("iframe");
+    }
+    iframeRef.current = iframe;
+    host.replaceChildren(iframe);
+    try {
+      const readyState = iframe.contentDocument?.readyState;
+      if (readyState === "interactive" || readyState === "complete") {
+        onIframeReadyRef.current?.();
+      }
+    } catch {
+      // Mid-navigation or inaccessible document — ready/load effects handle it.
+    }
+    return () => {
+      if (keepAliveKey) {
+        const parkingLot = getPinnedWidgetIframeParkingLot();
+        if (parkingLot) {
+          parkingLot.appendChild(iframe);
+          schedulePinnedWidgetIframeEviction(keepAliveKey);
+          trimPinnedWidgetIframePool();
+        } else {
+          evictPinnedWidgetIframe(keepAliveKey);
+        }
+      } else if (iframe.parentElement === host) {
+        host.removeChild(iframe);
+      }
+      if (iframeRef.current === iframe) iframeRef.current = null;
+    };
+  }, [keepAliveKey]);
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms");
+    iframe.setAttribute("title", iframeTitle);
+    iframe.style.width = "100%";
+    iframe.style.height = fillHeight ? "100%" : `${height}px`;
+    iframe.style.flex = fillHeight ? "1 1 auto" : "";
+    iframe.style.border = "none";
+    iframe.style.display = "block";
+    const pooled = keepAliveKey ? PINNED_WIDGET_IFRAME_POOL.get(keepAliveKey) : null;
+    const lastSrcDoc = pooled?.srcDoc ?? iframe.getAttribute("data-spindrel-srcdoc") ?? "";
+    if (lastSrcDoc !== srcDoc) {
+      iframe.srcdoc = srcDoc;
+      if (pooled) pooled.srcDoc = srcDoc;
+      else iframe.setAttribute("data-spindrel-srcdoc", srcDoc);
+    }
+  }, [fillHeight, height, iframeTitle, keepAliveKey, srcDoc]);
 
   return (
     <div
@@ -2990,35 +3184,12 @@ export function InteractiveHtmlRenderer({
           })}
         </div>
       )}
-      <iframe
-        key={`widget-iframe-${reloadNonce}`}
-        ref={iframeRef}
-        srcDoc={wrapHtml(
-          bodyWithoutPreamble,
-          effectiveChannelId,
-          sourceBotId,
-          botName,
-          widgetToken,
-          frozenInitialToolResultRef.current,
-          themeCss,
-          themeJson,
-          isDark,
-          dashboardPinId ?? null,
-          sourcePath,
-          cspString,
-          frozenGridDimensionsRef.current,
-          layout ?? "grid",
-        )}
-        sandbox="allow-scripts allow-same-origin allow-forms"
-        title={envelope.display_label || "Interactive HTML widget"}
+      <div
+        ref={iframeHostRef}
         style={{
           width: "100%",
-          // Dashboard tiles: fill parent height (resize-aware). Chat messages:
-          // content-measured height capped at MAX_IFRAME_HEIGHT.
           height: fillHeight ? "100%" : height,
           flex: fillHeight ? 1 : undefined,
-          border: "none",
-          display: "block",
         }}
       />
     </div>

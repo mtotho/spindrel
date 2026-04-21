@@ -23,6 +23,11 @@ import { apiFetch } from "@/src/api/client";
 import { formatRelativeTime } from "@/src/utils/format";
 import { DEFAULT_CHROME, resolveShowTitle } from "@/src/lib/dashboardGrid";
 
+const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
+// Session-local freshness cache so dashboard <-> chat route switches don't
+// immediately re-poll the same pin after a just-completed refresh.
+const recentPinRefreshById = new Map<string, string>();
+
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
   const idx = name.indexOf("-");
@@ -112,8 +117,15 @@ export function PinnedToolWidget({
   const widgetConfigRef = useRef(widgetConfig);
   widgetConfigRef.current = widgetConfig;
 
+  const markPinRefreshed = useCallback((atIso: string) => {
+    recentPinRefreshById.set(widget.id, atIso);
+    setLastRefreshedAt(atIso);
+  }, [widget.id]);
+
   // Last-refreshed timestamp (ISO). Drives the "Updated Xm ago" chip.
-  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(
+    () => recentPinRefreshById.get(widget.id) ?? null,
+  );
   // Tick every 60s so relative time re-renders without extra refreshes.
   const [, setNowTick] = useState(0);
   useEffect(() => {
@@ -209,7 +221,7 @@ export function PinnedToolWidget({
           if (channelId) {
             channelBroadcast(channelId, widget.tool_name, fresh);
           }
-          setLastRefreshedAt(new Date().toISOString());
+          markPinRefreshed(new Date().toISOString());
         }
       } catch {
         // Silently keep current envelope — stale is better than empty.
@@ -220,7 +232,7 @@ export function PinnedToolWidget({
     })();
     refreshInFlightRef.current = run;
     return run;
-  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel]);
+  }, [widget.id, widget.tool_name, widget.bot_id, channelId, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, resolveDisplayLabel, markPinRefreshed]);
 
   // Initial refresh on mount / re-pin.
   const refreshedForRef = useRef<string | null>(null);
@@ -236,15 +248,28 @@ export function PinnedToolWidget({
   const isHtmlWidget = currentEnvelope?.content_type
     === "application/vnd.spindrel.html+interactive";
   const skipHtmlAutoRefresh = isHtmlWidget && !currentEnvelope?.refreshable;
+  const recentRefreshIso = recentPinRefreshById.get(widget.id) ?? null;
+  const lastRefreshAgeMs = recentRefreshIso
+    ? Date.now() - Date.parse(recentRefreshIso)
+    : Number.POSITIVE_INFINITY;
+  const mountRefreshGraceMs = (() => {
+    const intervalMs = (currentEnvelope?.refresh_interval_seconds ?? 0) * 1000;
+    if (intervalMs > 0) return Math.min(intervalMs, INITIAL_REFRESH_GRACE_MS);
+    if (currentEnvelope?.refreshable) return INITIAL_REFRESH_GRACE_MS;
+    return 0;
+  })();
+  const shouldRefreshOnMount =
+    !skipHtmlAutoRefresh
+    && (!mountRefreshGraceMs || !Number.isFinite(lastRefreshAgeMs) || lastRefreshAgeMs >= mountRefreshGraceMs);
   useEffect(() => {
     if (refreshedForRef.current === widget.id) return;
     refreshedForRef.current = widget.id;
-    if (skipHtmlAutoRefresh) {
+    if (!shouldRefreshOnMount) {
       setHasCompletedInitialRefresh(true);
       return;
     }
     refreshState().finally(() => setHasCompletedInitialRefresh(true));
-  }, [widget.id, refreshState, skipHtmlAutoRefresh]);
+  }, [widget.id, refreshState, shouldRefreshOnMount]);
 
   // Automatic interval refresh — driven by envelope.refresh_interval_seconds.
   // The template engine sets this from state_poll.refresh_interval_seconds in
@@ -274,11 +299,13 @@ export function PinnedToolWidget({
     if (sharedEnvelope.body === envelopeRef.current?.body) {
       selfBroadcastRef.current = sharedEnvelope;
       setCurrentEnvelope(sharedEnvelope);
+      markPinRefreshed(new Date().toISOString());
       return;
     }
     setCurrentEnvelope(sharedEnvelope);
+    markPinRefreshed(new Date().toISOString());
     refreshState();
-  }, [sharedEnvelope, refreshState]);
+  }, [sharedEnvelope, refreshState, markPinRefreshed]);
 
   // Fallback drag binding for surfaces that don't pass `externalDrag` (the
   // channel-scope OmniPanel rail uses dnd-kit's SortableContext internally).
@@ -337,7 +364,7 @@ export function PinnedToolWidget({
           if (channelId) {
             channelBroadcast(channelId, widget.tool_name, result.envelope);
           }
-          setLastRefreshedAt(new Date().toISOString());
+          markPinRefreshed(new Date().toISOString());
         }
         // Follow-up refresh — slow devices (e.g. Shelly relays through HA)
         // sometimes haven't propagated state by the time the server's
@@ -349,7 +376,7 @@ export function PinnedToolWidget({
         actionInFlightRef.current = false;
       }
     },
-    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, dashboardPatchConfig, refreshState],
+    [rawDispatch, widget.id, channelId, widget.tool_name, onEnvelopeUpdate, channelBroadcast, dashboardBroadcast, dashboardPatchConfig, refreshState, markPinRefreshed],
   );
 
   const dispatcher = useMemo(

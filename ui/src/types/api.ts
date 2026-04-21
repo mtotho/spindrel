@@ -701,6 +701,49 @@ export interface CompletionItem {
   description?: string;
 }
 
+export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch";
+export type SlashCommandSurface = "channel" | "session";
+
+export interface SlashCommandResult {
+  command_id: string;
+  result_type: string;
+  payload: Record<string, any>;
+  fallback_text: string;
+}
+
+export interface SlashCommandSideEffectPayload {
+  effect: "stop" | "compact";
+  scope_kind: "channel" | "session";
+  scope_id: string;
+  title: string;
+  detail: string;
+}
+
+export interface ContextSummaryPayload {
+  scope_kind: "channel" | "session";
+  scope_id: string;
+  session_id?: string | null;
+  bot_id: string;
+  title: string;
+  headline: string;
+  budget?: {
+    utilization?: number | null;
+    consumed_tokens?: number | null;
+    total_tokens?: number | null;
+    source?: string | null;
+  } | null;
+  top_categories: Array<{
+    key: string;
+    label: string;
+    tokens_approx: number;
+    percentage: number;
+    description: string;
+  }>;
+  message_count?: number | null;
+  total_chars?: number | null;
+  notes: string[];
+}
+
 // Session types
 export interface Session {
   id: string;

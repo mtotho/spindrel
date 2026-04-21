@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, RefreshCw, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
+import { writeToClipboard } from "@/src/utils/clipboard";
 
 interface WidgetDebugEvent {
   kind: string;
@@ -93,7 +94,23 @@ function primaryLine(ev: WidgetDebugEvent): string {
 
 function EventRow({ ev, idx }: { ev: WidgetDebugEvent; idx: number }) {
   const [open, setOpen] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const toggle = useCallback(() => setOpen((v) => !v), []);
+  const handleCopy = useCallback(async () => {
+    try {
+      await writeToClipboard(JSON.stringify(ev, null, 2));
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  }, [ev]);
+
+  useEffect(() => {
+    if (copyState === "idle") return;
+    const id = window.setTimeout(() => setCopyState("idle"), 1500);
+    return () => window.clearTimeout(id);
+  }, [copyState]);
+
   const color = kindBadgeClass(ev.kind);
   return (
     <div className="border-b border-surface-border/60 last:border-0">
@@ -120,21 +137,28 @@ function EventRow({ ev, idx }: { ev: WidgetDebugEvent; idx: number }) {
       {open && (
         <div className="px-3 pb-3 pl-8">
           <pre
-            className="text-[11px] font-mono whitespace-pre-wrap break-all bg-surface-base/60 rounded p-2 border border-surface-border/60 max-h-[320px] overflow-auto"
+            className="m-0 max-h-[320px] overflow-auto rounded border border-surface-border/60 bg-surface-overlay/60 p-2 text-[11px] font-mono whitespace-pre-wrap break-all text-text"
             aria-label={`event-${idx}-detail`}
           >
             {JSON.stringify(ev, null, 2)}
           </pre>
           <button
             type="button"
-            onClick={() => {
-              try {
-                navigator.clipboard?.writeText(JSON.stringify(ev, null, 2));
-              } catch { /* clipboard denied */ }
-            }}
-            className="mt-1 text-[10px] text-text-dim hover:text-text"
+            onClick={() => { void handleCopy(); }}
+            className={
+              "mt-2 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors " +
+              (copyState === "copied"
+                ? "border-success/40 bg-success/10 text-success"
+                : copyState === "error"
+                  ? "border-danger/40 bg-danger/10 text-danger"
+                  : "border-surface-border text-text-dim hover:bg-surface-overlay hover:text-text")
+            }
           >
-            Copy JSON
+            {copyState === "copied"
+              ? "Copied"
+              : copyState === "error"
+                ? "Copy failed"
+                : "Copy JSON"}
           </button>
         </div>
       )}
@@ -268,7 +292,7 @@ export function WidgetInspector({ pinId, pinLabel, onClose }: Props) {
         </div>
 
         {error && (
-          <div className="bg-red-500/10 border-b border-red-500/40 px-4 py-2 text-[12px] text-red-400">
+          <div className="border-b border-danger/40 bg-danger/10 px-4 py-2 text-[12px] text-danger">
             {error}
           </div>
         )}

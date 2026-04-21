@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/useChat";
@@ -12,6 +12,7 @@ import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
 import type { PendingFile } from "@/src/components/chat/MessageInput";
 import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/src/types/api";
+import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
 import { type MessagePage, PAGE_SIZE } from "./chatUtils";
 
 export interface UseChannelChatOptions {
@@ -282,6 +283,16 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     }
   }, [chatState.isProcessing, sessionStatus, channelId, clearProcessing, queryClient]);
 
+  const syncCancelledState = useCallback(() => {
+    if (!channelId) return;
+    const ch = useChatStore.getState().getChannel(channelId);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().finishTurn(channelId, turnId);
+    }
+    clearProcessing(channelId);
+    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+  }, [channelId, clearProcessing, queryClient]);
+
   const handleCancel = useCallback(() => {
     if (!channel || !channelId) return;
     // Server-side cancel — releases the session lock and the turn worker
@@ -293,12 +304,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     });
     // Local fast-path cleanup so the UI flips back to idle immediately
     // even before the bus event arrives.
-    const ch = useChatStore.getState().getChannel(channelId);
-    for (const turnId of Object.keys(ch.turns)) {
-      useChatStore.getState().finishTurn(channelId, turnId);
-    }
-    clearProcessing(channelId);
-    queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+    syncCancelledState();
 
     // If there's a queued message, fire it now.
     const queued = queuedRequestRef.current;
@@ -310,7 +316,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         submitChat.mutate(queued.request);
       }, 100);
     }
-  }, [channel, channelId, cancelChat, clearProcessing, queryClient, submitChat]);
+  }, [channel, channelId, cancelChat, submitChat, syncCancelledState]);
 
   const handleRetry = useCallback(() => {
     const req = channelId ? lastRequestRef.current[channelId] : undefined;
@@ -522,39 +528,47 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     setIsQueued(false);
   }, [channelId]);
 
-  // Slash command handler
-  const handleSlashCommand = useCallback(
-    async (id: string) => {
+  const handleSlashCommand = useSlashCommandExecutor({
+    availableCommands: ["stop", "context", "scratch", "clear", "compact"],
+    channelId: channelId ?? undefined,
+    sessionId: channel?.active_session_id ?? undefined,
+    onSyntheticMessage: (message) => {
       if (!channelId) return;
-      switch (id) {
-        case "stop":
-          handleCancel();
-          break;
-        case "context":
-          navigate(`/channels/${channelId}/settings#context`);
-          break;
-        case "clear":
-          try {
-            await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
-            setMessages(channelId, []);
-            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-            queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
-          } catch (err) {
-            console.error("Failed to reset session:", err);
-          }
-          break;
-        case "compact":
-          try {
-            await apiFetch(`/channels/${channelId}/compact`, { method: "POST" });
-            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-          } catch (err) {
-            console.error("Failed to compact:", err);
-          }
-          break;
+      addMessage(channelId, message);
+    },
+    onScratch: async () => {
+      if (!channelId || !channel?.bot_id) return;
+      const qs = new URLSearchParams({
+        parent_channel_id: channelId,
+        bot_id: channel.bot_id,
+      });
+      const scratch = await apiFetch<{ session_id: string }>(
+        `/sessions/scratch/current?${qs.toString()}`,
+      );
+      navigate(`/channels/${channelId}/session/${scratch.session_id}?scratch=true`);
+    },
+    onClear: async () => {
+      if (!channelId) return;
+      try {
+        await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
+        setMessages(channelId, []);
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+      } catch (err) {
+        console.error("Failed to reset session:", err);
       }
     },
-    [channelId, navigate, setMessages, queryClient, handleCancel],
-  );
+    onSideEffect: async (result) => {
+      if (!channelId) return;
+      if (result.command_id === "stop") {
+        syncCancelledState();
+        return;
+      }
+      if (result.command_id === "compact") {
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      }
+    },
+  });
 
   // Reverse for inverted FlatList
   const invertedData = useMemo(

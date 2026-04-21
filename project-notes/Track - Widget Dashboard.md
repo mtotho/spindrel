@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-19 (session — sandbox bot/channel context + tool grouping)
+updated: 2026-04-21 (session — inspector polish fix: clipboard fallback + semantic danger tokens)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -10,6 +10,16 @@ updated: 2026-04-19 (session — sandbox bot/channel context + tool grouping)
 > **⚠️ SESSION HANDOFF — P5 code shipped but NOT yet user-tested.** Automated tests are green (112 across dashboard + widget-packages), tsc + vite build clean. User manual QA still pending and fix-up sessions expected. Do **NOT** close the track, remove it from Roadmap Active, or file it under Completed Tracks until the testing checklist below is signed off. The Completed Tracks entry appended in session 20 was premature and has been moved back; if you see a stray "Widget Dashboard" block in `Completed Tracks.md`, delete it.
 >
 > **When resuming**: read [[#Testing checklist — P5]] first, then the [[#P5 known risk areas]] list before debugging anything. Plan: `~/.claude/plans/ancient-churning-bubble.md` (status: executed).
+
+> **2026-04-21 perf note — remounts are not refreshes.** P0 request-storm cleanup landed in the widget host path after dashboard↔chat switching started re-triggering the same iframe setup work. `InteractiveHtmlRenderer` now gives `/widget-auth/mint` and path-mode HTML content real React Query lifetimes (`staleTime`/`gcTime`, no refetch-on-mount/reconnect), and `PinnedToolWidget` keeps a session-local "recently refreshed" timestamp per pin so a just-polled widget does not immediately hit `/widget-actions/refresh` again on route remount. New invariant: switching surfaces inside the same session should reuse fresh iframe inputs unless an explicit timer/event invalidates them.
+>
+> Follow-up in the same session: persisted chat turns now act as an explicit invalidation source for library-backed HTML widgets. `MessageBubble` inspects persisted `file` tool calls; when a bot writes/moves/restores paths under `widget://bot/<name>/...` or `widget://workspace/<name>/...`, the UI invalidates only the matching `interactive-html-widget-content` query keys for that library ref. New invariant: library widget HTML should re-fetch because the bot changed that widget bundle, not because the iframe remounted or the host wanted to "check again."
+>
+> Follow-up after that: pinned HTML widgets now keep the iframe document itself alive across dashboard↔chat switches. `InteractiveHtmlRenderer` parks dashboard-pin iframes in a hidden document-level lot keyed by `dashboardPinId`, then reattaches the same DOM node when the pin renders again. New invariant: route switches should not tear down the widget's in-iframe JS state unless the widget HTML actually changes or the user explicitly reloads it.
+>
+> Safety bound added immediately after: the parked iframe lot is not unbounded. Idle parked iframes now evict after 5 minutes, and the pool only keeps up to 12 parked entries before evicting the oldest parked ones. New invariant: keepalive is for quick surface switches, not indefinite background retention.
+>
+> **2026-04-21 inspector polish follow-up.** `WidgetInspector.tsx` had drifted from the app's theme + clipboard patterns: the row-level "Copy JSON" action was calling `navigator.clipboard.writeText(...)` directly, which fails in plain-HTTP / denied-clipboard contexts and never surfaced success/failure, and the drawer error banner was still using raw `red-*` Tailwind classes. It now uses the shared `writeToClipboard()` fallback helper, shows transient copied/error button states, and keeps the detail/error surfaces on semantic theme tokens. Verification for this pass was `cd agent-server/ui && npx tsc --noEmit`; there is still no repo-wired UI test harness for a small drawer interaction regression test.
 
 > 🚩 **SYSTEMIC — Dev panel bypasses the content_type dispatcher.** Surfaced 2026-04-18 (session 21). Every render point under `/widgets/dev/*` hardcodes `ComponentRenderer` instead of the mimetype-keyed `RichToolResult`. Any tool whose envelope isn't `application/vnd.spindrel.components+json` silently blanks in Recent / Tools / Editor — even though the same envelope renders correctly in chat. This makes the entire dev panel a **false oracle**: a tool that works in conversation can look broken in its own preview surface with zero signal why.
 >
@@ -490,7 +500,7 @@ Relationship to P6: the generic renderer already handles the JSON branch well. T
 - New envelope `content_type: "application/vnd.spindrel.html+interactive"`. Distinct from `text/html` so strict-sandbox file previews (`SandboxedHtmlRenderer` for pinned workspace `.html` files) are unaffected.
 - `ToolResultEnvelope` extended with `source_path` + `source_channel_id` fields (`app/agent/tool_dispatch.py`). `_build_envelope_from_optin` now also forwards `display_label`, `refreshable`, `refresh_interval_seconds` — previously dropped from opt-in payloads (latent bug; fixed same-edit).
 - Frontend renderer `InteractiveHtmlRenderer.tsx` at `ui/src/components/chat/renderers/`. `sandbox="allow-scripts allow-same-origin"`, relaxed CSP (`default-src 'self'; connect-src 'self'` — cross-origin network blocked). Dispatch wired in `RichToolResult.tsx` alongside the strict `text/html` case.
-- Path-mode freshness: `useQuery` with 3s `refetchInterval` against `/api/v1/channels/{source_channel_id}/workspace/files/content?path=...`. No new SSE wiring — polling is cheap enough for the "edit the file → widget re-renders" UX and avoids extending `PINNED_FILE_UPDATED` fire sites to dashboard-scope pins. Small "updated Xs ago" chip overlays when path-mode.
+- Path-mode freshness: `useQuery` against `/api/v1/channels/{source_channel_id}/workspace/files/content?path=...` with relaxed polling for mutable sources plus React Query caching so remounts do not behave like hard reloads. No new SSE wiring yet — explicit widget reload events already cover "show me now" after edits, and mutable path-mode files still get periodic revalidation. Small "updated Xs ago" chip overlays when path-mode.
 - 11 unit tests in `tests/unit/test_emit_html_widget.py` cover both modes, validation (both/neither rejected, whitespace-only html treated as unset), no-context errors, file-not-found, plus the envelope round-trip through `_build_envelope_from_optin` + `compact_dict`. Full 23-test envelope slice + 75-test adjacent slice green. UI tsc clean.
 
 **Explicitly out of scope (deferred):**
@@ -505,8 +515,8 @@ Relationship to P6: the generic renderer already handles the JSON branch well. T
 **Follow-ups / possible next phase (not started):**
 
 - `widget_template_packages.template_kind` — promote reusable HTML widgets to parameterized templates (same row shape with `{{var}}` substitution + `sample_payload`).
-- Debounce / coalesce the 3s refetch when multiple path-mode widgets point at the same file.
-- Consider `PINNED_FILE_UPDATED` extension for dashboard-scope pins if 3s polling ever shows as a measurable cost.
+- Stop path-mode polling entirely for library/template edits that already have an explicit invalidation path.
+- Consider `PINNED_FILE_UPDATED`/template-version invalidation for dashboard-scope pins so mutable HTML can become fully event-driven.
 
 ## Deferred / Known gaps
 

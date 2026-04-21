@@ -233,6 +233,22 @@ export function ChatMessageArea({
     return s;
   }, [chatState.turns]);
   const isTerminalMode = chatMode === "terminal";
+  const terminalFooterContent = (
+    <>
+      {pendingApprovalsSlot?.(liveApprovalIds)}
+      {turnIndicators}
+      {processingIndicator}
+      {bottomSlot}
+    </>
+  );
+  const defaultFooterContent = (
+    <>
+      {bottomSlot}
+      {pendingApprovalsSlot?.(liveApprovalIds)}
+      {turnIndicators}
+      {processingIndicator}
+    </>
+  );
 
   return (
     <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
@@ -264,10 +280,7 @@ export function ChatMessageArea({
             paddingRight: isTerminalMode ? 0 : 16,
           }}
         >
-          {bottomSlot}
-          {pendingApprovalsSlot?.(liveApprovalIds)}
-          {turnIndicators}
-          {processingIndicator}
+          {isTerminalMode ? terminalFooterContent : defaultFooterContent}
           {!isTerminalMode && invertedData.length > 0 && (
             <div className="flex flex-row justify-center" style={{ paddingTop: 12, paddingBottom: 6, opacity: isTerminalMode ? 0.16 : 0.7 }}>
               <SpindrelLogo size={20} color={t.purple} />

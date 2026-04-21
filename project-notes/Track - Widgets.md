@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-19 (P3-1 HTML widget catalog + frontmatter shipped)
+updated: 2026-04-21 (new bots auto-mint read-only widget scopes)
 ---
 # Track — Widget System DX + Robustness
 
@@ -131,6 +131,17 @@ Skill-driven effort to turn bot-authored HTML widgets into pro-grade dashboards.
 - **DX-5b — non-channel workspace root (`/workspace/widgets/<slug>/`)** — deferred (not a quick slice). Needs cross-cutting backend work: new non-channel root in `app/services/workspace.py`, non-channel-scoped workspace-file endpoint, path resolver in `emit_html_widget.py`, extending the iframe file-polling query beyond channel scope, and making the `file` tool (currently channel-scoped) write into the new root. Best as its own session with a proper plan — too easy to cause silent bugs.
 - **DX-5c — bundled asset loading via `loadAsset`** shipped. `window.spindrel.loadAsset(path)` + `revokeAsset(url)` in the bootstrap. Fetches via `apiFetch` against the existing channel `/workspace/files/raw` endpoint, blobs the response, returns a `blob:` object URL. Same-origin by construction (no CSP changes). Supports the full `resolvePath` grammar (relative paths against widget bundle). Skill's "Bundled assets" section documents `<img>` / `<video>` / `<audio>` use. 5/5 extraction tests pass (basic load, revoke, revoke-unknown-ignored, 404-throws, absolute path). UI tsc clean.
 - **DX-5c-full — `<base href>` native asset loading** — deferred. "Drop `<img src="assets/logo.svg" />` and have it work" needs a signed-URL token pattern OR a service worker to inject `Authorization` headers OR a public asset endpoint. All three are real security design calls. `loadAsset` shipped as the pragmatic unlock that doesn't commit us to a stance.
+
+### Follow-up policy — new bots auto-mint read-only widget scopes (2026-04-21)
+
+Interactive HTML widgets run as the emitting bot, so a brand-new bot with no
+API key produced immediate `/widget-auth/mint` 400s until an admin manually
+visited the Permissions tab. New bots now auto-mint a minimal scoped key at
+create time with `attachments:read` + `channels:read` only. This covers the
+stock widget runtime helpers (`loadAttachment`, channel-workspace asset reads,
+channel-bound dashboard reads) without silently granting mutation access.
+Bots that truly need writes or broader API use still widen scopes explicitly
+under Admin → Bots → Permissions.
 
 ### Phase 0.5 — Engine addition: `widget_config` rides into `toolResult.config` (done, 2026-04-19)
 

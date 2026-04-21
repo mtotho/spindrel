@@ -366,11 +366,11 @@ async def estimate_bot_context(
         lines.append(EstimateLine("sys:audio", len(_AUDIO_TRANSCRIPT_INSTRUCTION), "native audio mode"))
 
     total = sum(x.chars for x in lines)
-    # Use the unified tokenizer (tiktoken when available, chars/3.5 floor)
-    # so this estimate matches every other surface in the app.
-    from app.agent.tokenization import count_text_tokens_sync
-    _model = (draft.get("model") or "").strip() or "gpt-4o"
-    approx_tok = count_text_tokens_sync("x" * total, _model) if total > 0 else 0
+    # chars/3.5 — same heuristic the rest of the app uses for char-count
+    # estimates. Running a real tokenizer against `"x" * total` would be
+    # both bogus (chars are placeholders, not real text) and slow.
+    from app.agent.tokenization import estimate_tokens
+    approx_tok = estimate_tokens("x" * total) if total > 0 else 0
 
     disclaimer = (
         "Rough per-turn lower bound before chat history, tool outputs, and @-tags. "

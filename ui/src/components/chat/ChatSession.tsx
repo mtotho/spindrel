@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useBots, useBot } from "@/src/api/hooks/useBots";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
+import { apiFetch } from "@/src/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSpawnEphemeralSession,
@@ -38,6 +39,7 @@ import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
+import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
 
 export interface EphemeralContextPayload {
   page_name?: string;
@@ -174,8 +176,10 @@ function ChannelChatSession({
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const src = useChannelChatSource(source.channelId);
+  const addMessage = useChatStore((s) => s.addMessage);
   const { data: bot } = useBot(src.bot_id);
   const { data: overheadData } = useChannelConfigOverhead(source.channelId);
   const overheadPct = overheadData?.overhead_pct ?? null;
@@ -297,6 +301,39 @@ function ChannelChatSession({
     [srcHandleSend],
   );
 
+  const handleSlashCommand = useSlashCommandExecutor({
+    availableCommands: ["stop", "context", "scratch", "clear", "compact"],
+    channelId: source.channelId,
+    sessionId: src.sessionId,
+    onSyntheticMessage: (message) => addMessage(source.channelId, message),
+    onScratch: async () => {
+      if (!src.bot_id) return;
+      const qs = new URLSearchParams({
+        parent_channel_id: source.channelId,
+        bot_id: src.bot_id,
+      });
+      const scratch = await apiFetch<{ session_id: string }>(
+        `/sessions/scratch/current?${qs.toString()}`,
+      );
+      navigate(`/channels/${source.channelId}/session/${scratch.session_id}?scratch=true`);
+    },
+    onClear: async () => {
+      await apiFetch(`/channels/${source.channelId}/reset`, { method: "POST" });
+      useChatStore.getState().setMessages(source.channelId, []);
+      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
+    },
+    onSideEffect: async (result) => {
+      if (result.command_id === "stop") {
+        src.syncCancelledState();
+        return;
+      }
+      if (result.command_id === "compact") {
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+      }
+    },
+  });
+
   const overheadColor = useMemo(() => {
     if (overheadPct == null) return null;
     if (overheadPct >= 0.4) return "#ef4444";
@@ -384,8 +421,12 @@ function ChannelChatSession({
                   onSend={handleSendMsg}
                   disabled={!src.bot_id}
                   isStreaming={src.isStreaming}
+                  onCancel={src.handleCancel}
                   currentBotId={src.bot_id}
                   channelId={source.channelId}
+                  onSlashCommand={handleSlashCommand}
+                  slashSurface="channel"
+                  availableSlashCommands={["stop", "context", "scratch", "clear", "compact"]}
                   modelOverride={src.modelOverride}
                   modelProviderIdOverride={src.modelProviderIdOverride}
                   onModelOverrideChange={src.setModelOverride}
@@ -431,8 +472,12 @@ function ChannelChatSession({
               onSend={handleSendMsg}
               disabled={!src.bot_id}
               isStreaming={src.isStreaming}
+              onCancel={src.handleCancel}
               currentBotId={src.bot_id}
               channelId={source.channelId}
+              onSlashCommand={handleSlashCommand}
+              slashSurface="channel"
+              availableSlashCommands={["stop", "context", "scratch", "clear", "compact"]}
               modelOverride={src.modelOverride}
               modelProviderIdOverride={src.modelProviderIdOverride}
               onModelOverrideChange={src.setModelOverride}
@@ -664,6 +709,24 @@ function EphemeralChatSession({
   );
 
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
+  const syncSessionCancelledState = useCallback(() => {
+    if (!sessionId) return;
+    const ch = useChatStore.getState().getChannel(sessionId);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().finishTurn(sessionId, turnId);
+    }
+    useChatStore.getState().clearProcessing(sessionId);
+    qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+  }, [qc, sessionId]);
+  const handleSessionSlashCommand = useSlashCommandExecutor({
+    availableCommands: sessionId ? ["context", "stop"] : [],
+    sessionId: sessionId ?? undefined,
+    onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
+    onSideEffect: async (result) => {
+      if (result.command_id === "stop") syncSessionCancelledState();
+    },
+  });
 
   // Two-click speed-bump for reset.
   const [resetArmed, setResetArmed] = useState(false);
@@ -832,6 +895,7 @@ function EphemeralChatSession({
             emptyStateComponent={emptyState}
             scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
+            syntheticMessages={slashSyntheticMessages}
             bottomSlot={chatMode === "terminal" && !readOnly ? (
               <>
                 {sendError && (
@@ -845,6 +909,9 @@ function EphemeralChatSession({
                   isStreaming={isSending}
                   currentBotId={botId || undefined}
                   channelId={sessionId ?? undefined}
+                  onSlashCommand={handleSessionSlashCommand}
+                  slashSurface="session"
+                  availableSlashCommands={sessionId ? ["context", "stop"] : []}
                   modelOverride={modelOverride}
                   modelProviderIdOverride={modelProviderId}
                   onModelOverrideChange={setModelOverride}
@@ -889,6 +956,8 @@ function EphemeralChatSession({
                   isStreaming={isSending}
                   currentBotId={botId || undefined}
                   channelId={sessionId ?? undefined}
+                  slashSurface="session"
+                  availableSlashCommands={[]}
                   modelOverride={modelOverride}
                   modelProviderIdOverride={modelProviderId}
                   onModelOverrideChange={setModelOverride}
@@ -919,6 +988,9 @@ function EphemeralChatSession({
               isStreaming={isSending}
               currentBotId={botId || undefined}
               channelId={sessionId ?? undefined}
+              onSlashCommand={handleSessionSlashCommand}
+              slashSurface="session"
+              availableSlashCommands={sessionId ? ["context", "stop"] : []}
               modelOverride={modelOverride}
               modelProviderIdOverride={modelProviderId}
               onModelOverrideChange={setModelOverride}
@@ -1058,6 +1130,24 @@ function ThreadChatSession({
     () => [buildThreadParentPreviewRow(storeKey, parentForAnchor)],
     [storeKey, parentForAnchor],
   );
+  const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
+  const syncThreadCancelledState = useCallback(() => {
+    if (!effectiveSessionId) return;
+    const ch = useChatStore.getState().getChannel(storeKey);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().finishTurn(storeKey, turnId);
+    }
+    useChatStore.getState().clearProcessing(storeKey);
+    qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
+  }, [effectiveSessionId, qc, storeKey]);
+  const handleThreadSlashCommand = useSlashCommandExecutor({
+    availableCommands: effectiveSessionId ? ["context", "stop"] : [],
+    sessionId: effectiveSessionId ?? undefined,
+    onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
+    onSideEffect: async (result) => {
+      if (result.command_id === "stop") syncThreadCancelledState();
+    },
+  });
 
   const handleSend = useCallback(
     async (message: string, _files?: PendingFile[]) => {
@@ -1196,7 +1286,7 @@ function ThreadChatSession({
             botId={botId}
             emptyStateComponent={emptyState}
             scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
-            syntheticMessages={syntheticMessages}
+            syntheticMessages={[...syntheticMessages, ...slashSyntheticMessages]}
             chatMode={chatMode}
             bottomSlot={chatMode === "terminal" ? (
               <>
@@ -1211,6 +1301,9 @@ function ThreadChatSession({
                   isStreaming={isSending}
                   currentBotId={botId}
                   channelId={storeKey}
+                  onSlashCommand={handleThreadSlashCommand}
+                  slashSurface="session"
+                  availableSlashCommands={effectiveSessionId ? ["context", "stop"] : []}
                   defaultModel={bot?.model}
                   configOverhead={overheadPct}
                   modelOverride={modelOverride}
@@ -1283,6 +1376,9 @@ function ThreadChatSession({
               isStreaming={isSending}
               currentBotId={botId}
               channelId={storeKey}
+              onSlashCommand={handleThreadSlashCommand}
+              slashSurface="session"
+              availableSlashCommands={effectiveSessionId ? ["context", "stop"] : []}
               defaultModel={bot?.model}
               configOverhead={overheadPct}
               modelOverride={modelOverride}

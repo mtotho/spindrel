@@ -71,10 +71,17 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Chat feed swap** — `ChatMessageArea`, `MessageBubble`, and streaming indicators now accept `chatMode`; terminal mode renders a more transcript/log-oriented shell with monospace-forward styling and reduced bubble chrome while keeping approvals, widgets, threads, and tool output working.
 - [x] **Command-first composer** — `MessageInput` and `TiptapChatInput` now support a terminal-mode variant: more compact control row, slash-command hinting, reduced visible chrome, same send/queue/attach/model plumbing underneath.
 - [x] **Configurator parity** — `propose_config_change` now allows `chat_mode`, so the config-fix tool can flip channels into terminal mode using the same guardrails as `pipeline_mode` / `layout_mode`.
+- [x] **Slash-command contract scaffolded** — `/api/v1/slash-commands` and `/api/v1/slash-commands/execute` now define a backend-owned result envelope so web, Slack, and CLI can converge on one command semantic layer instead of client-local behavior.
+- [x] **`/context` rendered in chat** — web now inserts a synthetic transcript row for typed slash-command results, with a dedicated context-summary card in channel chat plus session/thread chat surfaces.
+- [x] **Session/thread parity for slash commands** — chat-session surfaces no longer just advertise `/context`; they execute it against the shared backend contract and merge the synthetic result into the mounted transcript.
+- [x] **Server-owned side-effect commands** — `/stop` and `/compact` now execute through the same slash-command API contract; web just applies the minimal local state sync after the server action lands.
+- [x] **Client-only scratch shortcut** — `/scratch` stays web-local for now and jumps straight into the scratch-pad route instead of pretending to be a shared backend command.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
+- [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
+  `tests/integration/test_slash_commands.py -q` also stalled under the wrapper here without producing a Python failure trace.
