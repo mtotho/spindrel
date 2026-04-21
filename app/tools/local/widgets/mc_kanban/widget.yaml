@@ -1,5 +1,0 @@
-name: MC Kanban
-version: 1.0.0
-description: Drag-and-drop kanban board — shares data with MC Timeline and MC Tasks.
-db:
-  shared: mission-control

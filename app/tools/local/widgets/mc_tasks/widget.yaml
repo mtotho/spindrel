@@ -1,5 +1,0 @@
-name: MC Tasks
-version: 1.0.0
-description: Flat task list with inline edit, checkbox done, and promote-to-kanban.
-db:
-  shared: mission-control
