@@ -1906,6 +1906,7 @@ async def admin_channel_config_overhead(
 @router.get("/channels/{channel_id}/context-budget")
 async def admin_channel_context_budget(
     channel_id: uuid.UUID,
+    session_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
@@ -1917,7 +1918,7 @@ async def admin_channel_context_budget(
     """
     from app.services.context_breakdown import fetch_latest_context_budget
 
-    return await fetch_latest_context_budget(channel_id, db)
+    return await fetch_latest_context_budget(channel_id, db, session_id=session_id)
 
 
 @router.get("/channels/{channel_id}/context-preview")

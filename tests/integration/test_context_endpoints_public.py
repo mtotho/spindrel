@@ -122,6 +122,62 @@ class TestPublicContextBudget:
         )).json()
         assert public == admin
 
+    @pytest.mark.asyncio
+    async def test_session_scoped_query_matches_admin_route(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        channel_id = uuid.uuid4()
+        scratch_session_id = uuid.uuid4()
+        channel_session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+
+        db_session.add(Channel(
+            id=channel_id,
+            name="ctx-public-session-scope",
+            bot_id="test-bot",
+            active_session_id=channel_session_id,
+        ))
+        db_session.add_all([
+            Session(
+                id=scratch_session_id,
+                bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-scratch",
+                channel_id=channel_id,
+            ),
+            Session(
+                id=channel_session_id,
+                bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-main",
+                channel_id=channel_id,
+            ),
+        ])
+        db_session.add_all([
+            TraceEvent(
+                session_id=scratch_session_id,
+                event_type="context_injection_summary",
+                data={"context_budget": {"utilization": 0.12, "consumed_tokens": 1200, "total_tokens": 10000}},
+                created_at=now.replace(microsecond=1000),
+            ),
+            TraceEvent(
+                session_id=channel_session_id,
+                event_type="context_injection_summary",
+                data={"context_budget": {"utilization": 0.55, "consumed_tokens": 5500, "total_tokens": 10000}},
+                created_at=now.replace(microsecond=2000),
+            ),
+        ])
+        await db_session.commit()
+
+        public = (await client.get(
+            f"/api/v1/channels/{channel_id}/context-budget?session_id={scratch_session_id}",
+            headers=AUTH_HEADERS,
+        )).json()
+        admin = (await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-budget?session_id={scratch_session_id}",
+            headers=AUTH_HEADERS,
+        )).json()
+        assert public == admin
+        assert public["consumed_tokens"] == 1200
+
 
 class TestPublicContextBreakdown:
     @pytest.mark.asyncio

@@ -487,10 +487,18 @@ export function useChannelContextBreakdown(
 // Context budget (lightweight — for header indicator)
 // ---------------------------------------------------------------------------
 
-export function useChannelContextBudget(channelId: string | undefined) {
+export function useChannelContextBudget(
+  channelId: string | undefined,
+  sessionId?: string | null,
+) {
   return useQuery<{ utilization: number | null; consumed_tokens: number | null; total_tokens: number | null }>({
-    queryKey: ["channel-context-budget", channelId],
-    queryFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/context-budget`),
+    queryKey: ["channel-context-budget", channelId, sessionId ?? null],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (sessionId) params.set("session_id", sessionId);
+      const qs = params.toString();
+      return apiFetch(`/api/v1/admin/channels/${channelId}/context-budget${qs ? `?${qs}` : ""}`);
+    },
     enabled: !!channelId,
     staleTime: 60_000, // don't refetch aggressively — SSE updates will override
   });

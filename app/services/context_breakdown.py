@@ -117,6 +117,8 @@ def _chars_to_tokens(chars: int) -> int:
 async def fetch_latest_context_budget(
     channel_id: str | Any,
     db: AsyncSession,
+    *,
+    session_id: str | Any | None = None,
 ) -> dict[str, Any]:
     """Latest context utilization for this channel — API ground truth when available.
 
@@ -136,30 +138,36 @@ async def fetch_latest_context_budget(
     """
     # Latest pre-call estimate carries `total_tokens` (the model's window)
     # which the API usage event doesn't, so we read both and merge.
-    inj_row = await db.execute(
+    inj_query = (
         select(TraceEvent.data)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
             Session.channel_id == channel_id,
             TraceEvent.event_type == "context_injection_summary",
         )
-        .order_by(TraceEvent.created_at.desc())
-        .limit(1)
+    )
+    if session_id is not None:
+        inj_query = inj_query.where(TraceEvent.session_id == session_id)
+    inj_row = await db.execute(
+        inj_query.order_by(TraceEvent.created_at.desc()).limit(1)
     )
     inj_data = inj_row.scalar_one_or_none()
     inj_budget = (inj_data or {}).get("context_budget") or {}
     total_tokens = inj_budget.get("total_tokens")
     est_consumed = inj_budget.get("consumed_tokens")
 
-    usage_row = await db.execute(
+    usage_query = (
         select(TraceEvent.data)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
             Session.channel_id == channel_id,
             TraceEvent.event_type == "token_usage",
         )
-        .order_by(TraceEvent.created_at.desc())
-        .limit(1)
+    )
+    if session_id is not None:
+        usage_query = usage_query.where(TraceEvent.session_id == session_id)
+    usage_row = await db.execute(
+        usage_query.order_by(TraceEvent.created_at.desc()).limit(1)
     )
     usage_data = usage_row.scalar_one_or_none() or {}
     api_prompt_tokens = usage_data.get("prompt_tokens")

@@ -137,9 +137,6 @@ export function ChannelHeader({
   const isScratchArchive = !!scratchFullpageMode?.archive;
   const showScratchState = !!scratchFullpageMode;
   const scratchBadgeLabel = isScratchArchive ? "Archived scratch" : "Scratch pad";
-  const scratchSubline = isScratchArchive
-    ? "Read-only view of a previous scratch session."
-    : "Messages here stay out of the channel history.";
   const scratchTone = isScratchArchive
     ? {
         bg: t.surfaceOverlay,
@@ -284,7 +281,7 @@ export function ChannelHeader({
                 border: `1px solid ${scratchTone.border}`,
                 color: scratchTone.text,
               }}
-              title={scratchSubline}
+              title={scratchBadgeLabel}
             >
               <StickyNote size={10} color={scratchTone.icon} />
               {scratchBadgeLabel}
@@ -332,20 +329,6 @@ export function ChannelHeader({
         )}
         {!isSystemChannel && !isMobile && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
-            {showScratchState && (
-              <span
-                className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium shrink-0"
-                style={{
-                  background: scratchTone.bg,
-                  border: `1px solid ${scratchTone.border}`,
-                  color: scratchTone.text,
-                }}
-                title={scratchSubline}
-              >
-                <StickyNote size={10} color={scratchTone.icon} />
-                <span className="truncate">{scratchSubline}</span>
-              </span>
-            )}
             <a
               className="header-bot-link"
               onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}

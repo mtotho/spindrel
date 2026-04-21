@@ -92,20 +92,17 @@ await window.spindrel.callTool("web_search", { query: "docs" }, {
 
 ## Knowing the output shape before you call
 
-Widgets are authored ahead of any real invocation, so you don't know the envelope shape until the tool actually runs. Don't guess. Don't write fallback chains like `env.data.state || env.body.data.state || env.result.data.state` — those are the primary cause of broken widgets. Pick one of two ground-truth paths:
+Widgets are authored ahead of any real invocation, so you don't know the envelope shape until the tool actually runs. **Don't guess. Don't write fallback chains like `env.data.state || env.body.data.state || env.result.data.state`** — those are the primary cause of broken widgets. Pick one of two ground-truth paths, in this order:
 
-1. **`spindrel.toolSchema(name)`** — for local tools that register a `returns=` schema this returns `{input_schema, returns_schema}` with a concrete return shape. Code against it. Many of the core tools have it; MCP tools don't (the MCP protocol has no slot for return schemas), in which case `returns_schema` is `null`.
-2. **Inspect the real response** — the widget runs, auto-trace captures every `callTool` request + response to a server-side ring, you read it back. See `widgets/sdk.md` "Inspecting a pinned widget" for the full loop. Short version:
+1. **`spindrel.toolSchema(name)`** — for local tools that register a `returns=` schema this returns `{input_schema, returns_schema}` with a concrete return shape. Code against it. Many core tools have it; MCP tools don't (no slot in the protocol), in which case `returns_schema` is `null`.
+2. **Inspect the real response** (the debug loop — see [`widgets/errors.md#inspecting-a-pinned-widget--the-debugging-recipe`](errors.md#inspecting-a-pinned-widget--the-debugging-recipe)):
    - Emit widget v1. Optionally add `spindrel.log.info("shape", await callTool(...))` on first iteration so the shape is logged even before you code extraction against it.
    - Pin it.
    - Call `inspect_widget_pin(pin_id)` from a bot turn, or open the Inspector (pin menu → Bug icon) in the UI.
    - Read the `response` field on the most recent `tool-call` event.
    - Rewrite extraction against the confirmed path and re-emit.
 
-Canonical shapes for the two most-requested tools:
-
-- `frigate_snapshot` → `{attachment_id, filename, size_bytes, camera, message, client_action}`. Extraction: `env.attachment_id`.
-- `ha_get_state` → `{data: {entity_id, state, attributes: {unit_of_measurement, friendly_name, ...}, last_changed}}`. Extraction: `env.data.state`, `env.data.attributes.unit_of_measurement`.
+**Canonical envelope shapes for commonly-called tools** are indexed in [`widgets/errors.md#envelope-shape-index--canonical-tool-responses`](errors.md#envelope-shape-index--canonical-tool-responses). For any tool not in that index, run the debug loop once — first invocation is the authoritative source.
 
 A fully-working snapshot widget:
 

@@ -61,7 +61,7 @@ import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
-import { MessageCircle, X as CloseIcon } from "lucide-react";
+import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
@@ -200,7 +200,6 @@ export default function ChatScreen() {
   const { data: channel, isLoading: channelLoading } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
   const { data: systemStatus } = useSystemStatus();
-  const { data: savedBudget } = useChannelContextBudget(channelId);
   const { data: configOverheadData } = useChannelConfigOverhead(channelId);
   // Host-side broker so pinned widgets reuse the channel's SSE connection
   // instead of each opening its own /widget-actions/stream socket.
@@ -393,6 +392,11 @@ export default function ChatScreen() {
   const setScratchReturn = useScratchReturnStore((s) => s.setScratchReturn);
   const clearScratchReturn = useScratchReturnStore((s) => s.clearScratchReturn);
   const [scratchHistoryOpen, setScratchHistoryOpen] = useState(false);
+  const scratchSessionState = useChatStore((s) =>
+    scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
+  );
+  const currentBudgetSessionId = isScratchRoute ? scratchUrlSessionId : null;
+  const { data: savedBudget } = useChannelContextBudget(channelId, currentBudgetSessionId);
   const handleExitScratchRoute = useCallback(() => {
     if (!channelId) return;
     clearScratchReturn(channelId);
@@ -443,6 +447,17 @@ export default function ChatScreen() {
 
   // ---- Scratch chat (in-channel ephemeral) state ----
   const [scratchOpen, setScratchOpen] = useState(false);
+  const effectiveContextBudget = (
+    currentBudgetSessionId
+      ? scratchSessionState?.contextBudget
+      : chatState.contextBudget
+  ) ?? (
+    savedBudget?.utilization != null ? {
+      utilization: savedBudget.utilization,
+      consumed: savedBudget.consumed_tokens ?? 0,
+      total: savedBudget.total_tokens ?? 0,
+    } : null
+  );
 
   // Memoize the scratch chat source so EphemeralChatSession doesn't see a
   // new `context`/`source` reference on every channel re-render. Without
@@ -851,6 +866,51 @@ export default function ChatScreen() {
     </>
   ) : null;
 
+  const scratchEmptyState = (
+    <div
+      className="flex flex-col items-center justify-center text-center px-6"
+      style={{ minHeight: 260, gap: 14 }}
+    >
+      <div
+        className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
+        style={{
+          backgroundColor: scratchIsArchive ? t.surfaceOverlay : t.warningSubtle,
+          border: `1px solid ${scratchIsArchive ? t.surfaceBorder : t.warningBorder}`,
+          color: scratchIsArchive ? t.textMuted : t.warningMuted,
+        }}
+      >
+        <StickyNote size={13} color={scratchIsArchive ? t.textDim : t.warning} />
+        <span className="text-[11px] font-semibold tracking-[0.18em] uppercase">
+          {scratchIsArchive ? "Scratch archive" : "Scratch pad"}
+        </span>
+      </div>
+      <div className="space-y-2">
+        <div
+          style={{
+            color: t.text,
+            fontSize: isMobile ? 21 : 24,
+            fontWeight: 600,
+            letterSpacing: "-0.02em",
+          }}
+        >
+          {scratchIsArchive ? "Scratch session saved here." : "Sketch before it hits the channel."}
+        </div>
+        <div
+          style={{
+            color: t.textMuted,
+            fontSize: isMobile ? 13 : 14,
+            maxWidth: 460,
+            lineHeight: 1.55,
+          }}
+        >
+          {scratchIsArchive
+            ? "This archived scratch chat is read-only. Open the current scratch pad to keep working."
+            : "Try prompts, notes, or half-formed ideas here. Nothing is posted into the main channel until you move it there."}
+        </div>
+      </div>
+    </div>
+  );
+
   // ---- Scratch column (full-page mode) ----
   // When isScratchRoute is true, swaps in for the normal chat column. Wraps
   // the shared ChatSession ephemeral component in shape="fullpage" so we
@@ -889,6 +949,7 @@ export default function ChatScreen() {
             open
             onClose={handleExitScratchRoute}
             title={scratchIsArchive ? "Archived scratch" : "Scratch pad"}
+            emptyState={scratchEmptyState}
             chatMode={chatMode}
           />
         </div>
@@ -927,13 +988,7 @@ export default function ChatScreen() {
           toggleExplorer={toggleExplorer}
           onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
-          contextBudget={chatState.contextBudget ?? (
-            savedBudget?.utilization != null ? {
-              utilization: savedBudget.utilization,
-              consumed: savedBudget.consumed_tokens ?? 0,
-              total: savedBudget.total_tokens ?? 0,
-            } : null
-          )}
+          contextBudget={effectiveContextBudget}
           onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
           isSystemChannel={isSystemChannel}
           findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}
@@ -1333,13 +1388,7 @@ export default function ChatScreen() {
           botId={botInfoBotId}
           channelId={channelId}
           onClose={() => setBotInfoBotId(null)}
-          contextBudget={chatState.contextBudget ?? (
-            savedBudget?.utilization != null ? {
-              utilization: savedBudget.utilization,
-              consumed: savedBudget.consumed_tokens ?? 0,
-              total: savedBudget.total_tokens ?? 0,
-            } : null
-          )}
+          contextBudget={effectiveContextBudget}
           configOverhead={configOverheadData ?? null}
         />
       )}
@@ -1387,6 +1436,7 @@ export default function ChatScreen() {
           open={scratchOpen}
           onClose={handleScratchClose}
           title="Scratch chat"
+          emptyState={scratchEmptyState}
           initiallyExpanded
           chatMode={chatMode}
         />

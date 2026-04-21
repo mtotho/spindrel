@@ -500,31 +500,54 @@ export interface HtmlWidgetCatalog {
   channels: ChannelHtmlWidgets[];
 }
 
-/** One entry in the widget-library catalog (core, bot, or workspace scope).
- *  Produced by ``widget_library._read_widget_meta`` — YAML frontmatter keys
- *  are optional. Pairs with ``GET /api/v1/widgets/library-widgets``. */
+/** One entry in the unified pinnable-widget catalog. Covers five scopes —
+ *  the three ``widget://`` namespaces (``core`` / ``bot`` / ``workspace``)
+ *  AND scanner-sourced ``integration`` / ``channel`` HTML widgets. The old
+ *  "HTML widgets" tab was folded into Library so a user can pin any flavor
+ *  from one surface.
+ *
+ *  Pairs with ``GET /api/v1/widgets/library-widgets``. */
 export interface WidgetLibraryEntry {
-  /** Folder name under the scope root — also the machine identifier used
-   *  when composing ``widget://<scope>/<name>/...`` refs. */
+  /** Folder name under the scope root (widget:// scopes) or frontmatter
+   *  name / slug for scanner-sourced scopes — also the machine identifier
+   *  used when composing ``widget://<scope>/<name>/...`` refs. */
   name: string;
   /** Which on-disk root this came from. */
-  scope: "core" | "bot" | "workspace";
-  /** Bundle format. ``html`` = iframe widget, ``template`` = YAML component
-   *  tree, ``suite`` = multi-widget bundle sharing a SQLite DB. */
-  format: "html" | "template" | "suite";
+  scope: "core" | "bot" | "workspace" | "integration" | "channel";
+  /** Bundle format. ``html`` = iframe widget, ``suite`` = multi-widget
+   *  bundle sharing a SQLite DB. Tool-renderer ``template`` entries are
+   *  filtered out server-side — they can't be pinned without runtime args. */
+  format: "html" | "suite";
   display_label?: string;
   description?: string;
   version?: string;
   tags?: string[];
-  icon?: string;
+  icon?: string | null;
   updated_at?: number;
+  /** Scanner scopes (integration / channel) carry a relative path to the
+   *  bundle's ``index.html`` so the pin envelope can route its content
+   *  fetch to the matching ``/html-widget-content/*`` endpoint. */
+  path?: string;
+  /** Scanner-derived slug (parent dir or file stem). */
+  slug?: string;
+  /** Present on integration-scoped entries. */
+  integration_id?: string | null;
+  /** Present on channel-scoped entries. */
+  channel_id?: string | null;
+  /** Scanner flag — HTML file is outside a ``widgets/`` dir but references
+   *  ``window.spindrel.``. */
+  is_loose?: boolean;
+  /** True when a sibling ``widget.yaml`` was found next to the html file. */
+  has_manifest?: boolean;
 }
 
 /** Response shape of ``GET /api/v1/widgets/library-widgets``. */
 export interface WidgetLibraryCatalog {
   core: WidgetLibraryEntry[];
+  integration: WidgetLibraryEntry[];
   bot: WidgetLibraryEntry[];
   workspace: WidgetLibraryEntry[];
+  channel: WidgetLibraryEntry[];
 }
 
 /** A widget pinned to the chat-less `/widgets` dashboard. Row shape mirrors

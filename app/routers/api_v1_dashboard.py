@@ -350,38 +350,92 @@ async def read_library_widget_content(
     return {"path": f"{meta['scope']}/{meta['name']}/index.html", "content": body}
 
 
+def _scanner_entry_to_library(entry: dict) -> dict:
+    """Normalize an ``html_widget_scanner`` entry into ``WidgetLibraryEntry``
+    shape so the Library endpoint can return a single union-typed list
+    across scopes. The scanner carries a richer payload (``path``,
+    ``integration_id``, ``is_loose``, ...); we keep those fields alongside
+    the common ``name/scope/format/display_label/description/...`` ones.
+    """
+    source = entry.get("source") or "channel"
+    # Map scanner source → library scope verbatim.
+    scope = "integration" if source == "integration" else source
+    return {
+        "name": entry.get("name") or entry.get("slug") or "",
+        "scope": scope,
+        "format": "html",
+        "display_label": entry.get("display_label") or entry.get("name") or "",
+        "description": entry.get("description") or "",
+        "version": entry.get("version") or "0.0.0",
+        "tags": entry.get("tags") or [],
+        "icon": entry.get("icon"),
+        "updated_at": int(entry.get("modified_at") or 0),
+        # Scanner-specific fields the pin envelope needs to round-trip so
+        # the renderer can fetch content through the right endpoint.
+        "path": entry.get("path"),
+        "slug": entry.get("slug"),
+        "integration_id": entry.get("integration_id"),
+        "is_loose": bool(entry.get("is_loose", False)),
+        "has_manifest": bool(entry.get("has_manifest", False)),
+    }
+
+
 @router.get(
     "/library-widgets",
     dependencies=[Depends(require_scopes("channels:read"))],
 )
 async def list_library_widgets(
+    db: AsyncSession = Depends(get_db),
     bot_id: str | None = Query(
         None,
         description=(
             "Bot whose library to enumerate. Required for the bot/workspace "
-            "scopes; core always returns regardless. Omit to see core only."
+            "scopes; core always returns regardless. Omit to see core + "
+            "integration + (optional) channel sections only."
+        ),
+    ),
+    channel_id: str | None = Query(
+        None,
+        description=(
+            "Channel whose workspace HTML widgets to include under the "
+            "``channel`` section. Omit to skip channel scanning."
         ),
     ),
 ):
-    """Enumerate widget-library bundles across the three scopes.
+    """Unified pinnable-widget catalog across every source.
 
-    Pairs with ``widget_library_list`` (the bot-facing tool) so the Add-widget
-    sheet can browse bot- and workspace-authored bundles that the tool
-    catalog (``/html-widget-catalog``) doesn't cover. Shape::
+    Shape::
 
         {
-          "core":      [WidgetLibraryEntry, ...],
-          "bot":       [WidgetLibraryEntry, ...],
-          "workspace": [WidgetLibraryEntry, ...],
+          "core":        [WidgetLibraryEntry, ...],  # widget://core/<name>
+          "integration": [WidgetLibraryEntry, ...],  # integrations/<id>/widgets
+          "bot":         [WidgetLibraryEntry, ...],  # widget://bot/<name>
+          "workspace":   [WidgetLibraryEntry, ...],  # widget://workspace/<name>
+          "channel":     [WidgetLibraryEntry, ...],  # <channel workspace>/...
         }
 
-    ``WidgetLibraryEntry`` is the dict produced by
-    ``widget_library._read_widget_meta`` — ``name``, ``scope``, ``format``,
-    plus any frontmatter metadata (``display_label``, ``description``,
-    ``version``, ``tags``, ``icon``, ``updated_at``).
+    ``WidgetLibraryEntry`` base fields — ``name``, ``scope``, ``format``,
+    ``display_label``, ``description``, ``version``, ``tags``, ``icon``,
+    ``updated_at``. Scanner-sourced scopes (``integration`` / ``channel``)
+    additionally carry ``path`` / ``integration_id`` / ``is_loose`` so the
+    pin envelope can route content fetches through the matching
+    ``/html-widget-content/*`` endpoint.
+
+    **Tool-renderer `template.yaml` bundles are intentionally excluded.**
+    Entries like ``get_task_result``, ``manage_bot_skill``, ``schedule_task``
+    need tool arguments to render and are surfaced through the dev panel's
+    Tools / Recent-calls tabs instead — they can't be pinned standalone.
     """
     import os as _os
 
+    from sqlalchemy import select
+
+    from app.agent.bots import get_bot
+    from app.db.models import Channel
+    from app.services.html_widget_scanner import (
+        scan_all_integrations,
+        scan_channel,
+    )
     from app.services.widget_paths import scope_root
     from app.tools.local.widget_library import (
         _iter_core_widgets,
@@ -391,7 +445,6 @@ async def list_library_widgets(
     ws_root: str | None = None
     shared_root: str | None = None
     if bot_id:
-        from app.agent.bots import get_bot
         from app.services.shared_workspace import shared_workspace_service
         from app.services.workspace import workspace_service
         bot = get_bot(bot_id)
@@ -403,7 +456,20 @@ async def list_library_widgets(
                 shared_workspace_service.get_host_root(bot.shared_workspace_id)
             )
 
-    core = _iter_core_widgets()
+    # Core: widget://core/<name>. Filter out template-format entries —
+    # those are tool renderers that need tool args to render and belong in
+    # the dev panel, not a pinnable library.
+    core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
+
+    # Integration widgets — use the scanner (already filters tool renderers
+    # referenced by integration.yaml's tool_widgets block). Flatten the
+    # per-integration grouping into a single list; each entry carries its
+    # own ``integration_id`` so the UI can group/badge.
+    integration_entries: list[dict] = []
+    for _integ_id, entries in scan_all_integrations():
+        for e in entries:
+            integration_entries.append(_scanner_entry_to_library(e))
+
     bot_entries = _iter_scope_dir(
         scope_root("bot", ws_root=ws_root, shared_root=shared_root),
         "bot",
@@ -412,10 +478,36 @@ async def list_library_widgets(
         scope_root("workspace", ws_root=ws_root, shared_root=shared_root),
         "workspace",
     )
+
+    # Channel workspace widgets are only enumerated when caller pins down a
+    # specific channel — walking every channel's workspace from a generic
+    # "show me pinnable things" endpoint is expensive and noisy.
+    channel_entries: list[dict] = []
+    if channel_id:
+        try:
+            ch_uuid = uuid.UUID(channel_id)
+        except ValueError:
+            raise HTTPException(400, f"Invalid channel_id {channel_id!r}")
+        row = (
+            await db.execute(
+                select(Channel.bot_id).where(Channel.id == ch_uuid)
+            )
+        ).first()
+        if row is not None and row[0]:
+            bot_for_channel = get_bot(str(row[0]))
+            if bot_for_channel is not None:
+                for e in scan_channel(str(ch_uuid), bot_for_channel):
+                    normalized = _scanner_entry_to_library(e)
+                    normalized["scope"] = "channel"
+                    normalized["channel_id"] = str(ch_uuid)
+                    channel_entries.append(normalized)
+
     return {
         "core": core,
+        "integration": integration_entries,
         "bot": bot_entries,
         "workspace": workspace_entries,
+        "channel": channel_entries,
     }
 
 

@@ -1310,6 +1310,7 @@ async def _auth_channel_context(
 @router.get("/{channel_id}/context-budget")
 async def get_channel_context_budget(
     channel_id: uuid.UUID,
+    session_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     auth=Depends(verify_auth_or_user),
 ):
@@ -1325,7 +1326,7 @@ async def get_channel_context_budget(
     await _auth_channel_context(channel_id, auth, db)
 
     from app.services.context_breakdown import fetch_latest_context_budget
-    return await fetch_latest_context_budget(channel_id, db)
+    return await fetch_latest_context_budget(channel_id, db, session_id=session_id)
 
 
 @router.get("/{channel_id}/context-breakdown")

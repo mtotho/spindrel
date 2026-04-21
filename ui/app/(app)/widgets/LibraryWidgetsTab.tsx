@@ -1,14 +1,21 @@
-/** Library tab — enumerates widget-library bundles (core / bot / workspace)
- *  and pins them directly. Complements the "HTML widgets" tab: that one
- *  shows built-in + integration + channel-workspace ``.html`` files; this
- *  one shows the ``widget://`` library namespace — the authored-by-bot +
- *  workspace-shared surface that Phase 8 of the Widget Library track opened
- *  up so users no longer need the bot's help to pin a library widget.
+/** Library tab — the ONE pinnable-widget surface. Unifies five scopes:
  *
- *  Pin envelope for library entries:
- *   - ``source_kind: "library"``
- *   - ``source_library_ref: "<scope>/<name>"``
- *   - renderer fetches body from ``/widgets/html-widget-content/library``.
+ *   1. ``core``        — widget://core/<name>/ (ships with the app)
+ *   2. ``integration`` — integrations/<id>/widgets/ (per-integration)
+ *   3. ``bot``         — widget://bot/<name>/ (this bot's private library)
+ *   4. ``workspace``   — widget://workspace/<name>/ (shared library)
+ *   5. ``channel``     — channel workspace .html files (when scoped)
+ *
+ *  Before unification there were two overlapping tabs ("Library" + "HTML
+ *  widgets") with different backends. Integration-shipped widgets showed
+ *  only in one tab; bot-authored widgets only in the other. Tool-renderer
+ *  template entries polluted the Library with unpinnable "widgets" (can't
+ *  pin ``get_task_result`` without an id). Unified endpoint filters both.
+ *
+ *  Pin envelopes, per scope:
+ *   - core/bot/workspace → ``source_kind: "library"`` + ``source_library_ref``
+ *   - integration       → ``source_kind: "integration"`` + ``source_integration_id`` + ``source_path``
+ *   - channel           → ``source_kind: "channel"`` + ``source_channel_id`` + ``source_path``
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -18,9 +25,11 @@ import {
   CheckCircle2,
   ChevronDown,
   FileCode,
+  Hash,
   Loader2,
   Package,
   Pin,
+  Plug,
   Search,
   Users,
 } from "lucide-react";
@@ -48,20 +57,55 @@ export interface LibraryPinPayload {
   botId: string | null;
 }
 
-type ScopeFilter = "all" | "core" | "bot" | "workspace";
+type ScopeFilter = "all" | "core" | "integration" | "bot" | "workspace" | "channel";
 
 interface Props {
   query: string;
   pinScope: PinScope;
+  /** Channel id when pinning to a channel dashboard. Surfaces
+   *  channel-workspace HTML widgets under the "Channel" section. */
+  scopeChannelId?: string | null;
   existingRefs: Set<string>;
   onPin: (payload: LibraryPinPayload) => Promise<void>;
 }
 
-/** Identity key for a library-scoped pin — the ``<scope>/<name>`` ref. */
+/** Identity key for any Library-sourced pin. Handles all five scopes so
+ *  dedup works across the unified tab — library scopes key off
+ *  ``source_library_ref``; scanner scopes key off ``source_kind::path``
+ *  (same shape used by the old HTML-widgets tab's pinIdentity). */
 export function libraryPinIdentity(envelope: ToolResultEnvelope): string | null {
   const ref = envelope.source_library_ref;
-  if (typeof ref !== "string" || !ref) return null;
-  return `library:${ref}`;
+  if (typeof ref === "string" && ref) return `library:${ref}`;
+  const kind = envelope.source_kind;
+  const path = envelope.source_path;
+  if (!path) return null;
+  if (kind === "builtin") return `builtin::${path}`;
+  if (kind === "integration" && envelope.source_integration_id) {
+    return `integration::${envelope.source_integration_id}::${path}`;
+  }
+  if (kind === "channel" && envelope.source_channel_id) {
+    return `channel::${envelope.source_channel_id}::${path}`;
+  }
+  return null;
+}
+
+/** Stable React key for a row. Unique across all scopes. */
+function entryKey(e: WidgetLibraryEntry): string {
+  if (e.scope === "integration") return `integration:${e.integration_id ?? ""}:${e.path ?? e.name}`;
+  if (e.scope === "channel") return `channel:${e.channel_id ?? ""}:${e.path ?? e.name}`;
+  return `${e.scope}/${e.name}`;
+}
+
+/** Dedup identity — matches what ``libraryPinIdentity`` computes against
+ *  an existing pin's envelope, so rows whose widget is already pinned dim. */
+function entryIdentity(e: WidgetLibraryEntry): string {
+  if (e.scope === "integration") {
+    return `integration::${e.integration_id ?? ""}::${e.path ?? ""}`;
+  }
+  if (e.scope === "channel") {
+    return `channel::${e.channel_id ?? ""}::${e.path ?? ""}`;
+  }
+  return `library:${e.scope}/${e.name}`;
 }
 
 export function envelopeForLibraryEntry(
@@ -69,13 +113,34 @@ export function envelopeForLibraryEntry(
   botId: string | null,
 ): ToolResultEnvelope {
   const label = entry.display_label ?? entry.name;
-  return {
+  const base = {
     content_type: HTML_INTERACTIVE_CT,
     body: "",
     plain_body: entry.description ?? label,
     display: "inline",
     display_label: label,
     source_bot_id: botId,
+  } as ToolResultEnvelope;
+
+  if (entry.scope === "integration") {
+    return {
+      ...base,
+      source_kind: "integration",
+      source_integration_id: entry.integration_id ?? null,
+      source_path: entry.path ?? null,
+    } as ToolResultEnvelope;
+  }
+  if (entry.scope === "channel") {
+    return {
+      ...base,
+      source_kind: "channel",
+      source_channel_id: entry.channel_id ?? null,
+      source_path: entry.path ?? null,
+    } as ToolResultEnvelope;
+  }
+  // widget:// scopes (core / bot / workspace) — library_ref path.
+  return {
+    ...base,
     source_kind: "library",
     source_library_ref: `${entry.scope}/${entry.name}`,
   } as ToolResultEnvelope;
@@ -84,6 +149,7 @@ export function envelopeForLibraryEntry(
 export function LibraryWidgetsTab({
   query,
   pinScope,
+  scopeChannelId,
   existingRefs,
   onPin,
 }: Props) {
@@ -99,6 +165,7 @@ export function LibraryWidgetsTab({
     setError(null);
     const qs = new URLSearchParams();
     if (botId) qs.set("bot_id", botId);
+    if (scopeChannelId) qs.set("channel_id", scopeChannelId);
     apiFetch<WidgetLibraryCatalog>(
       `/api/v1/widgets/library-widgets${qs.toString() ? `?${qs}` : ""}`,
     )
@@ -107,14 +174,16 @@ export function LibraryWidgetsTab({
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       });
     return () => { cancelled = true; };
-  }, [botId]);
+  }, [botId, scopeChannelId]);
 
   const totals = useMemo(() => {
-    if (!catalog) return { core: 0, bot: 0, workspace: 0, all: 0 };
+    if (!catalog) return { core: 0, integration: 0, bot: 0, workspace: 0, channel: 0, all: 0 };
     const c = catalog.core.length;
+    const i = catalog.integration.length;
     const b = catalog.bot.length;
     const w = catalog.workspace.length;
-    return { core: c, bot: b, workspace: w, all: c + b + w };
+    const ch = catalog.channel.length;
+    return { core: c, integration: i, bot: b, workspace: w, channel: ch, all: c + i + b + w + ch };
   }, [catalog]);
 
   const q = query.trim().toLowerCase();
@@ -128,8 +197,10 @@ export function LibraryWidgetsTab({
   };
 
   const showCore = scopeFilter === "all" || scopeFilter === "core";
+  const showIntegration = scopeFilter === "all" || scopeFilter === "integration";
   const showBot = scopeFilter === "all" || scopeFilter === "bot";
   const showWs = scopeFilter === "all" || scopeFilter === "workspace";
+  const showChannel = scopeFilter === "all" || scopeFilter === "channel";
 
   if (error) {
     return (
@@ -150,7 +221,7 @@ export function LibraryWidgetsTab({
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="flex items-center gap-1.5 rounded-md bg-surface px-1.5 py-1 text-[11px]">
+      <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface px-1.5 py-1 text-[11px]">
         <ScopeChip
           label={`All (${totals.all})`}
           active={scopeFilter === "all"}
@@ -161,6 +232,12 @@ export function LibraryWidgetsTab({
           label={`Core (${totals.core})`}
           active={scopeFilter === "core"}
           onClick={() => setScopeFilter("core")}
+        />
+        <ScopeChip
+          icon={<Plug size={10} />}
+          label={`Integrations (${totals.integration})`}
+          active={scopeFilter === "integration"}
+          onClick={() => setScopeFilter("integration")}
         />
         <ScopeChip
           icon={<BotIcon size={10} />}
@@ -176,6 +253,14 @@ export function LibraryWidgetsTab({
           onClick={() => setScopeFilter("workspace")}
           disabled={!botId && totals.workspace === 0}
         />
+        {scopeChannelId && (
+          <ScopeChip
+            icon={<Hash size={10} />}
+            label={`Channel (${totals.channel})`}
+            active={scopeFilter === "channel"}
+            onClick={() => setScopeFilter("channel")}
+          />
+        )}
       </div>
 
       {!botId && (
@@ -199,6 +284,18 @@ export function LibraryWidgetsTab({
             botId={botId}
             existingRefs={existingRefs}
             onPin={onPin}
+          />
+        )}
+        {showIntegration && (
+          <Section
+            icon={<Plug size={13} className="text-accent" />}
+            title="Integrations"
+            subtitle="Widgets shipped by enabled integrations (Frigate, OpenWeather, …)"
+            entries={catalog.integration.filter(match)}
+            botId={botId}
+            existingRefs={existingRefs}
+            onPin={onPin}
+            emptyHint="No integration-shipped widgets on this instance."
           />
         )}
         {showBot && (
@@ -239,6 +336,18 @@ export function LibraryWidgetsTab({
                 ? "Empty. Needs a shared workspace — bots in a shared workspace can author under widget://workspace/…"
                 : null
             }
+          />
+        )}
+        {showChannel && scopeChannelId && (
+          <Section
+            icon={<Hash size={13} className="text-accent" />}
+            title="Channel workspace"
+            subtitle="HTML widgets dropped into this channel's workspace"
+            entries={catalog.channel.filter(match)}
+            botId={botId}
+            existingRefs={existingRefs}
+            onPin={onPin}
+            emptyHint="Drop an HTML file under this channel's workspace (or ask the bot: 'save this widget to the channel')."
           />
         )}
         {totals.all === 0 && (
@@ -310,10 +419,10 @@ function Section({
         <ul className="divide-y divide-surface-border/40">
           {entries.map((e) => (
             <LibraryRow
-              key={`${e.scope}/${e.name}`}
+              key={entryKey(e)}
               entry={e}
               botId={botId}
-              already={existingRefs.has(`library:${e.scope}/${e.name}`)}
+              already={existingRefs.has(entryIdentity(e)) }
               onPin={onPin}
             />
           ))}
@@ -332,8 +441,15 @@ function LibraryRow({
   onPin: (payload: LibraryPinPayload) => Promise<void>;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const ref = `${entry.scope}/${entry.name}`;
   const label = entry.display_label ?? entry.name;
+  // widget:// scopes use a library_ref path; scanner scopes surface the
+  // actual on-disk path instead. Both monospaced so they read as identifiers.
+  const provenance =
+    entry.scope === "integration"
+      ? `integrations/${entry.integration_id ?? "?"}/widgets/${entry.path ?? ""}`
+      : entry.scope === "channel"
+        ? `channel:${entry.channel_id?.slice(0, 8) ?? ""}/${entry.path ?? ""}`
+        : `widget://${entry.scope}/${entry.name}`;
 
   return (
     <li className={[
@@ -365,9 +481,7 @@ function LibraryRow({
                 "inline-flex items-center gap-0.5 rounded px-1 py-px text-[10px] font-medium uppercase tracking-wider",
                 entry.format === "suite"
                   ? "bg-warning/15 text-warning"
-                  : entry.format === "template"
-                    ? "bg-accent/15 text-accent"
-                    : "bg-surface-overlay text-text-muted",
+                  : "bg-surface-overlay text-text-muted",
               ].join(" ")}
               title={`Bundle format: ${entry.format}`}
             >
@@ -380,7 +494,17 @@ function LibraryRow({
             </p>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-text-dim">
-            <span className="font-mono">widget://{ref}</span>
+            <span className="font-mono truncate max-w-full">{provenance}</span>
+            {entry.scope === "integration" && entry.integration_id && (
+              <span className="rounded bg-accent/10 px-1 py-px text-accent">
+                {entry.integration_id}
+              </span>
+            )}
+            {entry.is_loose && (
+              <span className="rounded bg-warning/15 px-1 py-px text-warning" title="Outside a widgets/ dir — detected via window.spindrel reference">
+                loose
+              </span>
+            )}
             {(entry.tags ?? []).slice(0, 4).map((t) => (
               <span key={t} className="rounded bg-surface-overlay px-1 py-px">
                 #{t}

@@ -168,11 +168,14 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
             "description": (
                 "List widget bundles available to emit via `emit_html_widget("
                 "library_ref=<name>)`. Returns name, scope (core/bot/workspace), "
-                "format (html/template/suite), display_label, and description "
-                "per entry. Use this to discover what widgets exist before "
-                "composing inline HTML — a library widget is editable, "
-                "reusable, and pinnable by name. Filter by `scope`, `format`, "
-                "or free-text `q` (matches name + display_label + description)."
+                "format (html/suite), display_label, and description per entry. "
+                "Use this to discover what widgets exist before composing inline "
+                "HTML — a library widget is editable, reusable, and pinnable by "
+                "name. Filter by `scope`, `format`, or free-text `q` (matches "
+                "name + display_label + description). Tool-renderer `template` "
+                "entries (tool-output widgets that need runtime args, e.g. "
+                "`get_task_result`, `manage_bot_skill`) are EXCLUDED by default "
+                "— pass `format=\"template\"` to inspect them."
             ),
             "parameters": {
                 "type": "object",
@@ -260,6 +263,14 @@ async def widget_library_list(
                 scope_root("workspace", ws_root=ws_root, shared_root=shared_root),
                 "workspace",
             ))
+
+    # Tool-renderer ``template.yaml`` entries need runtime tool arguments
+    # (``{{id}}``, etc.) to render — surfacing them as pinnable library
+    # bundles doesn't make sense. The admin dev panel's Tools and Recent
+    # calls tabs are the right surface for those. Skip unless the caller
+    # explicitly asked for ``format="template"`` (inspection use-case).
+    if format != "template":
+        widgets = [w for w in widgets if w.get("format") != "template"]
 
     if format:
         widgets = [w for w in widgets if w.get("format") == format]

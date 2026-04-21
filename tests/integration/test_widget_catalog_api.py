@@ -252,27 +252,81 @@ class TestLibraryContentEndpoint:
 
 
 class TestLibraryWidgetsEndpoint:
-    """``GET /widgets/library-widgets`` — inventory for the Add-widget sheet's
-    Library tab. Shape: ``{core, bot, workspace}`` with each value a list of
-    entries matching ``widget_library._read_widget_meta`` output."""
+    """``GET /widgets/library-widgets`` — the ONE pinnable-widget surface.
+    Unifies five scopes: ``core``, ``integration``, ``bot``, ``workspace``,
+    ``channel``. Tool-renderer ``template``-format entries are excluded at
+    the endpoint boundary — they need runtime args to render and are
+    reachable through the dev panel's Tools / Recent-calls tabs."""
 
     @pytest.mark.asyncio
     async def test_core_only_without_bot_id(self, client):
-        """Without a bot_id the bot/workspace scopes are empty; core always fills."""
+        """Without a bot_id the bot/workspace scopes are empty; core +
+        integration scopes always fill. Channel is opt-in via
+        ``channel_id``."""
         r = await client.get(
             "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert set(body.keys()) == {"core", "bot", "workspace"}
+        assert set(body.keys()) == {
+            "core", "integration", "bot", "workspace", "channel",
+        }
         assert body["bot"] == []
         assert body["workspace"] == []
+        assert body["channel"] == []
         # At minimum the todo reference widget ships with the server.
         names = {e["name"] for e in body["core"]}
         assert "todo" in names
         for e in body["core"]:
             assert e["scope"] == "core"
-            assert e["format"] in {"html", "template", "suite"}
+            # Template-format entries (tool renderers) are filtered out —
+            # they can't be pinned without runtime args.
+            assert e["format"] in {"html", "suite"}
+
+    @pytest.mark.asyncio
+    async def test_core_excludes_template_renderer_entries(self, client):
+        """Tool-renderer ``template.yaml`` bundles (get_task_result,
+        manage_bot_skill, schedule_task, list_tasks, get_system_status,
+        context_tracker) are NOT pinnable — they need tool args. Confirm
+        they're filtered out of the catalog."""
+        r = await client.get(
+            "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        core_names = {e["name"] for e in r.json()["core"]}
+        # These all ship with a template.yaml and must stay out of Library.
+        for junk in (
+            "get_task_result",
+            "manage_bot_skill",
+            "schedule_task",
+            "list_tasks",
+            "get_system_status",
+        ):
+            assert junk not in core_names, (
+                f"{junk!r} is a tool-renderer template — must not appear "
+                f"in the pinnable Library (belongs in dev panel instead)"
+            )
+
+    @pytest.mark.asyncio
+    async def test_integration_scope_is_populated(self, client):
+        """Integration-shipped widgets (Frigate, OpenWeather, etc.) surface
+        under the ``integration`` scope with their ``integration_id``
+        preserved so the UI can badge + route content fetches correctly."""
+        r = await client.get(
+            "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        integration = r.json()["integration"]
+        # Not all integrations ship widgets, but at least one in the repo
+        # does — web_search / openweather / frigate / excalidraw /
+        # browser_live all have widgets/ dirs. Assert the shape of whatever
+        # is returned rather than pinning a specific count.
+        if integration:
+            for e in integration:
+                assert e["scope"] == "integration"
+                assert e["format"] == "html"
+                assert e.get("path"), "integration entries need path for content fetch"
+                assert e.get("integration_id"), "integration entries need integration_id"
 
     @pytest.mark.asyncio
     async def test_bot_scope_enumerates_via_bot_id(

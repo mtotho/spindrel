@@ -189,3 +189,68 @@ class TestBreakdownModes:
         data = resp.json()
         assert data["consumed_tokens"] == 777
         assert data["source"] == "estimate"
+
+    @pytest.mark.asyncio
+    async def test_context_budget_can_scope_to_specific_session(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """Scratch/session UIs need the selected session's budget, not the
+        newest budget across the whole channel."""
+        channel_id = uuid.uuid4()
+        older_session_id = uuid.uuid4()
+        newer_session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        older_at = now.replace(microsecond=1000)
+        newer_at = now.replace(microsecond=2000)
+
+        db_session.add(Channel(
+            id=channel_id, name="ctx-session-scope", bot_id="test-bot",
+            active_session_id=newer_session_id,
+        ))
+        db_session.add_all([
+            Session(
+                id=older_session_id, bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-old", channel_id=channel_id,
+            ),
+            Session(
+                id=newer_session_id, bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-new", channel_id=channel_id,
+            ),
+        ])
+        db_session.add_all([
+            TraceEvent(
+                id=uuid.uuid4(),
+                session_id=older_session_id,
+                bot_id="test-bot",
+                event_type="context_injection_summary",
+                data={"context_budget": {
+                    "consumed_tokens": 111, "total_tokens": 10_000, "utilization": 0.011,
+                }},
+                created_at=older_at,
+            ),
+            TraceEvent(
+                id=uuid.uuid4(),
+                session_id=newer_session_id,
+                bot_id="test-bot",
+                event_type="context_injection_summary",
+                data={"context_budget": {
+                    "consumed_tokens": 999, "total_tokens": 10_000, "utilization": 0.099,
+                }},
+                created_at=newer_at,
+            ),
+        ])
+        await db_session.commit()
+
+        default_resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-budget",
+            headers=AUTH_HEADERS,
+        )
+        scoped_resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-budget?session_id={older_session_id}",
+            headers=AUTH_HEADERS,
+        )
+
+        assert default_resp.status_code == 200
+        assert scoped_resp.status_code == 200
+        assert default_resp.json()["consumed_tokens"] == 999
+        assert scoped_resp.json()["consumed_tokens"] == 111

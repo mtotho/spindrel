@@ -11,12 +11,9 @@ import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import type {
-  HtmlWidgetCatalog,
-  HtmlWidgetEntry,
   ToolResultEnvelope,
   WidgetDashboardPin,
 } from "@/src/types/api";
-import { HtmlWidgetsTab, pinIdentity } from "./HtmlWidgetsTab";
 import { PinScopePicker } from "./PinScopePicker";
 import {
   LibraryWidgetsTab,
@@ -42,7 +39,7 @@ interface Props {
   scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "recent" | "library" | "html-widgets" | "suites" | "build";
+type Tab = "channel" | "recent" | "library" | "suites" | "build";
 
 interface SuiteEntry {
   suite_id: string;
@@ -83,10 +80,6 @@ export default function AddFromChannelSheet({
   // redundant (you ARE that channel's board) so the tab hides, and Recent
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
-  // "HTML widgets" exposes the unified catalog (built-in + integration +
-  // channel-workspace), so it's always available — even on the global
-  // dashboard where there's no channel scope.
-  const showHtmlWidgetsTab = true;
   const [tab, setTab] = useState<Tab>(
     scopeChannelId ? "recent" : "channel",
   );
@@ -104,10 +97,6 @@ export default function AddFromChannelSheet({
   // Recent tool-call envelopes — filtered to scopeChannelId when provided.
   const [recent, setRecent] = useState<RecentCall[] | null>(null);
   const [recentError, setRecentError] = useState<string | null>(null);
-
-  // Full HTML-widget catalog: built-in + per-integration + per-channel.
-  const [htmlCatalog, setHtmlCatalog] = useState<HtmlWidgetCatalog | null>(null);
-  const [htmlError, setHtmlError] = useState<string | null>(null);
 
   // Discoverable widget suites (groups of bundles that share a dashboard-scoped DB).
   const [suites, setSuites] = useState<SuiteEntry[] | null>(null);
@@ -172,22 +161,6 @@ export default function AddFromChannelSheet({
     return () => { cancelled = true; };
   }, [open, scopeChannelId]);
 
-  // Fetch the unified HTML-widget catalog — built-in, per-integration, and
-  // per-channel. Mtime-cached on the backend so re-firing on every sheet
-  // open is cheap. Same endpoint backs the dev-panel Library section.
-  useEffect(() => {
-    if (!open || !showHtmlWidgetsTab) return;
-    let cancelled = false;
-    setHtmlCatalog(null);
-    setHtmlError(null);
-    apiFetch<HtmlWidgetCatalog>("/api/v1/widgets/html-widget-catalog")
-      .then((resp) => { if (!cancelled) setHtmlCatalog(resp); })
-      .catch((e) => {
-        if (!cancelled) setHtmlError(e instanceof Error ? e.message : String(e));
-      });
-    return () => { cancelled = true; };
-  }, [open, showHtmlWidgetsTab]);
-
   // Fetch installed suites. Cheap endpoint (file-mtime cached server-side).
   useEffect(() => {
     if (!open) return;
@@ -207,22 +180,10 @@ export default function AddFromChannelSheet({
     [pins],
   );
 
-  // Identity set for path-mode HTML-widget pins — now source-kind aware so
-  // built-in / integration / channel entries all dedup correctly against an
-  // existing pin.
-  const existingHtmlIdentities = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of pins) {
-      if (p.tool_name !== "emit_html_widget") continue;
-      const id = pinIdentity(p.envelope);
-      if (id) set.add(id);
-    }
-    return set;
-  }, [pins]);
-
-  // Identity set for library-scoped pins keyed by ``library:<scope>/<name>``
-  // so the Library tab can dim already-pinned entries regardless of which
-  // tool originally emitted them.
+  // Identity set for any Library-sourced pin. ``libraryPinIdentity`` is
+  // scope-aware — widget:// scopes → ``library:<scope>/<name>``; scanner
+  // scopes (integration / channel) → the ``<source_kind>::path`` identity
+  // used by the old HtmlWidgetsTab so cross-tab dedup still works.
   const existingLibraryRefs = useMemo(() => {
     const set = new Set<string>();
     for (const p of pins) {
@@ -288,11 +249,6 @@ export default function AddFromChannelSheet({
               From channel
             </TabButton>
           )}
-          {showHtmlWidgetsTab && (
-            <TabButton active={tab === "html-widgets"} onClick={() => setTab("html-widgets")}>
-              HTML widgets
-            </TabButton>
-          )}
           <TabButton active={tab === "library"} onClick={() => setTab("library")}>
             Library
           </TabButton>
@@ -306,7 +262,7 @@ export default function AddFromChannelSheet({
           </TabButton>
         </div>
 
-        {(tab === "html-widgets" || tab === "suites" || tab === "library") && (
+        {(tab === "suites" || tab === "library") && (
           <div className="mx-4 mt-2">
             <PinScopePicker
               scope={pinScope}
@@ -316,7 +272,7 @@ export default function AddFromChannelSheet({
           </div>
         )}
 
-        {(tab === "channel" || tab === "html-widgets" || tab === "library") && (
+        {(tab === "channel" || tab === "library") && (
           <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="text-text-dim" />
@@ -324,11 +280,9 @@ export default function AddFromChannelSheet({
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={
-                  tab === "html-widgets"
-                    ? "Search HTML widgets"
-                    : tab === "library"
-                      ? "Search library widgets"
-                      : "Search channels or widgets"
+                  tab === "library"
+                    ? "Search library widgets"
+                    : "Search channels or widgets"
                 }
                 className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
               />
@@ -423,97 +377,45 @@ export default function AddFromChannelSheet({
               }}
             />
           )}
-          {tab === "html-widgets" && showHtmlWidgetsTab && (
-            <HtmlWidgetsTab
-              catalog={htmlCatalog}
-              loadError={htmlError}
-              query={query}
-              existingIdentities={existingHtmlIdentities}
-              onPin={async (entry, envelope) => {
-                // Tool args carry a source-specific marker so the pin can be
-                // rehydrated later even if the renderer evolves. For channel
-                // entries we keep the legacy absolute-path form that
-                // emit_html_widget already understands; for built-in / integration
-                // entries the envelope's source_kind + path is the source of
-                // truth.
-                const toolArgs: Record<string, unknown> = (() => {
-                  if (entry.source === "channel") {
-                    // Channel entries require a channel id; envelopeForEntry
-                    // attached it. Fall back to the scope if present.
-                    const cid =
-                      envelope.source_channel_id ?? scopeChannelId ?? null;
-                    if (cid) {
-                      return { path: `/workspace/channels/${cid}/${entry.path}` };
-                    }
-                  }
-                  if (entry.source === "builtin") {
-                    return { source: "builtin", path: entry.path };
-                  }
-                  if (entry.source === "integration") {
-                    return {
-                      source: "integration",
-                      integration_id: entry.integration_id,
-                      path: entry.path,
-                    };
-                  }
-                  return { path: entry.path };
-                })();
-                // ``source_channel_id`` on the pin row is required when the
-                // dashboard is a channel dashboard (service-layer validation).
-                // For built-in / integration widgets the envelope doesn't
-                // carry a channel id — fall back to the dashboard's scope so
-                // the pin row is locatable and the channel-dashboard guard
-                // doesn't 400.
-                const pinChannelId =
-                  envelope.source_channel_id ?? scopeChannelId ?? null;
-                // Envelope-carried bot (from a tool call) wins; otherwise
-                // honor the user's scope selection for adhoc catalog pins.
-                const pinBotId =
-                  (envelope.source_bot_id as string | null | undefined) ??
-                  (pinScope.kind === "bot" ? pinScope.botId : null);
-                const created = await pinWidget({
-                  source_kind: entry.source === "channel" ? "channel" : "adhoc",
-                  source_channel_id: pinChannelId,
-                  source_bot_id: pinBotId,
-                  tool_name: "emit_html_widget",
-                  tool_args: toolArgs,
-                  envelope,
-                  display_label: entry.display_label,
-                });
-                toast({
-                  kind: "success",
-                  message: `Added ${entry.display_label} to ${dashboardName ?? "dashboard"}`,
-                  action: onPinned
-                    ? {
-                        label: "View",
-                        onClick: () => {
-                          onPinned(created.id);
-                          onClose();
-                        },
-                      }
-                    : undefined,
-                });
-                onPinned?.(created.id);
-              }}
-            />
-          )}
           {tab === "library" && (
             <LibraryWidgetsTab
               query={query}
               pinScope={pinScope}
+              scopeChannelId={scopeChannelId ?? null}
               existingRefs={existingLibraryRefs}
               onPin={async ({ entry, envelope, botId }) => {
-                // Library pins always use ``source_kind="adhoc"`` at the DB
-                // level; the envelope's ``source_kind="library"`` +
-                // ``source_library_ref`` drive the renderer's content fetch.
+                // Scope determines pin shape. widget:// scopes ride the
+                // existing library_ref path; scanner scopes (integration /
+                // channel) match what the old HtmlWidgetsTab produced so
+                // the renderer + dedup identity stay unchanged.
+                let toolArgs: Record<string, unknown>;
+                let sourceKind: "adhoc" | "channel" = "adhoc";
+                let pinChannelId: string | null = scopeChannelId ?? null;
+                if (entry.scope === "integration") {
+                  toolArgs = {
+                    source: "integration",
+                    integration_id: entry.integration_id,
+                    path: entry.path,
+                  };
+                } else if (entry.scope === "channel") {
+                  const cid =
+                    envelope.source_channel_id ?? entry.channel_id ?? scopeChannelId ?? null;
+                  toolArgs = cid && entry.path
+                    ? { path: `/workspace/channels/${cid}/${entry.path}` }
+                    : { path: entry.path };
+                  sourceKind = cid ? "channel" : "adhoc";
+                  pinChannelId = cid;
+                } else {
+                  toolArgs = {
+                    library_ref: `${entry.scope}/${entry.name}`,
+                  };
+                }
                 const created = await pinWidget({
-                  source_kind: "adhoc",
-                  source_channel_id: scopeChannelId ?? null,
+                  source_kind: sourceKind,
+                  source_channel_id: pinChannelId,
                   source_bot_id: botId,
                   tool_name: "emit_html_widget",
-                  tool_args: {
-                    library_ref: `${entry.scope}/${entry.name}`,
-                  },
+                  tool_args: toolArgs,
                   envelope,
                   display_label: entry.display_label ?? entry.name,
                 });

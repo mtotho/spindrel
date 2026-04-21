@@ -1,7 +1,13 @@
 import { useCallback } from "react";
 
 import { apiFetch } from "@/src/api/client";
-import type { Message, SlashCommandId, SlashCommandResult } from "@/src/types/api";
+import { toast } from "@/src/stores/toast";
+import type {
+  Message,
+  SlashCommandId,
+  SlashCommandResult,
+  SlashCommandSideEffectPayload,
+} from "@/src/types/api";
 
 import { buildSlashCommandResultMessage } from "./slashCommands";
 
@@ -48,6 +54,11 @@ export function useSlashCommandExecutor({
             }),
           });
           if (result.result_type === "side_effect") {
+            const payload = result.payload as SlashCommandSideEffectPayload;
+            toast({
+              kind: "info",
+              message: payload.detail || result.fallback_text,
+            });
             await onSideEffect?.(result);
             return;
           }

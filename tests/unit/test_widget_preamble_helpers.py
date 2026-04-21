@@ -234,3 +234,30 @@ def test_skill_doc_documents_phase_a_helpers() -> None:
         "window.spindrel.callHandler",
     ]:
         assert needle in text, f"skills/widgets/ missing docs for `{needle}`"
+
+
+def test_skill_doc_documents_debug_loop_recipe() -> None:
+    """The skill must teach bots the `inspect_widget_pin` debug recipe for
+    silent-extraction failures (the #1 class of widget bug). Without these,
+    bots revert to writing fallback chains like
+    ``env.data.x || env.body.data.x || env.result.data.x`` which silently
+    return ``undefined`` when all branches miss."""
+    text = _skill_doc_text()
+    # The debug-loop tool must be named so the bot knows to call it.
+    assert "inspect_widget_pin" in text, (
+        "skills/widgets/ never mentions inspect_widget_pin — "
+        "the debug-loop tool is invisible to bots"
+    )
+    # The literal "Failed to fetch" error must be greppable since that's
+    # exactly what the browser prints when CSP blocks a cross-origin fetch.
+    assert "TypeError: Failed to fetch" in text, (
+        "skills/widgets/ missing TypeError: Failed to fetch lookup — "
+        "bots can't match the actual console error to a fix"
+    )
+    # The envelope-shape index must surface the two canonical divergent
+    # shapes (flat vs one-data-wrapper) that drove the kitchen-dashboard
+    # debacle so bots pick the right extraction path on first try.
+    assert "frigate_snapshot" in text
+    assert "ha_get_state" in text
+    assert "env.attachment_id" in text
+    assert "env.data.state" in text

@@ -78,6 +78,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Server-owned side-effect commands** — `/stop` and `/compact` now execute through the same slash-command API contract; web just applies the minimal local state sync after the server action lands.
 - [x] **Client-only scratch shortcut** — `/scratch` stays web-local for now and jumps straight into the scratch-pad route instead of pretending to be a shared backend command.
 - [x] **Scratch full-page warning folded into the real chat header** — removed the duplicate standalone scratch banner that was overlapping the header chip strip; scratch routes now show a compact header-owned state pill + amber subtitle in the channel header, with archive sessions rendered as muted read-only state instead of a warning.
+- [x] **Scratch view context budget now respects the active session** — the header budget indicator no longer stays pinned to the channel's latest turn while you're inside scratch; backend `context-budget` endpoints now accept optional `session_id`, and the scratch route prefers the scratch session's live SSE budget/store slot plus a session-scoped fallback fetch.
+- [x] **Scratch empty state now carries the guidance instead of the header** — removed the extra “messages here…” helper row from the scratch header and replaced the generic empty chat placeholder with scratch-specific copy/treatment in both docked and full-page scratch views.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -87,3 +89,5 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
   `tests/integration/test_slash_commands.py -q` also stalled under the wrapper here without producing a Python failure trace.
+- [ ] Follow-up scratch-copy polish verification remains wrapper-limited:
+  `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` did not report TypeScript errors here, but the sandbox command wrapper hung until `timeout 5s` terminated it.
