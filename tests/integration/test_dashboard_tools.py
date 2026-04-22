@@ -321,6 +321,49 @@ class TestPinWidget:
         assert notes_pin["envelope"]["body"]["state"]["body"] == "Buy milk"
 
     @pytest.mark.asyncio
+    async def test_invoke_widget_action_updates_native_todo(
+        self, engine, channel_id, bot_with_key,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, invoke_widget_action, pin_widget
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                pin = json.loads(await pin_widget(
+                    widget="core/todo_native",
+                    source_kind="library",
+                    zone="grid",
+                ))
+                assert "error" not in pin, pin
+                added = json.loads(await invoke_widget_action(
+                    pin_id=pin["pin_id"],
+                    action="add_item",
+                    args={"title": "Buy milk"},
+                ))
+                item_id = added["result"]["item"]["id"]
+                toggled = json.loads(await invoke_widget_action(
+                    pin_id=pin["pin_id"],
+                    action="toggle_item",
+                    args={"id": item_id, "done": True},
+                ))
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert added["ok"] is True
+        assert toggled["ok"] is True
+        assert toggled["result"]["item"]["done"] is True
+        todo_pin = next(p for p in described["pins"] if p["id"] == pin["pin_id"])
+        assert any(a["id"] == "reorder_items" for a in todo_pin["available_actions"])
+        items = todo_pin["envelope"]["body"]["state"]["items"]
+        assert len(items) == 1
+        assert items[0]["title"] == "Buy milk"
+        assert items[0]["done"] is True
+
+    @pytest.mark.asyncio
     async def test_auth_scope_bot_stamps_source_bot_id(
         self, engine, channel_id, bot_with_key,
     ):

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-21 (terminal mode input contrast + thinking indicator + mobile gutters polished)
+updated: 2026-04-22 (mini chat inherits chat mode, terminal dock chrome tightened, session-plan composer affordances restored)
 ---
 # Track — UI Polish
 
@@ -89,11 +89,19 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Terminal mobile gutters tuned** — the terminal footer lane is now centered through the shared `ChatMessageArea` max-width wrapper, which gives mobile the same left/right gutter for the composer and model label that default chat already had without restyling the composer itself.
 - [x] **Terminal input contrast tuned without restyling the composer** — terminal-mode `MessageInput` now uses a slightly brighter existing surface fill only. No border, radius, or footer chrome was added; the change is limited to making the input read a bit more clearly against the page background.
 - [x] **Terminal streaming indicator reads like a console status line** — terminal-mode `StreamingIndicator` / `ProcessingIndicator` now render a monospace `(thinking...)` line with animated dots instead of the default bubble-style typing dots / lone blinking cursor whenever the turn is alive but text has not yet arrived.
+- [x] **Channel-dashboard mini chat now inherits channel chat mode** — the bottom-right `ChatSession` dock on `/widgets/channel/:id` now threads `channel.config.chat_mode` through the shared chat surface, so terminal-mode channels render the same transcript/composer treatment in the mini chat instead of falling back to default mode.
+- [x] **Desktop mini chat is user-resizable and sticky per surface** — `ChatSessionDock` now exposes a top-left resize affordance on desktop, clamps the dock within the viewport, persists the last chosen width/height in `localStorage` per chat surface (`channel`, `thread`, scratch/ephemeral), and uses a larger first-open desktop default (`500x728`) so fresh docks land closer to the intended working size. Mobile keeps the existing bottom-sheet behavior.
+- [x] **Mini-chat terminal dock chrome tightened** — terminal-mode `ChatSessionDock` now drops the outer rounded-card treatment/border, uses a subtle header tint instead of a divider line, and gives the top-left resize affordance a visible corner-grip cue.
+- [x] **Mini-chat composer now gets the real session plan state** — `ChatSession` channel/thread/ephemeral variants now query `useSessionPlanMode(sessionId)` and pass the same `planMode` / `hasPlan` / `planBusy` / toggle / approve props into `MessageInput`, restoring both terminal-mode plan affordances in docked mini chats instead of rendering nothing there.
+- [x] **Mini-chat open animation no longer "snaps in" from mid-screen** — `chat-dock-expand-in` now uses a small bottom-right anchored translate/scale instead of a large viewport-center translate, so opening the dock no longer reads like it first mounted ~100px away from its final corner.
+- [x] **Normal chat-screen loads no longer full-page fade after the skeleton swap** — `channels/[channelId]/index.tsx` now applies the screen animation only for the explicit `?from=dock` route transition. The old unconditional `.chat-fade-in` on every mount was causing the whole chat screen to briefly fade right after first paint on ordinary loads, which read as a white/dark "flash" once the page was already mostly visible.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
 - [x] `cd agent-server/ui && timeout 20s ./node_modules/.bin/tsc --noEmit --pretty false`
 - [x] `cd agent-server/ui && npx tsc --noEmit` after terminal-mode composer/indicator polish
+- [x] `cd agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after dashboard mini-chat theme + dock resize persistence
+- [x] `cd agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after terminal dock chrome + mini-chat session-plan composer wiring
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
 - [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
 - [ ] Targeted pytest remains flaky in this sandbox:

@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (Phase 18 — native app widgets + unified bot action tool)
+updated: 2026-04-21 (native Todo widget + native Notes draft-sync fix)
 ---
 
 # Track — Widget Library
@@ -234,6 +234,18 @@ Follow-up polish landed later the same day:
 - **Native Notes was simplified into an always-editable scratchpad.** The explicit edit/save mode, internal title, and action button were removed; Notes now renders as a single autosaving textarea so the host wrapper's title bar is the only outer header.
 - **Old HTML Notes is retired from discovery, not deleted.** The legacy `notes` HTML bundle still exists for compatibility with existing pins and direct refs, but it no longer appears in core library/catalog listing. New Notes placements go through `notes_native`.
 - **`wrapper_surface=plain` now works cleanly for HTML widgets too.** Pinned interactive HTML widgets no longer keep the old extra host padding/inset in plain mode, and the iframe runtime now exposes the host shell hint as `window.spindrel.hostSurface` plus `data-spindrel-host-surface` / `data-sd-host-surface` attributes so widget CSS can intentionally drop or keep its own inner card without the host trying to rewrite arbitrary styles.
+
+Later on 2026-04-21, Phase 18 grew a second first-party native app and retired the old production Todo bundle:
+
+- **`core/todo_native` now replaces the old HTML Todo widget.** Native Todo ships through the same library/catalog surfaces as Notes, stores its items in `widget_instances.state`, and exposes explicit bot/UI actions for add, toggle, rename, delete, reorder, and clear-completed.
+- **The old production Todo bundle was deleted rather than hidden.** `app/tools/local/widgets/todo/` and its prod-only bridge tests were removed so new behavior cannot silently route through the legacy `widget.py` handler path.
+- **Native Notes picked up a draft-safe renderer sync fix while this landed.** The React renderer now refuses to clobber a local notes draft with an older incoming envelope, which matches the user report of “typed text disappears without an error” and keeps the native Todo form from inheriting the same bug.
+
+Verification:
+
+- `python -m py_compile app/services/native_app_widgets.py app/tools/local/widget_library.py`
+- `./node_modules/.bin/tsc --noEmit --pretty false` returned exit code 0 in `ui/`
+- Focused `pytest` commands for the new native widget tests and native dashboard/catalog integration were added/run with timeouts, but the current shell wrapper still failed to emit trustworthy pass/fail lines before timing out in-session
 
 ## MVP decision — FS-backed, not DB-backed
 

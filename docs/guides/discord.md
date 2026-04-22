@@ -70,7 +70,7 @@ When the bot connects successfully, you'll see:
 ```
 Discord bot ready as BotName#1234 (id=123456789)
 Connected to 1 guild(s)
-Synced 9 application commands
+Synced 8 application commands
 ```
 
 ## Session Model
@@ -144,14 +144,6 @@ Show the context breakdown for the current session:
 - Default: Shows character counts per category (system prompt, skills, history, etc.)
 - `contents`: Dumps the actual messages the model would see
 
-### `/plan [args]`
-Manage plans:
-- `/plan` or `/plan list` — List active plans
-- `/plan <id>` — Show plan detail
-- `/plan done <id> <n>` — Mark item done
-- `/plan complete <id>` — Mark plan complete
-- `/plan abandon <id>` — Abandon plan
-
 ### `/compact`
 Trigger context compaction for the current session. Creates a summary watermark.
 
@@ -166,6 +158,8 @@ Show pending todos. Use `done` to show completed items.
 
 ### `/health`
 Quick server health check showing services, containers, disk usage, and deploy info.
+
+The session-local web chat plan mode described in [Plan Mode](./plan-mode.md) does not currently have a Discord slash-command equivalent.
 
 ## Emoji Reactions
 

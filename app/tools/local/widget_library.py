@@ -286,12 +286,14 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
                     },
                     "format": {
                         "type": "string",
-                        "enum": ["html", "template", "suite"],
+                        "enum": ["html", "template", "suite", "native_app"],
                         "description": (
                             "Filter by bundle format. `html` = iframe-backed "
                             "HTML + SDK. `template` = YAML-declared component "
                             "tree/tool renderer. `suite` = grouped HTML bundle "
-                            "family, typically sharing state or DB."
+                            "family, typically sharing state or DB. `native_app` "
+                            "= first-party React-rendered widgets backed by "
+                            "widget instances."
                         ),
                     },
                     "q": {

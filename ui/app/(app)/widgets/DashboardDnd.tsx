@@ -187,10 +187,11 @@ export function DroppableCanvas({
 
 interface SortableTileProps {
   id: string;
+  disabled?: boolean;
   children: (binding: ExternalDragBinding) => ReactNode;
 }
 
-export function SortableTile({ id, children }: SortableTileProps) {
+export function SortableTile({ id, disabled = false, children }: SortableTileProps) {
   const {
     setNodeRef,
     attributes,
@@ -198,16 +199,24 @@ export function SortableTile({ id, children }: SortableTileProps) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled });
   // Source tile: hide (DragOverlay is painting the floating copy). Siblings
   // continue to receive their sortable translate for the push-aside animation.
-  const style: CSSProperties = isDragging
+  const style: CSSProperties = disabled
+    ? {}
+    : isDragging
     ? { opacity: 0, transition: "none" }
     : {
         transform: CSS.Transform.toString(transform),
         transition,
       };
-  return <>{children({ setNodeRef, attributes, listeners, style, isDragging })}</>;
+  return <>{children({
+    setNodeRef,
+    attributes,
+    listeners: disabled ? undefined : listeners,
+    style,
+    isDragging: disabled ? false : isDragging,
+  })}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,24 +225,31 @@ export function SortableTile({ id, children }: SortableTileProps) {
 
 interface GridTileProps {
   id: string;
+  disabled?: boolean;
   /** Absolute CSS grid placement from the tile's persisted {x,y,w,h}. */
   gridColumn: string;
   gridRow: string;
   children: (binding: ExternalDragBinding) => ReactNode;
 }
 
-export function GridTile({ id, gridColumn, gridRow, children }: GridTileProps) {
-  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id });
+export function GridTile({ id, disabled = false, gridColumn, gridRow, children }: GridTileProps) {
+  const { setNodeRef, attributes, listeners, isDragging } = useDraggable({ id, disabled });
   // Hide source tile while dragging — the DragOverlay is the visible copy.
   // No CSS transform on the source; it stays parked in its grid cell until
   // the drop commits to new {x,y} and CSS Grid re-lays it out.
   const style: CSSProperties = {
     gridColumn,
     gridRow,
-    opacity: isDragging ? 0 : 1,
-    transition: isDragging ? "none" : "opacity 120ms",
+    opacity: disabled ? 1 : (isDragging ? 0 : 1),
+    transition: disabled || !isDragging ? "opacity 120ms" : "none",
   };
-  return <>{children({ setNodeRef, attributes, listeners, style, isDragging })}</>;
+  return <>{children({
+    setNodeRef,
+    attributes,
+    listeners: disabled ? undefined : listeners,
+    style,
+    isDragging: disabled ? false : isDragging,
+  })}</>;
 }
 
 // ---------------------------------------------------------------------------

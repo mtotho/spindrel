@@ -29,9 +29,10 @@ const MAX_WIDTH = 520;
 
 interface Props {
   channelId: string;
+  dashboardHref?: string;
 }
 
-export function WidgetDockRight({ channelId }: Props) {
+export function WidgetDockRight({ channelId, dashboardHref }: Props) {
   const t = useThemeTokens();
   const { dock: pins } = useChannelChatZones(channelId);
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
@@ -91,7 +92,10 @@ export function WidgetDockRight({ channelId }: Props) {
   // is preserved because the outer container honors its parent's flex rules.
   const hasPins = pins.length > 0;
   const targetWidth = hasPins ? width : 0;
-  const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}?zone=dock`;
+  const resolvedDashboardHref = (() => {
+    const base = dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`;
+    return `${base}${base.includes("?") ? "&" : "?"}zone=dock`;
+  })();
 
   return (
     <>
@@ -119,7 +123,7 @@ export function WidgetDockRight({ channelId }: Props) {
             column calm at rest. */}
         <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           <Link
-            to={dashboardHref}
+            to={resolvedDashboardHref}
             aria-label="Edit right dock on channel dashboard"
             title="Edit on channel dashboard"
             className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/[0.06]"

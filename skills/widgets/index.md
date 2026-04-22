@@ -190,6 +190,32 @@ When the user says *"build me a dashboard for X"*:
 9. **Iterate** — tweaks via `file(edit, path="widget://bot/<name>/index.html", ...)`. The pinned widget refreshes within ~3 s. No re-emit needed.
 10. **Record it** — leave breadcrumbs in `memory/MEMORY.md` + `memory/reference/<name>.md` so future-you knows the widget exists and where to find it. See `widgets/dashboards.md#remember-what-you-built`.
 
+## Plan mode for widget work
+
+For multi-step widget work, prefer the session-local web chat plan mode instead of keeping the whole implementation plan implicit in normal chat.
+
+- use plan mode when the work needs discovery, sequencing, or explicit approval before edits
+- the plan stays in the current session; it is not a separate scratch-only workflow
+- planning mode can read/search, but code edits stay restricted to the active plan file until approval
+- `/plan` in web chat toggles that session into the planning flow
+
+This matters for widgets because plan executions can now capture lightweight artifacts from widget bundle versioning:
+
+- edits to `widget://bot/...` and `widget://workspace/...` bundles create revision history
+- active plan sessions can append `widget_revision` artifacts as those revisions land
+- `widget_library_list()` reports `versioned` and `head_revision`
+- `describe_dashboard()` reports `bundle_revision`
+- `widget_version_history()` shows bundle history
+- `rollback_widget_version()` reverts a bundle to an earlier revision
+
+So for a non-trivial widget build, the recommended loop is:
+
+1. enter plan mode
+2. agree on the checklist
+3. approve execution
+4. let the executor advance step by step
+5. use artifacts/history if a widget bundle needs review or rollback
+
 ## See also
 
 - [Widget Dashboards](../widget_dashboards.md) — the `describe_dashboard` / `pin_widget` / `move_pins` / `unpin_widget` / `promote_panel` / `demote_panel` tool suite for reading, proposing, and modifying dashboard layouts. `emit_html_widget` shows a widget in chat; `pin_widget` places a library widget on the dashboard.

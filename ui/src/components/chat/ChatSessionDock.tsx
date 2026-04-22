@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare } from "lucide-react";
+import { useThemeTokens } from "@/src/theme/tokens";
 
 interface ChatSessionDockProps {
   open: boolean;
@@ -14,10 +15,65 @@ interface ChatSessionDockProps {
    *  collapsing to a FAB. Used on the channel screen where the dock is
    *  reachable only from the channel header button. */
   onDismiss?: () => void;
+  /** Stable per-surface storage key for persisted desktop dock size. */
+  storageKey?: string;
+  chatMode?: "default" | "terminal";
 }
 
 /** Threshold in px for the mobile swipe-down gesture to dismiss. */
 const SWIPE_DOWN_THRESHOLD = 80;
+const STORAGE_PREFIX = "spindrel:chat-session-dock:size:";
+const DESKTOP_DOCK_DEFAULT = { width: 500, height: 728 };
+const DESKTOP_DOCK_MIN = { width: 320, height: 360 };
+const DESKTOP_DOCK_MARGIN = 16;
+
+function loadStoredDockSize(storageKey: string | undefined) {
+  if (!storageKey || typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PREFIX + storageKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { width?: number; height?: number };
+    if (
+      typeof parsed.width !== "number" ||
+      !Number.isFinite(parsed.width) ||
+      typeof parsed.height !== "number" ||
+      !Number.isFinite(parsed.height)
+    ) {
+      return null;
+    }
+    return { width: parsed.width, height: parsed.height };
+  } catch {
+    return null;
+  }
+}
+
+function saveDockSize(storageKey: string | undefined, size: { width: number; height: number }) {
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_PREFIX + storageKey, JSON.stringify(size));
+  } catch {
+    // localStorage may be unavailable.
+  }
+}
+
+function clampDockSize(
+  size: { width: number; height: number },
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const maxWidth = Math.max(
+    DESKTOP_DOCK_MIN.width,
+    viewportWidth - DESKTOP_DOCK_MARGIN * 2,
+  );
+  const maxHeight = Math.max(
+    DESKTOP_DOCK_MIN.height,
+    viewportHeight - DESKTOP_DOCK_MARGIN * 2,
+  );
+  return {
+    width: Math.min(Math.max(size.width, DESKTOP_DOCK_MIN.width), maxWidth),
+    height: Math.min(Math.max(size.height, DESKTOP_DOCK_MIN.height), maxHeight),
+  };
+}
 
 /**
  * Bottom-right FAB dock shell for ChatSession.
@@ -36,7 +92,10 @@ export function ChatSessionDock({
   title,
   children,
   onDismiss,
+  storageKey,
+  chatMode = "default",
 }: ChatSessionDockProps) {
+  const t = useThemeTokens();
   // Entry animation — play once per expansion so the panel slides in from
   // ~the viewport center, selling the "chat just moved here" motion when the
   // user clicked Minimize on the channel screen.
@@ -103,6 +162,57 @@ export function ChatSessionDock({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const dragStartYRef = useRef<number | null>(null);
   const [dragY, setDragY] = useState(0);
+  const resizeOriginRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
+  const [dockSize, setDockSize] = useState(() =>
+    clampDockSize(
+      loadStoredDockSize(storageKey) ?? DESKTOP_DOCK_DEFAULT,
+      typeof window === "undefined" ? 1440 : window.innerWidth,
+      typeof window === "undefined" ? 900 : window.innerHeight,
+    ),
+  );
+  const dockStyle = useMemo(
+    () => ({
+      width: `${dockSize.width}px`,
+      height: `${dockSize.height}px`,
+    }),
+    [dockSize.height, dockSize.width],
+  );
+  const isDesktopViewport = typeof window === "undefined"
+    ? true
+    : window.innerWidth >= 768;
+  const isTerminalMode = chatMode === "terminal";
+
+  useEffect(() => {
+    setDockSize((current) =>
+      clampDockSize(
+        loadStoredDockSize(storageKey) ?? current,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    );
+  }, [storageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => {
+      setDockSize((current) =>
+        clampDockSize(current, window.innerWidth, window.innerHeight),
+      );
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    saveDockSize(storageKey, dockSize);
+  }, [dockSize, storageKey]);
+
   const onTouchStart = (e: React.TouchEvent) => {
     dragStartYRef.current = e.touches[0].clientY;
     setDragY(0);
@@ -147,6 +257,42 @@ export function ChatSessionDock({
   // to propagate open=false through its own state.
   if (!expanded) return null;
 
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0) return;
+    resizeOriginRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: dockSize.width,
+      startHeight: dockSize.height,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  };
+
+  const handleResizePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const origin = resizeOriginRef.current;
+    if (!origin || origin.pointerId !== e.pointerId) return;
+    setDockSize(
+      clampDockSize(
+        {
+          width: origin.startWidth - (e.clientX - origin.startX),
+          height: origin.startHeight - (e.clientY - origin.startY),
+        },
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    );
+  };
+
+  const handleResizePointerEnd = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (resizeOriginRef.current?.pointerId !== e.pointerId) return;
+    resizeOriginRef.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
   return (
     <>
       {/* Invisible scrim — click outside dismisses */}
@@ -163,23 +309,37 @@ export function ChatSessionDock({
         aria-modal="true"
         aria-label={title}
         className={`fixed z-[9991] flex flex-col overflow-hidden
-                   bg-surface-raised border border-surface-border
+                   bg-surface-raised
                    shadow-[0_8px_32px_rgba(0,0,0,0.4)]
                    /* mobile: full bottom sheet, uses dvh so the soft
                       keyboard doesn't push the top off-screen */
-                   inset-x-0 rounded-t-xl h-[80dvh]
+                   inset-x-0 h-[80dvh]
                    max-h-[calc(100dvh-env(safe-area-inset-top)-8px)]
                    /* desktop: anchored bottom-right */
                    md:inset-auto md:right-4
-                   md:w-[380px] md:h-[560px]
-                   md:rounded-xl
                    ${entering ? "chat-dock-panel--entering" : ""}`}
         style={{
           bottom: `calc(${keyboardOffset}px + env(safe-area-inset-bottom, 0px))`,
           transform: dragY > 0 ? `translateY(${dragY}px)` : undefined,
           transition: dragStartYRef.current == null ? "transform 180ms ease" : undefined,
+          border: isTerminalMode ? "none" : `1px solid ${t.surfaceBorder}`,
+          borderTopLeftRadius: isTerminalMode ? 0 : undefined,
+          borderTopRightRadius: isTerminalMode ? 0 : undefined,
+          borderBottomLeftRadius: isTerminalMode ? 0 : undefined,
+          borderBottomRightRadius: isTerminalMode ? 0 : undefined,
+          ...(isDesktopViewport ? dockStyle : {}),
         }}
       >
+        <button
+          type="button"
+          aria-label="Resize chat window"
+          title="Drag to resize"
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerEnd}
+          onPointerCancel={handleResizePointerEnd}
+          className="hidden md:block absolute left-0 top-0 z-[2] h-7 w-7 cursor-nwse-resize bg-transparent"
+        />
         {/* Mobile drag handle — tap target for swipe-down. Hidden on
             desktop (md:hidden) since the close button is the only
             dismissal path there. */}

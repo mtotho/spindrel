@@ -449,13 +449,13 @@ textarea::placeholder {
 }
 .pin-flash { animation: pin-flash 1200ms ease-out 1; border-radius: 0.5rem; }
 
-/* ChatSession dock — slides+scales in from ~center of the viewport when the
- * user clicks Minimize on the channel screen and lands on the dashboard with
- * the dock already expanded. Sells the "same chat, smaller surface" motion. */
+/* ChatSession dock — subtle anchored entrance from the dock's own corner.
+ * The older center-of-screen translate made the panel look like it mounted
+ * in the wrong place, then snapped to bottom-right on every open. */
 @keyframes chat-dock-expand-in {
   from {
     opacity: 0;
-    transform: translate(calc(-50vw + 50% + 16px), calc(-50vh + 50% + 16px)) scale(0.92);
+    transform: translate(20px, 20px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -464,6 +464,7 @@ textarea::placeholder {
 }
 .chat-dock-panel--entering {
   animation: chat-dock-expand-in 260ms cubic-bezier(0.2, 0.9, 0.2, 1) both;
+  transform-origin: bottom right;
 }
 
 /* Full chat screen — reverse of the dock-expand motion. Played when the user

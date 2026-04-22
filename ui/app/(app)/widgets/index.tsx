@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, RotateCcw, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -362,31 +362,10 @@ export default function WidgetsDashboardPage() {
     };
   }, []);
 
-  /** Reset-layout two-click confirm. First click arms the button (swaps to
-   *  a danger variant + "Confirm reset?" label) for 4 seconds; a second
-   *  click within that window runs the repack. Cleared on click-away or
-   *  exiting edit mode so it never lingers across sessions. */
-  const [resetArmed, setResetArmed] = useState(false);
-  const resetArmTimer = useRef<number | null>(null);
-  useEffect(() => {
-    if (!editMode && resetArmed) setResetArmed(false);
-  }, [editMode, resetArmed]);
-  useEffect(() => () => {
-    if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
-  }, []);
-
   const handleResetLayout = () => {
-    if (!resetArmed) {
-      setResetArmed(true);
-      if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
-      resetArmTimer.current = window.setTimeout(() => setResetArmed(false), 4000);
-      return;
-    }
     // Pack every pin via defaultLayoutForIndex — same helper used for pins
     // with no grid_layout, so "Reset" is identical to "pretend every pin
     // was freshly pinned".
-    setResetArmed(false);
-    if (resetArmTimer.current) window.clearTimeout(resetArmTimer.current);
     const items = pins.map((p, idx) => ({
       id: p.id,
       ...defaultLayoutForIndex(idx, preset),
@@ -441,34 +420,6 @@ export default function WidgetsDashboardPage() {
           </span>
         </button>
       )}
-      {/* Reset layout — only surfaced in edit mode. Two-click confirm so a
-          misclick can't accidentally repack a carefully-tuned grid. Uses
-          the same `defaultLayoutForIndex` helper as fresh pins, so "reset"
-          equals "pretend everything was just pinned". */}
-      {editMode && pins.length > 0 && !isMobile && (
-        <button
-          type="button"
-          onClick={handleResetLayout}
-          className={
-            "inline-flex items-center gap-1.5 h-8 rounded-md border px-2.5 text-[12px] font-medium transition-colors "
-            + (resetArmed
-              ? "border-danger/60 bg-danger/10 text-danger"
-              : "border-surface-border text-text-muted hover:bg-surface-overlay")
-          }
-          aria-pressed={resetArmed}
-          aria-label={resetArmed ? "Confirm reset layout" : "Reset layout"}
-          title={
-            resetArmed
-              ? "Click again to repack every pin. Undo coming in P11-b."
-              : "Auto-pack every pin into default positions"
-          }
-        >
-          <RotateCcw size={13} />
-          <span className="hidden md:inline">
-            {resetArmed ? "Confirm reset?" : "Reset layout"}
-          </span>
-        </button>
-      )}
       {/* Kiosk button intentionally removed from the top bar. Kiosk mode is
           auto-entered via `?kiosk=true` in the URL — see the mount-time
           handler that consumes the flag. Removed because the button clutters
@@ -496,9 +447,9 @@ export default function WidgetsDashboardPage() {
             // If the user got here from a scratch full-page, bring them
             // back to the same scratch context instead of the main chat.
             if (scratchChatHref) {
-              navigate(scratchChatHref);
+              navigate(`${scratchChatHref}${scratchChatHref.includes("?") ? "&" : "?"}from=dock${editMode ? "&edit=true" : ""}`);
             } else {
-              navigate(`/channels/${channelScopedId}?from=dock`);
+              navigate(`/channels/${channelScopedId}?from=dock${editMode ? "&edit=true" : ""}`);
             }
           }}
           className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
@@ -683,6 +634,7 @@ export default function WidgetsDashboardPage() {
       <EditDashboardDrawer
         slug={manageSlug}
         onClose={() => setManageSlug(null)}
+        onResetLayout={pins.length > 0 && !isMobile ? handleResetLayout : undefined}
       />
 
       {/* ChatSession dock — channel-scoped dashboards only. Streams the same
@@ -698,6 +650,7 @@ export default function WidgetsDashboardPage() {
           channelId={channelScopedId}
           botId={channelRow?.bot_id}
           channelName={channelRow?.name}
+          chatMode={(channelRow?.config?.chat_mode ?? "default") as "default" | "terminal"}
           scratchSessionId={activeScratchSessionId}
           initiallyExpanded={initialDockExpanded}
         />
@@ -715,12 +668,14 @@ function DashboardChatDock({
   channelId,
   botId,
   channelName,
+  chatMode,
   scratchSessionId,
   initiallyExpanded,
 }: {
   channelId: string;
   botId: string | undefined;
   channelName: string | undefined;
+  chatMode: "default" | "terminal";
   scratchSessionId: string | null;
   initiallyExpanded: boolean;
 }) {
@@ -754,6 +709,7 @@ function DashboardChatDock({
       title={title}
       initiallyExpanded={initiallyExpanded}
       dismissMode="collapse"
+      chatMode={chatMode}
     />
   );
 }

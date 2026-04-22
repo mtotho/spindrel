@@ -571,6 +571,11 @@ export function PinnedToolWidget({
   const ctrlIconSize = isDashboard ? 14 : 12;
 
   const cardBorderClass = showBorder ? "border" : "";
+  const editFrameClass = isDashboard && editMode
+    ? showBorder
+      ? "ring-1 ring-inset ring-white/[0.05] hover:ring-accent/25"
+      : "border border-dashed border-white/[0.14] hover:border-accent/40 bg-white/[0.015]"
+    : "";
   const resolvedPanelTitle = resolvePinnedTitle({
     ...widget,
     envelope: currentEnvelope,
@@ -592,14 +597,14 @@ export function PinnedToolWidget({
     panelSurface
     && currentEnvelope?.show_panel_title === true
     && !!resolvedPanelTitle;
-  const showGenericTitle = !panelSurface && showTitle;
+  const showGenericTitle = showTitle && !showPanelTitle;
   // Overlay chrome floats the grip + controls on hover instead of reserving
-  // a ~30px header row. Activates for:
-  //   - edit-mode dashboard tiles whose titles are hidden (preview parity)
-  //   - rail/dock widgets (OmniPanel + WidgetDockRight) always — reclaiming
-  //     the 30px header that would otherwise sit empty until hover
+  // a ~30px header row. Only use it when titles are intentionally hidden in
+  // edit mode; equivalent widgets should otherwise render the same host header
+  // regardless of whether they sit in the center grid or a side rail.
   const overlayChrome =
-    ((isDashboard && editMode && !showGenericTitle) || railMode) && !showPanelTitle;
+    ((isDashboard || railMode) && editMode && !showGenericTitle) && !showPanelTitle;
+  const showHeaderDragLane = (!isDashboard || editMode || railMode) && !!handleListeners;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -627,13 +632,16 @@ export function PinnedToolWidget({
         {...(externalDrag?.attributes ?? {})}
       >
         {chipEditable && (
-          <GripVertical
-            size={12}
-            className="widget-drag-handle cursor-grab flex-shrink-0 mr-1 opacity-90 hover:opacity-100 transition-opacity"
-            style={{ color: t.accent }}
+          <div
+            className="widget-drag-handle cursor-grab flex-shrink-0 mr-1 p-1.5 -m-1.5 opacity-90 hover:opacity-100 transition-opacity"
             aria-label="Drag to reorder"
             {...(externalDrag?.listeners ?? {})}
-          />
+          >
+            <GripVertical
+              size={12}
+              style={{ color: t.accent }}
+            />
+          </div>
         )}
         <div
           // self-stretch so the iframe wrapper fills the h-8 cross-axis; the
@@ -673,7 +681,7 @@ export function PinnedToolWidget({
   return (
     <div
       ref={rootRef}
-      className={`group relative rounded-lg ${cardBorderClass} ${showWrapperBackground ? "bg-surface-raised/40 hover:bg-white/[0.02]" : ""} transition-colors duration-150 ${cardSizeClass}`}
+      className={`group relative rounded-lg ${cardBorderClass} ${editFrameClass} ${showWrapperBackground ? "bg-surface-raised/40 hover:bg-white/[0.02]" : ""} transition-colors duration-150 ${cardSizeClass}`}
       style={sortableStyle}
       {...rootAttrs}
     >
@@ -688,39 +696,50 @@ export function PinnedToolWidget({
               : "flex items-center gap-1 px-1.5 pt-1.5 pb-0.5"
           }
         >
-          {(!isDashboard || editMode || railMode) && (
-            <GripVertical
-              size={ctrlIconSize}
+          <div
+            className={
+              showHeaderDragLane
+                ? "widget-drag-handle flex min-w-0 flex-1 items-center gap-1 cursor-grab rounded-md px-0.5 py-0.5 -mx-0.5 -my-0.5 transition-colors duration-150 hover:bg-white/[0.03]"
+                : "flex min-w-0 flex-1 items-center gap-1"
+            }
+            aria-label={showHeaderDragLane ? "Drag to reorder" : undefined}
+            {...(showHeaderDragLane ? handleListeners : {})}
+          >
+            {showHeaderDragLane && (
+            <div
               className={
-                "widget-drag-handle text-text-muted cursor-grab transition-opacity duration-150 flex-shrink-0 " +
+                "transition-opacity duration-150 flex-shrink-0 p-1.5 -m-1.5 " +
                 (editMode
                   ? "opacity-80 hover:opacity-100"
-                  : "opacity-0 group-hover:opacity-100") +
-                (isDashboard ? " p-0.5 -m-0.5" : "")
+                  : "opacity-0 group-hover:opacity-100")
               }
-              aria-label="Drag to reorder"
-              {...(handleListeners ?? {})}
-            />
-          )}
-          {showPanelTitle ? (
-            <div className="flex-1 min-w-0">
-              <div
-                className="truncate text-[15px] font-semibold tracking-[-0.01em]"
-                style={{ color: t.text }}
-              >
-                {resolvedPanelTitle}
-              </div>
-            </div>
-          ) : showGenericTitle ? (
-            <span
-              className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
-              style={{ color: t.textDim }}
             >
-              {resolveDisplayName(widget)}
-            </span>
-          ) : (
-            <div className="flex-1" />
-          )}
+              <GripVertical
+                size={ctrlIconSize}
+                className="text-text-muted"
+              />
+            </div>
+            )}
+            {showPanelTitle ? (
+              <div className="flex-1 min-w-0">
+                <div
+                  className="truncate text-[15px] font-semibold tracking-[-0.01em]"
+                  style={{ color: t.text }}
+                >
+                  {resolvedPanelTitle}
+                </div>
+              </div>
+            ) : showGenericTitle ? (
+              <span
+                className="flex-1 text-[10px] font-medium uppercase tracking-wider truncate"
+                style={{ color: t.textDim }}
+              >
+                {resolveDisplayName(widget)}
+              </span>
+            ) : (
+              <div className="flex-1" />
+            )}
+          </div>
           {isDashboard && editMode && onEdit && (
             <button
               type="button"
@@ -782,12 +801,16 @@ export function PinnedToolWidget({
           // to the iframe body during drag initiation.
           onPointerDown={(e) => e.stopPropagation()}
         >
-          <GripVertical
-            size={ctrlIconSize}
-            className="widget-drag-handle text-text-muted cursor-grab p-0.5 -m-0.5 opacity-80 hover:opacity-100 transition-opacity"
+          <div
+            className="widget-drag-handle cursor-grab p-1.5 -m-1.5 opacity-80 hover:opacity-100 transition-opacity"
             aria-label="Drag to reorder"
             {...(handleListeners ?? {})}
-          />
+          >
+            <GripVertical
+              size={ctrlIconSize}
+              className="text-text-muted"
+            />
+          </div>
           {onEdit && (
             <button
               type="button"

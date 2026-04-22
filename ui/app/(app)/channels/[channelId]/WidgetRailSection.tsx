@@ -52,6 +52,7 @@ interface WidgetRailSectionProps {
   pins: WidgetDashboardPin[];
   preset: GridPreset;
   chrome: DashboardChrome;
+  editable?: boolean;
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   applyLayout: (
@@ -69,6 +70,7 @@ export function WidgetRailSection({
   pins,
   preset,
   chrome,
+  editable = false,
   onUnpin,
   onEnvelopeUpdate,
   applyLayout,
@@ -153,14 +155,18 @@ export function WidgetRailSection({
         rowHeight={preset.rowHeight}
         margin={RAIL_MARGIN}
         containerPadding={RAIL_CONTAINER_PADDING}
-        isDraggable={true}
-        isResizable={true}
+        isDraggable={editable}
+        isResizable={editable}
         draggableHandle=".widget-drag-handle"
         resizeHandles={["s"]}
         compactType="vertical"
         preventCollision={false}
-        onDragStop={(current) => scheduleCommit(current)}
-        onResizeStop={(current) => scheduleCommit(current)}
+        onDragStop={(current) => {
+          if (editable) scheduleCommit(current);
+        }}
+        onResizeStop={(current) => {
+          if (editable) scheduleCommit(current);
+        }}
       >
         {pins.map((pin) => (
           <div key={pin.id} data-pin-id={pin.id} className="min-w-0">

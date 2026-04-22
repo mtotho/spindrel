@@ -177,6 +177,14 @@ Known limitation:
 
 - The first pass stops at a session-local card + runtime contract. It does not yet emit the plan as an inline native-app chat result/widget, and the executor is still session-turn-driven rather than a fully automatic background step runner.
 
+### Phase 0.6 — Plan mode + widget revision artifacts docs pass (done, 2026-04-21)
+
+Follow-up docs pass after session-local plan mode landed:
+
+- added a canonical `docs/guides/plan-mode.md` guide instead of scattering behavior across Slack/Discord docs
+- removed stale Slack/Discord `/plan` docs so the old integration surface stops competing with the new session-local web plan mode
+- updated `skills/widgets/index.md` to tell widget authors when to use plan mode and how widget bundle revisions now show up as active-plan artifacts via `widget_version_history`, `rollback_widget_version`, `widget_library_list`, and `describe_dashboard`
+
 ### Phase 0.5 — Engine addition: `widget_config` rides into `toolResult.config` (done, 2026-04-19)
 
 Slice 0 of the plan. Previously `apply_widget_template` computed `data_with_config` but only passed `data` into `_build_html_widget_body` — HTML widgets couldn't read their own pin config. Changed both call sites (`widget_templates.py:511` + `widget_templates.py:641` in `apply_state_poll`) to pass `data_with_config`, so widget JS now reads `window.spindrel.toolResult.config.*` natively. No renderer changes needed.

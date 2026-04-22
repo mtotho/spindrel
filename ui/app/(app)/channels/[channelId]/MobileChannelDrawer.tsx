@@ -44,6 +44,7 @@ interface MobileChannelDrawerProps {
   open: boolean;
   onClose: () => void;
   channelId: string;
+  dashboardHref?: string;
   workspaceId: string | undefined;
   botId: string | undefined;
   channelDisplayName?: string | null;
@@ -68,6 +69,7 @@ export function MobileChannelDrawer({
   open,
   onClose,
   channelId,
+  dashboardHref,
   workspaceId,
   botId,
   channelDisplayName,
@@ -196,6 +198,7 @@ export function MobileChannelDrawer({
         {activeTab === "widgets" && (
           <WidgetsTab
             channelId={channelId}
+            dashboardHref={dashboardHref}
             rail={rail}
             header={header}
             dock={dock}
@@ -233,6 +236,7 @@ export function MobileChannelDrawer({
 
 interface WidgetsTabProps {
   channelId: string;
+  dashboardHref?: string;
   rail: WidgetDashboardPin[];
   header: WidgetDashboardPin[];
   dock: WidgetDashboardPin[];
@@ -244,6 +248,7 @@ interface WidgetsTabProps {
 
 function WidgetsTab({
   channelId,
+  dashboardHref,
   rail,
   header,
   dock,
@@ -255,7 +260,7 @@ function WidgetsTab({
   const t = useThemeTokens();
   const total = rail.length + header.length + dock.length + grid.length;
   if (total === 0) {
-    return <EmptyWidgetsMessage channelId={channelId} />;
+    return <EmptyWidgetsMessage channelId={channelId} dashboardHref={dashboardHref} />;
   }
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-4">
@@ -297,7 +302,7 @@ function WidgetsTab({
         onEnvelopeUpdate={onEnvelopeUpdate}
       />
       <a
-        href={`/widgets/channel/${encodeURIComponent(channelId)}`}
+        href={dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`}
         onClick={onClose}
         className="mt-1 mb-2 flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-[12px] font-medium border"
         style={{
@@ -370,7 +375,13 @@ function ZoneSection({
   );
 }
 
-function EmptyWidgetsMessage({ channelId }: { channelId: string }) {
+function EmptyWidgetsMessage({
+  channelId,
+  dashboardHref,
+}: {
+  channelId: string;
+  dashboardHref?: string;
+}) {
   const t = useThemeTokens();
   return (
     <div
@@ -383,7 +394,7 @@ function EmptyWidgetsMessage({ channelId }: { channelId: string }) {
         dashboard editor to add widgets.
       </p>
       <a
-        href={`/widgets/channel/${encodeURIComponent(channelId)}`}
+        href={dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`}
         className="text-[12px] underline opacity-80"
         style={{ color: t.accent }}
       >

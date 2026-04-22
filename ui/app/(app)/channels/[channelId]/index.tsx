@@ -403,7 +403,13 @@ export default function ChatScreen() {
   const handleExitScratchRoute = useCallback(() => {
     if (!channelId) return;
     clearScratchReturn(channelId);
-    setScratchOpen(false);
+    if (scratchUrlSessionId) {
+      setScratchPinnedSessionId(scratchUrlSessionId);
+      setScratchOpen(true);
+    } else {
+      setScratchPinnedSessionId(null);
+      setScratchOpen(false);
+    }
     const restore = scratchLayoutRestoreRef.current;
     if (restore) {
       const uiState = useUIStore.getState();
@@ -416,7 +422,7 @@ export default function ChatScreen() {
       scratchLayoutRestoreRef.current = null;
     }
     navigate(`/channels/${channelId}`);
-  }, [channelId, clearScratchReturn, navigate]);
+  }, [channelId, clearScratchReturn, navigate, scratchUrlSessionId]);
 
   // Track "last scratch session per channel" so a widget-dashboard detour
   // can bring the user back to the same scratch context. Archive deep
@@ -439,12 +445,16 @@ export default function ChatScreen() {
     if (isScratchRoute && scratchUrlSessionId) {
       qs.set("scratch_session_id", scratchUrlSessionId);
     }
+    if (new URLSearchParams(loc.search).get("edit") === "true") {
+      qs.set("edit", "true");
+    }
     const suffix = qs.toString();
     return `/widgets/channel/${channelId}${suffix ? `?${suffix}` : ""}`;
-  }, [channelId, isScratchRoute, scratchUrlSessionId]);
+  }, [channelId, isScratchRoute, scratchUrlSessionId, loc.search]);
 
   // ---- Scratch chat (in-channel ephemeral) state ----
   const [scratchOpen, setScratchOpen] = useState(false);
+  const [scratchPinnedSessionId, setScratchPinnedSessionId] = useState<string | null>(null);
   const effectiveContextBudget = (
     currentBudgetSessionId
       ? scratchSessionState?.contextBudget
@@ -477,12 +487,16 @@ export default function ChatScreen() {
             // Cross-device continuity — resolves (user, channel, bot)
             // via /sessions/scratch/current instead of localStorage.
             scratchBoundChannelId: channelId,
+            pinnedSessionId: scratchPinnedSessionId ?? undefined,
           })
         : null,
-    [channelId, channel?.bot_id],
+    [channelId, channel?.bot_id, scratchPinnedSessionId],
   );
 
-  const handleScratchClose = useCallback(() => setScratchOpen(false), []);
+  const handleScratchClose = useCallback(() => {
+    setScratchOpen(false);
+    setScratchPinnedSessionId(null);
+  }, []);
   const collapseForNewScratchSession = useCallback(() => {
     const uiState = useUIStore.getState();
     if (!scratchLayoutRestoreRef.current) {
@@ -1035,11 +1049,13 @@ export default function ChatScreen() {
           onOpenMainChat={isScratchRoute ? handleExitScratchRoute : undefined}
           onStartNewScratchSession={collapseForNewScratchSession}
           dashboardHref={channelDashboardHref}
-          onOpenScratch={() => {
+          onOpenScratch={(sessionId) => {
             if (isScratchRoute && channelId) {
+              setScratchPinnedSessionId(null);
               setScratchOpen(false);
               return;
             }
+            setScratchPinnedSessionId(sessionId ?? null);
             setScratchOpen(true);
           }}
           scratchFullpageMode={isScratchRoute ? {} : undefined}
@@ -1150,6 +1166,7 @@ export default function ChatScreen() {
               open={showExplorer}
               onClose={handleCloseExplorer}
               channelId={channelId}
+              dashboardHref={channelDashboardHref}
               workspaceId={workspaceId ?? undefined}
               botId={channel?.bot_id}
               channelDisplayName={channel?.display_name || channel?.name}
@@ -1195,6 +1212,7 @@ export default function ChatScreen() {
             >
               <OmniPanel
                 channelId={channelId}
+                dashboardHref={channelDashboardHref}
                 workspaceId={workspaceId ?? undefined}
                 botId={channel?.bot_id}
                 channelDisplayName={channel?.display_name || channel?.name}
@@ -1328,7 +1346,7 @@ export default function ChatScreen() {
               floating-card gap is symmetric on both sides. */}
           {!isMobile && channelId && !isSystemChannel && !rightDockHidden && showDockZone && (
             <div className="pr-2.5 py-2.5 flex">
-              <WidgetDockRight channelId={channelId} />
+              <WidgetDockRight channelId={channelId} dashboardHref={channelDashboardHref} />
             </div>
           )}
 
@@ -1444,7 +1462,7 @@ export default function ChatScreen() {
 
   return (
     <div
-      className={`chat-fade-in${entranceClassActive ? " chat-screen--entering-from-dock" : ""}`}
+      className={entranceClassActive ? "chat-screen--entering-from-dock" : undefined}
       style={{
         display: "flex",
         flexDirection: "column",

@@ -89,6 +89,40 @@ const GAP_PX = 12;
 // constant so pointerToCell math and the ghost target overlay agree.
 const CANVAS_INNER_PADDING = 12;
 
+interface BodyCanvasMetrics {
+  innerWidth: number;
+  centerColWidth: number;
+  centerTrackWidth: number;
+  centerStartX: number;
+  dockStartX: number;
+}
+
+function computeBodyCanvasMetrics(
+  canvasWidth: number,
+  centerCols: number,
+): BodyCanvasMetrics {
+  const innerWidth = Math.max(1, canvasWidth - CANVAS_INNER_PADDING * 2);
+  const totalGaps = (centerCols + 1) * GAP_PX;
+  const centerColWidth = Math.max(
+    1,
+    (innerWidth - RAIL_WIDTH_PX - DOCK_WIDTH_PX - totalGaps) / centerCols,
+  );
+  const centerTrackWidth =
+    centerCols * centerColWidth + Math.max(0, centerCols - 1) * GAP_PX;
+  const centerStartX = RAIL_WIDTH_PX + GAP_PX;
+  const dockStartX = centerStartX + centerTrackWidth + GAP_PX;
+  return { innerWidth, centerColWidth, centerTrackWidth, centerStartX, dockStartX };
+}
+
+function zoneFromBodyX(
+  relX: number,
+  metrics: BodyCanvasMetrics,
+): "rail" | "grid" | "dock" {
+  if (relX < metrics.centerStartX - GAP_PX / 2) return "rail";
+  if (relX >= metrics.dockStartX - GAP_PX / 2) return "dock";
+  return "grid";
+}
+
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   return {
     id: pin.id,
@@ -206,8 +240,15 @@ export function ChannelDashboardMultiCanvas({
 
   // One measure ref per canvas so drop-time pointer math knows each canvas's
   // bounding rect independently (lg: row is flex-row).
-  const gridMeasure = useCanvasMeasure();
+  const bodyMeasure = useCanvasMeasure();
   const headerMeasure = useCanvasMeasure();
+  const bodyMetrics = useMemo(
+    () =>
+      bodyMeasure.rect
+        ? computeBodyCanvasMetrics(bodyMeasure.rect.width, preset.cols.lg)
+        : null,
+    [bodyMeasure.rect, preset.cols.lg],
+  );
 
   // Default w/h used when a cross-canvas drop creates fresh coords (the
   // source canvas's dimensions don't translate — a chip can't stay a chip
@@ -263,7 +304,7 @@ export function ChannelDashboardMultiCanvas({
   const insertionIndexByY = useCallback(
     (zone: "rail" | "dock", pointerY: number): number => {
       const tiles = document.querySelectorAll<HTMLElement>(
-        `[data-dashboard-canvas="${zone}"] [data-pin-id]`,
+        `[data-pin-zone="${zone}"]`,
       );
       let idx = 0;
       for (const tile of Array.from(tiles)) {
@@ -326,24 +367,22 @@ export function ChannelDashboardMultiCanvas({
     ) => {
       const pin = pins.find((p) => p.id === pinId);
       if (!pin) return;
-      if (pin.zone === targetZone) return;
       const size = defaultSizeForZone(targetZone);
 
       // Grid: pointer-snap the pin's top-left to a cell; coords are absolute
       // so no sibling rewrite is needed (grid uses CSS Grid positioning).
       if (targetZone === "grid") {
-        const rect = gridMeasure.rect;
-        if (!rect) return;
+        const rect = bodyMeasure.rect;
+        const metrics = bodyMetrics;
+        if (!rect || !metrics) return;
         const { x, y } = pointerToCell(
-          clientX - rect.left,
-          clientY - rect.top,
+          clientX - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+          clientY - rect.top - CANVAS_INNER_PADDING,
           {
             cols: preset.cols.lg,
             rowHeight: preset.rowHeight,
             gap: GAP_PX,
-            canvasWidth: rect.width,
-            paddingLeft: CANVAS_INNER_PADDING,
-            paddingTop: CANVAS_INNER_PADDING,
+            canvasWidth: metrics.centerTrackWidth,
           },
         );
         const placement = clampPlacement(x, y, size.w, size.h, preset.cols.lg);
@@ -369,29 +408,45 @@ export function ChannelDashboardMultiCanvas({
         return;
       }
 
-      // Rail / dock: determine insertion index by DOM-measured midpoints,
-      // then repack the whole list via `sequentialYLayout` so siblings
-      // shift to accommodate the new tile. Vertical stacks compact
-      // naturally; pointer Y picks the slot.
-      const existing = pins
-        .filter((p) => p.zone === targetZone)
-        .slice()
-        .sort((a, b) => toGridLayout(a).y - toGridLayout(b).y);
-      const idx = insertionIndexByY(targetZone as "rail" | "dock", clientY);
-      const existingIds = existing.map((p) => p.id);
-      const reordered = [
-        ...existingIds.slice(0, idx),
-        pinId,
-        ...existingIds.slice(idx),
-      ];
-      const byId = new Map<string, GridLayoutItem>(
-        existing.map((p) => [p.id, toGridLayout(p)]),
+      // Rail / dock: in the unified canvas these are still absolute-y zones,
+      // not compact sortable lists. Drop should therefore honor the target
+      // row and only push colliding siblings downward, preserving any
+      // intentional vertical gaps already present in the column.
+      const rect = bodyMeasure.rect;
+      if (!rect) return;
+      const sourceLayout = toGridLayout(pin);
+      const nextHeight = pin.zone === targetZone ? sourceLayout.h : size.h;
+      const { y: targetY } = pointerToCell(
+        0,
+        clientY - rect.top - CANVAS_INNER_PADDING,
+        {
+          cols: 1,
+          rowHeight: preset.rowHeight,
+          gap: GAP_PX,
+          canvasWidth: targetZone === "rail" ? RAIL_WIDTH_PX : DOCK_WIDTH_PX,
+        },
       );
-      byId.set(pinId, { x: 0, y: 0, w: size.w, h: size.h });
-      const nextLayout = sequentialYLayout(reordered, size.h, byId);
-      const items = reordered.map((id) => {
-        const coords = nextLayout.get(id)!;
-        return id === pinId ? { id, zone: targetZone, ...coords } : { id, ...coords };
+      const entries = [
+        ...pins
+          .filter((p) => p.zone === targetZone && p.id !== pinId)
+          .map((p) => {
+            const gl = toGridLayout(p);
+            return { id: p.id, y: gl.y, h: gl.h, zone: p.zone, active: false as const };
+          }),
+        { id: pinId, y: targetY, h: nextHeight, zone: targetZone, active: true as const },
+      ].sort((a, b) => (a.y - b.y) || (a.active ? -1 : 1));
+      let occupiedUntil = 0;
+      const items = entries.map((entry) => {
+        const y = Math.max(entry.y, occupiedUntil);
+        occupiedUntil = y + entry.h;
+        return {
+          id: entry.id,
+          zone: entry.zone,
+          x: 0,
+          y,
+          w: 1,
+          h: entry.h,
+        };
       });
       try {
         await applyLayout(items);
@@ -405,10 +460,10 @@ export function ChannelDashboardMultiCanvas({
       applyLayout,
       defaultSizeForZone,
       pulseMoved,
-      gridMeasure.rect,
+      bodyMeasure.rect,
+      bodyMetrics,
       preset.cols.lg,
       preset.rowHeight,
-      insertionIndexByY,
     ],
   );
 
@@ -446,8 +501,9 @@ export function ChannelDashboardMultiCanvas({
 
   const commitGridMove = useCallback(
     async (pinId: string, clientX: number, clientY: number) => {
-      const rect = gridMeasure.rect;
-      if (!rect) return;
+      const rect = bodyMeasure.rect;
+      const metrics = bodyMetrics;
+      if (!rect || !metrics) return;
       const pin = pins.find((p) => p.id === pinId);
       if (!pin) return;
       const existing = toGridLayout(pin);
@@ -455,11 +511,13 @@ export function ChannelDashboardMultiCanvas({
         cols: preset.cols.lg,
         rowHeight: preset.rowHeight,
         gap: GAP_PX,
-        canvasWidth: rect.width,
-        paddingLeft: CANVAS_INNER_PADDING,
-        paddingTop: CANVAS_INNER_PADDING,
+        canvasWidth: metrics.centerTrackWidth,
       };
-      const { x, y } = pointerToCell(clientX - rect.left, clientY - rect.top, cfg);
+      const { x, y } = pointerToCell(
+        clientX - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+        clientY - rect.top - CANVAS_INNER_PADDING,
+        cfg,
+      );
       const placement = clampPlacement(x, y, existing.w, existing.h, cfg.cols);
       // No-op if the tile didn't actually move cells — still trigger the
       // confirmation pulse so the user knows their drop registered.
@@ -480,7 +538,7 @@ export function ChannelDashboardMultiCanvas({
         setError(err instanceof Error ? err.message : "Failed to place widget");
       }
     },
-    [pins, applyLayout, preset.cols.lg, preset.rowHeight, gridMeasure, pulseMoved],
+    [pins, applyLayout, preset.cols.lg, preset.rowHeight, bodyMeasure, bodyMetrics, pulseMoved],
   );
 
   const onDragEnd = useCallback(
@@ -490,26 +548,35 @@ export function ChannelDashboardMultiCanvas({
       setActiveDragId(null);
       setOverZone(null);
       setDragPointer(null);
-      if (!overId) return;
-
       const active = pins.find((p) => p.id === activeId);
       if (!active) return;
-
-      // Resolve the target zone: `canvas:<zone>` droppable or a sibling tile.
-      let targetZone: ChatZone;
-      if (overId.startsWith("canvas:")) {
-        targetZone = overId.slice("canvas:".length) as ChatZone;
-      } else {
-        const overPin = pins.find((p) => p.id === overId);
-        if (!overPin) return;
-        targetZone = overPin.zone;
-      }
 
       // Release pointer position — dnd-kit doesn't expose it directly, so
       // reconstruct from the activator start + running delta.
       const pe = (e.activatorEvent as PointerEvent | null);
       const releaseX = (pe?.clientX ?? 0) + e.delta.x;
       const releaseY = (pe?.clientY ?? 0) + e.delta.y;
+
+      // Resolve the target zone: header is the only independent droppable;
+      // the body surface derives its zone from the pointer's x-position.
+      let targetZone: ChatZone | null = null;
+      if (overId) {
+        if (overId.startsWith("canvas:header")) {
+          targetZone = "header";
+        } else {
+          const overPin = pins.find((p) => p.id === overId);
+          if (overPin?.zone === "header") targetZone = "header";
+        }
+      }
+      if (targetZone == null) {
+        const rect = bodyMeasure.rect;
+        const metrics = bodyMetrics;
+        if (!rect || !metrics) return;
+        const relX = releaseX - rect.left - CANVAS_INNER_PADDING;
+        const relY = releaseY - rect.top - CANVAS_INNER_PADDING;
+        if (relX < 0 || relY < 0 || relX > metrics.innerWidth) return;
+        targetZone = zoneFromBodyX(relX, metrics);
+      }
 
       if (targetZone !== active.zone) {
         if (targetZone === "header") {
@@ -554,19 +621,22 @@ export function ChannelDashboardMultiCanvas({
         return;
       }
 
-      // Sortable reorder within rail / dock only.
-      if (targetZone !== "header" && overId !== activeId && !overId.startsWith("canvas:")) {
-        await commitSortableReorder(
-          targetZone,
-          activeId,
-          overId,
-        );
+      if (targetZone === "rail" || targetZone === "dock") {
+        await commitCrossCanvasMove(activeId, targetZone, releaseX, releaseY);
       }
     },
-    [pins, applyLayout, commitCrossCanvasMove, commitGridMove, commitSortableReorder, nextGridPlacement, pulseMoved],
+    [pins, bodyMeasure.rect, bodyMetrics, applyLayout, commitCrossCanvasMove, commitGridMove, nextGridPlacement, pulseMoved],
   );
 
   const activePin = activeDragId ? pins.find((p) => p.id === activeDragId) ?? null : null;
+
+  const bodyOverZone = useMemo(() => {
+    if (!dragPointer || !bodyMeasure.rect || !bodyMetrics) return null;
+    const relX = dragPointer.x - bodyMeasure.rect.left - CANVAS_INNER_PADDING;
+    const relY = dragPointer.y - bodyMeasure.rect.top - CANVAS_INNER_PADDING;
+    if (relX < 0 || relY < 0 || relX > bodyMetrics.innerWidth) return null;
+    return zoneFromBodyX(relX, bodyMetrics);
+  }, [dragPointer, bodyMeasure.rect, bodyMetrics]);
 
   /** Header has one fixed slot — the ghost is simply "show the slot". */
   const headerGhost = useMemo(() => {
@@ -578,24 +648,23 @@ export function ChannelDashboardMultiCanvas({
    *  active drag will land on release. Null unless dragging over the grid.
    *  Rendered as a dashed accent outline inside GridCanvas. */
   const gridGhost = useMemo(() => {
-    if (overZone !== "grid" || !dragPointer || !activePin) return null;
-    const rect = gridMeasure.rect;
-    if (!rect) return null;
+    if (overZone === "header" || bodyOverZone !== "grid" || !dragPointer || !activePin) return null;
+    const rect = bodyMeasure.rect;
+    const metrics = bodyMetrics;
+    if (!rect || !metrics) return null;
     const existing = toGridLayout(activePin);
     const { x, y } = pointerToCell(
-      dragPointer.x - rect.left,
-      dragPointer.y - rect.top,
+      dragPointer.x - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+      dragPointer.y - rect.top - CANVAS_INNER_PADDING,
       {
         cols: preset.cols.lg,
         rowHeight: preset.rowHeight,
         gap: GAP_PX,
-        canvasWidth: rect.width,
-        paddingLeft: CANVAS_INNER_PADDING,
-        paddingTop: CANVAS_INNER_PADDING,
+        canvasWidth: metrics.centerTrackWidth,
       },
     );
     return clampPlacement(x, y, existing.w, existing.h, preset.cols.lg);
-  }, [overZone, dragPointer, activePin, gridMeasure.rect, preset.cols.lg, preset.rowHeight]);
+  }, [overZone, bodyOverZone, dragPointer, activePin, bodyMeasure.rect, bodyMetrics, preset.cols.lg, preset.rowHeight]);
 
   return (
     <DndContext
@@ -632,89 +701,75 @@ export function ChannelDashboardMultiCanvas({
           ghost={headerGhost}
         />
 
-        <div className="flex flex-col items-start gap-4 lg:flex-row lg:items-start lg:gap-3">
-          <ListCanvas
-            zone="rail"
-            widthPx={RAIL_WIDTH_PX}
-            emptyMessage="Drop here to pin in the chat sidebar."
-            pins={railPins}
-            editMode={editMode}
-            chrome={chrome}
-            onUnpin={onUnpin}
-            onEnvelopeUpdate={onEnvelopeUpdate}
-            onEditPin={onEditPin}
-            anyDragging={activeDragId !== null}
-            isOver={overZone === "rail"}
-            applyLayout={applyLayout}
-            channelId={channelId}
-            rowHeight={preset.rowHeight}
-            justMovedId={justMovedId}
-            onTileMoved={pulseMoved}
-          />
-
-          <GridCanvas
-            pins={gridPins}
-            preset={preset}
-            editMode={editMode}
-            chrome={chrome}
-            onUnpin={onUnpin}
-            onEnvelopeUpdate={onEnvelopeUpdate}
-            onEditPin={onEditPin}
-            anyDragging={activeDragId !== null}
-            isOver={overZone === "grid"}
-            applyLayout={applyLayout}
-            measureRef={gridMeasure.setRef}
-            measuredRect={gridMeasure.rect}
-            channelId={channelId}
-            justMovedId={justMovedId}
-            onTileMoved={pulseMoved}
-            ghost={gridGhost}
-          />
-
-          <ListCanvas
-            zone="dock"
-            widthPx={DOCK_WIDTH_PX}
-            emptyMessage="Drop here to pin in the right-side dock."
-            pins={dockPins}
-            editMode={editMode}
-            chrome={chrome}
-            onUnpin={onUnpin}
-            onEnvelopeUpdate={onEnvelopeUpdate}
-            onEditPin={onEditPin}
-            anyDragging={activeDragId !== null}
-            isOver={overZone === "dock"}
-            applyLayout={applyLayout}
-            channelId={channelId}
-            rowHeight={preset.rowHeight}
-            justMovedId={justMovedId}
-            onTileMoved={pulseMoved}
-          />
-        </div>
+        <UnifiedBodyCanvas
+          pins={[...railPins, ...gridPins, ...dockPins]}
+          preset={preset}
+          editMode={editMode}
+          chrome={chrome}
+          onUnpin={onUnpin}
+          onEnvelopeUpdate={onEnvelopeUpdate}
+          onEditPin={onEditPin}
+          anyDragging={activeDragId !== null}
+          isOver={bodyOverZone !== null}
+          overZone={overZone === "header" ? null : bodyOverZone}
+          applyLayout={applyLayout}
+          measureRef={bodyMeasure.setRef}
+          measuredRect={bodyMeasure.rect}
+          channelId={channelId}
+          justMovedId={justMovedId}
+          onTileMoved={pulseMoved}
+          ghost={gridGhost}
+        />
       </div>
 
       <DragOverlay dropAnimation={null}>
         {activePin && (
-          <div className="opacity-80 pointer-events-none">
-            <PinnedToolWidget
-              widget={asPinnedWidget(activePin)}
-              scope={
-                activePin.zone === "header"
-                  ? { kind: "channel", channelId, compact: "chip" }
-                  : { kind: "dashboard", channelId }
-              }
-              onUnpin={() => {}}
-              onEnvelopeUpdate={() => {}}
-              editMode={editMode}
-              borderless={chrome.borderless}
-              hoverScrollbars={chrome.hoverScrollbars}
-              hideTitles={chrome.hideTitles}
-              panelSurface={activePin.zone === "rail" || activePin.zone === "dock"}
-              railMode={activePin.zone === "rail" || activePin.zone === "dock"}
-            />
-          </div>
+          <DragOverlayPreview pin={activePin} />
         )}
       </DragOverlay>
     </DndContext>
+  );
+}
+
+function DragOverlayPreview({ pin }: { pin: WidgetDashboardPin }) {
+  const t = useThemeTokens();
+  const title =
+    pin.envelope?.display_label
+    || pin.envelope?.panel_title
+    || pin.tool_name;
+  const isChip = pin.zone === "header";
+  return (
+    <div
+      className={
+        "pointer-events-none opacity-85 rounded-lg border shadow-2xl backdrop-blur-sm "
+        + (isChip ? "w-[180px] h-8 px-3 flex items-center" : "w-full min-w-[220px] px-4 py-3")
+      }
+      style={{
+        borderColor: `${t.accent}55`,
+        background: `${t.surface}ee`,
+        boxShadow: "0 18px 40px rgba(0, 0, 0, 0.35)",
+      }}
+    >
+      {isChip ? (
+        <div className="truncate text-[12px] font-medium" style={{ color: t.textMuted }}>
+          {title}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="truncate text-[12px] font-medium uppercase tracking-[0.14em]" style={{ color: t.textDim }}>
+            {title}
+          </div>
+          <div
+            className="rounded-md"
+            style={{
+              height: Math.max(72, Math.min(180, toGridLayout(pin).h * 18)),
+              background: `linear-gradient(180deg, ${t.surfaceRaised} 0%, ${t.surface} 100%)`,
+              border: `1px solid ${t.surfaceBorder}55`,
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -824,7 +879,15 @@ function HeaderCanvas({
                   }}
                 />
               )}
-              <EmptyCanvasHint message="Drop a widget here — it will render as the one centered chip above chat" />
+              <div
+                className="pointer-events-none inline-flex max-w-[260px] items-center justify-center rounded-full px-4 py-1.5 text-center text-[11px] leading-tight"
+                style={{
+                  color: t.textMuted,
+                  background: `${t.surfaceRaised}66`,
+                }}
+              >
+                Drop a widget here for the chat header chip
+              </div>
             </div>
           ) : null
         ) : (
@@ -856,7 +919,7 @@ function HeaderCanvas({
                 minWidth: 0,
               }}
             >
-              <SortableTile id={pin.id}>
+              <SortableTile id={pin.id} disabled={!editMode}>
                 {(binding) => (
                   <div
                     ref={binding.setNodeRef}
@@ -891,7 +954,265 @@ function HeaderCanvas({
 }
 
 // ---------------------------------------------------------------------------
-// List canvas — used by rail + dock (vertical 1-column lists with resizable H).
+// Unified body canvas — one logical surface with rail / center grid / dock
+// zones. Center keeps the existing 12/24-column coordinate system; rail and
+// dock each occupy one fixed-width outer track that mirrors chat runtime.
+// ---------------------------------------------------------------------------
+
+interface UnifiedBodyCanvasProps extends CanvasSharedProps {
+  preset: GridPreset;
+  measureRef: (el: HTMLDivElement | null) => void;
+  measuredRect: DOMRect | null;
+  overZone: "rail" | "grid" | "dock" | null;
+  ghost: { x: number; y: number; w: number; h: number } | null;
+}
+
+function UnifiedBodyCanvas({
+  pins,
+  preset,
+  editMode,
+  chrome,
+  onUnpin,
+  onEnvelopeUpdate,
+  onEditPin,
+  anyDragging,
+  overZone,
+  applyLayout,
+  measureRef,
+  measuredRect,
+  channelId,
+  justMovedId,
+  onTileMoved,
+  ghost,
+}: UnifiedBodyCanvasProps) {
+  const t = useThemeTokens();
+  const [resizePreview, setResizePreview] = useState<{
+    id: string;
+    x: number;
+    w: number;
+    h: number;
+  } | null>(null);
+  const metrics = useMemo(
+    () =>
+      measuredRect
+        ? computeBodyCanvasMetrics(measuredRect.width, preset.cols.lg)
+        : null,
+    [measuredRect, preset.cols.lg],
+  );
+  const centerCellWidth = metrics?.centerColWidth ?? 64;
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
+  const gridStyle: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `${RAIL_WIDTH_PX}px repeat(${preset.cols.lg}, minmax(0, 1fr)) ${DOCK_WIDTH_PX}px`,
+    gridAutoRows: `${preset.rowHeight}px`,
+    gap: `${GAP_PX}px`,
+  };
+
+  return (
+    <div
+      ref={measureRef}
+      data-dashboard-canvas="body"
+      className="relative min-h-[240px] p-3"
+    >
+      {editMode && metrics && (
+        <>
+          <ZoneOverlay
+            left={CANVAS_INNER_PADDING}
+            width={RAIL_WIDTH_PX}
+            isOver={overZone === "rail"}
+            t={t}
+          />
+          <ZoneOverlay
+            left={CANVAS_INNER_PADDING + metrics.centerStartX}
+            width={metrics.centerTrackWidth}
+            isOver={overZone === "grid"}
+            t={t}
+          />
+          <ZoneOverlay
+            left={CANVAS_INNER_PADDING + metrics.dockStartX}
+            width={DOCK_WIDTH_PX}
+            isOver={overZone === "dock"}
+            t={t}
+          />
+          <EditModeGridGuides
+            cols={preset.cols.lg}
+            rowHeight={preset.rowHeight}
+            rowGap={GAP_PX}
+          />
+        </>
+      )}
+      <div style={gridStyle} className="relative">
+        {ghost && (
+          <div
+            aria-hidden
+            className="pointer-events-none"
+            style={{
+              gridColumn: `${ghost.x + 2} / span ${ghost.w}`,
+              gridRow: `${ghost.y + 1} / span ${ghost.h}`,
+              border: `1.5px dashed ${t.accent}`,
+              borderRadius: 8,
+              background: `${t.accent}14`,
+              transition: "grid-column 90ms ease-out, grid-row 90ms ease-out",
+              zIndex: 2,
+            }}
+          />
+        )}
+
+        {editMode && !pins.some((p) => p.zone === "rail") && (
+          <EmptyZoneSlot column="1 / span 1" message="Drop here for the chat sidebar." />
+        )}
+        {editMode && !pins.some((p) => p.zone === "grid") && (
+          <EmptyZoneSlot
+            column={`2 / span ${preset.cols.lg}`}
+            message="Drop widgets here to keep them on the dashboard."
+          />
+        )}
+        {editMode && !pins.some((p) => p.zone === "dock") && (
+          <EmptyZoneSlot column={`${preset.cols.lg + 2} / span 1`} message="Drop here for the right dock." />
+        )}
+
+        {pins.map((p) => {
+          const gl = toGridLayout(p);
+          const isResizing = resizePreview?.id === p.id;
+          const effX = isResizing ? resizePreview.x : gl.x;
+          const effW = isResizing ? resizePreview.w : gl.w;
+          const effH = isResizing ? resizePreview.h : gl.h;
+          const railLike = p.zone === "rail" || p.zone === "dock";
+          const gridColumn =
+            p.zone === "rail"
+              ? "1 / span 1"
+              : p.zone === "dock"
+                ? `${preset.cols.lg + 2} / span 1`
+                : `${effX + 2} / span ${effW}`;
+          const gridRow = `${gl.y + 1} / span ${effH}`;
+
+          return (
+            <GridTile
+              key={p.id}
+              id={p.id}
+              disabled={!editMode}
+              gridColumn={gridColumn}
+              gridRow={gridRow}
+            >
+              {(binding) => (
+                <div
+                  ref={binding.setNodeRef}
+                  {...binding.attributes}
+                  data-pin-id={p.id}
+                  data-pin-zone={p.zone}
+                  className={
+                    "relative min-w-0 "
+                    + (railLike ? "" : "min-h-0 ")
+                    + (justMovedId === p.id ? "pin-flash" : "")
+                  }
+                  style={binding.style}
+                >
+                  <TileShell
+                    binding={{ ...binding, setNodeRef: () => {} }}
+                    pin={p}
+                    editMode={editMode}
+                    chrome={chrome}
+                    scope={dashboardScope()}
+                    onUnpin={onUnpin}
+                    onEnvelopeUpdate={onEnvelopeUpdate}
+                    onEditPin={onEditPin}
+                    railMode={railLike}
+                    resize={
+                      editMode
+                        ? (railLike
+                          ? {
+                              edges: ["s"] as ResizeEdge[],
+                              initial: { x: 0, y: gl.y, w: 1, h: gl.h },
+                              cellPx: { w: RAIL_WIDTH_PX, h: preset.rowHeight + GAP_PX },
+                              clampW: { min: 1, max: 1 },
+                              clampH: { min: 2 },
+                              showRest: true,
+                              onResizing: ({ h }) =>
+                                setResizePreview({ id: p.id, x: 0, w: 1, h }),
+                              onCommit: ({ h }) => {
+                                setResizePreview(null);
+                                void applyLayout([
+                                  { id: p.id, x: 0, y: gl.y, w: 1, h, zone: p.zone },
+                                ]).then(() => onTileMoved?.(p.id));
+                              },
+                            }
+                          : {
+                              edges: ["s", "e", "se", "w", "sw"] as ResizeEdge[],
+                              initial: { x: gl.x, y: gl.y, w: gl.w, h: gl.h },
+                              cellPx: {
+                                w: centerCellWidth + GAP_PX,
+                                h: preset.rowHeight + GAP_PX,
+                              },
+                              clampW: { min: 1, max: preset.cols.lg },
+                              clampH: { min: 2 },
+                              showRest: true,
+                              onResizing: ({ x, w, h }) =>
+                                setResizePreview({ id: p.id, x, w, h }),
+                              onCommit: ({ x, w, h }) => {
+                                setResizePreview(null);
+                                void applyLayout([
+                                  { id: p.id, x, y: gl.y, w, h, zone: "grid" },
+                                ]).then(() => onTileMoved?.(p.id));
+                              },
+                            })
+                        : null
+                    }
+                  />
+                </div>
+              )}
+            </GridTile>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ZoneOverlay({
+  left,
+  width,
+  isOver,
+  t,
+}: {
+  left: number;
+  width: number;
+  isOver: boolean;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute top-3 bottom-3 rounded-lg"
+      style={{
+        left,
+        width,
+        border: `1px dashed ${isOver ? t.accent : `${t.textDim}22`}`,
+        background: isOver ? `${t.accent}0f` : "transparent",
+        transition: "border-color 120ms, background-color 120ms",
+      }}
+    />
+  );
+}
+
+function EmptyZoneSlot({
+  column,
+  message,
+}: {
+  column: string;
+  message: string;
+}) {
+  return (
+    <div
+      className="pointer-events-none flex items-start justify-center px-3 py-2 text-[11px] text-center opacity-60 select-none"
+      style={{ gridColumn: column, gridRow: "1 / span 2" }}
+    >
+      {message}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// List canvas — legacy split-canvas implementation retained below for now.
 // ---------------------------------------------------------------------------
 
 interface ListCanvasProps extends CanvasSharedProps {

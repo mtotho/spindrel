@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Trash2, X } from "lucide-react";
+import { Loader2, RotateCcw, Trash2, X } from "lucide-react";
 import {
   useDashboardsStore,
   isChannelSlug,
@@ -21,9 +21,10 @@ import { DashboardShareWarning } from "./DashboardShareWarning";
 interface Props {
   slug: string | null;
   onClose: () => void;
+  onResetLayout?: () => void;
 }
 
-export function EditDashboardDrawer({ slug, onClose }: Props) {
+export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
   const navigate = useNavigate();
   const list = useDashboardsStore((s) => s.list);
   const update = useDashboardsStore((s) => s.update);
@@ -78,6 +79,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [resetArmed, setResetArmed] = useState(false);
 
   useEffect(() => {
     if (!dashboard) return;
@@ -91,6 +93,7 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
     setHideTitles(chrome.hideTitles);
     setError(null);
     setDeleteConfirm("");
+    setResetArmed(false);
   }, [dashboard?.slug]);
 
   const currentPresetId = dashboard
@@ -147,6 +150,18 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
   const canSave = (isChannel || !!name.trim()) && dirty && !saving;
   const canDelete =
     !isChannel && !isDefault && deleteConfirm === dashboard.slug && !deleting;
+  const showResetLayout = !!onResetLayout;
+
+  const handleResetLayout = () => {
+    if (!showResetLayout) return;
+    if (!resetArmed) {
+      setResetArmed(true);
+      return;
+    }
+    setResetArmed(false);
+    onResetLayout();
+    onClose();
+  };
 
   const persistRailChoice = async (next: RailChoice) => {
     if (next === initialRailChoice) return;
@@ -363,6 +378,39 @@ export function EditDashboardDrawer({ slug, onClose }: Props) {
               </div>
             </label>
           </div>
+
+          {showResetLayout && (
+            <div className="flex flex-col gap-2">
+              <span className="text-[12px] font-medium text-text-muted">Layout maintenance</span>
+              <button
+                type="button"
+                onClick={handleResetLayout}
+                className={
+                  "flex items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors "
+                  + (resetArmed
+                    ? "border-danger/60 bg-danger/10 text-danger"
+                    : "border-surface-border hover:bg-surface-overlay")
+                }
+                aria-pressed={resetArmed}
+                aria-label={resetArmed ? "Confirm reset layout" : "Reset layout"}
+                title={
+                  resetArmed
+                    ? "Click again to repack every pin into default positions"
+                    : "Auto-pack every pin into default positions"
+                }
+              >
+                <RotateCcw size={14} className="mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-medium">
+                    {resetArmed ? "Confirm reset layout?" : "Reset layout"}
+                  </div>
+                  <div className="mt-0.5 text-[11px] leading-snug text-text-dim">
+                    Repack every widget into the default auto-layout. Useful if the layout gets messy.
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
 
           {error && (
             <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">

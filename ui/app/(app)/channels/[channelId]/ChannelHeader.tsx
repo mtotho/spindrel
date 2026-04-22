@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, Plug, StickyNote,
-  MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle,
+  MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle, Minimize2,
   User as UserIcon, MoreHorizontal,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -46,7 +46,7 @@ export interface ChannelHeaderProps {
   findingsCount?: number;
   /** Open the scratch-chat dock. Button is rendered on every viewport. */
   scratchOpen?: boolean;
-  onOpenScratch?: () => void;
+  onOpenScratch?: (sessionId?: string | null) => void;
   scratchSessionId?: string | null;
   onOpenMainChat?: () => void;
   onStartNewScratchSession?: () => void;
@@ -145,6 +145,7 @@ export function ChannelHeader({
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
   const showScratchState = !!scratchFullpageMode;
   const scratchBadgeLabel = "Scratch session";
+  const sessionButtonLabel = "Sessions";
   const scratchTone = {
     bg: t.warningSubtle,
     border: t.warningBorder,
@@ -168,9 +169,9 @@ export function ChannelHeader({
     channelId && onOpenScratch
       ? {
           key: "scratch",
-          label: "Scratch session",
+          label: sessionButtonLabel,
           icon: StickyNote,
-          onClick: () => setScratchMenuOpen(true),
+          onClick: () => setScratchMenuOpen((open) => !open),
           active: !!scratchOpen,
           danger: false,
         }
@@ -445,6 +446,18 @@ export function ChannelHeader({
           on the scratch full-page route, clicking navigates back to the
           main chat (canonical minimize) and the button shows pressed
           state so the user can see which context they're in. */}
+      {scratchFullpageMode && onOpenMainChat && (
+        <button
+          type="button"
+          className="header-icon-btn"
+          style={{ width: iconSize, height: iconSize }}
+          onClick={onOpenMainChat}
+          title="Minimize session back to channel chat"
+          aria-label="Minimize session back to channel chat"
+        >
+          <Minimize2 size={16} color={t.textDim} />
+        </button>
+      )}
       {channelId && onOpenScratch && (
         <div ref={scratchMenuRef} className="relative shrink-0">
           <button
@@ -452,7 +465,7 @@ export function ChannelHeader({
             className={
               isMobile
                 ? "header-icon-btn"
-                : "inline-flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] font-medium transition-colors"
+                : "inline-flex h-9 items-center gap-2 rounded-full px-3 text-[12px] font-medium transition-colors"
             }
             style={
               isMobile
@@ -462,31 +475,22 @@ export function ChannelHeader({
                     backgroundColor: scratchOpen ? t.surfaceOverlay : undefined,
                   }
                 : {
-                    borderColor: scratchOpen ? t.warningBorder : t.surfaceBorder,
-                    backgroundColor: scratchOpen ? t.warningSubtle : t.surfaceRaised,
-                    color: scratchOpen ? t.warningMuted : t.text,
+                    border: "none",
+                    backgroundColor: scratchOpen ? t.surfaceOverlay : "transparent",
+                    color: scratchOpen ? t.text : t.textMuted,
                   }
             }
             onClick={() => setScratchMenuOpen((open) => !open)}
-            title="Scratch session"
-            aria-label="Scratch session"
+            title={sessionButtonLabel}
+            aria-label={sessionButtonLabel}
             aria-expanded={scratchMenuOpen}
             aria-haspopup="dialog"
             aria-pressed={!!scratchOpen}
           >
-            <StickyNote size={16} color={scratchOpen ? t.warning : t.textDim} />
+            <StickyNote size={16} color={scratchOpen ? t.text : t.textDim} />
             {!isMobile && (
               <>
-                <span>Scratch session</span>
-                <span
-                  className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]"
-                  style={{
-                    backgroundColor: scratchOpen ? "rgba(251,191,36,0.14)" : t.surfaceOverlay,
-                    color: scratchOpen ? t.warningMuted : t.textDim,
-                  }}
-                >
-                  {scratchOpen ? "Active" : "Ready"}
-                </span>
+                <span>{sessionButtonLabel}</span>
               </>
             )}
           </button>

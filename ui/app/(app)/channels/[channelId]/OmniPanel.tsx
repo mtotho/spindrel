@@ -39,6 +39,7 @@ import type {
 
 interface OmniPanelProps {
   channelId: string;
+  dashboardHref?: string;
   workspaceId: string | undefined;
   /** Channel's bot id — threaded into FilesTabPanel so the Memory scope
    *  target resolves to the right bot's memory directory. */
@@ -70,6 +71,7 @@ function sortByGridYX(a: WidgetDashboardPin, b: WidgetDashboardPin): number {
 
 export function OmniPanel({
   channelId,
+  dashboardHref,
   workspaceId,
   botId,
   channelDisplayName,
@@ -144,7 +146,7 @@ export function OmniPanel({
 
   const hasWorkspace = !!workspaceId;
   const hasWidgets = railPins.length > 0;
-  const dashboardHref = `/widgets/channel/${encodeURIComponent(channelId)}`;
+  const resolvedDashboardHref = dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`;
 
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   // Chat-mode rails override the dashboard's saved hover_scrollbars default —
@@ -261,7 +263,7 @@ export function OmniPanel({
         </div>
       ) : (
         <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 pb-2 pt-2">
-          {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={dashboardHref} t={t} />}
+          {hasWidgets ? widgetsSection : <EmptyWidgets dashboardHref={resolvedDashboardHref} t={t} />}
         </div>
       )}
     </div>

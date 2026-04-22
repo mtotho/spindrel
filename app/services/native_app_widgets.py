@@ -131,6 +131,148 @@ _NOTES_ACTIONS = (
     ),
 )
 
+_TODO_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "done": {"type": "boolean"},
+        "position": {"type": "integer"},
+        "created_at": {"type": "string"},
+        "updated_at": {"type": "string"},
+    },
+    "required": ["id", "title", "done", "position", "created_at", "updated_at"],
+}
+
+_TODO_COUNTS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "total": {"type": "integer"},
+        "open": {"type": "integer"},
+        "completed": {"type": "integer"},
+    },
+    "required": ["total", "open", "completed"],
+}
+
+_TODO_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="add_item",
+        description="Add a new open todo item to the list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Todo text to add.",
+                },
+            },
+            "required": ["title"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "item": _TODO_ITEM_SCHEMA,
+                "counts": _TODO_COUNTS_SCHEMA,
+            },
+            "required": ["item", "counts"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="toggle_item",
+        description="Toggle a todo item's done state, or force it with `done`.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Todo item id."},
+                "done": {
+                    "type": "boolean",
+                    "description": "Optional explicit done state. Omit to flip the current value.",
+                },
+            },
+            "required": ["id"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "item": _TODO_ITEM_SCHEMA,
+                "counts": _TODO_COUNTS_SCHEMA,
+            },
+            "required": ["item", "counts"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="rename_item",
+        description="Rename an existing todo item.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Todo item id."},
+                "title": {"type": "string", "description": "New todo title."},
+            },
+            "required": ["id", "title"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {"item": _TODO_ITEM_SCHEMA},
+            "required": ["item"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="delete_item",
+        description="Delete a todo item entirely.",
+        args_schema={
+            "type": "object",
+            "properties": {"id": {"type": "string", "description": "Todo item id."}},
+            "required": ["id"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "deleted": {"type": "boolean"},
+                "id": {"type": "string"},
+                "counts": _TODO_COUNTS_SCHEMA,
+            },
+            "required": ["deleted", "id", "counts"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="reorder_items",
+        description="Reorder the open todo lane using the complete ordered id list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "ordered_ids": {
+                    "type": "array",
+                    "description": "Ordered ids for every open todo item.",
+                },
+            },
+            "required": ["ordered_ids"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "items": {"type": "array", "items": _TODO_ITEM_SCHEMA},
+                "counts": _TODO_COUNTS_SCHEMA,
+            },
+            "required": ["items", "counts"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="clear_completed",
+        description="Delete every completed todo item.",
+        args_schema={"type": "object", "properties": {}},
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "cleared": {"type": "integer"},
+                "items": {"type": "array", "items": _TODO_ITEM_SCHEMA},
+                "counts": _TODO_COUNTS_SCHEMA,
+            },
+            "required": ["cleared", "items", "counts"],
+        },
+    ),
+)
+
 
 _REGISTRY: dict[str, NativeWidgetSpec] = {
     "core/notes_native": NativeWidgetSpec(
@@ -147,6 +289,22 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         },
         actions=_NOTES_ACTIONS,
         panel_title="Notes",
+        show_panel_title=True,
+    ),
+    "core/todo_native": NativeWidgetSpec(
+        widget_ref="core/todo_native",
+        name="todo_native",
+        display_label="Todo",
+        description="First-party native todo widget with persistent task state and bot-callable actions.",
+        icon="check-square",
+        supported_scopes=("channel", "dashboard"),
+        default_state={
+            "items": [],
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=_TODO_ACTIONS,
+        panel_title="Todo",
         show_panel_title=True,
     ),
 }
@@ -324,6 +482,172 @@ def _validate_args_against_schema(
             raise HTTPException(400, f"Action arg {key!r} must be an array")
 
 
+def _todo_state(instance: WidgetInstance) -> dict[str, Any]:
+    state = copy.deepcopy(instance.state or {})
+    state.setdefault("items", [])
+    state.setdefault("created_at", "")
+    state.setdefault("updated_at", "")
+    return state
+
+
+def _serialize_todo_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(item.get("id") or ""),
+        "title": str(item.get("title") or ""),
+        "done": bool(item.get("done")),
+        "position": int(item.get("position") or 0),
+        "created_at": str(item.get("created_at") or ""),
+        "updated_at": str(item.get("updated_at") or ""),
+    }
+
+
+def _normalize_todo_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    open_items = [_serialize_todo_item(item) for item in items if not item.get("done")]
+    completed_items = [_serialize_todo_item(item) for item in items if item.get("done")]
+    for idx, item in enumerate(open_items):
+        item["position"] = idx
+    for idx, item in enumerate(completed_items):
+        item["position"] = idx
+    return open_items + completed_items
+
+
+def _todo_counts(items: list[dict[str, Any]]) -> dict[str, int]:
+    completed = sum(1 for item in items if item["done"])
+    total = len(items)
+    return {"total": total, "open": total - completed, "completed": completed}
+
+
+def _require_todo_title(args: dict[str, Any] | None) -> str:
+    title = str((args or {}).get("title") or "").strip()
+    if not title:
+        raise HTTPException(400, "title is required")
+    if len(title) > 500:
+        raise HTTPException(400, "title is too long (max 500 chars)")
+    return title
+
+
+def _find_todo_item(items: list[dict[str, Any]], item_id: str) -> tuple[int, dict[str, Any]]:
+    for idx, item in enumerate(items):
+        if item["id"] == item_id:
+            return idx, item
+    raise HTTPException(404, f"unknown todo item id: {item_id}")
+
+
+async def _dispatch_notes_action(
+    db: AsyncSession,
+    instance: WidgetInstance,
+    action: str,
+    args: dict[str, Any] | None,
+) -> Any:
+    state = copy.deepcopy(instance.state or {})
+    body = str(state.get("body") or "")
+    created_at = str(state.get("created_at") or "") or _now_iso()
+    updated_at = _now_iso()
+    if action == "replace_body":
+        body = str((args or {}).get("body") or "")
+        result: Any = {"body": body, "updated_at": updated_at}
+    elif action == "append_text":
+        body = body + str((args or {}).get("text") or "")
+        result = {"body": body, "updated_at": updated_at}
+    elif action == "clear":
+        body = ""
+        result = {"cleared": True}
+    else:
+        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+    state["body"] = body
+    state["created_at"] = created_at
+    state["updated_at"] = updated_at
+    instance.state = state
+    flag_modified(instance, "state")
+    await db.flush()
+    return result
+
+
+async def _dispatch_todo_action(
+    db: AsyncSession,
+    instance: WidgetInstance,
+    action: str,
+    args: dict[str, Any] | None,
+) -> Any:
+    state = _todo_state(instance)
+    items = _normalize_todo_items(list(state.get("items") or []))
+    now = _now_iso()
+    created_at = str(state.get("created_at") or "") or now
+
+    if action == "add_item":
+        item = {
+            "id": str(uuid.uuid4()),
+            "title": _require_todo_title(args),
+            "done": False,
+            "position": sum(1 for existing in items if not existing["done"]),
+            "created_at": now,
+            "updated_at": now,
+        }
+        items.append(item)
+        items = _normalize_todo_items(items)
+        result: Any = {"item": next(entry for entry in items if entry["id"] == item["id"])}
+    elif action == "toggle_item":
+        item_id = str((args or {}).get("id") or "").strip()
+        if not item_id:
+            raise HTTPException(400, "id is required")
+        idx, current = _find_todo_item(items, item_id)
+        next_done = not current["done"] if "done" not in (args or {}) else bool((args or {})["done"])
+        current = copy.deepcopy(current)
+        current["done"] = next_done
+        current["updated_at"] = now
+        items[idx] = current
+        items = _normalize_todo_items(items)
+        result = {"item": next(entry for entry in items if entry["id"] == item_id)}
+    elif action == "rename_item":
+        item_id = str((args or {}).get("id") or "").strip()
+        if not item_id:
+            raise HTTPException(400, "id is required")
+        title = _require_todo_title(args)
+        idx, current = _find_todo_item(items, item_id)
+        current = copy.deepcopy(current)
+        current["title"] = title
+        current["updated_at"] = now
+        items[idx] = current
+        items = _normalize_todo_items(items)
+        result = {"item": next(entry for entry in items if entry["id"] == item_id)}
+    elif action == "delete_item":
+        item_id = str((args or {}).get("id") or "").strip()
+        if not item_id:
+            raise HTTPException(400, "id is required")
+        idx, _current = _find_todo_item(items, item_id)
+        del items[idx]
+        items = _normalize_todo_items(items)
+        result = {"deleted": True, "id": item_id}
+    elif action == "reorder_items":
+        ordered_ids = [str(value) for value in ((args or {}).get("ordered_ids") or [])]
+        open_items = [item for item in items if not item["done"]]
+        completed_items = [item for item in items if item["done"]]
+        if ordered_ids != [item["id"] for item in open_items] and set(ordered_ids) != {item["id"] for item in open_items}:
+            raise HTTPException(400, "ordered_ids must list each open item exactly once")
+        if len(ordered_ids) != len(open_items):
+            raise HTTPException(400, "ordered_ids must list each open item exactly once")
+        lookup = {item["id"]: item for item in open_items}
+        items = [lookup[item_id] for item_id in ordered_ids] + completed_items
+        items = _normalize_todo_items(items)
+        result = {"items": items}
+    elif action == "clear_completed":
+        cleared = sum(1 for item in items if item["done"])
+        items = [item for item in items if not item["done"]]
+        items = _normalize_todo_items(items)
+        result = {"cleared": cleared, "items": items}
+    else:
+        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+
+    state["items"] = items
+    state["created_at"] = created_at
+    state["updated_at"] = now
+    instance.state = state
+    flag_modified(instance, "state")
+    await db.flush()
+    result.setdefault("counts", _todo_counts(items))
+    return result
+
+
 async def dispatch_native_widget_action(
     db: AsyncSession,
     *,
@@ -343,28 +667,9 @@ async def dispatch_native_widget_action(
     _validate_args_against_schema(action_spec.args_schema, args or {})
 
     if instance.widget_ref == "core/notes_native":
-        state = copy.deepcopy(instance.state or {})
-        body = str(state.get("body") or "")
-        created_at = str(state.get("created_at") or "") or _now_iso()
-        updated_at = _now_iso()
-        if action == "replace_body":
-            body = str((args or {}).get("body") or "")
-            result: Any = {"body": body, "updated_at": updated_at}
-        elif action == "append_text":
-            body = body + str((args or {}).get("text") or "")
-            result = {"body": body, "updated_at": updated_at}
-        elif action == "clear":
-            body = ""
-            result = {"cleared": True}
-        else:
-            raise HTTPException(404, f"Unsupported native widget action: {action!r}")
-        state["body"] = body
-        state["created_at"] = created_at
-        state["updated_at"] = updated_at
-        instance.state = state
-        flag_modified(instance, "state")
-        await db.flush()
-        return result
+        return await _dispatch_notes_action(db, instance, action, args)
+    if instance.widget_ref == "core/todo_native":
+        return await _dispatch_todo_action(db, instance, action, args)
 
     raise HTTPException(404, f"No native action dispatcher registered for {instance.widget_ref!r}")
 

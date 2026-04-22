@@ -6,6 +6,7 @@ import { apiFetch } from "@/src/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSpawnEphemeralSession,
+  useScratchHistory,
   useScratchSession,
   useResetScratchSession,
   loadEphemeralState,
@@ -40,6 +41,7 @@ import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
+import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
 
 export interface EphemeralContextPayload {
   page_name?: string;
@@ -47,6 +49,18 @@ export interface EphemeralContextPayload {
   tags?: string[];
   payload?: Record<string, unknown>;
   tool_hints?: string[];
+}
+
+function formatSessionHeaderTimestamp(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 /** Discriminator picks which backend path the chat component talks to.
@@ -134,6 +148,46 @@ export interface ChatSessionProps {
   dismissMode?: "collapse" | "close";
 }
 
+function getDockStorageKey(source: ChatSource): string {
+  if (source.kind === "channel") {
+    return `channel:${source.channelId}`;
+  }
+  if (source.kind === "thread") {
+    return `thread:${source.parentChannelId}:${source.parentMessageId}`;
+  }
+  return [
+    "ephemeral",
+    source.sessionStorageKey,
+    source.parentChannelId ?? "none",
+    source.scratchBoundChannelId ?? "none",
+    source.pinnedSessionId ?? "none",
+  ].join(":");
+}
+
+function useChatSessionPlan(sessionId: string | null | undefined) {
+  const sessionPlan = useSessionPlanMode(sessionId ?? undefined);
+  const planBusy = sessionPlan.startPlan.isPending
+    || sessionPlan.approvePlan.isPending
+    || sessionPlan.exitPlan.isPending
+    || sessionPlan.resumePlan.isPending
+    || sessionPlan.updateStepStatus.isPending;
+  const handleTogglePlanMode = useCallback(() => {
+    if (!sessionId) return;
+    if (sessionPlan.data && sessionPlan.data.mode !== "chat") {
+      sessionPlan.exitPlan.mutate();
+      return;
+    }
+    if (sessionPlan.data && sessionPlan.data.mode === "chat") {
+      sessionPlan.resumePlan.mutate();
+      return;
+    }
+    const title = window.prompt("Plan title");
+    if (!title || !title.trim()) return;
+    sessionPlan.startPlan.mutate(title.trim());
+  }, [sessionId, sessionPlan]);
+  return { sessionPlan, planBusy, handleTogglePlanMode };
+}
+
 /**
  * Chat controller — renders either a channel chat or an ephemeral session
  * inside a dock (bottom-right) or modal (centered) shell.
@@ -180,6 +234,7 @@ function ChannelChatSession({
   const { data: bot } = useBot(src.bot_id);
   const { data: overheadData } = useChannelConfigOverhead(source.channelId);
   const overheadPct = overheadData?.overhead_pct ?? null;
+  const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(src.sessionId);
 
   // Dock expansion (FAB vs panel); controller owns so header X collapses.
   // Respect the caller's `initiallyExpanded` on mount only — subsequent toggles
@@ -345,7 +400,9 @@ function ChannelChatSession({
   const header = (
     <div
       className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
-      style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
+      style={{
+        backgroundColor: chatMode === "terminal" ? `${t.overlayLight}2e` : `${t.overlayLight}1a`,
+      }}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <span className="text-[13px] font-semibold text-text truncate">
@@ -433,6 +490,12 @@ function ChannelChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
+                  planMode={sessionPlan.data?.mode ?? "chat"}
+                  hasPlan={!!sessionPlan.data}
+                  planBusy={planBusy}
+                  canTogglePlanMode={!!src.sessionId}
+                  onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
+                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             }
@@ -484,6 +547,12 @@ function ChannelChatSession({
               configOverhead={overheadPct}
               compact
               chatMode={chatMode}
+              planMode={sessionPlan.data?.mode ?? "chat"}
+              hasPlan={!!sessionPlan.data}
+              planBusy={planBusy}
+              canTogglePlanMode={!!src.sessionId}
+              onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
+              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}
@@ -505,6 +574,8 @@ function ChannelChatSession({
       expanded={dockExpanded}
       onExpandedChange={setDockExpanded}
       title={displayTitle}
+      storageKey={getDockStorageKey(source)}
+      chatMode={chatMode}
     >
       {body}
     </ChatSessionDock>
@@ -557,6 +628,7 @@ function EphemeralChatSession({
     scratchBoundChannelId ?? null,
     scratchBoundChannelId ? stored?.botId ?? resolvedDefault : null,
   );
+  const { data: scratchHistory } = useScratchHistory(scratchBoundChannelId ?? null);
   const resetScratch = useResetScratchSession();
 
   const serverSessionId = scratchBoundChannelId
@@ -653,6 +725,7 @@ function EphemeralChatSession({
 
   const { data: overheadData } = useSessionConfigOverhead(sessionId ?? undefined);
   const overheadPct = overheadData?.overhead_pct ?? null;
+  const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
 
   const handleSend = useCallback(
     async (message: string, _files?: PendingFile[]) => {
@@ -794,26 +867,73 @@ function EphemeralChatSession({
     if (overheadPct >= 0.2) return "#eab308";
     return null;
   }, [overheadPct]);
+  const sessionHeaderMeta = useMemo(() => {
+    if (!scratchBoundChannelId || !sessionId) return null;
+    const matchedHistory = scratchHistory?.find((row) => row.session_id === sessionId) ?? null;
+    const matchedCurrent = scratchQuery.data?.session_id === sessionId ? scratchQuery.data : null;
+    const label =
+      matchedHistory?.title?.trim()
+      || matchedHistory?.summary?.trim()
+      || matchedHistory?.preview?.trim()
+      || matchedCurrent?.title?.trim()
+      || matchedCurrent?.summary?.trim()
+      || null;
+    const timestamp = formatSessionHeaderTimestamp(
+      matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null,
+    );
+    const messageCount = matchedHistory?.message_count ?? matchedCurrent?.message_count ?? null;
+    const sectionCount = matchedHistory?.section_count ?? matchedCurrent?.section_count ?? null;
+    const stats = [
+      timestamp,
+      typeof messageCount === "number"
+        ? `${messageCount} msg${messageCount === 1 ? "" : "s"}`
+        : null,
+      typeof sectionCount === "number"
+        ? `${sectionCount} section${sectionCount === 1 ? "" : "s"}`
+        : null,
+    ].filter(Boolean).join(" · ");
+    if (!label && !stats) return null;
+    return {
+      label,
+      stats: stats || null,
+    };
+  }, [scratchBoundChannelId, sessionId, scratchHistory, scratchQuery.data]);
+  const displayHeaderTitle =
+    sessionHeaderMeta?.label
+    ?? (scratchBoundChannelId ? "Session" : title);
 
   const header = (
     <div
-      className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
-      style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
+      className="flex items-start justify-between gap-2 px-3 py-2 shrink-0"
+      style={{
+        backgroundColor: chatMode === "terminal" ? `${t.overlayLight}2e` : `${t.overlayLight}1a`,
+      }}
     >
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="text-[13px] font-semibold text-text truncate shrink-0">{title}</span>
-        <div className="min-w-[120px] max-w-[200px]">
-          <BotPicker
-            compact
-            value={botId}
-            onChange={setBotId}
-            bots={bots ?? []}
-            disabled={!!sessionId}
-            placeholder="Pick a bot"
-          />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-text">
+            {displayHeaderTitle}
+          </span>
+          <div className="w-[156px] max-w-[156px] shrink-0">
+            <BotPicker
+              compact
+              value={botId}
+              onChange={setBotId}
+              bots={bots ?? []}
+              disabled={!!sessionId}
+              placeholder="Pick a bot"
+            />
+          </div>
         </div>
+        {sessionHeaderMeta?.stats && (
+          <div className="mt-1 min-w-0">
+            <div className="truncate text-[11px] text-text-dim">
+              {sessionHeaderMeta.stats}
+            </div>
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-0.5 shrink-0">
+      <div className="flex items-center gap-0.5 shrink-0 self-start pt-0.5">
         {overheadColor && (
           <button
             type="button"
@@ -909,6 +1029,12 @@ function EphemeralChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
+                  planMode={sessionPlan.data?.mode ?? "chat"}
+                  hasPlan={!!sessionPlan.data}
+                  planBusy={planBusy}
+                  canTogglePlanMode={!!sessionId}
+                  onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -955,6 +1081,12 @@ function EphemeralChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
+                  planMode={sessionPlan.data?.mode ?? "chat"}
+                  hasPlan={!!sessionPlan.data}
+                  planBusy={planBusy}
+                  canTogglePlanMode={!!sessionId}
+                  onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -986,6 +1118,12 @@ function EphemeralChatSession({
               configOverhead={overheadPct}
               compact
               chatMode={chatMode}
+              planMode={sessionPlan.data?.mode ?? "chat"}
+              hasPlan={!!sessionPlan.data}
+              planBusy={planBusy}
+              canTogglePlanMode={!!sessionId}
+              onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}
@@ -1034,6 +1172,8 @@ function EphemeralChatSession({
         dismissMode === "collapse" ? undefined : onClose
       }
       title={title}
+      storageKey={getDockStorageKey(source)}
+      chatMode={chatMode}
     >
       {body}
     </ChatSessionDock>
@@ -1106,6 +1246,7 @@ function ThreadChatSession({
     effectiveSessionId ?? undefined,
   );
   const overheadPct = overheadData?.overhead_pct ?? null;
+  const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(effectiveSessionId);
 
   // Live thread info for the parent-anchor bubble when we don't already have
   // the parent Message in hand (direct-link navigation, existing thread
@@ -1218,7 +1359,9 @@ function ThreadChatSession({
   const header = (
     <div
       className="flex items-center justify-between gap-2 px-3 py-2 shrink-0"
-      style={{ borderBottom: `1px solid ${t.surfaceBorder}` }}
+      style={{
+        backgroundColor: chatMode === "terminal" ? `${t.overlayLight}2e` : `${t.overlayLight}1a`,
+      }}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
         <span className="text-[13px] font-semibold text-text truncate">
@@ -1302,6 +1445,12 @@ function ThreadChatSession({
                   }}
                   compact
                   chatMode={chatMode}
+                  planMode={sessionPlan.data?.mode ?? "chat"}
+                  hasPlan={!!sessionPlan.data}
+                  planBusy={planBusy}
+                  canTogglePlanMode={!!effectiveSessionId}
+                  onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1346,6 +1495,12 @@ function ThreadChatSession({
                   }}
                   compact
                   chatMode={chatMode}
+                  planMode={sessionPlan.data?.mode ?? "chat"}
+                  hasPlan={!!sessionPlan.data}
+                  planBusy={planBusy}
+                  canTogglePlanMode={!!effectiveSessionId}
+                  onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1377,6 +1532,12 @@ function ThreadChatSession({
               }}
               compact
               chatMode={chatMode}
+              planMode={sessionPlan.data?.mode ?? "chat"}
+              hasPlan={!!sessionPlan.data}
+              planBusy={planBusy}
+              canTogglePlanMode={!!effectiveSessionId}
+              onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}
@@ -1399,6 +1560,8 @@ function ThreadChatSession({
       onExpandedChange={setDockExpanded}
       onDismiss={dismissMode === "collapse" ? undefined : onClose}
       title={displayTitle}
+      storageKey={getDockStorageKey(source)}
+      chatMode={chatMode}
     >
       {body}
     </ChatSessionDock>

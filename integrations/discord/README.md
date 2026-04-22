@@ -45,7 +45,6 @@ Commands sync automatically when the bot connects. Available commands:
 | `/bots` | List all available bots |
 | `/ask <bot_id> <message>` | Send a message to a specific bot |
 | `/context [contents]` | Show context breakdown |
-| `/plan [args]` | View and manage plans |
 | `/compact` | Compact session context |
 | `/todos [done]` | Show pending/completed todos |
 | `/model [name\|clear\|list]` | View or change model override |

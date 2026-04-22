@@ -54,8 +54,9 @@ Optional scopes (each unlocks a specific affordance — see corresponding sectio
 | `/bot [id]` | Show or switch the default bot for this channel. Session is unchanged. |
 | `/bots` | List all available bots and their IDs. |
 | `/context` | Show the current context window breakdown (chars per role). |
-| `/plan [subcommand]` | View and manage agent plans (see plans documentation). |
 | `/compact` | Force session compaction (summarize + memory write) now. |
+
+The session-local web chat plan mode described in [Plan Mode](./plan-mode.md) does not currently have a Slack slash-command equivalent.
 
 ## Binding Suggestions
 

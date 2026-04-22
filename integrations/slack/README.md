@@ -30,7 +30,6 @@ Register these in your Slack app's slash command config.
 | `/model [model\|list\|clear]` | View, set, or clear the model override |
 | `/context [contents]` | Show context breakdown or dump full context |
 | `/compact` | Force context compaction |
-| `/plan [id\|complete\|abandon\|done\|skip]` | Manage plans |
 | `/todos [done]` | Show pending or completed todos |
 | `/health` | Server health check |
 | `/audit [#channel\|off]` | Set or clear the audit channel for tool call logging |

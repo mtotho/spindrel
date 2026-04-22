@@ -287,9 +287,9 @@ class TestLibraryWidgetsEndpoint:
         assert body["bot"] == []
         assert body["workspace"] == []
         assert body["channel"] == []
-        # At minimum the todo reference widget ships with the server.
+        # At minimum the first-party native notes/todo widgets ship with the server.
         names = {e["name"] for e in body["core"]}
-        assert "todo" in names
+        assert "todo_native" in names
         assert "notes_native" in names
         assert "notes" not in names
         for e in body["core"]:

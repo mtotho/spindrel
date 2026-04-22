@@ -38,12 +38,23 @@ async def test_lists_core_widgets():
 
 @pytest.mark.asyncio
 async def test_native_widget_entries_surface_action_schema():
-    raw = await widget_library_list(q="notes_native")
+    raw = await widget_library_list(q="native")
     data = _parse(raw)
-    native = next(w for w in data["widgets"] if w["name"] == "notes_native")
-    assert native["widget_kind"] == "native_app"
-    actions = native.get("actions") or []
-    assert {action["id"] for action in actions} >= {"replace_body", "append_text", "clear"}
+    by_name = {w["name"]: w for w in data["widgets"] if w["widget_kind"] == "native_app"}
+    assert {"notes_native", "todo_native"} <= set(by_name)
+
+    notes_actions = by_name["notes_native"].get("actions") or []
+    assert {action["id"] for action in notes_actions} >= {"replace_body", "append_text", "clear"}
+
+    todo_actions = by_name["todo_native"].get("actions") or []
+    assert {action["id"] for action in todo_actions} >= {
+        "add_item",
+        "toggle_item",
+        "rename_item",
+        "delete_item",
+        "reorder_items",
+        "clear_completed",
+    }
 
 
 @pytest.mark.asyncio
