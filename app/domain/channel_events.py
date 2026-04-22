@@ -37,6 +37,7 @@ from app.domain.payloads import (
     ModalSubmittedPayload,
     PinnedFileUpdatedPayload,
     ReplayLapsedPayload,
+    SessionPlanUpdatedPayload,
     ShutdownPayload,
     SkillAutoInjectPayload,
     ToolActivityPayload,
@@ -77,6 +78,7 @@ class ChannelEventKind(StrEnum):
     EPHEMERAL_MESSAGE = "ephemeral_message"
     MODAL_SUBMITTED = "modal_submitted"
     WIDGET_RELOAD = "widget_reload"
+    SESSION_PLAN_UPDATED = "session_plan_updated"
 
     def required_capabilities(self) -> frozenset[Capability]:
         """The capability set a renderer must declare to receive this kind.
@@ -152,6 +154,7 @@ _REQUIRED_CAPS: dict[ChannelEventKind, frozenset[Capability]] = {
     # ``spindrel.stream`` auto-subscription in the widget preamble).
     # No integration renderer cares about it.
     ChannelEventKind.WIDGET_RELOAD: frozenset(),
+    ChannelEventKind.SESSION_PLAN_UPDATED: frozenset(),
 }
 
 
@@ -190,6 +193,7 @@ _KIND_PAYLOAD: dict[ChannelEventKind, type] = {
     ChannelEventKind.EPHEMERAL_MESSAGE: EphemeralMessagePayload,
     ChannelEventKind.MODAL_SUBMITTED: ModalSubmittedPayload,
     ChannelEventKind.WIDGET_RELOAD: WidgetReloadPayload,
+    ChannelEventKind.SESSION_PLAN_UPDATED: SessionPlanUpdatedPayload,
 }
 
 

@@ -543,6 +543,9 @@ class Settings(BaseSettings):
     COMPACTION_MODEL_PROVIDER_ID: str = ""
     COMPACTION_INTERVAL: int = 30 # Every time there gets to be N turns in the session (minus the compaction message), the compaction will run.
     COMPACTION_KEEP_TURNS: int = 10 # The last M turns will be kept in context, not included in the compaction. So compaction will only include the last N-M turns.
+    COMPACTION_TRIGGER_UTILIZATION_SOFT: float = 0.70  # Fallback early trigger when total prompt utilization is already high.
+    COMPACTION_LIVE_HISTORY_MAX_RATIO: float = 0.20    # Early trigger when replayable live history alone consumes this fraction of usable context.
+    COMPACTION_LIVE_HISTORY_MAX_TOKENS: int = 60_000   # Absolute cap for replayable live history before early compaction fires.
 
     # STT / Transcription
     STT_PROVIDER: str = "local"  # "local" (faster-whisper) or future: "groq", "openai"

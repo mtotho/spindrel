@@ -36,7 +36,6 @@ import {
   Brain,
   ChevronUp,
   ChevronDown,
-  Clock,
   Home,
   Plus,
   X,
@@ -51,6 +50,8 @@ import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore, type RecentPage } from "../../stores/ui";
 import { usePaletteActions } from "../../stores/paletteActions";
 import { SpindrelLogo } from "./SpindrelLogo";
+import { buildRecentHref, shouldSkipRecentPage } from "../../lib/recentPages";
+import { resolveRecentPaletteItem, type RecentPaletteItemCandidate } from "../palette/recent";
 
 // ---------------------------------------------------------------------------
 // Fuzzy matching
@@ -233,52 +234,6 @@ function HighlightedLabel({
 }
 
 // ---------------------------------------------------------------------------
-// Route metadata for dynamic pages
-// ---------------------------------------------------------------------------
-
-type IconComponent = React.ComponentType<{ size: number; color: string }>;
-
-interface RouteMeta {
-  icon: IconComponent;
-  category: string;
-  fallbackLabel: string;
-}
-
-const ROUTE_PREFIX_MAP: { prefix: string; meta: RouteMeta }[] = [
-  { prefix: "/admin/tasks/", meta: { icon: ClipboardList, category: "Automate", fallbackLabel: "Task" } },
-  { prefix: "/admin/bots/", meta: { icon: Bot, category: "Bots", fallbackLabel: "Edit Bot" } },
-  { prefix: "/admin/skills/", meta: { icon: BookOpen, category: "Configure", fallbackLabel: "Skill" } },
-  { prefix: "/admin/tools/", meta: { icon: Wrench, category: "Configure", fallbackLabel: "Tool" } },
-  { prefix: "/admin/integrations/", meta: { icon: Plug, category: "Integrations", fallbackLabel: "Integration" } },
-  { prefix: "/admin/providers/", meta: { icon: Server, category: "Configure", fallbackLabel: "Provider" } },
-  { prefix: "/admin/mcp-servers/", meta: { icon: Cable, category: "Configure", fallbackLabel: "MCP Server" } },
-  { prefix: "/admin/prompt-templates/", meta: { icon: FileText, category: "Configure", fallbackLabel: "Template" } },
-  { prefix: "/admin/webhooks/", meta: { icon: Webhook, category: "Developer", fallbackLabel: "Webhook" } },
-  { prefix: "/admin/workflows/", meta: { icon: Zap, category: "Automate", fallbackLabel: "Workflow" } },
-  { prefix: "/admin/docker-stacks/", meta: { icon: Boxes, category: "Configure", fallbackLabel: "Docker Stack" } },
-  { prefix: "/admin/tool-policies/", meta: { icon: Shield, category: "Security", fallbackLabel: "Policy" } },
-  { prefix: "/admin/logs/", meta: { icon: ScrollText, category: "Monitor", fallbackLabel: "Log Trace" } },
-  { prefix: "/admin/api-keys/", meta: { icon: Key, category: "Developer", fallbackLabel: "API Key" } },
-  { prefix: "/admin/workspaces/", meta: { icon: HardDrive, category: "Configure", fallbackLabel: "Workspace" } },
-  { prefix: "/widgets/", meta: { icon: LayoutDashboard, category: "Widgets", fallbackLabel: "Dashboard" } },
-  { prefix: "/channels/", meta: { icon: Hash, category: "Channels", fallbackLabel: "Channel" } },
-];
-
-function resolveRouteMetadata(href: string): RouteMeta | null {
-  for (const { prefix, meta } of ROUTE_PREFIX_MAP) {
-    if (href.startsWith(prefix) && href.length > prefix.length) {
-      // Build a better fallback label: "Task 5aa9f…" instead of just "Task"
-      const idPart = href.slice(prefix.length).split("/")[0].split("#")[0];
-      const shortId = idPart.length > 8 ? idPart.slice(0, 7) + "\u2026" : idPart;
-      return { ...meta, fallbackLabel: `${meta.fallbackLabel}: ${shortId}` };
-    }
-  }
-  // Fallback for any unmatched page that was still recorded
-  if (href.startsWith("/")) return { icon: Clock, category: "Recent", fallbackLabel: href.split("/").pop() ?? "Page" };
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Hook: global keyboard shortcut
 // ---------------------------------------------------------------------------
 
@@ -363,7 +318,7 @@ export function CommandPaletteContent({
   const location = useLocation();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
-  const currentHref = location.pathname + (location.hash || "");
+  const currentHref = buildRecentHref(location.pathname, location.search, location.hash);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
@@ -516,6 +471,18 @@ export function CommandPaletteContent({
     return items;
   }, [channels, bots, sidebarData, integrationsData, registeredActions, isAdmin]);
 
+  const channelNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of allItems) {
+      if (!item.href?.startsWith("/channels/")) continue;
+      if (item.category !== "Channels") continue;
+      const channelId = item.href.slice("/channels/".length);
+      if (!channelId || channelId.includes("/")) continue;
+      map.set(channelId, item.label);
+    }
+    return map;
+  }, [allItems]);
+
   // Recent pages from persisted store
   const recentPages = useUIStore((s) => s.recentPages);
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
@@ -526,23 +493,12 @@ export function CommandPaletteContent({
   // Resolve a RecentPage to a PaletteItem — match allItems first, then synthesize
   const resolveRecent = useCallback(
     (rp: RecentPage): PaletteItem | null => {
-      const match = allItems.find((it) => it.href === rp.href);
-      if (match) return match;
-      const meta = resolveRouteMetadata(rp.href);
-      if (!meta) return null;
-      // If enriched with a real name, prefix with the entity type (e.g. "Task: My Task Name")
-      const baseLabel = meta.fallbackLabel.split(":")[0]; // "Task", "Skill", etc.
-      const label = rp.label ? `${baseLabel}: ${rp.label}` : meta.fallbackLabel;
-      return {
-        id: `recent-${rp.href}`,
-        label,
-        hint: meta.category,
-        href: rp.href,
-        icon: meta.icon,
-        category: meta.category,
-      };
+      const navigableItems: RecentPaletteItemCandidate[] = allItems.filter(
+        (it): it is RecentPaletteItemCandidate => typeof it.href === "string",
+      );
+      return resolveRecentPaletteItem(rp, navigableItems, { channelNameById });
     },
-    [allItems],
+    [allItems, channelNameById],
   );
 
   // Set of top-level labels referenced by sub-page `hint` fields. Sub-pages
@@ -567,8 +523,7 @@ export function CommandPaletteContent({
       const recentLimit = recentsExpanded ? 20 : 5;
       for (const rp of recentPages) {
         if (recentItems.length >= recentLimit) break;
-        if (rp.href === currentHref) continue;
-        if (!isAdmin && rp.href.startsWith("/admin/")) continue;
+        if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
         const resolved = resolveRecent(rp);
         if (resolved) {
           recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
@@ -589,8 +544,8 @@ export function CommandPaletteContent({
     );
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       if (allItemsByHref.has(rp.href)) continue;
-      if (!isAdmin && rp.href.startsWith("/admin/")) continue;
       const resolved = resolveRecent(rp);
       if (resolved) syntheticRecents.push(resolved);
     }
@@ -601,7 +556,7 @@ export function CommandPaletteContent({
     let bonusSlot = 0;
     for (const rp of recentPages) {
       if (bonusSlot >= 5) break;
-      if (rp.href === currentHref) continue;
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       recencyBonus.set(rp.href, 15 - bonusSlot * 3);
       bonusSlot++;
     }
@@ -628,11 +583,11 @@ export function CommandPaletteContent({
   const totalRecents = useMemo(() => {
     let count = 0;
     for (const rp of recentPages) {
-      if (rp.href === currentHref) continue;
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       if (resolveRecent(rp)) count++;
     }
     return count;
-  }, [recentPages, currentHref, resolveRecent]);
+  }, [recentPages, currentHref, resolveRecent, isAdmin]);
 
   // Whether to show the "show more" toggle in the Recent group
   const showRecentsToggle = !query.trim() && totalRecents > 5;

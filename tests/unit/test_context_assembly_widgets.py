@@ -31,7 +31,6 @@ def _minimal_bot(bot_id: str = "bot-a") -> BotConfig:
         skills=[],
         pinned_tools=[],
         tool_retrieval=False,
-        carapaces=[],
         memory_scheme=None,
         history_mode=None,
         filesystem_indexes=[],

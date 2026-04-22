@@ -197,3 +197,56 @@ def test_append_plan_artifact_persists(monkeypatch, tmp_path):
     assert reloaded is not None
     assert len(reloaded.artifacts) == 1
     assert reloaded.artifacts[0].label == "widget bot/home_control @ abc1234"
+
+
+def test_list_plan_revisions_includes_snapshots_and_current(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(session, title="Build Widget Planner", summary="Draft one")
+    spm.publish_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Draft two",
+        scope="Updated scope",
+        steps=[
+            {"id": "audit", "label": "Audit the current plan flow"},
+            {"id": "ship", "label": "Ship the hardening"},
+        ],
+    )
+    spm.approve_session_plan(session)
+
+    revisions = spm.list_session_plan_revisions(session)
+
+    assert [entry["revision"] for entry in revisions] == [2, 1]
+    assert revisions[0]["is_active"] is True
+    assert revisions[0]["is_accepted"] is True
+    assert revisions[0]["source"] == "current"
+    assert revisions[1]["source"] == "snapshot"
+    assert revisions[0]["changed_sections"]
+
+
+def test_build_plan_revision_diff_uses_snapshot_content(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(session, title="Build Widget Planner", summary="Draft one", scope="Initial scope")
+    spm.publish_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Draft two",
+        scope="Updated scope",
+        steps=[
+            {"id": "audit", "label": "Audit the current plan flow"},
+            {"id": "ship", "label": "Ship the hardening"},
+        ],
+    )
+    spm.approve_session_plan(session)
+    spm.update_plan_step_status(session, step_id="audit", status=spm.STEP_STATUS_DONE, note="execution changed current file")
+
+    diff = spm.build_session_plan_revision_diff(session, from_revision=1, to_revision=2)
+
+    assert diff["from_revision"] == 1
+    assert diff["to_revision"] == 2
+    assert "scope" in diff["changed_sections"]
+    assert "steps" in diff["changed_sections"]
+    assert "Execution started." not in diff["diff"]
+    assert "Updated scope" in diff["diff"]

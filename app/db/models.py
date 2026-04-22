@@ -66,8 +66,6 @@ class Channel(Base):
     local_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     mcp_servers_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     client_tools_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    carapaces_extra: Mapped[list | None] = mapped_column(JSONB, nullable=True)
-    carapaces_disabled: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     model_tier_overrides: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     workspace_base_prompt_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     channel_workspace_enabled: Mapped[bool] = mapped_column(
@@ -825,7 +823,6 @@ class Bot(Base):
     system_prompt_write_protected: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    carapaces: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))  # "system"|"file"|"manual"
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
@@ -867,45 +864,6 @@ class BotGrant(Base):
     __table_args__ = (
         Index("ix_bot_grants_user_id", "user_id"),
         Index("ix_bot_grants_bot_id", "bot_id"),
-    )
-
-
-class Carapace(Base):
-    __tablename__ = "carapaces"
-
-    id: Mapped[str] = mapped_column(Text, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    local_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    mcp_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    pinned_tools: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    system_prompt_fragment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    includes: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    delegates: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    tags: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
-    source_path: Mapped[str | None] = mapped_column(Text, nullable=True)
-    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
-    requires: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
-    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
-
-
-class CapabilityEmbedding(Base):
-    __tablename__ = "capability_embeddings"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    carapace_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
-    name: Mapped[str] = mapped_column(Text, nullable=False)
-    embed_text: Mapped[str] = mapped_column(Text, nullable=False)
-    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding = mapped_column(Vector(settings.EMBEDDING_DIMENSIONS))
-    source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))
-    indexed_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True),
-        server_default=text("now()"),
     )
 
 

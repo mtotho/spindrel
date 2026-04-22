@@ -11,6 +11,7 @@ import { usePaletteSearch } from "../palette/search";
 import { HomeGridTile } from "./HomeGridTile";
 import { NewChannelTile } from "./NewChannelTile";
 import { Link } from "react-router-dom";
+import { buildRecentHref } from "../../lib/recentPages";
 
 const MIN_TILE_WIDTH = 220;
 const GRID_GAP = 8;
@@ -48,7 +49,7 @@ export function HomeGrid() {
   );
 
   const { groups: rawGroups, isEmpty } = usePaletteSearch(items, query, {
-    currentHref: location.pathname + (location.hash || ""),
+    currentHref: buildRecentHref(location.pathname, location.search, location.hash),
     searchLimit: 200,
   });
 

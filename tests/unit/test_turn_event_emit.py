@@ -152,6 +152,39 @@ class TestEmitRunStreamEvents:
         assert published[0].payload.is_error is True
         assert published[0].payload.result_summary == "timeout"
 
+    async def test_when_inline_widget_tool_result_errors_then_widget_surface_is_preserved(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "tool_result",
+                "tool": "web_search",
+                "tool_call_id": "call-search",
+                "args": '{"q": "weather in Lambertville NJ today"}',
+                "error": "Cannot connect to SearXNG",
+                "result": '{"error": "Cannot connect to SearXNG"}',
+                "envelope": {
+                    "content_type": "application/vnd.spindrel.html+interactive",
+                    "display": "inline",
+                    "display_label": "Web search",
+                    "plain_body": "Web search",
+                },
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "tool_result"
+        assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
+        assert published[0].payload.tool_call_id == "call-search"
+        assert published[0].payload.surface == "widget"
+        assert published[0].payload.summary == {
+            "kind": "error",
+            "subject_type": "widget",
+            "label": "Widget unavailable",
+            "target_label": "Web search",
+            "error": "Cannot connect to SearXNG",
+        }
+
     async def test_when_tool_result_includes_presentation_then_payload_preserves_it(self):
         ch = uuid.uuid4()
         diff_body = "\n".join([

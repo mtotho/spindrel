@@ -6,29 +6,28 @@
  * border to distinguish from chat content.
  */
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { RichRendererChromeMode, RichRendererVariant } from "./genericRendererChrome";
+import { resolveCodeShell } from "./genericRendererChrome";
 
 interface Props {
   body: string;
+  rendererVariant?: RichRendererVariant;
+  chromeMode?: RichRendererChromeMode;
   t: ThemeTokens;
 }
 
-export function TextRenderer({ body, t }: Props) {
+export function TextRenderer({
+  body,
+  rendererVariant = "default-chat",
+  chromeMode = "standalone",
+  t,
+}: Props) {
   return (
     <pre
       style={{
-        margin: 0,
-        padding: "8px 12px",
-        borderRadius: 8,
-        background: t.codeBg,
-        border: `1px solid ${t.codeBorder}`,
-        fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-        fontSize: 12,
-        lineHeight: 1.5,
-        color: t.contentText,
+        ...resolveCodeShell({ t, rendererVariant, chromeMode }),
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
-        maxHeight: 400,
-        overflowY: "auto",
       }}
     >
       {body}

@@ -41,6 +41,7 @@ import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } f
 import { ChatSession, type ChatSource } from "@/src/components/chat/ChatSession";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
+import { buildRecentHref } from "@/src/lib/recentPages";
 
 /** True when a pin currently lives on the chat sidebar rail canvas. Zone
  *  is stored explicitly on the pin; this is a convenience predicate so the
@@ -135,8 +136,8 @@ export default function WidgetsDashboardPage() {
   const loc = useLocation();
   useEffect(() => {
     const name = isChannelScoped ? channelRow?.name : currentDashboard?.name;
-    if (name) enrichRecentPage(loc.pathname, name);
-  }, [currentDashboard?.name, channelRow?.name, isChannelScoped, loc.pathname, enrichRecentPage]);
+    if (name) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), name);
+  }, [currentDashboard?.name, channelRow?.name, isChannelScoped, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
   const railCount = useMemo(
     () => pins.filter((p) => isRailPin(p)).length,
     [pins],

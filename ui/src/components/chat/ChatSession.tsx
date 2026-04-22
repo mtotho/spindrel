@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useBots, useBot } from "@/src/api/hooks/useBots";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { apiFetch } from "@/src/api/client";
@@ -18,9 +18,10 @@ import { useSessionConfigOverhead } from "@/src/api/hooks/useSessionConfigOverhe
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
-import { useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
+import { useChannel, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useChannelChatSource } from "@/src/api/hooks/useChannelChatSource";
 import { selectIsStreaming, useChatStore } from "@/src/stores/chat";
+import { useUIStore } from "@/src/stores/ui";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChatSessionModal } from "./ChatSessionModal";
 import { ChatSessionDock } from "./ChatSessionDock";
@@ -44,6 +45,7 @@ import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
+import { buildRecentHref, formatSessionRecentLabel } from "@/src/lib/recentPages";
 
 export interface EphemeralContextPayload {
   page_name?: string;
@@ -623,7 +625,9 @@ function EphemeralChatSession({
   const t = useThemeTokens();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: bots } = useBots();
+  const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
 
   const {
     sessionStorageKey,
@@ -743,6 +747,7 @@ function EphemeralChatSession({
   const isSending = submitChat.isPending || turnActive;
 
   const { data: overheadData } = useSessionConfigOverhead(sessionId ?? undefined);
+  const { data: scratchChannel } = useChannel(scratchBoundChannelId ?? undefined);
   const overheadPct = overheadData?.overhead_pct ?? null;
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
 
@@ -923,6 +928,25 @@ function EphemeralChatSession({
       stats: stats || null,
     };
   }, [headerStats, scratchBoundChannelId, sessionId, scratchHistory, scratchQuery.data]);
+  useEffect(() => {
+    if (!scratchBoundChannelId || !sessionId || !scratchChannel?.name) return;
+    const expectedPath = `/channels/${scratchBoundChannelId}/session/${sessionId}`;
+    if (location.pathname !== expectedPath) return;
+    const currentHref = buildRecentHref(location.pathname, location.search, location.hash);
+    enrichRecentPage(
+      currentHref,
+      formatSessionRecentLabel(scratchChannel.name, sessionHeaderMeta?.label),
+    );
+  }, [
+    enrichRecentPage,
+    location.pathname,
+    location.search,
+    location.hash,
+    scratchBoundChannelId,
+    scratchChannel?.name,
+    sessionHeaderMeta?.label,
+    sessionId,
+  ]);
   const displayHeaderTitle =
     sessionHeaderMeta?.label
     ?? (scratchBoundChannelId ? "Session" : title);

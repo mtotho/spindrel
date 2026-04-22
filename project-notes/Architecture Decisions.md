@@ -8,6 +8,48 @@
 
 ## Key Decisions
 
+### LLM replay context now excludes internal transcript rows and compacts older assistant history from canonical turn bodies
+**Decided 2026-04-22.** Session reload and compaction now treat replayable chat history as a separate budgeted surface instead of replaying all persisted transcript text verbatim.
+
+**What changed.**
+- `_load_messages()` no longer reloads rows marked `metadata.hidden` or `metadata.pipeline_step` into model history by default.
+- Older assistant rows with large verbose `content` now prefer compact replay text derived from canonical `assistant_turn_body` metadata, while the most recent assistant row still stays verbatim.
+- Context budgeting now distinguishes:
+  - `base_tokens`
+  - `live_history_tokens`
+  - `static_injection_tokens`
+  - `tool_schema_tokens`
+- Early compaction is no longer driven only by one blended utilization number. Replayable live history now has its own soft caps.
+
+**Why.**
+- The dominant context-growth surface was not fresh retrieval but replaying oversized assistant-heavy history across multiple iterations.
+- UI-hidden/pipeline transcript rows were being suppressed visually but still re-entering the model, which is the worst kind of invisible context leak.
+- Assistant transcript bodies were already persisted in a more structured form (`assistant_turn_body`), but reload still favored raw verbose prose.
+
+**Load-bearing invariants.**
+- Hidden/pipeline rows are UI/runtime continuity artifacts, not model context. If a row should stay available to humans or renderers but not the LLM, it must be hidden at load time, not only at render time.
+- `assistant_turn_body` is now the canonical substrate for replaying older assistant turns when compaction is needed. Raw assistant `content` is still preserved for UI/audit fidelity.
+- The latest assistant turn is kept verbatim to preserve immediate conversational continuity; older assistant turns are eligible for compact replay.
+- Context-pressure decisions must distinguish replayable live history from static injections. Compaction is the right lever for the former, not automatically for the latter.
+
+### Compaction window selection is watermark-based, not `interval - keep_turns`
+**Decided 2026-04-22.** When compaction fires early because context pressure is high, the summary slice is now chosen by the actual watermark boundary instead of the old `interval - keep_turns` heuristic.
+
+**What changed.**
+- The compaction keep window is still defined semantically by the latest `keep_turns` user messages.
+- The summarized window is now the exact persisted message range between the previous watermark (if any) and the oldest kept user turn.
+- Internal rows (`hidden`, `pipeline_step`) are excluded from the summary input in the same way heartbeat rows already were.
+- Trace payloads now record the compaction trigger reason.
+
+**Why.**
+- The previous early-compaction path could summarize turns that were still being kept live, which duplicated context rather than shrinking it.
+- Once compaction can fire on size before the nominal turn interval, turn-count arithmetic alone is no longer a reliable way to choose the summary boundary.
+
+**Load-bearing invariants.**
+- Compaction must never summarize content that remains inside the live keep window.
+- A watermark is the only authoritative boundary between "already summarized" and "still live".
+- If prompt pressure comes mostly from static injections instead of replayable history, lowering optional injections is preferred over summarizing chat more aggressively.
+
 ### Persisted tool outcomes carry a normalized presentation contract beside raw audit data
 **Decided 2026-04-22.** Persisted tool data now has three layers:
 
@@ -429,6 +471,10 @@ See also: Fix Log entry 2026-04-19 for the symptom trail (422 on `/channels/<uui
 
 **Canonical reference for future integration work:** any integration adding a `docker_compose:` block must (a) omit `container_name:` in the compose file, (b) interpolate `${SPINDREL_INSTANCE_ID}` into `project_name:` in `integration.yaml`, (c) declare `network_aliases:` for every service the agent-server needs to reach, (d) resolve service URLs from `settings.SPINDREL_INSTANCE_ID` in its `config.py`. Host `ports:` are orthogonal — only publish if a human needs to hit the service from the host; prefer network-alias-only access.
 
+**Follow-up decided 2026-04-22.** Enabled integration stacks are **desired-state reconciled**, not DB-state skipped. Startup warmup and the admin integration-settings path must always run `docker compose up -d --remove-orphans` for enabled integration stacks, even if the DB row already says `status="running"`. If the checked-in compose definition or interpolated `project_name` changed, that converge step must add `--force-recreate`.
+
+**Why:** on `thoth`, `web_search` kept failing with `Cannot connect to SearXNG at http://searxng-local:8080` even though the checked-in compose file was already correct. The DB row had been updated, but the running sidecars were old containers still attached only to `spindrel-local-web-search_default`, so the app container on `agent-server_default` could not resolve `searxng-local` at all. Syncing the DB/materialized compose file is not enough; the runtime stack has to be re-applied.
+
 ### Channel Binding Model — Capabilities Live on the Binding, Not the Channel
 **Decided 2026-04-17** (session 11, correcting the Slack-Depth Phase 3/4 regression shipped earlier the same day).
 
@@ -686,6 +732,8 @@ See [[Track - Integration Delivery]] for active polish + Phase H acceptance test
 - Planning mode may read/search normally but may only mutate the canonical plan file.
 - Approval binds execution to the accepted revision; the executor advances one step at a time against that same Markdown file.
 - Progress stays inline in the file; no shadow DB row or second execution artifact in v1.
+- Draft revisions also write immutable `.revisions/<task>.rN.md` snapshots so revision history and diffing stay file-backed instead of requiring a plans table.
+- Plan-state sync rides the session SSE bus (`session_plan_updated`) and the web hook updates query state from that stream; plan polling is fallback, not the primary transport.
 
 ### Return-Capable Tool Hooks (pending) — 2026-04-12
 **Decision (pending)**: Current `after_tool_call` hooks are fire-and-forget (observe only). For integration-specific MCP result rendering, we'd want hooks that can *modify* the envelope (e.g., Firecrawl crawl results → link list, HA state queries → properties component).

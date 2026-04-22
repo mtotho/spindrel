@@ -101,6 +101,7 @@ async def run_turn(
     response_actions: list | None = None
     _intermediate_texts: list[str] = []
     _budget_utilization: float | None = None
+    _budget_snapshot: dict | None = None
     was_cancelled = False
     error_text: str | None = None
     pre_user_msg_id: uuid.UUID | None = None
@@ -281,6 +282,7 @@ async def run_turn(
 
             if etype == "context_budget":
                 _budget_utilization = event.get("utilization")
+                _budget_snapshot = dict(event)
                 continue
 
             if etype == "response":
@@ -414,6 +416,7 @@ async def run_turn(
             session_id, bot, messages,
             correlation_id=correlation_id,
             budget_utilization=_budget_utilization,
+            budget_snapshot=_budget_snapshot,
         )
 
         # 7. Bot-to-bot @-mention chain: trigger member bot replies for

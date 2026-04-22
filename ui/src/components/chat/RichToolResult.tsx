@@ -43,8 +43,10 @@ import { NativeAppRenderer } from "./renderers/NativeAppRenderer";
 import { PlanResultRenderer } from "./renderers/PlanResultRenderer";
 import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
-
-export type RichRendererVariant = "default-chat" | "terminal-chat" | "dashboard";
+import type {
+  RichRendererChromeMode,
+  RichRendererVariant,
+} from "./renderers/genericRendererChrome";
 
 interface Props {
   envelope: ToolResultEnvelope;
@@ -91,6 +93,7 @@ interface Props {
    *  or rely on the host's surfaced shell. */
   hostSurface?: HostSurface;
   rendererVariant?: RichRendererVariant;
+  chromeMode?: RichRendererChromeMode;
   t: ThemeTokens;
 }
 
@@ -123,6 +126,7 @@ export function RichToolResult({
   layout,
   hostSurface,
   rendererVariant = "default-chat",
+  chromeMode = "standalone",
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
@@ -153,18 +157,21 @@ export function RichToolResult({
   // Truncated and not yet fetched — show the lazy-load affordance.
   if (envelope.truncated && body == null) {
     const canFetch = sessionId && envelope.record_id;
+    const isEmbedded = chromeMode === "embedded";
+    const isTerminal = rendererVariant === "terminal-chat";
     return (
       <div
         style={{
-          padding: "6px 10px",
-          borderRadius: 8,
-          border: `1px dashed ${rendererTokens.surfaceBorder}`,
-          background: rendererTokens.overlayLight,
+          padding: isEmbedded ? (isTerminal ? "0" : "0") : "6px 10px",
+          borderRadius: isEmbedded ? 0 : 8,
+          border: isEmbedded ? "none" : `1px dashed ${rendererTokens.surfaceBorder}`,
+          background: isEmbedded ? "transparent" : rendererTokens.overlayLight,
           fontSize: 11,
           color: rendererTokens.textMuted,
           display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
+          fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
         }}
       >
         <span>{envelope.plain_body || "Output exceeds inline limit."}</span>
@@ -190,7 +197,7 @@ export function RichToolResult({
               padding: "2px 8px",
               borderRadius: 4,
               border: `1px solid ${rendererTokens.accentBorder}`,
-              background: rendererTokens.accentSubtle,
+              background: isEmbedded ? "transparent" : rendererTokens.accentSubtle,
               color: rendererTokens.accent,
               fontSize: 11,
               cursor: fetching ? "wait" : "pointer",
@@ -217,7 +224,7 @@ export function RichToolResult({
   let content: React.ReactNode;
   if (isComponents && showJson) {
     // Force JSON view of the component body
-    content = <JsonTreeRenderer body={body} t={t} />;
+    content = <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
   } else {
     switch (envelope.content_type) {
       case "text/markdown":
@@ -232,10 +239,10 @@ export function RichToolResult({
         );
         break;
       case "application/json":
-        content = <JsonTreeRenderer body={body} t={rendererTokens} />;
+        content = <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "text/html":
-        content = <SandboxedHtmlRenderer body={body} t={rendererTokens} />;
+        content = <SandboxedHtmlRenderer body={body} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.html+interactive":
         content = (
@@ -258,7 +265,7 @@ export function RichToolResult({
         content = <DiffRenderer body={body} rendererVariant={rendererVariant} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.file-listing+json":
-        content = <FileListingRenderer body={body} t={rendererTokens} />;
+        content = <FileListingRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.components+json":
         content = <ComponentRenderer body={body} t={rendererTokens} />;
@@ -279,7 +286,7 @@ export function RichToolResult({
         break;
       case "text/plain":
       default:
-        content = <TextRenderer body={body} t={rendererTokens} />;
+        content = <TextRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
     }
   }

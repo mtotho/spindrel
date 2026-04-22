@@ -11,6 +11,7 @@ import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { buildRecentHref } from "@/src/lib/recentPages";
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -52,8 +53,8 @@ export default function SkillDetailScreen() {
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
   const loc = useLocation();
   useEffect(() => {
-    if (skill?.name) enrichRecentPage(loc.pathname, skill.name);
-  }, [skill?.name, loc.pathname, enrichRecentPage]);
+    if (skill?.name) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), skill.name);
+  }, [skill?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
   if (skill && !initialized) {
     setName(skill.name || "");

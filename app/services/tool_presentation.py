@@ -228,12 +228,31 @@ def derive_tool_presentation(
         envelope.get("panel_title") if envelope else None,
         envelope.get("plain_body") if envelope else None,
     ))
+    content_type = _first_nonempty(envelope.get("content_type") if envelope else None)
+    is_inline_envelope = bool(envelope and envelope.get("display") == "inline")
 
     error_text = _first_nonempty(
         error,
         result_json.get("error") if isinstance(result_json, dict) else None,
     )
     if error_text:
+        if content_type in _WIDGET_CONTENT_TYPES:
+            summary = {
+                "kind": "error",
+                "subject_type": "widget",
+                "label": "Widget unavailable",
+                "error": error_text,
+            }
+            if envelope_label:
+                summary["target_label"] = envelope_label
+            return "widget", summary
+        if content_type in _RICH_TRANSCRIPT_CONTENT_TYPES or is_inline_envelope:
+            return "rich_result", {
+                "kind": "error",
+                "subject_type": "generic",
+                "label": envelope_label or tool_name.replace("_", " "),
+                "error": error_text,
+            }
         return "transcript", {
             "kind": "error",
             "subject_type": "tool",
@@ -300,14 +319,13 @@ def derive_tool_presentation(
             summary["path"] = path
         return "transcript", summary
 
-    content_type = _first_nonempty(envelope.get("content_type") if envelope else None)
     if content_type in _WIDGET_CONTENT_TYPES:
         summary = {"kind": "result", "subject_type": "widget", "label": "Widget available"}
         if envelope_label:
             summary["target_label"] = envelope_label
         return "widget", summary
 
-    if content_type in _RICH_TRANSCRIPT_CONTENT_TYPES or (envelope and envelope.get("display") == "inline"):
+    if content_type in _RICH_TRANSCRIPT_CONTENT_TYPES or is_inline_envelope:
         summary = {
             "kind": "result",
             "subject_type": "generic",

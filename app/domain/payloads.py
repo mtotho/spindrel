@@ -329,6 +329,12 @@ class ContextBudgetPayload:
     total_tokens: int
     utilization: float
     model: str = ""
+    available_budget: int = 0
+    live_history_tokens: int = 0
+    live_history_utilization: float = 0.0
+    base_tokens: int = 0
+    static_injection_tokens: int = 0
+    tool_schema_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -459,6 +465,16 @@ class ModalSubmittedPayload:
     metadata: dict = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class SessionPlanUpdatedPayload:
+    """Payload for `session_plan_updated` events on the session bus."""
+
+    session_id: uuid.UUID
+    reason: str
+    state: dict
+    plan: dict | None = None
+
+
 # Discriminated union of all known payloads.
 ChannelEventPayload = (
     MessagePayload
@@ -485,4 +501,5 @@ ChannelEventPayload = (
     | EphemeralMessagePayload
     | ModalSubmittedPayload
     | WidgetReloadPayload
+    | SessionPlanUpdatedPayload
 )

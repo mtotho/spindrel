@@ -46,7 +46,8 @@ The plan artifact is the canonical saved plan.
 
 Current v1 storage:
 
-- one Markdown file per task
+- one active Markdown file per task
+- immutable Markdown snapshots per revision under `.revisions/`
 - no plans table
 - no snapshot/version table
 - revision number stored in the file and session metadata
@@ -133,8 +134,13 @@ This is important. The user is opting into a planning contract, not asking the a
 Current web/session plumbing includes:
 
 - `GET /sessions/{session_id}/plan-state`
+- `GET /sessions/{session_id}/plan/revisions`
+- `GET /sessions/{session_id}/plan/revisions/{revision}`
+- `GET /sessions/{session_id}/plan/diff`
 - `POST /sessions/{session_id}/plan/start`
 - session plan approval and step-status routes in `app/routers/sessions.py`
+- session SSE at `GET /api/v1/sessions/{session_id}/events`
+  carries `session_plan_updated` frames so the web UI does not have to poll while the user is looking at an active plan
 
 Frontend session state is currently driven through:
 
@@ -250,10 +256,6 @@ Current shape:
 - `text`, `textarea`, or `select`
 - rendered as native-app widget `core/plan_questions`
 
-The card currently fills the composer with a formatted answer block for user review rather than auto-submitting silently.
-
-This tool should be preferred whenever multiple choice/structured answers will reduce ambiguity.
-
 Current backend/runtime details:
 
 - registered as a local tool
@@ -263,11 +265,11 @@ Current backend/runtime details:
 
 Current UI behavior:
 
-- the widget dispatches `spindrel:plan-question-fill`
-- `MessageInput` listens for that event
-- answers are appended to the composer for review instead of auto-submitting
+- the widget submits the collected answers as a real user message on the session
+- the answers land in transcript history instead of living only in browser/composer state
+- submission still remains explicit user action; the widget does not silently answer itself
 
-That review step is intentional for now. It keeps the user in the loop and prevents a widget interaction from silently becoming a sent message.
+This tool should be preferred whenever multiple choice/structured answers will reduce ambiguity.
 
 ### `publish_plan`
 
@@ -387,6 +389,29 @@ That means:
 - do not assume the latest edited file contents are approved unless that revision was actually accepted
 - do not keep executing after the plan is materially stale; return to planning instead
 
+The web routes now enforce this more explicitly:
+
+- approve routes can reject a stale client revision with `409 Revision mismatch`
+- step-status routes can reject a stale client revision with the same `409`
+- transcript cards for older revisions should therefore be treated as historical views, not implicit control surfaces for the latest draft
+
+## Revision History And Sync
+
+Revision history is now snapshot-backed, even though the canonical artifact is still one active Markdown file.
+
+Current behavior:
+
+- draft publication writes immutable revision snapshots under `.revisions/`
+- `GET /sessions/{session_id}/plan` returns current revision metadata plus a lightweight revision-history list
+- `GET /sessions/{session_id}/plan/diff` returns a unified diff between revision snapshots
+- the web UI can render historical transcript cards and compare revisions without guessing from chat prose
+
+Session sync is event-driven:
+
+- plan mutations publish `session_plan_updated` on the session SSE bus
+- `useSessionPlanMode` updates query state from that event stream
+- polling is no longer the primary plan-state refresh mechanism
+
 ## Execution Contract
 
 Execution is supervised and step-scoped.
@@ -501,12 +526,13 @@ What v1 does well:
 - transcript-first plan/question rendering
 - Markdown-backed canonical artifact
 - revision-aware approval
+- snapshot-backed revision history + diff surfaces
+- event-driven plan-state sync on the session bus
 - one-step-at-a-time execution model
 
 What v1 does not yet do:
 
 - background detached executor loop
-- multi-revision history model beyond the single-file revision counter
 - Slack/Discord parity for this exact workflow
 - automatic evaluation of whether a plan is too large beyond prompt/runtime heuristics
 
@@ -517,7 +543,7 @@ These are known gaps between the current v1 and the fuller planning system we li
 - no dedicated replan tool
   the model can ask more questions or publish a revision, but there is no explicit `needs_replan` artifact/tool contract yet
 - no explicit “question answered” structured reply channel
-  answers are currently filled into the composer and sent as ordinary chat text
+  answers now persist as ordinary user chat messages; there is still no separate typed answer artifact beyond the transcript message itself
 - no hard validator for plan breadth/quality before approval
   current guardrails are mostly prompt and runtime convention, not deep static validation
 - no detached execution worker

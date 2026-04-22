@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services.docker_stacks import (
+    IntegrationStackSyncResult,
     StackService,
     StackError,
     StackValidationError,
@@ -639,11 +640,9 @@ class TestDestroyGuard:
         mock_stack.created_by_bot = "test-bot"
         # Mock the compose command + DB session to avoid real Docker calls
         with patch.object(service, "_compose_cmd") as mock_cmd, \
-             patch.object(service, "_disconnect_workspace") as mock_disc, \
              patch("app.services.docker_stacks.async_session") as mock_session_ctx, \
              patch("os.path.exists", return_value=False):
             mock_cmd.return_value = MagicMock(exit_code=0)
-            mock_disc.return_value = None
             mock_db = AsyncMock()
             mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
             mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
@@ -726,7 +725,7 @@ class TestSyncIntegrationStack:
             mock_result.scalar_one_or_none.return_value = existing
             mock_db.execute.return_value = mock_result
 
-            await service.sync_integration_stack(
+            result = await service.sync_integration_stack(
                 integration_id="web_search",
                 name="New Name",
                 compose_definition=new_yaml,
@@ -736,6 +735,110 @@ class TestSyncIntegrationStack:
             # Verify compose was updated
             assert existing.compose_definition == new_yaml
             assert existing.name == "New Name"
+            assert result.stack is existing
+            assert result.compose_changed is True
+            assert result.project_name_changed is False
+
+    @pytest.mark.asyncio
+    async def test_sync_detects_project_name_drift(self):
+        service = StackService()
+        existing = MagicMock()
+        existing.id = uuid.uuid4()
+        existing.compose_definition = "services:\n  web:\n    image: x\n"
+        existing.name = "Old Name"
+        existing.description = "Old desc"
+        existing.project_name = "spindrel-old-web-search"
+
+        with patch("app.services.docker_stacks.async_session") as mock_session_ctx, \
+             patch.object(service, "_materialize"):
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = existing
+            mock_db.execute.return_value = mock_result
+
+            result = await service.sync_integration_stack(
+                integration_id="web_search",
+                name="New Name",
+                compose_definition=existing.compose_definition,
+                project_name="spindrel-local-web-search",
+            )
+
+            assert existing.project_name == "spindrel-local-web-search"
+            assert result.compose_changed is False
+            assert result.project_name_changed is True
+
+
+class TestApplyIntegrationStack:
+    @pytest.mark.asyncio
+    async def test_reapplies_enabled_running_stack_without_recreate_when_unchanged(self):
+        service = StackService()
+        stack = MagicMock(status="running")
+        sync = IntegrationStackSyncResult(
+            stack=stack,
+            compose_changed=False,
+            project_name_changed=False,
+        )
+
+        with patch.object(service, "sync_integration_stack", AsyncMock(return_value=sync)), \
+             patch.object(service, "start", AsyncMock(return_value=stack)) as mock_start:
+            result = await service.apply_integration_stack(
+                integration_id="web_search",
+                name="Web search",
+                compose_definition="services:\n  s:\n    image: x\n",
+                project_name="spindrel-local-web-search",
+                enabled=True,
+            )
+
+            assert result is stack
+            mock_start.assert_awaited_once_with(stack, force_recreate=False)
+
+    @pytest.mark.asyncio
+    async def test_force_recreates_running_stack_when_spec_changed(self):
+        service = StackService()
+        stack = MagicMock(status="running")
+        sync = IntegrationStackSyncResult(
+            stack=stack,
+            compose_changed=True,
+            project_name_changed=False,
+        )
+
+        with patch.object(service, "sync_integration_stack", AsyncMock(return_value=sync)), \
+             patch.object(service, "start", AsyncMock(return_value=stack)) as mock_start:
+            await service.apply_integration_stack(
+                integration_id="web_search",
+                name="Web search",
+                compose_definition="services:\n  s:\n    image: x\n",
+                project_name="spindrel-local-web-search",
+                enabled=True,
+            )
+
+            mock_start.assert_awaited_once_with(stack, force_recreate=True)
+
+    @pytest.mark.asyncio
+    async def test_stops_running_stack_when_disabled(self):
+        service = StackService()
+        stack = MagicMock(status="running")
+        sync = IntegrationStackSyncResult(
+            stack=stack,
+            compose_changed=False,
+            project_name_changed=False,
+        )
+
+        with patch.object(service, "sync_integration_stack", AsyncMock(return_value=sync)), \
+             patch.object(service, "stop", AsyncMock(return_value=stack)) as mock_stop:
+            result = await service.apply_integration_stack(
+                integration_id="web_search",
+                name="Web search",
+                compose_definition="services:\n  s:\n    image: x\n",
+                project_name="spindrel-local-web-search",
+                enabled=False,
+            )
+
+            assert result is stack
+            mock_stop.assert_awaited_once_with(stack)
 
 
 class TestReconcileRunning:
@@ -884,6 +987,30 @@ class TestComposeCmdEnvPropagation:
         finally:
             app_settings.SPINDREL_INSTANCE_ID = original_id
             app_settings.AGENT_NETWORK_NAME = original_net
+
+
+class TestStart:
+    @pytest.mark.asyncio
+    async def test_start_uses_force_recreate_when_requested(self):
+        service = StackService()
+        stack = MagicMock()
+        stack.id = uuid.uuid4()
+        stack.project_name = f"{PROJECT_PREFIX}test"
+        stack.compose_definition = "services:\n  s:\n    image: x\n"
+
+        with patch.object(service, "_materialize"), \
+             patch.object(service, "_detect_project_name_collision", AsyncMock(return_value=None)), \
+             patch.object(service, "_compose_cmd", AsyncMock(return_value=MagicMock(exit_code=0, stderr="")) ) as mock_cmd, \
+             patch.object(service, "_inspect_stack", AsyncMock(return_value=({}, {}, None))), \
+             patch.object(service, "_get", AsyncMock(return_value=stack)), \
+             patch("app.services.docker_stacks.async_session") as mock_session_ctx:
+            mock_db = AsyncMock()
+            mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=mock_db)
+            mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            await service.start(stack, force_recreate=True)
+
+            assert mock_cmd.await_args_list[0].args[1] == ["up", "-d", "--remove-orphans", "--force-recreate"]
 
 
 class TestDiscoverDockerComposeStacks:

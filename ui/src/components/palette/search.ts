@@ -3,7 +3,8 @@ import { useUIStore, type RecentPage } from "../../stores/ui";
 import type { PaletteItem, ScoredItem } from "./types";
 import { fuzzyMatch } from "./fuzzy";
 import { categoryRank } from "./admin-items";
-import { resolveRouteMetadata } from "./route-meta";
+import { shouldSkipRecentPage } from "../../lib/recentPages";
+import { resolveRecentPaletteItem } from "./recent";
 
 export interface PaletteSearchOptions {
   /** Current page href — excluded from Recent to avoid self-link. */
@@ -38,25 +39,21 @@ export function usePaletteSearch(
   { currentHref, recentLimit = 20, searchLimit = 30 }: PaletteSearchOptions,
 ): PaletteSearchResult {
   const recentPages = useUIStore((s) => s.recentPages);
+  const channelNameById = useMemo(
+    () =>
+      new Map(
+        allItems
+          .filter((it) => it.category === "Channels" && it.href.startsWith("/channels/") && !it.href.slice("/channels/".length).includes("/"))
+          .map((it) => [it.href.slice("/channels/".length), it.label]),
+      ),
+    [allItems],
+  );
 
   const resolveRecent = useCallback(
     (rp: RecentPage): PaletteItem | null => {
-      const match = allItems.find((it) => it.href === rp.href);
-      if (match) return match;
-      const meta = resolveRouteMetadata(rp.href);
-      if (!meta) return null;
-      const baseLabel = meta.fallbackLabel.split(":")[0];
-      const label = rp.label ? `${baseLabel}: ${rp.label}` : meta.fallbackLabel;
-      return {
-        id: `recent-${rp.href}`,
-        label,
-        hint: meta.category,
-        href: rp.href,
-        icon: meta.icon,
-        category: meta.category,
-      };
+      return resolveRecentPaletteItem(rp, allItems, { channelNameById });
     },
-    [allItems],
+    [allItems, channelNameById],
   );
 
   const parentLabels = useMemo(() => {
@@ -73,7 +70,7 @@ export function usePaletteSearch(
   const totalRecents = useMemo(() => {
     let count = 0;
     for (const rp of recentPages) {
-      if (rp.href === currentHref) continue;
+      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
       if (resolveRecent(rp)) count++;
     }
     return count;
@@ -87,7 +84,7 @@ export function usePaletteSearch(
       const recentItems: ScoredItem[] = [];
       for (const rp of recentPages) {
         if (recentItems.length >= recentLimit) break;
-        if (rp.href === currentHref) continue;
+        if (shouldSkipRecentPage(rp, currentHref, true)) continue;
         const resolved = resolveRecent(rp);
         if (resolved) {
           recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
@@ -102,6 +99,7 @@ export function usePaletteSearch(
     const allItemsByHref = new Set(allItems.map((it) => it.href));
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
+      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
       if (allItemsByHref.has(rp.href)) continue;
       const resolved = resolveRecent(rp);
       if (resolved) syntheticRecents.push(resolved);
@@ -112,7 +110,7 @@ export function usePaletteSearch(
     let bonusSlot = 0;
     for (const rp of recentPages) {
       if (bonusSlot >= 3) break;
-      if (rp.href === currentHref) continue;
+      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
       recencyBonus.set(rp.href, 15 - bonusSlot * 5);
       bonusSlot++;
     }

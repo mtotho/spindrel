@@ -121,6 +121,7 @@ export function OrderedTranscript({
                 channelId={channelId}
                 botId={botId}
                 rendererVariant="terminal-chat"
+                chromeMode="embedded"
                 t={t}
               />
             </div>
@@ -136,6 +137,7 @@ export function OrderedTranscript({
                 channelId={channelId}
                 botId={botId}
                 rendererVariant="default-chat"
+                chromeMode="standalone"
                 t={t}
               />
             </div>
@@ -162,6 +164,7 @@ export function OrderedTranscript({
                 channelId={channelId}
                 botId={botId}
                 rendererVariant="default-chat"
+                chromeMode="embedded"
                 t={t}
               />
             </div>

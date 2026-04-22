@@ -852,14 +852,22 @@ async def assemble_context(
         from app.agent.context_budget import estimate_tokens
         return budget.can_afford(estimate_tokens(text))
 
-    # --- account for pre-existing messages (system prompt + conversation history) ---
+    # --- account for pre-existing messages (base context + replayed live history) ---
     if budget is not None:
         from app.agent.context_budget import estimate_tokens
-        _existing_tokens = sum(
-            estimate_tokens(m.get("content", "") if isinstance(m.get("content"), str) else str(m.get("content", "")))
-            for m in messages
-        )
-        budget.consume("conversation_history", _existing_tokens)
+        _base_tokens = 0
+        _history_tokens = 0
+        for m in messages:
+            _content = m.get("content", "")
+            _tokens = estimate_tokens(_content if isinstance(_content, str) else str(_content))
+            if m.get("role") == "system":
+                _base_tokens += _tokens
+            else:
+                _history_tokens += _tokens
+        if _base_tokens:
+            budget.consume("base_context", _base_tokens)
+        if _history_tokens:
+            budget.consume("conversation_history", _history_tokens)
 
     # --- channel-level tool/skill overrides ---
     _ch_row = None
@@ -2039,17 +2047,21 @@ async def assemble_context(
 
     # --- user message (audio or text) ---
     if native_audio:
-        messages.append({
+        _audio_instruction = {
             "role": "system",
             "content": _AUDIO_TRANSCRIPT_INSTRUCTION,
-        })
+        }
+        messages.append(_audio_instruction)
+        _budget_consume("base_context", _AUDIO_TRANSCRIPT_INSTRUCTION)
         user_msg = _build_audio_user_message(audio_data, audio_format)
         messages.append(user_msg)
+        _budget_consume("current_user_message", user_msg.get("content", ""))
         result.user_msg_index = len(messages) - 1
     elif user_message:
         from app.security.prompt_sanitize import sanitize_unicode
         user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)
         messages.append({"role": "user", "content": user_content})
+        _budget_consume("current_user_message", user_content)
         result.user_msg_index = len(messages) - 1
     # When user_message is empty (e.g. member bot replies), no user message is
     # appended — the system_preamble and conversation history are sufficient.

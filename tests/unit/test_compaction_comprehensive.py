@@ -549,19 +549,29 @@ class TestRunCompactionStream:
 
     @pytest.mark.asyncio
     async def test_empty_to_summarize_yields_nothing(self, factory):
-        """If all messages are filtered (e.g. all empty content), no summary generated."""
+        """If the compaction window contains only internal rows, no summary is generated."""
         bot = _make_bot(compaction_interval=2, compaction_keep_turns=0)
-        sid = await _create_session_with_messages(factory, num_user=3, num_assistant=0)
+        sid = uuid.uuid4()
+        base_time = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-        # Pass messages with empty content — _messages_for_summary filters these
-        messages = [{"role": "user", "content": ""} for _ in range(3)]
+        async with factory() as db:
+            db.add(Session(id=sid, client_id="c", bot_id="test"))
+            for i in range(3):
+                db.add(Message(
+                    session_id=sid,
+                    role="user",
+                    content=f"hidden user {i}",
+                    metadata_={"hidden": True, "pipeline_step": True},
+                    created_at=base_time + timedelta(minutes=i),
+                ))
+            await db.commit()
 
         with (
             patch("app.services.compaction.async_session", factory),
             patch("app.services.compaction._record_trace_event", new_callable=AsyncMock),
         ):
             from app.services.compaction import run_compaction_stream
-            events = [e async for e in run_compaction_stream(sid, bot, messages)]
+            events = [e async for e in run_compaction_stream(sid, bot, [])]
 
         # Should not have compaction_done because to_summarize is empty
         types = [e.get("type") for e in events]
@@ -829,6 +839,7 @@ class TestMaybeCompact:
         args = mock_drain.call_args
         assert args[1]["correlation_id"] == cid
         assert args[1]["budget_triggered"] is True
+        assert args[1]["trigger_reason"] == "total_utilization"
 
 
 # ===================================================================

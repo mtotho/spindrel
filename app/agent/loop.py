@@ -1739,12 +1739,19 @@ async def run_stream(
 
     # Emit budget info event for downstream consumers (e.g. compaction trigger)
     if _budget is not None:
+        _budget_dict = _budget.to_dict()
         yield {
             "type": "context_budget",
             "utilization": round(_budget.utilization, 3),
             "total_tokens": _budget.total_tokens,
             "consumed_tokens": _budget.consumed_tokens,
             "remaining_tokens": _budget.remaining,
+            "available_budget": _budget_dict["available_budget"],
+            "base_tokens": _budget_dict["base_tokens"],
+            "live_history_tokens": _budget_dict["live_history_tokens"],
+            "live_history_utilization": _budget_dict["live_history_utilization"],
+            "static_injection_tokens": _budget_dict["static_injection_tokens"],
+            "tool_schema_tokens": _budget_dict["tool_schema_tokens"],
         }
 
     # Surface skills-still-in-context for the UI "skill orb" on the persisted

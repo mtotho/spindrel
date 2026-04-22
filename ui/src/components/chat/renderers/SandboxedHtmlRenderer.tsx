@@ -20,9 +20,11 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { RichRendererChromeMode } from "./genericRendererChrome";
 
 interface Props {
   body: string;
+  chromeMode?: RichRendererChromeMode;
   t: ThemeTokens;
 }
 
@@ -50,7 +52,11 @@ ${body}
 </html>`;
 }
 
-export function SandboxedHtmlRenderer({ body, t }: Props) {
+export function SandboxedHtmlRenderer({
+  body,
+  chromeMode = "standalone",
+  t,
+}: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(120);
 
@@ -78,10 +84,10 @@ export function SandboxedHtmlRenderer({ body, t }: Props) {
   return (
     <div
       style={{
-        borderRadius: 8,
-        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: chromeMode === "embedded" ? 0 : 8,
+        border: chromeMode === "embedded" ? "none" : `1px solid ${t.surfaceBorder}`,
         overflow: "hidden",
-        background: "#ffffff",
+        background: chromeMode === "embedded" ? "transparent" : "#ffffff",
       }}
     >
       <iframe

@@ -97,7 +97,6 @@ def test_available_integrations_includes_version():
         description="Project management",
         requires_workspace=True,
         activated=True,
-        carapaces=["mission-control"],
         tools=["create_task_card"],
         has_system_prompt=True,
         version="1.0",
@@ -123,7 +122,7 @@ def test_activation_manifest_embeds_version():
     setup = {
         "version": "1.0",
         "activation": {
-            "carapaces": ["mission-control"],
+            "tools": ["create_task_card"],
         },
     }
     activation = setup.get("activation")
@@ -137,7 +136,7 @@ def test_activation_manifest_embeds_version():
     setup2 = {
         "version": "2.0",
         "activation": {
-            "carapaces": ["test"],
+            "tools": ["test_tool"],
             "version": "1.5",
         },
     }

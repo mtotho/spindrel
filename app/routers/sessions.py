@@ -22,14 +22,19 @@ from app.services.session_plan_mode import (
     STEP_STATUS_DONE,
     STEP_STATUS_IN_PROGRESS,
     STEP_STATUS_PENDING,
+    build_session_plan_revision_diff,
     approve_session_plan,
     create_session_plan,
     enter_session_plan_mode,
     exit_session_plan_mode,
     get_session_plan_state,
     get_session_plan_mode,
+    build_session_plan_response,
     list_session_plans,
+    list_session_plan_revisions,
     load_session_plan,
+    load_session_plan_revision,
+    publish_session_plan_event,
     resume_session_plan_mode,
     update_plan_step_status,
     update_session_plan,
@@ -69,6 +74,26 @@ class PlanArtifactOut(BaseModel):
     metadata: dict[str, Any] = {}
 
 
+class PlanRevisionOut(BaseModel):
+    revision: int
+    title: str
+    status: str
+    summary: str
+    path: Optional[str] = None
+    created_at: Optional[str] = None
+    is_active: bool
+    is_accepted: bool
+    source: str
+    changed_sections: list[str] = []
+
+
+class PlanRevisionDiffOut(BaseModel):
+    from_revision: int
+    to_revision: int
+    changed_sections: list[str]
+    diff: str
+
+
 class SessionPlanOut(BaseModel):
     title: str
     status: str
@@ -85,6 +110,8 @@ class SessionPlanOut(BaseModel):
     outcome: str
     path: Optional[str] = None
     mode: str
+    accepted_revision: Optional[int] = None
+    revisions: list[PlanRevisionOut] = []
 
 
 class SessionPlanStateOut(BaseModel):
@@ -95,6 +122,7 @@ class SessionPlanStateOut(BaseModel):
     revision: Optional[int] = None
     accepted_revision: Optional[int] = None
     status: Optional[str] = None
+    revision_count: int = 0
 
 
 class SessionPlanCreateRequest(BaseModel):
@@ -121,16 +149,43 @@ class SessionPlanUpdateRequest(BaseModel):
 class PlanStatusUpdateRequest(BaseModel):
     status: str
     note: Optional[str] = None
+    revision: Optional[int] = None
+
+
+class PlanApproveRequest(BaseModel):
+    revision: Optional[int] = None
 
 
 def _serialize_plan(session: Session) -> SessionPlanOut:
     plan = load_session_plan(session, required=True)
     assert plan is not None
-    return SessionPlanOut(**plan.as_dict(), mode=get_session_plan_mode(session))
+    payload = build_session_plan_response(session, plan)
+    assert payload is not None
+    return SessionPlanOut(**payload)
+
+
+def _serialize_plan_revision(session: Session, revision: int) -> SessionPlanOut:
+    plan = load_session_plan_revision(session, revision, prefer_snapshot=False, required=True)
+    assert plan is not None
+    payload = build_session_plan_response(session, plan)
+    assert payload is not None
+    return SessionPlanOut(**payload)
 
 
 def _serialize_plan_state(session: Session) -> SessionPlanStateOut:
     return SessionPlanStateOut(**get_session_plan_state(session))
+
+
+def _assert_expected_plan_revision(session: Session, expected_revision: int | None) -> None:
+    if expected_revision is None:
+        return
+    plan = load_session_plan(session, required=True)
+    assert plan is not None
+    if expected_revision != plan.revision:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Revision mismatch. Expected {plan.revision}.",
+        )
 
 
 @router.get("", response_model=list[SessionSummary])
@@ -192,6 +247,49 @@ async def get_session_plan(
     return _serialize_plan(session)
 
 
+@router.get("/{session_id}/plan/revisions", response_model=list[PlanRevisionOut])
+async def get_session_plan_revisions(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return [PlanRevisionOut(**entry) for entry in list_session_plan_revisions(session)]
+
+
+@router.get("/{session_id}/plan/revisions/{revision}", response_model=SessionPlanOut)
+async def get_session_plan_revision(
+    session_id: uuid.UUID,
+    revision: int,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _serialize_plan_revision(session, revision)
+
+
+@router.get("/{session_id}/plan/diff", response_model=PlanRevisionDiffOut)
+async def get_session_plan_diff(
+    session_id: uuid.UUID,
+    from_revision: int,
+    to_revision: int,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return PlanRevisionDiffOut(**build_session_plan_revision_diff(
+        session,
+        from_revision=from_revision,
+        to_revision=to_revision,
+    ))
+
+
 @router.get("/{session_id}/plan-state", response_model=SessionPlanStateOut)
 async def get_session_plan_state_route(
     session_id: uuid.UUID,
@@ -216,6 +314,7 @@ async def start_session_plan_mode(
     enter_session_plan_mode(session)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "start")
     return _serialize_plan_state(session)
 
 
@@ -241,6 +340,7 @@ async def start_session_plan(
     )
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "create")
     return _serialize_plan(session)
 
 
@@ -267,21 +367,25 @@ async def patch_session_plan(
     )
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "revise")
     return _serialize_plan(session)
 
 
 @router.post("/{session_id}/plan/approve", response_model=SessionPlanOut)
 async def approve_plan(
     session_id: uuid.UUID,
+    body: PlanApproveRequest | None = None,
     db: AsyncSession = Depends(get_db),
     _auth=Depends(require_scopes("sessions:write")),
 ):
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    _assert_expected_plan_revision(session, body.revision if body else None)
     approve_session_plan(session)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "approve")
     return _serialize_plan(session)
 
 
@@ -297,6 +401,7 @@ async def exit_plan(
     exit_session_plan_mode(session)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "exit")
     return {"ok": True, "mode": get_session_plan_mode(session)}
 
 
@@ -312,6 +417,7 @@ async def resume_plan(
     resume_session_plan_mode(session)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "resume")
     return _serialize_plan(session)
 
 
@@ -343,6 +449,7 @@ async def update_plan_status_legacy(
         raise HTTPException(status_code=422, detail="Unsupported plan status update.")
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "step_status")
     return _serialize_plan(session)
 
 
@@ -370,9 +477,11 @@ async def update_plan_item_status_legacy(
     status = mapping.get(body.status)
     if status is None:
         raise HTTPException(status_code=422, detail="Unsupported plan item status.")
+    _assert_expected_plan_revision(session, body.revision)
     update_plan_step_status(session, step_id=item_id, status=status, note=body.note)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "step_status")
     return _serialize_plan(session)
 
 
@@ -387,9 +496,11 @@ async def update_plan_step_status_route(
     session = await db.get(Session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    _assert_expected_plan_revision(session, body.revision)
     update_plan_step_status(session, step_id=step_id, status=body.status, note=body.note)
     await db.commit()
     await db.refresh(session)
+    publish_session_plan_event(session, "step_status")
     return _serialize_plan(session)
 
 

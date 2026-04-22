@@ -1362,7 +1362,11 @@ async def pin_dashboard_widget_preset(
     body: PinWidgetPresetRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.widget_presets import get_widget_preset, preview_widget_preset
+    from app.services.widget_presets import (
+        get_widget_preset,
+        preview_envelope_to_dict,
+        preview_widget_preset,
+    )
 
     preview, resolved_config, tool_args = await preview_widget_preset(
         db,

@@ -263,6 +263,76 @@ test("live and persisted tool calls render identically through the canonical bui
     });
     assert.deepEqual(normalize(persistedItems), normalize(liveItems));
 });
+test("live and persisted widget error results stay rich instead of flattening to transcript", () => {
+    const assistantTurnBody = {
+        version: 1,
+        items: [{ id: "tool-search", kind: "tool_call", toolCallId: "call-search" }],
+    };
+    const liveItems = buildAssistantTurnBodyItems({
+        assistantTurnBody,
+        toolCalls: [
+            {
+                id: "call-search",
+                name: "web_search",
+                args: '{"q": "weather in Lambertville NJ today"}',
+                surface: "widget",
+                status: "done",
+                summary: {
+                    kind: "error",
+                    subject_type: "widget",
+                    label: "Widget unavailable",
+                    target_label: "Web search",
+                    error: "Cannot connect to SearXNG",
+                },
+                envelope: {
+                    content_type: "application/vnd.spindrel.html+interactive",
+                    body: '{"error":"Cannot connect to SearXNG"}',
+                    plain_body: "Web search",
+                    display: "inline",
+                    truncated: false,
+                    record_id: "search-error",
+                    byte_size: 37,
+                },
+            },
+        ],
+    });
+    const persistedItems = buildAssistantTurnBodyItems({
+        assistantTurnBody,
+        toolCalls: [
+            {
+                id: "call-search",
+                name: "web_search",
+                arguments: '{"q": "weather in Lambertville NJ today"}',
+                surface: "widget",
+                summary: {
+                    kind: "error",
+                    subject_type: "widget",
+                    label: "Widget unavailable",
+                    target_label: "Web search",
+                    error: "Cannot connect to SearXNG",
+                },
+            },
+        ],
+        toolResults: [
+            {
+                content_type: "application/vnd.spindrel.html+interactive",
+                body: '{"error":"Cannot connect to SearXNG"}',
+                plain_body: "Web search",
+                display: "inline",
+                truncated: false,
+                record_id: "search-error",
+                byte_size: 37,
+            },
+        ],
+    });
+    assert.equal(liveItems[0]?.kind, "widget");
+    assert.equal(persistedItems[0]?.kind, "widget");
+    if (liveItems[0]?.kind !== "widget" || persistedItems[0]?.kind !== "widget") {
+        throw new Error("expected widget items");
+    }
+    assert.equal(liveItems[0].widget.recordId, "search-error");
+    assert.equal(persistedItems[0].widget.recordId, "search-error");
+});
 test("canonical tool surfaces are not re-inferred from envelopes", () => {
     const items = buildAssistantTurnBodyItems({
         assistantTurnBody: {

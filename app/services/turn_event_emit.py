@@ -285,6 +285,12 @@ async def emit_run_stream_events(
                         total_tokens=int(event.get("total_tokens") or 0),
                         utilization=util,
                         model=str(event.get("model") or ""),
+                        available_budget=int(event.get("available_budget") or 0),
+                        live_history_tokens=int(event.get("live_history_tokens") or 0),
+                        live_history_utilization=float(event.get("live_history_utilization") or 0),
+                        base_tokens=int(event.get("base_tokens") or 0),
+                        static_injection_tokens=int(event.get("static_injection_tokens") or 0),
+                        tool_schema_tokens=int(event.get("tool_schema_tokens") or 0),
                     ),
                 ),
             )

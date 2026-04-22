@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -393,6 +393,108 @@ class TestLoadMessagesCompactionPaths:
         assert any("Summary of the conversation so far" in c for c in contents), \
             "non-file/non-structured mode must inject standard summary prefix"
         assert any("Memory mode summary." in c for c in contents)
+
+    @pytest.mark.asyncio
+    async def test_hidden_pipeline_rows_excluded_from_model_history(
+        self, db_session, bot_registry
+    ):
+        from app.db.models import Message, Session
+        from app.services.sessions import _load_messages
+
+        bot_registry.register("bot-hidden", context_compaction=False)
+        base_time = datetime.now(timezone.utc)
+        sess = Session(
+            id=uuid.uuid4(),
+            client_id="test-client",
+            bot_id="bot-hidden",
+        )
+        db_session.add(sess)
+        db_session.add_all([
+            Message(
+                session_id=sess.id,
+                role="user",
+                content="visible user",
+                metadata_={},
+                created_at=base_time,
+            ),
+            Message(
+                session_id=sess.id,
+                role="assistant",
+                content="internal pipeline",
+                metadata_={"hidden": True, "pipeline_step": True},
+                created_at=base_time + timedelta(microseconds=1),
+            ),
+            Message(
+                session_id=sess.id,
+                role="assistant",
+                content="visible assistant",
+                metadata_={},
+                created_at=base_time + timedelta(microseconds=2),
+            ),
+        ])
+        await db_session.flush()
+
+        result = await _load_messages(db_session, sess)
+        contents = [m.get("content", "") or "" for m in result]
+        assert "visible user" in contents
+        assert "visible assistant" in contents
+        assert "internal pipeline" not in contents
+
+    @pytest.mark.asyncio
+    async def test_older_assistant_history_reloads_from_compact_turn_body(
+        self, db_session, bot_registry
+    ):
+        from app.db.models import Message, Session
+        from app.services.sessions import _load_messages
+
+        bot_registry.register("bot-compact", context_compaction=False)
+        base_time = datetime.now(timezone.utc)
+        sess = Session(
+            id=uuid.uuid4(),
+            client_id="test-client",
+            bot_id="bot-compact",
+        )
+        db_session.add(sess)
+        db_session.add_all([
+            Message(
+                session_id=sess.id,
+                role="user",
+                content="do the thing",
+                metadata_={},
+                created_at=base_time,
+            ),
+            Message(
+                session_id=sess.id,
+                role="assistant",
+                content="Verbose detail. " * 80,
+                metadata_={
+                    "assistant_turn_body": {
+                        "version": 1,
+                        "items": [
+                            {"id": "text:1", "kind": "text", "text": "Ran the check."},
+                            {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+                            {"id": "text:2", "kind": "text", "text": "Found one issue."},
+                        ],
+                    },
+                },
+                tool_calls=[{"id": "call-1", "function": {"name": "file", "arguments": "{}"}}],
+                created_at=base_time + timedelta(microseconds=1),
+            ),
+            Message(
+                session_id=sess.id,
+                role="assistant",
+                content="Most recent assistant stays verbatim.",
+                metadata_={},
+                created_at=base_time + timedelta(microseconds=2),
+            ),
+        ])
+        await db_session.flush()
+
+        result = await _load_messages(db_session, sess)
+        assistant_contents = [m.get("content", "") for m in result if m.get("role") == "assistant"]
+        assert "Ran the check. [Used tool: file] Found one issue." in assistant_contents
+        assert "Most recent assistant stays verbatim." in assistant_contents
+        assert not any(content == "Verbose detail. " * 80 for content in assistant_contents)
 
 
 # ---------------------------------------------------------------------------

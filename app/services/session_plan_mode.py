@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import difflib
 import json
 import os
 import re
@@ -371,6 +372,7 @@ def get_session_plan_state(session: Session) -> dict[str, Any]:
         "revision": meta.get(PLAN_REVISION_METADATA_KEY),
         "accepted_revision": meta.get(PLAN_ACCEPTED_REVISION_METADATA_KEY),
         "status": meta.get(PLAN_STATUS_METADATA_KEY),
+        "revision_count": len(list_session_plan_revisions(session)),
     }
 
 
@@ -446,6 +448,192 @@ def load_session_plan(session: Session, *, required: bool = False) -> SessionPla
         return parse_plan_markdown(Path(path).read_text(), path=path)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=f"Invalid active plan file: {exc}")
+
+
+def _plan_file_timestamp(path: str) -> str | None:
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat()
+    except OSError:
+        return None
+
+
+def _load_plan_from_path(path: str, *, required: bool = False) -> SessionPlan | None:
+    if not os.path.isfile(path):
+        if required:
+            raise HTTPException(status_code=404, detail="Requested plan revision is missing.")
+        return None
+    try:
+        return parse_plan_markdown(Path(path).read_text(), path=path)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=f"Invalid plan revision file: {exc}")
+
+
+def load_session_plan_revision(
+    session: Session,
+    revision: int,
+    *,
+    prefer_snapshot: bool = True,
+    required: bool = False,
+) -> SessionPlan | None:
+    if revision <= 0:
+        if required:
+            raise HTTPException(status_code=404, detail="Requested plan revision is invalid.")
+        return None
+    task_slug = (session.metadata_ or {}).get(PLAN_SLUG_METADATA_KEY)
+    current_revision = (session.metadata_ or {}).get(PLAN_REVISION_METADATA_KEY)
+    if task_slug:
+        snapshot_path = build_plan_snapshot_path(session, str(task_slug), revision)
+        if prefer_snapshot and os.path.isfile(snapshot_path):
+            return _load_plan_from_path(snapshot_path, required=required)
+    current_plan = load_session_plan(session, required=False)
+    if current_plan is not None and current_plan.revision == revision:
+        return current_plan
+    if task_slug:
+        snapshot_path = build_plan_snapshot_path(session, str(task_slug), revision)
+        if os.path.isfile(snapshot_path):
+            return _load_plan_from_path(snapshot_path, required=required)
+    if current_revision and int(current_revision) == revision:
+        return current_plan
+    if required:
+        raise HTTPException(status_code=404, detail="Requested plan revision was not found.")
+    return None
+
+
+def _changed_sections(previous: SessionPlan | None, current: SessionPlan) -> list[str]:
+    if previous is None:
+        return []
+    changed: list[str] = []
+    if previous.title != current.title:
+        changed.append("title")
+    if previous.status != current.status:
+        changed.append("status")
+    if previous.summary != current.summary:
+        changed.append("summary")
+    if previous.scope != current.scope:
+        changed.append("scope")
+    if previous.assumptions != current.assumptions:
+        changed.append("assumptions")
+    if previous.open_questions != current.open_questions:
+        changed.append("open_questions")
+    if [step.as_dict() for step in previous.steps] != [step.as_dict() for step in current.steps]:
+        changed.append("steps")
+    if [artifact.as_dict() for artifact in previous.artifacts] != [artifact.as_dict() for artifact in current.artifacts]:
+        changed.append("artifacts")
+    if previous.acceptance_criteria != current.acceptance_criteria:
+        changed.append("acceptance_criteria")
+    if previous.outcome != current.outcome:
+        changed.append("outcome")
+    return changed
+
+
+def list_session_plan_revisions(session: Session) -> list[dict[str, Any]]:
+    plan = load_session_plan(session, required=False)
+    if plan is None:
+        return []
+    current_revision = plan.revision
+    accepted_revision = _accepted_plan_revision(session)
+    task_slug = plan.task_slug
+    seen: set[int] = set()
+    entries: list[dict[str, Any]] = []
+    for revision in range(current_revision, 0, -1):
+        snapshot_plan = load_session_plan_revision(session, revision, prefer_snapshot=True, required=False)
+        previous_snapshot = load_session_plan_revision(session, revision - 1, prefer_snapshot=True, required=False)
+        if revision == current_revision:
+            current_plan = plan
+            changed_sections = _changed_sections(previous_snapshot, snapshot_plan or current_plan)
+            entries.append({
+                "revision": revision,
+                "title": current_plan.title,
+                "status": current_plan.status,
+                "summary": current_plan.summary,
+                "path": current_plan.path,
+                "created_at": _plan_file_timestamp(current_plan.path) if current_plan.path else None,
+                "is_active": True,
+                "is_accepted": accepted_revision > 0 and revision == accepted_revision,
+                "source": "current",
+                "changed_sections": changed_sections,
+            })
+            seen.add(revision)
+        if snapshot_plan is None or revision in seen:
+            continue
+        entries.append({
+            "revision": revision,
+            "title": snapshot_plan.title,
+            "status": snapshot_plan.status,
+            "summary": snapshot_plan.summary,
+            "path": snapshot_plan.path,
+            "created_at": _plan_file_timestamp(snapshot_plan.path) if snapshot_plan.path else None,
+            "is_active": False,
+            "is_accepted": accepted_revision > 0 and revision == accepted_revision,
+            "source": "snapshot",
+            "changed_sections": _changed_sections(previous_snapshot, snapshot_plan),
+        })
+        seen.add(revision)
+    entries.sort(key=lambda item: (item["revision"], 1 if item["source"] == "current" else 0), reverse=True)
+    return entries
+
+
+def build_session_plan_revision_diff(
+    session: Session,
+    *,
+    from_revision: int,
+    to_revision: int,
+) -> dict[str, Any]:
+    from_plan = load_session_plan_revision(session, from_revision, prefer_snapshot=True, required=True)
+    to_plan = load_session_plan_revision(session, to_revision, prefer_snapshot=True, required=True)
+    assert from_plan is not None and to_plan is not None
+    from_label = f"rev-{from_revision}"
+    to_label = f"rev-{to_revision}"
+    from_lines = render_plan_markdown(from_plan).splitlines()
+    to_lines = render_plan_markdown(to_plan).splitlines()
+    diff = "\n".join(
+        difflib.unified_diff(
+            from_lines,
+            to_lines,
+            fromfile=from_label,
+            tofile=to_label,
+            lineterm="",
+        )
+    )
+    return {
+        "from_revision": from_revision,
+        "to_revision": to_revision,
+        "changed_sections": _changed_sections(from_plan, to_plan),
+        "diff": diff,
+    }
+
+
+def build_session_plan_response(session: Session, plan: SessionPlan | None = None) -> dict[str, Any] | None:
+    current_plan = plan or load_session_plan(session, required=False)
+    if current_plan is None:
+        return None
+    return {
+        **current_plan.as_dict(),
+        "mode": get_session_plan_mode(session),
+        "accepted_revision": _accepted_plan_revision(session) or None,
+        "revisions": list_session_plan_revisions(session),
+    }
+
+
+def publish_session_plan_event(session: Session, reason: str) -> None:
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.payloads import SessionPlanUpdatedPayload
+    from app.services.channel_events import publish_typed
+
+    payload = SessionPlanUpdatedPayload(
+        session_id=session.id,
+        reason=reason,
+        state=get_session_plan_state(session),
+        plan=build_session_plan_response(session),
+    )
+    publish_typed(
+        session.id,
+        ChannelEvent(
+            channel_id=session.id,
+            kind=ChannelEventKind.SESSION_PLAN_UPDATED,
+            payload=payload,
+        ),
+    )
 
 
 def save_session_plan(session: Session, plan: SessionPlan, *, mode: str | None = None, accepted_revision: int | None = None) -> SessionPlan:

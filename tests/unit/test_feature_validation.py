@@ -22,7 +22,6 @@ def _make_bot(**kwargs) -> BotConfig:
         "client_tools": [],
         "mcp_servers": [],
         "pinned_tools": [],
-        "carapaces": [],
         "memory_scheme": None,
         "history_mode": "file",
     }

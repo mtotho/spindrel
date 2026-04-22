@@ -14,10 +14,16 @@
     "src/types/api.ts",
     "src/stores/chat.ts",
     "src/stores/chat.test.ts",
+    "src/stores/ui.ts",
+    "src/lib/recentPages.ts",
     "src/components/chat/slashCommandRequest.ts",
     "src/components/chat/slashCommandRequest.test.ts",
     "src/components/chat/toolTranscriptModel.ts",
     "src/components/chat/toolTranscriptModel.test.ts",
-    "src/components/chat/renderArchitecture.test.ts"
+    "src/components/chat/renderArchitecture.test.ts",
+    "src/components/palette/types.ts",
+    "src/components/palette/route-meta.ts",
+    "src/components/palette/recent.ts",
+    "src/components/palette/recent.test.ts"
   ]
 }

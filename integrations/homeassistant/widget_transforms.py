@@ -186,6 +186,9 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
         primary_text, secondary_text = secondary_text, ""
     if not primary_text:
         primary_text = friendly
+    chip_text = primary_text
+    if secondary_text:
+        chip_text = f"{chip_text} · {secondary_text}".strip(" ·")
 
     return {
         "entity_id": entity_id,
@@ -223,12 +226,15 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
         "show_brightness_button_show": supports_brightness and is_on and not show_brightness,
         "show_brightness_button_hide": supports_brightness and is_on and show_brightness,
         "toggle_target_name": friendly,
+        "toggle_target_entity_id": entity_id,
         "toggle_on_tool": "HassTurnOn" if supports_toggle else "",
         "toggle_off_tool": "HassTurnOff" if supports_toggle else "",
         "primary_info": primary_info,
         "secondary_info": secondary_info,
         "primary_text": primary_text,
         "secondary_text": secondary_text,
+        "chip_text": chip_text,
+        "chip_color": "success" if is_on else "accent",
     }
 
 
@@ -257,13 +263,10 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
         })
 
     if view.get("is_toggle_chip") or view.get("is_entity_chip"):
-        chip_text = view.get("primary_text", "")
-        if view.get("secondary_text"):
-            chip_text = f"{chip_text} · {view.get('secondary_text', '')}".strip(" ·")
         components.append({
             "type": "status",
-            "text": chip_text,
-            "color": "success" if view.get("is_on") else "accent",
+            "text": view.get("chip_text", ""),
+            "color": view.get("chip_color", "accent"),
         })
 
     if view.get("show_toggle_off"):
@@ -275,7 +278,7 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
             "action": {
                 "dispatch": "tool",
                 "tool": view.get("toggle_off_tool", ""),
-                "args": {"name": view.get("toggle_target_name", "")},
+                "args": {"name": view.get("toggle_target_entity_id", "")},
                 "optimistic": True,
             },
         })
@@ -288,7 +291,7 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
             "action": {
                 "dispatch": "tool",
                 "tool": view.get("toggle_on_tool", ""),
-                "args": {"name": view.get("toggle_target_name", "")},
+                "args": {"name": view.get("toggle_target_entity_id", "")},
                 "optimistic": True,
             },
         })
@@ -327,7 +330,7 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
             "action": {
                 "dispatch": "tool",
                 "tool": "HassLightSet",
-                "args": {"name": view.get("toggle_target_name", "")},
+                "args": {"name": view.get("toggle_target_entity_id", "")},
                 "value_key": "brightness",
             },
         })

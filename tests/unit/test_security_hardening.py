@@ -108,84 +108,6 @@ class TestSQLIdentifierValidation:
         assert _IDENT_RE.match("UPPER") is None  # uppercase not allowed
 
 
-# ── 4. Carapace tool restriction ────────────────────────────────────────────
-
-class TestCarapaceToolRestriction:
-    @pytest.mark.asyncio
-    async def test_create_with_tools_rejected(self):
-        from app.tools.local.carapaces import manage_capability
-        result = json.loads(await manage_capability(
-            action="create",
-            id="test-carapace",
-            name="Test",
-            local_tools="exec_command,file",
-        ))
-        assert "error" in result
-        assert "local_tools" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_create_with_pinned_tools_rejected(self):
-        from app.tools.local.carapaces import manage_capability
-        result = json.loads(await manage_capability(
-            action="create",
-            id="test-carapace",
-            name="Test",
-            pinned_tools="web_search",
-        ))
-        assert "error" in result
-        assert "pinned_tools" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_create_with_mcp_tools_rejected(self):
-        from app.tools.local.carapaces import manage_capability
-        result = json.loads(await manage_capability(
-            action="create",
-            id="test-carapace",
-            name="Test",
-            mcp_tools="homeassistant",
-        ))
-        assert "error" in result
-        assert "mcp_tools" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_create_with_delegates_rejected(self):
-        from app.tools.local.carapaces import manage_capability
-        result = json.loads(await manage_capability(
-            action="create",
-            id="test-carapace",
-            name="Test",
-            delegates='[{"id": "qa", "type": "carapace"}]',
-        ))
-        assert "error" in result
-        assert "delegates" in result["error"]
-
-    def test_create_without_tools_passes_validation(self):
-        """Creating a carapace with only description/system_prompt_fragment should
-        pass the tool-restriction check.
-
-        We test the validation logic directly rather than calling the full function,
-        since the full function needs a DB session.
-        """
-        def _csv(s):
-            return [x.strip() for x in s.split(",") if x.strip()] if s else []
-
-        def _parse_delegates(s):
-            if not s:
-                return []
-            try:
-                return json.loads(s)
-            except json.JSONDecodeError:
-                return [{"id": x.strip(), "type": "carapace"} for x in s.split(",") if x.strip()]
-
-        # These should NOT trigger the restriction
-        assert _csv("") == []
-        assert _csv(None) == []
-        assert _parse_delegates("") == []
-        assert _parse_delegates(None) == []
-
-        # These SHOULD trigger the restriction
-        assert _csv("exec_command,file") != []
-        assert _parse_delegates('[{"id": "qa", "type": "carapace"}]') != []
 
 
 # ── 5. Login rate limiter ───────────────────────────────────────────────────
@@ -360,26 +282,6 @@ class TestWebhookRendererSSRF:
             receipt = await renderer.render(event, target)
             mock_http.post.assert_not_called()
             assert receipt.success is False
-
-
-# ── 10. Startup script path validation ──────────────────────────────────────
-
-class TestStartupScriptPathValidation:
-    def test_safe_paths_accepted(self):
-        from app.services.shared_workspace import SharedWorkspaceService
-        svc = SharedWorkspaceService()
-        assert svc._SAFE_PATH_RE.match("/workspace/setup.sh") is not None
-        assert svc._SAFE_PATH_RE.match("scripts/init.sh") is not None
-        assert svc._SAFE_PATH_RE.match("/usr/local/bin/startup") is not None
-
-    def test_shell_metacharacters_rejected(self):
-        from app.services.shared_workspace import SharedWorkspaceService
-        svc = SharedWorkspaceService()
-        assert svc._SAFE_PATH_RE.match("/workspace/$(whoami)") is None
-        assert svc._SAFE_PATH_RE.match("/workspace/`id`") is None
-        assert svc._SAFE_PATH_RE.match("script;rm -rf /") is None
-        assert svc._SAFE_PATH_RE.match("path|pipe") is None
-        assert svc._SAFE_PATH_RE.match("path&background") is None
 
 
 # ── 11. CORS tightening ─────────────────────────────���──────────────────────

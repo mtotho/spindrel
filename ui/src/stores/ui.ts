@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { migrateRecentPage } from "../lib/recentPages";
 
 interface DetailPanelState {
   type: string | null;
@@ -184,7 +185,7 @@ export const useUIStore = create<UIState>()(
         ...current,
         ...(persisted as Partial<UIState>),
         recentPages: ((persisted as Partial<UIState>)?.recentPages ?? []).map(
-          (p: unknown) => (typeof p === "string" ? { href: p } : p) as RecentPage,
+          (p: unknown) => migrateRecentPage((typeof p === "string" ? { href: p } : p) as RecentPage),
         ),
       }),
     },

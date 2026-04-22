@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 from app.db.models import Message, Session
+from app.services import session_plan_mode as spm
 from tests.integration.conftest import AUTH_HEADERS
 
 
@@ -81,3 +82,67 @@ class TestSessionMessagesRouter:
         assert final_row["tool_calls"][0]["id"] == "call-1"
         assert final_row["metadata"]["assistant_turn_body"]["items"][1]["toolCallId"] == "call-1"
         assert final_row["metadata"]["tool_results"][0]["content_type"] == "application/vnd.spindrel.diff+text"
+
+    async def test_plan_endpoints_return_revision_history_and_reject_stale_approve(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setattr(spm, "get_bot", lambda _bot_id: type("Bot", (), {"id": "test-bot"})())
+        monkeypatch.setattr(spm, "ensure_channel_workspace", lambda _channel_id, _bot: str(tmp_path))
+
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id,
+            client_id=f"router-client-{uuid.uuid4().hex[:8]}",
+            bot_id="test-bot",
+            channel_id=uuid.uuid4(),
+            metadata_={},
+        )
+        db_session.add(session)
+        await db_session.flush()
+
+        spm.enter_session_plan_mode(session)
+        spm.create_session_plan(session, title="Plan Hardening", summary="Draft one", scope="Initial scope")
+        spm.publish_session_plan(
+            session,
+            title="Plan Hardening",
+            summary="Draft two",
+            scope="Revised scope",
+            steps=[
+                {"id": "audit", "label": "Audit current behavior"},
+                {"id": "ship", "label": "Ship the remaining fixes"},
+            ],
+        )
+        await db_session.commit()
+
+        plan_resp = await client.get(f"/sessions/{session_id}/plan", headers=AUTH_HEADERS)
+
+        assert plan_resp.status_code == 200
+        body = plan_resp.json()
+        assert body["revision"] == 2
+        assert body["accepted_revision"] in (0, None)
+        assert [entry["revision"] for entry in body["revisions"]] == [2, 1]
+
+        diff_resp = await client.get(
+            f"/sessions/{session_id}/plan/diff?from_revision=1&to_revision=2",
+            headers=AUTH_HEADERS,
+        )
+
+        assert diff_resp.status_code == 200
+        diff_body = diff_resp.json()
+        assert diff_body["from_revision"] == 1
+        assert diff_body["to_revision"] == 2
+        assert "scope" in diff_body["changed_sections"]
+        assert "Revised scope" in diff_body["diff"]
+
+        stale_approve = await client.post(
+            f"/sessions/{session_id}/plan/approve",
+            headers=AUTH_HEADERS,
+            json={"revision": 1},
+        )
+
+        assert stale_approve.status_code == 409
+        assert "revision mismatch" in stale_approve.json()["detail"].lower()

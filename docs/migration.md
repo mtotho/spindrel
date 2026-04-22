@@ -155,8 +155,8 @@ WORKSPACE_LOCAL_DIR=/workspace-data                         # mount path inside 
 
 # SearXNG and Playwright — use container names (managed by web_search integration)
 # These are auto-detected when WEB_SEARCH_CONTAINERS=true; only set for external instances.
-# SEARXNG_URL=http://spindrel-searxng:8080
-# PLAYWRIGHT_WS_URL=ws://spindrel-playwright:3000
+# SEARXNG_URL=http://searxng-local:8080
+# PLAYWRIGHT_WS_URL=ws://playwright-local:3000
 ```
 
 **Native mode `.env`** (no changes needed for these — localhost works):

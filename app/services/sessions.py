@@ -21,6 +21,8 @@ from app.services.tool_presentation import normalize_persisted_tool_calls
 
 logger = logging.getLogger(__name__)
 
+_ASSISTANT_HISTORY_COMPACT_THRESHOLD = 400
+
 
 async def _resolve_workspace_base_prompt_enabled(
     db: AsyncSession, bot_id: str, channel_id: uuid.UUID | None,
@@ -430,7 +432,8 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
             recent_orm = [m for m in recent_result.scalars().all() if m.role != "system"]
             recent = _convert_msgs(recent_orm)
             passive, active = _split_passive_active(recent)
-            active = _filter_old_heartbeats(active)
+            passive = [m for m in passive if not _is_internal_history_message(m)]
+            active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
             messages = _base_messages()
 
             if _history_mode == "file" and session.channel_id:
@@ -465,7 +468,8 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
             all_msgs = _convert_msgs(all_orm)
             non_system = [m for m in all_msgs if m["role"] != "system"]
             passive, active = _split_passive_active(non_system)
-            active = _filter_old_heartbeats(active)
+            passive = [m for m in passive if not _is_internal_history_message(m)]
+            active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
             messages = _base_messages()
             if _history_mode != "file" or not session.channel_id:
                 # In file mode, section index is injected by context_assembly.py —
@@ -489,7 +493,8 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
     all_msgs = _convert_msgs(all_orm)
     non_system_msgs = [m for m in all_msgs if m["role"] != "system"]
     passive, active = _split_passive_active(non_system_msgs)
-    active = _filter_old_heartbeats(active)
+    passive = [m for m in passive if not _is_internal_history_message(m)]
+    active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     _inject_bootstrap_context(messages, len(active))
@@ -1147,6 +1152,77 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
     if msg.metadata_:
         d["_metadata"] = msg.metadata_
     return d
+
+
+def _is_internal_history_message(msg: dict) -> bool:
+    meta = msg.get("_metadata") or {}
+    return bool(meta.get("hidden") or meta.get("pipeline_step"))
+
+
+def _compact_assistant_turn_body_text(msg: dict) -> str | None:
+    """Render compact replay text from canonical assistant_turn_body metadata."""
+    meta = msg.get("_metadata") or {}
+    body = meta.get("assistant_turn_body") or {}
+    items = body.get("items")
+    if not isinstance(items, list) or not items:
+        return None
+
+    tool_name_by_id: dict[str, str] = {}
+    for tc in msg.get("tool_calls") or []:
+        if not isinstance(tc, dict):
+            continue
+        tc_id = tc.get("id")
+        fn = tc.get("function") or {}
+        if tc_id:
+            tool_name_by_id[str(tc_id)] = str(fn.get("name") or "tool")
+
+    parts: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        kind = item.get("kind")
+        if kind == "text":
+            text = str(item.get("text") or "").strip()
+            if text:
+                parts.append(text)
+        elif kind == "tool_call":
+            tool_call_id = str(item.get("toolCallId") or "")
+            tool_name = tool_name_by_id.get(tool_call_id, "tool")
+            parts.append(f"[Used tool: {tool_name}]")
+
+    compact = " ".join(part for part in parts if part).strip()
+    return compact or None
+
+
+def _rewrite_active_history_for_model(active: list[dict]) -> list[dict]:
+    """Drop UI-only rows and compact older assistant transcript-heavy history."""
+    visible = [m for m in active if not _is_internal_history_message(m)]
+    if not visible:
+        return []
+
+    latest_assistant_idx: int | None = None
+    for idx, msg in enumerate(visible):
+        if msg.get("role") == "assistant":
+            latest_assistant_idx = idx
+
+    rewritten: list[dict] = []
+    for idx, msg in enumerate(visible):
+        if msg.get("role") != "assistant" or idx == latest_assistant_idx:
+            rewritten.append(msg)
+            continue
+
+        compact = _compact_assistant_turn_body_text(msg)
+        content = msg.get("content")
+        content_text = content if isinstance(content, str) else str(content or "")
+        if not compact or len(content_text) < _ASSISTANT_HISTORY_COMPACT_THRESHOLD:
+            rewritten.append(msg)
+            continue
+
+        updated = dict(msg)
+        updated["content"] = compact
+        rewritten.append(updated)
+
+    return rewritten
 
 
 def _filter_old_heartbeats(msgs: list[dict], *, keep_latest: int = 1) -> list[dict]:

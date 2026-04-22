@@ -14,7 +14,7 @@ pytestmark = pytest.mark.asyncio
 def _patch_manifests():
     manifests = {
         "excalidraw": {
-            "carapaces": ["excalidraw"],
+            "tools": [],
             "requires_workspace": True,
             "description": "MC activation",
         }

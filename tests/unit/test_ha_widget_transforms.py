@@ -120,6 +120,7 @@ def test_single_entity_state_entity_chip_uses_selected_properties():
     assert out["widget_variant"] == "entity_chip"
     assert out["primary_text"] == "Bedroom LED Vibes"
     assert out["secondary_text"] == "mdi:led-strip-variant"
+    assert out["chip_text"] == "Bedroom LED Vibes · mdi:led-strip-variant"
 
     components = render_single_entity_widget(
         {
@@ -134,6 +135,30 @@ def test_single_entity_state_entity_chip_uses_selected_properties():
     )
     assert components[0]["type"] == "status"
     assert components[0]["text"] == "Bedroom LED Vibes · mdi:led-strip-variant"
+
+
+def test_render_single_entity_widget_toggle_actions_target_entity_id():
+    payload = {
+        "data": {
+            "entity_id": "light.office_desk_led_strip",
+            "state": "on",
+            "attributes": {
+                "friendly_name": "Office Desk LED Strip",
+                "brightness": 180,
+            },
+        },
+        "config": {
+            "preset_variant": "entity_chip",
+            "allow_action": True,
+            "primary_info": "name",
+            "secondary_info": "none",
+        },
+    }
+
+    components = render_single_entity_widget(payload, [])
+    toggle = next(c for c in components if c["type"] == "toggle")
+    assert toggle["action"]["tool"] == "HassTurnOff"
+    assert toggle["action"]["args"] == {"name": "light.office_desk_led_strip"}
 
 
 def test_single_entity_state_invalid_json():

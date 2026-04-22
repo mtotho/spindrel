@@ -35,7 +35,6 @@ _FILE_TO_TIER = {
     "test_settings_config": "api_contract",
     "test_providers_models": "api_contract",
     "test_channel_details": "api_contract",
-    "test_carapaces_crud": "api_contract",
     "test_search_indexing": "api_contract",
     "test_tool_policies": "api_contract",
     "test_bot_hooks": "api_contract",
@@ -384,7 +383,7 @@ async def _sweep_stale_e2e_channels(base_url: str, api_key: str) -> None:
 
 
 async def _sweep_stale_e2e_resources(base_url: str, api_key: str) -> None:
-    """Delete stale e2e-* bots, carapaces, and skills from prior runs."""
+    """Delete stale e2e-* bots and skills from prior runs."""
     import httpx
     async with httpx.AsyncClient(
         base_url=base_url,
@@ -402,17 +401,6 @@ async def _sweep_stale_e2e_resources(base_url: str, api_key: str) -> None:
                         logger.info("Sweeping %d stale e2e bots", len(stale))
                         for bot_id in stale:
                             await http.delete(f"/api/v1/admin/bots/{bot_id}?force=true")
-
-            # Sweep test carapaces (e2e-cap-*)
-            resp = await http.get("/api/v1/admin/carapaces")
-            if resp.status_code == 200:
-                caps = resp.json()
-                if isinstance(caps, list):
-                    stale = [c["id"] for c in caps if (c.get("id") or "").startswith("e2e-cap-")]
-                    if stale:
-                        logger.info("Sweeping %d stale e2e carapaces", len(stale))
-                        for cap_id in stale:
-                            await http.delete(f"/api/v1/admin/carapaces/{cap_id}")
 
             # Sweep test skills (e2e-skill-*)
             resp = await http.get("/api/v1/admin/skills")

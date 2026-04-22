@@ -199,6 +199,7 @@ class TestMaybeCompact:
         mock_drain.assert_called_once()
         _, kwargs = mock_drain.call_args
         assert kwargs["budget_triggered"] is True
+        assert kwargs["trigger_reason"] == "total_utilization"
 
     @pytest.mark.asyncio
     async def test_when_budget_exactly_at_threshold_then_not_triggered(self):
@@ -207,7 +208,7 @@ class TestMaybeCompact:
 
         with patch("app.services.compaction._drain_compaction", return_value=AsyncMock()()) as mock_drain, \
              patch("asyncio.create_task"):
-            maybe_compact(session_id, bot, [], budget_utilization=0.85)
+            maybe_compact(session_id, bot, [], budget_utilization=0.70)
 
         _, kwargs = mock_drain.call_args
         assert kwargs["budget_triggered"] is False
@@ -235,6 +236,24 @@ class TestMaybeCompact:
 
         _, kwargs = mock_drain.call_args
         assert kwargs["budget_triggered"] is False
+
+    @pytest.mark.asyncio
+    async def test_when_live_history_tokens_above_cap_then_budget_triggered_true(self):
+        bot = MagicMock()
+        session_id = uuid.uuid4()
+
+        with patch("app.services.compaction._drain_compaction", return_value=AsyncMock()()) as mock_drain, \
+             patch("asyncio.create_task"):
+            maybe_compact(
+                session_id,
+                bot,
+                [],
+                budget_snapshot={"live_history_tokens": 70_000, "live_history_utilization": 0.10},
+            )
+
+        _, kwargs = mock_drain.call_args
+        assert kwargs["budget_triggered"] is True
+        assert kwargs["trigger_reason"] == "live_history_tokens"
 
     @pytest.mark.asyncio
     async def test_when_background_task_raises_exception_is_contained(self):

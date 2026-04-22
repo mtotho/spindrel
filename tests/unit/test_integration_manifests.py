@@ -516,10 +516,10 @@ class TestSetDetectedProvides:
     def test_when_id_cached_then_detected_persisted_sorted(self):
         manifests_mod._manifests["slack"] = {"id": "slack"}
 
-        set_detected_provides("slack", {"hooks", "skills", "carapaces"})
+        set_detected_provides("slack", {"hooks", "skills", "tools"})
 
         assert manifests_mod._manifests["slack"]["_detected_provides"] == [
-            "carapaces", "hooks", "skills",
+            "hooks", "skills", "tools",
         ]
 
     def test_when_id_missing_then_silent_noop(self):

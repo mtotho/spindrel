@@ -74,6 +74,17 @@ class ServiceStatus:
     ports: list[dict]
 
 
+@dataclass
+class IntegrationStackSyncResult:
+    stack: DockerStack
+    compose_changed: bool
+    project_name_changed: bool
+
+    @property
+    def requires_recreate(self) -> bool:
+        return self.compose_changed or self.project_name_changed
+
+
 def _stacks_base_dir() -> str:
     """Base directory for materialized compose files."""
     return os.path.join(local_workspace_base(), "stacks")
@@ -240,8 +251,8 @@ class StackService:
             self._materialize(str(stack.id), sanitized_yaml)
             return stack
 
-    async def start(self, stack: DockerStack) -> DockerStack:
-        """Start all services in a stack."""
+    async def start(self, stack: DockerStack, force_recreate: bool = False) -> DockerStack:
+        """Start or converge all services in a stack."""
         stack_id = str(stack.id)
         self._materialize(stack_id, stack.compose_definition)
 
@@ -273,7 +284,10 @@ class StackService:
             await db.commit()
 
         try:
-            result = await self._compose_cmd(stack, ["up", "-d", "--remove-orphans"])
+            up_args = ["up", "-d", "--remove-orphans"]
+            if force_recreate:
+                up_args.append("--force-recreate")
+            result = await self._compose_cmd(stack, up_args)
             if result.exit_code != 0:
                 raise StackError(f"docker compose up failed: {result.stderr}")
 
@@ -589,7 +603,7 @@ class StackService:
         project_name: str,
         description: str | None = None,
         config_files: dict[str, str] | None = None,
-    ) -> DockerStack:
+    ) -> IntegrationStackSyncResult:
         """Upsert an integration-owned stack.
 
         Creates or updates the DB row and materializes compose + config files
@@ -604,6 +618,8 @@ class StackService:
             description: optional description
             config_files: {relative_path: file_content} for volume-mounted config files
         """
+        compose_changed = False
+        project_name_changed = False
         async with async_session() as db:
             # Look up by integration_id
             row = (await db.execute(
@@ -614,10 +630,13 @@ class StackService:
                 # Update if compose changed
                 if row.compose_definition != compose_definition:
                     row.compose_definition = compose_definition
+                    compose_changed = True
                     row.updated_at = datetime.now(timezone.utc)
+                if row.project_name != project_name:
+                    row.project_name = project_name
+                    project_name_changed = True
                 row.name = name
                 row.description = description
-                row.project_name = project_name
                 await db.commit()
                 await db.refresh(row)
             else:
@@ -642,7 +661,46 @@ class StackService:
             for rel_path, content in config_files.items():
                 self._materialize_file(stack_id, rel_path, content)
 
-        return row
+        return IntegrationStackSyncResult(
+            stack=row,
+            compose_changed=compose_changed,
+            project_name_changed=project_name_changed,
+        )
+
+    async def apply_integration_stack(
+        self,
+        integration_id: str,
+        name: str,
+        compose_definition: str,
+        project_name: str,
+        enabled: bool,
+        description: str | None = None,
+        config_files: dict[str, str] | None = None,
+    ) -> DockerStack:
+        """Sync an integration-owned stack definition and apply desired state."""
+        sync = await self.sync_integration_stack(
+            integration_id=integration_id,
+            name=name,
+            compose_definition=compose_definition,
+            project_name=project_name,
+            description=description,
+            config_files=config_files,
+        )
+        stack = sync.stack
+
+        if enabled:
+            # Enabled integration stacks are declarative desired state. Always
+            # run compose up so startup/admin reconciliation applies the current
+            # checked-in spec instead of trusting stale DB state.
+            return await self.start(
+                stack,
+                force_recreate=sync.requires_recreate and stack.status == "running",
+            )
+
+        if stack.status == "running":
+            return await self.stop(stack)
+
+        return stack
 
     # --- Internal helpers ---
 

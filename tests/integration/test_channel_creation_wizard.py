@@ -92,7 +92,7 @@ class TestChannelCreationWizard:
             "test_integration": {
                 "description": "Test",
                 "requires_workspace": False,
-                "carapaces": [],
+                "tools": [],
             }
         }
 
@@ -139,7 +139,7 @@ class TestChannelCreationWizard:
             "full_integration": {
                 "description": "Full Test",
                 "requires_workspace": False,
-                "carapaces": [],
+                "tools": [],
             }
         }
 
@@ -168,7 +168,7 @@ class TestGlobalActivatableIntegrations:
             "mock_int": {
                 "description": "Mock integration",
                 "requires_workspace": False,
-                "carapaces": [],
+                "tools": [],
             }
         }
 

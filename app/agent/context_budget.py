@@ -186,13 +186,58 @@ class ContextBudget:
         affordable_chunks = max(0, self.remaining // 500)
         return min(configured_top_k, max(1, affordable_chunks)) if affordable_chunks > 0 else 0
 
+    def _sum_categories(self, *categories: str) -> int:
+        return sum(int(self.breakdown.get(category, 0) or 0) for category in categories)
+
+    @property
+    def base_tokens(self) -> int:
+        """Prompt tokens that are not eligible for compaction.
+
+        Includes system/base context and the current user message.
+        """
+        return self._sum_categories("base_context", "current_user_message")
+
+    @property
+    def live_history_tokens(self) -> int:
+        """Replayable conversation history that compaction can shrink."""
+        return self._sum_categories("conversation_history")
+
+    @property
+    def tool_schema_tokens(self) -> int:
+        return self._sum_categories("tool_schemas")
+
+    @property
+    def static_injection_tokens(self) -> int:
+        """Injected non-history context after subtracting the core buckets."""
+        return max(
+            0,
+            self.consumed_tokens
+            - self.base_tokens
+            - self.live_history_tokens
+            - self.tool_schema_tokens,
+        )
+
+    @property
+    def live_history_utilization(self) -> float:
+        """How much of the usable budget is spent on replayable live history."""
+        avail = self.available_budget
+        if avail <= 0:
+            return 1.0
+        return self.live_history_tokens / avail
+
     def to_dict(self) -> dict:
         """Serialize for trace events / observability."""
         return {
             "total_tokens": self.total_tokens,
             "reserve_tokens": self.reserve_tokens,
+            "available_budget": self.available_budget,
             "consumed_tokens": self.consumed_tokens,
             "remaining_tokens": self.remaining,
             "utilization": round(self.utilization, 3),
+            "base_tokens": self.base_tokens,
+            "live_history_tokens": self.live_history_tokens,
+            "live_history_utilization": round(self.live_history_utilization, 3),
+            "static_injection_tokens": self.static_injection_tokens,
+            "tool_schema_tokens": self.tool_schema_tokens,
             "breakdown": dict(self.breakdown),
         }

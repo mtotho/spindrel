@@ -7,6 +7,7 @@ import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState"
 import { ContentFields, ExecutionFields, TriggerFields } from "@/src/components/shared/task/TaskFormFields";
 import { Trash2, Play, ExternalLink, ArrowUpRight, BookOpen, ChevronRight, Terminal, Bot, Wrench, CheckCircle2, XCircle, Clock, SkipForward, Loader2, PauseCircle, Cog, CalendarClock, Hash } from "lucide-react";
 import { Link } from "react-router-dom";
+import { buildRecentHref } from "@/src/lib/recentPages";
 import {
   useTaskSubscriptions,
   useUpdateSubscription,
@@ -86,8 +87,8 @@ export default function TaskDetailScreen() {
   const loc = useLocation();
   useEffect(() => {
     const label = task?.title || task?.prompt?.substring(0, 40);
-    if (label) enrichRecentPage(loc.pathname, label);
-  }, [task?.title, task?.prompt, loc.pathname, enrichRecentPage]);
+    if (label) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), label);
+  }, [task?.title, task?.prompt, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
   const SYSTEM_TASK_TYPES = new Set(["memory_hygiene", "skill_review"]);
   const isSystemManaged = !!(task && SYSTEM_TASK_TYPES.has(task.task_type));
   const isSystemSeeded = task?.source === "system";

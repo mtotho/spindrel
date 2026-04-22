@@ -23,7 +23,14 @@ export function PlanResultRenderer({
 }) {
   const sessionPlan = useSessionPlanMode(sessionId);
   const fallbackPlan = useMemo(() => parsePlan(envelope), [envelope]);
-  const plan = sessionPlan.data ?? fallbackPlan;
+  const plan = useMemo(() => {
+    if (!fallbackPlan) return sessionPlan.data ?? null;
+    return {
+      ...fallbackPlan,
+      accepted_revision: sessionPlan.state?.accepted_revision ?? sessionPlan.data?.accepted_revision ?? fallbackPlan.accepted_revision,
+      revisions: sessionPlan.data?.revisions ?? fallbackPlan.revisions,
+    } satisfies SessionPlan;
+  }, [fallbackPlan, sessionPlan.data, sessionPlan.state?.accepted_revision]);
 
   if (!plan) return null;
 
@@ -36,8 +43,12 @@ export function PlanResultRenderer({
   return (
     <SessionPlanCard
       plan={plan}
+      sessionId={sessionId ?? plan.session_id}
       busy={busy}
       showPath={false}
+      currentRevision={sessionPlan.state?.revision ?? sessionPlan.data?.revision ?? null}
+      acceptedRevision={sessionPlan.state?.accepted_revision ?? sessionPlan.data?.accepted_revision ?? null}
+      staleMessage={sessionPlan.staleConflict}
       onApprove={() => sessionPlan.approvePlan.mutate()}
       onExit={() => sessionPlan.exitPlan.mutate()}
       onStepStatus={(stepId, status) => {

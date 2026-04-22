@@ -9,6 +9,7 @@ from app.services.session_plan_mode import (
     PLAN_MODE_PLANNING,
     get_session_plan_mode,
     publish_session_plan,
+    publish_session_plan_event,
 )
 from app.tools.registry import register
 
@@ -107,6 +108,7 @@ async def publish_plan(
             steps=steps,
         )
         await db.commit()
+        publish_session_plan_event(session, "revise")
 
     payload = {
         **plan.as_dict(),

@@ -22,9 +22,10 @@ async def test_any_skill_accessible():
     from app.tools.local.skills import get_skill
 
     fake_row = MagicMock()
-    fake_row.id = "carapaces/orchestrator/workspace-api-reference"
+    fake_row.id = "shared/workspace-api-reference"
     fake_row.name = "Workspace API Reference"
     fake_row.content = "# API docs here"
+    fake_row.archived_at = None
 
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=fake_row)
@@ -38,7 +39,7 @@ async def test_any_skill_accessible():
     ):
         mock_bot_id.get.return_value = "some-random-bot"
 
-        result = await get_skill(skill_id="carapaces/orchestrator/workspace-api-reference")
+        result = await get_skill(skill_id="shared/workspace-api-reference")
 
     assert "API docs here" in result
     assert "not configured" not in result
@@ -66,6 +67,7 @@ async def test_bot_scoped_skill_allowed_for_owning_bot():
     fake_row.id = "bots/my-bot/private-notes"
     fake_row.name = "Private Notes"
     fake_row.content = "# My private notes"
+    fake_row.archived_at = None
 
     mock_db = AsyncMock()
     mock_db.get = AsyncMock(return_value=fake_row)

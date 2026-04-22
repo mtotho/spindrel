@@ -109,7 +109,6 @@ class TestEnsureOrchestratorChannel:
             name="Orchestrator",
             private=True,
             protected=False,
-            carapaces_extra=[],
             updated_at=None,
             bot_id="orchestrator",
         )
@@ -146,7 +145,6 @@ class TestEnsureOrchestratorChannel:
             name="Home",
             private=True,
             protected=True,
-            carapaces_extra=["orchestrator"],
             updated_at=None,
             bot_id="orchestrator",
         )

@@ -7,9 +7,13 @@
 import { useState } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { RichRendererChromeMode, RichRendererVariant } from "./genericRendererChrome";
+import { resolveCodeShell } from "./genericRendererChrome";
 
 interface Props {
   body: string;
+  rendererVariant?: RichRendererVariant;
+  chromeMode?: RichRendererChromeMode;
   t: ThemeTokens;
 }
 
@@ -28,7 +32,12 @@ function countNodes(value: unknown, cap = 100): number {
 /** When the tree is small, expand everything. Otherwise depth-limit. */
 const SMALL_TREE_THRESHOLD = 60;
 
-export function JsonTreeRenderer({ body, t }: Props) {
+export function JsonTreeRenderer({
+  body,
+  rendererVariant = "default-chat",
+  chromeMode = "standalone",
+  t,
+}: Props) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -36,17 +45,8 @@ export function JsonTreeRenderer({ body, t }: Props) {
     return (
       <pre
         style={{
-          margin: 0,
-          padding: "8px 12px",
-          borderRadius: 8,
-          background: t.codeBg,
-          border: `1px solid ${t.codeBorder}`,
-          fontFamily: "'Menlo', monospace",
-          fontSize: 12,
-          color: t.contentText,
+          ...resolveCodeShell({ t, rendererVariant, chromeMode }),
           whiteSpace: "pre-wrap",
-          maxHeight: 400,
-          overflowY: "auto",
         }}
       >
         {body}
@@ -61,16 +61,8 @@ export function JsonTreeRenderer({ body, t }: Props) {
   return (
     <div
       style={{
-        padding: "8px 12px",
-        borderRadius: 8,
-        background: t.codeBg,
-        border: `1px solid ${t.codeBorder}`,
-        fontFamily: "'Menlo', monospace",
-        fontSize: 12,
-        lineHeight: 1.55,
-        color: t.contentText,
-        maxHeight: 400,
-        overflowY: "auto",
+        ...resolveCodeShell({ t, rendererVariant, chromeMode }),
+        lineHeight: rendererVariant === "terminal-chat" ? 1.45 : 1.55,
       }}
     >
       <JsonNode value={parsed} t={t} keyPath="$" depth={0} expandDepth={expandDepth} />

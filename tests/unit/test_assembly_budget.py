@@ -26,7 +26,6 @@ def _minimal_bot(**overrides) -> BotConfig:
         skills=[],
         pinned_tools=[],
         tool_retrieval=False,
-        carapaces=[],
         memory_scheme=None,
         history_mode=None,
         filesystem_indexes=[],

@@ -10,7 +10,7 @@
  * Empty diff body → "(no changes)" placeholder.
  */
 import type { ThemeTokens } from "../../../theme/tokens";
-import type { RichRendererVariant } from "../RichToolResult";
+import type { RichRendererVariant } from "./genericRendererChrome";
 
 interface Props {
   body: string;

@@ -377,6 +377,7 @@ export function DefaultToolRows({
                         channelId={channelId}
                         botId={botId}
                         rendererVariant={isTerminalMode ? "terminal-chat" : "default-chat"}
+                        chromeMode="embedded"
                         t={t}
                       />
                     )}
@@ -450,6 +451,7 @@ function ErrorResult({
       channelId={channelId}
       botId={botId}
       rendererVariant={chatMode === "terminal" ? "terminal-chat" : "default-chat"}
+      chromeMode="embedded"
       t={t}
     />
   );

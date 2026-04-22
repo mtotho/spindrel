@@ -167,6 +167,8 @@ A single-workspace model replaces the earlier per-bot container runtime. Every b
 
 Streaming turns and pending approvals survive reconnects. The `GET /api/v1/channels/{id}/state` snapshot returns `{active_turns, pending_approvals}` — used by `useChannelState` + `rehydrateTurn` on mount so a mobile tab-wake or a page reload picks up exactly where the live SSE stream left off. Live events always win over snapshot values, so the rehydration is idempotent.
 
+See [Context Management](context-management.md) for the canonical guide to replay policy, compaction, and live-history budgeting.
+
 ---
 
 ## Key Concepts Summary

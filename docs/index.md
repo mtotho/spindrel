@@ -110,6 +110,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Usage & Billing](guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting, and provider pricing. |
 | [Pipelines](guides/pipelines.md) | Multi-step task automation — exec, tool, agent, user_prompt, and foreach steps with conditions, params, and approval gates. |
 | [Task Sub-Sessions](guides/task-sub-sessions.md) | Pipeline-run-as-chat — anchor cards, run-view modal, `sub_session_bus` routing, ephemeral skill scope. |
+| [Context Management](guides/context-management.md) | Canonical guide for replay policy, compaction, live-history budgeting, and how Spindrel keeps context useful without replaying everything. |
 | [Sub-Agents](guides/subagents.md) | Five presets, parallel execution, depth and rate limits. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and pipeline triggers. |
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
@@ -120,7 +121,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Widget Templates](widget-templates.md) | YAML widget templates that render tool results as live, interactive UI. Component templates, HTML templates, and the `state_poll` field. |
 | [Developer Panel](guides/dev-panel.md) | `/widgets/dev` — browse the catalog, author templates with live preview, call tools in a sandbox, inspect recent results. |
 | [Creating Integrations](integrations/index.md) | Build custom integrations with routers, dispatchers, hooks, and HUD widgets. |
-| [Chat History](guides/chat-history.md) | Conversation archival, searchable sections, and continuity across fresh starts. |
+| [Chat History](guides/chat-history.md) | Conversation archival, searchable sections, and history modes. |
 | [Chat State Rehydration](guides/chat-state-rehydration.md) | Snapshot endpoint, `useChannelState` + `rehydrateTurn`, reconnect / tab-wake / replay-lapsed recovery. |
 | [PWA & Push Notifications](guides/pwa-push.md) | Install the PWA, subscribe a device, `send_push_notification` tool, scoped `/api/v1/push/send` endpoint. |
 | [Developer API](guides/api.md) | Authentication, scoped keys, streaming, SSE events. |

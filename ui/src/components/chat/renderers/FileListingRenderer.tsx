@@ -11,9 +11,13 @@
  */
 import { Folder, FileText, Search, ChevronRight } from "lucide-react";
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { RichRendererChromeMode, RichRendererVariant } from "./genericRendererChrome";
+import { resolveSurfaceShell } from "./genericRendererChrome";
 
 interface Props {
   body: string;
+  rendererVariant?: RichRendererVariant;
+  chromeMode?: RichRendererChromeMode;
   t: ThemeTokens;
 }
 
@@ -44,7 +48,12 @@ interface ListingShape {
   truncated?: boolean;
 }
 
-export function FileListingRenderer({ body, t }: Props) {
+export function FileListingRenderer({
+  body,
+  rendererVariant = "default-chat",
+  chromeMode = "standalone",
+  t,
+}: Props) {
   let parsed: ListingShape;
   try {
     parsed = JSON.parse(body);
@@ -55,13 +64,13 @@ export function FileListingRenderer({ body, t }: Props) {
   }
 
   if (parsed.matches) {
-    return <GrepListing data={parsed} t={t} />;
+    return <GrepListing data={parsed} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
   }
   if (parsed.paths) {
-    return <GlobListing data={parsed} t={t} />;
+    return <GlobListing data={parsed} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
   }
   if (parsed.entries) {
-    return <DirListing data={parsed} t={t} />;
+    return <DirListing data={parsed} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
   }
 
   return (
@@ -69,23 +78,28 @@ export function FileListingRenderer({ body, t }: Props) {
   );
 }
 
-function listingShell(t: ThemeTokens) {
-  return {
-    border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: 8,
-    background: t.codeBg,
-    fontFamily: "'Menlo', monospace",
-    fontSize: 12,
-    color: t.contentText,
-    maxHeight: 400,
-    overflowY: "auto" as const,
-  };
+function listingShell(
+  t: ThemeTokens,
+  rendererVariant: RichRendererVariant,
+  chromeMode: RichRendererChromeMode,
+) {
+  return resolveSurfaceShell({ t, rendererVariant, chromeMode });
 }
 
-function DirListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
+function DirListing({
+  data,
+  rendererVariant,
+  chromeMode,
+  t,
+}: {
+  data: ListingShape;
+  rendererVariant: RichRendererVariant;
+  chromeMode: RichRendererChromeMode;
+  t: ThemeTokens;
+}) {
   const entries = data.entries ?? [];
   return (
-    <div style={listingShell(t)}>
+    <div style={listingShell(t, rendererVariant, chromeMode)}>
       {data.path && (
         <div
           style={{
@@ -125,10 +139,20 @@ function DirListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
   );
 }
 
-function GlobListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
+function GlobListing({
+  data,
+  rendererVariant,
+  chromeMode,
+  t,
+}: {
+  data: ListingShape;
+  rendererVariant: RichRendererVariant;
+  chromeMode: RichRendererChromeMode;
+  t: ThemeTokens;
+}) {
   const paths = data.paths ?? [];
   return (
-    <div style={listingShell(t)}>
+    <div style={listingShell(t, rendererVariant, chromeMode)}>
       <div
         style={{
           padding: "6px 12px",
@@ -158,7 +182,17 @@ function GlobListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
   );
 }
 
-function GrepListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
+function GrepListing({
+  data,
+  rendererVariant,
+  chromeMode,
+  t,
+}: {
+  data: ListingShape;
+  rendererVariant: RichRendererVariant;
+  chromeMode: RichRendererChromeMode;
+  t: ThemeTokens;
+}) {
   const matches = data.matches ?? [];
   // Group by file so the user sees one heading per file with all matching lines beneath.
   const grouped = new Map<string, GrepMatch[]>();
@@ -169,7 +203,7 @@ function GrepListing({ data, t }: { data: ListingShape; t: ThemeTokens }) {
   }
 
   return (
-    <div style={listingShell(t)}>
+    <div style={listingShell(t, rendererVariant, chromeMode)}>
       <div
         style={{
           padding: "6px 12px",

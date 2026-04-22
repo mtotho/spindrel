@@ -445,6 +445,18 @@ def _is_compaction_enabled(bot: BotConfig, channel: Channel | None = None) -> bo
     return bot.context_compaction
 
 
+def _get_compaction_trigger_utilization_soft() -> float:
+    return float(getattr(settings, "COMPACTION_TRIGGER_UTILIZATION_SOFT", 0.70) or 0.70)
+
+
+def _get_compaction_live_history_max_ratio() -> float:
+    return float(getattr(settings, "COMPACTION_LIVE_HISTORY_MAX_RATIO", 0.20) or 0.20)
+
+
+def _get_compaction_live_history_max_tokens() -> int:
+    return int(getattr(settings, "COMPACTION_LIVE_HISTORY_MAX_TOKENS", 60_000) or 60_000)
+
+
 def _messages_for_summary(messages: list[dict]) -> list[dict]:
     """Build the message list to send to the summarization LLM.
 
@@ -462,12 +474,13 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
 
     for m in messages:
         # Skip heartbeat messages — they're automated internal checks
-        if (m.get("_metadata") or {}).get("is_heartbeat"):
+        meta = m.get("_metadata") or {}
+        if meta.get("is_heartbeat") or meta.get("hidden") or meta.get("pipeline_step"):
             continue
         role = m.get("role")
         content = m.get("content")
         tool_calls = m.get("tool_calls")
-        is_passive = (m.get("_metadata") or {}).get("passive", False)
+        is_passive = meta.get("passive", False)
 
         if role == "user" and is_passive:
             meta = m.get("_metadata") or {}
@@ -892,6 +905,7 @@ async def run_compaction_stream(
     *,
     correlation_id: uuid.UUID | None = None,
     budget_triggered: bool = False,
+    trigger_reason: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """If compaction is due, run memory/knowledge phase (yielding tool events) then summarize.
     Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
@@ -939,7 +953,11 @@ async def run_compaction_stream(
         )
         return
     if budget_triggered:
-        logger.info("Budget-triggered early compaction for session %s", session_id)
+        logger.info(
+            "Budget-triggered early compaction for session %s (%s)",
+            session_id,
+            trigger_reason or "budget",
+        )
 
     logger.info("Starting compaction for session %s", session_id)
 
@@ -960,24 +978,14 @@ async def run_compaction_stream(
         bot_id=bot.id,
         client_id=client_id,
         event_type="compaction_start",
-        data={"interval": _get_compaction_interval(bot, channel), "keep_turns": _get_compaction_keep_turns(bot, channel)},
+        data={
+            "interval": _get_compaction_interval(bot, channel),
+            "keep_turns": _get_compaction_keep_turns(bot, channel),
+            "trigger_reason": trigger_reason,
+        },
     ))
 
     keep_turns = _get_compaction_keep_turns(bot, channel)
-    turns_to_summarize = interval - keep_turns
-    conversation = _messages_for_summary(messages)
-    user_count = 0
-    to_summarize: list[dict] = []
-    for m in conversation:
-        if m.get("role") == "user":
-            user_count += 1
-            if user_count > turns_to_summarize:
-                break
-        to_summarize.append(m)
-
-    if not to_summarize:
-        logger.debug("No turns to summarize for %s", session_id)
-        return
 
     # Run dedicated memory flush before compaction so the bot can save
     # memories/knowledge/persona while it still sees the full recent window.
@@ -1035,6 +1043,28 @@ async def run_compaction_stream(
                 logger.debug("All messages within keep window for %s, skipping", session_id)
                 return
 
+            lower_bound_dt = None
+            if prev_watermark_id:
+                prev_wm_msg = await db.get(Message, prev_watermark_id)
+                if prev_wm_msg:
+                    lower_bound_dt = prev_wm_msg.created_at
+
+            summary_stmt = (
+                select(Message)
+                .where(Message.session_id == session_id)
+                .where(Message.created_at < oldest_kept.created_at)
+                .order_by(Message.created_at)
+            )
+            if lower_bound_dt is not None:
+                summary_stmt = summary_stmt.where(Message.created_at > lower_bound_dt)
+            summary_result = await db.execute(summary_stmt)
+            summary_window = [_msg_to_dict(m) for m in summary_result.scalars().all()]
+
+        to_summarize = _messages_for_summary(summary_window)
+        if not to_summarize:
+            logger.debug("No turns to summarize for %s", session_id)
+            return
+
         if history_mode in ("structured", "file"):
             # --- Section-based compaction ---
             sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
@@ -1063,12 +1093,8 @@ async def run_compaction_stream(
                     .where(Message.role.in_(["user", "assistant"]))
                 )
                 # Lower bound: only messages AFTER the previous watermark
-                if prev_watermark_id:
-                    prev_wm_msg = await db.get(Message, prev_watermark_id)
-                    if prev_wm_msg:
-                        period_query = period_query.where(
-                            Message.created_at > prev_wm_msg.created_at
-                        )
+                if lower_bound_dt is not None:
+                    period_query = period_query.where(Message.created_at > lower_bound_dt)
                 period_result = await db.execute(period_query)
                 row = period_result.one_or_none()
                 if row:
@@ -1235,11 +1261,19 @@ async def _drain_compaction(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
     budget_triggered: bool = False,
+    trigger_reason: str | None = None,
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
     compacted = False
     try:
-        async for event in run_compaction_stream(session_id, bot, messages, correlation_id=correlation_id, budget_triggered=budget_triggered):
+        async for event in run_compaction_stream(
+            session_id,
+            bot,
+            messages,
+            correlation_id=correlation_id,
+            budget_triggered=budget_triggered,
+            trigger_reason=trigger_reason,
+        ):
             if isinstance(event, dict) and event.get("type") == "compaction_done":
                 compacted = True
     except Exception:
@@ -1287,20 +1321,47 @@ async def _drain_compaction(
             logger.warning("Failed to publish compaction notification for session %s", session_id)
 
 
+def _should_trigger_budget_compaction(
+    budget_utilization: float | None,
+    budget_snapshot: dict[str, Any] | None,
+) -> tuple[bool, str | None]:
+    """Return whether early compaction should fire, plus the reason."""
+    live_tokens = int((budget_snapshot or {}).get("live_history_tokens") or 0)
+    live_util = (budget_snapshot or {}).get("live_history_utilization")
+    try:
+        live_util_f = float(live_util) if live_util is not None else None
+    except (TypeError, ValueError):
+        live_util_f = None
+
+    if live_tokens >= _get_compaction_live_history_max_tokens():
+        return True, "live_history_tokens"
+    if live_util_f is not None and live_util_f >= _get_compaction_live_history_max_ratio():
+        return True, "live_history_ratio"
+    if budget_utilization is not None and budget_utilization > _get_compaction_trigger_utilization_soft():
+        return True, "total_utilization"
+    return False, None
+
+
 def maybe_compact(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     correlation_id: uuid.UUID | None = None,
     budget_utilization: float | None = None,
+    budget_snapshot: dict[str, Any] | None = None,
 ) -> None:
     """If compaction is due, run it in the background (memory phase + summary). Non-blocking.
 
-    If budget_utilization > 0.85, triggers early compaction regardless of turn count.
+    Early compaction fires when replayable live history grows too large, or as a
+    fallback when overall prompt utilization breaches the soft threshold.
     """
-    _budget_triggered = budget_utilization is not None and budget_utilization > 0.85
+    _budget_triggered, _trigger_reason = _should_trigger_budget_compaction(
+        budget_utilization,
+        budget_snapshot,
+    )
     asyncio.create_task(_drain_compaction(
         session_id, bot, messages,
         correlation_id=correlation_id,
         budget_triggered=_budget_triggered,
+        trigger_reason=_trigger_reason,
     ))
 
 

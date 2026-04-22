@@ -59,6 +59,12 @@ import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { selectIsStreaming } from "@/src/stores/chat";
 import {
+  buildRecentHref,
+  formatSessionRecentLabel,
+  formatThreadRecentLabel,
+  parseChannelRecentRoute,
+} from "@/src/lib/recentPages";
+import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
@@ -236,16 +242,18 @@ export default function ChatScreen() {
   const loc = useLocation();
   useEffect(() => {
     if (!channel?.name) return;
-    // Scratch sub-pages under /session/:sid get a friendlier recents label
-    // so the command palette shows "Scratch · #channel" instead of a URL
-    // guid.
-    const isScratchPath = /\/channels\/[^/]+\/session\//.test(loc.pathname);
-    if (isScratchPath) {
-      enrichRecentPage(loc.pathname, `Scratch · #${channel.name}`);
-    } else {
-      enrichRecentPage(loc.pathname, channel.name);
+    const currentHref = buildRecentHref(loc.pathname, loc.search, loc.hash);
+    const parsed = parseChannelRecentRoute(currentHref);
+    if (parsed?.kind === "session") {
+      enrichRecentPage(currentHref, formatSessionRecentLabel(channel.name));
+      return;
     }
-  }, [channel?.name, loc.pathname, loc.search, enrichRecentPage]);
+    if (parsed?.kind === "thread") {
+      enrichRecentPage(currentHref, formatThreadRecentLabel(channel.name));
+      return;
+    }
+    enrichRecentPage(currentHref, channel.name);
+  }, [channel?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const scratchLayoutRestoreRef = useRef<{

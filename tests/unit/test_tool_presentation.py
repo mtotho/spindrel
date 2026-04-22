@@ -90,6 +90,29 @@ def test_widget_envelope_presentation_prefers_widget_surface():
     }
 
 
+def test_widget_error_presentation_preserves_widget_surface():
+    surface, summary = derive_tool_presentation(
+        tool_name="web_search",
+        arguments={"q": "weather in Lambertville NJ today"},
+        result=json.dumps({"error": "Cannot connect to SearXNG"}, ensure_ascii=False),
+        envelope={
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "display": "inline",
+            "display_label": "Web search",
+            "plain_body": "Web search",
+        },
+    )
+
+    assert surface == "widget"
+    assert summary == {
+        "kind": "error",
+        "subject_type": "widget",
+        "label": "Widget unavailable",
+        "target_label": "Web search",
+        "error": "Cannot connect to SearXNG",
+    }
+
+
 def test_time_presentation_keeps_inline_preview_text():
     surface, summary = derive_tool_presentation(
         tool_name="get_current_local_time",

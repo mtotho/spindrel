@@ -1,5 +1,9 @@
 # Chat History
 
+This page covers archival/history-mode behavior.
+
+For the canonical document covering replay policy, compaction, live-history budgeting, plan/task/heartbeat interplay, and tuning guidance, see [Context Management](context-management.md).
+
 Spindrel archives conversations into searchable sections that persist across fresh starts. The bot always has access to what you've discussed — it can browse an index, search by keyword, or retrieve full transcripts on demand.
 
 ## How It Works
@@ -81,7 +85,7 @@ These control when and how compaction happens.
 
 **How "keep turns" works:** With `compaction_interval: 30` and `compaction_keep_turns: 10`, after 30 user messages the oldest 20 are archived into a section. The 10 most recent remain in context verbatim.
 
-**Early compaction:** If context budget utilization exceeds 85%, compaction fires early regardless of the interval — preventing context overflow.
+**Early compaction:** Spindrel can also compact early when replayable live history grows too large. See [Context Management](context-management.md) for the current trigger policy and why turns alone are not a sufficient safety rail.
 
 All settings resolve in priority order: **channel override → bot YAML → environment variable**.
 

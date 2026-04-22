@@ -11,15 +11,10 @@ import {
   type WidgetPresetBindingSchema,
 } from "@/src/api/hooks/useWidgetPresets";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
-import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { ToolResultEnvelope } from "@/src/types/api";
-
-const NOOP_DISPATCHER: WidgetActionDispatcher = {
-  dispatchAction: async () => ({ envelope: null, apiResponse: null }),
-};
 
 type PresetStep = "catalog" | "configure" | "preview";
 
@@ -68,6 +63,7 @@ export function WidgetPresetsPane({
 
   const [internalPresetId, setInternalPresetId] = useState("");
   const [optimisticPresetId, setOptimisticPresetId] = useState("");
+  const lastControlledPresetIdRef = useRef<string | undefined>(selectedPresetId);
   const activePresetId = optimisticPresetId || selectedPresetId || internalPresetId;
   const setActivePresetId = (presetId: string) => {
     setOptimisticPresetId(presetId);
@@ -77,8 +73,9 @@ export function WidgetPresetsPane({
   const selectedPreset = filtered.find((preset) => preset.id === activePresetId) ?? filtered[0] ?? null;
 
   useEffect(() => {
-    if (selectedPresetId === undefined) return;
-    setOptimisticPresetId(selectedPresetId);
+    if (selectedPresetId === lastControlledPresetIdRef.current) return;
+    lastControlledPresetIdRef.current = selectedPresetId;
+    setOptimisticPresetId(selectedPresetId ?? "");
   }, [selectedPresetId]);
 
   useEffect(() => {
@@ -534,7 +531,8 @@ export function WidgetPresetsPane({
                 <div className="min-h-0 min-w-0 overflow-x-hidden bg-surface-overlay/10 p-3">
                   <RichToolResult
                     envelope={previewState.envelope}
-                    dispatcher={NOOP_DISPATCHER}
+                    channelId={scopeChannelId ?? undefined}
+                    botId={selectedBotId || undefined}
                     t={t}
                   />
                 </div>

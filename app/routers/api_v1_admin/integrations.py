@@ -194,14 +194,6 @@ async def _sync_docker_compose_stack(integration_id: str) -> None:
         if dc_info["integration_id"] != integration_id:
             continue
         try:
-            stack = await stack_service.sync_integration_stack(
-                integration_id=integration_id,
-                name=dc_info["description"] or integration_id,
-                compose_definition=dc_info["compose_definition"],
-                project_name=dc_info["project_name"],
-                description=dc_info["description"],
-                config_files=dc_info["config_files"],
-            )
             enabled = False
             enabled_callable = dc_info.get("enabled_callable")
             if enabled_callable is not None:
@@ -214,12 +206,15 @@ async def _sync_docker_compose_stack(integration_id: str) -> None:
                 default = dc_info.get("enabled_default", "false")
                 val = _get_int_setting(integration_id, dc_info["enabled_setting"], default)
                 enabled = val.lower() in ("true", "1", "yes")
-            if enabled and stack.status != "running":
-                logger.info("Starting integration stack: %s", integration_id)
-                await stack_service.start(stack)
-            elif not enabled and stack.status == "running":
-                logger.info("Stopping integration stack: %s", integration_id)
-                await stack_service.stop(stack)
+            await stack_service.apply_integration_stack(
+                integration_id=integration_id,
+                name=dc_info["description"] or integration_id,
+                compose_definition=dc_info["compose_definition"],
+                project_name=dc_info["project_name"],
+                enabled=enabled,
+                description=dc_info["description"],
+                config_files=dc_info["config_files"],
+            )
         except Exception:
             logger.exception("Failed to sync docker stack for %s", integration_id)
         break

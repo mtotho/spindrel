@@ -37,3 +37,20 @@ test("default-mode composer width is centralized through ChatComposerShell", () 
   assert.match(channelPage, /ChatComposerShell/);
   assert.match(chatSession, /ChatComposerShell/);
 });
+
+test("chat rich-result wrappers explicitly separate renderer variant from chrome ownership", () => {
+  const orderedTranscript = readChatFile("OrderedTranscript.tsx");
+  const toolBadges = readChatFile("ToolBadges.tsx");
+  const richToolResult = readChatFile("RichToolResult.tsx");
+
+  assert.match(richToolResult, /RichRendererChromeMode/);
+  assert.match(richToolResult, /chromeMode\?:\s*RichRendererChromeMode/);
+  assert.match(richToolResult, /chromeMode = "standalone"/);
+
+  assert.match(orderedTranscript, /rendererVariant="terminal-chat"/);
+  assert.match(orderedTranscript, /chromeMode="embedded"/);
+  assert.match(orderedTranscript, /rendererVariant="default-chat"/);
+
+  assert.match(toolBadges, /rendererVariant=\{isTerminalMode \? "terminal-chat" : "default-chat"\}/);
+  assert.match(toolBadges, /chromeMode="embedded"/);
+});

@@ -19,6 +19,7 @@ import { UserSelect } from "@/src/components/shared/UserSelect";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
+import { buildRecentHref } from "@/src/lib/recentPages";
 import { MemorySection } from "./MemoryKnowledgeSections";
 import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
 import { BigTextarea } from "./BigTextarea";
@@ -66,8 +67,8 @@ export default function BotEditorScreen() {
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
   const loc = useLocation();
   useEffect(() => {
-    if (editorData?.bot?.name) enrichRecentPage(loc.pathname, editorData.bot.name);
-  }, [editorData?.bot?.name, loc.pathname, enrichRecentPage]);
+    if (editorData?.bot?.name) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), editorData.bot.name);
+  }, [editorData?.bot?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
   // Global settings — used to show inherited values in attachment fields
   const { data: settingsData } = useSettings();

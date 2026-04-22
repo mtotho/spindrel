@@ -13,6 +13,7 @@ import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 import { usePresenceHeartbeat } from "../../hooks/usePresenceHeartbeat";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 import { KIOSK_PARAM } from "../../hooks/useKioskMode";
+import { buildRecentHref } from "../../lib/recentPages";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
@@ -36,9 +37,9 @@ export function AppShell() {
   const location = useLocation();
   const recordPageVisit = useUIStore((s) => s.recordPageVisit);
   useEffect(() => {
-    const href = location.pathname + (location.hash || "");
+    const href = buildRecentHref(location.pathname, location.search, location.hash);
     recordPageVisit(href);
-  }, [location.pathname, location.hash, recordPageVisit]);
+  }, [location.pathname, location.search, location.hash, recordPageVisit]);
 
   // Warn on tab close / refresh when a stream is active
   useEffect(() => {

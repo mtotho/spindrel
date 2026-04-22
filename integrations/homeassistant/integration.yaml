@@ -342,12 +342,12 @@ tool_widgets:
             color: muted
           - type: status
             when: "{{is_toggle_chip}}"
-            text: "{{friendly_name}} · {{display_value}}"
-            color: accent
+            text: "{{chip_text}}"
+            color: "{{chip_color}}"
           - type: status
             when: "{{is_entity_chip}}"
-            text: "{{friendly_name}} · {{display_value}}"
-            color: accent
+            text: "{{chip_text}}"
+            color: "{{chip_color}}"
           - type: toggle
             when: "{{show_toggle_off}}"
             label: Power
@@ -357,7 +357,7 @@ tool_widgets:
               dispatch: tool
               tool: "{{toggle_off_tool}}"
               args:
-                name: "{{toggle_target_name}}"
+                name: "{{toggle_target_entity_id}}"
               optimistic: true
           - type: toggle
             when: "{{show_toggle_on}}"
@@ -367,7 +367,7 @@ tool_widgets:
               dispatch: tool
               tool: "{{toggle_on_tool}}"
               args:
-                name: "{{toggle_target_name}}"
+                name: "{{toggle_target_entity_id}}"
               optimistic: true
           - type: button
             when: "{{show_brightness_button_hide}}"
@@ -398,7 +398,7 @@ tool_widgets:
               dispatch: tool
               tool: HassLightSet
               args:
-                name: "{{toggle_target_name}}"
+                name: "{{toggle_target_entity_id}}"
               value_key: brightness
           - type: properties
             when: "{{is_sensor_card}}"
