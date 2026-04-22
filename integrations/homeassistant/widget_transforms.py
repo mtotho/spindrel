@@ -178,6 +178,14 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
     brightness_raw = attrs.get("brightness")
     brightness = _parse_brightness(brightness_raw) if brightness_raw is not None else (100 if is_on else 0)
     show_brightness = supports_brightness and is_on and bool(config.get("show_brightness", True))
+    primary_info = str(config.get("primary_info") or "").strip().lower() or "name"
+    secondary_info = str(config.get("secondary_info") or "").strip().lower() or "none"
+    primary_text = _entity_property_value(entity, primary_info, friendly_name=friendly, display_value=_format_display_value(state, unit))
+    secondary_text = _entity_property_value(entity, secondary_info, friendly_name=friendly, display_value=_format_display_value(state, unit))
+    if not primary_text and secondary_text:
+        primary_text, secondary_text = secondary_text, ""
+    if not primary_text:
+        primary_text = friendly
 
     return {
         "entity_id": entity_id,
@@ -217,6 +225,10 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
         "toggle_target_name": friendly,
         "toggle_on_tool": "HassTurnOn" if supports_toggle else "",
         "toggle_off_tool": "HassTurnOff" if supports_toggle else "",
+        "primary_info": primary_info,
+        "secondary_info": secondary_info,
+        "primary_text": primary_text,
+        "secondary_text": secondary_text,
     }
 
 
@@ -245,9 +257,12 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
         })
 
     if view.get("is_toggle_chip") or view.get("is_entity_chip"):
+        chip_text = view.get("primary_text", "")
+        if view.get("secondary_text"):
+            chip_text = f"{chip_text} · {view.get('secondary_text', '')}".strip(" ·")
         components.append({
             "type": "status",
-            "text": f"{view.get('friendly_name', '')} · {view.get('display_value', '')}".strip(" ·"),
+            "text": chip_text,
             "color": "success" if view.get("is_on") else "accent",
         })
 
@@ -524,6 +539,39 @@ def _parse_brightness(raw: str | int | float) -> int:
     if val > 100:
         return round(val * 100 / 255)
     return val
+
+
+def _entity_property_value(
+    entity: dict,
+    prop: str,
+    *,
+    friendly_name: str,
+    display_value: str,
+) -> str:
+    attrs = entity.get("attributes") if isinstance(entity.get("attributes"), dict) else {}
+    key = (prop or "").strip().lower()
+    if not key or key == "none":
+        return ""
+    if key == "name":
+        return _stringify_property_value(friendly_name or entity.get("entity_id") or "")
+    if key == "state":
+        return _stringify_property_value(display_value or entity.get("state") or "")
+    if key == "last_changed":
+        return _stringify_property_value(entity.get("last_changed"))
+    if key == "last_updated":
+        return _stringify_property_value(entity.get("last_updated") or entity.get("last_changed"))
+    if key.startswith("attr:"):
+        attr_key = key[5:]
+        return _stringify_property_value(attrs.get(attr_key))
+    return ""
+
+
+def _stringify_property_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "On" if value else "Off"
+    return str(value)
 
 
 def _parse_live_context(text: str) -> list[dict]:

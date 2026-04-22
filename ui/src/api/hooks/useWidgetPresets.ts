@@ -4,6 +4,8 @@ import { apiFetch } from "../client";
 export interface WidgetPresetFieldUi {
   control?: string;
   source?: string;
+  options_from_field?: string;
+  options_from_meta?: string;
 }
 
 export interface WidgetPresetField {

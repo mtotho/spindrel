@@ -12,6 +12,7 @@ import pytest
 from integrations.homeassistant.widget_transforms import (
     live_context_poll,
     live_context_summary,
+    render_single_entity_widget,
     single_entity_state,
 )
 
@@ -94,6 +95,45 @@ def test_single_entity_state_toggle_chip_variant():
     assert out["toggle_target_name"] == "Espresso Machine"
     assert out["toggle_on_tool"] == "HassTurnOn"
     assert out["toggle_off_tool"] == "HassTurnOff"
+
+
+def test_single_entity_state_entity_chip_uses_selected_properties():
+    payload = json.dumps({
+        "data": {
+            "entity_id": "scene.bedroom_led_vibes",
+            "state": "2026-04-07T14:45:30.404173+00:00",
+            "attributes": {
+                "friendly_name": "Bedroom LED Vibes",
+                "icon": "mdi:led-strip-variant",
+            },
+            "last_changed": "2026-04-07T14:45:30.404173+00:00",
+            "last_updated": "2026-04-07T14:45:30.404173+00:00",
+        },
+    })
+    out = single_entity_state(payload, {
+        "config": {
+            "preset_variant": "entity_chip",
+            "primary_info": "name",
+            "secondary_info": "attr:icon",
+        },
+    })
+    assert out["widget_variant"] == "entity_chip"
+    assert out["primary_text"] == "Bedroom LED Vibes"
+    assert out["secondary_text"] == "mdi:led-strip-variant"
+
+    components = render_single_entity_widget(
+        {
+            "data": json.loads(payload)["data"],
+            "config": {
+                "preset_variant": "entity_chip",
+                "primary_info": "name",
+                "secondary_info": "attr:icon",
+            },
+        },
+        [],
+    )
+    assert components[0]["type"] == "status"
+    assert components[0]["text"] == "Bedroom LED Vibes · mdi:led-strip-variant"
 
 
 def test_single_entity_state_invalid_json():

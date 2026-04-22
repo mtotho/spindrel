@@ -94,8 +94,57 @@ async def test_list_binding_options_normalizes_live_context(monkeypatch):
         "label": "Office Desk LED Strip",
         "description": "light.office_desk_led_strip",
         "group": "Office",
-        "meta": {"domain": "light", "area": "Office"},
+        "meta": {
+            "domain": "light",
+            "area": "Office",
+            "properties": [
+                {"value": "name", "label": "Name"},
+                {"value": "state", "label": "State"},
+                {"value": "last_changed", "label": "Last Changed"},
+                {"value": "last_updated", "label": "Last Updated"},
+                {"value": "none", "label": "None"},
+            ],
+        },
     }]
+
+
+@pytest.mark.asyncio
+async def test_list_binding_options_includes_attribute_property_metadata(monkeypatch):
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
+
+    async def _exec(_tool_name, _args, bot_id=None, channel_id=None):
+        return (
+            {
+                "result": (
+                    "Live Context: overview\n"
+                    "- names: Office Desk LED Strip\n"
+                    "  domain: light\n"
+                    "  state: 'on'\n"
+                    "  areas: Office\n"
+                    "  attributes:\n"
+                    "    brightness: '180'\n"
+                    "    color_temp_kelvin: '2700'\n"
+                ),
+            },
+            None,
+        )
+
+    monkeypatch.setattr("app.services.tool_execution.execute_tool_with_context", _exec)
+    options = await list_binding_options(
+        preset_id="homeassistant-light-card",
+        source_id="homeassistant.light_entities",
+        source_bot_id="bot-1",
+        source_channel_id=None,
+    )
+    assert options[0]["meta"]["properties"] == [
+        {"value": "name", "label": "Name"},
+        {"value": "state", "label": "State"},
+        {"value": "last_changed", "label": "Last Changed"},
+        {"value": "last_updated", "label": "Last Updated"},
+        {"value": "none", "label": "None"},
+        {"value": "attr:brightness", "label": "Brightness"},
+        {"value": "attr:color_temp_kelvin", "label": "Color Temp Kelvin"},
+    ]
 
 
 @pytest.mark.asyncio
@@ -138,7 +187,17 @@ async def test_list_binding_options_resolves_bare_mcp_tool_names(monkeypatch):
         "label": "Office Desk LED Strip",
         "description": "light.office_desk_led_strip",
         "group": "Office",
-        "meta": {"domain": "light", "area": "Office"},
+        "meta": {
+            "domain": "light",
+            "area": "Office",
+            "properties": [
+                {"value": "name", "label": "Name"},
+                {"value": "state", "label": "State"},
+                {"value": "last_changed", "label": "Last Changed"},
+                {"value": "last_updated", "label": "Last Updated"},
+                {"value": "none", "label": "None"},
+            ],
+        },
     }]
 
 

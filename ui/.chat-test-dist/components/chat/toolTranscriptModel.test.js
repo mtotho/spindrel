@@ -58,12 +58,12 @@ test("persisted ordered turn body keeps transcript order and canonical surfaces"
             },
         ],
     });
-    assert.deepEqual(items.map((item) => item.kind), ["text", "transcript", "text", "widget"]);
-    assert.equal(items[1]?.kind, "transcript");
+    assert.deepEqual(items.map((item) => item.kind), ["text", "rich_result", "text", "widget"]);
+    assert.equal(items[1]?.kind, "rich_result");
     assert.equal(items[3]?.kind, "widget");
-    if (items[1]?.kind !== "transcript")
-        throw new Error("expected transcript item");
-    assert.equal(items[1].entries[0]?.detailKind, "inline-diff");
+    if (items[1]?.kind !== "rich_result")
+        throw new Error("expected rich-result item");
+    assert.equal(items[1].envelope.record_id, "result-edit");
 });
 test("live and persisted ordered turn body builders agree on item kinds", () => {
     const transcriptEntries = [

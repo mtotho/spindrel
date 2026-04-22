@@ -124,6 +124,24 @@ widget_presets:
           default: true
           ui:
             control: switch
+        primary_info:
+          type: string
+          title: Primary information
+          description: Choose the main entity property shown on the chip.
+          default: name
+          ui:
+            control: picker
+            options_from_field: entity_id
+            options_from_meta: properties
+        secondary_info:
+          type: string
+          title: Secondary information
+          description: Optional secondary entity property shown after the primary value.
+          default: none
+          ui:
+            control: picker
+            options_from_field: entity_id
+            options_from_meta: properties
     binding_sources:
       homeassistant.entities:
         tool: GetLiveContext
@@ -132,6 +150,8 @@ widget_presets:
     default_config:
       preset_variant: entity_chip
       allow_action: true
+      primary_info: name
+      secondary_info: none
     runtime:
       tool_args:
         entity_id: "{{config.entity_id}}"

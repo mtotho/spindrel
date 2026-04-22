@@ -13,7 +13,6 @@ import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
 import { RichToolResult } from "./RichToolResult";
 import { ThreadAnchor } from "./ThreadAnchor";
-import { TerminalPersistedToolTranscript } from "./TerminalToolTranscript";
 import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
 import { useToolResultCompact } from "../../stores/toolResultPref";
@@ -369,20 +368,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const renderPersistedToolItem = useCallback((item: PersistedRenderItem, index: number) => {
     if (item.kind === "transcript") {
-      return isTerminalMode ? (
-        <TerminalPersistedToolTranscript
-          key={item.key}
-          entries={item.entries}
-          inlineWidgets={[]}
-          remainingToolNames={[]}
-          remainingToolCalls={[]}
-          remainingToolResults={[]}
-          channelId={channelId}
-          botId={senderBotId}
-          onPin={handlePinWidget}
-          t={t}
-        />
-      ) : (
+      return (
         <ToolBadges
           key={item.key}
           entries={item.entries}
@@ -392,6 +378,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           sessionId={message.session_id}
           channelId={channelId}
           botId={senderBotId}
+          chatMode={chatMode}
           compact={compact}
           t={t}
         />
@@ -401,20 +388,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     if (item.kind === "widget") {
       const nextItem = persistedRenderItems[index + 1];
       const defaultCollapsed = nextItem?.kind === "widget" && nextItem.widget.toolName === item.widget.toolName;
-
-      return isTerminalMode ? (
-        <TerminalPersistedToolTranscript
-          key={item.key}
-          inlineWidgets={[item.widget]}
-          remainingToolNames={[]}
-          remainingToolCalls={[]}
-          remainingToolResults={[]}
-          channelId={channelId}
-          botId={senderBotId}
-          onPin={handlePinWidget}
-          t={t}
-        />
-      ) : (
+      return (
         <WidgetCard
           key={item.key}
           envelope={item.widget.envelope}

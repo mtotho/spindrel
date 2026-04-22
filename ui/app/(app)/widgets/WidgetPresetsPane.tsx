@@ -7,6 +7,7 @@ import {
   useWidgetPresets,
   type WidgetPresetField,
   type WidgetPresetOption,
+  type WidgetPresetBindingSchema,
 } from "@/src/api/hooks/useWidgetPresets";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
@@ -114,18 +115,18 @@ export function WidgetPresetsPane({
 
   const [sourceOptions, setSourceOptions] = useState<Record<string, WidgetPresetOption[]>>({});
   const [sourceLoading, setSourceLoading] = useState<Record<string, boolean>>({});
-  const [sourceError, setSourceError] = useState<string | null>(null);
+  const [sourceErrors, setSourceErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!selectedPreset || !selectedBotId) {
       setSourceOptions({});
       setSourceLoading({});
-      setSourceError(null);
+      setSourceErrors({});
       return;
     }
     const nextOptions: Record<string, WidgetPresetOption[]> = {};
     const nextLoading: Record<string, boolean> = {};
-    const nextErrors: string[] = [];
+    const nextErrors: Record<string, string> = {};
     const fields = selectedPreset.binding_schema.properties ?? {};
     for (const field of Object.values(fields)) {
       const sourceId = field.ui?.source;
@@ -133,12 +134,17 @@ export function WidgetPresetsPane({
       nextOptions[sourceId] = selectedPreset.resolved_binding_options?.[sourceId] ?? [];
       nextLoading[sourceId] = false;
       const sourceErrorMessage = selectedPreset.binding_source_errors?.[sourceId];
-      if (sourceErrorMessage) nextErrors.push(sourceErrorMessage);
+      if (sourceErrorMessage) nextErrors[sourceId] = sourceErrorMessage;
     }
     setSourceOptions(nextOptions);
     setSourceLoading(nextLoading);
-    setSourceError(nextErrors[0] ?? null);
+    setSourceErrors(nextErrors);
   }, [selectedPreset, selectedBotId, scopeChannelId]);
+
+  const sourceError = useMemo(
+    () => Object.values(sourceErrors)[0] ?? null,
+    [sourceErrors],
+  );
 
   const [previewState, setPreviewState] = useState<{
     running: boolean;
@@ -154,6 +160,61 @@ export function WidgetPresetsPane({
 
   const [pinning, setPinning] = useState(false);
   const [pinSuccess, setPinSuccess] = useState(false);
+
+  const bindingFields = selectedPreset?.binding_schema.properties ?? {};
+
+  const resolvePickerOptions = (
+    fieldId: string,
+    field: WidgetPresetField,
+    fields: Record<string, WidgetPresetField>,
+    nextConfig: Record<string, unknown> = config,
+  ): WidgetPresetOption[] => {
+    const sourceId = field.ui?.source;
+    if (sourceId) {
+      return sourceOptions[sourceId] ?? [];
+    }
+
+    const parentFieldId = field.ui?.options_from_field;
+    if (!parentFieldId) {
+      return [];
+    }
+    const parentField = fields[parentFieldId];
+    if (!parentField?.ui?.source) {
+      return [];
+    }
+    const parentOptions = sourceOptions[parentField.ui.source] ?? [];
+    const selectedParentValue = String(nextConfig[parentFieldId] ?? "");
+    const selectedParentOption = parentOptions.find((option) => option.value === selectedParentValue);
+    const metaKey = field.ui?.options_from_meta || "options";
+    const rawOptions = selectedParentOption?.meta?.[metaKey];
+    if (!Array.isArray(rawOptions)) {
+      return [];
+    }
+    return rawOptions
+      .filter((option): option is WidgetPresetOption => (
+        !!option
+        && typeof option === "object"
+        && typeof (option as WidgetPresetOption).value === "string"
+        && typeof (option as WidgetPresetOption).label === "string"
+      ));
+  };
+
+  const normalizeDependentConfig = (
+    nextConfig: Record<string, unknown>,
+    fields: Record<string, WidgetPresetField>,
+    changedFieldId: string,
+  ) => {
+    const normalized = { ...nextConfig };
+    for (const [candidateFieldId, candidateField] of Object.entries(fields)) {
+      if (candidateField.ui?.options_from_field !== changedFieldId) continue;
+      const validOptions = resolvePickerOptions(candidateFieldId, candidateField, fields, normalized);
+      const currentValue = String(normalized[candidateFieldId] ?? "");
+      if (!currentValue) continue;
+      if (validOptions.some((option) => option.value === currentValue)) continue;
+      normalized[candidateFieldId] = candidateField.default ?? "";
+    }
+    return normalized;
+  };
 
   const runPreview = async () => {
     if (!selectedPreset || !selectedBotId) return;
@@ -218,7 +279,7 @@ export function WidgetPresetsPane({
   const builder = layout === "builder";
 
   return (
-    <div className={builder ? "flex h-full min-h-0 flex-col" : "flex flex-col gap-3 p-3"}>
+    <div className={builder ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden" : "flex flex-col gap-3 p-3"}>
       {!builder && (
         <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
           <Home size={12} className="mt-0.5 shrink-0 text-accent/70" />
@@ -230,10 +291,10 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "flex min-h-0 flex-1 flex-col gap-6 px-5 pb-5 2xl:grid 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          ? "flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-x-hidden px-5 pb-5 xl:grid xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
-        <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
+        <section className={builder ? "relative z-10 min-w-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
           <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-3 py-2"}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
               Presets
@@ -264,7 +325,7 @@ export function WidgetPresetsPane({
               </div>
             </div>
           )}
-          <div className={builder ? "space-y-1 2xl:max-h-full 2xl:overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
+          <div className={builder ? "space-y-1 xl:max-h-full xl:overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
             {filtered.map((preset) => {
               const active = preset.id === selectedPreset?.id;
               return (
@@ -297,13 +358,13 @@ export function WidgetPresetsPane({
           </div>
         </section>
 
-        <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+        <section className={builder ? "relative min-w-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
           {!selectedPreset ? (
             <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-[12px] text-text-muted">
               Select a preset to configure it.
             </div>
           ) : (
-            <div className="flex flex-col 2xl:h-full 2xl:min-h-0">
+            <div className="flex min-w-0 flex-col 2xl:h-full 2xl:min-h-0">
               <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
                 <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <div className="min-w-0">
@@ -331,7 +392,7 @@ export function WidgetPresetsPane({
                 )}
               </div>
 
-              <div className={builder ? "px-1 py-4 2xl:flex-1 2xl:overflow-auto" : "flex-1 overflow-auto p-4"}>
+              <div className={builder ? "min-w-0 px-1 py-4 2xl:flex-1 2xl:overflow-auto" : "flex-1 overflow-auto p-4"}>
                 <div className="grid gap-3">
                   {Object.entries(selectedPreset.binding_schema.properties ?? {}).map(([fieldId, field]) => (
                     <PresetField
@@ -339,11 +400,14 @@ export function WidgetPresetsPane({
                       fieldId={fieldId}
                       field={field}
                       value={config[fieldId]}
-                      options={sourceOptions[field.ui?.source ?? ""] ?? []}
+                      options={resolvePickerOptions(fieldId, field, bindingFields)}
                       loading={sourceLoading[field.ui?.source ?? ""] ?? false}
-                      pickerUnavailable={Boolean(field.ui?.source && sourceError)}
+                      pickerError={field.ui?.source ? sourceErrors[field.ui.source] : undefined}
                       onChange={(next) => {
-                        setConfig((prev) => ({ ...prev, [fieldId]: next }));
+                        setConfig((prev) => {
+                          const nextConfig = { ...prev, [fieldId]: next };
+                          return normalizeDependentConfig(nextConfig, bindingFields, fieldId);
+                        });
                         setActiveStep("configure");
                         setPinSuccess(false);
                       }}
@@ -398,7 +462,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "relative min-w-0 overflow-hidden bg-transparent xl:col-span-2 2xl:col-span-1 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview
@@ -407,14 +471,14 @@ export function WidgetPresetsPane({
                 Confirm the widget before pinning it onto the dashboard.
               </div>
             </div>
-            <div className={builder ? "flex min-h-[320px] flex-col px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
+            <div className={builder ? "flex min-h-[320px] min-w-0 flex-col overflow-x-hidden px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
               {previewState.running ? (
                 <div className="flex flex-1 items-center justify-center text-[12px] text-text-muted">
                   <Loader2 size={16} className="mr-2 animate-spin" />
                   Rendering preview…
                 </div>
               ) : previewState.envelope ? (
-                <div className="min-h-0 bg-surface-overlay/10 p-3">
+                <div className="min-h-0 min-w-0 overflow-x-hidden bg-surface-overlay/10 p-3">
                   <RichToolResult
                     envelope={previewState.envelope}
                     dispatcher={NOOP_DISPATCHER}
@@ -453,7 +517,7 @@ function PresetField({
   value,
   options,
   loading,
-  pickerUnavailable,
+  pickerError,
   onChange,
 }: {
   fieldId: string;
@@ -461,7 +525,7 @@ function PresetField({
   value: unknown;
   options: WidgetPresetOption[];
   loading: boolean;
-  pickerUnavailable?: boolean;
+  pickerError?: string;
   onChange: (next: unknown) => void;
 }) {
   const control = field.ui?.control;
@@ -472,18 +536,18 @@ function PresetField({
         {field.title ?? fieldId}
       </span>
       {control === "picker" ? (
-        pickerUnavailable ? (
+        pickerError ? (
           <input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder="Enter id manually…"
-            className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+            className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
           />
         ) : (
           <select
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+            className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
           >
             <option value="">
               {loading ? "Loading…" : "Select…"}
@@ -500,7 +564,7 @@ function PresetField({
           type="button"
           onClick={() => onChange(!value)}
           className={[
-            "inline-flex items-center justify-between rounded-md border px-3 py-2 text-[12px]",
+            "inline-flex w-full min-w-0 items-center justify-between rounded-md border px-3 py-2 text-[12px]",
             value ? "border-accent/50 bg-accent/10 text-text" : "border-surface-border text-text-muted",
           ].join(" ")}
         >
@@ -514,11 +578,16 @@ function PresetField({
         <input
           value={typeof value === "string" ? value : ""}
           onChange={(e) => onChange(e.target.value)}
-          className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+          className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
         />
       )}
       {field.description && control !== "boolean" && (
         <span className="text-[10px] text-text-dim">{field.description}</span>
+      )}
+      {pickerError && (
+        <span className="text-[10px] text-danger">
+          Picker unavailable for this field: {pickerError}
+        </span>
       )}
     </label>
   );

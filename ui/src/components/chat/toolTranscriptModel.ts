@@ -332,6 +332,9 @@ function resolveEnvelopeSurface(
   env: ToolResultEnvelope | undefined,
   surface?: ToolSurface,
 ): ToolSurface | "root_rich_result" | null {
+  if (isRichInlineEnvelope(env) && env?.content_type === "application/vnd.spindrel.diff+text") {
+    return "rich_result";
+  }
   if (surface) return surface;
   if (isWidgetEnvelope(env)) return "widget";
   if (isRichInlineEnvelope(env)) return "rich_result";

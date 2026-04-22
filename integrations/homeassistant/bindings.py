@@ -44,6 +44,7 @@ def live_context_options(raw_result: str, context: dict) -> list[dict]:
             "meta": {
                 "domain": domain,
                 "area": area,
+                "properties": _property_options_for_entity(entity),
             },
         })
 
@@ -57,3 +58,28 @@ def _entity_id_from_name(name: str, domain: str) -> str:
     while "__" in slug:
         slug = slug.replace("__", "_")
     return f"{domain}.{slug.strip('_')}"
+
+
+def _property_options_for_entity(entity: dict) -> list[dict]:
+    attrs = entity.get("attributes") if isinstance(entity.get("attributes"), dict) else {}
+    options = [
+        {"value": "name", "label": "Name"},
+        {"value": "state", "label": "State"},
+        {"value": "last_changed", "label": "Last Changed"},
+        {"value": "last_updated", "label": "Last Updated"},
+        {"value": "none", "label": "None"},
+    ]
+
+    for key in sorted(str(raw).strip() for raw in attrs.keys() if str(raw).strip()):
+        options.append({
+            "value": f"attr:{key}",
+            "label": _humanize_property_label(key),
+        })
+    return options
+
+
+def _humanize_property_label(value: str) -> str:
+    words = value.replace("_", " ").replace(".", " ").strip()
+    if not words:
+        return value
+    return " ".join(part.capitalize() for part in words.split())

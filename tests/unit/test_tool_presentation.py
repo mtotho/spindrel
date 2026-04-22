@@ -52,7 +52,7 @@ def test_file_edit_presentation_uses_diff_summary():
         },
     )
 
-    assert surface == "transcript"
+    assert surface == "rich_result"
     assert summary == {
         "kind": "diff",
         "subject_type": "file",

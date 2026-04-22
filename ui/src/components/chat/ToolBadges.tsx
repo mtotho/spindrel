@@ -24,6 +24,7 @@ import {
 
 const TRACE_STRIP_THRESHOLD = 4;
 const CODE_FONT_STACK = "'Menlo', 'Monaco', 'Consolas', monospace";
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
 function toneColor(isError: boolean, t: ThemeTokens): string {
   return isError ? t.dangerMuted : t.textMuted;
@@ -115,6 +116,7 @@ export function ToolBadges({
   sessionId,
   channelId,
   botId,
+  chatMode = "default",
   compact = false,
   t,
 }: {
@@ -125,6 +127,7 @@ export function ToolBadges({
   sessionId?: string;
   channelId?: string;
   botId?: string;
+  chatMode?: "default" | "terminal";
   compact?: boolean;
   t: ThemeTokens;
 }) {
@@ -158,6 +161,7 @@ export function ToolBadges({
       expandedIdx={expandedIdx}
       setExpandedIdx={setExpandedIdx}
       t={t}
+      chatMode={chatMode}
       sessionId={sessionId}
       channelId={channelId}
       botId={botId}
@@ -170,6 +174,7 @@ export function DefaultToolRows({
   expandedIdx,
   setExpandedIdx,
   t,
+  chatMode = "default",
   sessionId,
   channelId,
   botId,
@@ -180,15 +185,20 @@ export function DefaultToolRows({
   expandedIdx: number | null;
   setExpandedIdx: (value: number | null) => void;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
   sessionId?: string;
   channelId?: string;
   botId?: string;
   onApproval?: (approvalId: string, approved: boolean) => void;
   decidingIds?: Set<string>;
 }) {
-  
+  const isTerminalMode = chatMode === "terminal";
+
   return (
-    <div className="flex flex-col gap-1.5 mt-1.5">
+    <div
+      className="flex flex-col"
+      style={{ gap: isTerminalMode ? 7 : 6, marginTop: isTerminalMode ? 8 : 6 }}
+    >
       {entries.map((entry, idx) => {
         const formattedArgs = entry.args ? formatToolArgs(entry.args) : null;
         const expandable = entry.detailKind === "expandable" && (!!formattedArgs || !!entry.env);
@@ -208,19 +218,49 @@ export function DefaultToolRows({
                 }
               } : undefined}
               className={`inline-flex items-center self-start gap-1.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"}`}
-              style={{}}
+              style={{
+                fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+                fontSize: isTerminalMode ? 11.5 : undefined,
+                lineHeight: isTerminalMode ? 1.5 : undefined,
+              }}
             >
-              <Wrench size={11} style={{ color: t.textDim, flexShrink: 0 }} />
+              {isTerminalMode ? (
+                <span
+                  style={{
+                    color: expandable ? (entry.isError ? t.danger : t.text) : t.textDim,
+                    width: 12,
+                    flexShrink: 0,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: expandable ? 11.5 : 10.5,
+                    lineHeight: 1,
+                  }}
+                >
+                  {expandable ? (isExpanded ? "" : "›") : "·"}
+                </span>
+              ) : (
+                <Wrench size={11} style={{ color: t.textDim, flexShrink: 0 }} />
+              )}
               <span
                 className="text-[10px] font-medium uppercase tracking-wider"
-                style={{ color: entry.isError ? t.dangerMuted : t.textDim }}
+                style={{
+                  color: isTerminalMode ? (entry.isError ? t.danger : t.text) : (entry.isError ? t.dangerMuted : t.textDim),
+                  textTransform: isTerminalMode ? "none" : undefined,
+                  letterSpacing: isTerminalMode ? "normal" : undefined,
+                  fontSize: isTerminalMode ? 11.5 : undefined,
+                }}
               >
                 {entry.label}
               </span>
               {entry.metaLabel && (
                 <span
                   className="text-[10px] font-mono normal-case"
-                  style={{ color: t.textDim }}
+                  style={{
+                    color: t.textDim,
+                    fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+                    fontSize: isTerminalMode ? 10.5 : undefined,
+                  }}
                 >
                   {entry.metaLabel}
                 </span>
@@ -228,7 +268,12 @@ export function DefaultToolRows({
               {entry.target && (
                 <span
                   className="text-[10px] font-mono normal-case"
-                  style={{ color: t.textMuted, opacity: 0.85 }}
+                  style={{
+                    color: t.textMuted,
+                    opacity: 0.85,
+                    fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+                    fontSize: isTerminalMode ? 10.5 : undefined,
+                  }}
                 >
                   {"→"} {entry.target}
                 </span>
@@ -248,7 +293,7 @@ export function DefaultToolRows({
                   <CheckCircle2 size={12} style={{ color: t.success, opacity: 0.7 }} />
                 )
               )}
-              {expandable &&
+              {!isTerminalMode && expandable &&
                 (isExpanded ? (
                   <ChevronDown size={11} style={{ color: t.textDim }} />
                 ) : (
@@ -324,14 +369,14 @@ export function DefaultToolRows({
                 {entry.env && (
                   <div className="relative px-3 py-1 pb-2">
                     {entry.isError ? (
-                      <ErrorResult env={entry.env} t={t} sessionId={sessionId} channelId={channelId} botId={botId} />
+                      <ErrorResult env={entry.env} t={t} chatMode={chatMode} sessionId={sessionId} channelId={channelId} botId={botId} />
                     ) : (
                       <RichToolResult
                         envelope={entry.env}
                         sessionId={sessionId}
                         channelId={channelId}
                         botId={botId}
-                        rendererVariant="default-chat"
+                        rendererVariant={isTerminalMode ? "terminal-chat" : "default-chat"}
                         t={t}
                       />
                     )}
@@ -355,12 +400,14 @@ export function DefaultToolRows({
 function ErrorResult({
   env,
   t,
+  chatMode = "default",
   sessionId,
   channelId,
   botId,
 }: {
   env: ToolResultEnvelope;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
   sessionId?: string;
   channelId?: string;
   botId?: string;
@@ -402,7 +449,7 @@ function ErrorResult({
       sessionId={sessionId}
       channelId={channelId}
       botId={botId}
-      rendererVariant="default-chat"
+      rendererVariant={chatMode === "terminal" ? "terminal-chat" : "default-chat"}
       t={t}
     />
   );

@@ -157,3 +157,11 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
   `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` did not report TypeScript errors here, but the sandbox command wrapper hung until `timeout 5s` terminated it.
 - [ ] Session-aware context-header backend regression pytest is still wrapper-limited here:
   targeted `tests/integration/test_context_endpoints_public.py` / `test_context_breakdown_modes.py` runs exited ambiguously under the sandbox shell wrapper without surfacing Python pass/fail output, so manual rerun in a normal repo shell is still needed even though the new regression test was added.
+
+- [x] **Ordered transcript rows have started collapsing onto one shared renderer path** — after visual review confirmed terminal/default were still using separate transcript components, this pass routed ordered transcript rows through `DefaultToolRows` with `chatMode` controlling shell styling and removed terminal-only transcript/widget branches from `OrderedTranscript.tsx` and `MessageBubble.tsx`.
+- [x] **File diff/edit outcomes now resolve to canonical rich-result surfaces** — `app/services/tool_presentation.py` no longer stamps edit/diff file operations as lightweight transcript rows, the frontend surface resolver forces inline diff envelopes to `rich_result`, and the focused transcript-model + tool-presentation tests now pin that contract.
+
+### Additional Verification
+- [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_tool_presentation.py tests/unit/test_turn_event_emit.py -q`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/stores/chat.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && timeout 30s npx tsc --noEmit --pretty false`

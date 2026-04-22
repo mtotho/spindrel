@@ -306,7 +306,7 @@ export default function AddFromChannelSheet({
           />
         )}
 
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
           {tab === "presets" && (
             <WidgetPresetsPane
               mode="pin"

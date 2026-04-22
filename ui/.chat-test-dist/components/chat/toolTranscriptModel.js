@@ -282,6 +282,9 @@ function isRichInlineEnvelope(env) {
     return !!(env && env.display === "inline" && !isWidgetEnvelope(env));
 }
 function resolveEnvelopeSurface(env, surface) {
+    if (isRichInlineEnvelope(env) && env?.content_type === "application/vnd.spindrel.diff+text") {
+        return "rich_result";
+    }
     if (surface)
         return surface;
     if (isWidgetEnvelope(env))

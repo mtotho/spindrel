@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { ThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
-import { TerminalPersistedToolTranscript } from "./TerminalToolTranscript";
 import { DefaultToolRows } from "./ToolBadges";
 import { WidgetCard } from "./WidgetCard";
 import { RichToolResult } from "./RichToolResult";
@@ -68,20 +67,7 @@ export function OrderedTranscript({
         }
 
         if (item.kind === "transcript") {
-          return isTerminalMode ? (
-            <TerminalPersistedToolTranscript
-              key={item.key}
-              entries={item.entries}
-              inlineWidgets={[]}
-              remainingToolNames={[]}
-              remainingToolCalls={[]}
-              remainingToolResults={[]}
-              channelId={channelId}
-              botId={botId}
-              onPin={onPin}
-              t={t}
-            />
-          ) : (
+          return (
             <DefaultToolRows
               key={item.key}
               entries={item.entries}
@@ -98,6 +84,7 @@ export function OrderedTranscript({
               channelId={channelId}
               botId={botId}
               t={t}
+              chatMode={chatMode}
               onApproval={handleDecide}
               decidingIds={decidingIds}
             />
@@ -107,20 +94,7 @@ export function OrderedTranscript({
         if (item.kind === "widget") {
           const nextItem = items[index + 1];
           const defaultCollapsed = nextItem?.kind === "widget" && nextItem.widget.toolName === item.widget.toolName;
-          return isTerminalMode ? (
-            <TerminalPersistedToolTranscript
-              key={item.key}
-              entries={[]}
-              inlineWidgets={[item.widget]}
-              remainingToolNames={[]}
-              remainingToolCalls={[]}
-              remainingToolResults={[]}
-              channelId={channelId}
-              botId={botId}
-              onPin={onPin}
-              t={t}
-            />
-          ) : (
+          return (
             <WidgetCard
               key={item.key}
               envelope={item.widget.envelope}

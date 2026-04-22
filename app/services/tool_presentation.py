@@ -146,7 +146,7 @@ def _derive_file_presentation(
             summary["path"] = path
         if diff_stats:
             summary["diff_stats"] = diff_stats
-        return "transcript", summary
+        return "rich_result", summary
 
     if operation in write_ops:
         label = plain_body or {
