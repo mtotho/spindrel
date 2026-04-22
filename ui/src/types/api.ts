@@ -761,7 +761,7 @@ export interface CompletionItem {
   description?: string;
 }
 
-export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch";
+export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch" | "plan";
 export type SlashCommandSurface = "channel" | "session";
 
 export interface SlashCommandResult {
@@ -772,7 +772,7 @@ export interface SlashCommandResult {
 }
 
 export interface SlashCommandSideEffectPayload {
-  effect: "stop" | "compact";
+  effect: "stop" | "compact" | "plan";
   scope_kind: "channel" | "session";
   scope_id: string;
   title: string;

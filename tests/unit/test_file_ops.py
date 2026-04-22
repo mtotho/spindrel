@@ -1,6 +1,7 @@
 """Unit tests for app/tools/local/file_ops.py — the `file` tool."""
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -346,6 +347,17 @@ class TestFileToolWidgetUri:
         assert parsed.get("ok") is True
         on_disk = ws / ".widget_library" / "my_toggle" / "index.html"
         assert on_disk.read_text() == "<div>toggle</div>"
+        versions = parsed.get("widget_versions") or []
+        assert len(versions) == 1
+        assert versions[0]["widget_ref"] == "bot/my_toggle"
+        assert versions[0]["revision"]
+        head = subprocess.run(
+            ["git", "-C", str(ws / ".widget_library"), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert head.stdout.strip() == versions[0]["revision"]
 
     @pytest.mark.asyncio
     async def test_create_under_widget_core_scope_blocked(self, ws, bot_ctx):

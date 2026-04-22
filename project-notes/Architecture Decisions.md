@@ -57,6 +57,21 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - **Outer widget chrome belongs to the host wrapper.** Title bars and the outer surfaced-vs-plain shell are host concerns (`show_title`, `wrapper_surface`); widgets should not duplicate that chrome internally.
 - **Legacy HTML Notes is compatibility-only.** Keep the old bundle on disk for existing pins/direct refs, but hide it from library discovery so new Notes placements use `notes_native`.
 
+### Bot-authored widget bundles use git-backed source history inside `.widget_library`
+**Decided 2026-04-21.** Bot/workspace-authored library bundles (`widget://bot/...`, `widget://workspace/...`) are versioned with Git at the writable widget-library root, not by extending workspace-wide history and not by adding a separate revisions table. Each successful mutating `file` tool call that touches a bundle creates at most one new bundle-scoped commit per affected library root.
+
+**What this means.**
+- `<ws_root>/.widget_library` and `<shared_root>/.widget_library` each own their own hidden `.git` repository.
+- The commit unit is a successful mutating tool call, not an individual file. Multi-file bundle edits stay coherent.
+- Rollback restores bundle contents from a prior revision and then writes a new rollback commit. History is append-only; no reset/rebase semantics.
+- `widget_library_list` surfaces `versioned` + `head_revision`; `describe_dashboard` surfaces `bundle_revision`; bots get `widget_version_history` and `rollback_widget_version`.
+- Active session plans record these revisions as lightweight artifacts rather than treating source-history events as checklist state.
+
+**Why.**
+- Widget bundles are already file-backed and naturally diffable; Git gives provenance, diff, and rollback semantics without inventing a second persistence system.
+- Scoping the repo to `.widget_library` avoids dragging unrelated workspace files into bot-authored widget history.
+- Append-only rollback keeps the audit trail intact and composes cleanly with plan-mode artifact logging.
+
 ### Skill/Tool Model Replaces Product "Capabilities"
 **Decided 2026-04-21.** The app will not have a first-class capability/carapace product model going forward. The only product concepts are skills, tools, and enrollment of each.
 
@@ -608,6 +623,17 @@ See [[Track - Integration Delivery]] for active polish + Phase H acceptance test
 **How to apply**: Keep semantic discovery anchored on the skill's prose (`name`, `description`, `triggers`, `content`), not raw script bodies. Store reusable multi-step tool workflows as attached named scripts, and maintain them with dedicated script CRUD rather than patching code blobs inside the markdown body.
 
 **How to apply**: When a tool is structurally critical to a workflow but not used despite being available, fix it in the base prompt, not by adding more reactive nudges.
+
+### Session-Local Plan Mode Uses a Canonical Markdown Artifact — 2026-04-21
+**Decision**: Plan mode is session-local, not a separate planner session or DB-backed plan table. The source of truth is a single strict-template Markdown file under the channel workspace at `channels/<channel-id>/.sessions/<session-id>/plans/<task-slug>.md`, plus lightweight `sessions.metadata` keys for current mode/path/revision.
+
+**Why**: We explicitly retired the old generic `plans` / `plan_items` tables on 2026-04-20. Re-introducing a new plans table one day later would recreate the same parallel product surface we just removed. The actual UX need is narrower: users want a Codex/Claude-style "plan first, then execute" loop inside the same conversation, especially for widget work. A strict Markdown artifact keeps the implementation cheap, inspectable, and bot-friendly, while session metadata gives us the runtime contract we need (planning vs executing, accepted revision, active file path).
+
+**How to apply**:
+- Entering plan mode flips a session-level mode flag and injects mode-specific system context on every turn.
+- Planning mode may read/search normally but may only mutate the canonical plan file.
+- Approval binds execution to the accepted revision; the executor advances one step at a time against that same Markdown file.
+- Progress stays inline in the file; no shadow DB row or second execution artifact in v1.
 
 ### Return-Capable Tool Hooks (pending) — 2026-04-12
 **Decision (pending)**: Current `after_tool_call` hooks are fire-and-forget (observe only). For integration-specific MCP result rendering, we'd want hooks that can *modify* the envelope (e.g., Firecrawl crawl results → link list, HA state queries → properties component).

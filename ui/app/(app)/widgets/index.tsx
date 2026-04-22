@@ -548,12 +548,9 @@ export default function WidgetsDashboardPage() {
       <div
         className={
           "relative flex-1 p-2 sm:p-4 md:p-6 "
-          // Panel mode: the panel pin owns scrolling internally — the
-          // wrapper stays clipped so the iframe / interactive component
-          // can fill the viewport edge to edge. Grid mode keeps the
-          // long-page scroll behavior so tall layouts can be paged
-          // through normally.
-          + (inPanelMode ? "overflow-hidden flex flex-col min-h-0 " : "overflow-auto ")
+          // Panel mode should keep overflow on the dashboard surface so
+          // tall rail columns page-scroll with the rest of the view.
+          + "overflow-auto "
           + (layoutEditable && !inPanelMode ? "pb-[40vh]" : "")
         }
       >
@@ -829,9 +826,9 @@ function PanelModeView({
     [pins, panelPin.id],
   );
   return (
-    <div className="flex flex-col-reverse lg:flex-row gap-3 h-full">
+    <div className="flex flex-col-reverse gap-3 lg:flex-row">
       {railPins.length > 0 && (
-        <div className="lg:w-[320px] lg:shrink-0 flex flex-col gap-3 lg:overflow-y-auto">
+        <div className="flex flex-col gap-3 lg:w-[320px] lg:shrink-0">
           {railPins.map((p) => (
             <div
               key={p.id}
@@ -860,7 +857,7 @@ function PanelModeView({
         key={panelPin.id}
         data-pin-id={panelPin.id}
         className={
-          "flex-1 min-w-0 min-h-[60vh] lg:min-h-0 flex flex-col "
+          "flex min-h-[60vh] min-w-0 flex-1 flex-col "
           + (highlightPinId === panelPin.id ? "pin-flash" : "")
         }
       >

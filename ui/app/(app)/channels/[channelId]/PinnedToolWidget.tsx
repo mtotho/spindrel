@@ -518,6 +518,9 @@ export function PinnedToolWidget({
     { ...DEFAULT_CHROME, borderless, hoverScrollbars, hideTitles },
     (widgetConfig ?? null) as Record<string, unknown> | null,
   );
+  const isInteractiveHtml =
+    currentEnvelope?.content_type === "application/vnd.spindrel.html+interactive";
+  const flushInteractiveHtmlBody = isInteractiveHtml && wrapperSurface === "plain";
   const showBorder = wrapperSurface === "surface";
   const showWrapperBackground = wrapperSurface === "surface";
   const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
@@ -649,6 +652,7 @@ export function PinnedToolWidget({
             gridDimensions={measuredSize ?? undefined}
             onIframeReady={handleIframeReady}
             layout={effectiveLayout}
+            hostSurface={wrapperSurface}
             t={t}
           />
         </div>
@@ -825,10 +829,12 @@ export function PinnedToolWidget({
         className={
           "relative "
           + (isDashboard
-            ? (overlayChrome
-              ? "p-2 flex-1 min-h-0 "
-              : `${showPanelTitle ? "px-2 py-2" : "px-2 pb-2"} flex-1 min-h-0 `)
-            : "px-2 pb-2 max-h-[350px] ")
+            ? (flushInteractiveHtmlBody
+              ? "flex-1 min-h-0 "
+              : (overlayChrome
+                ? "p-2 flex-1 min-h-0 "
+                : `${showPanelTitle ? "px-2 py-2" : "px-2 pb-2"} flex-1 min-h-0 `))
+            : (flushInteractiveHtmlBody ? "max-h-[350px] " : "px-2 pb-2 max-h-[350px] "))
           + (hoverScrollbars
             ? "overflow-y-auto scroll-subtle"
             : "overflow-y-auto")
@@ -844,11 +850,16 @@ export function PinnedToolWidget({
           onIframeReady={handleIframeReady}
           hoverScrollbars={hoverScrollbars}
           layout={effectiveLayout}
+          hostSurface={wrapperSurface}
           t={t}
         />
         {showIframeSkeleton && (
           <div
-            className="absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+            className={
+              flushInteractiveHtmlBody
+                ? "absolute inset-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+                : "absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
+            }
             style={{ background: showWrapperBackground ? t.surface : "transparent" }}
             aria-hidden
           >

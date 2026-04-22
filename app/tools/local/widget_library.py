@@ -26,6 +26,7 @@ from app.agent.context import current_bot_id
 from app.services.native_app_widgets import list_native_widget_catalog_entries
 from app.services.widget_manifest import parse_manifest
 from app.services.widget_paths import scope_root
+from app.services.widget_versioning import get_widget_head_revision, rollback_widget_to_revision, widget_version_history
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -82,7 +83,13 @@ def _manifest_actions(widget_dir: Path) -> list[dict]:
     return out
 
 
-def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:
+def _read_widget_meta(
+    widget_dir: Path,
+    scope: str,
+    *,
+    ws_root: str | None = None,
+    shared_root: str | None = None,
+) -> dict | None:
     """Introspect a widget bundle folder; return metadata or None if invalid."""
     name = widget_dir.name
     if not _NAME_RE.match(name) or name in _SKIP_NAMES:
@@ -135,6 +142,14 @@ def _read_widget_meta(widget_dir: Path, scope: str) -> dict | None:
         meta["updated_at"] = int(widget_dir.stat().st_mtime)
     except OSError:
         pass
+    if scope in {"bot", "workspace"}:
+        head_revision = get_widget_head_revision(
+            f"{scope}/{name}",
+            ws_root=ws_root,
+            shared_root=shared_root,
+        )
+        meta["versioned"] = head_revision is not None
+        meta["head_revision"] = head_revision
 
     meta["widget_kind"] = "template" if fmt == "template" else "html"
     meta["widget_binding"] = "tool_bound" if fmt == "template" else "standalone"
@@ -172,7 +187,13 @@ def _iter_core_widgets() -> list[dict]:
     return out
 
 
-def _iter_scope_dir(base_dir: str | None, scope: str) -> list[dict]:
+def _iter_scope_dir(
+    base_dir: str | None,
+    scope: str,
+    *,
+    ws_root: str | None = None,
+    shared_root: str | None = None,
+) -> list[dict]:
     """Walk a writable scope's on-disk library directory.
 
     Missing directories are treated as empty — authoring doesn't require a
@@ -187,7 +208,12 @@ def _iter_scope_dir(base_dir: str | None, scope: str) -> list[dict]:
     for entry in sorted(root.iterdir()):
         if not entry.is_dir():
             continue
-        meta = _read_widget_meta(entry, scope)
+        meta = _read_widget_meta(
+            entry,
+            scope,
+            ws_root=ws_root,
+            shared_root=shared_root,
+        )
         if meta is not None:
             out.append(meta)
     return out
@@ -297,6 +323,8 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
                         "tags": {"type": "array", "items": {"type": "string"}},
                         "icon": {"type": "string"},
                         "updated_at": {"type": "integer"},
+                        "versioned": {"type": "boolean"},
+                        "head_revision": {"type": "string"},
                     },
                     "required": ["name", "scope", "format"],
                 },
@@ -324,11 +352,15 @@ async def widget_library_list(
             widgets.extend(_iter_scope_dir(
                 scope_root("bot", ws_root=ws_root, shared_root=shared_root),
                 "bot",
+                ws_root=ws_root,
+                shared_root=shared_root,
             ))
         if "workspace" in wanted_scopes:
             widgets.extend(_iter_scope_dir(
                 scope_root("workspace", ws_root=ws_root, shared_root=shared_root),
                 "workspace",
+                ws_root=ws_root,
+                shared_root=shared_root,
             ))
 
     # Tool-renderer ``template.yaml`` entries need runtime tool arguments
@@ -379,3 +411,83 @@ async def widget_library_list(
         },
         ensure_ascii=False,
     )
+
+
+@register(
+    {
+        "type": "function",
+        "function": {
+            "name": "widget_version_history",
+            "description": (
+                "List source revisions for a bot-authored or workspace-authored widget "
+                "bundle. Use this after editing a `widget://bot/...` or "
+                "`widget://workspace/...` bundle when you need diffs or a rollback target."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "widget_ref": {"type": "string"},
+                    "limit": {"type": "integer"},
+                    "include_diffstat": {"type": "boolean"},
+                },
+                "required": ["widget_ref"],
+            },
+        },
+    },
+    safety_tier="readonly",
+)
+async def widget_version_history_tool(
+    widget_ref: str,
+    limit: int = 10,
+    include_diffstat: bool = True,
+) -> str:
+    ws_root, shared_root = _resolve_scope_roots()
+    history = widget_version_history(
+        widget_ref,
+        ws_root=ws_root,
+        shared_root=shared_root,
+        limit=limit,
+        include_diffstat=include_diffstat,
+    )
+    return json.dumps({"widget_ref": widget_ref, "history": history, "count": len(history)}, ensure_ascii=False)
+
+
+@register(
+    {
+        "type": "function",
+        "function": {
+            "name": "rollback_widget_version",
+            "description": (
+                "Restore a bot-authored or workspace-authored widget bundle to a prior source "
+                "revision by creating a new rollback commit."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "widget_ref": {"type": "string"},
+                    "revision": {"type": "string"},
+                },
+                "required": ["widget_ref", "revision"],
+            },
+        },
+    },
+    safety_tier="mutating",
+    requires_bot_context=True,
+)
+async def rollback_widget_version(
+    widget_ref: str,
+    revision: str,
+) -> str:
+    ws_root, shared_root = _resolve_scope_roots()
+    bot_id = current_bot_id.get()
+    try:
+        record = await rollback_widget_to_revision(
+            widget_ref,
+            revision,
+            ws_root=ws_root,
+            shared_root=shared_root,
+            bot_id=bot_id,
+        )
+    except ValueError as exc:
+        return json.dumps({"error": str(exc)})
+    return json.dumps({"ok": True, "widget_version": record}, ensure_ascii=False)

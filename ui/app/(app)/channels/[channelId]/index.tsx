@@ -49,6 +49,8 @@ import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
 import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
+import { useSessionPlanMode } from "./useSessionPlanMode";
+import { SessionPlanCard } from "./SessionPlanCard";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
@@ -549,6 +551,27 @@ export default function ChatScreen() {
   const layoutMode = (channel?.config?.layout_mode ?? "full") as
     | "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
   const chatMode = ((channel?.config?.chat_mode ?? "default") as "default" | "terminal");
+  const sessionPlan = useSessionPlanMode(channel?.active_session_id ?? undefined);
+  const planBusy = sessionPlan.startPlan.isPending
+    || sessionPlan.approvePlan.isPending
+    || sessionPlan.exitPlan.isPending
+    || sessionPlan.resumePlan.isPending
+    || sessionPlan.updateStepStatus.isPending;
+
+  const handleTogglePlanMode = useCallback(() => {
+    if (!channel?.active_session_id) return;
+    if (sessionPlan.data && sessionPlan.data.mode !== "chat") {
+      sessionPlan.exitPlan.mutate();
+      return;
+    }
+    if (sessionPlan.data && sessionPlan.data.mode === "chat") {
+      sessionPlan.resumePlan.mutate();
+      return;
+    }
+    const title = window.prompt("Plan title");
+    if (!title || !title.trim()) return;
+    sessionPlan.startPlan.mutate(title.trim());
+  }, [channel?.active_session_id, sessionPlan]);
 
   const renderMessage = useCallback(
     ({ item, index }: { item: Message; index: number }) => {
@@ -836,6 +859,12 @@ export default function ChatScreen() {
     configOverhead: configOverheadData?.overhead_pct ?? null,
     onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
     chatMode,
+    planMode: sessionPlan.data?.mode ?? "chat",
+    hasPlan: !!sessionPlan.data,
+    planBusy,
+    canTogglePlanMode: !!channel?.active_session_id,
+    onTogglePlanMode: channel?.active_session_id ? handleTogglePlanMode : undefined,
+    onApprovePlan: sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined,
   };
 
   // ---- Shared message area props ----
@@ -1031,6 +1060,19 @@ export default function ChatScreen() {
         <OrchestratorLaunchpad
           channelId={channelId}
           onOpenFindings={() => setFindingsPanelOpen(true)}
+        />
+      )}
+
+      {sessionPlan.data && sessionPlan.data.mode !== "chat" && (
+        <SessionPlanCard
+          plan={sessionPlan.data}
+          busy={planBusy}
+          onApprove={() => sessionPlan.approvePlan.mutate()}
+          onExit={() => sessionPlan.exitPlan.mutate()}
+          onStepStatus={(stepId, status) => {
+            const note = status === "blocked" ? (window.prompt("Why is this step blocked?") ?? "") : undefined;
+            sessionPlan.updateStepStatus.mutate({ stepId, status, note });
+          }}
         />
       )}
 

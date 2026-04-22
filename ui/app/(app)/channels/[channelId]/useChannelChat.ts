@@ -529,7 +529,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   }, [channelId]);
 
   const handleSlashCommand = useSlashCommandExecutor({
-    availableCommands: ["stop", "context", "scratch", "clear", "compact"],
+    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
     channelId: channelId ?? undefined,
     sessionId: channel?.active_session_id ?? undefined,
     onSyntheticMessage: (message) => {
@@ -566,6 +566,10 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       }
       if (result.command_id === "compact") {
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        return;
+      }
+      if (result.command_id === "plan") {
+        queryClient.invalidateQueries({ queryKey: ["session-plan", channel?.active_session_id ?? undefined] });
       }
     },
   });

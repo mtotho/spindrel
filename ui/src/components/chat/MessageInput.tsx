@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from "react";
-import { Send, Square, X, Mic, Check } from "lucide-react";
+import { Send, Square, X, Mic, Check, ListTodo, ChevronDown } from "lucide-react";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useAudioRecorder } from "../../hooks/useAudioRecorder";
 import { RecordingOverlay } from "./RecordingOverlay";
@@ -55,6 +55,12 @@ interface Props {
    *  dock / drawer on desktop. Behavior unchanged. */
   compact?: boolean;
   chatMode?: "default" | "terminal";
+  planMode?: "chat" | "planning" | "executing" | "blocked" | "done" | null;
+  hasPlan?: boolean;
+  planBusy?: boolean;
+  canTogglePlanMode?: boolean;
+  onTogglePlanMode?: () => void;
+  onApprovePlan?: () => void;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -75,7 +81,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default" }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -116,7 +122,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     }
   }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [showPlanMenu, setShowPlanMenu] = useState(false);
   const modelPickerRef = useRef<HTMLDivElement>(null);
+  const planControlRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -248,6 +256,116 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
+  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
+  const activePlanMode = planMode && planMode !== "chat" ? planMode : null;
+  const planLabel = activePlanMode
+    ? activePlanMode === "planning"
+      ? "Planning"
+      : activePlanMode === "executing"
+        ? "Executing"
+        : activePlanMode === "blocked"
+          ? "Blocked"
+          : "Done"
+    : "Plan";
+
+  useEffect(() => {
+    if (!showPlanMenu) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (planControlRef.current && target && !planControlRef.current.contains(target)) {
+        setShowPlanMenu(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [showPlanMenu]);
+
+  const planControl = canShowPlanControl ? (
+    <div ref={planControlRef} style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setShowPlanMenu((open) => !open)}
+        disabled={disabled || planBusy}
+        title={activePlanMode ? `Plan mode: ${planLabel}` : "Plan mode"}
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          minHeight: isTerminalMode ? 22 : 0,
+          padding: isTerminalMode ? "0 0 0 2px" : "4px 8px",
+          border: isTerminalMode ? "none" : `1px solid ${activePlanMode ? t.warningBorder : "transparent"}`,
+          borderRadius: isTerminalMode ? 0 : 8,
+          background: isTerminalMode ? "transparent" : activePlanMode ? t.warningSubtle : "transparent",
+          color: activePlanMode ? t.warningMuted : t.textMuted,
+          cursor: disabled || planBusy ? "default" : "pointer",
+          fontSize: 11,
+          lineHeight: 1.2,
+          whiteSpace: "nowrap",
+          fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+          opacity: disabled || planBusy ? 0.55 : 1,
+        }}
+      >
+        <ListTodo size={isTerminalMode ? 13 : 14} color={activePlanMode ? t.warning : t.textDim} />
+        <span>{planLabel}</span>
+        <ChevronDown size={12} color={activePlanMode ? t.warning : t.textDim} />
+      </button>
+      {showPlanMenu && (() => {
+        const rect = planControlRef.current?.getBoundingClientRect();
+        const dropdownWidth = 168;
+        const dropdownLeft = isTerminalMode
+          ? Math.max(12, (rect?.right ?? window.innerWidth - 16) - dropdownWidth)
+          : Math.max(12, Math.min(rect?.left ?? 16, window.innerWidth - dropdownWidth - 12));
+        const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
+        return createPortal(
+          <>
+            <div
+              onClick={() => setShowPlanMenu(false)}
+              style={{ position: "fixed", inset: 0, zIndex: 50000 }}
+            />
+            <div
+              style={{
+                position: "fixed",
+                bottom: dropdownBottom,
+                left: dropdownLeft,
+                width: dropdownWidth,
+                background: t.surfaceRaised,
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 8,
+                boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
+                padding: 4,
+                zIndex: 50001,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPlanMenu(false);
+                  onTogglePlanMode?.();
+                }}
+                style={menuItemStyle(t)}
+              >
+                {activePlanMode ? "Exit plan mode" : hasPlan ? "Resume plan mode" : "Start plan mode"}
+              </button>
+              {planMode === "planning" && onApprovePlan && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPlanMenu(false);
+                    onApprovePlan();
+                  }}
+                  style={menuItemStyle(t)}
+                >
+                  Approve and execute
+                </button>
+              )}
+            </div>
+          </>,
+          document.body
+        );
+      })()}
+    </div>
+  ) : null;
 
   // "Send now" — cancel stream and send immediately (web only)
   const handleSendNowLocal = useCallback(() => {
@@ -602,6 +720,8 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 />
               )}
 
+              {!isTerminalMode && planControl}
+
               {/* Inline model pill — desktop only. Always visible showing the current
                   effective model; clicking opens the LlmModelDropdown portal. Purple
                   accent only when a channel-level override is set. */}
@@ -746,87 +866,93 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           </div>
           {isTerminalMode && onModelOverrideChange && (
             <div
-              ref={modelPickerRef}
               style={{
                 padding: "8px 0 0 8px",
                 display: "flex",
                 flexDirection: "row",
-                justifyContent: "flex-start",
+                justifyContent: "space-between",
                 alignItems: "center",
                 minHeight: 14,
                 minWidth: 0,
+                gap: 12,
               }}
             >
-              <button
-                type="button"
-                onClick={() => setShowModelPicker(true)}
-                title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  color: hasOverride ? t.text : t.textDim,
-                  fontFamily: TERMINAL_FONT_STACK,
-                  fontSize: 11.5,
-                  lineHeight: 1.2,
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  maxWidth: "100%",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
+              <div
+                ref={modelPickerRef}
+                style={{ minWidth: 0, display: "flex", alignItems: "center", flex: 1 }}
               >
-                {canRenderModelLabel ? effectiveName : "select model"}
-              </button>
-              {showModelPicker && (() => {
-                const rect = modelPickerRef.current?.getBoundingClientRect();
-                const dropdownWidth = Math.min(320, Math.max(220, window.innerWidth - 24));
-                const dropdownLeft = Math.max(12, Math.min(rect?.left ?? 16, window.innerWidth - dropdownWidth - 12));
-                const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
-                return createPortal(
-                  <>
-                    <div
-                      onClick={() => setShowModelPicker(false)}
-                      style={{ position: "fixed", inset: 0, zIndex: 50000 }}
-                    />
-                    <div style={{ position: "fixed", bottom: dropdownBottom, left: dropdownLeft, zIndex: 50001, width: dropdownWidth }}>
-                      <LlmModelDropdownContent
-                        value={modelOverride ?? ""}
-                        selectedProviderId={modelProviderIdOverride}
-                        onSelect={(m, pid) => {
-                          onModelOverrideChange(m || undefined, pid);
-                          setShowModelPicker(false);
-                        }}
+                <button
+                  type="button"
+                  onClick={() => setShowModelPicker(true)}
+                  title={hasOverride ? `Channel model override: ${modelOverride}` : `Model: ${defaultModel ?? effectiveName ?? "default"}`}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    margin: 0,
+                    color: hasOverride ? t.text : t.textDim,
+                    fontFamily: TERMINAL_FONT_STACK,
+                    fontSize: 11.5,
+                    lineHeight: 1.2,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    maxWidth: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {canRenderModelLabel ? effectiveName : "select model"}
+                </button>
+                {showModelPicker && (() => {
+                  const rect = modelPickerRef.current?.getBoundingClientRect();
+                  const dropdownWidth = Math.min(320, Math.max(220, window.innerWidth - 24));
+                  const dropdownLeft = Math.max(12, Math.min(rect?.left ?? 16, window.innerWidth - dropdownWidth - 12));
+                  const dropdownBottom = rect ? window.innerHeight - rect.top + 8 : 80;
+                  return createPortal(
+                    <>
+                      <div
+                        onClick={() => setShowModelPicker(false)}
+                        style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                       />
-                      {hasOverride && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onModelOverrideChange(undefined, null);
+                      <div style={{ position: "fixed", bottom: dropdownBottom, left: dropdownLeft, zIndex: 50001, width: dropdownWidth }}>
+                        <LlmModelDropdownContent
+                          value={modelOverride ?? ""}
+                          selectedProviderId={modelProviderIdOverride}
+                          onSelect={(m, pid) => {
+                            onModelOverrideChange(m || undefined, pid);
                             setShowModelPicker(false);
                           }}
-                          style={{
-                            marginTop: 6,
-                            width: "100%",
-                            background: t.surfaceRaised,
-                            border: `1px solid ${t.surfaceBorder}`,
-                            borderRadius: 8,
-                            padding: "8px 12px",
-                            color: t.textMuted,
-                            fontSize: 12,
-                            cursor: "pointer",
-                            textAlign: "left",
-                          }}
-                        >
-                          Clear override - inherit {defaultModel ?? "default"}
-                        </button>
-                      )}
-                    </div>
-                  </>,
-                  document.body
-                );
-              })()}
+                        />
+                        {hasOverride && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onModelOverrideChange(undefined, null);
+                              setShowModelPicker(false);
+                            }}
+                            style={{
+                              marginTop: 6,
+                              width: "100%",
+                              background: t.surfaceRaised,
+                              border: `1px solid ${t.surfaceBorder}`,
+                              borderRadius: 8,
+                              padding: "8px 12px",
+                              color: t.textMuted,
+                              fontSize: 12,
+                              cursor: "pointer",
+                              textAlign: "left",
+                            }}
+                          >
+                            Clear override - inherit {defaultModel ?? "default"}
+                          </button>
+                        )}
+                      </div>
+                    </>,
+                    document.body
+                  );
+                })()}
+              </div>
+              {planControl}
             </div>
           )}
         </div>
@@ -846,4 +972,19 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function menuItemStyle(t: ReturnType<typeof useThemeTokens>) {
+  return {
+    width: "100%",
+    display: "block",
+    background: "transparent",
+    border: "none",
+    borderRadius: 8,
+    padding: "8px 10px",
+    color: t.text,
+    fontSize: 12,
+    textAlign: "left" as const,
+    cursor: "pointer",
+  };
 }

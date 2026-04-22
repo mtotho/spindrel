@@ -81,6 +81,22 @@ class TestSlashCommandExecute:
         assert body["payload"]["scope_id"] == session_id
         assert isinstance(body["fallback_text"], str) and body["fallback_text"]
 
+    async def test_plan_command_for_session_returns_side_effect(self, client, db_session):
+        _channel_id, session_id = await _create_channel_with_session(db_session)
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={"command_id": "plan", "session_id": session_id},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["command_id"] == "plan"
+        assert body["result_type"] == "side_effect"
+        assert body["payload"]["effect"] == "plan"
+        assert body["payload"]["scope_kind"] == "session"
+        assert body["payload"]["scope_id"] == session_id
+        assert isinstance(body["fallback_text"], str) and body["fallback_text"]
+
     async def test_requires_exactly_one_scope(self, client):
         resp = await client.post(
             "/api/v1/slash-commands/execute",

@@ -549,6 +549,7 @@ async def _enriched_pins(pin_dicts: list[dict[str, Any]]) -> list[dict[str, Any]
     """Add ``visible_in_chat`` and declared bot action metadata to each pin."""
     from app.db.engine import async_session
     from app.services.native_app_widgets import get_native_widget_actions
+    from app.services.widget_versioning import get_widget_head_revision
     from app.services.widget_handler_tools import list_widget_handler_tools
 
     out: list[dict[str, Any]] = []
@@ -556,6 +557,23 @@ async def _enriched_pins(pin_dicts: list[dict[str, Any]]) -> list[dict[str, Any]
     handler_actions_by_pin: dict[str, list[dict[str, Any]]] = {}
     bot_id = current_bot_id.get()
     channel_id = current_channel_id.get()
+    ws_root: str | None = None
+    shared_root: str | None = None
+    if bot_id:
+        try:
+            from app.agent.bots import get_bot
+            from app.services.workspace import workspace_service
+
+            bot = get_bot(bot_id)
+            ws_root = workspace_service.get_workspace_root(bot_id, bot)
+            if bot.shared_workspace_id:
+                from app.services.shared_workspace import shared_workspace_service
+
+                shared_root = shared_workspace_service.get_host_root(bot.shared_workspace_id)
+        except Exception:
+            ws_root = None
+            shared_root = None
+    revision_by_ref: dict[str, str | None] = {}
     async with async_session() as db:
         schemas, resolver = await list_widget_handler_tools(
             db,
@@ -590,10 +608,21 @@ async def _enriched_pins(pin_dicts: list[dict[str, Any]]) -> list[dict[str, Any]
             widget_ref = body.get("widget_ref")
         if not actions and isinstance(widget_ref, str):
             actions = get_native_widget_actions(widget_ref)
+        bundle_revision = None
+        library_ref = envelope.get("source_library_ref")
+        if isinstance(library_ref, str) and library_ref.startswith(("bot/", "workspace/")):
+            if library_ref not in revision_by_ref:
+                revision_by_ref[library_ref] = get_widget_head_revision(
+                    library_ref,
+                    ws_root=ws_root,
+                    shared_root=shared_root,
+                )
+            bundle_revision = revision_by_ref[library_ref]
         out.append({
             **pin,
             "visible_in_chat": _visible_in_chat(zone),
             "available_actions": actions,
+            "bundle_revision": bundle_revision,
         })
     return out
 

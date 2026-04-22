@@ -1,4 +1,4 @@
-"""Slash commands: /bot, /bots, /ask, /context, /plan, /compact, /todos, /health."""
+"""Slash commands: /bot, /bots, /ask, /context, /compact, /todos, /health."""
 
 import asyncio
 import logging
@@ -7,7 +7,6 @@ from agent_client import (
     compact_session,
     ensure_channel,
     fetch_server_health,
-    fetch_session_plans,
     fetch_session_context,
     fetch_session_context_compressed,
     fetch_session_context_contents,
@@ -19,8 +18,6 @@ from agent_client import (
     list_models,
     submit_chat,
     update_channel_settings,
-    update_plan_item_status,
-    update_plan_status,
 )
 from formatting import format_last_active, split_for_slack
 from message_handlers import _resolve_slack_display_name
@@ -31,38 +28,9 @@ from state import get_channel_state, get_global_setting, set_channel_state, set_
 logger = logging.getLogger(__name__)
 
 
-_ITEM_STATUS_ICON = {
-    "pending": "○",
-    "in_progress": "◉",
-    "done": "✓",
-    "skipped": "–",
-}
-
-
 async def _resolve_session_id(channel: str, bot_id: str) -> str | None:
     """Look up the active session_id for a Slack channel from the server."""
     return await get_channel_session_id(channel, bot_id)
-
-
-def _format_plan(plan: dict, detail: bool = False) -> str:
-    items = plan.get("items", [])
-    done = sum(1 for i in items if i["status"] == "done")
-    total = len(items)
-    pid = plan["id"][:8]
-    header = f"*[{pid}] {plan['title']}* ({done}/{total} done)"
-    if plan["status"] != "active":
-        header += f" _{plan['status']}_"
-    if not detail:
-        return header
-    lines = [header]
-    if plan.get("description"):
-        lines.append(f"  _{plan['description']}_")
-    for i, item in enumerate(items, 1):
-        icon = _ITEM_STATUS_ICON.get(item["status"], "?")
-        lines.append(f"  {icon} {i}. {item['content']}")
-        if item.get("notes"):
-            lines.append(f"      _{item['notes']}_")
-    return "\n".join(lines)
 
 
 def register_slash_commands(app):
@@ -356,147 +324,6 @@ def register_slash_commands(app):
             lines.append(f"\n_Compression estimate failed: {e}_")
 
         await respond("\n".join(lines))
-
-    @app.command("/plan")
-    async def cmd_plan(ack, command, respond):
-        await ack()
-        channel = command.get("channel_id") or ""
-        state = get_channel_state(channel)
-        session_id = await _resolve_session_id(channel, state["bot_id"])
-        if not session_id:
-            await respond("No active session for this channel yet. Send a message first.")
-            return
-        args = (command.get("text") or "").split()
-        sub = args[0].lower() if args else "list"
-
-        # /plan  or  /plan list  or  /plan list all
-        if sub in ("list", "ls") or not args:
-            fetch_status = "all" if (len(args) > 1 and args[1].lower() == "all") else "active"
-            try:
-                plans = await fetch_session_plans(session_id, status=fetch_status)
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            if not plans:
-                label = "No plans" if fetch_status == "active" else "No plans at all"
-                await respond(f"{label} for this session.")
-                return
-            lines = [f"*Plans* ({fetch_status})"]
-            for p in plans:
-                lines.append(_format_plan(p, detail=False))
-            lines.append("\n_Use `/plan <id>` to view details._")
-            await respond("\n".join(lines))
-            return
-
-        # /plan complete <plan_id_prefix>
-        if sub == "complete" and len(args) >= 2:
-            prefix = args[1].lower()
-            try:
-                plans = await fetch_session_plans(session_id, status="active")
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            matches = [p for p in plans if p["id"].lower().startswith(prefix)]
-            if not matches:
-                await respond(f"No active plan starting with `{prefix}`.")
-                return
-            if len(matches) > 1:
-                await respond(f"Ambiguous — {len(matches)} plans match `{prefix}`. Be more specific.")
-                return
-            plan = matches[0]
-            try:
-                await update_plan_status(session_id, plan["id"], "complete")
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            await respond(f"✓ Plan *{plan['title']}* marked complete.")
-            return
-
-        # /plan abandon <plan_id_prefix>
-        if sub == "abandon" and len(args) >= 2:
-            prefix = args[1].lower()
-            try:
-                plans = await fetch_session_plans(session_id, status="active")
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            matches = [p for p in plans if p["id"].lower().startswith(prefix)]
-            if not matches:
-                await respond(f"No active plan starting with `{prefix}`.")
-                return
-            if len(matches) > 1:
-                await respond(f"Ambiguous — {len(matches)} plans match `{prefix}`. Be more specific.")
-                return
-            plan = matches[0]
-            try:
-                await update_plan_status(session_id, plan["id"], "abandoned")
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            await respond(f"Plan *{plan['title']}* abandoned.")
-            return
-
-        # /plan done <plan_id_prefix> <item_number>
-        # /plan skip <plan_id_prefix> <item_number>
-        # /plan pending <plan_id_prefix> <item_number>
-        if sub in ("done", "skip", "pending", "progress") and len(args) >= 3:
-            status_map = {"done": "done", "skip": "skipped", "pending": "pending", "progress": "in_progress"}
-            new_status = status_map[sub]
-            prefix = args[1].lower()
-            if not args[2].isdigit():
-                await respond(f"Usage: `/plan {sub} <plan-id> <item-number>`")
-                return
-            item_num = int(args[2])
-            try:
-                plans = await fetch_session_plans(session_id, status="all")
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            matches = [p for p in plans if p["id"].lower().startswith(prefix)]
-            if not matches:
-                await respond(f"No plan starting with `{prefix}`.")
-                return
-            if len(matches) > 1:
-                await respond(f"Ambiguous — {len(matches)} plans match. Be more specific.")
-                return
-            plan = matches[0]
-            if item_num < 1 or item_num > len(plan["items"]):
-                await respond(f"Item {item_num} out of range (plan has {len(plan['items'])} items).")
-                return
-            try:
-                await update_plan_item_status(session_id, plan["id"], item_num, new_status)
-            except Exception as e:
-                await respond(f"Error: {e}")
-                return
-            item_content = plan["items"][item_num - 1]["content"]
-            icon = _ITEM_STATUS_ICON.get(new_status, "?")
-            await respond(f"{icon} Item {item_num} marked *{new_status}*: _{item_content}_")
-            return
-
-        # /plan <plan_id_prefix>  — show detail
-        prefix = sub
-        try:
-            plans = await fetch_session_plans(session_id, status="all")
-        except Exception as e:
-            await respond(f"Error: {e}")
-            return
-        matches = [p for p in plans if p["id"].lower().startswith(prefix)]
-        if not matches:
-            await respond(
-                f"No plan with id starting `{prefix}`.\n"
-                "_Usage:_\n"
-                "• `/plan` — list active plans\n"
-                "• `/plan <id>` — show plan detail\n"
-                "• `/plan done <id> <n>` — mark item done\n"
-                "• `/plan skip <id> <n>` — mark item skipped\n"
-                "• `/plan complete <id>` — complete plan\n"
-                "• `/plan abandon <id>` — abandon plan"
-            )
-            return
-        if len(matches) > 1:
-            await respond(f"Ambiguous — {len(matches)} plans match `{prefix}`. Be more specific.")
-            return
-        await respond(_format_plan(matches[0], detail=True))
 
     @app.command("/compact")
     async def cmd_compact(ack, command, respond):

@@ -19,6 +19,7 @@ export const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "scratch", label: "/scratch", description: "Open the scratch pad", surfaces: ["channel"] },
   { id: "clear", label: "/clear", description: "Start fresh", surfaces: ["channel"] },
   { id: "compact", label: "/compact", description: "Compress conversation", surfaces: ["channel"] },
+  { id: "plan", label: "/plan", description: "Toggle plan mode", surfaces: ["channel", "session"] },
 ];
 
 /** Filter slash commands by query string and return as CompletionItems. */

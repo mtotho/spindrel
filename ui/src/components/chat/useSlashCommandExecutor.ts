@@ -42,7 +42,8 @@ export function useSlashCommandExecutor({
           return;
         case "context":
         case "stop":
-        case "compact": {
+        case "compact":
+        case "plan": {
           if (!channelId && !sessionId) return;
           const result = await apiFetch<SlashCommandResult>("/api/v1/slash-commands/execute", {
             method: "POST",

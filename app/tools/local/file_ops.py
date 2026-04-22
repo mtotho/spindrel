@@ -17,7 +17,7 @@ import re
 import time
 from pathlib import Path
 
-from app.agent.context import current_bot_id
+from app.agent.context import current_bot_id, current_session_id
 from app.tools.registry import register
 
 logger = logging.getLogger(__name__)
@@ -198,6 +198,34 @@ async def _maybe_resolve_cross_channel(path: str, bot, ws_root: str):
 
 def _error(msg: str) -> str:
     return json.dumps({"error": msg}, ensure_ascii=False)
+
+
+async def _enforce_session_plan_write_policy(operation: str, resolved_path: str, destination_path: str | None = None) -> str | None:
+    write_ops = {
+        "create", "overwrite", "append", "edit",
+        "json_patch", "restore", "delete", "mkdir", "move",
+    }
+    if operation not in write_ops:
+        return None
+    session_id = current_session_id.get()
+    if session_id is None:
+        return None
+    from app.db.engine import async_session
+    from app.db.models import Session
+    from app.services.session_plan_mode import path_allowed_for_plan_write
+
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return None
+        if path_allowed_for_plan_write(session, resolved_path) and (
+            destination_path is None or path_allowed_for_plan_write(session, destination_path)
+        ):
+            return None
+        return (
+            "Plan mode is active for this session. While planning, only the canonical "
+            "plan markdown file may be edited."
+        )
 
 
 @register({
@@ -465,6 +493,15 @@ async def file(
         resolved = _resolve_path(path, effective_ws_root, effective_bot)
     except ValueError as e:
         return _error(str(e))
+    resolved_destination = None
+    if operation == "move" and destination:
+        try:
+            resolved_destination = _resolve_path(destination, effective_ws_root, effective_bot)
+        except ValueError as e:
+            return _error(str(e))
+    plan_write_err = await _enforce_session_plan_write_policy(operation, resolved, resolved_destination)
+    if plan_write_err:
+        return _error(plan_write_err)
 
     # --- Bot hooks: before_access ---
     from app.services.bot_hooks import run_before_access, schedule_after_write
@@ -533,6 +570,30 @@ async def file(
         # --- Bot hooks: after_write (debounced) ---
         if operation in _WRITE_OPS and not result.startswith('{"error"'):
             schedule_after_write(bot_id, path)
+            from app.services.widget_versioning import record_widget_mutation
+
+            shared_root = None
+            if effective_bot and getattr(effective_bot, "shared_workspace_id", None):
+                from app.services.shared_workspace import shared_workspace_service
+
+                shared_root = os.path.realpath(
+                    shared_workspace_service.get_host_root(effective_bot.shared_workspace_id)
+                )
+            widget_versions = await record_widget_mutation(
+                operation=operation,
+                resolved_path=resolved,
+                resolved_destination=resolved_destination,
+                ws_root=effective_ws_root,
+                shared_root=shared_root,
+                bot_id=bot_id,
+            )
+            if widget_versions:
+                try:
+                    payload = json.loads(result)
+                    payload["widget_versions"] = widget_versions
+                    result = json.dumps(payload, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    pass
             # Notify pinned panels (lightweight — returns immediately if path not pinned)
             from app.services.pinned_panels import notify_pinned_file_changed
             await notify_pinned_file_changed(path)

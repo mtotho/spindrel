@@ -7,6 +7,7 @@ later phases — asserting they currently return empty locks in the contract.
 from __future__ import annotations
 
 import json
+import subprocess
 
 import pytest
 
@@ -120,6 +121,59 @@ async def test_bot_scope_lists_authored_widgets(tmp_path, monkeypatch):
     assert widget["format"] == "html"
     assert widget["display_label"] == "My Toggle"
     assert widget["description"] == "flip the thing"
+
+
+@pytest.mark.asyncio
+async def test_bot_scope_surfaces_head_revision(tmp_path, monkeypatch):
+    from app.tools.local import widget_library as wl
+
+    ws = tmp_path / "ws"
+    bundle = ws / ".widget_library" / "my_toggle"
+    bundle.mkdir(parents=True)
+    (bundle / "index.html").write_text("<div>toggle</div>")
+    subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "init"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "config", "user.name", "Widget Bot"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "config", "user.email", "widget-bot@example.com"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "add", "my_toggle/index.html"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "commit", "-m", "seed widget"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    head = subprocess.run(
+        ["git", "-C", str(ws / ".widget_library"), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    monkeypatch.setattr(wl, "_resolve_scope_roots", lambda: (str(ws), None))
+
+    data = _parse(await widget_library_list(scope="bot"))
+    assert data["count"] == 1
+    assert data["widgets"][0]["versioned"] is True
+    assert data["widgets"][0]["head_revision"] == head
 
 
 @pytest.mark.asyncio

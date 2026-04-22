@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -17,6 +17,21 @@ from app.db.models import Attachment, Channel, Message, Session, TraceEvent
 from app.dependencies import get_db, require_scopes
 from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
+from app.services.session_plan_mode import (
+    STEP_STATUS_BLOCKED,
+    STEP_STATUS_DONE,
+    STEP_STATUS_IN_PROGRESS,
+    STEP_STATUS_PENDING,
+    approve_session_plan,
+    create_session_plan,
+    exit_session_plan_mode,
+    get_session_plan_mode,
+    list_session_plans,
+    load_session_plan,
+    resume_session_plan_mode,
+    update_plan_step_status,
+    update_session_plan,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -35,6 +50,71 @@ class SessionSummary(BaseModel):
 class SessionDetail(BaseModel):
     session: SessionSummary
     messages: list[MessageOut]
+
+
+class PlanStepOut(BaseModel):
+    id: str
+    label: str
+    status: str
+    note: Optional[str] = None
+
+
+class PlanArtifactOut(BaseModel):
+    kind: str
+    label: str
+    ref: Optional[str] = None
+    created_at: Optional[str] = None
+    metadata: dict[str, Any] = {}
+
+
+class SessionPlanOut(BaseModel):
+    title: str
+    status: str
+    revision: int
+    session_id: str
+    task_slug: str
+    summary: str
+    scope: str
+    assumptions: list[str]
+    open_questions: list[str]
+    steps: list[PlanStepOut]
+    artifacts: list[PlanArtifactOut]
+    acceptance_criteria: list[str]
+    outcome: str
+    path: Optional[str] = None
+    mode: str
+
+
+class SessionPlanCreateRequest(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    scope: Optional[str] = None
+    assumptions: Optional[list[str]] = None
+    open_questions: Optional[list[str]] = None
+    acceptance_criteria: Optional[list[str]] = None
+    steps: Optional[list[dict[str, Any]]] = None
+
+
+class SessionPlanUpdateRequest(BaseModel):
+    revision: int
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    scope: Optional[str] = None
+    assumptions: Optional[list[str]] = None
+    open_questions: Optional[list[str]] = None
+    acceptance_criteria: Optional[list[str]] = None
+    outcome: Optional[str] = None
+
+
+class PlanStatusUpdateRequest(BaseModel):
+    status: str
+    note: Optional[str] = None
+
+
+def _serialize_plan(session: Session) -> SessionPlanOut:
+    plan = load_session_plan(session, required=True)
+    assert plan is not None
+    return SessionPlanOut(**plan.as_dict(), mode=get_session_plan_mode(session))
 
 
 @router.get("", response_model=list[SessionSummary])
@@ -69,6 +149,205 @@ async def get_session(
     if session.channel_id:
         await _recover_orphan_attachments(db, session.channel_id, messages)
     return SessionDetail(session=session, messages=[MessageOut.from_orm(m) for m in messages])
+
+
+@router.get("/{session_id}/plans")
+async def get_session_plans(
+    session_id: uuid.UUID,
+    status: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return list_session_plans(session, status=status)
+
+
+@router.get("/{session_id}/plan", response_model=SessionPlanOut)
+async def get_session_plan(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plans", response_model=SessionPlanOut)
+async def start_session_plan(
+    session_id: uuid.UUID,
+    body: SessionPlanCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    create_session_plan(
+        session,
+        title=body.title,
+        summary=body.summary,
+        scope=body.scope,
+        assumptions=body.assumptions,
+        open_questions=body.open_questions,
+        acceptance_criteria=body.acceptance_criteria,
+        steps=body.steps,
+    )
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.patch("/{session_id}/plan", response_model=SessionPlanOut)
+async def patch_session_plan(
+    session_id: uuid.UUID,
+    body: SessionPlanUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    update_session_plan(
+        session,
+        revision=body.revision,
+        title=body.title,
+        summary=body.summary,
+        scope=body.scope,
+        assumptions=body.assumptions,
+        open_questions=body.open_questions,
+        acceptance_criteria=body.acceptance_criteria,
+        outcome=body.outcome,
+    )
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plan/approve", response_model=SessionPlanOut)
+async def approve_plan(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    approve_session_plan(session)
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plan/exit", response_model=dict)
+async def exit_plan(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    exit_session_plan_mode(session)
+    await db.commit()
+    await db.refresh(session)
+    return {"ok": True, "mode": get_session_plan_mode(session)}
+
+
+@router.post("/{session_id}/plan/resume", response_model=SessionPlanOut)
+async def resume_plan(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    resume_session_plan_mode(session)
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plans/{plan_id}/status", response_model=SessionPlanOut)
+async def update_plan_status_legacy(
+    session_id: uuid.UUID,
+    plan_id: str,
+    body: PlanStatusUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    plan = load_session_plan(session, required=False)
+    if plan is None or plan.task_slug != plan_id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if body.status == "complete":
+        status = STEP_STATUS_DONE
+        for step in plan.steps:
+            if step.status != STEP_STATUS_DONE:
+                update_plan_step_status(session, step_id=step.id, status=STEP_STATUS_DONE)
+    elif body.status == "blocked":
+        active = next((step for step in plan.steps if step.status == STEP_STATUS_IN_PROGRESS), None)
+        if active is None:
+            raise HTTPException(status_code=404, detail="Plan has no active step")
+        update_plan_step_status(session, step_id=active.id, status=STEP_STATUS_BLOCKED, note=body.note)
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported plan status update.")
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plans/{plan_id}/items/{item_id}/status", response_model=SessionPlanOut)
+async def update_plan_item_status_legacy(
+    session_id: uuid.UUID,
+    plan_id: str,
+    item_id: str,
+    body: PlanStatusUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    plan = load_session_plan(session, required=False)
+    if plan is None or plan.task_slug != plan_id:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    mapping = {
+        "pending": STEP_STATUS_PENDING,
+        "in_progress": STEP_STATUS_IN_PROGRESS,
+        "done": STEP_STATUS_DONE,
+        "blocked": STEP_STATUS_BLOCKED,
+    }
+    status = mapping.get(body.status)
+    if status is None:
+        raise HTTPException(status_code=422, detail="Unsupported plan item status.")
+    update_plan_step_status(session, step_id=item_id, status=status, note=body.note)
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plan/steps/{step_id}/status", response_model=SessionPlanOut)
+async def update_plan_step_status_route(
+    session_id: uuid.UUID,
+    step_id: str,
+    body: PlanStatusUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    update_plan_step_status(session, step_id=step_id, status=body.status, note=body.note)
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan(session)
 
 
 class MessagePage(BaseModel):

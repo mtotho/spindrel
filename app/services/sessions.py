@@ -15,6 +15,7 @@ from app.db.engine import async_session
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, Message, Session, SharedWorkspace, SharedWorkspaceBot
+from app.services.session_plan_mode import build_plan_mode_system_context
 
 
 logger = logging.getLogger(__name__)
@@ -369,6 +370,8 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
         msgs = [{"role": "system", "content": _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)}]
         if persona_layer:
             msgs.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
+        for extra in build_plan_mode_system_context(session):
+            msgs.append({"role": "system", "content": f"[PLAN MODE]\n{extra}"})
         return msgs
 
     def _split_passive_active(msgs: list[dict]) -> tuple[list[dict], list[dict]]:

@@ -31,7 +31,11 @@ import { MarkdownContent } from "./MarkdownContent";
 import { TextRenderer } from "./renderers/TextRenderer";
 import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { SandboxedHtmlRenderer } from "./renderers/SandboxedHtmlRenderer";
-import { InteractiveHtmlRenderer, type WidgetLayout } from "./renderers/InteractiveHtmlRenderer";
+import {
+  InteractiveHtmlRenderer,
+  type HostSurface,
+  type WidgetLayout,
+} from "./renderers/InteractiveHtmlRenderer";
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
@@ -78,6 +82,11 @@ interface Props {
    *  rail, left rail, grid canvas) pass it; inline chat omits it and the
    *  renderer falls through to ``"grid"``. */
   layout?: WidgetLayout;
+  /** Host wrapper shell mode for pinned surfaces. Interactive HTML widgets
+   *  receive this as ``window.spindrel.hostSurface`` and a document-level
+   *  attribute so widget CSS can decide whether to draw its own inner card
+   *  or rely on the host's surfaced shell. */
+  hostSurface?: HostSurface;
   t: ThemeTokens;
 }
 
@@ -93,6 +102,7 @@ export function RichToolResult({
   onIframeReady,
   hoverScrollbars,
   layout,
+  hostSurface,
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
@@ -210,6 +220,7 @@ export function RichToolResult({
             onIframeReady={onIframeReady}
             hoverScrollbars={hoverScrollbars}
             layout={layout}
+            hostSurface={hostSurface}
             t={t}
           />
         );

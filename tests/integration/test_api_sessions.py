@@ -304,3 +304,4 @@ class TestSessionConfigOverhead:
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
+

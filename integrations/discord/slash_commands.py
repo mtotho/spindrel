@@ -1,4 +1,4 @@
-"""Discord application commands: /bot, /bots, /ask, /context, /compact, /plan, /model, /health, /audit."""
+"""Discord application commands: /bot, /bots, /ask, /context, /compact, /model, /health, /audit."""
 import asyncio
 import logging
 
@@ -9,7 +9,6 @@ from agent_client import (
     compact_session,
     ensure_channel,
     fetch_server_health,
-    fetch_session_plans,
     fetch_session_context,
     fetch_session_context_compressed,
     fetch_session_context_contents,
@@ -21,8 +20,6 @@ from agent_client import (
     list_models,
     stream_chat,
     update_channel_settings,
-    update_plan_item_status,
-    update_plan_status,
 )
 from formatting import format_last_active, format_response_for_discord, format_tool_status, split_for_discord
 from session_helpers import discord_client_id
@@ -31,38 +28,9 @@ from state import get_channel_state, get_global_setting, set_channel_state, set_
 
 logger = logging.getLogger(__name__)
 
-_ITEM_STATUS_ICON = {
-    "pending": "\u25cb",
-    "in_progress": "\u25c9",
-    "done": "\u2713",
-    "skipped": "\u2013",
-}
-
-
 async def _resolve_session_id(channel_id: str, bot_id: str) -> str | None:
     """Look up the active session_id for a Discord channel from the server."""
     return await get_channel_session_id(channel_id, bot_id)
-
-
-def _format_plan(plan: dict, detail: bool = False) -> str:
-    items = plan.get("items", [])
-    done = sum(1 for i in items if i["status"] == "done")
-    total = len(items)
-    pid = plan["id"][:8]
-    header = f"**[{pid}] {plan['title']}** ({done}/{total} done)"
-    if plan["status"] != "active":
-        header += f" *{plan['status']}*"
-    if not detail:
-        return header
-    lines = [header]
-    if plan.get("description"):
-        lines.append(f"  *{plan['description']}*")
-    for i, item in enumerate(items, 1):
-        icon = _ITEM_STATUS_ICON.get(item["status"], "?")
-        lines.append(f"  {icon} {i}. {item['content']}")
-        if item.get("notes"):
-            lines.append(f"      *{item['notes']}*")
-    return "\n".join(lines)
 
 
 async def _send_chunks(interaction: discord.Interaction, text: str) -> None:

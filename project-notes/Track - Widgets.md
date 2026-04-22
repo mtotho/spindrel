@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-21 (new bots auto-mint read-only widget scopes)
+updated: 2026-04-21 (session-local plan mode landed for widget work)
 ---
 # Track — Widget System DX + Robustness
 
@@ -142,6 +142,40 @@ stock widget runtime helpers (`loadAttachment`, channel-workspace asset reads,
 channel-bound dashboard reads) without silently granting mutation access.
 Bots that truly need writes or broader API use still widen scopes explicitly
 under Admin → Bots → Permissions.
+
+### Session-local plan mode for widget work (done, 2026-04-21)
+
+Shipped a first real "plan first, execute later" loop without reviving the removed generic plans system:
+
+- Backend:
+  - new `app/services/session_plan_mode.py` owns the strict Markdown contract, file pathing, revision metadata, approval state, and step auto-advance rules
+  - `/sessions/{id}/plans`, `/sessions/{id}/plan`, `/sessions/{id}/plan/{approve,exit,resume}`, and `/sessions/{id}/plan/steps/{step_id}/status` landed on the UI sessions router
+  - `_load_messages()` now injects session plan-mode context so the agent sees planning/executing rules every turn
+  - `file` tool mutations are gated during planning: only the canonical plan file may be edited
+- Artifact shape:
+  - single canonical file at `channels/<channel-id>/.sessions/<session-id>/plans/<task-slug>.md`
+  - strict headings + stable step ids in Markdown; no DB plan table
+  - progress is tracked inline in the same file
+- UI:
+  - plan mode entry moved into the composer as a low-chrome pill/dropdown
+  - default chat places the plan control just left of the model picker; terminal mode places it under the input on the right opposite the model picker
+  - channel screen renders a live plan card with revision/mode/path, checklist, approve/exit actions, and per-step status controls
+  - existing session can enter plan mode mid-conversation; no scratch/planner session split
+  - `/plan` is available in channel/session/thread chat surfaces and toggles the existing session plan state via the shared slash-command backend
+
+Verification:
+
+- `pytest agent-server/tests/unit/test_session_plan_mode.py -q` → `3 passed`
+- `cd agent-server/ui && npx tsc --noEmit`
+- `python -m py_compile app/services/slash_commands.py`
+
+Integration note:
+
+- Added `tests/integration/test_slash_commands.py::test_plan_command_for_session_returns_side_effect`, but the shared integration harness still stalled before returning a trustworthy completion signal for this file in-session.
+
+Known limitation:
+
+- The first pass stops at a session-local card + runtime contract. It does not yet emit the plan as an inline native-app chat result/widget, and the executor is still session-turn-driven rather than a fully automatic background step runner.
 
 ### Phase 0.5 — Engine addition: `widget_config` rides into `toolResult.config` (done, 2026-04-19)
 

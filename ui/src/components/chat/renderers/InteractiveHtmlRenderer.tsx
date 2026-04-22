@@ -201,10 +201,16 @@ interface Props {
    *  without null-checks. Chip-authored widgets read this to render the 180×32
    *  compact variant; grid widgets render full-size. */
   layout?: WidgetLayout;
+  /** Host wrapper shell mode. Exposed to widget JS as
+   *  ``window.spindrel.hostSurface`` and mirrored onto the iframe document as
+   *  ``data-spindrel-host-surface`` so HTML widgets can choose whether to draw
+   *  their own inner background/card or rely on the host shell. */
+  hostSurface?: HostSurface;
   t: ThemeTokens;
 }
 
 export type WidgetLayout = "chip" | "rail" | "dock" | "grid";
+export type HostSurface = "surface" | "plain";
 
 // Default CSP directive → baseline source list. Kept as structured data
 // (not a flat string) so envelope-declared `extra_csp` can append origins
@@ -356,6 +362,7 @@ function spindrelBootstrap(
   widgetPath: string | null,
   gridDimensions: { width: number; height: number } | null,
   layout: WidgetLayout,
+  hostSurface: HostSurface,
 ): string {
   const gridDimensionsJson = gridDimensions
     ? JSON.stringify(gridDimensions)
@@ -375,6 +382,12 @@ function spindrelBootstrap(
   // Host-zone classification. One of "chip" | "rail" | "dock" | "grid".
   // Chip widgets render a 180×32 compact variant; other zones render full.
   const layout = ${jsonForScript(layout)};
+  // Host shell mode. "surface" means the dashboard wrapper draws the outer
+  // card; "plain" means widget content sits flush against the dashboard.
+  const hostSurface = ${jsonForScript(hostSurface)};
+  try {
+    document.documentElement.setAttribute("data-spindrel-host-surface", hostSurface);
+  } catch (_) {}
   function resolveApiUrl(path) {
     if (typeof path !== "string" || !path) return path;
     if (/^[a-zA-Z][a-zA-Z\\d+.-]*:/.test(path) || path.startsWith("//")) {
@@ -2201,6 +2214,7 @@ function spindrelBootstrap(
     widgetPath: widgetPath,
     gridSize: gridSize,
     layout: layout,
+    hostSurface: hostSurface,
     image: image,
     resolvePath: resolvePath,
     api: api,
@@ -2279,6 +2293,13 @@ function spindrelBootstrap(
       window.spindrel.theme = t;
       try {
         window.dispatchEvent(new CustomEvent("spindrel:theme", { detail: t }));
+      } catch (_) { /* ignore */ }
+    },
+    __setHostSurface: function (nextSurface) {
+      const normalized = nextSurface === "plain" ? "plain" : "surface";
+      window.spindrel.hostSurface = normalized;
+      try {
+        document.documentElement.setAttribute("data-spindrel-host-surface", normalized);
       } catch (_) { /* ignore */ }
     }
   };
@@ -2364,19 +2385,20 @@ function wrapHtml(
   csp: string,
   gridDimensions: { width: number; height: number } | null,
   layout: WidgetLayout,
+  hostSurface: HostSurface,
 ): string {
   const hostKind = dashboardPinId ? "pinned" : "inline";
   return `<!doctype html>
-<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}">
+<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}" data-spindrel-host-surface="${hostSurface}">
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout)}
+${spindrelBootstrap(channelId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout, hostSurface)}
 </head>
-<body data-sd-host="${hostKind}" data-sd-layout="${layout}">
+<body data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}">
 ${WIDGET_ICON_SPRITE}
-<div id="__sd_root" data-sd-host="${hostKind}" data-sd-layout="${layout}">
+<div id="__sd_root" data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}">
 ${body}
 </div>
 </body>
@@ -2403,6 +2425,7 @@ export function InteractiveHtmlRenderer({
   onIframeReady,
   hoverScrollbars,
   layout,
+  hostSurface = "surface",
   t,
 }: Props) {
   const serverUrl = useAuthStore((s) => s.serverUrl || null);
@@ -2874,6 +2897,30 @@ export function InteractiveHtmlRenderer({
     }
   }, [hoverScrollbars]);
 
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (doc?.documentElement) {
+      doc.documentElement.setAttribute("data-spindrel-host-surface", hostSurface);
+    }
+    if (doc?.body) {
+      doc.body.setAttribute("data-sd-host-surface", hostSurface);
+    }
+    const root = doc?.getElementById("__sd_root");
+    if (root) {
+      root.setAttribute("data-sd-host-surface", hostSurface);
+    }
+    try {
+      const w = iframeRef.current?.contentWindow as
+        | (Window & { spindrel?: { __setHostSurface?: (surface: HostSurface) => void } })
+        | null
+        | undefined;
+      w?.spindrel?.__setHostSurface?.(hostSurface);
+    } catch {
+      // Mid-navigation or pooled iframe swap; the next successful sync/load
+      // will reapply the host-surface hint.
+    }
+  }, [hostSurface]);
+
   // 404 is handled by a sticky toast (see fileQuery effect above) so a
   // glitched/offscreen widget still surfaces its own "I'm broken" signal.
   // Transient errors (5xx / network) keep the in-card banner since those
@@ -2952,6 +2999,7 @@ export function InteractiveHtmlRenderer({
       cspString,
       frozenGridDimensionsRef.current,
       layout ?? "grid",
+      hostSurface,
     )}\n<!-- reload:${reloadNonce} -->`,
     [
       bodyWithoutPreamble,
@@ -2966,6 +3014,7 @@ export function InteractiveHtmlRenderer({
       sourcePath,
       cspString,
       layout,
+      hostSurface,
       reloadNonce,
     ],
   );

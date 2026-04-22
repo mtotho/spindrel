@@ -432,6 +432,9 @@ class TestPinWidgetLibrary:
         with _patch_tool_engine(engine), patch(
             "app.services.workspace.workspace_service.get_workspace_root",
             return_value=str(tmp_path),
+        ), patch(
+            "app.services.widget_handler_tools.list_widget_handler_tools",
+            return_value=([], {}),
         ):
             ch_tok = current_channel_id.set(channel_id)
             bot_tok = current_bot_id.set("test-bot")

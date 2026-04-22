@@ -605,7 +605,7 @@ export function ChannelDashboardMultiCanvas({
       onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
-      <div className="flex flex-col gap-3 h-full min-h-0">
+      <div className="flex flex-col gap-3">
         {error && (
           <div
             role="alert"
@@ -632,7 +632,7 @@ export function ChannelDashboardMultiCanvas({
           ghost={headerGhost}
         />
 
-        <div className="flex-1 flex flex-col gap-4 min-h-0 lg:flex-row lg:gap-3">
+        <div className="flex flex-col items-start gap-4 lg:flex-row lg:items-start lg:gap-3">
           <ListCanvas
             zone="rail"
             widthPx={RAIL_WIDTH_PX}
@@ -933,7 +933,7 @@ function ListCanvas({
     width: "100%",
     flexShrink: 0,
   };
-  const extraClass = "order-2 lg:order-none flex flex-col h-full";
+  const extraClass = "order-2 lg:order-none flex flex-col self-start";
 
   return (
     <div
@@ -948,7 +948,7 @@ function ListCanvas({
         anyDragging={anyDragging}
         isOver={isOver}
       >
-        <div className="relative flex-1 min-h-[120px] overflow-y-auto px-2 py-2">
+        <div className="relative min-h-[120px] px-2 py-2">
           {editMode && <EditModeGridGuides cols={1} rowHeight={rowHeight} rowGap={GAP_PX} />}
           {pins.length === 0 ? (
             editMode ? <EmptyCanvasHint message={emptyMessage} /> : null
@@ -1100,13 +1100,13 @@ function GridCanvas({
   return (
     <DroppableCanvas
       zone="grid"
-      extraClass="flex-1 min-w-0 order-1 lg:order-none flex"
+      extraClass="order-1 flex min-w-0 self-start lg:order-none lg:flex-1"
       editMode={editMode}
       anyDragging={anyDragging}
       isOver={isOver}
       measureRef={measureRef}
     >
-      <div className="relative flex-1 flex flex-col overflow-hidden p-3 min-h-[240px]">
+      <div className="relative min-h-[240px] p-3">
         {editMode && (
           <EditModeGridGuides
             cols={preset.cols.lg}
@@ -1114,7 +1114,7 @@ function GridCanvas({
             rowGap={GAP_PX}
           />
         )}
-        <div style={gridStyle} className="relative flex-1">
+        <div style={gridStyle} className="relative">
           {ghost && (
             <div
               aria-hidden

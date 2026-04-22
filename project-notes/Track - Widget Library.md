@@ -233,6 +233,7 @@ Follow-up polish landed later the same day:
 - **Wrapper chrome now owns the outer title/background contract.** Per-pin `widget_config.show_title` remains the title-bar override, and a new sibling `widget_config.wrapper_surface` (`inherit` / `surface` / `plain`) lets the host wrapper decide whether it draws the outer shell or leaves the widget on a plain transparent surface.
 - **Native Notes was simplified into an always-editable scratchpad.** The explicit edit/save mode, internal title, and action button were removed; Notes now renders as a single autosaving textarea so the host wrapper's title bar is the only outer header.
 - **Old HTML Notes is retired from discovery, not deleted.** The legacy `notes` HTML bundle still exists for compatibility with existing pins and direct refs, but it no longer appears in core library/catalog listing. New Notes placements go through `notes_native`.
+- **`wrapper_surface=plain` now works cleanly for HTML widgets too.** Pinned interactive HTML widgets no longer keep the old extra host padding/inset in plain mode, and the iframe runtime now exposes the host shell hint as `window.spindrel.hostSurface` plus `data-spindrel-host-surface` / `data-sd-host-surface` attributes so widget CSS can intentionally drop or keep its own inner card without the host trying to rewrite arbitrary styles.
 
 ## MVP decision — FS-backed, not DB-backed
 

@@ -299,7 +299,7 @@ function ChannelChatSession({
   );
 
   const handleSlashCommand = useSlashCommandExecutor({
-    availableCommands: ["stop", "context", "scratch", "clear", "compact"],
+    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
     channelId: source.channelId,
     sessionId: src.sessionId,
     onSyntheticMessage: (message) => addMessage(source.channelId, message),
@@ -327,7 +327,9 @@ function ChannelChatSession({
       }
       if (result.command_id === "compact") {
         queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        return;
       }
+      if (result.command_id === "plan") return;
     },
   });
 
@@ -423,7 +425,7 @@ function ChannelChatSession({
                   channelId={source.channelId}
                   onSlashCommand={handleSlashCommand}
                   slashSurface="channel"
-                  availableSlashCommands={["stop", "context", "scratch", "clear", "compact"]}
+                  availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
                   modelOverride={src.modelOverride}
                   modelProviderIdOverride={src.modelProviderIdOverride}
                   onModelOverrideChange={src.setModelOverride}
@@ -474,7 +476,7 @@ function ChannelChatSession({
               channelId={source.channelId}
               onSlashCommand={handleSlashCommand}
               slashSurface="channel"
-              availableSlashCommands={["stop", "context", "scratch", "clear", "compact"]}
+              availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
               modelOverride={src.modelOverride}
               modelProviderIdOverride={src.modelProviderIdOverride}
               onModelOverrideChange={src.setModelOverride}
@@ -899,7 +901,7 @@ function EphemeralChatSession({
                   channelId={sessionId ?? undefined}
                   onSlashCommand={handleSessionSlashCommand}
                   slashSurface="session"
-                  availableSlashCommands={sessionId ? ["context", "stop"] : []}
+                  availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
                   modelOverride={modelOverride}
                   modelProviderIdOverride={modelProviderId}
                   onModelOverrideChange={setModelOverride}
@@ -976,7 +978,7 @@ function EphemeralChatSession({
               channelId={sessionId ?? undefined}
               onSlashCommand={handleSessionSlashCommand}
               slashSurface="session"
-              availableSlashCommands={sessionId ? ["context", "stop"] : []}
+              availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
               modelOverride={modelOverride}
               modelProviderIdOverride={modelProviderId}
               onModelOverrideChange={setModelOverride}
@@ -1289,7 +1291,7 @@ function ThreadChatSession({
                   channelId={storeKey}
                   onSlashCommand={handleThreadSlashCommand}
                   slashSurface="session"
-                  availableSlashCommands={effectiveSessionId ? ["context", "stop"] : []}
+                  availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
                   defaultModel={bot?.model}
                   configOverhead={overheadPct}
                   modelOverride={modelOverride}
@@ -1364,7 +1366,7 @@ function ThreadChatSession({
               channelId={storeKey}
               onSlashCommand={handleThreadSlashCommand}
               slashSurface="session"
-              availableSlashCommands={effectiveSessionId ? ["context", "stop"] : []}
+              availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
               defaultModel={bot?.model}
               configOverhead={overheadPct}
               modelOverride={modelOverride}

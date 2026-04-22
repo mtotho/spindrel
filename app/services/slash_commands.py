@@ -16,6 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Channel, Session, Task
 from app.services import session_locks
 from app.services.context_breakdown import compute_context_breakdown, fetch_latest_context_budget
+from app.services.session_plan_mode import (
+    create_session_plan,
+    exit_session_plan_mode,
+    get_session_plan_mode,
+    load_session_plan,
+    resume_session_plan_mode,
+)
 
 
 class ContextSummaryBudget(BaseModel):
@@ -55,7 +62,7 @@ class SlashCommandResult(BaseModel):
 
 
 class SideEffectPayload(BaseModel):
-    effect: Literal["stop", "compact"]
+    effect: Literal["stop", "compact", "plan"]
     scope_kind: Literal["channel", "session"]
     scope_id: str
     title: str
@@ -92,6 +99,11 @@ def list_supported_slash_commands() -> list[dict[str, str]]:
             "id": "compact",
             "label": "/compact",
             "description": "Compress conversation",
+        },
+        {
+            "id": "plan",
+            "label": "/plan",
+            "description": "Toggle plan mode",
         },
     ]
 
@@ -324,6 +336,62 @@ async def _compact_session(
     return _side_effect_result(payload, command_id="compact")
 
 
+def _default_plan_title(*, session: Session, channel: Channel | None) -> str:
+    if session.title and session.title.strip():
+        return session.title.strip()
+    if channel is not None and channel.name and channel.name.strip():
+        return f"{channel.name.strip()} plan"
+    return "Active plan"
+
+
+async def _toggle_plan_mode(
+    *,
+    session: Session,
+    scope_kind: Literal["channel", "session"],
+    scope_id: uuid.UUID,
+    channel: Channel | None,
+    db: AsyncSession,
+) -> SlashCommandResult:
+    existing = load_session_plan(session, required=False)
+    mode = get_session_plan_mode(session)
+    if existing is None:
+        plan = create_session_plan(
+            session,
+            title=_default_plan_title(session=session, channel=channel),
+        )
+        await db.commit()
+        payload = SideEffectPayload(
+            effect="plan",
+            scope_kind=scope_kind,
+            scope_id=str(scope_id),
+            title="Plan mode started",
+            detail=f"Started plan mode with {plan.title!r}.",
+        )
+        return _side_effect_result(payload, command_id="plan")
+    if mode == "chat":
+        resume_session_plan_mode(session)
+        await db.commit()
+        payload = SideEffectPayload(
+            effect="plan",
+            scope_kind=scope_kind,
+            scope_id=str(scope_id),
+            title="Plan mode resumed",
+            detail=f"Resumed plan mode for {existing.title!r}.",
+        )
+        return _side_effect_result(payload, command_id="plan")
+
+    exit_session_plan_mode(session)
+    await db.commit()
+    payload = SideEffectPayload(
+        effect="plan",
+        scope_kind=scope_kind,
+        scope_id=str(scope_id),
+        title="Plan mode exited",
+        detail=f"Exited plan mode for {existing.title!r}.",
+    )
+    return _side_effect_result(payload, command_id="plan")
+
+
 async def execute_slash_command(
     *,
     command_id: str,
@@ -358,6 +426,19 @@ async def execute_slash_command(
                 scope_id=channel_id,
                 db=db,
             )
+        if command_id == "plan":
+            if channel.active_session_id is None:
+                raise LookupError("Channel has no active conversation")
+            session = await db.get(Session, channel.active_session_id)
+            if session is None:
+                raise LookupError("Session not found")
+            return await _toggle_plan_mode(
+                session=session,
+                scope_kind="channel",
+                scope_id=channel_id,
+                channel=channel,
+                db=db,
+            )
         raise ValueError(f"Unsupported slash command: {command_id}")
 
     if command_id == "context":
@@ -374,6 +455,18 @@ async def execute_slash_command(
             session_id=session_id,
             scope_kind="session",
             scope_id=session_id,
+            db=db,
+        )
+    if command_id == "plan":
+        session = await db.get(Session, session_id)
+        if session is None:
+            raise LookupError("Session not found")
+        channel = await db.get(Channel, session.channel_id) if session.channel_id else None
+        return await _toggle_plan_mode(
+            session=session,
+            scope_kind="session",
+            scope_id=session_id,
+            channel=channel,
             db=db,
         )
     raise ValueError(f"Unsupported slash command: {command_id}")
