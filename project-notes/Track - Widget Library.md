@@ -222,7 +222,8 @@ Phase 18 shipped 2026-04-21 — the unified widget interface now covers a third 
 2026-04-22 follow-up:
 
 - Repaired the Alembic chain after Phase 18/19 work: `migrations/versions/238_tool_call_presentation_contract.py` was authored with `down_revision = "237_native_widget_instances"` while migration 237's actual revision ID is plain `"237"`. That mismatch broke `alembic upgrade head` during app startup with `KeyError: '237_native_widget_instances'`.
-- Added a regression test at `tests/unit/test_migration_revision_chain.py` that loads the Alembic script directory and resolves `head`, so future broken revision links fail fast in CI.
+- The same migration also used an oversized revision ID (`238_tool_call_presentation_contract`, 35 chars). Alembic's default `alembic_version.version_num` is `varchar(32)`, so startup then failed on `UPDATE alembic_version ... value too long for type character varying(32)`. The revision ID was shortened to `238`.
+- Added a regression test at `tests/unit/test_migration_revision_chain.py` that both resolves `head` and asserts every revision ID fits Alembic's default 32-character version column, so future broken revision metadata fails fast in CI.
 - **Shared placement/catalog semantics kept intact** — `widget_library_list`, `/api/v1/widgets/library-widgets*`, `pin_widget`, dashboard pin serialization, and `describe_dashboard` now surface native widget metadata/action availability without changing the existing HTML/template mental model.
 - **Docs/skills updated** — `skills/widgets/index.md` and `skills/widgets/bot-callable-handlers.md` now teach the three-lane model (`template` / `html` / `native_app`), the unified bot tool, and the rule that bots must inspect declared action schemas before calling actions.
 
