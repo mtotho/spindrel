@@ -106,6 +106,7 @@ archive old logs, and keep files organized.
 Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. For each channel with recent activity:
 - Use `read_conversation_history(section="index", channel_id="<id>")` to review what happened.
 - **Always check sub-sessions** — call `list_sub_sessions(channel_id="<id>")` to see pipeline runs, evals, threads, and scratch-pad chats attached to the channel. Read interesting ones with `read_sub_session(session_id="<id>")`. Decisions and corrections often land in sub-sessions and never hit the main channel feed — if you skip this step, you'll miss them.
+- If the history layout is unclear while you review, call `get_skill(skill_id="history_and_memory/memory_hygiene")` before continuing.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 - **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
 
@@ -399,10 +400,16 @@ nothing. See the `widget_dashboards` skill.
 {% section "Context Awareness" %}
 - Your conversation may have been compacted. If something feels missing, use \
 `read_conversation_history` or `list_sub_sessions`.
-- For exact strings from past conversations (errors, paths, ports): \
-`read_conversation_history(section='messages:<query>')`.
+- `read_conversation_history` is current-session-first: in a primary chat it reads the \
+primary session; in a scratch chat it reads the scratch session. Nearby sessions are \
+shown as pointers, not merged into one index.
+- For exact strings from past conversations in the current session: \
+`read_conversation_history(section='search:<query>')`.
 - For the full output of a summarized tool result: \
 `read_conversation_history(section='tool:<id>')`.
+- For adjacent session context, inspect it deliberately with `list_sub_sessions` and \
+`read_sub_session(session_id)`.
+- If the session-history model is unclear, read the `history_and_memory/session_history` skill.
 {% endsection %}
 
 {% section "Tool Discipline" %}
@@ -430,6 +437,7 @@ STARTER_SKILL_IDS: list[str] = [
     "workspace_files",
     "delegation",
     "context_mastery",
+    "history_and_memory/index",
     "prompt_injection_and_security",
     "skill_authoring",
     "workspace_member",

@@ -126,7 +126,7 @@ function GeneralAdvancedSection({
           label="Workspace RAG"
           description="Auto-inject relevant workspace files into context each turn."
         />
-        <FormRow label="Thinking display" description="How intermediate thinking is shown in integrations (Slack, etc.)">
+        <FormRow label="Integration thinking display" description="How intermediate thinking is shown in integrations like Slack or Discord. Web chat uses the built-in transcript + collapsed thinking layout.">
           <SelectInput
             value={form.thinking_display ?? "append"}
             onChange={(v) => patch("thinking_display", v)}

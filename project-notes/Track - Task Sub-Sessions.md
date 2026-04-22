@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, architecture]
 status: active
-updated: 2026-04-21 (Phase 9 session-aware scratch metadata/history/promotion shipped; Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity; dashboard scratch handoff clarity; session switcher/menu polish)
+updated: 2026-04-21 (Phase 9 session-aware scratch metadata/history/promotion shipped; prompt/skill alignment shipped for session-aware history; Phase 8 polish — bot sub-session visibility + mobile dock + cross-device scratch; thread dock parity; dashboard scratch handoff clarity; session switcher/menu polish)
 ---
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
@@ -19,6 +19,7 @@ Scratch sessions stopped being a thin "current pointer + first-message preview" 
 - **Backfill/compaction metadata refresh** — automatic compaction and backfill now update session metadata, not just explicit `/compact`. Structured/file compaction continues writing section rows, but also keeps `Session.summary` as the selector-safe executive summary.
 - **Scratch/tooling visibility polish** — `read_conversation_history(section='recent')` now identifies the current session by title/summary and surfaces nearby-session pointers instead of mixing section indexes. `list_sub_sessions` prefers scratch titles/summaries when describing scratch rows.
 - **Selector UX** — `ScratchSessionMenu` now prefers `title`, shows optional summary plus `messages / sections / last active`, and exposes rename + "make primary" actions inline. The menu still keeps scratch sessions internal; promotion is the only moment a session becomes the channel-visible primary conversation.
+- **Prompt + skill alignment follow-up** — the base prompt now teaches the real `read_conversation_history(section='search:<query>')` contract and current-session-first semantics. Added a new `skills/history_and_memory/` family (`index`, `session_history`, `memory_hygiene`) as the curated session-history entrypoint, narrowed `context_mastery` back to persistence-tier routing, and narrowed `search_history` to raw cross-session search. Admin/help text in the UI was updated to stop teaching the obsolete `messages:<query>` mode.
 
 ### Key decisions
 

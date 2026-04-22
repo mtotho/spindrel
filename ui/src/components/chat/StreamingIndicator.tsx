@@ -6,6 +6,7 @@ import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
 import { TerminalStreamingToolTranscript } from "./TerminalToolTranscript";
+import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -25,11 +26,12 @@ function avatarColor(name: string): string {
 /** Auto-scrolling thinking block — keeps latest content visible as it streams */
 function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: string; borderColor: string; textColor: string; labelColor: string }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [text]);
+    if (el && expanded) el.scrollTop = el.scrollHeight;
+  }, [expanded, text]);
 
   return (
     <div
@@ -41,11 +43,26 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
       }}
     >
       {/* Label */}
-      <div style={{
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          padding: 0,
+          paddingBottom: 4,
+          border: "none",
+          background: "transparent",
+          cursor: "pointer",
+        }}
+      >
+        {expanded ? <ChevronDown size={12} color={labelColor} /> : <ChevronRight size={12} color={labelColor} />}
+        <div style={{
         display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
-        paddingBottom: 4,
       }}>
         <Brain size={12} color={labelColor} style={{ opacity: 0.7 }} />
         <span style={{ fontSize: 11, color: labelColor, fontWeight: 500, letterSpacing: 0.3, textTransform: "uppercase" }}>
@@ -58,32 +75,35 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
           backgroundColor: labelColor,
           display: "inline-block",
         }} />
-      </div>
+        </div>
+      </button>
       {/* Content */}
-      <div
-        ref={scrollRef}
-        style={{
-          paddingLeft: 12,
-          paddingTop: 6,
-          paddingBottom: 6,
-          borderLeft: `2px solid ${borderColor}`,
-          maxHeight: 160,
-          overflowY: "auto",
-        }}
-      >
+      {expanded && (
         <div
+          ref={scrollRef}
           style={{
-            fontSize: 13,
-            lineHeight: "1.55",
-            color: textColor,
-            fontStyle: "italic",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
+            paddingLeft: 12,
+            paddingTop: 6,
+            paddingBottom: 6,
+            borderLeft: `2px solid ${borderColor}`,
+            maxHeight: 160,
+            overflowY: "auto",
           }}
         >
-          {text}
+          <div
+            style={{
+              fontSize: 13,
+              lineHeight: "1.55",
+              color: textColor,
+              fontStyle: "italic",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+            }}
+          >
+            {text}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -446,6 +466,87 @@ function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"];
   );
 }
 
+function InterleavedTranscript({
+  entries,
+  toolCalls,
+  t,
+  botId,
+  chatMode,
+}: {
+  entries: TurnTranscriptEntry[];
+  toolCalls: LiveToolCall[];
+  t: ReturnType<typeof useThemeTokens>;
+  botId?: string;
+  chatMode: "default" | "terminal";
+}) {
+  const decideApproval = useDecideApproval();
+  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
+  const [expandedArgs, setExpandedArgs] = useState<Set<string>>(new Set());
+  const isTerminalMode = chatMode === "terminal";
+
+  const toolCallById = new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall]));
+
+  const handleDecide = (approvalId: string, approved: boolean) => {
+    setDecidingIds((prev) => new Set(prev).add(approvalId));
+    const data: DecideRequest = { approved, decided_by: "web:admin" };
+    decideApproval.mutate(
+      { approvalId, data },
+      {
+        onSettled: () => {
+          setDecidingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(approvalId);
+            return next;
+          });
+        },
+      },
+    );
+  };
+
+  const toggleArgs = (toolCallId: string) => {
+    setExpandedArgs((prev) => {
+      const next = new Set(prev);
+      if (next.has(toolCallId)) next.delete(toolCallId);
+      else next.add(toolCallId);
+      return next;
+    });
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {entries.map((entry) => {
+        if (entry.kind === "text") {
+          if (!entry.text.trim()) return null;
+          return (
+            <div key={entry.id} style={{ contain: "content" }}>
+              <MarkdownContent text={entry.text} t={t} chatMode={chatMode} />
+            </div>
+          );
+        }
+
+        const toolCall = toolCallById.get(entry.toolCallId);
+        if (!toolCall) return null;
+
+        if (isTerminalMode) {
+          return <TerminalStreamingToolTranscript key={entry.id} toolCalls={[toolCall]} t={t} />;
+        }
+
+        return (
+          <SingleToolCallCard
+            key={entry.id}
+            tc={toolCall}
+            t={t}
+            isExpanded={expandedArgs.has(toolCall.id)}
+            onToggle={() => toggleArgs(toolCall.id)}
+            handleDecide={handleDecide}
+            isDeciding={toolCall.approvalId ? decidingIds.has(toolCall.approvalId) : false}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 type AutoInjectedSkillDisplay = {
   skillId: string;
   skillName: string;
@@ -514,14 +615,8 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
 
 interface Props {
   content: string;
-  toolCalls: {
-    name: string;
-    args?: string;
-    status: "running" | "done" | "awaiting_approval" | "denied";
-    approvalId?: string;
-    approvalReason?: string;
-    capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
-  }[];
+  toolCalls: LiveToolCall[];
+  transcriptEntries: TurnTranscriptEntry[];
   autoInjectedSkills?: AutoInjectedSkillDisplay[];
   botName?: string;
   botId?: string;
@@ -583,7 +678,17 @@ function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>
   );
 }
 
-export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, botName, botId, thinkingContent, llmStatus, chatMode = "default" }: Props) {
+export function StreamingIndicator({
+  content,
+  toolCalls,
+  transcriptEntries,
+  autoInjectedSkills,
+  botName,
+  botId,
+  thinkingContent,
+  llmStatus,
+  chatMode = "default",
+}: Props) {
   const name = botName || "Bot";
   const bg = avatarColor(name);
   const t = useThemeTokens();
@@ -592,8 +697,10 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
+  const hasTranscriptEntries = transcriptEntries.length > 0;
   const hasVisibleActivity =
     !!displayThinking ||
+    hasTranscriptEntries ||
     (autoInjectedSkills?.length ?? 0) > 0 ||
     toolCalls.length > 0 ||
     !!llmStatus;
@@ -623,29 +730,18 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
           <SkillPills skills={autoInjectedSkills} t={t} />
         )}
 
-        {/* Tool calls in progress */}
-        {toolCalls.length > 0 && (
-          isTerminalMode
-            ? <TerminalStreamingToolTranscript toolCalls={toolCalls} t={t} />
-            : <ToolCallCards toolCalls={toolCalls} t={t} botId={botId} />
-        )}
-
-        {/* Streaming text */}
-        {displayContent ? (
+        {/* Ordered transcript body */}
+        {hasTranscriptEntries ? (
+          <InterleavedTranscript
+            entries={transcriptEntries}
+            toolCalls={toolCalls}
+            t={t}
+            botId={botId}
+            chatMode={chatMode}
+          />
+        ) : displayContent ? (
           <div style={{ contain: "content" }}>
-            <MarkdownContent text={displayContent} t={t} />
-            <span
-              style={{
-                display: "inline-block",
-                width: 2,
-                height: 17,
-                backgroundColor: t.purple,
-                marginLeft: 2,
-                verticalAlign: "text-bottom",
-                opacity: 0.8,
-                animation: "blink 1s step-end infinite",
-              }}
-            />
+            <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
           </div>
         ) : !hasVisibleActivity ? (
           /* Typing indicator dots — with optional LLM status badge */
@@ -663,7 +759,7 @@ export function StreamingIndicator({ content, toolCalls, autoInjectedSkills, bot
         ) : null}
 
         {/* LLM status badge shown alongside tool calls or streaming content */}
-        {llmStatus && (toolCalls.length > 0 || displayContent) && (
+        {llmStatus && (hasTranscriptEntries || toolCalls.length > 0 || displayContent) && (
           <div style={{ padding: "2px 0" }}>
             <LlmStatusBadge status={llmStatus} t={t} />
           </div>

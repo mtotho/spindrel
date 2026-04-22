@@ -78,6 +78,7 @@ export function useChannelState(channelId: string | undefined, primaryBotId?: st
     for (const turn of query.data.active_turns) {
       snapshotTurnIds.add(turn.turn_id);
       const toolCalls = turn.tool_calls.map((tc) => ({
+        id: `${turn.turn_id}:snapshot:${tc.id}`,
         name: tc.tool_name,
         args: tc.arguments && Object.keys(tc.arguments).length > 0
           ? JSON.stringify(tc.arguments)

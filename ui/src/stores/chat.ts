@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { Message, SSEEvent, ToolResultEnvelope } from "../types/api";
 
-type ToolCall = {
+export type ToolCall = {
+  id: string;
   name: string;
   args?: string;
   status: "running" | "done" | "awaiting_approval" | "denied";
@@ -13,6 +14,18 @@ type ToolCall = {
    * mimetype-keyed renderer in <RichToolResult>. */
   envelope?: ToolResultEnvelope;
 };
+
+export type TurnTranscriptEntry =
+  | {
+      id: string;
+      kind: "text";
+      text: string;
+    }
+  | {
+      id: string;
+      kind: "tool_call";
+      toolCallId: string;
+    };
 
 /**
  * State for a single in-flight agent turn.
@@ -36,6 +49,7 @@ export interface TurnState {
   streamingContent: string;
   thinkingContent: string;
   toolCalls: ToolCall[];
+  transcriptEntries: TurnTranscriptEntry[];
   autoInjectedSkills: AutoInjectedSkill[];
   correlationId?: string | null;
   /** Epoch ms when the slot was created. Used by the snapshot-reconcile
@@ -131,6 +145,30 @@ const emptyChannel: ChatChannelState = {
   contextBudget: null,
 };
 
+function makeToolCallId(turnId: string, existingCount: number): string {
+  return `${turnId}:tool:${existingCount + 1}`;
+}
+
+function appendTextEntry(entries: TurnTranscriptEntry[], delta: string): TurnTranscriptEntry[] {
+  if (!delta) return entries;
+  const next = [...entries];
+  const last = next[next.length - 1];
+  if (last?.kind === "text") {
+    next[next.length - 1] = { ...last, text: last.text + delta };
+    return next;
+  }
+  next.push({ id: `text:${next.length + 1}`, kind: "text", text: delta });
+  return next;
+}
+
+function seedTranscriptFromToolCalls(toolCalls: ToolCall[]): TurnTranscriptEntry[] {
+  return toolCalls.map((toolCall, index) => ({
+    id: `tool:${index + 1}`,
+    kind: "tool_call" as const,
+    toolCallId: toolCall.id,
+  }));
+}
+
 export const useChatStore = create<ChatState>()((set, get) => ({
   channels: {},
 
@@ -175,6 +213,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 streamingContent: "",
                 thinkingContent: "",
                 toolCalls: [],
+                transcriptEntries: [],
                 autoInjectedSkills: [],
                 correlationId: turnId,
                 startedAt: Date.now(),
@@ -196,6 +235,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
     set((s) => {
       const ch = s.channels[channelId] ?? emptyChannel;
       const existing = ch.turns[turnId];
+      const hydratedToolCalls = toolCalls.map((toolCall, index) => ({
+        ...toolCall,
+        id: toolCall.id || makeToolCallId(turnId, index),
+      }));
       // Live SSE state wins — a stale snapshot must not overwrite fresher
       // deltas. Only seed if the slot is absent or has no tool/skill state yet.
       if (existing && (existing.toolCalls.length > 0 || existing.autoInjectedSkills.length > 0)) {
@@ -214,7 +257,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 isPrimary,
                 streamingContent: existing?.streamingContent ?? "",
                 thinkingContent: existing?.thinkingContent ?? "",
-                toolCalls,
+                toolCalls: hydratedToolCalls,
+                transcriptEntries:
+                  existing?.transcriptEntries.length
+                    ? existing.transcriptEntries
+                    : seedTranscriptFromToolCalls(hydratedToolCalls),
                 autoInjectedSkills,
                 correlationId: turnId,
                 startedAt: existing?.startedAt ?? Date.now(),
@@ -239,9 +286,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
       switch (event.event) {
         case "text_delta": {
           const data = event.data as { delta?: string };
+          const delta = data.delta ?? "";
           updated = {
             ...turn,
-            streamingContent: turn.streamingContent + (data.delta ?? ""),
+            streamingContent: turn.streamingContent + delta,
+            transcriptEntries: appendTextEntry(turn.transcriptEntries, delta),
             llmStatus: null, // Clear retry status — actual content is flowing
           };
           break;
@@ -262,9 +311,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         case "assistant_text": {
           // Don't replace — text_deltas already accumulated the canonical content.
           const data = event.data as { text?: string };
+          const text = data.text || "";
+          const shouldSeedTranscript = !turn.streamingContent && text;
           updated = {
             ...turn,
-            streamingContent: turn.streamingContent || data.text || "",
+            streamingContent: turn.streamingContent || text,
+            transcriptEntries: shouldSeedTranscript ? appendTextEntry(turn.transcriptEntries, text) : turn.transcriptEntries,
           };
           break;
         }
@@ -272,19 +324,29 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           // Fallback for non-streaming providers. Don't replace if deltas
           // already populated streamingContent.
           const data = event.data as { text?: string };
+          const text = data.text || "";
+          const shouldSeedTranscript = !turn.streamingContent && text;
           updated = {
             ...turn,
-            streamingContent: turn.streamingContent || data.text || "",
+            streamingContent: turn.streamingContent || text,
+            transcriptEntries: shouldSeedTranscript ? appendTextEntry(turn.transcriptEntries, text) : turn.transcriptEntries,
           };
           break;
         }
         case "tool_start": {
           const data = event.data as { tool?: string; args?: string };
+          const toolCall: ToolCall = {
+            id: makeToolCallId(turnId, turn.toolCalls.length),
+            name: data.tool ?? "unknown",
+            args: data.args,
+            status: "running",
+          };
           updated = {
             ...turn,
-            toolCalls: [
-              ...turn.toolCalls,
-              { name: data.tool ?? "unknown", args: data.args, status: "running" },
+            toolCalls: [...turn.toolCalls, toolCall],
+            transcriptEntries: [
+              ...turn.transcriptEntries,
+              { id: `tool:${toolCall.id}`, kind: "tool_call", toolCallId: toolCall.id },
             ],
           };
           break;
@@ -338,13 +400,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           } else {
             // Approval arrived without a preceding tool_start (capability
             // approval gates can fire before the call). Synthesize one.
-            tcs.push({
+            const toolCall: ToolCall = {
+              id: makeToolCallId(turnId, tcs.length),
               name: data.tool ?? "approval",
               status: "awaiting_approval",
               approvalId: data.approval_id,
               approvalReason: data.reason ?? undefined,
               capability: data.capability ?? undefined,
-            });
+            };
+            tcs.push(toolCall);
+            updated = {
+              ...turn,
+              toolCalls: tcs,
+              transcriptEntries: [
+                ...turn.transcriptEntries,
+                { id: `tool:${toolCall.id}`, kind: "tool_call", toolCallId: toolCall.id },
+              ],
+            };
+            break;
           }
           updated = { ...turn, toolCalls: tcs };
           break;
@@ -435,19 +508,26 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
       // Materialize the turn's content as a synthetic message.
       let messages = ch.messages;
-      if (turn.streamingContent) {
+      const toolResults = turn.toolCalls.length > 0
+        ? turn.toolCalls.map((tc) => tc.envelope ?? null).filter((e): e is NonNullable<typeof e> => e !== null)
+        : undefined;
+      const shouldMaterialize =
+        !!turn.streamingContent ||
+        !!turn.thinkingContent ||
+        (toolResults?.length ?? 0) > 0 ||
+        turn.autoInjectedSkills.length > 0;
+
+      if (shouldMaterialize) {
         const toolsUsed = turn.toolCalls.length > 0
           ? turn.toolCalls.map((tc) => tc.name)
           : undefined;
         // Carry envelopes from the streaming turn into the synthetic message
         // so the rich tool result UI doesn't blink empty between finishTurn
         // and the session-messages refetch landing.
-        const toolResults = turn.toolCalls.length > 0
-          ? turn.toolCalls.map((tc) => tc.envelope ?? null).filter((e): e is NonNullable<typeof e> => e !== null)
-          : undefined;
         const metadata: Record<string, any> = {
           ...(toolsUsed ? { tools_used: toolsUsed } : {}),
           ...(toolResults && toolResults.length > 0 ? { tool_results: toolResults } : {}),
+          ...(turn.thinkingContent ? { thinking: turn.thinkingContent } : {}),
           ...(turn.botName ? { sender_display_name: turn.botName } : {}),
           ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
           ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),

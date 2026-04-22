@@ -1,7 +1,7 @@
 ---
 name: Context Mastery
-description: The four persistence tiers (auto-injected, reference files, bot-authored skills, core skills), how they relate, and how to move content between them
-triggers: context window, persistence, where does this go, memory vs skill, reference file, working set, four tiers, hot warm cold, archive content
+description: The four persistence tiers (auto-injected, reference files, bot-authored skills, core skills), how they relate, and how to move content between them. Use this for memory-vs-skill routing, not for session-history retrieval.
+triggers: context window, persistence, where does this go, memory vs skill, reference file, working set, four tiers, hot warm cold, archive content, where should this live
 category: core
 ---
 
@@ -31,6 +31,8 @@ Is this information...
 ```
 
 When in doubt: **Tier 3.** Skills are RAG-indexed, so even if you guess wrong about whether others need them, the discovery layer will only surface them when relevant.
+
+If your question is about conversational history structure, scratch sessions, or how to retrieve prior chat context, stop here and read `history_and_memory/index`. This skill is about persistence layers, not session-history retrieval.
 
 ---
 

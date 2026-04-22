@@ -57,7 +57,7 @@ async def _create_channel_with_messages(db: AsyncSession, messages: list[tuple[s
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: messages:<query> search
+# Phase 4: search:<query> search
 # ---------------------------------------------------------------------------
 
 class TestMessageSearch:

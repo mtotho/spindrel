@@ -367,7 +367,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const senderId = (meta.sender_id as string | undefined) ?? undefined;
   const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
 
-  const thinkingText = typeof meta.thinking === "string" ? meta.thinking.trim() : "";
+  const rawThinking = typeof meta.thinking === "string"
+    ? meta.thinking
+    : typeof meta.thinking_content === "string"
+      ? meta.thinking_content
+      : "";
+  const thinkingText = rawThinking.trim();
   const hasTerminalToolTranscript =
     isTerminalMode &&
     (richEnvelope || inlineWidgets.length > 0 || remainingToolNames.length > 0 || remainingToolCalls.length > 0);

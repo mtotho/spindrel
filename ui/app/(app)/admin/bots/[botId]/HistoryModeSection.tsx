@@ -14,7 +14,7 @@ import type { BotConfig } from "@/src/types/api";
 const FILE_MODE_PRESETS = [
   { label: "read_conversation_history auto-injected", detail: "Tool for navigating archived sections, searching, and retrieving content" },
   { label: "Section index injected every turn", detail: "Numbered list of archived sections with titles, dates, tags, and summaries" },
-  { label: "messages: grep mode", detail: "Search raw messages across ALL history — exact strings, errors, ports, paths" },
+  { label: "search: query mode", detail: "Search the current session's archived messages for exact strings, errors, ports, and paths" },
   { label: "tool: retrieval mode", detail: "Retrieve full output of summarized tool calls by ID" },
   { label: "Depth-aware compaction", detail: "Early sections preserve detail; later sections become more abstract automatically" },
   { label: "3-tier fallback escalation", detail: "Normal → aggressive → deterministic fallback if LLM fails during compaction" },
@@ -22,8 +22,7 @@ const FILE_MODE_PRESETS = [
 
 const FILE_MODE_BUILT_IN_PROMPT = `Archived conversation history — use read_conversation_history with:
   - A section number (e.g. '3') to read a full transcript
-  - 'search:<query>' to find sections by topic
-  - 'messages:<query>' to grep raw messages across ALL history (exact strings, errors, ports, paths)
+  - 'search:<query>' to find matching sections and raw message content in the current session
   - 'tool:<id>' to retrieve full output of a summarized tool call
 
 Section Index (injected each turn):
@@ -34,8 +33,9 @@ Section Index (injected each turn):
   ...
 
 The section index is rebuilt after each compaction cycle. Older sections are
-summarized more aggressively (depth-aware tiers). Use 'messages:' mode to
-search for exact strings that may have been abstracted away in summaries.`;
+summarized more aggressively (depth-aware tiers). Use 'search:' mode to
+search the current session for exact strings that may have been abstracted away
+in summaries, and inspect adjacent sessions separately when needed.`;
 
 // ---------------------------------------------------------------------------
 // History Mode Section

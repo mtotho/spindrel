@@ -1,14 +1,16 @@
 ---
 name: Search History
-description: Search and retrieve historical channel messages across sessions
-triggers: search history, what did we talk about, find messages, look back, past conversations, compaction context
+description: Raw message search across a channel's sessions. Use this when you need exact older messages across primary, scratch, thread, or other sub-sessions rather than the current session's structured archive.
+triggers: search history, what did we talk about, find messages, look back, past conversations, exact old message, cross-session search, scratch session history, older conversation
 category: core
 ---
 
 # Search History Tool
 
 ## Core Principle
-Messages are stored per-session, sessions belong to a channel. The tool searches across ALL sessions in a channel — it is not limited to the current session. Use it to reconstruct context that predates the current conversation window.
+Messages are stored per-session, sessions belong to a channel. This tool searches across ALL sessions in a channel — it is not limited to the current session. Use it when you need raw historical messages, not the current session's structured section index.
+
+If you need the current session's archive browser, nearby-session pointers, or scratch-vs-primary semantics, read `history_and_memory/session_history` instead.
 
 ## Tool Signature
 
@@ -38,6 +40,9 @@ Each result contains:
 
 ## Behavioral Patterns
 
+**Need the current session's archive, not cross-session search:**
+Use `read_conversation_history`, not this tool.
+
 **During compaction — context is thin:**
 Call `search_history` with a relevant keyword or date range before summarizing. Don't compact blindly if there's history worth incorporating.
 
@@ -54,10 +59,16 @@ Use `start_date` + `end_date`. Omit `query` to get all messages in that window.
 
 ## Common Mistakes
 
+- Using this when `read_conversation_history` would answer faster — this tool is for raw cross-session search, not the current session's archive browser
 - Passing `channel_id` manually — it's injected from context automatically
 - Using this to search memory — wrong tool, use `search_memory` or `get_memory_file`
 - Treating 300-char previews as complete messages — they are truncated. If full content matters, note that the preview may be cut off
 - Searching with no params and hitting the 100-result cap — always use a keyword or date range when looking for something specific
+
+## Related Skills
+
+- `history_and_memory/session_history` — current session vs nearby sessions, `read_conversation_history`, and sub-session navigation
+- `context_mastery` — where durable knowledge should live after you find it
 
 ## When to Use Proactively
 

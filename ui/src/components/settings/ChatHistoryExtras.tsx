@@ -8,8 +8,7 @@ import { Section } from "@/src/components/shared/FormControls";
 
 const SECTION_INDEX_HEADER = `Archived conversation history — use read_conversation_history with:
   - A section number (e.g. '3') to read a full transcript
-  - 'search:<query>' to find sections by topic
-  - 'messages:<query>' to grep raw messages across ALL history
+  - 'search:<query>' to find matching sections and raw message content in the current session
   - 'tool:<id>' to retrieve full output of a summarized tool call`;
 
 const SECTION_INDEX_PREVIEW: Record<string, string> = {
