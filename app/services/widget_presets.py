@@ -56,6 +56,36 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def resolve_preset_binding_options(
+    preset: dict[str, Any],
+    *,
+    source_bot_id: str | None,
+    source_channel_id: str | None,
+) -> tuple[dict[str, list[dict[str, Any]]], dict[str, str]]:
+    options_by_source: dict[str, list[dict[str, Any]]] = {}
+    errors_by_source: dict[str, str] = {}
+    binding_sources = preset.get("binding_sources") or {}
+    if not isinstance(binding_sources, dict):
+        return options_by_source, errors_by_source
+
+    for source_id in binding_sources.keys():
+        try:
+            options_by_source[source_id] = await list_binding_options(
+                preset_id=preset["id"],
+                source_id=source_id,
+                source_bot_id=source_bot_id,
+                source_channel_id=source_channel_id,
+            )
+        except HTTPException as exc:
+            errors_by_source[source_id] = str(exc.detail)
+            options_by_source[source_id] = []
+        except Exception as exc:
+            errors_by_source[source_id] = str(exc)
+            options_by_source[source_id] = []
+
+    return options_by_source, errors_by_source
+
+
 def _load_transform(ref: str):
     module_name, func_name = ref.split(":", 1)
     module = importlib.import_module(module_name)

@@ -38,6 +38,8 @@ export interface WidgetPreset {
   binding_schema: WidgetPresetBindingSchema;
   binding_sources: Record<string, WidgetPresetBindingSource>;
   default_config: Record<string, unknown>;
+  resolved_binding_options?: Record<string, WidgetPresetOption[]>;
+  binding_source_errors?: Record<string, string>;
 }
 
 export interface WidgetPresetOption {
@@ -64,11 +66,18 @@ export interface WidgetPresetPreviewResponse {
   config: Record<string, unknown>;
 }
 
-export function useWidgetPresets() {
+export function useWidgetPresets(sourceBotId?: string | null, sourceChannelId?: string | null) {
   return useQuery({
-    queryKey: ["widget-presets"],
+    queryKey: ["widget-presets", sourceBotId ?? null, sourceChannelId ?? null],
     queryFn: async () => {
-      const resp = await apiFetch<{ presets: WidgetPreset[] }>("/api/v1/widgets/presets");
+      const params = new URLSearchParams();
+      if (sourceBotId) params.set("source_bot_id", sourceBotId);
+      if (sourceChannelId) params.set("source_channel_id", sourceChannelId);
+      if (sourceBotId || sourceChannelId) params.set("include_binding_options", "true");
+      const query = params.toString();
+      const resp = await apiFetch<{ presets: WidgetPreset[] }>(
+        `/api/v1/widgets/presets${query ? `?${query}` : ""}`,
+      );
       return resp.presets ?? [];
     },
     staleTime: 60_000,

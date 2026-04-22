@@ -5,6 +5,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { Avatar } from "./MessageActions";
 import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
 import { OrderedTranscript } from "./OrderedTranscript";
+import { buildOrderedTurnBodyItemsFromLive } from "./toolTranscriptModel";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -326,6 +327,9 @@ export function StreamingIndicator({
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
   const hasTranscriptEntries = transcriptEntries.length > 0;
+  const orderedTurnBodyItems = hasTranscriptEntries
+    ? buildOrderedTurnBodyItemsFromLive({ transcriptEntries, toolCalls })
+    : [];
   const hasVisibleActivity =
     !!displayThinking ||
     hasTranscriptEntries ||
@@ -369,10 +373,10 @@ export function StreamingIndicator({
         {/* Ordered transcript body */}
         {hasTranscriptEntries ? (
           <OrderedTranscript
-            entries={transcriptEntries}
-            toolCalls={toolCalls}
+            items={orderedTurnBodyItems}
             t={t}
             chatMode={chatMode}
+            botId={botId}
           />
         ) : displayContent ? (
           <div style={{ contain: "content" }}>

@@ -1,5 +1,5 @@
-import { normalizeToolCall } from "../../types/api";
-import type { ToolCall, ToolCallSummary, ToolResultEnvelope, ToolSurface } from "../../types/api";
+import { normalizeToolCall } from "../../types/api.js";
+import type { ToolCall, ToolCallSummary, ToolResultEnvelope, ToolSurface } from "../../types/api.js";
 
 export type SharedToolTranscriptEntry = {
   id: string;
@@ -47,6 +47,27 @@ export type PersistedRenderItem =
       key: string;
       envelope: ToolResultEnvelope;
     };
+
+export type OrderedTurnBodyItem =
+  | {
+      kind: "text";
+      key: string;
+      text: string;
+    }
+  | PersistedRenderItem;
+
+export type OrderedLiveToolCall = {
+  id: string;
+  name: string;
+  args?: string;
+  summary?: ToolCallSummary | null;
+  envelope?: ToolResultEnvelope;
+  surface?: ToolSurface;
+  status: "running" | "done" | "awaiting_approval" | "denied";
+  approvalId?: string;
+  approvalReason?: string;
+  capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
+};
 
 export type DetailRow = {
   text: string;
@@ -315,6 +336,32 @@ function resolveEnvelopeSurface(
   if (isWidgetEnvelope(env)) return "widget";
   if (isRichInlineEnvelope(env)) return "rich_result";
   return env ? "root_rich_result" : null;
+}
+
+type OrderedToolResolution = {
+  key: string;
+  transcriptEntries: SharedToolTranscriptEntry[];
+} | {
+  key: string;
+  widget: InlineWidgetEntry;
+} | {
+  key: string;
+  envelope: ToolResultEnvelope;
+  kind: "rich_result";
+};
+
+function buildMissingToolDataEntry(toolCallId: string): SharedToolTranscriptEntry {
+  return {
+    id: `missing-tool:${toolCallId}`,
+    kind: "activity",
+    label: "Missing tool data",
+    metaLabel: null,
+    target: null,
+    isError: true,
+    detailKind: "none",
+    detail: null,
+    tone: "danger",
+  };
 }
 
 function summarizeGenericTool(toolName: string, args?: string): string {
@@ -606,6 +653,183 @@ export function buildPersistedRenderItems({
   }
 
   return items;
+}
+
+function resolveOrderedPersistedTool(
+  toolCall: ToolCall,
+  result: ToolResultEnvelope | undefined,
+  index: number,
+): OrderedToolResolution {
+  const normalized = normalizeToolCall(toolCall);
+  const surface = resolveEnvelopeSurface(result, toolCall.surface);
+
+  if (surface === "widget" && result) {
+    return {
+      key: `widget:${index}:${result.record_id ?? normalized.name ?? "widget"}`,
+      widget: {
+        envelope: result,
+        toolName: normalized.name ?? "",
+        recordId: result.record_id ?? undefined,
+      },
+    };
+  }
+
+  if (surface === "rich_result" && result) {
+    return {
+      kind: "rich_result",
+      key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
+      envelope: result,
+    };
+  }
+
+  return {
+    key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
+    transcriptEntries: buildPersistedToolEntries([], [toolCall], [result]),
+  };
+}
+
+function resolveOrderedLiveTool(
+  toolCall: OrderedLiveToolCall,
+  index: number,
+): OrderedToolResolution {
+  const surface = resolveEnvelopeSurface(toolCall.envelope, toolCall.surface);
+
+  if (surface === "widget" && toolCall.envelope) {
+    return {
+      key: `widget:${index}:${toolCall.envelope.record_id ?? toolCall.name ?? "widget"}`,
+      widget: {
+        envelope: toolCall.envelope,
+        toolName: toolCall.name,
+        recordId: toolCall.envelope.record_id ?? undefined,
+      },
+    };
+  }
+
+  if (surface === "rich_result" && toolCall.envelope) {
+    return {
+      kind: "rich_result",
+      key: `rich:${index}:${toolCall.envelope.record_id ?? toolCall.name ?? "result"}`,
+      envelope: toolCall.envelope,
+    };
+  }
+
+  return {
+    key: `transcript:${index}:${toolCall.name ?? toolCall.id ?? "tool"}`,
+    transcriptEntries: buildLiveToolEntries([toolCall]),
+  };
+}
+
+function buildOrderedTurnBodyItems({
+  transcriptEntries,
+  orderedTools,
+  rootEnvelope,
+  missingToolBehavior = "placeholder",
+}: {
+  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
+  orderedTools: Map<string, OrderedToolResolution>;
+  rootEnvelope?: ToolResultEnvelope;
+  missingToolBehavior?: "throw" | "placeholder";
+}): OrderedTurnBodyItem[] {
+  const items: OrderedTurnBodyItem[] = [];
+
+  const rootSurface = resolveEnvelopeSurface(rootEnvelope);
+  if (rootSurface === "root_rich_result" && rootEnvelope) {
+    items.push({
+      kind: "root_rich_result",
+      key: `root-rich:${rootEnvelope.record_id ?? rootEnvelope.display_label ?? "result"}`,
+      envelope: rootEnvelope,
+    });
+  }
+
+  for (const entry of transcriptEntries) {
+    if (entry.kind === "text") {
+      if (!entry.text.trim()) continue;
+      items.push({
+        kind: "text",
+        key: entry.id,
+        text: entry.text,
+      });
+      continue;
+    }
+
+    const tool = orderedTools.get(entry.toolCallId);
+    if (!tool) {
+      if (missingToolBehavior === "throw") {
+        throw new Error(`Transcript entry references missing canonical tool call: ${entry.toolCallId}`);
+      }
+      items.push({
+        kind: "transcript",
+        key: `${entry.id}:missing-tool:${entry.toolCallId}`,
+        entries: [buildMissingToolDataEntry(entry.toolCallId)],
+      });
+      continue;
+    }
+
+    if ("widget" in tool) {
+      items.push({
+        kind: "widget",
+        key: `${entry.id}:${tool.key}`,
+        widget: tool.widget,
+      });
+      continue;
+    }
+
+    if ("envelope" in tool) {
+      items.push({
+        kind: tool.kind,
+        key: `${entry.id}:${tool.key}`,
+        envelope: tool.envelope,
+      });
+      continue;
+    }
+
+    items.push({
+      kind: "transcript",
+      key: `${entry.id}:${tool.key}`,
+      entries: tool.transcriptEntries,
+    });
+  }
+
+  return items;
+}
+
+export function buildOrderedTurnBodyItemsFromPersisted({
+  transcriptEntries,
+  toolCalls,
+  toolResults,
+  rootEnvelope,
+  missingToolBehavior = "placeholder",
+}: {
+  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
+  toolCalls: ToolCall[];
+  toolResults?: (ToolResultEnvelope | undefined)[];
+  rootEnvelope?: ToolResultEnvelope;
+  missingToolBehavior?: "throw" | "placeholder";
+}): OrderedTurnBodyItem[] {
+  const orderedTools = new Map<string, OrderedToolResolution>();
+  for (let index = 0; index < toolCalls.length; index += 1) {
+    const toolCall = toolCalls[index];
+    const toolId = toolCall.id || `persisted-tool-${index + 1}`;
+    orderedTools.set(toolId, resolveOrderedPersistedTool(toolCall, toolResults?.[index], index));
+  }
+  return buildOrderedTurnBodyItems({ transcriptEntries, orderedTools, rootEnvelope, missingToolBehavior });
+}
+
+export function buildOrderedTurnBodyItemsFromLive({
+  transcriptEntries,
+  toolCalls,
+  missingToolBehavior = "placeholder",
+}: {
+  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
+  toolCalls: OrderedLiveToolCall[];
+  missingToolBehavior?: "throw" | "placeholder";
+}): OrderedTurnBodyItem[] {
+  const orderedTools = new Map<string, OrderedToolResolution>();
+  for (let index = 0; index < toolCalls.length; index += 1) {
+    const toolCall = toolCalls[index];
+    orderedTools.set(toolCall.id, resolveOrderedLiveTool(toolCall, index));
+  }
+  return buildOrderedTurnBodyItems({ transcriptEntries, orderedTools, missingToolBehavior });
 }
 
 export function buildLiveToolEntries(toolCalls: {

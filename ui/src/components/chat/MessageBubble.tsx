@@ -21,9 +21,14 @@ import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
 import { SlashCommandResultCard } from "./SlashCommandResultCard";
-import { buildPersistedRenderItems, type PersistedRenderItem } from "./toolTranscriptModel";
+import {
+  buildOrderedTurnBodyItemsFromPersisted,
+  buildPersistedRenderItems,
+  type OrderedTurnBodyItem,
+  type PersistedRenderItem,
+} from "./toolTranscriptModel";
 import { OrderedTranscript } from "./OrderedTranscript";
-import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
+import type { TurnTranscriptEntry } from "../../stores/chat";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -70,40 +75,6 @@ function collectInvalidatedLibraryRefs(toolCalls?: ToolCall[]): string[] {
     }
   }
   return Array.from(refs);
-}
-
-function toTranscriptToolCalls(
-  toolCalls: ToolCall[] | undefined,
-  toolNames: string[] | undefined,
-  toolResults: (ToolResultEnvelope | undefined)[] | undefined,
-): LiveToolCall[] {
-  if (toolCalls?.length) {
-    return toolCalls.map((toolCall, index) => {
-      const normalized = normalizeToolCall(toolCall);
-      return {
-        id: toolCall.id || `persisted-tool-${index + 1}`,
-        name: normalized.name,
-        args: normalized.arguments,
-        surface: toolCall.surface,
-        summary: toolCall.summary,
-        status: "done" as const,
-        envelope: toolResults?.[index],
-      };
-    });
-  }
-  if (!toolNames?.length && !toolResults?.length) return [];
-  const total = Math.max(toolNames?.length ?? 0, toolResults?.length ?? 0);
-  return Array.from({ length: total }, (_, index) => {
-    const toolName = toolNames?.[index] || `tool-${index + 1}`;
-    const fallbackArgs = "{}";
-    return {
-      id: `persisted-tool-${index + 1}`,
-      name: toolName,
-      args: fallbackArgs,
-      status: "done" as const,
-      envelope: toolResults?.[index],
-    };
-  });
 }
 
 interface Props {
@@ -303,21 +274,49 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     () => persistedRenderItems.filter((item): item is Extract<PersistedRenderItem, { kind: "widget" }> => item.kind === "widget"),
     [persistedRenderItems],
   );
+  // Message metadata carries the emitting bot as `sender_id: "bot:<id>"`
+  // (stamped by persist_turn + finishTurn). Strip the prefix to get the bare
+  // bot id that WidgetCard / RichToolResult need for pin + mint flows.
+  const senderId = (meta.sender_id as string | undefined) ?? undefined;
+  const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
+  const rawThinking = typeof meta.thinking === "string"
+    ? meta.thinking
+    : typeof meta.thinking_content === "string"
+      ? meta.thinking_content
+      : "";
+  const thinkingText = rawThinking.trim();
+  const persistedTranscriptEntries = (meta.transcript_entries as TurnTranscriptEntry[] | undefined) ?? [];
+  const orderedTurnBodyItems = useMemo(
+    () => persistedTranscriptEntries.length > 0
+      ? buildOrderedTurnBodyItemsFromPersisted({
+          transcriptEntries: persistedTranscriptEntries,
+          toolCalls: msgToolCalls ?? [],
+          toolResults,
+          rootEnvelope: richEnvelope,
+        })
+      : [],
+    [msgToolCalls, persistedTranscriptEntries, richEnvelope, toolResults],
+  );
+  const orderedWidgetItems = useMemo(
+    () => orderedTurnBodyItems.filter((item): item is Extract<OrderedTurnBodyItem, { kind: "widget" }> => item.kind === "widget"),
+    [orderedTurnBodyItems],
+  );
 
   // Broadcast envelopes when new tool results arrive in messages.
   // Seeds the shared envelope map so pinned widgets and inline widgets stay in sync.
   const broadcastRef = useRef<string | null>(null);
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
   useEffect(() => {
-    if (!channelId || !widgetItems.length) return;
+    const widgetBroadcastItems = orderedWidgetItems.length > 0 ? orderedWidgetItems : widgetItems;
+    if (!channelId || !widgetBroadcastItems.length) return;
     // Key by message id to only fire once per message
     const key = message.id;
     if (broadcastRef.current === key) return;
     broadcastRef.current = key;
-    for (const item of widgetItems) {
+    for (const item of widgetBroadcastItems) {
       broadcastEnvelope(channelId, item.widget.toolName, item.widget.envelope);
     }
-  }, [channelId, message.id, widgetItems, broadcastEnvelope]);
+  }, [broadcastEnvelope, channelId, message.id, orderedWidgetItems, widgetItems]);
 
   const invalidatedWidgetLibrariesRef = useRef<string | null>(null);
   useEffect(() => {
@@ -364,23 +363,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
-  // Message metadata carries the emitting bot as `sender_id: "bot:<id>"`
-  // (stamped by persist_turn + finishTurn). Strip the prefix to get the bare
-  // bot id that WidgetCard / RichToolResult need for pin + mint flows.
-  const senderId = (meta.sender_id as string | undefined) ?? undefined;
-  const senderBotId = senderId?.startsWith("bot:") ? senderId.slice(4) : undefined;
-
-  const rawThinking = typeof meta.thinking === "string"
-    ? meta.thinking
-    : typeof meta.thinking_content === "string"
-      ? meta.thinking_content
-      : "";
-  const thinkingText = rawThinking.trim();
-  const persistedTranscriptEntries = (meta.transcript_entries as TurnTranscriptEntry[] | undefined) ?? [];
-  const transcriptToolCalls = useMemo(
-    () => toTranscriptToolCalls(msgToolCalls, toolsUsed, toolResults),
-    [msgToolCalls, toolResults, toolsUsed],
-  );
   const isTightRichEnvelope = (envelope: ToolResultEnvelope | undefined) =>
     envelope?.content_type === "application/vnd.spindrel.diff+text"
     || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
@@ -512,10 +494,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
       {persistedTranscriptEntries.length > 0 ? (
         <OrderedTranscript
-          entries={persistedTranscriptEntries}
-          toolCalls={transcriptToolCalls}
+          items={orderedTurnBodyItems}
           t={t}
           chatMode={chatMode}
+          sessionId={message.session_id}
+          channelId={channelId}
+          botId={senderBotId}
+          isLatestBotMessage={isLatestBotMessage}
+          onPin={handlePinWidget}
+          sourceLabel={(meta.source as string) || "event"}
         />
       ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />

@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
-import { ApiError } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import {
-  getWidgetPresetBindingOptions,
   previewWidgetPreset,
   useWidgetPresets,
-  type WidgetPreset,
   type WidgetPresetField,
   type WidgetPresetOption,
 } from "@/src/api/hooks/useWidgetPresets";
@@ -47,11 +44,16 @@ export function WidgetPresetsPane({
   onStepChange,
   layout = "compact",
 }: Props) {
-  const { data: presets, isLoading, error } = useWidgetPresets();
   const { data: bots } = useBots();
   const { data: scopedChannel } = useChannel(scopeChannelId ?? undefined);
   const pinPreset = useDashboardPinsStore((s) => s.pinPreset);
   const t = useThemeTokens();
+  const [selectedBotId, setSelectedBotId] = useState("");
+
+  const { data: presets, isLoading, error } = useWidgetPresets(
+    selectedBotId || null,
+    scopeChannelId ?? null,
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -91,7 +93,6 @@ export function WidgetPresetsPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPreset?.id]);
 
-  const [selectedBotId, setSelectedBotId] = useState("");
   useEffect(() => {
     if (scopeChannelId && scopedChannel?.bot_id) {
       setSelectedBotId(scopedChannel.bot_id);
@@ -122,36 +123,22 @@ export function WidgetPresetsPane({
       setSourceError(null);
       return;
     }
-    let cancelled = false;
-    setSourceOptions({});
-    setSourceLoading({});
-    setSourceError(null);
-
+    const nextOptions: Record<string, WidgetPresetOption[]> = {};
+    const nextLoading: Record<string, boolean> = {};
+    const nextErrors: string[] = [];
     const fields = selectedPreset.binding_schema.properties ?? {};
     for (const field of Object.values(fields)) {
       const sourceId = field.ui?.source;
       if (!sourceId) continue;
-      setSourceLoading((prev) => ({ ...prev, [sourceId]: true }));
-      void getWidgetPresetBindingOptions(selectedPreset.id, sourceId, {
-        source_bot_id: selectedBotId || null,
-        source_channel_id: scopeChannelId ?? null,
-      }).then((resp) => {
-        if (cancelled) return;
-        setSourceOptions((prev) => ({ ...prev, [sourceId]: resp.options ?? [] }));
-        setSourceLoading((prev) => ({ ...prev, [sourceId]: false }));
-      }).catch((err) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) {
-          setSourceError("Could not load picker options from this server. Enter the entity id manually.");
-        } else {
-          setSourceError(err instanceof Error ? err.message : String(err));
-        }
-        setSourceLoading((prev) => ({ ...prev, [sourceId]: false }));
-      });
+      nextOptions[sourceId] = selectedPreset.resolved_binding_options?.[sourceId] ?? [];
+      nextLoading[sourceId] = false;
+      const sourceErrorMessage = selectedPreset.binding_source_errors?.[sourceId];
+      if (sourceErrorMessage) nextErrors.push(sourceErrorMessage);
     }
-
-    return () => { cancelled = true; };
-  }, [selectedPreset?.id, selectedBotId, scopeChannelId]);
+    setSourceOptions(nextOptions);
+    setSourceLoading(nextLoading);
+    setSourceError(nextErrors[0] ?? null);
+  }, [selectedPreset, selectedBotId, scopeChannelId]);
 
   const [previewState, setPreviewState] = useState<{
     running: boolean;
@@ -243,7 +230,7 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 xl:grid-cols-[220px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
         <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 border border-surface-border bg-surface"}>
@@ -411,7 +398,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "min-h-0 bg-transparent xl:col-span-2 2xl:col-span-1" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview

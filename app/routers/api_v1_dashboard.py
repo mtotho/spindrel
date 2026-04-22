@@ -1227,10 +1227,30 @@ async def preview_dashboard_widget_for_tool(
     "/presets",
     dependencies=[Depends(require_scopes("channels:read"))],
 )
-async def list_dashboard_widget_presets():
-    from app.services.widget_presets import list_widget_presets, serialize_widget_preset
+async def list_dashboard_widget_presets(
+    include_binding_options: bool = Query(default=False),
+    source_bot_id: str | None = Query(default=None),
+    source_channel_id: uuid.UUID | None = Query(default=None),
+):
+    from app.services.widget_presets import (
+        list_widget_presets,
+        resolve_preset_binding_options,
+        serialize_widget_preset,
+    )
 
-    return {"presets": [serialize_widget_preset(p) for p in list_widget_presets()]}
+    presets = []
+    for preset in list_widget_presets():
+        row = serialize_widget_preset(preset)
+        if include_binding_options:
+            options_by_source, errors_by_source = await resolve_preset_binding_options(
+                preset,
+                source_bot_id=source_bot_id,
+                source_channel_id=str(source_channel_id) if source_channel_id else None,
+            )
+            row["resolved_binding_options"] = options_by_source
+            row["binding_source_errors"] = errors_by_source
+        presets.append(row)
+    return {"presets": presets}
 
 
 @router.get(
