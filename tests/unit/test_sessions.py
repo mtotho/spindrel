@@ -485,3 +485,25 @@ class TestPersistTurn:
         added = [call[0][0] for call in db.add.call_args_list]
         assistant = next(m for m in added if m.role == "assistant")
         assert assistant.metadata_["transcript_entries"] == transcript_entries
+
+    @pytest.mark.asyncio
+    async def test_persists_hidden_flag_for_internal_rows(self):
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        bot = _make_bot()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "internal tool row",
+                "_hidden": True,
+            },
+        ]
+
+        await persist_turn(db, session_id, bot, messages, from_index=0)
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        assistant = next(m for m in added if m.role == "assistant")
+        assert assistant.metadata_["hidden"] is True

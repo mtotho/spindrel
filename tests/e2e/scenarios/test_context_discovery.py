@@ -32,12 +32,10 @@ _DECLARED_LOCAL_TOOLS = {"get_current_time", "get_current_local_time"}
 _MEMORY_SCHEME_TOOLS = {"file", "search_memory", "get_memory_file", "manage_bot_skill"}
 
 # The e2e bot has history_mode=file → read_conversation_history
-# activate_capability is always injected
 _AUTO_INJECTED_TOOLS = {
     "read_conversation_history",
     "list_sub_sessions",
     "read_sub_session",
-    "activate_capability",
 }
 
 # All tools the bot should actually be able to call

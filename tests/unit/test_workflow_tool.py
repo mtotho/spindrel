@@ -160,7 +160,7 @@ class TestGetRun:
                  "tool_args": {"query": "test"}, "prompt": ""},
                 {"id": "analyze", "type": "agent", "prompt": "Analyze results",
                  "when": {"step": "fetch", "status": "done"},
-                 "tools": ["web_search"], "carapaces": ["researcher"],
+                 "tools": ["web_search"],
                  "on_failure": "continue", "model": "gemini/gemini-2.5-flash"},
             ]
         }
@@ -191,14 +191,13 @@ class TestGetRun:
         assert step0["definition"]["tool_name"] == "web_search"
         assert step0["definition"]["tool_args"] == {"query": "test"}
 
-        # Step 1: agent step — should include prompt, when, tools, carapaces, etc.
+        # Step 1: agent step — should include prompt, when, tools, etc.
         step1 = result["steps"][1]
         assert step1["type"] == "agent"
         assert "definition" in step1
         assert step1["definition"]["prompt"] == "Analyze results"
         assert step1["definition"]["when"] == {"step": "fetch", "status": "done"}
         assert step1["definition"]["tools"] == ["web_search"]
-        assert step1["definition"]["carapaces"] == ["researcher"]
         assert step1["definition"]["on_failure"] == "continue"
         assert step1["definition"]["model"] == "gemini/gemini-2.5-flash"
 

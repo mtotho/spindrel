@@ -113,6 +113,7 @@ class TurnStreamToolStartPayload:
 
     bot_id: str
     turn_id: uuid.UUID
+    tool_call_id: str | None = None
     tool_name: str
     arguments: dict = field(default_factory=dict)
     surface: str | None = None

@@ -360,11 +360,12 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           const data = event.data as {
             tool?: string;
             args?: string;
+            tool_call_id?: string;
             surface?: ToolSurface;
             summary?: ToolCallSummary | null;
           };
           const toolCall: ToolCall = {
-            id: makeToolCallId(turnId, turn.toolCalls.length),
+            id: data.tool_call_id || makeToolCallId(turnId, turn.toolCalls.length),
             name: data.tool ?? "unknown",
             args: data.args,
             surface: data.surface,

@@ -6,6 +6,7 @@ from app.agent.loop import (
     _SYS_MSG_PREFIXES,
     _append_transcript_text_entry,
     _append_transcript_tool_entry,
+    _collapse_final_assistant_tool_turn,
     _sanitize_messages,
     _synthesize_empty_response_fallback,
 )
@@ -99,6 +100,34 @@ class TestTranscriptEntryHelpers:
         assert entries == [
             {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
             {"id": "text:2", "kind": "text", "text": "Done."},
+        ]
+
+    def test_collapse_final_assistant_tool_turn_hides_intermediate_rows_and_merges_tool_calls(self):
+        messages = [
+            {
+                "role": "assistant",
+                "content": "First file edit.",
+                "tool_calls": [
+                    {"id": "call-1", "function": {"name": "file", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-1", "content": "Edited file"},
+            {
+                "role": "assistant",
+                "content": "Done.",
+                "_transcript_entries": [
+                    {"id": "text:1", "kind": "text", "text": "First file edit."},
+                    {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+                    {"id": "text:2", "kind": "text", "text": "Done."},
+                ],
+            },
+        ]
+
+        _collapse_final_assistant_tool_turn(messages)
+
+        assert messages[0]["_hidden"] is True
+        assert messages[2]["tool_calls"] == [
+            {"id": "call-1", "function": {"name": "file", "arguments": "{}"}},
         ]
 
     def test_pending_tasks_event_emitted_when_count_positive(self):

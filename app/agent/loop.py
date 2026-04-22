@@ -220,6 +220,46 @@ def _append_transcript_tool_entry(entries: list[dict], tool_call_id: str) -> Non
     })
 
 
+def _collapse_final_assistant_tool_turn(messages: list[dict]) -> None:
+    """Move intermediate assistant tool_calls onto the final assistant row.
+
+    The loop can accumulate multiple assistant messages in one turn:
+    intermediate assistant content with tool_calls, then a final assistant
+    response after tool execution. The settled chat model expects the final
+    visible assistant row to own both the transcript ordering and the canonical
+    tool_calls used to resolve transcript tool slots.
+
+    Mark earlier assistant tool-call rows hidden for persistence/UI filtering
+    and merge their tool_calls onto the final assistant row.
+    """
+    assistant_indices = [
+        index for index, msg in enumerate(messages)
+        if msg.get("role") == "assistant"
+    ]
+    if len(assistant_indices) < 2:
+        return
+
+    final_idx = assistant_indices[-1]
+    final_msg = messages[final_idx]
+    merged_tool_calls: list[dict] = []
+
+    for index in assistant_indices[:-1]:
+        msg = messages[index]
+        tool_calls = msg.get("tool_calls")
+        if not tool_calls:
+            continue
+        merged_tool_calls.extend(tool_calls)
+        msg["_hidden"] = True
+
+    if not merged_tool_calls:
+        return
+
+    final_msg["tool_calls"] = [
+        *merged_tool_calls,
+        *(final_msg.get("tool_calls") or []),
+    ]
+
+
 def _finalize_response(
     text: str,
     *,
@@ -310,6 +350,9 @@ def _finalize_response(
 
     if transcript_entries and messages and messages[-1].get("role") == "assistant":
         messages[-1]["_transcript_entries"] = list(transcript_entries)
+
+    if messages and messages[-1].get("role") == "assistant":
+        _collapse_final_assistant_tool_turn(messages)
 
     events.append(_event_with_compaction_tag({
         "type": "response",
@@ -1005,7 +1048,12 @@ async def run_agent_tool_loop(
                     logger.info("Tool call: %s", _p_name)
                     logger.debug("Tool call %s args: %s", _p_name, _p_args)
                     _trace("→ %s", _p_name)
-                    yield _event_with_compaction_tag({"type": "tool_start", "tool": _p_name, "args": _p_args}, compaction)
+                    yield _event_with_compaction_tag({
+                        "type": "tool_start",
+                        "tool": _p_name,
+                        "args": _p_args,
+                        "tool_call_id": tc["id"],
+                    }, compaction)
 
                 # Dispatch all tool calls concurrently
                 _sem = asyncio.Semaphore(settings.PARALLEL_TOOL_MAX_CONCURRENT)
@@ -1222,7 +1270,12 @@ async def run_agent_tool_loop(
                     logger.debug("Tool call %s args: %s", name, args)
 
                     _trace("→ %s", name)
-                    yield _event_with_compaction_tag({"type": "tool_start", "tool": name, "args": args}, compaction)
+                    yield _event_with_compaction_tag({
+                        "type": "tool_start",
+                        "tool": name,
+                        "args": args,
+                        "tool_call_id": tc["id"],
+                    }, compaction)
 
                     tc_result = await dispatch_tool_call(
                         name=name,

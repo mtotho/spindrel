@@ -620,6 +620,8 @@ async def persist_turn(
         # envelope anchor is the only user-facing surface.
         if hide_messages:
             meta = {**meta, "hidden": True, "pipeline_step": True}
+        if msg.get("_hidden"):
+            meta = {**meta, "hidden": True}
         record = Message(
             id=uuid.uuid4(),
             session_id=session_id,

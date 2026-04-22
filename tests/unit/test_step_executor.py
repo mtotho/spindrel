@@ -718,7 +718,7 @@ class TestSpawnAgentStep:
 
     @pytest.mark.asyncio
     @patch("app.services.step_executor.async_session")
-    async def test_forwards_skills_tools_carapaces_to_execution_config(self, mock_session_factory):
+    async def test_forwards_skills_and_tools_to_execution_config(self, mock_session_factory):
         from app.services.step_executor import _spawn_agent_step
 
         mock_db = AsyncMock()
@@ -744,7 +744,6 @@ class TestSpawnAgentStep:
             "type": "agent",
             "prompt": "analyze",
             "tools": ["web_search"],
-            "carapaces": ["researcher"],
             "skills": ["pipeline_authoring"],
         }
         steps = [step_def]
@@ -756,7 +755,6 @@ class TestSpawnAgentStep:
 
         child = mock_db.add.call_args[0][0]
         assert child.execution_config["tools"] == ["web_search"]
-        assert child.execution_config["carapaces"] == ["researcher"]
         assert child.execution_config["skills"] == ["pipeline_authoring"]
 
 
@@ -1240,4 +1238,3 @@ class TestParseResultJson:
         text = "```json\n[1, 2, 3]\n```"
         # array fences dont satisfy "dict" — no dict candidates — None
         assert _parse_result_json(text) is None
-

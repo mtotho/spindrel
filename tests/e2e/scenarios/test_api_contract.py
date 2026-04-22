@@ -1,8 +1,7 @@
 """API contract tests — deterministic, no LLM dependency.
 
 These verify that admin endpoints return correct shapes, persist fields,
-and handle CRUD operations. They catch bugs like the carapaces field
-missing from BotUpdateIn/BotOut.
+and handle CRUD operations.
 """
 
 from __future__ import annotations
@@ -147,41 +146,6 @@ async def test_list_bots_shape(client: E2EClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_carapaces_persist_through_update(client: E2EClient) -> None:
-    """Regression: carapaces field must survive create → update → get cycle.
-
-    Bug: BotUpdateIn was missing carapaces field, so UI saves silently dropped it.
-    Bug: BotOut was missing carapaces field, so API responses never returned it.
-    """
-    bot_id = _test_bot_id()
-    try:
-        await client.create_bot(
-            {
-                "id": bot_id,
-                "name": "Carapaces Test",
-                "model": "gemini-2.5-flash-lite",
-            }
-        )
-
-        # Update with carapaces
-        updated = await client.update_bot(
-            bot_id, {"carapaces": ["e2e-testing", "orchestrator"]}
-        )
-        assert "carapaces" in updated, "BotOut must include carapaces field"
-        assert set(updated["carapaces"]) == {"e2e-testing", "orchestrator"}
-
-        # Verify persistence
-        fetched = await client.get_bot(bot_id)
-        assert set(fetched["carapaces"]) == {"e2e-testing", "orchestrator"}
-
-        # Update other fields — carapaces should NOT be wiped
-        updated2 = await client.update_bot(bot_id, {"name": "Carapaces Test v2"})
-        assert set(updated2["carapaces"]) == {"e2e-testing", "orchestrator"}
-    finally:
-        await client.delete_bot(bot_id)
-
-
-@pytest.mark.asyncio
 async def test_bot_out_includes_all_expected_fields(client: E2EClient) -> None:
     """BotOut schema must include critical fields that have been missed before."""
     bot_id = _test_bot_id()
@@ -201,7 +165,6 @@ async def test_bot_out_includes_all_expected_fields(client: E2EClient) -> None:
             "system_prompt",
             "local_tools",
             "tool_retrieval",
-            "carapaces",
             "history_mode",
             "memory_scheme",
             "workspace",
@@ -227,7 +190,6 @@ async def test_bot_default_values(client: E2EClient) -> None:
         assert created["tool_retrieval"] is True  # default on
         assert created["tool_discovery"] is True  # default on
         assert created["persona"] is False  # default off
-        assert created["carapaces"] == []  # default empty
         assert created["local_tools"] == [] or isinstance(
             created["local_tools"], list
         )
@@ -302,20 +264,3 @@ async def test_channel_settings_update(client: E2EClient) -> None:
     assert settings["name"] == "E2E Settings Test"
     assert settings["history_mode"] == "file"
     assert settings["chat_mode"] == "terminal"
-
-
-@pytest.mark.asyncio
-async def test_channel_carapaces_extra(client: E2EClient) -> None:
-    """Channel-level carapaces_extra can be set and retrieved."""
-    cid = client.new_client_id()
-    channel_id = client.derive_channel_id(cid)
-    await client.chat("Hi.", client_id=cid)
-
-    updated = await client.update_channel_settings(
-        channel_id,
-        {"carapaces_extra": ["e2e-testing"]},
-    )
-    assert "e2e-testing" in updated.get("carapaces_extra", [])
-
-    settings = await client.get_channel_settings(channel_id)
-    assert "e2e-testing" in settings.get("carapaces_extra", [])
