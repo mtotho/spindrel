@@ -7,27 +7,21 @@ import { formatTimeShort } from "../../utils/time";
 import { DelegationCard } from "./DelegationCard";
 import { MarkdownContent } from "./MarkdownContent";
 import { AttachmentImages } from "./AttachmentDisplay";
-import { ToolBadges } from "./ToolBadges";
-import { WidgetCard } from "./WidgetCard";
 import { MessageActions, TimestampActions, Avatar } from "./MessageActions";
 import { CollapsedHeartbeat, CollapsedWorkflow } from "./CollapsedMessages";
-import { RichToolResult } from "./RichToolResult";
 import { ThreadAnchor } from "./ThreadAnchor";
 import { extractDisplayText, stripLegacyIngestPrefix, resolveDisplay, avatarColor } from "./messageUtils";
 import { normalizeToolCall } from "../../types/api";
-import { useToolResultCompact } from "../../stores/toolResultPref";
 import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
-import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
+import type { AssistantTurnBody, Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
 import { SlashCommandResultCard } from "./SlashCommandResultCard";
 import {
-  buildOrderedTurnBodyItemsFromPersisted,
-  buildPersistedRenderItems,
+  buildAssistantTurnBodyItems,
+  buildLegacyAssistantTurnBody,
   type OrderedTurnBodyItem,
-  type PersistedRenderItem,
 } from "./toolTranscriptModel";
 import { OrderedTranscript } from "./OrderedTranscript";
-import type { TurnTranscriptEntry } from "../../stores/chat";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -166,7 +160,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const narrow = isMobile || compactLayout;
   const isTerminalMode = chatMode === "terminal";
   const queryClient = useQueryClient();
-  const [compact] = useToolResultCompact(channelId ?? "");
   const navigate = useNavigate();
 
   // Add the inline widget to the channel's implicit dashboard (slug
@@ -260,19 +253,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     return <SlashCommandResultCard message={message} />;
   }
 
-  const persistedRenderItems = useMemo(
-    () => buildPersistedRenderItems({
-      toolNames: toolsUsed,
-      toolCalls: msgToolCalls,
-      toolResults,
-      rootEnvelope: richEnvelope,
-    }),
-    [msgToolCalls, richEnvelope, toolResults, toolsUsed],
-  );
-  const widgetItems = useMemo(
-    () => persistedRenderItems.filter((item): item is Extract<PersistedRenderItem, { kind: "widget" }> => item.kind === "widget"),
-    [persistedRenderItems],
-  );
   // Message metadata carries the emitting bot as `sender_id: "bot:<id>"`
   // (stamped by persist_turn + finishTurn). Strip the prefix to get the bare
   // bot id that WidgetCard / RichToolResult need for pin + mint flows.
@@ -284,17 +264,33 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       ? meta.thinking_content
       : "";
   const thinkingText = rawThinking.trim();
-  const persistedTranscriptEntries = (meta.transcript_entries as TurnTranscriptEntry[] | undefined) ?? [];
+  const persistedAssistantTurnBody = meta.assistant_turn_body as AssistantTurnBody | undefined;
+  const legacyTranscriptEntries = meta.transcript_entries as AssistantTurnBody["items"] | undefined;
+  const assistantTurnBody = useMemo(
+    () =>
+      message.role === "assistant"
+        ? (
+            persistedAssistantTurnBody
+            ?? buildLegacyAssistantTurnBody({
+              displayContent,
+              transcriptEntries: legacyTranscriptEntries,
+              toolCalls: msgToolCalls,
+            })
+          )
+        : null,
+    [displayContent, legacyTranscriptEntries, message.role, msgToolCalls, persistedAssistantTurnBody],
+  );
   const orderedTurnBodyItems = useMemo(
-    () => persistedTranscriptEntries.length > 0
-      ? buildOrderedTurnBodyItemsFromPersisted({
-          transcriptEntries: persistedTranscriptEntries,
-          toolCalls: msgToolCalls ?? [],
-          toolResults,
-          rootEnvelope: richEnvelope,
-        })
-      : [],
-    [msgToolCalls, persistedTranscriptEntries, richEnvelope, toolResults],
+    () =>
+      assistantTurnBody
+        ? buildAssistantTurnBodyItems({
+            assistantTurnBody,
+            toolCalls: msgToolCalls ?? [],
+            toolResults,
+            rootEnvelope: richEnvelope,
+          })
+        : [],
+    [assistantTurnBody, msgToolCalls, richEnvelope, toolResults],
   );
   const orderedWidgetItems = useMemo(
     () => orderedTurnBodyItems.filter((item): item is Extract<OrderedTurnBodyItem, { kind: "widget" }> => item.kind === "widget"),
@@ -306,16 +302,15 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const broadcastRef = useRef<string | null>(null);
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
   useEffect(() => {
-    const widgetBroadcastItems = orderedWidgetItems.length > 0 ? orderedWidgetItems : widgetItems;
-    if (!channelId || !widgetBroadcastItems.length) return;
+    if (!channelId || !orderedWidgetItems.length) return;
     // Key by message id to only fire once per message
     const key = message.id;
     if (broadcastRef.current === key) return;
     broadcastRef.current = key;
-    for (const item of widgetBroadcastItems) {
+    for (const item of orderedWidgetItems) {
       broadcastEnvelope(channelId, item.widget.toolName, item.widget.envelope);
     }
-  }, [broadcastEnvelope, channelId, message.id, orderedWidgetItems, widgetItems]);
+  }, [broadcastEnvelope, channelId, message.id, orderedWidgetItems]);
 
   const invalidatedWidgetLibrariesRef = useRef<string | null>(null);
   useEffect(() => {
@@ -362,111 +357,12 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     );
   }
 
-  const isTightRichEnvelope = (envelope: ToolResultEnvelope | undefined) =>
-    envelope?.content_type === "application/vnd.spindrel.diff+text"
-    || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
-
-  const renderPersistedToolItem = useCallback((item: PersistedRenderItem, index: number) => {
-    if (item.kind === "transcript") {
-      return (
-        <ToolBadges
-          key={item.key}
-          entries={item.entries}
-          toolNames={[]}
-          toolCalls={[]}
-          toolResults={[]}
-          sessionId={message.session_id}
-          channelId={channelId}
-          botId={senderBotId}
-          chatMode={chatMode}
-          compact={compact}
-          t={t}
-        />
-      );
-    }
-
-    if (item.kind === "widget") {
-      const nextItem = persistedRenderItems[index + 1];
-      const defaultCollapsed = nextItem?.kind === "widget" && nextItem.widget.toolName === item.widget.toolName;
-      return (
-        <WidgetCard
-          key={item.key}
-          envelope={item.widget.envelope}
-          toolName={item.widget.toolName}
-          sessionId={message.session_id}
-          channelId={channelId}
-          botId={senderBotId}
-          widgetId={item.widget.recordId}
-          t={t}
-          isLatestBotMessage={isLatestBotMessage}
-          defaultCollapsed={defaultCollapsed}
-          onPin={handlePinWidget}
-        />
-      );
-    }
-
-    const envelope = item.envelope;
-    if (isTerminalMode) {
-      return (
-        <div key={item.key} style={{ marginTop: 8 }}>
-          <RichToolResult
-            envelope={envelope}
-            sessionId={message.session_id}
-            channelId={channelId}
-            botId={senderBotId}
-            rendererVariant="terminal-chat"
-            t={t}
-          />
-        </div>
-      );
-    }
-
-    if (isTightRichEnvelope(envelope)) {
-      return (
-        <div key={item.key} className="mt-2">
-          <RichToolResult
-            envelope={envelope}
-            sessionId={message.session_id}
-            channelId={channelId}
-            botId={senderBotId}
-            rendererVariant="default-chat"
-            t={t}
-          />
-        </div>
-      );
-    }
-
-    return (
-      <div
-        key={item.key}
-        className={`rounded-lg border overflow-hidden ${item.kind === "root_rich_result" ? "mt-1.5" : "mt-2"}`}
-        style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}
-      >
-        {item.kind === "root_rich_result" && (
-          <div className="px-3 pt-2 pb-0.5">
-            <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
-              {(meta.source as string) || "event"}
-            </span>
-          </div>
-        )}
-        <div className={item.kind === "root_rich_result" ? (isTightRichEnvelope(envelope) ? "px-1 pb-1.5" : "px-3 pb-2") : "px-3 py-2"}>
-          <RichToolResult
-            envelope={envelope}
-            sessionId={message.session_id}
-            channelId={channelId}
-            botId={senderBotId}
-            rendererVariant="default-chat"
-            t={t}
-          />
-        </div>
-      </div>
-    );
-  }, [channelId, compact, handlePinWidget, isLatestBotMessage, isTerminalMode, message.session_id, meta.source, persistedRenderItems, senderBotId, t]);
+  const hasAssistantTurnBody = message.role === "assistant" && orderedTurnBodyItems.length > 0;
 
   const messageContent = (
     <>
       {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
-      {persistedTranscriptEntries.length > 0 ? (
+      {hasAssistantTurnBody ? (
         <OrderedTranscript
           items={orderedTurnBodyItems}
           t={t}
@@ -484,7 +380,6 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
       )}
-      {persistedTranscriptEntries.length === 0 && persistedRenderItems.map(renderPersistedToolItem)}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );

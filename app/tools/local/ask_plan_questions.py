@@ -69,7 +69,7 @@ async def ask_plan_questions(
     title: str,
     questions: list[dict],
     intro: str = "",
-    submit_label: str = "Add Answers To Composer",
+    submit_label: str = "Submit Answers",
 ) -> str:
     from app.agent.tool_dispatch import ToolResultEnvelope
 
@@ -79,7 +79,7 @@ async def ask_plan_questions(
         "state": {
             "title": title.strip(),
             "intro": intro.strip(),
-            "submit_label": submit_label.strip() or "Add Answers To Composer",
+            "submit_label": submit_label.strip() or "Submit Answers",
             "questions": questions,
         },
     }

@@ -177,8 +177,15 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           if (meta.passive && !meta.delegated_by) return false;
           if (m.role === "user" && meta.is_heartbeat) return false;
           if (meta.hidden) return false;
-          if (m.role === "assistant" && !extractDisplayText(m.content)
-              && (!m.attachments || m.attachments.length === 0)) return false;
+          if (
+            m.role === "assistant"
+            && !extractDisplayText(m.content)
+            && (!m.attachments || m.attachments.length === 0)
+            && !meta.tool_results
+            && (!m.tool_calls || m.tool_calls.length === 0)
+            && !meta.assistant_turn_body
+            && !meta.transcript_entries
+          ) return false;
           return true;
         });
 
@@ -530,6 +537,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
 
   const handleSlashCommand = useSlashCommandExecutor({
     availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
+    surface: "channel",
     channelId: channelId ?? undefined,
     sessionId: channel?.active_session_id ?? undefined,
     onSyntheticMessage: (message) => {

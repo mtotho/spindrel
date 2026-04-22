@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactDOM from "react-dom";
+import { Check, ChevronDown, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import {
@@ -66,12 +67,19 @@ export function WidgetPresetsPane({
   }, [presets, query]);
 
   const [internalPresetId, setInternalPresetId] = useState("");
-  const activePresetId = selectedPresetId ?? internalPresetId;
+  const [optimisticPresetId, setOptimisticPresetId] = useState("");
+  const activePresetId = optimisticPresetId || selectedPresetId || internalPresetId;
   const setActivePresetId = (presetId: string) => {
+    setOptimisticPresetId(presetId);
     onSelectedPresetIdChange?.(presetId);
     if (selectedPresetId === undefined) setInternalPresetId(presetId);
   };
   const selectedPreset = filtered.find((preset) => preset.id === activePresetId) ?? filtered[0] ?? null;
+
+  useEffect(() => {
+    if (selectedPresetId === undefined) return;
+    setOptimisticPresetId(selectedPresetId);
+  }, [selectedPresetId]);
 
   useEffect(() => {
     if (!activePresetId && filtered[0]?.id) setActivePresetId(filtered[0].id);
@@ -160,8 +168,10 @@ export function WidgetPresetsPane({
 
   const [pinning, setPinning] = useState(false);
   const [pinSuccess, setPinSuccess] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   const bindingFields = selectedPreset?.binding_schema.properties ?? {};
+  const requiredFields = selectedPreset?.binding_schema.required ?? [];
 
   const resolvePickerOptions = (
     fieldId: string,
@@ -220,6 +230,7 @@ export function WidgetPresetsPane({
     if (!selectedPreset || !selectedBotId) return;
     setPreviewState((prev) => ({ ...prev, running: true, error: null, envelope: null }));
     setPinSuccess(false);
+    setPinError(null);
     try {
       const resp = await previewWidgetPreset(selectedPreset.id, {
         config,
@@ -258,10 +269,42 @@ export function WidgetPresetsPane({
     return sourceOptions[sourceId]?.find((option) => option.value === entityId)?.label ?? null;
   }, [config.entity_id, selectedPreset, sourceOptions]);
 
+  const canAutoPreview = useMemo(() => {
+    if (!selectedPreset || !selectedBotId) return false;
+    return requiredFields.every((fieldId) => {
+      const value = config[fieldId];
+      if (typeof value === "boolean") return true;
+      return value !== undefined && value !== null && String(value).trim() !== "";
+    });
+  }, [config, requiredFields, selectedBotId, selectedPreset]);
+
+  const previewSignature = useMemo(
+    () => JSON.stringify({
+      presetId: selectedPreset?.id ?? null,
+      botId: selectedBotId || null,
+      channelId: scopeChannelId ?? null,
+      config,
+    }),
+    [config, scopeChannelId, selectedBotId, selectedPreset?.id],
+  );
+  const lastAutoPreviewSignatureRef = useRef("");
+
+  useEffect(() => {
+    if (!canAutoPreview) return;
+    if (previewState.running) return;
+    if (previewSignature === lastAutoPreviewSignatureRef.current) return;
+    const timer = window.setTimeout(() => {
+      lastAutoPreviewSignatureRef.current = previewSignature;
+      void runPreview();
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [canAutoPreview, previewSignature, previewState.running]);
+
   const pinDisabled = mode !== "pin" || !selectedPreset || !selectedBotId || !previewState.envelope || pinning;
   const handlePin = async () => {
     if (!selectedPreset || pinDisabled) return;
     setPinning(true);
+    setPinError(null);
     try {
       const created = await pinPreset(selectedPreset.id, {
         config: previewState.config,
@@ -271,6 +314,8 @@ export function WidgetPresetsPane({
       });
       setPinSuccess(true);
       onPinCreated?.(created.id);
+    } catch (err) {
+      setPinError(err instanceof Error ? err.message : "Failed to pin preset");
     } finally {
       setPinning(false);
     }
@@ -294,7 +339,7 @@ export function WidgetPresetsPane({
           ? "flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-x-hidden px-5 pb-5 xl:grid xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
-        <section className={builder ? "relative z-10 min-w-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
+        <section className={builder ? "relative z-20 min-w-0 shrink-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
           <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-3 py-2"}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
               Presets
@@ -339,7 +384,7 @@ export function WidgetPresetsPane({
                   }}
                   className={[
                     builder
-                      ? "w-full px-3 py-3 text-left transition-colors"
+                      ? "relative z-10 w-full px-3 py-3 text-left transition-colors"
                       : "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                     active
                       ? builder
@@ -403,6 +448,7 @@ export function WidgetPresetsPane({
                       options={resolvePickerOptions(fieldId, field, bindingFields)}
                       loading={sourceLoading[field.ui?.source ?? ""] ?? false}
                       pickerError={field.ui?.source ? sourceErrors[field.ui.source] : undefined}
+                      placeholder={fieldId === "entity_id" ? "Search entities..." : "Search options..."}
                       onChange={(next) => {
                         setConfig((prev) => {
                           const nextConfig = { ...prev, [fieldId]: next };
@@ -425,19 +471,26 @@ export function WidgetPresetsPane({
                     {previewState.error}
                   </div>
                 )}
+                {pinError && (
+                  <div className="mt-4 rounded-md bg-danger/10 px-3 py-2 text-[12px] text-danger">
+                    {pinError}
+                  </div>
+                )}
               </div>
 
               <div className={builder ? "px-1 py-3" : "border-t border-surface-border px-4 py-3"}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={runPreview}
-                    disabled={!selectedBotId || previewState.running}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                  >
-                    {previewState.running ? <Loader2 size={13} className="animate-spin" /> : <Home size={13} />}
-                    Run preview
-                  </button>
+                  {!builder && (
+                    <button
+                      type="button"
+                      onClick={runPreview}
+                      disabled={!selectedBotId || previewState.running}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                    >
+                      {previewState.running ? <Loader2 size={13} className="animate-spin" /> : <Home size={13} />}
+                      Run preview
+                    </button>
+                  )}
                   {mode === "pin" && (
                     <button
                       type="button"
@@ -471,7 +524,7 @@ export function WidgetPresetsPane({
                 Confirm the widget before pinning it onto the dashboard.
               </div>
             </div>
-            <div className={builder ? "flex min-h-[320px] min-w-0 flex-col overflow-x-hidden px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
+            <div className={builder ? "flex min-h-[180px] min-w-0 flex-col overflow-x-hidden px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
               {previewState.running ? (
                 <div className="flex flex-1 items-center justify-center text-[12px] text-text-muted">
                   <Loader2 size={16} className="mr-2 animate-spin" />
@@ -518,6 +571,7 @@ function PresetField({
   options,
   loading,
   pickerError,
+  placeholder,
   onChange,
 }: {
   fieldId: string;
@@ -526,6 +580,7 @@ function PresetField({
   options: WidgetPresetOption[];
   loading: boolean;
   pickerError?: string;
+  placeholder?: string;
   onChange: (next: unknown) => void;
 }) {
   const control = field.ui?.control;
@@ -544,20 +599,13 @@ function PresetField({
             className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
           />
         ) : (
-          <select
+          <OptionPicker
             value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-full min-w-0 rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
-          >
-            <option value="">
-              {loading ? "Loading…" : "Select…"}
-            </option>
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.group ? `${option.group} · ${option.label}` : option.label}
-              </option>
-            ))}
-          </select>
+            options={options}
+            loading={loading}
+            placeholder={placeholder ?? "Select…"}
+            onChange={onChange}
+          />
         )
       ) : field.type === "boolean" ? (
         <button
@@ -590,5 +638,156 @@ function PresetField({
         </span>
       )}
     </label>
+  );
+}
+
+function OptionPicker({
+  value,
+  options,
+  loading,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  options: WidgetPresetOption[];
+  loading: boolean;
+  placeholder: string;
+  onChange: (next: unknown) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+
+  const selected = useMemo(
+    () => options.find((option) => option.value === value) ?? null,
+    [options, value],
+  );
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter((option) => (
+      option.label.toLowerCase().includes(term)
+      || (option.description ?? "").toLowerCase().includes(term)
+      || (option.group ?? "").toLowerCase().includes(term)
+    ));
+  }, [options, search]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (
+        triggerRef.current && !triggerRef.current.contains(event.target as Node)
+        && dropdownRef.current && !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
+  const openDropdown = () => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 320) });
+    }
+    setOpen((prev) => !prev);
+  };
+
+  const pick = (nextValue: string) => {
+    onChange(nextValue);
+    setOpen(false);
+    setSearch("");
+  };
+
+  return (
+    <div className="relative min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={openDropdown}
+        className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
+          open
+            ? "border-accent bg-surface"
+            : "border-surface-border bg-input hover:border-accent/50"
+        }`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className={`truncate text-[12px] ${selected ? "text-text" : "text-text-dim"}`}>
+            {selected ? selected.label : (loading ? "Loading…" : placeholder)}
+          </div>
+          {selected?.group && (
+            <div className="truncate text-[10px] text-text-dim">
+              {selected.group}
+            </div>
+          )}
+        </div>
+        <ChevronDown size={12} className="shrink-0 text-text-dim" />
+      </button>
+
+      {open && ReactDOM.createPortal(
+        <div
+          ref={dropdownRef}
+          className="fixed z-[10060] flex max-h-[360px] flex-col overflow-hidden rounded-lg border border-surface-border bg-surface shadow-xl"
+          style={{ top: pos.top, left: pos.left, width: pos.width, maxWidth: "calc(100vw - 24px)" }}
+        >
+          <div className="border-b border-surface-border p-2">
+            <input
+              type="text"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={placeholder}
+              autoFocus
+              className="w-full rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-xs text-text outline-none focus:border-accent/40"
+            />
+          </div>
+          <div className="overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => pick("")}
+              className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
+                !value ? "bg-accent/10 text-accent" : "text-text-dim hover:bg-surface-raised"
+              }`}
+            >
+              <span className="text-xs italic">None</span>
+            </button>
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[11px] text-text-dim">No matches</div>
+            ) : (
+              filtered.map((option) => {
+                const isSelected = option.value === value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => pick(option.value)}
+                    className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors ${
+                      isSelected ? "bg-accent/10" : "hover:bg-surface-raised"
+                    }`}
+                  >
+                    <span className={`mt-0.5 h-2 w-2 rounded-full ${isSelected ? "bg-accent" : "bg-surface-border"}`} />
+                    <div className="min-w-0 flex-1">
+                      <div className={`truncate text-xs font-medium ${isSelected ? "text-accent" : "text-text"}`}>
+                        {option.label}
+                      </div>
+                      {(option.group || option.description) && (
+                        <div className="truncate text-[10px] text-text-dim">
+                          {[option.group, option.description].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
   );
 }

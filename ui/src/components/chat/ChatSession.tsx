@@ -25,6 +25,7 @@ import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChatSessionModal } from "./ChatSessionModal";
 import { ChatSessionDock } from "./ChatSessionDock";
 import { SessionChatView } from "./SessionChatView";
+import { ChatComposerShell } from "./ChatComposerShell";
 import { MessageInput, type PendingFile } from "./MessageInput";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { MessageBubble } from "./MessageBubble";
@@ -368,6 +369,7 @@ function ChannelChatSession({
 
   const handleSlashCommand = useSlashCommandExecutor({
     availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
+    surface: "channel",
     channelId: source.channelId,
     sessionId: src.sessionId,
     onSyntheticMessage: (message) => addMessage(source.channelId, message),
@@ -486,30 +488,32 @@ function ChannelChatSession({
                     {src.sendError}
                   </div>
                 )}
-                <MessageInput
-                  onSend={handleSendMsg}
-                  disabled={!src.bot_id}
-                  isStreaming={src.isStreaming}
-                  onCancel={src.handleCancel}
-                  currentBotId={src.bot_id}
-                  channelId={source.channelId}
-                  onSlashCommand={handleSlashCommand}
-                  slashSurface="channel"
-                  availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
-                  modelOverride={src.modelOverride}
-                  modelProviderIdOverride={src.modelProviderIdOverride}
-                  onModelOverrideChange={src.setModelOverride}
-                  defaultModel={bot?.model}
-                  configOverhead={overheadPct}
-                  compact
-                  chatMode={chatMode}
-                  planMode={sessionPlan.mode}
-                  hasPlan={sessionPlan.hasPlan}
-                  planBusy={planBusy}
-                  canTogglePlanMode={!!src.sessionId}
-                  onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-                />
+                <ChatComposerShell chatMode={chatMode}>
+                  <MessageInput
+                    onSend={handleSendMsg}
+                    disabled={!src.bot_id}
+                    isStreaming={src.isStreaming}
+                    onCancel={src.handleCancel}
+                    currentBotId={src.bot_id}
+                    channelId={source.channelId}
+                    onSlashCommand={handleSlashCommand}
+                    slashSurface="channel"
+                    availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
+                    modelOverride={src.modelOverride}
+                    modelProviderIdOverride={src.modelProviderIdOverride}
+                    onModelOverrideChange={src.setModelOverride}
+                    defaultModel={bot?.model}
+                    configOverhead={overheadPct}
+                    compact
+                    chatMode={chatMode}
+                    planMode={sessionPlan.mode}
+                    hasPlan={sessionPlan.hasPlan}
+                    planBusy={planBusy}
+                    canTogglePlanMode={!!src.sessionId}
+                    onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
+                    onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  />
+                </ChatComposerShell>
               </>
             }
           />
@@ -543,30 +547,32 @@ function ChannelChatSession({
                 {src.sendError}
               </div>
             )}
-            <MessageInput
-              onSend={handleSendMsg}
-              disabled={!src.bot_id}
-              isStreaming={src.isStreaming}
-              onCancel={src.handleCancel}
-              currentBotId={src.bot_id}
-              channelId={source.channelId}
-              onSlashCommand={handleSlashCommand}
-              slashSurface="channel"
-              availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
-              modelOverride={src.modelOverride}
-              modelProviderIdOverride={src.modelProviderIdOverride}
-              onModelOverrideChange={src.setModelOverride}
-              defaultModel={bot?.model}
-              configOverhead={overheadPct}
-              compact
-              chatMode={chatMode}
-              planMode={sessionPlan.mode}
-              hasPlan={sessionPlan.hasPlan}
-              planBusy={planBusy}
-              canTogglePlanMode={!!src.sessionId}
-              onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-            />
+            <ChatComposerShell chatMode={chatMode}>
+              <MessageInput
+                onSend={handleSendMsg}
+                disabled={!src.bot_id}
+                isStreaming={src.isStreaming}
+                onCancel={src.handleCancel}
+                currentBotId={src.bot_id}
+                channelId={source.channelId}
+                onSlashCommand={handleSlashCommand}
+                slashSurface="channel"
+                availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
+                modelOverride={src.modelOverride}
+                modelProviderIdOverride={src.modelProviderIdOverride}
+                onModelOverrideChange={src.setModelOverride}
+                defaultModel={bot?.model}
+                configOverhead={overheadPct}
+                compact
+                chatMode={chatMode}
+                planMode={sessionPlan.mode}
+                hasPlan={sessionPlan.hasPlan}
+                planBusy={planBusy}
+                canTogglePlanMode={!!src.sessionId}
+                onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
+                onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+              />
+            </ChatComposerShell>
           </div>
         )}
       </div>
@@ -805,6 +811,7 @@ function EphemeralChatSession({
   }, [qc, sessionId]);
   const handleSessionSlashCommand = useSlashCommandExecutor({
     availableCommands: sessionId ? ["context", "stop"] : [],
+    surface: "session",
     sessionId: sessionId ?? undefined,
     onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
     onSideEffect: async (result) => {
@@ -1031,29 +1038,31 @@ function EphemeralChatSession({
                     {sendError}
                   </div>
                 )}
-                <MessageInput
-                  onSend={handleSend}
-                  disabled={!botId}
-                  isStreaming={isSending}
-                  currentBotId={botId || undefined}
-                  channelId={sessionId ?? undefined}
-                  onSlashCommand={handleSessionSlashCommand}
-                  slashSurface="session"
-                  availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
-                  modelOverride={modelOverride}
-                  modelProviderIdOverride={modelProviderId}
-                  onModelOverrideChange={setModelOverride}
-                  defaultModel={bots?.find((b) => b.id === botId)?.model}
-                  configOverhead={overheadPct}
-                  compact
-                  chatMode={chatMode}
-                  planMode={sessionPlan.mode}
-                  hasPlan={sessionPlan.hasPlan}
-                  planBusy={planBusy}
-                  canTogglePlanMode={!!sessionId}
-                  onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-                />
+                <ChatComposerShell chatMode={chatMode}>
+                  <MessageInput
+                    onSend={handleSend}
+                    disabled={!botId}
+                    isStreaming={isSending}
+                    currentBotId={botId || undefined}
+                    channelId={sessionId ?? undefined}
+                    onSlashCommand={handleSessionSlashCommand}
+                    slashSurface="session"
+                    availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
+                    modelOverride={modelOverride}
+                    modelProviderIdOverride={modelProviderId}
+                    onModelOverrideChange={setModelOverride}
+                    defaultModel={bots?.find((b) => b.id === botId)?.model}
+                    configOverhead={overheadPct}
+                    compact
+                    chatMode={chatMode}
+                    planMode={sessionPlan.mode}
+                    hasPlan={sessionPlan.hasPlan}
+                    planBusy={planBusy}
+                    canTogglePlanMode={!!sessionId}
+                    onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+                    onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  />
+                </ChatComposerShell>
               </>
             ) : undefined}
           />
@@ -1084,28 +1093,30 @@ function EphemeralChatSession({
                     {sendError}
                   </div>
                 )}
-                <MessageInput
-                  onSend={handleSend}
-                  disabled={!botId}
-                  isStreaming={isSending}
-                  currentBotId={botId || undefined}
-                  channelId={sessionId ?? undefined}
-                  slashSurface="session"
-                  availableSlashCommands={[]}
-                  modelOverride={modelOverride}
-                  modelProviderIdOverride={modelProviderId}
-                  onModelOverrideChange={setModelOverride}
-                  defaultModel={bots?.find((b) => b.id === botId)?.model}
-                  configOverhead={overheadPct}
-                  compact
-                  chatMode={chatMode}
-                  planMode={sessionPlan.mode}
-                  hasPlan={sessionPlan.hasPlan}
-                  planBusy={planBusy}
-                  canTogglePlanMode={!!sessionId}
-                  onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-                />
+                <ChatComposerShell chatMode={chatMode}>
+                  <MessageInput
+                    onSend={handleSend}
+                    disabled={!botId}
+                    isStreaming={isSending}
+                    currentBotId={botId || undefined}
+                    channelId={sessionId ?? undefined}
+                    slashSurface="session"
+                    availableSlashCommands={[]}
+                    modelOverride={modelOverride}
+                    modelProviderIdOverride={modelProviderId}
+                    onModelOverrideChange={setModelOverride}
+                    defaultModel={bots?.find((b) => b.id === botId)?.model}
+                    configOverhead={overheadPct}
+                    compact
+                    chatMode={chatMode}
+                    planMode={sessionPlan.mode}
+                    hasPlan={sessionPlan.hasPlan}
+                    planBusy={planBusy}
+                    canTogglePlanMode={!!sessionId}
+                    onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+                    onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  />
+                </ChatComposerShell>
               </>
             ) : undefined}
           />
@@ -1120,29 +1131,31 @@ function EphemeralChatSession({
                 {sendError}
               </div>
             )}
-            <MessageInput
-              onSend={handleSend}
-              disabled={!botId}
-              isStreaming={isSending}
-              currentBotId={botId || undefined}
-              channelId={sessionId ?? undefined}
-              onSlashCommand={handleSessionSlashCommand}
-              slashSurface="session"
-              availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
-              modelOverride={modelOverride}
-              modelProviderIdOverride={modelProviderId}
-              onModelOverrideChange={setModelOverride}
-              defaultModel={bots?.find((b) => b.id === botId)?.model}
-              configOverhead={overheadPct}
-              compact
-              chatMode={chatMode}
-              planMode={sessionPlan.mode}
-              hasPlan={sessionPlan.hasPlan}
-              planBusy={planBusy}
-              canTogglePlanMode={!!sessionId}
-              onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-            />
+            <ChatComposerShell chatMode={chatMode}>
+              <MessageInput
+                onSend={handleSend}
+                disabled={!botId}
+                isStreaming={isSending}
+                currentBotId={botId || undefined}
+                channelId={sessionId ?? undefined}
+                onSlashCommand={handleSessionSlashCommand}
+                slashSurface="session"
+                availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
+                modelOverride={modelOverride}
+                modelProviderIdOverride={modelProviderId}
+                onModelOverrideChange={setModelOverride}
+                defaultModel={bots?.find((b) => b.id === botId)?.model}
+                configOverhead={overheadPct}
+                compact
+                chatMode={chatMode}
+                planMode={sessionPlan.mode}
+                hasPlan={sessionPlan.hasPlan}
+                planBusy={planBusy}
+                canTogglePlanMode={!!sessionId}
+                onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
+                onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+              />
+            </ChatComposerShell>
           </div>
         )}
       </div>
@@ -1289,6 +1302,7 @@ function ThreadChatSession({
   }, [effectiveSessionId, qc, storeKey]);
   const handleThreadSlashCommand = useSlashCommandExecutor({
     availableCommands: effectiveSessionId ? ["context", "stop"] : [],
+    surface: "session",
     sessionId: effectiveSessionId ?? undefined,
     onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
     onSideEffect: async (result) => {
@@ -1444,32 +1458,34 @@ function ThreadChatSession({
                     {sendError}
                   </div>
                 )}
-                <MessageInput
-                  onSend={handleSend}
-                  disabled={!botId}
-                  isStreaming={isSending}
-                  currentBotId={botId}
-                  channelId={storeKey}
-                  onSlashCommand={handleThreadSlashCommand}
-                  slashSurface="session"
-                  availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
-                  defaultModel={bot?.model}
-                  configOverhead={overheadPct}
-                  modelOverride={modelOverride}
-                  modelProviderIdOverride={modelProviderId}
-                  onModelOverrideChange={(m, providerId) => {
-                    setModelOverride(m ?? undefined);
-                    setModelProviderId(providerId ?? null);
-                  }}
-                  compact
-                  chatMode={chatMode}
-                  planMode={sessionPlan.mode}
-                  hasPlan={sessionPlan.hasPlan}
-                  planBusy={planBusy}
-                  canTogglePlanMode={!!effectiveSessionId}
-                  onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-                />
+                <ChatComposerShell chatMode={chatMode}>
+                  <MessageInput
+                    onSend={handleSend}
+                    disabled={!botId}
+                    isStreaming={isSending}
+                    currentBotId={botId}
+                    channelId={storeKey}
+                    onSlashCommand={handleThreadSlashCommand}
+                    slashSurface="session"
+                    availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
+                    defaultModel={bot?.model}
+                    configOverhead={overheadPct}
+                    modelOverride={modelOverride}
+                    modelProviderIdOverride={modelProviderId}
+                    onModelOverrideChange={(m, providerId) => {
+                      setModelOverride(m ?? undefined);
+                      setModelProviderId(providerId ?? null);
+                    }}
+                    compact
+                    chatMode={chatMode}
+                    planMode={sessionPlan.mode}
+                    hasPlan={sessionPlan.hasPlan}
+                    planBusy={planBusy}
+                    canTogglePlanMode={!!effectiveSessionId}
+                    onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+                    onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  />
+                </ChatComposerShell>
               </>
             ) : undefined}
           />
@@ -1497,29 +1513,31 @@ function ThreadChatSession({
                     {sendError}
                   </div>
                 )}
-                <MessageInput
-                  onSend={handleSend}
-                  disabled={!botId}
-                  isStreaming={isSending}
-                  currentBotId={botId}
-                  channelId={storeKey}
-                  defaultModel={bot?.model}
-                  configOverhead={overheadPct}
-                  modelOverride={modelOverride}
-                  modelProviderIdOverride={modelProviderId}
-                  onModelOverrideChange={(m, providerId) => {
-                    setModelOverride(m ?? undefined);
-                    setModelProviderId(providerId ?? null);
-                  }}
-                  compact
-                  chatMode={chatMode}
-                  planMode={sessionPlan.mode}
-                  hasPlan={sessionPlan.hasPlan}
-                  planBusy={planBusy}
-                  canTogglePlanMode={!!effectiveSessionId}
-                  onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-                />
+                <ChatComposerShell chatMode={chatMode}>
+                  <MessageInput
+                    onSend={handleSend}
+                    disabled={!botId}
+                    isStreaming={isSending}
+                    currentBotId={botId}
+                    channelId={storeKey}
+                    defaultModel={bot?.model}
+                    configOverhead={overheadPct}
+                    modelOverride={modelOverride}
+                    modelProviderIdOverride={modelProviderId}
+                    onModelOverrideChange={(m, providerId) => {
+                      setModelOverride(m ?? undefined);
+                      setModelProviderId(providerId ?? null);
+                    }}
+                    compact
+                    chatMode={chatMode}
+                    planMode={sessionPlan.mode}
+                    hasPlan={sessionPlan.hasPlan}
+                    planBusy={planBusy}
+                    canTogglePlanMode={!!effectiveSessionId}
+                    onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+                    onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  />
+                </ChatComposerShell>
               </>
             ) : undefined}
           />
@@ -1531,32 +1549,34 @@ function ThreadChatSession({
                 {sendError}
               </div>
             )}
-            <MessageInput
-              onSend={handleSend}
-              disabled={!botId}
-              isStreaming={isSending}
-              currentBotId={botId}
-              channelId={storeKey}
-              onSlashCommand={handleThreadSlashCommand}
-              slashSurface="session"
-              availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
-              defaultModel={bot?.model}
-              configOverhead={overheadPct}
-              modelOverride={modelOverride}
-              modelProviderIdOverride={modelProviderId}
-              onModelOverrideChange={(m, providerId) => {
-                setModelOverride(m ?? undefined);
-                setModelProviderId(providerId ?? null);
-              }}
-              compact
-              chatMode={chatMode}
-              planMode={sessionPlan.mode}
-              hasPlan={sessionPlan.hasPlan}
-              planBusy={planBusy}
-              canTogglePlanMode={!!effectiveSessionId}
-              onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
-            />
+            <ChatComposerShell chatMode={chatMode}>
+              <MessageInput
+                onSend={handleSend}
+                disabled={!botId}
+                isStreaming={isSending}
+                currentBotId={botId}
+                channelId={storeKey}
+                onSlashCommand={handleThreadSlashCommand}
+                slashSurface="session"
+                availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
+                defaultModel={bot?.model}
+                configOverhead={overheadPct}
+                modelOverride={modelOverride}
+                modelProviderIdOverride={modelProviderId}
+                onModelOverrideChange={(m, providerId) => {
+                  setModelOverride(m ?? undefined);
+                  setModelProviderId(providerId ?? null);
+                }}
+                compact
+                chatMode={chatMode}
+                planMode={sessionPlan.mode}
+                hasPlan={sessionPlan.hasPlan}
+                planBusy={planBusy}
+                canTogglePlanMode={!!effectiveSessionId}
+                onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
+                onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+              />
+            </ChatComposerShell>
           </div>
         )}
       </div>

@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import type {
+  AssistantTurnBody,
+  AssistantTurnBodyEntry,
   Message,
   SSEEvent,
   ToolCall as PersistedToolCall,
@@ -24,17 +26,7 @@ export type ToolCall = {
   envelope?: ToolResultEnvelope;
 };
 
-export type TurnTranscriptEntry =
-  | {
-      id: string;
-      kind: "text";
-      text: string;
-    }
-  | {
-      id: string;
-      kind: "tool_call";
-      toolCallId: string;
-    };
+export type TurnTranscriptEntry = AssistantTurnBodyEntry;
 
 /**
  * State for a single in-flight agent turn.
@@ -58,7 +50,7 @@ export interface TurnState {
   streamingContent: string;
   thinkingContent: string;
   toolCalls: ToolCall[];
-  transcriptEntries: TurnTranscriptEntry[];
+  assistantTurnBody: AssistantTurnBody;
   autoInjectedSkills: AutoInjectedSkill[];
   correlationId?: string | null;
   /** Epoch ms when the slot was created. Used by the snapshot-reconcile
@@ -158,28 +150,53 @@ function makeToolCallId(turnId: string, existingCount: number): string {
   return `${turnId}:tool:${existingCount + 1}`;
 }
 
-function appendTextEntry(entries: TurnTranscriptEntry[], delta: string): TurnTranscriptEntry[] {
-  if (!delta) return entries;
-  const next = [...entries];
-  const last = next[next.length - 1];
+function emptyAssistantTurnBody(): AssistantTurnBody {
+  return { version: 1, items: [] };
+}
+
+function cloneAssistantTurnBody(body: AssistantTurnBody | undefined): AssistantTurnBody {
+  if (!body) return emptyAssistantTurnBody();
+  return {
+    version: 1,
+    items: body.items.map((item) => ({ ...item })),
+  };
+}
+
+function appendTextEntry(body: AssistantTurnBody, delta: string): AssistantTurnBody {
+  if (!delta) return body;
+  const next = cloneAssistantTurnBody(body);
+  const last = next.items[next.items.length - 1];
   if (last?.kind === "text") {
-    next[next.length - 1] = { ...last, text: last.text + delta };
+    next.items[next.items.length - 1] = { ...last, text: last.text + delta };
     return next;
   }
-  next.push({ id: `text:${next.length + 1}`, kind: "text", text: delta });
+  next.items.push({ id: `text:${next.items.length + 1}`, kind: "text", text: delta });
   return next;
 }
 
-function seedTranscriptFromToolCalls(toolCalls: ToolCall[]): TurnTranscriptEntry[] {
-  return toolCalls.map((toolCall, index) => ({
-    id: `tool:${index + 1}`,
-    kind: "tool_call" as const,
-    toolCallId: toolCall.id,
-  }));
+function appendToolEntry(body: AssistantTurnBody, toolCallId: string): AssistantTurnBody {
+  const next = cloneAssistantTurnBody(body);
+  next.items.push({
+    id: `tool:${toolCallId}`,
+    kind: "tool_call",
+    toolCallId,
+  });
+  return next;
 }
 
-function toPersistedTranscriptEntries(entries: TurnTranscriptEntry[]): TurnTranscriptEntry[] | undefined {
-  return entries.length > 0 ? entries.map((entry) => ({ ...entry })) : undefined;
+function seedAssistantTurnBodyFromToolCalls(toolCalls: ToolCall[]): AssistantTurnBody {
+  return {
+    version: 1,
+    items: toolCalls.map((toolCall) => ({
+      id: `tool:${toolCall.id}`,
+      kind: "tool_call" as const,
+      toolCallId: toolCall.id,
+    })),
+  };
+}
+
+function toPersistedAssistantTurnBody(body: AssistantTurnBody): AssistantTurnBody | undefined {
+  return body.items.length > 0 ? cloneAssistantTurnBody(body) : undefined;
 }
 
 function toPersistedToolCall(toolCall: ToolCall): PersistedToolCall {
@@ -236,7 +253,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 streamingContent: "",
                 thinkingContent: "",
                 toolCalls: [],
-                transcriptEntries: [],
+                assistantTurnBody: emptyAssistantTurnBody(),
                 autoInjectedSkills: [],
                 correlationId: turnId,
                 startedAt: Date.now(),
@@ -281,10 +298,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
                 streamingContent: existing?.streamingContent ?? "",
                 thinkingContent: existing?.thinkingContent ?? "",
                 toolCalls: hydratedToolCalls,
-                transcriptEntries:
-                  existing?.transcriptEntries.length
-                    ? existing.transcriptEntries
-                    : seedTranscriptFromToolCalls(hydratedToolCalls),
+                assistantTurnBody:
+                  existing?.assistantTurnBody.items.length
+                    ? existing.assistantTurnBody
+                    : seedAssistantTurnBodyFromToolCalls(hydratedToolCalls),
                 autoInjectedSkills,
                 correlationId: turnId,
                 startedAt: existing?.startedAt ?? Date.now(),
@@ -313,7 +330,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updated = {
             ...turn,
             streamingContent: turn.streamingContent + delta,
-            transcriptEntries: appendTextEntry(turn.transcriptEntries, delta),
+            assistantTurnBody: appendTextEntry(turn.assistantTurnBody, delta),
             llmStatus: null, // Clear retry status — actual content is flowing
           };
           break;
@@ -339,7 +356,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updated = {
             ...turn,
             streamingContent: turn.streamingContent || text,
-            transcriptEntries: shouldSeedTranscript ? appendTextEntry(turn.transcriptEntries, text) : turn.transcriptEntries,
+            assistantTurnBody: shouldSeedTranscript ? appendTextEntry(turn.assistantTurnBody, text) : turn.assistantTurnBody,
           };
           break;
         }
@@ -352,7 +369,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updated = {
             ...turn,
             streamingContent: turn.streamingContent || text,
-            transcriptEntries: shouldSeedTranscript ? appendTextEntry(turn.transcriptEntries, text) : turn.transcriptEntries,
+            assistantTurnBody: shouldSeedTranscript ? appendTextEntry(turn.assistantTurnBody, text) : turn.assistantTurnBody,
           };
           break;
         }
@@ -375,10 +392,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           updated = {
             ...turn,
             toolCalls: [...turn.toolCalls, toolCall],
-            transcriptEntries: [
-              ...turn.transcriptEntries,
-              { id: `tool:${toolCall.id}`, kind: "tool_call", toolCallId: toolCall.id },
-            ],
+            assistantTurnBody: appendToolEntry(turn.assistantTurnBody, toolCall.id),
           };
           break;
         }
@@ -456,10 +470,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             updated = {
               ...turn,
               toolCalls: tcs,
-              transcriptEntries: [
-                ...turn.transcriptEntries,
-                { id: `tool:${toolCall.id}`, kind: "tool_call", toolCallId: toolCall.id },
-              ],
+              assistantTurnBody: appendToolEntry(turn.assistantTurnBody, toolCall.id),
             };
             break;
           }
@@ -568,14 +579,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const toolsUsed = turn.toolCalls.length > 0
           ? turn.toolCalls.map((tc) => tc.name)
           : undefined;
-        const transcriptEntries = toPersistedTranscriptEntries(turn.transcriptEntries);
+        const assistantTurnBody = toPersistedAssistantTurnBody(turn.assistantTurnBody);
         // Carry envelopes from the streaming turn into the synthetic message
         // so the rich tool result UI doesn't blink empty between finishTurn
         // and the session-messages refetch landing.
         const metadata: Record<string, any> = {
           ...(toolsUsed ? { tools_used: toolsUsed } : {}),
           ...(toolResults && toolResults.length > 0 ? { tool_results: toolResults } : {}),
-          ...(transcriptEntries ? { transcript_entries: transcriptEntries } : {}),
+          ...(assistantTurnBody ? { assistant_turn_body: assistantTurnBody } : {}),
           ...(turn.thinkingContent ? { thinking: turn.thinkingContent } : {}),
           ...(turn.botName ? { sender_display_name: turn.botName } : {}),
           ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),

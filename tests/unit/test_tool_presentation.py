@@ -7,8 +7,13 @@ def test_get_skill_presentation_is_transcript_read_skill():
     surface, summary = derive_tool_presentation(
         tool_name="get_skill",
         arguments={"skill_id": "widgets"},
-        result=json.dumps({"id": "widgets", "name": "Widgets", "content": "..."}, ensure_ascii=False),
-        envelope=None,
+        result=json.dumps({"id": "widgets", "name": "Widgets", "content": "# Widgets\nUse this skill."}, ensure_ascii=False),
+        envelope={
+            "content_type": "text/markdown",
+            "plain_body": "# Widgets",
+            "body": "# Widgets\nUse this skill.",
+            "display": "inline",
+        },
     )
 
     assert surface == "transcript"
@@ -18,6 +23,7 @@ def test_get_skill_presentation_is_transcript_read_skill():
         "label": "Loaded skill",
         "target_id": "widgets",
         "target_label": "widgets/INDEX.md",
+        "preview_text": "# Widgets",
     }
 
 
@@ -81,4 +87,26 @@ def test_widget_envelope_presentation_prefers_widget_surface():
         "subject_type": "widget",
         "label": "Widget available",
         "target_label": "Kitchen",
+    }
+
+
+def test_time_presentation_keeps_inline_preview_text():
+    surface, summary = derive_tool_presentation(
+        tool_name="get_current_local_time",
+        arguments={},
+        result="2026-04-22 14:05 EDT",
+        envelope={
+            "content_type": "text/plain",
+            "plain_body": "2026-04-22 14:05 EDT",
+            "body": "2026-04-22 14:05 EDT",
+            "display": "badge",
+        },
+    )
+
+    assert surface == "transcript"
+    assert summary == {
+        "kind": "result",
+        "subject_type": "generic",
+        "label": "Got current local time",
+        "preview_text": "2026-04-22 14:05 EDT",
     }

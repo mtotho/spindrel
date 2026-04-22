@@ -24,6 +24,8 @@ from app.tools.client_tools import is_client_tool
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool, resolve_mcp_tool_name
 from app.tools.registry import call_local_tool, is_local_tool
 from app.tools.local.persona import call_persona_tool
+from app.db.engine import async_session
+from app.db.models import Session
 from app.services.widget_handler_tools import (
     is_widget_handler_tool_name,
     resolve_widget_handler,
@@ -40,6 +42,13 @@ INLINE_BODY_CAP_BYTES = 4096
 
 # Default short summary length for envelope.plain_body.
 PLAIN_BODY_CAP_CHARS = 200
+
+
+async def _load_session_for_plan_mode(session_id: uuid.UUID | None) -> Session | None:
+    if session_id is None:
+        return None
+    async with async_session() as db:
+        return await db.get(Session, session_id)
 
 
 @dataclass
@@ -612,13 +621,59 @@ async def dispatch_tool_call(
             result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _policy_err}
             return result_obj
 
-    # Determine tool type for hook data
+    _pre_hook_type = "local"
     if is_client_tool(name):
         _pre_hook_type = "client"
     elif is_mcp_tool(name):
         _pre_hook_type = "mcp"
-    else:
-        _pre_hook_type = "local"
+    elif is_widget_handler_tool_name(name):
+        _pre_hook_type = "widget"
+
+    _safety_tier = None
+    if _pre_hook_type == "local":
+        from app.tools.registry import get_tool_safety_tier
+
+        _safety_tier = get_tool_safety_tier(name)
+
+    if session_id is not None:
+        try:
+            from app.services.session_plan_mode import plan_mode_tool_denial_reason
+
+            _session = await _load_session_for_plan_mode(session_id)
+            if _session is not None:
+                _plan_mode_err = plan_mode_tool_denial_reason(
+                    _session,
+                    tool_name=name,
+                    tool_kind=_pre_hook_type,
+                    safety_tier=_safety_tier,
+                )
+                if _plan_mode_err:
+                    result_obj.result = json.dumps({"error": _plan_mode_err})
+                    result_obj.result_for_llm = result_obj.result
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _plan_mode_err}
+                    safe_create_task(_record_tool_call(
+                        session_id=session_id,
+                        client_id=client_id,
+                        bot_id=bot_id,
+                        tool_name=name,
+                        tool_type=_pre_hook_type,
+                        server_name=None,
+                        iteration=iteration,
+                        arguments=json.loads(args or "{}") if args else {},
+                        result=result_obj.result,
+                        error=_plan_mode_err,
+                        duration_ms=0,
+                        correlation_id=correlation_id,
+                        status="denied",
+                    ))
+                    return result_obj
+        except Exception:
+            logger.exception("Plan-mode guard failed for %s — denying by default", name)
+            _plan_guard_err = "Tool call denied: unable to validate plan-mode restrictions. Please retry."
+            result_obj.result = json.dumps({"error": _plan_guard_err})
+            result_obj.result_for_llm = result_obj.result
+            result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _plan_guard_err}
+            return result_obj
 
     # Tool call row id — pre-allocated so the row exists in 'running' state
     # before completion. Re-dispatch after approval reuses the existing row
@@ -784,8 +839,10 @@ async def dispatch_tool_call(
         )
 
     # Audit log for exec_capable / control_plane tools
-    from app.tools.registry import get_tool_safety_tier
-    _safety_tier = get_tool_safety_tier(name)
+    if _safety_tier is None:
+        from app.tools.registry import get_tool_safety_tier
+
+        _safety_tier = get_tool_safety_tier(name)
     if _safety_tier in ("exec_capable", "control_plane"):
         from app.security.audit import log_tool_execution
         _args_summary = (args or "")[:200]

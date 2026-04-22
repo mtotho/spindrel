@@ -39,11 +39,14 @@ class TestSessionMessagesRouter:
                 },
             }],
             metadata_={
-                "transcript_entries": [
-                    {"id": "text:1", "kind": "text", "text": "Before edit.\n"},
-                    {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
-                    {"id": "text:2", "kind": "text", "text": "Done.\n"},
-                ],
+                "assistant_turn_body": {
+                    "version": 1,
+                    "items": [
+                        {"id": "text:1", "kind": "text", "text": "Before edit.\n"},
+                        {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+                        {"id": "text:2", "kind": "text", "text": "Done.\n"},
+                    ],
+                },
                 "tool_results": [{
                     "content_type": "application/vnd.spindrel.diff+text",
                     "body": "@@ -1 +1 @@\n-old\n+new",
@@ -76,5 +79,5 @@ class TestSessionMessagesRouter:
         ]
         final_row = next(message for message in messages if message["content"] == "final assistant row")
         assert final_row["tool_calls"][0]["id"] == "call-1"
-        assert final_row["metadata"]["transcript_entries"][1]["toolCallId"] == "call-1"
+        assert final_row["metadata"]["assistant_turn_body"]["items"][1]["toolCallId"] == "call-1"
         assert final_row["metadata"]["tool_results"][0]["content_type"] == "application/vnd.spindrel.diff+text"

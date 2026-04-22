@@ -14,7 +14,10 @@
     "src/types/api.ts",
     "src/stores/chat.ts",
     "src/stores/chat.test.ts",
+    "src/components/chat/slashCommandRequest.ts",
+    "src/components/chat/slashCommandRequest.test.ts",
     "src/components/chat/toolTranscriptModel.ts",
-    "src/components/chat/toolTranscriptModel.test.ts"
+    "src/components/chat/toolTranscriptModel.test.ts",
+    "src/components/chat/renderArchitecture.test.ts"
   ]
 }

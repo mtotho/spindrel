@@ -1,0 +1,57 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { buildSlashCommandExecuteBody } from "./slashCommandRequest.js";
+
+test("channel surface prefers channel scope even when a session id is present", () => {
+  assert.deepEqual(
+    buildSlashCommandExecuteBody({
+      commandId: "compact",
+      surface: "channel",
+      channelId: "channel-1",
+      sessionId: "session-1",
+    }),
+    {
+      command_id: "compact",
+      channel_id: "channel-1",
+      session_id: null,
+      surface: "web",
+    },
+  );
+});
+
+test("session surface prefers session scope even when a channel id is present", () => {
+  assert.deepEqual(
+    buildSlashCommandExecuteBody({
+      commandId: "context",
+      surface: "session",
+      channelId: "channel-1",
+      sessionId: "session-1",
+    }),
+    {
+      command_id: "context",
+      channel_id: null,
+      session_id: "session-1",
+      surface: "web",
+    },
+  );
+});
+
+test("returns null when the requested surface has no matching scope id", () => {
+  assert.equal(
+    buildSlashCommandExecuteBody({
+      commandId: "compact",
+      surface: "channel",
+      sessionId: "session-1",
+    }),
+    null,
+  );
+  assert.equal(
+    buildSlashCommandExecuteBody({
+      commandId: "context",
+      surface: "session",
+      channelId: "channel-1",
+    }),
+    null,
+  );
+});

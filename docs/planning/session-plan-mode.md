@@ -1,0 +1,562 @@
+# Session Plan Mode
+
+This is the canonical document for the web session planning system.
+
+If plan-mode behavior, prompting, tools, UI, or execution semantics change, update this file first and then update any shorter guides that point at it.
+
+## Purpose
+
+Session plan mode is a transcript-first planning workflow for web chat sessions.
+
+It exists to solve a specific failure mode:
+
+- normal chat tends to blur discovery, planning, approval, and execution together
+- the model tends to dump large prose proposals when the user actually needs narrowing questions and a concrete artifact
+- execution drifts unless it is tied to an accepted plan revision
+
+Plan mode separates those concerns without creating a second session type.
+
+## Core Model
+
+Plan mode has three distinct concepts:
+
+1. Session mode
+2. Plan artifact
+3. Plan presentation
+
+They must stay separate.
+
+### 1. Session mode
+
+Session mode is the runtime source of truth.
+
+Valid states today:
+
+- `chat`
+- `planning`
+- `executing`
+- `blocked`
+- `done`
+
+Mode is stored in session metadata and is what drives prompt injection, file-write restrictions, and execution behavior.
+
+### 2. Plan artifact
+
+The plan artifact is the canonical saved plan.
+
+Current v1 storage:
+
+- one Markdown file per task
+- no plans table
+- no snapshot/version table
+- revision number stored in the file and session metadata
+
+Canonical path:
+
+`channels/<channel-id>/.sessions/<session-id>/plans/<task-slug>.md`
+
+### 3. Plan presentation
+
+Visible planning UI lives in the transcript, not in page chrome.
+
+That means:
+
+- entering plan mode does not immediately create visible plan UI
+- the first real plan appears only when the agent publishes one
+- structured plan questions also appear as in-feed transcript widgets
+
+The transcript renderer is the correct substrate because it matches the rest of the app’s tool/result model.
+
+## State Machine
+
+The current session-level state machine is:
+
+`chat -> planning -> executing -> blocked|done`
+
+There are also local loops inside those states:
+
+- `planning -> planning`
+  via more clarifying questions or plan revisions
+- `executing -> planning`
+  when a step reveals the plan is stale and needs revision
+- `blocked -> planning`
+  when the user or agent resumes planning instead of continuing execution
+
+### Transition ownership
+
+User-driven transitions:
+
+- `chat -> planning`
+  via the Plan control or `/plan`
+- `planning -> executing`
+  by approving the current revision
+- `planning -> chat`
+  by exiting plan mode
+- `blocked|done -> planning`
+  by resuming/re-entering planning
+
+Agent-driven transitions:
+
+- no mode flip should happen silently just because the model feels like it
+- the agent can create or revise the plan artifact while the session is already in `planning`
+- step completion/blocking updates happen during `executing`, but they should still respect the session’s accepted plan contract
+
+Important invariant:
+
+- mode changes are session/runtime decisions
+- plan creation/revision is an agent/tool decision
+- transcript rendering is a UI/result decision
+
+Those three must not be collapsed into one action.
+
+## Entry Semantics
+
+Entering plan mode is intentionally inert from a UI perspective.
+
+What entering plan mode does:
+
+- flips the session into `planning`
+- causes plan-mode context to be injected every turn
+- tightens write policy so non-plan file edits are blocked
+
+What entering plan mode does not do:
+
+- create a plan file immediately
+- inject a fake assistant message
+- mount a page-level panel
+- auto-publish a placeholder plan
+
+This is important. The user is opting into a planning contract, not asking the app to immediately fabricate a draft.
+
+## Session Endpoints and UI Hooks
+
+Current web/session plumbing includes:
+
+- `GET /sessions/{session_id}/plan-state`
+- `POST /sessions/{session_id}/plan/start`
+- session plan approval and step-status routes in `app/routers/sessions.py`
+
+Frontend session state is currently driven through:
+
+- `ui/app/(app)/channels/[channelId]/useSessionPlanMode.ts`
+
+Composer/session entry points live in:
+
+- `ui/src/components/chat/MessageInput.tsx`
+
+This matters because the visible UX is split correctly:
+
+- session state comes from session endpoints/query state
+- the first real plan/question UI comes from transcript tool results
+- the composer control is only a mode entry/control surface
+
+## Expected User Experience
+
+The intended flow is:
+
+1. User toggles `Plan` or runs `/plan`
+2. Session enters `planning`
+3. Agent asks focused clarifying questions
+4. If structured input is useful, agent calls `ask_plan_questions`
+5. User answers
+6. Agent calls `publish_plan`
+7. A plan card appears in the transcript
+8. User approves that revision
+9. Session enters `executing`
+10. Execution proceeds step-by-step
+
+If the model jumps straight to a giant prose proposal before narrowing scope, that is a plan-mode failure.
+
+## Runtime Injection
+
+Plan mode is not primarily a skill.
+
+It is enforced through runtime system-message injection in:
+
+- `app/services/sessions.py`
+- `app/services/session_plan_mode.py`
+
+`_load_messages()` appends each line returned by `build_plan_mode_system_context(session)` as:
+
+`[PLAN MODE]\n...`
+
+That means the context is injected every turn while the session is in a plan-related mode.
+
+This injection is the main reason plan mode should be treated as a runtime contract, not a mere prompt-writing convention.
+
+## Injected Planning Contract
+
+The current planning contract is derived from `build_plan_mode_system_context()` and should remain aligned with the implementation.
+
+### When mode is `planning` and no plan exists yet
+
+The injected rules are currently:
+
+- stay in planning mode
+- do not execute implementation changes
+- do not edit non-plan files
+- do not answer with long freeform proposals before the scope is clear
+- ask at most 1-3 focused clarifying questions
+- prefer `ask_plan_questions` when multiple structured answers would help
+- keep formatting terse; avoid giant markdown sections/lists unless explicitly asked
+- do not publish a plan until key scope questions are answered or the user explicitly says to proceed with assumptions
+- when ready, use `publish_plan` instead of writing a giant markdown response in chat
+- keep conversational replies short and scoped to the next decision
+
+This is the most important planning state. It is where the model either behaves like a planner or falls back into “write essay in chat” mode.
+
+### When mode is `planning` and a plan already exists
+
+The injected rules additionally emphasize:
+
+- keep planning chat concise
+- refine the canonical plan artifact via tools
+- do not restate the whole plan in normal assistant prose
+- use `publish_plan` for revisions
+- use `ask_plan_questions` if more input is needed
+- respect the canonical plan file path and current revision
+- keep the visible structured draft in the artifact/tool result, not duplicated as a second giant assistant prose block
+
+### When mode is `executing`, `blocked`, or `done`
+
+The injected rules shift to execution:
+
+- follow the accepted revision
+- work one step at a time
+- keep the plan file current as status changes
+- prefer the current in-progress step, or the next pending step
+- carry completed-step context forward without redoing the whole plan in prose
+
+## Tooling Contract
+
+Plan mode depends on two explicit local tools.
+
+### `ask_plan_questions`
+
+Purpose:
+
+- gather focused planning input in a structured way
+- avoid giant back-and-forth prose
+- surface a transcript-native form-like card
+
+Expected use:
+
+- before the first plan draft
+- when key scope, constraints, priorities, or acceptance criteria are unclear
+
+Current shape:
+
+- up to 3 questions
+- `text`, `textarea`, or `select`
+- rendered as native-app widget `core/plan_questions`
+
+The card currently fills the composer with a formatted answer block for user review rather than auto-submitting silently.
+
+This tool should be preferred whenever multiple choice/structured answers will reduce ambiguity.
+
+Current backend/runtime details:
+
+- registered as a local tool
+- returns `application/vnd.spindrel.native-app+json`
+- renders native widget ref `core/plan_questions`
+- returns an `_envelope` plus an `llm` reminder telling the model to wait for answers before publishing the plan
+
+Current UI behavior:
+
+- the widget dispatches `spindrel:plan-question-fill`
+- `MessageInput` listens for that event
+- answers are appended to the composer for review instead of auto-submitting
+
+That review step is intentional for now. It keeps the user in the loop and prevents a widget interaction from silently becoming a sent message.
+
+### `publish_plan`
+
+Purpose:
+
+- create the first plan artifact
+- revise the canonical artifact later
+- emit the transcript-visible plan envelope
+
+Expected use:
+
+- only once the agent has enough information to propose a concrete draft
+- not as a placeholder
+- not as a substitute for clarifying questions
+
+This is the only correct way for the model to create the first visible plan.
+
+Current backend/runtime details:
+
+- registered as a local tool
+- only allowed while the current session is already in `planning`
+- writes or rewrites the canonical Markdown artifact
+- increments the revision
+- returns `application/vnd.spindrel.plan+json`
+- includes the structured plan payload plus an `_envelope`
+
+Current rendering path:
+
+- rendered in-feed through `RichToolResult`
+- should be treated as the transcript-native plan surface
+- approval and progress actions belong on this surface, not elsewhere
+
+## Transcript Rendering Contract
+
+All visible planning surfaces should render inside the chat feed.
+
+Current transcript-native planning artifacts:
+
+- plan result envelope from `publish_plan`
+- native-app `core/plan_questions` card from `ask_plan_questions`
+
+What should not happen:
+
+- top-of-page plan panels
+- plan UI that pushes the transcript down
+- separate planner chrome that bypasses the existing tool/result system
+
+The app already has a tool/result rendering model. Plan mode should use it, not compete with it.
+
+Current MIME/rendering split:
+
+- `application/vnd.spindrel.plan+json`
+  for the actual plan artifact/result
+- `application/vnd.spindrel.native-app+json`
+  with `widget_ref = core/plan_questions`
+  for structured question intake
+
+## Markdown Artifact Contract
+
+The Markdown file is the canonical saved artifact, but it is strict Markdown, not arbitrary prose.
+
+Required header lines:
+
+- `Status: ...`
+- `Revision: ...`
+- `Session: ...`
+- `Task: ...`
+
+Required sections:
+
+- `Summary`
+- `Scope`
+- `Assumptions`
+- `Open Questions`
+- `Execution Checklist`
+- `Artifacts`
+- `Acceptance Criteria`
+- `Outcome`
+
+Checklist lines use stable step ids and explicit statuses.
+
+The file is designed to be:
+
+- readable by a human
+- writable by the runtime deterministically
+- stable enough to update progress without fuzzy matching
+
+## File-Write Policy
+
+Planning mode is not just a prompt. It also gates mutation.
+
+Current write policy:
+
+- in normal chat or execution, file writes follow the usual rules
+- in `planning`, writes outside the active plan path are blocked
+- if planning has started but no plan file exists yet, non-plan writes are still blocked
+
+This matters because otherwise “plan mode” is just a suggestion and the model can drift into implementation too early.
+
+## Approval Contract
+
+Approval must bind to a specific plan revision.
+
+That means:
+
+- the user approves a revision number
+- execution runs against that accepted revision
+- if the plan changes later, the accepted revision is no longer implicitly the latest file contents
+
+Even though v1 uses a single rewritten Markdown file, revision numbers still matter because they define the execution contract.
+
+The agent should treat approval as binding, not advisory.
+
+That means:
+
+- do not start implementation just because the plan looks complete
+- do not assume the latest edited file contents are approved unless that revision was actually accepted
+- do not keep executing after the plan is materially stale; return to planning instead
+
+## Execution Contract
+
+Execution is supervised and step-scoped.
+
+It is not supposed to be one giant autonomous run.
+
+Current intended loop:
+
+1. Load accepted revision
+2. Select current/next pending step
+3. Inject step + compact plan context
+4. Execute that step
+5. Mark result
+6. Update the plan file
+7. Continue only if the step finished cleanly
+
+Expected step outcomes:
+
+- `done`
+- `blocked`
+- `needs_replan`
+- `aborted`
+
+Current persisted step statuses in the plan artifact are:
+
+- `pending`
+- `in_progress`
+- `done`
+- `blocked`
+
+If a step reveals that the rest of the plan is stale, execution should stop and return the session to planning instead of blindly marching forward.
+
+Current session router behavior also includes step-level updates and auto-advance logic through `update_plan_step_status(...)` and related routes in `app/routers/sessions.py`.
+
+That means the practical v1 system is:
+
+- artifact-backed
+- session-state-driven
+- step-progress-aware
+
+even though it is not yet a detached autonomous worker.
+
+## Expectations for Agent Behavior
+
+When the agent is in plan mode, it is expected to:
+
+- narrow scope before drafting
+- ask short, high-signal questions
+- prefer structured question cards for multi-part clarification
+- avoid giant essays in chat
+- publish a structured plan instead of narrating one
+- keep revisions in the artifact, not duplicated across multiple long prose replies
+- respect explicit approval before implementation
+
+More concretely, in `planning` the agent should usually do one of four things:
+
+1. Ask a short clarifying question in plain chat
+2. Call `ask_plan_questions`
+3. Call `publish_plan`
+4. Briefly explain why it is waiting for input before it can publish the plan
+
+It should usually not do a fifth thing:
+
+5. write a long quasi-plan in normal chat and hope the user interprets it as the plan
+
+The agent is not expected to:
+
+- instantly fabricate a default plan on toggle
+- restate the entire plan in chat every turn
+- edit code while still planning
+- continue executing after discovering the plan is stale
+
+## Failure Modes
+
+These are considered regressions:
+
+- entering plan mode immediately creates a giant visible panel
+- the model responds with a giant prose plan instead of clarifying
+- the model does not know about `ask_plan_questions`
+- the model does not know about `publish_plan`
+- no plan-mode system context is injected before the first plan exists
+- planning mode allows code edits before approval
+- visible planning UI appears outside the transcript result system
+
+## Current Implementation Map
+
+Backend:
+
+- `app/services/session_plan_mode.py`
+- `app/services/sessions.py`
+- `app/routers/sessions.py`
+- `app/tools/local/ask_plan_questions.py`
+- `app/tools/local/publish_plan.py`
+
+Frontend:
+
+- `ui/src/components/chat/MessageInput.tsx`
+- `ui/src/components/chat/renderers/NativeAppRenderer.tsx`
+- `ui/src/components/chat/RichToolResult.tsx`
+- transcript plan renderer components
+
+Docs:
+
+- this file is the golden document
+- shorter references should link here instead of re-defining behavior
+
+## Current Limits
+
+What v1 does well:
+
+- session-local planning contract
+- transcript-first plan/question rendering
+- Markdown-backed canonical artifact
+- revision-aware approval
+- one-step-at-a-time execution model
+
+What v1 does not yet do:
+
+- background detached executor loop
+- multi-revision history model beyond the single-file revision counter
+- Slack/Discord parity for this exact workflow
+- automatic evaluation of whether a plan is too large beyond prompt/runtime heuristics
+
+## Gaps
+
+These are known gaps between the current v1 and the fuller planning system we likely want:
+
+- no dedicated replan tool
+  the model can ask more questions or publish a revision, but there is no explicit `needs_replan` artifact/tool contract yet
+- no explicit “question answered” structured reply channel
+  answers are currently filled into the composer and sent as ordinary chat text
+- no hard validator for plan breadth/quality before approval
+  current guardrails are mostly prompt and runtime convention, not deep static validation
+- no detached execution worker
+  execution is still session-turn-driven rather than a fully autonomous background loop
+- no full transcript history model for plan revisions
+  revisions exist numerically, but there is no first-class diff/history experience beyond the canonical file and emitted revision artifacts
+- no explicit “agent may propose entering plan mode” tool yet
+  entry is still user/control-driven in practice
+
+## Future Ideas
+
+Potential next steps, roughly in order of usefulness:
+
+- add a dedicated replan flow
+  examples: `request_replan`, `mark_plan_stale`, or a richer execution outcome contract than today’s simple step statuses
+- add stronger plan validation before approval
+  examples: max-step heuristics, vague-step detection, required done-condition checks, unresolved-question blocking
+- add a structured answer-submission path for plan questions
+  so the question card can submit typed answers as a first-class structured event instead of only filling the composer
+- add agent-side “propose plan mode” tooling
+  the agent should be able to suggest entering plan mode without silently flipping the session itself
+- add revision history/diff UX
+  especially useful once plans become a normal part of medium-sized engineering sessions
+- add a detached step executor
+  once the step contract is reliable enough, the loop can move out of the foreground session turn path
+- add explicit tests/evals for planning quality
+  not just unit tests for plumbing, but behavioral tests that catch regressions like “model dumps wall of text instead of asking questions”
+
+## Maintenance Rule
+
+If any of these change, update this document in the same edit:
+
+- injected planning context
+- `ask_plan_questions` semantics
+- `publish_plan` semantics
+- transcript vs page-level rendering rules
+- approval/execution contract
+- Markdown artifact structure
+- state transitions / ownership
+- transcript-native tool/rendering contract
+
+This file is supposed to be the stable reference that future sessions can compare implementation against.

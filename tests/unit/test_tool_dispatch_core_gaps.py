@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -249,6 +250,44 @@ class TestPolicyRequireApproval:
         assert create_mock.call_args.kwargs["tool_type"] == "mcp"
 
 
+class TestPlanModeGuard:
+    @pytest.mark.asyncio
+    async def test_when_planning_then_mutating_local_tool_is_denied(self, dkw):
+        planning_session = SimpleNamespace(metadata_={"plan_mode": "planning"})
+        with patch("app.agent.tool_dispatch._load_session_for_plan_mode", new_callable=AsyncMock, return_value=planning_session), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_widget_handler_tool_name", return_value=False), \
+             patch("app.tools.registry.get_tool_safety_tier", return_value="mutating"), \
+             patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock) as mock_call, \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock):
+            result = await dispatch_tool_call(name="file", allowed_tool_names=None, **dkw)
+
+        parsed = json.loads(result.result)
+        assert "error" in parsed
+        assert "plan mode" in parsed["error"].lower()
+        mock_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_when_planning_then_publish_plan_is_allowed(self, dkw):
+        planning_session = SimpleNamespace(metadata_={"plan_mode": "planning"})
+        with patch("app.agent.tool_dispatch._load_session_for_plan_mode", new_callable=AsyncMock, return_value=planning_session), \
+             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
+             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
+             patch("app.agent.tool_dispatch.is_widget_handler_tool_name", return_value=False), \
+             patch("app.tools.registry.get_tool_safety_tier", return_value="mutating"), \
+             patch("app.agent.tool_dispatch._check_tool_policy", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}') as mock_call, \
+             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock):
+            result = await dispatch_tool_call(name="publish_plan", allowed_tool_names=None, **dkw)
+
+        assert json.loads(result.result) == {"ok": True}
+        mock_call.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # MCP bare-name resolution
 # ---------------------------------------------------------------------------
@@ -297,4 +336,3 @@ class TestMcpBareNameResolution:
         parsed = json.loads(result.result)
         assert "error" in parsed
         assert "mystery_tool" in parsed["error"]
-

@@ -267,6 +267,7 @@ export function RichToolResult({
         content = (
           <NativeAppRenderer
             envelope={envelope}
+            sessionId={sessionId}
             dashboardPinId={dashboardPinId}
             channelId={channelId}
             t={rendererTokens}

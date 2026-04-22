@@ -198,6 +198,36 @@ class TestEmitRunStreamEvents:
             "diff_stats": {"additions": 1, "deletions": 1},
         }
 
+    async def test_when_tool_result_derives_time_preview_then_payload_keeps_it(self):
+        ch = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "tool_result",
+                "tool": "get_current_local_time",
+                "tool_call_id": "call-time",
+                "result": "2026-04-22 14:05 EDT",
+                "envelope": {
+                    "content_type": "text/plain",
+                    "body": "2026-04-22 14:05 EDT",
+                    "plain_body": "2026-04-22 14:05 EDT",
+                    "display": "badge",
+                },
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "tool_result"
+        assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
+        assert published[0].payload.tool_call_id == "call-time"
+        assert published[0].payload.surface == "transcript"
+        assert published[0].payload.summary == {
+            "kind": "result",
+            "subject_type": "generic",
+            "label": "Got current local time",
+            "preview_text": "2026-04-22 14:05 EDT",
+        }
+
     async def test_when_unknown_event_type_then_no_bus_publish_but_still_yielded(self):
         ch = uuid.uuid4()
         passthrough = {"type": "rate_limit_wait", "seconds": 5}

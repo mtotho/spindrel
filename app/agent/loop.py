@@ -349,7 +349,10 @@ def _finalize_response(
         messages[-1]["_thinking_content"] = thinking_content_buf
 
     if transcript_entries and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_transcript_entries"] = list(transcript_entries)
+        messages[-1]["_assistant_turn_body"] = {
+            "version": 1,
+            "items": list(transcript_entries),
+        }
 
     if messages and messages[-1].get("role") == "assistant":
         _collapse_final_assistant_tool_turn(messages)

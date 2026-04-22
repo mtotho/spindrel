@@ -1,11 +1,18 @@
 import { normalizeToolCall } from "../../types/api.js";
-import type { ToolCall, ToolCallSummary, ToolResultEnvelope, ToolSurface } from "../../types/api.js";
+import type {
+  AssistantTurnBody,
+  ToolCall,
+  ToolCallSummary,
+  ToolResultEnvelope,
+  ToolSurface,
+} from "../../types/api.js";
 
 export type SharedToolTranscriptEntry = {
   id: string;
   kind: "activity" | "file" | "widget" | "approval";
   label: string;
   metaLabel?: string | null;
+  previewText?: string | null;
   target?: string | null;
   args?: string;
   env?: ToolResultEnvelope;
@@ -68,6 +75,8 @@ export type OrderedLiveToolCall = {
   approvalReason?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
 };
+
+type CanonicalToolCall = OrderedLiveToolCall | ToolCall;
 
 export type DetailRow = {
   text: string;
@@ -238,6 +247,25 @@ function summarizeEnvelope(envelope: ToolResultEnvelope | undefined | null): str
   return firstLine.length > 160 ? `${firstLine.slice(0, 159)}…` : firstLine;
 }
 
+function normalizePreviewText(value: string | null | undefined, label?: string | null): string | null {
+  if (!value) return null;
+  const clean = value.trim();
+  if (!clean) return null;
+  if (label && clean === label.trim()) return null;
+  return clean.length > 160 ? `${clean.slice(0, 159)}…` : clean;
+}
+
+function resolvePreviewText(
+  summary: ToolCallSummary | null | undefined,
+  result: ToolResultEnvelope | undefined,
+  label?: string | null,
+): string | null {
+  return (
+    normalizePreviewText(summary?.preview_text ?? null, label)
+    ?? normalizePreviewText(summarizeEnvelope(result), label)
+  );
+}
+
 function summarizeDiffMeta(summary: ToolCallSummary | null | undefined): string | null {
   if (!summary) return null;
   if (summary.kind === "diff" && summary.diff_stats) {
@@ -328,14 +356,9 @@ function isRichInlineEnvelope(env: ToolResultEnvelope | undefined): boolean {
   return !!(env && env.display === "inline" && !isWidgetEnvelope(env));
 }
 
-function resolveEnvelopeSurface(
+function inferEnvelopeSurface(
   env: ToolResultEnvelope | undefined,
-  surface?: ToolSurface,
 ): ToolSurface | "root_rich_result" | null {
-  if (isRichInlineEnvelope(env) && env?.content_type === "application/vnd.spindrel.diff+text") {
-    return "rich_result";
-  }
-  if (surface) return surface;
   if (isWidgetEnvelope(env)) return "widget";
   if (isRichInlineEnvelope(env)) return "rich_result";
   return env ? "root_rich_result" : null;
@@ -359,6 +382,7 @@ function buildMissingToolDataEntry(toolCallId: string): SharedToolTranscriptEntr
     kind: "activity",
     label: "Missing tool data",
     metaLabel: null,
+    previewText: null,
     target: null,
     isError: true,
     detailKind: "none",
@@ -437,12 +461,14 @@ function buildEntryFromSummary(
 ): SharedToolTranscriptEntry {
   const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
   const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
+  const previewText = resolvePreviewText(summary, result, summary.label);
   if (summary.kind === "diff" && summary.subject_type === "file") {
     return {
       id: `${toolName}:${summary.label}`,
       kind: "file",
       label: summary.label,
       metaLabel: summarizeDiffMeta(summary),
+      previewText: null,
       target: summary.target_label ? null : target,
       env: result,
       isError: false,
@@ -457,6 +483,7 @@ function buildEntryFromSummary(
       kind: "file",
       label: summary.label,
       metaLabel: null,
+      previewText,
       target: summary.target_label ? null : target,
       env: result,
       isError: false,
@@ -470,6 +497,7 @@ function buildEntryFromSummary(
     kind: "activity",
     label: summary.label,
     metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
+    previewText,
     target: summary.target_label ? null : target,
     env: result,
     isError: summary.kind === "error",
@@ -495,6 +523,10 @@ function buildPersistedEntry(
   const summary = shouldPreferGenericSummary(envelopeSummary, genericSummary)
     ? genericSummary
     : envelopeSummary ?? genericSummary;
+  const previewText = normalizePreviewText(
+    shouldPreferGenericSummary(envelopeSummary, genericSummary) ? envelopeSummary : null,
+    summary,
+  ) ?? normalizePreviewText(resultSummary(result), summary);
   const diff = extractDiff(typeof result?.body === "string" ? result.body : result?.plain_body);
   const diffStats = summarizeDiffStats(diff);
   const isLikelyFile = summary.match(/^(Read|Edited|Wrote|Created|Deleted)\s+/i);
@@ -505,6 +537,7 @@ function buildPersistedEntry(
       kind: "file",
       label: summary,
       metaLabel: diffStats ? `(+${diffStats.additions} -${diffStats.deletions})` : null,
+      previewText: isRead ? previewText : null,
       env: result,
       isError: false,
       detailKind: isRead ? "collapsed-read" : diff ? "inline-diff" : "expandable",
@@ -521,6 +554,7 @@ function buildPersistedEntry(
     kind: "activity",
     label: summary,
     metaLabel: toolInfoRef || (skillRef ? `(${skillRef})` : null),
+    previewText,
     target: toolInfoRef || skillRef ? null : introspectionTarget(toolName, [args], rawCall, result),
     args,
     env: result,
@@ -560,182 +594,86 @@ export function buildPersistedToolEntries(
   });
 }
 
-export function buildPersistedRenderItems({
-  toolNames,
-  toolCalls,
-  toolResults,
-  rootEnvelope,
-}: {
-  toolNames: string[];
-  toolCalls?: ToolCall[];
-  toolResults?: (ToolResultEnvelope | undefined)[];
-  rootEnvelope?: ToolResultEnvelope;
-}): PersistedRenderItem[] {
-  const items: PersistedRenderItem[] = [];
-
-  if (toolCalls?.length) {
-    for (let index = 0; index < toolCalls.length; index += 1) {
-      const call = toolCalls[index];
-      const env = toolResults?.[index];
-      const normalized = normalizeToolCall(call);
-      const surface = resolveEnvelopeSurface(env, call.surface);
-
-      if (surface === "widget" && env) {
-        items.push({
-          kind: "widget",
-          key: `widget:${index}:${env.record_id ?? normalized.name ?? "widget"}`,
-          widget: {
-            envelope: env,
-            toolName: normalized.name ?? "",
-            recordId: env.record_id ?? undefined,
-          },
-        });
-        continue;
-      }
-
-      if (surface === "rich_result" && env) {
-        items.push({
-          kind: "rich_result",
-          key: `rich:${index}:${env.record_id ?? normalized.name ?? "result"}`,
-          envelope: env,
-        });
-        continue;
-      }
-
-      items.push({
-        kind: "transcript",
-        key: `transcript:${index}:${normalized.name ?? call.id ?? "tool"}`,
-        entries: buildPersistedToolEntries([], [call], [env]),
-      });
-    }
-  } else {
-    const count = Math.max(toolNames.length, toolResults?.length ?? 0);
-    for (let index = 0; index < count; index += 1) {
-      const name = toolNames[index];
-      const env = toolResults?.[index];
-      const surface = resolveEnvelopeSurface(env);
-
-      if (surface === "widget" && env) {
-        items.push({
-          kind: "widget",
-          key: `widget:${index}:${env.record_id ?? name ?? "widget"}`,
-          widget: {
-            envelope: env,
-            toolName: name ?? "",
-            recordId: env.record_id ?? undefined,
-          },
-        });
-        continue;
-      }
-
-      if (surface === "rich_result" && env) {
-        items.push({
-          kind: "rich_result",
-          key: `rich:${index}:${env.record_id ?? name ?? "result"}`,
-          envelope: env,
-        });
-        continue;
-      }
-
-      if (!name && !env) continue;
-      items.push({
-        kind: "transcript",
-        key: `transcript:${index}:${name ?? "tool"}`,
-        entries: buildPersistedToolEntries(name ? [name] : [], [], [env]),
-      });
-    }
-  }
-
-  const rootSurface = resolveEnvelopeSurface(rootEnvelope);
-  if (rootSurface === "root_rich_result" && rootEnvelope) {
-    items.unshift({
-      kind: "root_rich_result",
-      key: `root-rich:${rootEnvelope.record_id ?? rootEnvelope.display_label ?? "result"}`,
-      envelope: rootEnvelope,
-    });
-  }
-
-  return items;
+function isPersistedToolCall(toolCall: CanonicalToolCall): toolCall is ToolCall {
+  return "arguments" in toolCall || "function" in toolCall;
 }
 
-function resolveOrderedPersistedTool(
-  toolCall: ToolCall,
+function resolveOrderedTool(
+  toolCall: CanonicalToolCall,
   result: ToolResultEnvelope | undefined,
   index: number,
 ): OrderedToolResolution {
-  const normalized = normalizeToolCall(toolCall);
-  const surface = resolveEnvelopeSurface(result, toolCall.surface);
+  if (isPersistedToolCall(toolCall)) {
+    const normalized = normalizeToolCall(toolCall);
+    const surface = toolCall.surface ?? inferEnvelopeSurface(result);
 
-  if (surface === "widget" && result) {
-    return {
-      key: `widget:${index}:${result.record_id ?? normalized.name ?? "widget"}`,
-      widget: {
+    if (surface === "widget" && result) {
+      return {
+        key: `widget:${index}:${result.record_id ?? normalized.name ?? "widget"}`,
+        widget: {
+          envelope: result,
+          toolName: normalized.name ?? "",
+          recordId: result.record_id ?? undefined,
+        },
+      };
+    }
+
+    if (surface === "rich_result" && result) {
+      return {
+        kind: "rich_result",
+        key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
         envelope: result,
-        toolName: normalized.name ?? "",
-        recordId: result.record_id ?? undefined,
-      },
+      };
+    }
+
+    return {
+      key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
+      transcriptEntries: buildPersistedToolEntries([], [toolCall], [result]),
     };
   }
 
-  if (surface === "rich_result" && result) {
+  const envelope = result ?? toolCall.envelope;
+  const surface = toolCall.surface ?? inferEnvelopeSurface(envelope);
+
+  if (surface === "widget" && envelope) {
     return {
-      kind: "rich_result",
-      key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
-      envelope: result,
-    };
-  }
-
-  return {
-    key: `transcript:${index}:${normalized.name ?? toolCall.id ?? "tool"}`,
-    transcriptEntries: buildPersistedToolEntries([], [toolCall], [result]),
-  };
-}
-
-function resolveOrderedLiveTool(
-  toolCall: OrderedLiveToolCall,
-  index: number,
-): OrderedToolResolution {
-  const surface = resolveEnvelopeSurface(toolCall.envelope, toolCall.surface);
-
-  if (surface === "widget" && toolCall.envelope) {
-    return {
-      key: `widget:${index}:${toolCall.envelope.record_id ?? toolCall.name ?? "widget"}`,
+      key: `widget:${index}:${envelope.record_id ?? toolCall.name ?? "widget"}`,
       widget: {
-        envelope: toolCall.envelope,
+        envelope,
         toolName: toolCall.name,
-        recordId: toolCall.envelope.record_id ?? undefined,
+        recordId: envelope.record_id ?? undefined,
       },
     };
   }
 
-  if (surface === "rich_result" && toolCall.envelope) {
+  if (surface === "rich_result" && envelope) {
     return {
       kind: "rich_result",
-      key: `rich:${index}:${toolCall.envelope.record_id ?? toolCall.name ?? "result"}`,
-      envelope: toolCall.envelope,
+      key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
+      envelope,
     };
   }
 
   return {
     key: `transcript:${index}:${toolCall.name ?? toolCall.id ?? "tool"}`,
-    transcriptEntries: buildLiveToolEntries([toolCall]),
+    transcriptEntries: buildLiveToolEntries([{ ...toolCall, envelope }]),
   };
 }
 
-function buildOrderedTurnBodyItems({
-  transcriptEntries,
+function materializeAssistantTurnBodyItems({
+  assistantTurnBody,
   orderedTools,
   rootEnvelope,
   missingToolBehavior = "placeholder",
 }: {
-  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
+  assistantTurnBody: AssistantTurnBody;
   orderedTools: Map<string, OrderedToolResolution>;
   rootEnvelope?: ToolResultEnvelope;
   missingToolBehavior?: "throw" | "placeholder";
 }): OrderedTurnBodyItem[] {
   const items: OrderedTurnBodyItem[] = [];
 
-  const rootSurface = resolveEnvelopeSurface(rootEnvelope);
+  const rootSurface = inferEnvelopeSurface(rootEnvelope);
   if (rootSurface === "root_rich_result" && rootEnvelope) {
     items.push({
       kind: "root_rich_result",
@@ -744,7 +682,7 @@ function buildOrderedTurnBodyItems({
     });
   }
 
-  for (const entry of transcriptEntries) {
+  for (const entry of assistantTurnBody.items) {
     if (entry.kind === "text") {
       if (!entry.text.trim()) continue;
       items.push({
@@ -796,15 +734,15 @@ function buildOrderedTurnBodyItems({
   return items;
 }
 
-export function buildOrderedTurnBodyItemsFromPersisted({
-  transcriptEntries,
+export function buildAssistantTurnBodyItems({
+  assistantTurnBody,
   toolCalls,
   toolResults,
   rootEnvelope,
   missingToolBehavior = "placeholder",
 }: {
-  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
-  toolCalls: ToolCall[];
+  assistantTurnBody: AssistantTurnBody;
+  toolCalls: CanonicalToolCall[];
   toolResults?: (ToolResultEnvelope | undefined)[];
   rootEnvelope?: ToolResultEnvelope;
   missingToolBehavior?: "throw" | "placeholder";
@@ -812,27 +750,47 @@ export function buildOrderedTurnBodyItemsFromPersisted({
   const orderedTools = new Map<string, OrderedToolResolution>();
   for (let index = 0; index < toolCalls.length; index += 1) {
     const toolCall = toolCalls[index];
-    const toolId = toolCall.id || `persisted-tool-${index + 1}`;
-    orderedTools.set(toolId, resolveOrderedPersistedTool(toolCall, toolResults?.[index], index));
+    const toolId = toolCall.id || `tool-${index + 1}`;
+    orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResults?.[index], index));
   }
-  return buildOrderedTurnBodyItems({ transcriptEntries, orderedTools, rootEnvelope, missingToolBehavior });
+  return materializeAssistantTurnBodyItems({
+    assistantTurnBody,
+    orderedTools,
+    rootEnvelope,
+    missingToolBehavior,
+  });
 }
 
-export function buildOrderedTurnBodyItemsFromLive({
+export function buildLegacyAssistantTurnBody({
+  displayContent,
   transcriptEntries,
   toolCalls,
-  missingToolBehavior = "placeholder",
 }: {
-  transcriptEntries: Array<{ id: string; kind: "text"; text: string } | { id: string; kind: "tool_call"; toolCallId: string }>;
-  toolCalls: OrderedLiveToolCall[];
-  missingToolBehavior?: "throw" | "placeholder";
-}): OrderedTurnBodyItem[] {
-  const orderedTools = new Map<string, OrderedToolResolution>();
-  for (let index = 0; index < toolCalls.length; index += 1) {
-    const toolCall = toolCalls[index];
-    orderedTools.set(toolCall.id, resolveOrderedLiveTool(toolCall, index));
+  displayContent?: string;
+  transcriptEntries?: AssistantTurnBody["items"];
+  toolCalls?: ToolCall[];
+}): AssistantTurnBody {
+  if (transcriptEntries?.length) {
+    return {
+      version: 1,
+      items: transcriptEntries.map((entry) => ({ ...entry })),
+    };
   }
-  return buildOrderedTurnBodyItems({ transcriptEntries, orderedTools, missingToolBehavior });
+
+  const items: AssistantTurnBody["items"] = [];
+  if (displayContent) {
+    items.push({ id: "legacy:text", kind: "text", text: displayContent });
+  }
+  for (let index = 0; index < (toolCalls?.length ?? 0); index += 1) {
+    const toolCall = toolCalls![index];
+    const toolCallId = toolCall.id || `legacy-tool-${index + 1}`;
+    items.push({
+      id: `legacy:tool:${toolCallId}`,
+      kind: "tool_call",
+      toolCallId,
+    });
+  }
+  return { version: 1, items };
 }
 
 export function buildLiveToolEntries(toolCalls: {
@@ -859,15 +817,13 @@ export function buildLiveToolEntries(toolCalls: {
         ? `Approval required: ${toolName}`
         : base.label,
       detail: formatSimpleParams(tc.args) || tc.approvalReason || tc.capability?.description || base.detail || null,
-      tone: tc.status === "done"
-        ? base.tone === "danger"
-          ? "danger"
-          : "success"
-        : tc.status === "awaiting_approval"
+      tone: tc.status === "awaiting_approval"
           ? "warning"
           : tc.status === "denied"
             ? "danger"
-            : "muted",
+            : tc.status === "running"
+              ? "muted"
+              : base.tone,
       approval: tc.approvalId ? {
         approvalId: tc.approvalId,
         capabilityId: tc.capability?.id,

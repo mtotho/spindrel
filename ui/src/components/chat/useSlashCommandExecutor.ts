@@ -7,12 +7,15 @@ import type {
   SlashCommandId,
   SlashCommandResult,
   SlashCommandSideEffectPayload,
+  SlashCommandSurface,
 } from "@/src/types/api";
 
 import { buildSlashCommandResultMessage } from "./slashCommands";
+import { buildSlashCommandExecuteBody } from "./slashCommandRequest";
 
 interface Options {
   availableCommands: SlashCommandId[];
+  surface: SlashCommandSurface;
   channelId?: string;
   sessionId?: string;
   onSyntheticMessage?: (message: Message) => void;
@@ -23,6 +26,7 @@ interface Options {
 
 export function useSlashCommandExecutor({
   availableCommands,
+  surface,
   channelId,
   sessionId,
   onSyntheticMessage,
@@ -44,15 +48,16 @@ export function useSlashCommandExecutor({
         case "stop":
         case "compact":
         case "plan": {
-          if (!channelId && !sessionId) return;
+          const body = buildSlashCommandExecuteBody({
+            commandId: id as SlashCommandId,
+            surface,
+            channelId,
+            sessionId,
+          });
+          if (!body) return;
           const result = await apiFetch<SlashCommandResult>("/api/v1/slash-commands/execute", {
             method: "POST",
-            body: JSON.stringify({
-              command_id: id,
-              channel_id: channelId ?? null,
-              session_id: sessionId ?? null,
-              surface: "web",
-            }),
+            body: JSON.stringify(body),
           });
           if (result.result_type === "side_effect") {
             const payload = result.payload as SlashCommandSideEffectPayload;
@@ -72,6 +77,6 @@ export function useSlashCommandExecutor({
         }
       }
     },
-    [availableCommands, channelId, onClear, onScratch, onSideEffect, onSyntheticMessage, sessionId],
+    [availableCommands, channelId, onClear, onScratch, onSideEffect, onSyntheticMessage, sessionId, surface],
   );
 }

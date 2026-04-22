@@ -3,9 +3,10 @@ import { ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, 
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { Avatar } from "./MessageActions";
-import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
+import type { AssistantTurnBody } from "../../types/api";
+import type { ToolCall as LiveToolCall } from "../../stores/chat";
 import { OrderedTranscript } from "./OrderedTranscript";
-import { buildOrderedTurnBodyItemsFromLive } from "./toolTranscriptModel";
+import { buildAssistantTurnBodyItems } from "./toolTranscriptModel";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -245,7 +246,7 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
 interface Props {
   content: string;
   toolCalls: LiveToolCall[];
-  transcriptEntries: TurnTranscriptEntry[];
+  assistantTurnBody: AssistantTurnBody;
   autoInjectedSkills?: AutoInjectedSkillDisplay[];
   botName?: string;
   botId?: string;
@@ -310,7 +311,7 @@ function LlmStatusBadge({ status, t }: { status: NonNullable<Props["llmStatus"]>
 export function StreamingIndicator({
   content,
   toolCalls,
-  transcriptEntries,
+  assistantTurnBody,
   autoInjectedSkills,
   botName,
   botId,
@@ -326,13 +327,13 @@ export function StreamingIndicator({
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
   const displayThinking = thinkingContent?.trim() ?? "";
-  const hasTranscriptEntries = transcriptEntries.length > 0;
-  const orderedTurnBodyItems = hasTranscriptEntries
-    ? buildOrderedTurnBodyItemsFromLive({ transcriptEntries, toolCalls })
+  const hasAssistantTurnBody = assistantTurnBody.items.length > 0;
+  const orderedTurnBodyItems = hasAssistantTurnBody
+    ? buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls })
     : [];
   const hasVisibleActivity =
     !!displayThinking ||
-    hasTranscriptEntries ||
+    hasAssistantTurnBody ||
     (autoInjectedSkills?.length ?? 0) > 0 ||
     toolCalls.length > 0 ||
     !!llmStatus;
@@ -371,7 +372,7 @@ export function StreamingIndicator({
         )}
 
         {/* Ordered transcript body */}
-        {hasTranscriptEntries ? (
+        {hasAssistantTurnBody ? (
           <OrderedTranscript
             items={orderedTurnBodyItems}
             t={t}
@@ -400,7 +401,7 @@ export function StreamingIndicator({
         ) : null}
 
         {/* LLM status badge shown alongside tool calls or streaming content */}
-        {llmStatus && (hasTranscriptEntries || toolCalls.length > 0 || displayContent) && (
+        {llmStatus && (hasAssistantTurnBody || toolCalls.length > 0 || displayContent) && (
           <div style={{ padding: "2px 0" }}>
             <LlmStatusBadge status={llmStatus} t={t} />
           </div>

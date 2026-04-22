@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-22 (session-aware context headers + compaction metadata across chat/scratch surfaces)
+updated: 2026-04-22 (slash-command surface scoping fix + session-aware context headers)
 ---
 # Track — UI Polish
 
@@ -76,6 +76,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **`/context` rendered in chat** — web now inserts a synthetic transcript row for typed slash-command results, with a dedicated context-summary card in channel chat plus session/thread chat surfaces.
 - [x] **Session/thread parity for slash commands** — chat-session surfaces no longer just advertise `/context`; they execute it against the shared backend contract and merge the synthetic result into the mounted transcript.
 - [x] **Server-owned side-effect commands** — `/stop` and `/compact` now execute through the same slash-command API contract; web just applies the minimal local state sync after the server action lands.
+- [x] **Slash-command requests now honor the composer surface** — web previously POSTed both `channel_id` and `session_id` whenever a channel chat also had an active session, which tripped the backend's intentional `Exactly one of channel_id or session_id is required` guard and made `/compact` fail with 422. `useSlashCommandExecutor` now routes through a pure `buildSlashCommandExecuteBody(...)` helper so channel chat sends only `channel_id`, session/thread chat sends only `session_id`, and the contract is pinned by a focused node test.
 - [x] **Client-only scratch shortcut** — `/scratch` stays web-local for now and jumps straight into the scratch-pad route instead of pretending to be a shared backend command.
 - [x] **Scratch full-page warning folded into the real chat header** — removed the duplicate standalone scratch banner that was overlapping the header chip strip; scratch routes now show a compact header-owned state pill + amber subtitle in the channel header, with archive sessions rendered as muted read-only state instead of a warning.
 - [x] **Scratch view context budget now respects the active session** — the header budget indicator no longer stays pinned to the channel's latest turn while you're inside scratch; backend `context-budget` endpoints now accept optional `session_id`, and the scratch route prefers the scratch session's live SSE budget/store slot plus a session-scoped fallback fetch.
@@ -160,8 +161,22 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 
 - [x] **Ordered transcript rows have started collapsing onto one shared renderer path** — after visual review confirmed terminal/default were still using separate transcript components, this pass routed ordered transcript rows through `DefaultToolRows` with `chatMode` controlling shell styling and removed terminal-only transcript/widget branches from `OrderedTranscript.tsx` and `MessageBubble.tsx`.
 - [x] **File diff/edit outcomes now resolve to canonical rich-result surfaces** — `app/services/tool_presentation.py` no longer stamps edit/diff file operations as lightweight transcript rows, the frontend surface resolver forces inline diff envelopes to `rich_result`, and the focused transcript-model + tool-presentation tests now pin that contract.
+- [x] **Assistant turn bodies now ride one canonical `assistant_turn_body` contract end-to-end** — `app/agent/loop.py` now stamps `_assistant_turn_body`, `persist_turn()` stores `metadata.assistant_turn_body`, legacy `_transcript_entries` upgrade once for old rows, and `finishTurn()` writes the same shape so live, synthetic-settled, and refetched rows all feed one assistant-body model instead of parallel transcript reconstruction paths.
+- [x] **Streaming and persisted assistant rows now share one canonical builder without live-only drift** — both `StreamingIndicator` and `MessageBubble` now call `buildAssistantTurnBodyItems(...)`, backend-selected `surface` wins for canonical tool calls, and `buildLiveToolEntries(...)` no longer force-tints completed tool rows, so streaming/persisted transcript rows match in order, surfaces, labels, previews, and default detail behavior.
+- [x] **Terminal/default assistant body rendering now goes through one row path** — `TerminalToolTranscript.tsx` is gone, `MessageBubble`'s persisted fallback renderer was removed, and both modes route ordered assistant-body items through `OrderedTranscript` with `chatMode` only affecting shell/style.
+- [x] **Non-diff transcript tools now keep useful inline detail after settle/reload** — `tool_presentation.py` now emits `preview_text` for `get_current_local_time` / `get_current_time`, `get_skill` / `load_skill`, and generic transcript rows, and the shared transcript-row model carries that preview inline or via expansion instead of degrading to lightweight settled rows.
+- [x] **Default-mode composer width is now centralized instead of page-wrapper drift** — `ChatComposerShell` owns the `max-w-[820px] px-4` constraint and wraps every `MessageInput` mount in the main channel page and `ChatSession`, so default mode follows one width/container path while terminal mode remains a pass-through shell.
 
 ### Additional Verification
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_tool_presentation.py tests/unit/test_turn_event_emit.py -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/stores/chat.test.js`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 30s npx tsc --noEmit --pretty false`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node_modules/.bin/tsc -p tsconfig.chat-tests.json`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/slashCommandRequest.test.js .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/components/chat/renderArchitecture.test.js .chat-test-dist/stores/chat.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after slash-command surface scoping fix (`StreamingIndicator` stale `hasTranscriptEntries` reference cleaned up in the same pass)
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after native widget renderer split (`NativeAppRenderer` → registry + per-widget modules)
+- [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_tool_presentation.py tests/unit/test_turn_event_emit.py tests/unit/test_sessions.py tests/unit/test_loop_helpers.py -q`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/stores/chat.test.js .chat-test-dist/components/chat/renderArchitecture.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit`
+- [ ] `cd /home/mtoth/personal/agent-server && timeout 30s pytest tests/integration/test_sessions_router.py::TestSessionMessagesRouter::test_get_session_messages_hides_internal_rows_but_keeps_pipeline_steps -q` timed out under the sandbox wrapper without surfacing pytest output; rerun in a normal shell is still needed for a clean summary line.

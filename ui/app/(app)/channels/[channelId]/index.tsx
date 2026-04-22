@@ -12,6 +12,7 @@ import { MobileFileViewerSlide } from "./MobileFileViewerSlide";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
 import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
+import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { useChatStore } from "@/src/stores/chat";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
@@ -918,7 +919,9 @@ export default function ChatScreen() {
       {inputBars.map((h) => (
         <HudInputBar key={h.key} hud={h} />
       ))}
-      <MessageInput {...messageInputProps} />
+      <ChatComposerShell chatMode={chatMode}>
+        <MessageInput {...messageInputProps} />
+      </ChatComposerShell>
     </>
   ) : null;
 
@@ -1140,7 +1143,9 @@ export default function ChatScreen() {
               {inputBars.map((h) => (
                 <HudInputBar key={h.key} hud={h} />
               ))}
-              <MessageInput {...messageInputProps} />
+              <ChatComposerShell chatMode={chatMode}>
+                <MessageInput {...messageInputProps} />
+              </ChatComposerShell>
             </div>
             )}
           </div>
@@ -1288,9 +1293,9 @@ export default function ChatScreen() {
                   {inputBars.map((h) => (
                     <HudInputBar key={h.key} hud={h} />
                   ))}
-                  <div className="w-full mx-auto max-w-[820px] px-4">
+                  <ChatComposerShell chatMode={chatMode}>
                     <MessageInput {...messageInputProps} />
-                  </div>
+                  </ChatComposerShell>
                 </div>
                 )}
               </div>
@@ -1677,20 +1682,22 @@ function ThreadFullScreenBody({
               {sendError}
             </div>
           )}
-          <MessageInput
-            onSend={handleSend}
-            disabled={!botId}
-            isStreaming={isSending}
-            currentBotId={botId}
-            channelId={threadSessionId}
-            modelOverride={modelOverride}
-            modelProviderIdOverride={modelProviderId}
-            onModelOverrideChange={(m, providerId) => {
-              setModelOverride(m ?? undefined);
-              setModelProviderId(providerId ?? null);
-            }}
-            chatMode={chatMode}
-          />
+          <ChatComposerShell chatMode={chatMode}>
+            <MessageInput
+              onSend={handleSend}
+              disabled={!botId}
+              isStreaming={isSending}
+              currentBotId={botId}
+              channelId={threadSessionId}
+              modelOverride={modelOverride}
+              modelProviderIdOverride={modelProviderId}
+              onModelOverrideChange={(m, providerId) => {
+                setModelOverride(m ?? undefined);
+                setModelProviderId(providerId ?? null);
+              }}
+              chatMode={chatMode}
+            />
+          </ChatComposerShell>
         </div>
       </div>
     </div>

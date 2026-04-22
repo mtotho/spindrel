@@ -144,41 +144,43 @@ export function SessionPlanCard({
                     {step.note && <div style={{ fontSize: 12, color: t.textMuted, marginTop: 4 }}>{step.note}</div>}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {step.status !== "in_progress" && plan.mode !== "planning" && (
-                    <button
-                      type="button"
-                      onClick={() => onStepStatus(step.id, "in_progress")}
-                      disabled={busy}
-                      className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
-                      style={{ borderColor: t.surfaceBorder, background: t.surfaceRaised, color: t.textMuted }}
-                    >
-                      In Progress
-                    </button>
-                  )}
-                  {step.status !== "done" && (
-                    <button
-                      type="button"
-                      onClick={() => onStepStatus(step.id, "done")}
-                      disabled={busy}
-                      className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
-                      style={{ borderColor: t.successBorder, background: t.successSubtle, color: t.success }}
-                    >
-                      Done
-                    </button>
-                  )}
-                  {step.status !== "blocked" && (
-                    <button
-                      type="button"
-                      onClick={() => onStepStatus(step.id, "blocked")}
-                      disabled={busy}
-                      className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
-                      style={{ borderColor: t.dangerBorder, background: t.dangerSubtle, color: t.danger }}
-                    >
-                      Blocked
-                    </button>
-                  )}
-                </div>
+                {plan.mode !== "planning" ? (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {step.status !== "in_progress" && (
+                      <button
+                        type="button"
+                        onClick={() => onStepStatus(step.id, "in_progress")}
+                        disabled={busy}
+                        className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
+                        style={{ borderColor: t.surfaceBorder, background: t.surfaceRaised, color: t.textMuted }}
+                      >
+                        In Progress
+                      </button>
+                    )}
+                    {step.status !== "done" && (
+                      <button
+                        type="button"
+                        onClick={() => onStepStatus(step.id, "done")}
+                        disabled={busy}
+                        className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
+                        style={{ borderColor: t.successBorder, background: t.successSubtle, color: t.success }}
+                      >
+                        Done
+                      </button>
+                    )}
+                    {step.status !== "blocked" && (
+                      <button
+                        type="button"
+                        onClick={() => onStepStatus(step.id, "blocked")}
+                        disabled={busy}
+                        className="inline-flex h-8 items-center rounded-full border px-3 text-[11px] font-medium"
+                        style={{ borderColor: t.dangerBorder, background: t.dangerSubtle, color: t.danger }}
+                      >
+                        Blocked
+                      </button>
+                    )}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>

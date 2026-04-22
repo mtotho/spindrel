@@ -115,11 +115,14 @@ class TestTranscriptEntryHelpers:
             {
                 "role": "assistant",
                 "content": "Done.",
-                "_transcript_entries": [
-                    {"id": "text:1", "kind": "text", "text": "First file edit."},
-                    {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
-                    {"id": "text:2", "kind": "text", "text": "Done."},
-                ],
+                "_assistant_turn_body": {
+                    "version": 1,
+                    "items": [
+                        {"id": "text:1", "kind": "text", "text": "First file edit."},
+                        {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+                        {"id": "text:2", "kind": "text", "text": "Done."},
+                    ],
+                },
             },
         ]
 

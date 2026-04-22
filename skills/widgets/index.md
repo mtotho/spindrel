@@ -194,6 +194,10 @@ When the user says *"build me a dashboard for X"*:
 
 For multi-step widget work, prefer the session-local web chat plan mode instead of keeping the whole implementation plan implicit in normal chat.
 
+Canonical spec:
+
+- `docs/planning/session-plan-mode.md`
+
 - use plan mode when the work needs discovery, sequencing, or explicit approval before edits
 - the plan stays in the current session; it is not a separate scratch-only workflow
 - planning mode can read/search, but code edits stay restricted to the active plan file until approval

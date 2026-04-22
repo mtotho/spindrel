@@ -80,6 +80,33 @@ def _first_nonempty(*values: Any) -> str | None:
     return None
 
 
+def _first_meaningful_line(text: str | None) -> str | None:
+    if not isinstance(text, str):
+        return None
+    for raw_line in text.splitlines():
+        clean = raw_line.strip()
+        if clean:
+            return clean
+    return None
+
+
+def _preview_text(
+    *,
+    envelope: Mapping[str, Any] | None,
+    result: str | None,
+) -> str | None:
+    preview = _normalize_label(_first_nonempty(
+        envelope.get("plain_body") if envelope else None,
+        _first_meaningful_line(cast(str | None, envelope.get("body")) if envelope else None),
+        _first_meaningful_line(result),
+    ))
+    if not preview:
+        return None
+    if preview.startswith("{") or preview.startswith("["):
+        return None
+    return preview
+
+
 def _diff_stats_from_text(text: str | None) -> dict[str, int] | None:
     if not text:
         return None
@@ -229,6 +256,21 @@ def derive_tool_presentation(
         if skill_id:
             summary["target_id"] = skill_id
             summary["target_label"] = _format_skill_ref(skill_id)
+        preview_text = _preview_text(envelope=envelope, result=result)
+        if preview_text:
+            summary["preview_text"] = preview_text
+        return "transcript", summary
+
+    if short_name in {"get_current_local_time", "get_current_time"}:
+        label = "Got current local time" if short_name == "get_current_local_time" else "Got current time"
+        summary = {
+            "kind": "result",
+            "subject_type": "generic",
+            "label": label,
+        }
+        preview_text = _preview_text(envelope=envelope, result=result)
+        if preview_text:
+            summary["preview_text"] = preview_text
         return "transcript", summary
 
     if short_name == "inspect_widget_pin":
@@ -273,11 +315,15 @@ def derive_tool_presentation(
         }
         return "rich_result", summary
 
-    return "transcript", {
+    summary = {
         "kind": "action",
         "subject_type": "generic",
         "label": tool_name.replace("_", " "),
     }
+    preview_text = _preview_text(envelope=envelope, result=result)
+    if preview_text and preview_text != summary["label"]:
+        summary["preview_text"] = preview_text
+    return "transcript", summary
 
 
 def extract_tool_call_name_and_arguments(tool_call: Mapping[str, Any]) -> tuple[str, str]:

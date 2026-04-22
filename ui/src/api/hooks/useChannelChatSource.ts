@@ -100,6 +100,7 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
             (!m.attachments || m.attachments.length === 0) &&
             !meta.tool_results &&
             (!m.tool_calls || m.tool_calls.length === 0) &&
+            !meta.assistant_turn_body &&
             !meta.transcript_entries
           )
             return false;

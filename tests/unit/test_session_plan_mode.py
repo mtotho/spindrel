@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from app.db.models import Session
 from app.services import session_plan_mode as spm
 
@@ -118,6 +120,57 @@ def test_done_step_auto_advances_and_finishes(monkeypatch, tmp_path):
     assert second.status == spm.PLAN_STATUS_DONE
     assert second.outcome == "all done"
     assert session.metadata_["plan_mode"] == spm.PLAN_MODE_DONE
+
+
+def test_cannot_update_step_status_before_plan_approval(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(session, title="Ship Widget")
+
+    with pytest.raises(spm.HTTPException) as excinfo:
+        spm.update_plan_step_status(session, step_id="clarify-scope", status=spm.STEP_STATUS_DONE)
+
+    assert excinfo.value.status_code == 409
+    assert "approved" in str(excinfo.value.detail).lower()
+
+
+def test_plan_context_only_mentions_subagents_when_enabled(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    monkeypatch.setattr(spm.settings, "PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED", False)
+    lines = spm.build_plan_mode_system_context(session)
+    assert all("spawn_subagents" not in line for line in lines)
+    assert all("delegate_to_agent" not in line for line in lines)
+
+    monkeypatch.setattr(spm.settings, "PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED", True)
+    lines = spm.build_plan_mode_system_context(session)
+    assert any("spawn_subagents" in line for line in lines)
+    assert all("delegate_to_agent" not in line for line in lines)
+
+
+def test_publish_plan_writes_revision_snapshot(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(session, title="Build Widget Planner")
+
+    plan = spm.publish_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Revision two",
+    )
+
+    snapshot = tmp_path.joinpath(
+        ".sessions",
+        str(session.id),
+        "plans",
+        ".revisions",
+        "build-widget-planner.r2.md",
+    )
+    assert plan.revision == 2
+    assert snapshot.exists()
+    assert "Revision: 2" in snapshot.read_text()
 
 
 def test_append_plan_artifact_persists(monkeypatch, tmp_path):

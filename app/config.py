@@ -499,6 +499,7 @@ class Settings(BaseSettings):
 
     # Agent
     AGENT_MAX_ITERATIONS: int = 15
+    PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED: bool = False
     # Cap on inner tool calls a single run_script invocation may dispatch via
     # /api/v1/internal/tools/exec. Defends against scripts that loop around
     # the loop-level max_iterations fence. Per-bot override on

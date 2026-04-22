@@ -830,6 +830,23 @@ export interface AttachmentBrief {
 }
 
 // Message types
+export type AssistantTurnBodyEntry =
+  | {
+      id: string;
+      kind: "text";
+      text: string;
+    }
+  | {
+      id: string;
+      kind: "tool_call";
+      toolCallId: string;
+    };
+
+export interface AssistantTurnBody {
+  version: 1;
+  items: AssistantTurnBodyEntry[];
+}
+
 export interface Message {
   id: string;
   session_id: string;

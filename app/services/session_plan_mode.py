@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.bots import get_bot
+from app.config import settings
 from app.db.models import Session
 from app.services.channel_workspace import ensure_channel_workspace
 
@@ -40,6 +41,9 @@ STEP_STATUS_PENDING = "pending"
 STEP_STATUS_IN_PROGRESS = "in_progress"
 STEP_STATUS_DONE = "done"
 STEP_STATUS_BLOCKED = "blocked"
+
+PLAN_MUTATING_TOOL_ALLOWLIST = frozenset({"publish_plan"})
+PLAN_GUIDED_SUBAGENT_TOOL = "spawn_subagents"
 
 _VALID_PLAN_MODES = {
     PLAN_MODE_CHAT,
@@ -385,6 +389,13 @@ def build_plan_path(session: Session, task_slug: str) -> str:
     return os.path.join(plan_dir, f"{task_slug}.md")
 
 
+def build_plan_snapshot_path(session: Session, task_slug: str, revision: int) -> str:
+    plan_path = build_plan_path(session, task_slug)
+    snapshot_dir = os.path.join(os.path.dirname(plan_path), ".revisions")
+    os.makedirs(snapshot_dir, exist_ok=True)
+    return os.path.join(snapshot_dir, f"{task_slug}.r{revision}.md")
+
+
 def write_session_plan_metadata(
     session: Session,
     *,
@@ -439,8 +450,13 @@ def load_session_plan(session: Session, *, required: bool = False) -> SessionPla
 
 def save_session_plan(session: Session, plan: SessionPlan, *, mode: str | None = None, accepted_revision: int | None = None) -> SessionPlan:
     plan_path = plan.path or build_plan_path(session, plan.task_slug)
+    rendered = render_plan_markdown(plan)
     Path(plan_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(plan_path).write_text(render_plan_markdown(plan))
+    Path(plan_path).write_text(rendered)
+    if plan.status == PLAN_STATUS_DRAFT:
+        snapshot_path = build_plan_snapshot_path(session, plan.task_slug, plan.revision)
+        if not os.path.exists(snapshot_path):
+            Path(snapshot_path).write_text(rendered)
     write_session_plan_metadata(
         session,
         mode=mode,
@@ -602,6 +618,32 @@ def _find_next_pending_step(plan: SessionPlan) -> PlanStep | None:
     return None
 
 
+def _accepted_plan_revision(session: Session) -> int:
+    accepted = (session.metadata_ or {}).get(PLAN_ACCEPTED_REVISION_METADATA_KEY)
+    try:
+        return int(accepted or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _ensure_plan_is_approved_for_execution(session: Session, plan: SessionPlan) -> int:
+    accepted_revision = _accepted_plan_revision(session)
+    if accepted_revision <= 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Execution status cannot change until the current plan revision is approved.",
+        )
+    if plan.revision != accepted_revision:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Execution status applies only to accepted revision {accepted_revision}. "
+                f"Revision {plan.revision} is still a draft."
+            ),
+        )
+    return accepted_revision
+
+
 def approve_session_plan(session: Session) -> SessionPlan:
     plan = load_session_plan(session, required=True)
     assert plan is not None
@@ -662,6 +704,7 @@ def update_plan_step_status(
         raise HTTPException(status_code=422, detail=f"Invalid step status: {status}")
     plan = load_session_plan(session, required=True)
     assert plan is not None
+    _ensure_plan_is_approved_for_execution(session, plan)
     step = next((item for item in plan.steps if item.id == step_id), None)
     if step is None:
         raise HTTPException(status_code=404, detail="Plan step not found.")
@@ -690,8 +733,8 @@ def update_plan_step_status(
                 other.status = STEP_STATUS_PENDING
         plan.status = PLAN_STATUS_EXECUTING
         return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING)
-    plan.status = PLAN_STATUS_APPROVED if (session.metadata_ or {}).get(PLAN_ACCEPTED_REVISION_METADATA_KEY) else PLAN_STATUS_DRAFT
-    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING if plan.status == PLAN_STATUS_DRAFT else PLAN_MODE_EXECUTING)
+    plan.status = PLAN_STATUS_APPROVED
+    return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING)
 
 
 def list_session_plans(session: Session, *, status: str | None = None) -> list[dict[str, Any]]:
@@ -733,13 +776,19 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
     lines: list[str] = []
     if plan is None:
         if mode == PLAN_MODE_PLANNING:
-            return [
+            lines = [
                 "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
                 "Your first job in plan mode is to narrow scope. Ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
                 "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",
                 "Do not publish a plan until the user has answered the key scope questions or explicitly said to proceed with assumptions.",
                 "When you are ready to propose the actual plan, use publish_plan instead of writing a giant markdown response in chat. Keep conversational replies short and scoped to the next decision.",
             ]
+            if settings.PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED:
+                lines.append(
+                    f"If independent read-heavy research would materially speed up planning, you may use {PLAN_GUIDED_SUBAGENT_TOOL} for bounded parallel exploration. "
+                    "Do not use cross-bot delegation from plan mode."
+                )
+            return lines
         return []
     path = plan.path or get_session_active_plan_path(session) or "<unknown>"
     if mode == PLAN_MODE_PLANNING:
@@ -751,6 +800,11 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Current revision: {plan.revision} ({plan.status})")
         lines.append("Use publish_plan for plan revisions instead of dumping long markdown into chat. If more user input is needed, prefer ask_plan_questions.")
+        if settings.PLAN_MODE_SUBAGENT_GUIDANCE_ENABLED:
+            lines.append(
+                f"If planning requires independent read-only side research, {PLAN_GUIDED_SUBAGENT_TOOL} is allowed for bounded exploration. "
+                "Keep cross-bot delegation out of plan mode unless explicitly reviewed."
+            )
         if plan.open_questions:
             lines.append("Outstanding questions:\n" + "\n".join(f"- {item}" for item in plan.open_questions))
     elif mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:
@@ -779,4 +833,54 @@ def path_allowed_for_plan_write(session: Session, resolved_path: str) -> bool:
     active_plan_path = get_session_active_plan_path(session)
     if not active_plan_path:
         return False
-    return os.path.realpath(active_plan_path) == os.path.realpath(resolved_path)
+    real_target = os.path.realpath(resolved_path)
+    if os.path.realpath(active_plan_path) == real_target:
+        return True
+    task_slug = (session.metadata_ or {}).get(PLAN_SLUG_METADATA_KEY)
+    revision = (session.metadata_ or {}).get(PLAN_REVISION_METADATA_KEY)
+    if task_slug and revision:
+        snapshot_path = build_plan_snapshot_path(session, str(task_slug), int(revision))
+        if os.path.realpath(snapshot_path) == real_target:
+            return True
+    return False
+
+
+def tool_allowed_in_plan_mode(
+    session: Session,
+    *,
+    tool_name: str,
+    tool_kind: str,
+    safety_tier: str | None = None,
+) -> bool:
+    if get_session_plan_mode(session) != PLAN_MODE_PLANNING:
+        return True
+    if tool_kind == "local":
+        if tool_name in PLAN_MUTATING_TOOL_ALLOWLIST:
+            return True
+        return safety_tier not in {"mutating", "exec_capable", "control_plane"}
+    if tool_kind in {"client", "widget"}:
+        return False
+    return True
+
+
+def plan_mode_tool_denial_reason(
+    session: Session,
+    *,
+    tool_name: str,
+    tool_kind: str,
+    safety_tier: str | None = None,
+) -> str | None:
+    if tool_allowed_in_plan_mode(
+        session,
+        tool_name=tool_name,
+        tool_kind=tool_kind,
+        safety_tier=safety_tier,
+    ):
+        return None
+    if tool_name == "file":
+        return "Plan mode is active. Direct file mutations are disabled while drafting; use publish_plan to revise the canonical plan."
+    if tool_kind in {"client", "widget"}:
+        return "Plan mode is active. Interactive or client-side actions are disabled while drafting the plan."
+    if safety_tier in {"exec_capable", "control_plane"}:
+        return f"Plan mode is active. Tool '{tool_name}' is disabled until the plan is approved."
+    return f"Plan mode is active. Tool '{tool_name}' cannot mutate state while the plan is still a draft."

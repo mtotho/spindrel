@@ -278,12 +278,12 @@ export function DefaultToolRows({
                   {"→"} {entry.target}
                 </span>
               )}
-              {!isExpanded && entry.env && entry.detailKind === "expandable" && (
+              {!isExpanded && entry.detailKind === "expandable" && (entry.previewText || entry.env) && (
                 <span
                   className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap max-w-[360px]"
                   style={{ color: toneColor(entry.isError, t) }}
                 >
-                  {resultSummary(entry.env)}
+                  {entry.previewText || resultSummary(entry.env)}
                 </span>
               )}
               {entry.env && !expandable && entry.detailKind !== "collapsed-read" && (
