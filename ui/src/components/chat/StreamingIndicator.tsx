@@ -10,6 +10,39 @@ import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
+function TerminalThinkingStatus({
+  color,
+  dimColor,
+  compact = false,
+}: {
+  color: string;
+  dimColor: string;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "row",
+        alignItems: "center",
+        padding: compact ? "2px 0 0" : "4px 0",
+        color,
+        fontFamily: TERMINAL_FONT_STACK,
+        fontSize: 13,
+        lineHeight: 1.35,
+        letterSpacing: 0.1,
+      }}
+    >
+      <span style={{ color: dimColor }}>(</span>
+      <span>thinking</span>
+      <span className="terminal-thinking-dot" style={{ animationDelay: "0s" }}>.</span>
+      <span className="terminal-thinking-dot" style={{ animationDelay: "0.2s" }}>.</span>
+      <span className="terminal-thinking-dot" style={{ animationDelay: "0.4s" }}>.</span>
+      <span style={{ color: dimColor }}>)</span>
+    </div>
+  );
+}
+
 // Deterministic color from string hash (same as MessageBubble)
 function avatarColor(name: string): string {
   let hash = 0;
@@ -126,12 +159,16 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
         </div>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
-          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-          <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
-          <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>Processing...</span>
-        </div>
+        {isTerminalMode ? (
+          <TerminalThinkingStatus color={t.textMuted} dimColor={t.textDim} />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
+            <span style={{ fontSize: 13, color: t.textMuted, marginLeft: 2 }}>Processing...</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -748,6 +785,8 @@ export function StreamingIndicator({
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 0" }}>
             {llmStatus ? (
               <LlmStatusBadge status={llmStatus} t={t} />
+            ) : isTerminalMode ? (
+              <TerminalThinkingStatus color={t.textMuted} dimColor={t.textDim} compact />
             ) : (
               <>
                 <span className="typing-dot" style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: t.textDim, display: "inline-block" }} />
@@ -769,19 +808,23 @@ export function StreamingIndicator({
             the only visible activity is tool use / thinking and no text delta
             is currently streaming. */}
         {showFooterCursor && (
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: isTerminalMode ? "4px 0 0" : "6px 0 0" }}>
-            <span
-              aria-label="Still streaming"
-              style={{
-                display: "inline-block",
-                width: 2,
-                height: 17,
-                backgroundColor: t.purple,
-                opacity: 0.8,
-                animation: "blink 1s step-end infinite",
-              }}
-            />
-          </div>
+          isTerminalMode ? (
+            <TerminalThinkingStatus color={t.textMuted} dimColor={t.textDim} compact />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: "6px 0 0" }}>
+              <span
+                aria-label="Still streaming"
+                style={{
+                  display: "inline-block",
+                  width: 2,
+                  height: 17,
+                  backgroundColor: t.purple,
+                  opacity: 0.8,
+                  animation: "blink 1s step-end infinite",
+                }}
+              />
+            </div>
+          )
         )}
       </div>
     </div>

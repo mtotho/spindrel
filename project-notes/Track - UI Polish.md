@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-21 (scratch menu no longer exposes backend "current" concept; terminal mode keeps assistant text alongside tool transcripts; tool-only streaming cursor kept visible)
+updated: 2026-04-21 (terminal mode input contrast + thinking indicator + mobile gutters polished)
 ---
 # Track — UI Polish
 
@@ -86,10 +86,14 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Live web chat now uses an ordered streaming transcript** — in-flight turns no longer render as separate “thinking section + tool section + text section” buckets. `ui/src/stores/chat.ts` now keeps ordered `transcriptEntries[]` for each live turn, and `StreamingIndicator.tsx` renders that sequence so tool activity stays interleaved with assistant text in the Codex/CUA style instead of grouping all tool cards at the end.
 - [x] **Thinking moved to a collapsed top-of-turn block in web chat** — live reasoning stays visible when providers emit it, but it now renders as a compact expandable section above the assistant transcript rather than a permanently open inline dump. Synthetic turn-finalization also carries `metadata.thinking`, so the handoff from live streaming to the settled assistant message is consistent.
 - [x] **Web settings copy no longer implies the integration-only thinking knob affects chat** — the channel General tab now labels `thinking_display` as `Integration thinking display` and explicitly says web chat uses the built-in transcript + collapsed thinking layout.
+- [x] **Terminal mobile gutters tuned** — the terminal footer lane is now centered through the shared `ChatMessageArea` max-width wrapper, which gives mobile the same left/right gutter for the composer and model label that default chat already had without restyling the composer itself.
+- [x] **Terminal input contrast tuned without restyling the composer** — terminal-mode `MessageInput` now uses a slightly brighter existing surface fill only. No border, radius, or footer chrome was added; the change is limited to making the input read a bit more clearly against the page background.
+- [x] **Terminal streaming indicator reads like a console status line** — terminal-mode `StreamingIndicator` / `ProcessingIndicator` now render a monospace `(thinking...)` line with animated dots instead of the default bubble-style typing dots / lone blinking cursor whenever the turn is alive but text has not yet arrived.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
 - [x] `cd agent-server/ui && timeout 20s ./node_modules/.bin/tsc --noEmit --pretty false`
+- [x] `cd agent-server/ui && npx tsc --noEmit` after terminal-mode composer/indicator polish
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
 - [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
 - [ ] Targeted pytest remains flaky in this sandbox:

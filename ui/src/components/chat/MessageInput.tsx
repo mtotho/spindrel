@@ -457,7 +457,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
             style={{
               display: "flex",
               flexDirection: "column",
-              background: isTerminalMode ? `${t.surfaceRaised}` : `${t.surfaceRaised}d9`,
+              background: isTerminalMode ? t.overlayLight : `${t.surfaceRaised}d9`,
               backdropFilter: isTerminalMode ? undefined : "blur(14px)",
               WebkitBackdropFilter: isTerminalMode ? undefined : "blur(14px)",
               borderRadius: isTerminalMode ? 0 : compactLayout ? 14 : 20,

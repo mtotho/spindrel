@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThemeTokens } from "@/src/theme/tokens";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import { apiFetch } from "@/src/api/client";
@@ -78,22 +78,21 @@ function NativeNotesWidget({
   const dashboardBroadcast = useDashboardPinsStore((s) => s.broadcastEnvelope);
   const channelBroadcast = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
   const [currentEnvelope, setCurrentEnvelope] = useState(envelope);
-  const [editing, setEditing] = useState(false);
   const currentPayload = useMemo(() => parsePayload(currentEnvelope), [currentEnvelope]);
   const body = String(currentPayload.state?.body ?? "");
-  const createdAt = String(currentPayload.state?.created_at ?? "");
   const updatedAt = String(currentPayload.state?.updated_at ?? "");
   const [draft, setDraft] = useState(body);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pendingSaveRef = useRef<string | null>(null);
 
   useEffect(() => {
     setCurrentEnvelope(envelope);
   }, [envelope]);
 
   useEffect(() => {
-    if (!editing) setDraft(body);
-  }, [body, editing]);
+    setDraft(body);
+  }, [body]);
 
   const widgetInstanceId = currentPayload.widget_instance_id;
   if (!widgetInstanceId) {
@@ -101,6 +100,9 @@ function NativeNotesWidget({
   }
 
   const save = async (nextBody: string) => {
+    const normalized = nextBody.replace(/\r\n/g, "\n");
+    if (normalized === body || pendingSaveRef.current === normalized) return;
+    pendingSaveRef.current = normalized;
     setSaving(true);
     setError(null);
     try {
@@ -114,7 +116,7 @@ function NativeNotesWidget({
             dashboard_pin_id: dashboardPinId,
             widget_instance_id: widgetInstanceId,
             action: "replace_body",
-            args: { body: nextBody },
+            args: { body: normalized },
           }),
         },
       );
@@ -122,108 +124,73 @@ function NativeNotesWidget({
         throw new Error(resp.error ?? "Save failed");
       }
       setCurrentEnvelope(resp.envelope);
-      setEditing(false);
       if (dashboardPinId) dashboardBroadcast(currentPayload.widget_ref || "core/notes_native", resp.envelope);
       if (channelId) channelBroadcast(channelId, currentPayload.widget_ref || "core/notes_native", resp.envelope);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed");
     } finally {
+      pendingSaveRef.current = null;
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!widgetInstanceId || draft === body) return;
+    const handle = window.setTimeout(() => {
+      void save(draft);
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [draft, body, widgetInstanceId]);
 
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 12,
+        gap: 10,
         minHeight: "100%",
       }}
     >
-      {editing ? (
-        <>
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            style={{
-              minHeight: 180,
-              width: "100%",
-              resize: "vertical",
-              borderRadius: 10,
-              border: `1px solid ${t.inputBorder}`,
-              background: t.inputBg,
-              color: t.text,
-              padding: 12,
-              fontSize: 13,
-              lineHeight: 1.6,
-            }}
-          />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 12, color: t.textDim }}>Markdown/plain text supported.</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" onClick={() => { setDraft(body); setEditing(false); }} style={buttonStyle(t, "subtle")} disabled={saving}>
-                Cancel
-              </button>
-              <button type="button" onClick={() => save(draft)} style={buttonStyle(t, "primary")} disabled={saving}>
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
-          <div
-            style={{
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              minHeight: 120,
-              color: body.trim() ? t.text : t.textMuted,
-              fontSize: 13,
-              lineHeight: 1.65,
-            }}
-          >
-            {body.trim() || "No notes yet. Use this pinned scratchpad for reminders, context, or handoff notes."}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12, color: t.textDim }}>
-              <span>{updatedAt ? `Updated ${new Date(updatedAt).toLocaleString()}` : "Not saved yet"}</span>
-              <span>{createdAt ? `Created ${new Date(createdAt).toLocaleString()}` : ""}</span>
-            </div>
-            <button type="button" onClick={() => setEditing(true)} style={buttonStyle(t, "subtle")}>
-              Edit note
-            </button>
-          </div>
-        </>
-      )}
-      {error ? <div style={{ fontSize: 12, color: t.danger }}>{error}</div> : null}
+      <textarea
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          if (error) setError(null);
+        }}
+        onBlur={() => {
+          if (draft !== body) void save(draft);
+        }}
+        placeholder="No notes yet. Use this pinned scratchpad for reminders, context, or handoff notes."
+        style={{
+          minHeight: 180,
+          flex: 1,
+          width: "100%",
+          resize: "none",
+          border: "none",
+          outline: "none",
+          background: "transparent",
+          color: t.text,
+          padding: 0,
+          fontSize: 13,
+          lineHeight: 1.7,
+        }}
+      />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: error ? t.danger : t.textDim }}>
+        <span>
+          {error
+            ? error
+            : saving
+              ? "Saving..."
+              : updatedAt
+                ? `Updated ${new Date(updatedAt).toLocaleString()}`
+                : "Autosaves after you stop typing."}
+        </span>
+        <span style={{ color: t.textDim }}>
+          Plain text or markdown
+        </span>
+      </div>
     </div>
   );
-}
-
-function buttonStyle(t: ThemeTokens, variant: "primary" | "subtle") {
-  if (variant === "primary") {
-    return {
-      borderRadius: 9,
-      border: `1px solid ${t.accentBorder}`,
-      background: t.accent,
-      color: t.text,
-      padding: "7px 12px",
-      fontSize: 12,
-      fontWeight: 600,
-      cursor: "pointer",
-    } as const;
-  }
-  return {
-    borderRadius: 9,
-    border: `1px solid ${t.surfaceBorder}`,
-    background: t.surfaceRaised,
-    color: t.text,
-    padding: "7px 12px",
-    fontSize: 12,
-    fontWeight: 500,
-    cursor: "pointer",
-  } as const;
 }
 
 export function NativeAppRenderer({

@@ -277,8 +277,8 @@ export function ChatMessageArea({
           className="w-full mx-auto"
           style={{
             maxWidth: 820,
-            paddingLeft: isTerminalMode ? 0 : 16,
-            paddingRight: isTerminalMode ? 0 : 16,
+            paddingLeft: 16,
+            paddingRight: 16,
           }}
         >
           {isTerminalMode ? terminalFooterContent : defaultFooterContent}

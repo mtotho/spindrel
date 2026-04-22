@@ -23,8 +23,10 @@ async def test_lists_core_widgets():
     data = _parse(raw)
     assert data["count"] > 0
     names = {w["name"] for w in data["widgets"]}
-    # ``notes`` and ``context_tracker`` are known-shipping core bundles.
-    assert "notes" in names
+    # ``notes_native`` is the supported Notes library entry; the older HTML
+    # bundle stays on disk for compatibility but should no longer surface in
+    # the discoverable library.
+    assert "notes" not in names
     assert "notes_native" in names
     # Every entry carries the required fields.
     for widget in data["widgets"]:

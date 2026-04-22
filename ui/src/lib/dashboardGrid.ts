@@ -30,6 +30,13 @@ export interface DashboardChrome {
   hideTitles: boolean;
 }
 
+/** Per-pin override for the host wrapper surface.
+ *  - "inherit" (default): follow the host chrome default
+ *  - "surface": force the host wrapper to render its outer surface
+ *  - "plain": force a transparent/minimal host wrapper
+ */
+export type WrapperSurfaceOverride = "inherit" | "surface" | "plain";
+
 export const DEFAULT_CHROME: DashboardChrome = {
   borderless: false,
   hoverScrollbars: false,
@@ -61,6 +68,16 @@ export function resolveShowTitle(
   if (raw === "show") return true;
   if (raw === "hide") return false;
   return !chrome.hideTitles;
+}
+
+export function resolveWrapperSurface(
+  chrome: DashboardChrome,
+  widgetConfig: Record<string, unknown> | null | undefined,
+): "surface" | "plain" {
+  const raw = widgetConfig?.wrapper_surface;
+  if (raw === "surface") return "surface";
+  if (raw === "plain") return "plain";
+  return chrome.borderless ? "plain" : "surface";
 }
 
 export type SizePresetId = "S" | "M" | "L" | "XL";

@@ -290,11 +290,13 @@ class TestLibraryWidgetsEndpoint:
         # At minimum the todo reference widget ships with the server.
         names = {e["name"] for e in body["core"]}
         assert "todo" in names
+        assert "notes_native" in names
+        assert "notes" not in names
         for e in body["core"]:
             assert e["scope"] == "core"
             # Template-format entries (tool renderers) are filtered out —
             # they can't be pinned without runtime args.
-            assert e["format"] in {"html", "suite"}
+            assert e["format"] in {"html", "suite", "native_app"}
 
     @pytest.mark.asyncio
     async def test_core_excludes_template_renderer_entries(self, client):

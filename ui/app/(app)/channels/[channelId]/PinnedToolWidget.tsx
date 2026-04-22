@@ -24,7 +24,11 @@ import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedW
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
 import { formatRelativeTime } from "@/src/utils/format";
-import { DEFAULT_CHROME, resolveShowTitle } from "@/src/lib/dashboardGrid";
+import {
+  DEFAULT_CHROME,
+  resolveShowTitle,
+  resolveWrapperSurface,
+} from "@/src/lib/dashboardGrid";
 
 const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
 // Session-local freshness cache so dashboard <-> chat route switches don't
@@ -44,6 +48,14 @@ function resolveDisplayName(widget: PinnedWidget): string {
   const toolShort = cleanToolName(widget.tool_name);
   if (widget.display_name && widget.display_name !== toolShort) return widget.display_name;
   return toolShort;
+}
+
+function resolvePinnedTitle(widget: PinnedWidget): string {
+  const toolShort = cleanToolName(widget.tool_name);
+  if (widget.display_name && widget.display_name !== toolShort) return widget.display_name;
+  const rawPanelTitle = widget.envelope?.panel_title;
+  if (typeof rawPanelTitle === "string" && rawPanelTitle.trim()) return rawPanelTitle.trim();
+  return resolveDisplayName(widget);
 }
 
 interface PinnedToolWidgetProps {
@@ -500,12 +512,14 @@ export function PinnedToolWidget({
     return null;
   }
 
-  // Borderless mode drops the border + borderColor entirely so the tiles read
-  // as a clean grid of content blocks rather than admin chrome. Callers pass
-  // this from the per-dashboard `grid_config.borderless` flag — applies
-  // consistently across all rendering surfaces (dashboard grid, OmniPanel
-  // rail, WidgetDockRight).
-  const showBorder = !borderless;
+  // Wrapper surface is host-owned chrome: inherit follows dashboard chrome,
+  // but per-pin config can force a surfaced shell or a plain transparent one.
+  const wrapperSurface = resolveWrapperSurface(
+    { ...DEFAULT_CHROME, borderless, hoverScrollbars, hideTitles },
+    (widgetConfig ?? null) as Record<string, unknown> | null,
+  );
+  const showBorder = wrapperSurface === "surface";
+  const showWrapperBackground = wrapperSurface === "surface";
   const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
   // Edit-mode dashboard pins get their drag transform/transition from the
   // external DndContext; view-mode dashboard pins skip all drag styling;
@@ -554,11 +568,10 @@ export function PinnedToolWidget({
   const ctrlIconSize = isDashboard ? 14 : 12;
 
   const cardBorderClass = showBorder ? "border" : "";
-  const resolvedPanelTitle = (() => {
-    const raw = currentEnvelope?.panel_title;
-    if (typeof raw === "string" && raw.trim()) return raw.trim();
-    return resolveDisplayName(widget);
-  })();
+  const resolvedPanelTitle = resolvePinnedTitle({
+    ...widget,
+    envelope: currentEnvelope,
+  });
 
   // Title row is always present in channel-scope chips (for drag DOM).
   // Dashboard + rail tiles honor the dashboard's hide_titles flag plus the
@@ -597,10 +610,10 @@ export function PinnedToolWidget({
           // No left padding in view mode: iframe content fills flush to the
           // rounded border so the chip's raised bg doesn't leak through as a
           // white gap beside widget content (notably error banners).
-          "group flex h-8 items-center rounded-md border overflow-hidden transition-colors "
+          "group flex h-8 items-center rounded-md overflow-hidden transition-colors "
           + (chipEditable
-            ? "border-accent/50 bg-accent/[0.08] hover:bg-accent/[0.14] pl-1 pr-1 "
-            : "border-surface-border/60 bg-surface-raised/40 pr-1 ")
+            ? `${showBorder ? "border border-accent/50 " : ""}bg-accent/[0.08] hover:bg-accent/[0.14] pl-1 pr-1 `
+            : `${showBorder ? "border border-surface-border/60 " : ""}${showWrapperBackground ? "bg-surface-raised/40 " : ""}pr-1 `)
           + (externalDrag ? "w-full" : "w-[180px]")
         }
         title={resolveDisplayName(widget)}
@@ -656,7 +669,7 @@ export function PinnedToolWidget({
   return (
     <div
       ref={rootRef}
-      className={`group relative rounded-lg ${cardBorderClass} transition-colors duration-150 hover:bg-white/[0.02] ${cardSizeClass}`}
+      className={`group relative rounded-lg ${cardBorderClass} ${showWrapperBackground ? "bg-surface-raised/40 hover:bg-white/[0.02]" : ""} transition-colors duration-150 ${cardSizeClass}`}
       style={sortableStyle}
       {...rootAttrs}
     >
@@ -836,7 +849,7 @@ export function PinnedToolWidget({
         {showIframeSkeleton && (
           <div
             className="absolute inset-0 px-2 pb-2 pt-0 flex flex-col gap-1.5 animate-pulse pointer-events-none"
-            style={{ background: t.surface }}
+            style={{ background: showWrapperBackground ? t.surface : "transparent" }}
             aria-hidden
           >
             <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />

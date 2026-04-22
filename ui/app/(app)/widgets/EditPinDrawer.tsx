@@ -187,6 +187,18 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     else nextConfig.show_title = next;
     setJsonText(prettyJson(nextConfig));
   };
+  const currentWrapperSurface: "inherit" | "surface" | "plain" = (() => {
+    const raw = parsedConfig?.wrapper_surface;
+    if (raw === "surface" || raw === "plain") return raw;
+    return "inherit";
+  })();
+  const setWrapperSurface = (next: "inherit" | "surface" | "plain") => {
+    if (!parsedConfig) return;
+    const nextConfig: Record<string, unknown> = { ...parsedConfig };
+    if (next === "inherit") delete nextConfig.wrapper_surface;
+    else nextConfig.wrapper_surface = next;
+    setJsonText(prettyJson(nextConfig));
+  };
 
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
@@ -503,6 +515,42 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             </p>
           </div>
 
+          <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+              Appearance
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {([
+                ["inherit", "Inherit"],
+                ["surface", "Surface"],
+                ["plain", "Plain"],
+              ] as const).map(([opt, label]) => {
+                const active = currentWrapperSurface === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    disabled={jsonError}
+                    onClick={() => setWrapperSurface(opt)}
+                    className={
+                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors "
+                      + (active
+                        ? "border-accent/60 bg-accent/10 text-accent"
+                        : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                      + " disabled:opacity-50 disabled:cursor-not-allowed"
+                    }
+                    aria-pressed={active}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-text-muted leading-snug">
+              Control whether the host wrapper draws the outer widget surface. Plain leaves the wrapper transparent so the widget can provide its own interior treatment.
+            </p>
+          </div>
+
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
@@ -594,4 +642,3 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     </>
   );
 }
-

@@ -54,6 +54,8 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - **Declared action schemas are mandatory for bot exposure.** Any widget action surfaced through `invoke_widget_action` must declare an input schema first; undeclared actions stay off the public bot surface.
 - **Theming stays small.** Native app widgets inherit the app's existing light/dark theme tokens only. Widget-specific theming remains an HTML-lane concern unless the app adopts a broader theming platform later.
 - **First proving widget is native Notes.** Use a small flagship widget (`core/notes_native`) to validate the model before expanding the native lane.
+- **Outer widget chrome belongs to the host wrapper.** Title bars and the outer surfaced-vs-plain shell are host concerns (`show_title`, `wrapper_surface`); widgets should not duplicate that chrome internally.
+- **Legacy HTML Notes is compatibility-only.** Keep the old bundle on disk for existing pins/direct refs, but hide it from library discovery so new Notes placements use `notes_native`.
 
 ### Skill/Tool Model Replaces Product "Capabilities"
 **Decided 2026-04-21.** The app will not have a first-class capability/carapace product model going forward. The only product concepts are skills, tools, and enrollment of each.

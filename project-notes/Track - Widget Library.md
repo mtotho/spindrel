@@ -228,6 +228,12 @@ Verification:
 - `npx tsc --noEmit` passed in `ui/`
 - Targeted native integration coverage was added to `tests/integration/test_dashboard_tools.py`, but the current shell wrapper again failed to produce a trustworthy completion signal for the focused `pytest -k native` run in-session
 
+Follow-up polish landed later the same day:
+
+- **Wrapper chrome now owns the outer title/background contract.** Per-pin `widget_config.show_title` remains the title-bar override, and a new sibling `widget_config.wrapper_surface` (`inherit` / `surface` / `plain`) lets the host wrapper decide whether it draws the outer shell or leaves the widget on a plain transparent surface.
+- **Native Notes was simplified into an always-editable scratchpad.** The explicit edit/save mode, internal title, and action button were removed; Notes now renders as a single autosaving textarea so the host wrapper's title bar is the only outer header.
+- **Old HTML Notes is retired from discovery, not deleted.** The legacy `notes` HTML bundle still exists for compatibility with existing pins and direct refs, but it no longer appears in core library/catalog listing. New Notes placements go through `notes_native`.
+
 ## MVP decision — FS-backed, not DB-backed
 
 Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/<name>/` on the host FS (not a `bot_widgets` DB table as originally sketched in the plan). Trade-off: file-backed reuses all existing file-op machinery for free, survives workspace persistence exactly like any other bot file, and listing is a directory walk. DB-backed can come later if we need cross-workspace reuse, but the FS approach unblocks authoring without a migration.
@@ -240,6 +246,7 @@ Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/
 - **SQLite for bot suites works via written-schema, not written-files.** Bot writes `suite.yaml` + `migrations/*.sql`; `resolve_suite_db_path` creates the DB on first pin; `acquire_db` runs migrations on first read (Phase B.6 fix).
 - **`library_ref` is canonical.** `path=` stays for power-user / core refs. `html=` is for one-shot ephemera only.
 - **`panel_title` is host chrome, not widget content.** It only affects panel surfaces and only when `show_panel_title: true`; `display_label` remains the generic widget/library label used outside panel chrome.
+- **The wrapper owns outer chrome.** Title bars and outer surfaced-vs-plain shell treatment are host concerns (`show_title`, `wrapper_surface`); widgets own only their inner composition.
 - **Library discovery and pin auth are distinct concerns.** `Runs as` controls eventual pin auth; bot/workspace library enumeration may resolve through the current channel's bot even when pin auth remains user-scoped.
 - **Theme support must stay explicit.** The unified catalog can badge/filter `theme_support`, but only HTML widgets participate in the widget theme system today.
 - **Related-widget grouping uses one shared metadata shape.** Public catalog/package responses should prefer `group_kind/group_ref` over inventing separate UI-only `suite` and `package` code paths.
