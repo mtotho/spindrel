@@ -164,6 +164,19 @@ class SessionListOut(BaseModel):
     sessions: list[SessionOut]
 
 
+class EnrolledChannelSkillOut(BaseModel):
+    skill_id: str
+    name: str
+    description: Optional[str] = None
+    source: str
+    enrolled_at: datetime
+
+
+class EnrollChannelSkillIn(BaseModel):
+    skill_id: str
+    source: str = "manual"
+
+
 class HeartbeatConfigOut(BaseModel):
     id: uuid.UUID
     channel_id: uuid.UUID
@@ -850,19 +863,6 @@ class EffectiveToolsOut(BaseModel):
     skills: list[dict]
     mode: dict  # per-category mode: "inherit" | "disabled"
     disabled: dict = {}  # per-category disabled lists
-
-
-class EnrolledChannelSkillOut(BaseModel):
-    skill_id: str
-    name: str
-    description: Optional[str] = None
-    source: str
-    enrolled_at: datetime
-
-
-class EnrollChannelSkillIn(BaseModel):
-    skill_id: str
-    source: str = "manual"
 
 
 @router.get("/channels/{channel_id}/effective-tools", response_model=EffectiveToolsOut)
