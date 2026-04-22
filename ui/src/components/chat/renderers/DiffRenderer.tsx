@@ -10,9 +10,11 @@
  * Empty diff body → "(no changes)" placeholder.
  */
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { RichRendererVariant } from "../RichToolResult";
 
 interface Props {
   body: string;
+  rendererVariant?: RichRendererVariant;
   t: ThemeTokens;
 }
 
@@ -41,18 +43,22 @@ function parseDiff(body: string): DiffLine[] {
   return out;
 }
 
-export function DiffRenderer({ body, t }: Props) {
+const CODE_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
+export function DiffRenderer({ body, rendererVariant = "default-chat", t }: Props) {
+  const isTerminal = rendererVariant === "terminal-chat";
   if (!body || !body.trim()) {
     return (
       <div
         style={{
-          padding: "8px 12px",
-          fontSize: 12,
+          padding: isTerminal ? "6px 0" : "8px 12px",
+          fontSize: isTerminal ? 11 : 12,
           color: t.textMuted,
           fontStyle: "italic",
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 8,
-          background: t.codeBg,
+          border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+          borderRadius: isTerminal ? 0 : 8,
+          background: isTerminal ? "transparent" : t.codeBg,
+          fontFamily: CODE_FONT_STACK,
         }}
       >
         (no changes)
@@ -66,12 +72,12 @@ export function DiffRenderer({ body, t }: Props) {
     <div
       style={{
         display: "block",
-        borderRadius: 8,
-        border: `1px solid ${t.surfaceBorder}`,
-        background: t.codeBg,
-        fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-        fontSize: 12,
-        lineHeight: 1.5,
+        borderRadius: isTerminal ? 0 : 8,
+        border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+        background: isTerminal ? "transparent" : t.codeBg,
+        fontFamily: CODE_FONT_STACK,
+        fontSize: isTerminal ? 11 : 12,
+        lineHeight: isTerminal ? 1.42 : 1.5,
         overflow: "hidden",
         maxHeight: 400,
         overflowY: "auto",
@@ -90,10 +96,11 @@ export function DiffRenderer({ body, t }: Props) {
           >
             <div
               style={{
-                flex: "0 0 18px",
+                flex: isTerminal ? "0 0 24px" : "0 0 18px",
                 textAlign: "center",
                 color: styles.gutterColor,
                 userSelect: "none",
+                paddingTop: isTerminal ? 1 : 0,
               }}
             >
               {styles.gutter}
@@ -101,7 +108,7 @@ export function DiffRenderer({ body, t }: Props) {
             <div
               style={{
                 flex: 1,
-                padding: "0 8px",
+                padding: isTerminal ? "1px 8px 1px 2px" : "0 8px",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
                 color: styles.textColor,
@@ -135,7 +142,7 @@ function lineStyles(line: DiffLine, t: ThemeTokens) {
     case "hunk":
       return {
         row: { background: t.overlayLight },
-        gutter: "",
+        gutter: "@",
         gutterColor: t.textDim,
         textColor: t.textMuted,
       };

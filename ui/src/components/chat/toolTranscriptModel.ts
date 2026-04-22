@@ -1,5 +1,5 @@
 import { normalizeToolCall } from "../../types/api";
-import type { ToolCall, ToolCallSummary, ToolResultEnvelope } from "../../types/api";
+import type { ToolCall, ToolCallSummary, ToolResultEnvelope, ToolSurface } from "../../types/api";
 
 export type SharedToolTranscriptEntry = {
   id: string;
@@ -24,6 +24,29 @@ export type SharedToolTranscriptEntry = {
     reason?: string;
   };
 };
+
+export type InlineWidgetEntry = {
+  envelope: ToolResultEnvelope;
+  toolName: string;
+  recordId?: string;
+};
+
+export type PersistedRenderItem =
+  | {
+      kind: "transcript";
+      key: string;
+      entries: SharedToolTranscriptEntry[];
+    }
+  | {
+      kind: "widget";
+      key: string;
+      widget: InlineWidgetEntry;
+    }
+  | {
+      kind: "rich_result" | "root_rich_result";
+      key: string;
+      envelope: ToolResultEnvelope;
+    };
 
 export type DetailRow = {
   text: string;
@@ -98,17 +121,34 @@ function shortToolName(name: string): string {
   return name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
 }
 
-function introspectionTarget(name: string, argsList: (string | undefined)[]): string | null {
+function introspectionTarget(
+  name: string,
+  argsList: (string | undefined)[],
+  rawCall?: ToolCall,
+  result?: ToolResultEnvelope,
+): string | null {
   const short = shortToolName(name);
   if (short !== "get_tool_info" && short !== "get_skill" && short !== "load_skill") return null;
   for (const raw of argsList) {
     if (!raw) continue;
     try {
       const parsed = JSON.parse(raw);
-      const target = parsed?.tool_name ?? parsed?.skill_id;
+      const target = parsed?.tool_name ?? parsed?.skill_id ?? parsed?.name ?? parsed?.tool?.name ?? parsed?.skill?.id;
       if (typeof target === "string" && target) return target;
     } catch {
       // ignore malformed args
+    }
+  }
+  if (result) {
+    const parsed = parseEnvelopeJson(result);
+    const target = parsed?.tool_name ?? parsed?.name ?? parsed?.id;
+    if (typeof target === "string" && target) return target;
+  }
+  if (rawCall) {
+    const normalized = normalizeToolCall(rawCall);
+    if (normalized.arguments) {
+      const fallback = introspectionTarget(name, [normalized.arguments]);
+      if (fallback) return fallback;
     }
   }
   return null;
@@ -158,6 +198,11 @@ export function resultSummary(env: ToolResultEnvelope | undefined): string {
   }
   const pb = env.plain_body ?? "";
   if (pb && pb.length < 120) return pb;
+  const json = parseEnvelopeJson(env);
+  if (json) {
+    const compact = JSON.stringify(json);
+    if (compact.length <= 120) return compact;
+  }
   if (env.byte_size > 0) return `${(env.byte_size / 1024).toFixed(1)} KB`;
   return "";
 }
@@ -249,6 +294,29 @@ function extractNonJsonOutput(envelope: ToolResultEnvelope | undefined): string 
   return truncateBlock(body);
 }
 
+function isWidgetEnvelope(env: ToolResultEnvelope | undefined): boolean {
+  return !!(
+    env &&
+    env.display === "inline" &&
+    (env.content_type === "application/vnd.spindrel.components+json"
+      || env.content_type === "application/vnd.spindrel.html+interactive")
+  );
+}
+
+function isRichInlineEnvelope(env: ToolResultEnvelope | undefined): boolean {
+  return !!(env && env.display === "inline" && !isWidgetEnvelope(env));
+}
+
+function resolveEnvelopeSurface(
+  env: ToolResultEnvelope | undefined,
+  surface?: ToolSurface,
+): ToolSurface | "root_rich_result" | null {
+  if (surface) return surface;
+  if (isWidgetEnvelope(env)) return "widget";
+  if (isRichInlineEnvelope(env)) return "rich_result";
+  return env ? "root_rich_result" : null;
+}
+
 function summarizeGenericTool(toolName: string, args?: string): string {
   const shortName = shortToolName(toolName);
   if (shortName === "get_skill" || shortName === "load_skill") {
@@ -299,12 +367,26 @@ function resolveSkillRef(
   return rawMatch?.[1] ? formatSkillRef(rawMatch[1]) : null;
 }
 
+function resolveToolInfoRef(
+  toolName: string,
+  args: string | undefined,
+  result: ToolResultEnvelope | undefined,
+  rawCall?: ToolCall,
+): string | null {
+  if (shortToolName(toolName) !== "get_tool_info") return null;
+  const target = introspectionTarget(toolName, [args], rawCall, result);
+  return target ? `(${target})` : null;
+}
+
 function buildEntryFromSummary(
   toolName: string,
   summary: ToolCallSummary,
   result: ToolResultEnvelope | undefined,
+  args?: string,
+  rawCall?: ToolCall,
 ): SharedToolTranscriptEntry {
-  const target = summary.target_label || introspectionTarget(toolName, []);
+  const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
+  const target = summary.target_label || (toolInfoRef ? null : introspectionTarget(toolName, [args], rawCall, result));
   if (summary.kind === "diff" && summary.subject_type === "file") {
     return {
       id: `${toolName}:${summary.label}`,
@@ -337,7 +419,7 @@ function buildEntryFromSummary(
     id: `${toolName}:${summary.label}`,
     kind: "activity",
     label: summary.label,
-    metaLabel: summarizeDiffMeta(summary),
+    metaLabel: summarizeDiffMeta(summary) || toolInfoRef,
     target: summary.target_label ? null : target,
     env: result,
     isError: summary.kind === "error",
@@ -355,7 +437,7 @@ function buildPersistedEntry(
   rawCall?: ToolCall,
 ): SharedToolTranscriptEntry {
   if (toolSummary) {
-    return buildEntryFromSummary(toolName, toolSummary, result);
+    return buildEntryFromSummary(toolName, toolSummary, result, args, rawCall);
   }
 
   const envelopeSummary = summarizeEnvelope(result);
@@ -381,12 +463,15 @@ function buildPersistedEntry(
     };
   }
 
+  const toolInfoRef = resolveToolInfoRef(toolName, args, result, rawCall);
+  const skillRef = resolveSkillRef(toolName, args, result, rawCall);
+
   return {
     id: `${toolName}:${summary}`,
     kind: "activity",
     label: summary,
-    metaLabel: resolveSkillRef(toolName, args, result, rawCall) ? `(${resolveSkillRef(toolName, args, result, rawCall)})` : null,
-    target: introspectionTarget(toolName, [args]),
+    metaLabel: toolInfoRef || (skillRef ? `(${skillRef})` : null),
+    target: toolInfoRef || skillRef ? null : introspectionTarget(toolName, [args], rawCall, result),
     args,
     env: result,
     isError: isErrorEnvelope(result),
@@ -423,6 +508,104 @@ export function buildPersistedToolEntries(
       tc,
     );
   });
+}
+
+export function buildPersistedRenderItems({
+  toolNames,
+  toolCalls,
+  toolResults,
+  rootEnvelope,
+}: {
+  toolNames: string[];
+  toolCalls?: ToolCall[];
+  toolResults?: (ToolResultEnvelope | undefined)[];
+  rootEnvelope?: ToolResultEnvelope;
+}): PersistedRenderItem[] {
+  const items: PersistedRenderItem[] = [];
+
+  if (toolCalls?.length) {
+    for (let index = 0; index < toolCalls.length; index += 1) {
+      const call = toolCalls[index];
+      const env = toolResults?.[index];
+      const normalized = normalizeToolCall(call);
+      const surface = resolveEnvelopeSurface(env, call.surface);
+
+      if (surface === "widget" && env) {
+        items.push({
+          kind: "widget",
+          key: `widget:${index}:${env.record_id ?? normalized.name ?? "widget"}`,
+          widget: {
+            envelope: env,
+            toolName: normalized.name ?? "",
+            recordId: env.record_id ?? undefined,
+          },
+        });
+        continue;
+      }
+
+      if (surface === "rich_result" && env) {
+        items.push({
+          kind: "rich_result",
+          key: `rich:${index}:${env.record_id ?? normalized.name ?? "result"}`,
+          envelope: env,
+        });
+        continue;
+      }
+
+      items.push({
+        kind: "transcript",
+        key: `transcript:${index}:${normalized.name ?? call.id ?? "tool"}`,
+        entries: buildPersistedToolEntries([], [call], [env]),
+      });
+    }
+  } else {
+    const count = Math.max(toolNames.length, toolResults?.length ?? 0);
+    for (let index = 0; index < count; index += 1) {
+      const name = toolNames[index];
+      const env = toolResults?.[index];
+      const surface = resolveEnvelopeSurface(env);
+
+      if (surface === "widget" && env) {
+        items.push({
+          kind: "widget",
+          key: `widget:${index}:${env.record_id ?? name ?? "widget"}`,
+          widget: {
+            envelope: env,
+            toolName: name ?? "",
+            recordId: env.record_id ?? undefined,
+          },
+        });
+        continue;
+      }
+
+      if (surface === "rich_result" && env) {
+        items.push({
+          kind: "rich_result",
+          key: `rich:${index}:${env.record_id ?? name ?? "result"}`,
+          envelope: env,
+        });
+        continue;
+      }
+
+      if (!name && !env) continue;
+      items.push({
+        kind: "transcript",
+        key: `transcript:${index}:${name ?? "tool"}`,
+        entries: buildPersistedToolEntries(name ? [name] : [], [], [env]),
+      });
+    }
+  }
+
+  const rootSurface = resolveEnvelopeSurface(rootEnvelope);
+  if (rootSurface === "root_rich_result" && rootEnvelope) {
+    items.unshift({
+      kind: "root_rich_result",
+      key: `root-rich:${rootEnvelope.record_id ?? rootEnvelope.display_label ?? "result"}`,
+      envelope: rootEnvelope,
+    });
+  }
+
+  return items;
 }
 
 export function buildLiveToolEntries(toolCalls: {

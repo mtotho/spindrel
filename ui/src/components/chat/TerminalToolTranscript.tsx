@@ -6,13 +6,12 @@ import {
   buildLiveToolEntries,
   buildPersistedToolEntries,
   detailRows,
+  type InlineWidgetEntry,
   looksLikeJson,
   type SharedToolTranscriptEntry,
 } from "./toolTranscriptModel";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
-
-type InlineWidgetEntry = { envelope: ToolResultEnvelope; toolName: string; recordId?: string };
 
 function truncate(text: string, max = 140): string {
   const clean = text.trim();
@@ -142,7 +141,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
           {entry.kind === "file" && structuredDetail && (
             <div
               style={{
-                marginLeft: 10,
+                marginLeft: 0,
                 fontFamily: TERMINAL_FONT_STACK,
                 fontSize: 10.5,
                 lineHeight: 1.45,
@@ -269,8 +268,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
 }
 
 export function TerminalPersistedToolTranscript({
-  richEnvelope,
-  richSource,
+  entries,
   inlineWidgets,
   remainingToolNames,
   remainingToolCalls,
@@ -280,8 +278,7 @@ export function TerminalPersistedToolTranscript({
   onPin,
   t,
 }: {
-  richEnvelope?: ToolResultEnvelope;
-  richSource?: string;
+  entries?: SharedToolTranscriptEntry[];
   inlineWidgets: InlineWidgetEntry[];
   remainingToolNames: string[];
   remainingToolCalls: ToolCall[];
@@ -291,27 +288,15 @@ export function TerminalPersistedToolTranscript({
   onPin?: (info: { widgetId: string; envelope: ToolResultEnvelope; toolName: string; channelId: string; botId: string | null }) => void | Promise<void>;
   t: ThemeTokens;
 }) {
-  const entries: SharedToolTranscriptEntry[] = [];
+  const resolvedEntries: SharedToolTranscriptEntry[] = entries ? [...entries] : [];
 
-  if (richEnvelope) {
-    entries.push({
-      kind: "activity",
-      id: `rich:${richSource || "event"}`,
-      label: richEnvelope.display_label
-        ? `${(richSource || "event").toLowerCase()} · ${truncate(richEnvelope.display_label, 100)}`
-        : (richSource || "event").toLowerCase(),
-      detail: typeof richEnvelope.body === "string" ? richEnvelope.body : (richEnvelope.plain_body || null),
-      tone: "muted",
-      isError: false,
-      detailKind: "expandable",
-    });
+  if (!entries) {
+    resolvedEntries.push(...buildPersistedToolEntries(remainingToolNames, remainingToolCalls, remainingToolResults));
   }
-
-  entries.push(...buildPersistedToolEntries(remainingToolNames, remainingToolCalls, remainingToolResults));
 
   for (const widget of inlineWidgets) {
     const widgetLabel = widget.envelope.display_label || widget.toolName || "widget";
-    entries.push({
+    resolvedEntries.push({
       kind: "widget",
       id: `widget:${widget.toolName}:${widget.recordId ?? widget.envelope.record_id ?? widgetLabel}`,
       label: `Widget available: ${truncate(widgetLabel, 100)}`,
@@ -322,7 +307,7 @@ export function TerminalPersistedToolTranscript({
     });
   }
 
-  const collapsed = collapseConsecutiveFileEntries(entries);
+  const collapsed = collapseConsecutiveFileEntries(resolvedEntries);
   if (collapsed.length === 0) return null;
 
   return (

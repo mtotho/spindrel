@@ -83,12 +83,16 @@ export function getWidgetPresetBindingOptions(
     source_channel_id?: string | null;
   },
 ) {
+  const params = new URLSearchParams();
+  params.set("source_id", sourceId);
+  if (body.source_bot_id) {
+    params.set("source_bot_id", body.source_bot_id);
+  }
+  if (body.source_channel_id) {
+    params.set("source_channel_id", body.source_channel_id);
+  }
   return apiFetch<{ options: WidgetPresetOption[] }>(
-    `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/binding-options`,
-    {
-      method: "POST",
-      body: JSON.stringify({ ...body, source_id: sourceId }),
-    },
+    `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/binding-options?${params.toString()}`,
   );
 }
 

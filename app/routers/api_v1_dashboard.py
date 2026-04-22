@@ -1245,6 +1245,27 @@ async def get_dashboard_widget_preset(
     return serialize_widget_preset(get_widget_preset(preset_id))
 
 
+@router.get(
+    "/presets/{preset_id}/binding-options",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_dashboard_widget_preset_binding_options_query(
+    preset_id: str,
+    source_id: str = Query(..., description="Binding source id from the preset manifest."),
+    source_bot_id: str | None = Query(default=None),
+    source_channel_id: uuid.UUID | None = Query(default=None),
+):
+    from app.services.widget_presets import list_binding_options
+
+    options = await list_binding_options(
+        preset_id=preset_id,
+        source_id=source_id,
+        source_bot_id=source_bot_id,
+        source_channel_id=str(source_channel_id) if source_channel_id else None,
+    )
+    return {"options": options}
+
+
 @router.post(
     "/presets/{preset_id}/binding-options",
     dependencies=[Depends(require_scopes("channels:read"))],

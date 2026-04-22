@@ -21,6 +21,7 @@ import { usePinnedWidgetsStore } from "../../stores/pinnedWidgets";
 import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
 import { SlashCommandResultCard } from "./SlashCommandResultCard";
+import { buildPersistedRenderItems, type PersistedRenderItem } from "./toolTranscriptModel";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -82,8 +83,8 @@ interface Props {
    *  preference and to thread sessionId-style auth into RichToolResult's
    *  lazy-fetch path. Optional for back-compat with non-channel call sites. */
   channelId?: string;
-  /** When true, this is the newest bot message in the channel — tool results
-   *  auto-expand. Older messages render collapsed. */
+  /** When true, this is the newest bot message in the channel. Still used for
+   *  widget-card collapse defaults, but not for persisted tool-row expansion. */
   isLatestBotMessage?: boolean;
   /** Mobile layout: avatar inlined with name header, content flows flush-left
    *  (no avatar-column indent) so the narrow viewport gets full width. */
@@ -253,80 +254,34 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     return <SlashCommandResultCard message={message} />;
   }
 
-  // Partition tool results: extract inline widget envelopes for WidgetCard rendering.
-  // Widget tools are fully owned by WidgetCard — no badge or collapsed result shown.
-  // (must be above early returns to satisfy rules of hooks)
-  const { inlineWidgets, inlineRichResults, remainingToolNames, remainingToolCalls, remainingToolResults } = useMemo(() => {
-    const inlineWidgets: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
-    const inlineRichResults: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
-    const remainingToolNames: string[] = [];
-    const remainingToolCalls: ToolCall[] = [];
-    const remainingToolResults: (ToolResultEnvelope | undefined)[] = [];
-
-    const calls = msgToolCalls ?? [];
-    const names = toolsUsed;
-    const results = toolResults;
-    const count = Math.max(calls.length, names.length);
-
-    // First pass: identify which indices are inline widgets / rich results.
-    // Prefer the persisted tool-call surface contract for new rows; fall back
-    // to the historical envelope heuristics for older messages.
-    const inlineIndices = new Set<number>();
-    for (let i = 0; i < count; i++) {
-      const env = results?.[i];
-      const call = calls[i];
-      const name = call ? normalizeToolCall(call).name : names[i];
-      const surface = call?.surface;
-      const isLegacyInlineWidget = !!(
-        env &&
-        env.display === "inline" &&
-        (env.content_type === "application/vnd.spindrel.components+json" ||
-          env.content_type === "application/vnd.spindrel.html+interactive")
-      );
-      const isLegacyInlineRichResult = !!(env && env.display === "inline" && !isLegacyInlineWidget);
-
-      if (env && (surface === "widget" || (!surface && isLegacyInlineWidget))) {
-        inlineWidgets.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
-        inlineIndices.add(i);
-      } else if (env && (surface === "rich_result" || (!surface && isLegacyInlineRichResult))) {
-        inlineRichResults.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
-        inlineIndices.add(i);
-      }
-    }
-
-    // Build the set of inline widget tool names for dedup across misaligned arrays
-    const inlineToolNames = new Set([...inlineWidgets, ...inlineRichResults].map((w) => w.toolName));
-
-    // Second pass: collect remaining (non-widget) entries, skipping any that were inlined
-    for (let i = 0; i < count; i++) {
-      if (inlineIndices.has(i)) continue;
-      const call = calls[i];
-      const name = call ? normalizeToolCall(call).name : names[i];
-      // Skip if this tool name was already captured as an inline widget (dedup)
-      if (name && inlineToolNames.has(name)) continue;
-      const env = results?.[i];
-      if (call) remainingToolCalls.push(call);
-      else if (names[i]) remainingToolNames.push(names[i]);
-      remainingToolResults.push(env);
-    }
-
-    return { inlineWidgets, inlineRichResults, remainingToolNames, remainingToolCalls, remainingToolResults };
-  }, [msgToolCalls, toolsUsed, toolResults]);
+  const persistedRenderItems = useMemo(
+    () => buildPersistedRenderItems({
+      toolNames: toolsUsed,
+      toolCalls: msgToolCalls,
+      toolResults,
+      rootEnvelope: richEnvelope,
+    }),
+    [msgToolCalls, richEnvelope, toolResults, toolsUsed],
+  );
+  const widgetItems = useMemo(
+    () => persistedRenderItems.filter((item): item is Extract<PersistedRenderItem, { kind: "widget" }> => item.kind === "widget"),
+    [persistedRenderItems],
+  );
 
   // Broadcast envelopes when new tool results arrive in messages.
   // Seeds the shared envelope map so pinned widgets and inline widgets stay in sync.
   const broadcastRef = useRef<string | null>(null);
   const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
   useEffect(() => {
-    if (!channelId || !inlineWidgets.length) return;
+    if (!channelId || !widgetItems.length) return;
     // Key by message id to only fire once per message
     const key = message.id;
     if (broadcastRef.current === key) return;
     broadcastRef.current = key;
-    for (const w of inlineWidgets) {
-      broadcastEnvelope(channelId, w.toolName, w.envelope);
+    for (const item of widgetItems) {
+      broadcastEnvelope(channelId, item.widget.toolName, item.widget.envelope);
     }
-  }, [channelId, message.id, inlineWidgets, broadcastEnvelope]);
+  }, [channelId, message.id, widgetItems, broadcastEnvelope]);
 
   const invalidatedWidgetLibrariesRef = useRef<string | null>(null);
   useEffect(() => {
@@ -385,87 +340,142 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       ? meta.thinking_content
       : "";
   const thinkingText = rawThinking.trim();
-  const hasTerminalToolTranscript =
-    isTerminalMode &&
-    (richEnvelope || inlineWidgets.length > 0 || remainingToolNames.length > 0 || remainingToolCalls.length > 0);
+  const isTightRichEnvelope = (envelope: ToolResultEnvelope | undefined) =>
+    envelope?.content_type === "application/vnd.spindrel.diff+text"
+    || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
 
-  const messageContent = (
-    <>
-      {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
-      {hasTerminalToolTranscript ? (
+  const renderPersistedToolItem = useCallback((item: PersistedRenderItem, index: number) => {
+    if (item.kind === "transcript") {
+      return isTerminalMode ? (
         <TerminalPersistedToolTranscript
-          richEnvelope={richEnvelope}
-          richSource={(meta.source as string) || "event"}
-          inlineWidgets={inlineWidgets}
-          remainingToolNames={remainingToolNames}
-          remainingToolCalls={remainingToolCalls}
-          remainingToolResults={remainingToolResults}
+          key={item.key}
+          entries={item.entries}
+          inlineWidgets={[]}
+          remainingToolNames={[]}
+          remainingToolCalls={[]}
+          remainingToolResults={[]}
           channelId={channelId}
           botId={senderBotId}
           onPin={handlePinWidget}
           t={t}
         />
-      ) : null}
-      {hasTerminalToolTranscript && displayContent.length > 0 ? (
-        <div style={{ marginTop: 8 }}>
-          <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
+      ) : (
+        <ToolBadges
+          key={item.key}
+          entries={item.entries}
+          toolNames={[]}
+          toolCalls={[]}
+          toolResults={[]}
+          sessionId={message.session_id}
+          channelId={channelId}
+          botId={senderBotId}
+          compact={compact}
+          t={t}
+        />
+      );
+    }
+
+    if (item.kind === "widget") {
+      const nextItem = persistedRenderItems[index + 1];
+      const defaultCollapsed = nextItem?.kind === "widget" && nextItem.widget.toolName === item.widget.toolName;
+
+      return isTerminalMode ? (
+        <TerminalPersistedToolTranscript
+          key={item.key}
+          inlineWidgets={[item.widget]}
+          remainingToolNames={[]}
+          remainingToolCalls={[]}
+          remainingToolResults={[]}
+          channelId={channelId}
+          botId={senderBotId}
+          onPin={handlePinWidget}
+          t={t}
+        />
+      ) : (
+        <WidgetCard
+          key={item.key}
+          envelope={item.widget.envelope}
+          toolName={item.widget.toolName}
+          sessionId={message.session_id}
+          channelId={channelId}
+          botId={senderBotId}
+          widgetId={item.widget.recordId}
+          t={t}
+          isLatestBotMessage={isLatestBotMessage}
+          defaultCollapsed={defaultCollapsed}
+          onPin={handlePinWidget}
+        />
+      );
+    }
+
+    const envelope = item.envelope;
+    if (isTerminalMode) {
+      return (
+        <div key={item.key} style={{ marginTop: 8 }}>
+          <RichToolResult
+            envelope={envelope}
+            sessionId={message.session_id}
+            channelId={channelId}
+            botId={senderBotId}
+            rendererVariant="terminal-chat"
+            t={t}
+          />
         </div>
-      ) : !isTerminalMode && richEnvelope ? (
-        <div className="rounded-lg border mt-1.5" style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}>
+      );
+    }
+
+    if (isTightRichEnvelope(envelope)) {
+      return (
+        <div key={item.key} className="mt-2">
+          <RichToolResult
+            envelope={envelope}
+            sessionId={message.session_id}
+            channelId={channelId}
+            botId={senderBotId}
+            rendererVariant="default-chat"
+            t={t}
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={item.key}
+        className={`rounded-lg border overflow-hidden ${item.kind === "root_rich_result" ? "mt-1.5" : "mt-2"}`}
+        style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}
+      >
+        {item.kind === "root_rich_result" && (
           <div className="px-3 pt-2 pb-0.5">
             <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
               {(meta.source as string) || "event"}
             </span>
           </div>
-          <div className="px-3 pb-2">
-            <RichToolResult envelope={richEnvelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
-          </div>
+        )}
+        <div className={item.kind === "root_rich_result" ? (isTightRichEnvelope(envelope) ? "px-1 pb-1.5" : "px-3 pb-2") : "px-3 py-2"}>
+          <RichToolResult
+            envelope={envelope}
+            sessionId={message.session_id}
+            channelId={channelId}
+            botId={senderBotId}
+            rendererVariant="default-chat"
+            t={t}
+          />
         </div>
-      ) : displayContent.length > 0 ? (
+      </div>
+    );
+  }, [channelId, compact, handlePinWidget, isLatestBotMessage, isTerminalMode, message.session_id, meta.source, persistedRenderItems, senderBotId, t]);
+
+  const messageContent = (
+    <>
+      {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
+      {displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
       ) : null}
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
       )}
-      {!isTerminalMode && inlineRichResults.map((w, i) => (
-        <div
-          key={`rich-${w.recordId ?? i}`}
-          className="rounded-lg border mt-2"
-          style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}
-        >
-          <div className="px-3 py-2">
-            <RichToolResult envelope={w.envelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
-          </div>
-        </div>
-      ))}
-      {!isTerminalMode && inlineWidgets.map((w, i) => (
-        <WidgetCard
-          key={w.recordId ?? i}
-          envelope={w.envelope}
-          toolName={w.toolName}
-          sessionId={message.session_id}
-          channelId={channelId}
-          botId={senderBotId}
-          widgetId={w.recordId}
-          t={t}
-          isLatestBotMessage={isLatestBotMessage}
-          defaultCollapsed={i < inlineWidgets.length - 1 && inlineWidgets[i + 1].toolName === w.toolName}
-          onPin={handlePinWidget}
-        />
-      ))}
-      {!isTerminalMode && (remainingToolNames.length > 0 || remainingToolCalls.length > 0) && (
-        <ToolBadges
-          toolNames={remainingToolNames}
-          toolCalls={remainingToolCalls}
-          toolResults={remainingToolResults as ToolResultEnvelope[]}
-          sessionId={message.session_id}
-          channelId={channelId}
-          botId={senderBotId}
-          compact={compact}
-          autoExpand={isLatestBotMessage}
-          t={t}
-        />
-      )}
+      {persistedRenderItems.map(renderPersistedToolItem)}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );
@@ -485,8 +495,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <div
           className="msg-hover"
           style={{
-            paddingLeft: isTerminalMode ? 24 : narrow ? 12 : 68,
-            paddingRight: narrow ? 12 : 20,
+            paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 68,
+            paddingRight: isTerminalMode ? 12 : narrow ? 12 : 20,
             paddingTop: isTerminalMode ? 3 : 1,
             paddingBottom: isTerminalMode ? 3 : 1,
             borderRadius: 4,

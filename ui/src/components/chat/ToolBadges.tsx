@@ -6,7 +6,7 @@
  * messages keep rendering.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Wrench, ChevronRight, ChevronDown, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatToolArgs } from "./toolCallUtils";
 import type { ToolCall, ToolResultEnvelope } from "../../types/api";
@@ -111,56 +111,50 @@ export function ToolBadges({
   toolNames,
   toolCalls,
   toolResults,
+  entries,
   sessionId,
   channelId,
   botId,
   compact = false,
-  autoExpand = false,
   t,
 }: {
   toolNames: string[];
   toolCalls?: ToolCall[];
   toolResults?: (ToolResultEnvelope | undefined)[];
+  entries?: SharedToolTranscriptEntry[];
   sessionId?: string;
   channelId?: string;
   botId?: string;
   compact?: boolean;
-  autoExpand?: boolean;
   t: ThemeTokens;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const [striped, setStriped] = useState<boolean | null>(null);
 
-  const entries = useMemo(
-    () => buildPersistedToolEntries(toolNames, toolCalls, toolResults),
-    [toolNames, toolCalls, toolResults],
+  const resolvedEntries = useMemo(
+    () => entries ?? buildPersistedToolEntries(toolNames, toolCalls, toolResults),
+    [entries, toolNames, toolCalls, toolResults],
   );
 
-  useEffect(() => {
-    if (compact || !autoExpand || expandedIdx !== null) return;
-    const idx = entries.findIndex((entry) => entry.detailKind === "expandable" && !!entry.env);
-    if (idx >= 0) setExpandedIdx(idx);
-  }, [entries, compact, autoExpand, expandedIdx]);
-
   const ticks: TraceTick[] = useMemo(
-    () => entries.map((entry: SharedToolTranscriptEntry) => ({
+    () => resolvedEntries.map((entry: SharedToolTranscriptEntry) => ({
       toolName: entry.label,
       target: entry.target ?? undefined,
       isError: entry.isError,
     })),
-    [entries],
+    [resolvedEntries],
   );
 
-  if (entries.length === 0) return null;
+  if (resolvedEntries.length === 0) return null;
 
-  const stripMode = striped ?? (entries.length >= TRACE_STRIP_THRESHOLD);
+  const stripMode = striped ?? (resolvedEntries.length >= TRACE_STRIP_THRESHOLD);
   if (stripMode) {
     return <ToolTraceStrip ticks={ticks} onExpand={() => setStriped(false)} t={t} />;
   }
 
   return (
     <DefaultToolRows
-      entries={entries}
+      entries={resolvedEntries}
       expandedIdx={expandedIdx}
       setExpandedIdx={setExpandedIdx}
       t={t}
@@ -213,11 +207,8 @@ export function DefaultToolRows({
                   setExpandedIdx(isExpanded ? null : idx);
                 }
               } : undefined}
-              className={`inline-flex items-center self-start gap-1.5 px-2.5 py-1 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"} ${isExpanded ? "rounded-t-lg border border-b-0" : "rounded-lg border"}`}
-              style={{
-                backgroundColor: t.surfaceRaised,
-                borderColor: t.surfaceBorder,
-              }}
+              className={`inline-flex items-center self-start gap-1.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"}`}
+              style={{}}
             >
               <Wrench size={11} style={{ color: t.textDim, flexShrink: 0 }} />
               <span
@@ -313,7 +304,7 @@ export function DefaultToolRows({
 
             {isExpanded && expandable && (
               <div
-                className="rounded-b-lg border border-t-0 overflow-hidden"
+                className="rounded-lg border overflow-hidden mt-1"
                 style={{
                   borderColor: t.surfaceBorder,
                   backgroundColor: t.surfaceRaised,
@@ -335,7 +326,14 @@ export function DefaultToolRows({
                     {entry.isError ? (
                       <ErrorResult env={entry.env} t={t} sessionId={sessionId} channelId={channelId} botId={botId} />
                     ) : (
-                      <RichToolResult envelope={entry.env} sessionId={sessionId} channelId={channelId} botId={botId} t={t} />
+                      <RichToolResult
+                        envelope={entry.env}
+                        sessionId={sessionId}
+                        channelId={channelId}
+                        botId={botId}
+                        rendererVariant="default-chat"
+                        t={t}
+                      />
                     )}
                     {!entry.env.truncated && (entry.env.byte_size > 2000 || envelopeBodyLength(entry.env) > 1500) && (
                       <div
@@ -398,5 +396,14 @@ function ErrorResult({
     );
   }
 
-  return <RichToolResult envelope={env} sessionId={sessionId} channelId={channelId} botId={botId} t={t} />;
+  return (
+    <RichToolResult
+      envelope={env}
+      sessionId={sessionId}
+      channelId={channelId}
+      botId={botId}
+      rendererVariant="default-chat"
+      t={t}
+    />
+  );
 }

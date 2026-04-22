@@ -44,6 +44,8 @@ import { PlanResultRenderer } from "./renderers/PlanResultRenderer";
 import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
 
+export type RichRendererVariant = "default-chat" | "terminal-chat" | "dashboard";
+
 interface Props {
   envelope: ToolResultEnvelope;
   /** Session id, for lazy-fetching truncated bodies via
@@ -88,7 +90,23 @@ interface Props {
    *  attribute so widget CSS can decide whether to draw its own inner card
    *  or rely on the host's surfaced shell. */
   hostSurface?: HostSurface;
+  rendererVariant?: RichRendererVariant;
   t: ThemeTokens;
+}
+
+function resolveRendererTokens(base: ThemeTokens, rendererVariant: RichRendererVariant): ThemeTokens {
+  if (rendererVariant !== "terminal-chat") return base;
+  return {
+    ...base,
+    surfaceRaised: base.surface,
+    surfaceOverlay: base.surface,
+    surfaceBorder: base.overlayBorder,
+    inputBg: base.surface,
+    inputBorder: base.overlayBorder,
+    accentSubtle: base.overlayLight,
+    purpleSubtle: base.overlayLight,
+    botMessageBg: "transparent",
+  };
 }
 
 export function RichToolResult({
@@ -104,12 +122,17 @@ export function RichToolResult({
   hoverScrollbars,
   layout,
   hostSurface,
+  rendererVariant = "default-chat",
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showJson, setShowJson] = useState(false);
+  const rendererTokens = useMemo(
+    () => resolveRendererTokens(t, rendererVariant),
+    [rendererVariant, t],
+  );
 
   // Widget action context — prefer the explicit dispatcher prop; otherwise
   // build a channel-scoped one from channelId/botId (chat path).
@@ -135,10 +158,10 @@ export function RichToolResult({
         style={{
           padding: "6px 10px",
           borderRadius: 8,
-          border: `1px dashed ${t.surfaceBorder}`,
-          background: t.overlayLight,
+          border: `1px dashed ${rendererTokens.surfaceBorder}`,
+          background: rendererTokens.overlayLight,
           fontSize: 11,
-          color: t.textMuted,
+          color: rendererTokens.textMuted,
           display: "flex", flexDirection: "row",
           alignItems: "center",
           gap: 8,
@@ -166,21 +189,21 @@ export function RichToolResult({
             style={{
               padding: "2px 8px",
               borderRadius: 4,
-              border: `1px solid ${t.accentBorder}`,
-              background: t.accentSubtle,
-              color: t.accent,
+              border: `1px solid ${rendererTokens.accentBorder}`,
+              background: rendererTokens.accentSubtle,
+              color: rendererTokens.accent,
               fontSize: 11,
               cursor: fetching ? "wait" : "pointer",
               transition: "background-color 0.15s",
             }}
-            onMouseEnter={(e) => { if (!fetching) e.currentTarget.style.backgroundColor = t.accentMuted; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = t.accentSubtle; }}
+            onMouseEnter={(e) => { if (!fetching) e.currentTarget.style.backgroundColor = rendererTokens.accentMuted; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = rendererTokens.accentSubtle; }}
           >
             {fetching ? "Loading\u2026" : "Show full output"}
           </button>
         )}
         {fetchError && (
-          <span style={{ color: t.danger }}>· {fetchError}</span>
+          <span style={{ color: rendererTokens.danger }}>· {fetchError}</span>
         )}
       </div>
     );
@@ -200,15 +223,19 @@ export function RichToolResult({
       case "text/markdown":
         content = (
           <div style={{ padding: "4px 0" }}>
-            <MarkdownContent text={body} t={t} />
+            <MarkdownContent
+              text={body}
+              t={rendererTokens}
+              chatMode={rendererVariant === "terminal-chat" ? "terminal" : "default"}
+            />
           </div>
         );
         break;
       case "application/json":
-        content = <JsonTreeRenderer body={body} t={t} />;
+        content = <JsonTreeRenderer body={body} t={rendererTokens} />;
         break;
       case "text/html":
-        content = <SandboxedHtmlRenderer body={body} t={t} />;
+        content = <SandboxedHtmlRenderer body={body} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.html+interactive":
         content = (
@@ -223,18 +250,18 @@ export function RichToolResult({
             hoverScrollbars={hoverScrollbars}
             layout={layout}
             hostSurface={hostSurface}
-            t={t}
+            t={rendererTokens}
           />
         );
         break;
       case "application/vnd.spindrel.diff+text":
-        content = <DiffRenderer body={body} t={t} />;
+        content = <DiffRenderer body={body} rendererVariant={rendererVariant} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.file-listing+json":
-        content = <FileListingRenderer body={body} t={t} />;
+        content = <FileListingRenderer body={body} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.components+json":
-        content = <ComponentRenderer body={body} t={t} />;
+        content = <ComponentRenderer body={body} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.native-app+json":
         content = (
@@ -242,7 +269,7 @@ export function RichToolResult({
             envelope={envelope}
             dashboardPinId={dashboardPinId}
             channelId={channelId}
-            t={t}
+            t={rendererTokens}
           />
         );
         break;
@@ -251,7 +278,7 @@ export function RichToolResult({
         break;
       case "text/plain":
       default:
-        content = <TextRenderer body={body} t={t} />;
+        content = <TextRenderer body={body} t={rendererTokens} />;
         break;
     }
   }
@@ -273,7 +300,7 @@ export function RichToolResult({
             onClick={() => setShowJson(!showJson)}
             style={{
               background: "none", border: "none", cursor: "pointer",
-              fontSize: 10, color: t.textDim, opacity: 0.6,
+              fontSize: 10, color: rendererTokens.textDim, opacity: 0.6,
               padding: "2px 4px",
               transition: "opacity 0.15s",
             }}

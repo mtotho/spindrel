@@ -39,6 +39,26 @@
 - `finishTurn()` must synthesize `message.tool_calls[]` with normalized `name`, `arguments`, `surface`, and `summary` so the optimistic finished message matches the later persisted message shape.
 - Any renderer fallback against raw `tool_name` / raw args is compatibility glue for old rows/events only, not the primary path for new turns.
 
+### Theme, chat mode, and tool-render surface are separate axes
+**Decided 2026-04-22.** Tool-result rendering in chat now follows three independent concerns:
+
+- `theme` selects the app-wide light/dark token palette
+- `chat_mode` selects the feed shell (`default` vs `terminal`)
+- `rendererVariant` selects how a rich tool envelope adapts to the current surface (`default-chat`, `terminal-chat`, pinned/dashboard surfaces later)
+
+**Why.**
+- Terminal chat was starting to branch in `MessageBubble` over ownership and fallback semantics instead of just presentation, which is why default vs terminal kept drifting on diffs, rich results, and collapse behavior.
+- Treating terminal as a full app theme would incorrectly couple transcript-shell decisions to global palette selection and would explode the matrix once custom themes exist.
+- Rich result renderers already consume `ThemeTokens`; adding a surface-level renderer variant keeps one ownership pipeline while still allowing terminal-specific shells and token tweaks.
+
+**Load-bearing invariants.**
+- `chat_mode` must not decide whether a tool result is transcript-owned vs rich-render-owned. Ownership comes from the shared tool presentation contract (`surface` + per-tool transcript policy).
+- `rendererVariant` is presentation-only. It may change tokens, chrome, typography, and renderer fallbacks for a surface, but it must not reorder tool items or swap the owning UI path in chat.
+- Per-tool open/collapsed behavior is semantic and shared across modes. Example: file reads stay collapsed; file edits show inline diffs. Do not reintroduce "latest message auto-expand" logic.
+- Terminal chat may render rich envelopes differently from default chat, but the difference belongs in `RichToolResult` / renderer dispatch, not in mode-specific branching across the message renderer.
+- Persisted chat renders tool outcomes from one ordered item builder (`PersistedRenderItem[]` in `toolTranscriptModel.ts`), not from per-mode partitions in `MessageBubble`. `MessageBubble` may pick row shells, but it must not re-own tool ordering or envelope ownership.
+- `message.tool_calls[]` is the primary persisted order/ownership source for current rows. `metadata.envelope` is allowed only as one explicit root rich-result item. Any envelope-only fallback heuristics for older rows must stay confined to the shared model layer.
+
 ### Scratch sessions are internal-first session records; promotion swaps the channel primary
 **Decided 2026-04-21.** Scratch sessions are no longer a client-side convenience pointer layered on top of the main channel session. They are first-class `Session` rows with their own `title`, `summary`, `ConversationSection` history, and selector stats. The channel's canonical external conversation is still exactly one session: `channel.active_session_id`.
 
