@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-21 (native Todo widget + native Notes draft-sync fix)
+updated: 2026-04-22 (native widget refresh persistence repair)
 ---
 
 # Track — Widget Library
@@ -240,12 +240,17 @@ Later on 2026-04-21, Phase 18 grew a second first-party native app and retired t
 - **`core/todo_native` now replaces the old HTML Todo widget.** Native Todo ships through the same library/catalog surfaces as Notes, stores its items in `widget_instances.state`, and exposes explicit bot/UI actions for add, toggle, rename, delete, reorder, and clear-completed.
 - **The old production Todo bundle was deleted rather than hidden.** `app/tools/local/widgets/todo/` and its prod-only bridge tests were removed so new behavior cannot silently route through the legacy `widget.py` handler path.
 - **Native Notes picked up a draft-safe renderer sync fix while this landed.** The React renderer now refuses to clobber a local notes draft with an older incoming envelope, which matches the user report of “typed text disappears without an error” and keeps the native Todo form from inheriting the same bug.
+- **Dashboard reload now repairs stale native envelopes from instance state.** `widget_instances.state` is the authoritative store for native Notes/Todo; `widget_dashboard_pins.envelope` is now treated as a cache. `list_pins()` bulk-loads native `WidgetInstance` rows, rebuilds each native envelope from instance state, and writes the repaired envelope back to the pin row when drift is detected so refresh cannot re-serve an old empty body/items payload.
 
 Verification:
 
 - `python -m py_compile app/services/native_app_widgets.py app/tools/local/widget_library.py`
 - `./node_modules/.bin/tsc --noEmit --pretty false` returned exit code 0 in `ui/`
 - Focused `pytest` commands for the new native widget tests and native dashboard/catalog integration were added/run with timeouts, but the current shell wrapper still failed to emit trustworthy pass/fail lines before timing out in-session
+- Follow-up 2026-04-22:
+  - `pytest tests/integration/test_dashboard_pins.py -q -k native_envelope_from_instance_state` passed
+  - `pytest tests/unit/test_widget_library_list.py -q -k native` passed
+  - `./node_modules/.bin/tsc --noEmit --pretty false` returned exit code 0 in `ui/`
 
 ## MVP decision — FS-backed, not DB-backed
 

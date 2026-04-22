@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy.orm.attributes import flag_modified
 
 
 AUTH_HEADERS = {"Authorization": "Bearer test-key"}
@@ -567,6 +568,57 @@ class TestRefresh:
         )
         # No state_poll registered for a made-up tool → 400.
         assert r.status_code == 400
+
+
+class TestNativeWidgetReload:
+    @pytest.mark.asyncio
+    async def test_dashboard_get_rebuilds_native_envelope_from_instance_state(
+        self, client, db_session,
+    ):
+        from app.db.models import WidgetDashboardPin, WidgetInstance
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        create = await client.post(
+            "/api/v1/widgets/dashboard/pins",
+            json={
+                "source_kind": "adhoc",
+                "tool_name": "core/notes_native",
+                "envelope": build_native_widget_preview_envelope("core/notes_native"),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert create.status_code == 200, create.text
+        created = create.json()
+
+        pin = await db_session.get(WidgetDashboardPin, uuid.UUID(created["id"]))
+        assert pin is not None
+        assert pin.widget_instance_id is not None
+
+        instance = await db_session.get(WidgetInstance, pin.widget_instance_id)
+        assert instance is not None
+        instance.state = {
+            "body": "Persisted after reload",
+            "created_at": "2026-04-22T04:00:00+00:00",
+            "updated_at": "2026-04-22T04:01:00+00:00",
+        }
+        flag_modified(instance, "state")
+        pin.envelope = build_native_widget_preview_envelope(
+            "core/notes_native",
+            state={
+                "body": "",
+                "created_at": "2026-04-22T04:00:00+00:00",
+                "updated_at": "2026-04-22T04:00:00+00:00",
+            },
+            widget_instance_id=instance.id,
+        )
+        flag_modified(pin, "envelope")
+        await db_session.commit()
+
+        listing = await client.get("/api/v1/widgets/dashboard", headers=AUTH_HEADERS)
+        assert listing.status_code == 200, listing.text
+        pins = listing.json()["pins"]
+        repaired = next(p for p in pins if p["id"] == created["id"])
+        assert repaired["envelope"]["body"]["state"]["body"] == "Persisted after reload"
 
 
 class TestChannelHeaderSlot:

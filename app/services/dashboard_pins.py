@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import ApiKey, Bot, WidgetDashboardPin
+from app.db.models import ApiKey, Bot, WidgetDashboardPin, WidgetInstance
 from app.services.native_app_widgets import (
     NATIVE_APP_CONTENT_TYPE,
     build_envelope_for_native_instance,
@@ -79,6 +79,54 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
     }
 
 
+async def _sync_native_pin_envelopes(
+    db: AsyncSession,
+    rows: list[WidgetDashboardPin],
+) -> bool:
+    """Rebuild native pin envelopes from their authoritative widget instance state.
+
+    The pin row caches a render envelope for fast reads, but for native widgets
+    the durable state lives in ``widget_instances``. If the cached envelope ever
+    drifts, a fresh dashboard load should repair it rather than re-serving stale
+    state after refresh.
+    """
+    instance_ids = [
+        row.widget_instance_id
+        for row in rows
+        if row.widget_instance_id is not None
+    ]
+    if not instance_ids:
+        return False
+
+    instances = (
+        await db.execute(
+            select(WidgetInstance).where(WidgetInstance.id.in_(instance_ids))
+        )
+    ).scalars().all()
+    by_id = {instance.id: instance for instance in instances}
+
+    dirty = False
+    for row in rows:
+        if row.widget_instance_id is None:
+            continue
+        instance = by_id.get(row.widget_instance_id)
+        if instance is None or instance.widget_kind != "native_app":
+            continue
+        display_label = row.display_label or (row.envelope or {}).get("display_label")
+        envelope = build_envelope_for_native_instance(
+            instance,
+            display_label=display_label,
+            source_bot_id=row.source_bot_id,
+        )
+        if row.envelope != envelope:
+            row.envelope = envelope
+            row.display_label = envelope.get("display_label") or row.display_label
+            flag_modified(row, "envelope")
+            dirty = True
+
+    return dirty
+
+
 async def list_pins(
     db: AsyncSession, *, dashboard_key: str = DEFAULT_DASHBOARD_KEY,
 ) -> list[WidgetDashboardPin]:
@@ -101,6 +149,8 @@ async def list_pins(
             row.grid_layout = normalized
             flag_modified(row, "grid_layout")
             dirty = True
+    if await _sync_native_pin_envelopes(db, rows):
+        dirty = True
     if dirty:
         await db.commit()
     return list(rows)
