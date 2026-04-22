@@ -142,7 +142,7 @@ export function WidgetDockRight({ channelId, dashboardHref }: Props) {
             <ChevronRight size={14} />
           </button>
         </div>
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle px-2 py-2">
+        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle pl-0 pr-2 py-2">
           <WidgetRailSection
             channelId={channelId}
             pins={pins}

@@ -71,6 +71,137 @@ _ha_state_poll: &ha_state_poll
           - label: entity
             value: "{{entity_name}}"
 
+widget_presets:
+  homeassistant-entity-toggle-chip:
+    name: Entity Toggle Chip
+    description: Compact status chip with on/off control for one Home Assistant entity.
+    icon: ToggleLeft
+    tool_name: ha_get_state
+    binding_schema:
+      type: object
+      required: [entity_id]
+      properties:
+        entity_id:
+          type: string
+          title: Entity
+          description: Choose a toggle-capable entity.
+          ui:
+            control: picker
+            source: homeassistant.toggle_entities
+    binding_sources:
+      homeassistant.toggle_entities:
+        tool: GetLiveContext
+        args: {}
+        transform: "integrations.homeassistant.bindings:live_context_options"
+        params:
+          toggle_only: true
+    default_config:
+      preset_variant: toggle_chip
+    runtime:
+      tool_args:
+        entity_id: "{{config.entity_id}}"
+
+  homeassistant-entity-chip:
+    name: Entity Chip
+    description: Compact status/value chip for one Home Assistant entity.
+    icon: Activity
+    tool_name: ha_get_state
+    binding_schema:
+      type: object
+      required: [entity_id]
+      properties:
+        entity_id:
+          type: string
+          title: Entity
+          description: Choose any Home Assistant entity.
+          ui:
+            control: picker
+            source: homeassistant.entities
+        allow_action:
+          type: boolean
+          title: Show action
+          description: Show a power toggle when the entity supports one.
+          default: true
+          ui:
+            control: switch
+    binding_sources:
+      homeassistant.entities:
+        tool: GetLiveContext
+        args: {}
+        transform: "integrations.homeassistant.bindings:live_context_options"
+    default_config:
+      preset_variant: entity_chip
+      allow_action: true
+    runtime:
+      tool_args:
+        entity_id: "{{config.entity_id}}"
+
+  homeassistant-light-card:
+    name: Light Card
+    description: Light status card with power and optional brightness control.
+    icon: Lightbulb
+    tool_name: ha_get_state
+    binding_schema:
+      type: object
+      required: [entity_id]
+      properties:
+        entity_id:
+          type: string
+          title: Light
+          description: Choose a light entity.
+          ui:
+            control: picker
+            source: homeassistant.light_entities
+        show_brightness:
+          type: boolean
+          title: Show brightness
+          description: Expose the brightness slider when the light is on.
+          default: true
+          ui:
+            control: switch
+    binding_sources:
+      homeassistant.light_entities:
+        tool: GetLiveContext
+        args: {}
+        transform: "integrations.homeassistant.bindings:live_context_options"
+        params:
+          domains: [light]
+    default_config:
+      preset_variant: light_card
+      show_brightness: true
+    runtime:
+      tool_args:
+        entity_id: "{{config.entity_id}}"
+
+  homeassistant-sensor-card:
+    name: Sensor Card
+    description: Read-only sensor card with current value and freshness.
+    icon: Thermometer
+    tool_name: ha_get_state
+    binding_schema:
+      type: object
+      required: [entity_id]
+      properties:
+        entity_id:
+          type: string
+          title: Sensor
+          description: Choose a sensor entity.
+          ui:
+            control: picker
+            source: homeassistant.sensor_entities
+    binding_sources:
+      homeassistant.sensor_entities:
+        tool: GetLiveContext
+        args: {}
+        transform: "integrations.homeassistant.bindings:live_context_options"
+        params:
+          domains: [sensor]
+    default_config:
+      preset_variant: sensor_card
+    runtime:
+      tool_args:
+        entity_id: "{{config.entity_id}}"
+
 tool_widgets:
   # Official HA MCP tools — intent-based
   # Result shape: {response_type, data: {targets[], success[{name, type, id}], failed[]}}
@@ -144,57 +275,145 @@ tool_widgets:
           items: "{{data.success | map: {label: type, value: name}}}"
 
   # Community ha-mcp: single entity lookup — e.g. a temperature sensor.
-  # The initial render uses the tool's own response directly; pinning the
-  # card re-calls ha_get_state with the same entity_id so the value stays
-  # live without hitting the much larger GetLiveContext.
+  # One adaptive entity widget:
+  # - light -> light card with optional brightness control
+  # - sensor -> sensor card
+  # - toggle-capable domains -> compact toggle chip
+  # - everything else -> value chip / entity chip
   #
-  # display_label is the entity_id (not the friendly_name) because
-  # state_poll.args can only reference {{display_label}} / {{tool_name}} /
-  # {{config.*}} — no {{data.*}} — so the entity_id has to ride on the
-  # one variable the pin persists. The card body still shows the pretty
-  # friendly_name via the transform output.
+  # display_label remains entity_id for now because the current preview → pin
+  # flow can seed widget_config from it on create. After pinning, refresh uses
+  # config.entity_id rather than scraping the label forever.
   ha_get_state:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{data.entity_id}}"
+    transform: "integrations.homeassistant.widget_transforms:render_single_entity_widget"
+    default_config:
+      show_brightness: true
     state_poll:
       tool: ha_get_state
       args:
-        entity_id: "{{display_label}}"
+        entity_id: "{{config.entity_id}}"
       transform: "integrations.homeassistant.widget_transforms:single_entity_state"
       refresh_interval_seconds: 30
       template:
         v: 1
         components:
           - type: heading
+            when: "{{is_sensor_card}}"
+            text: "{{friendly_name}}"
+            level: 3
+          - type: heading
+            when: "{{is_light_card}}"
             text: "{{friendly_name}}"
             level: 3
           - type: status
+            when: "{{is_sensor_card}}"
             text: "{{display_value}}"
             color: accent
+          - type: status
+            when: "{{show_light_status_on}}"
+            text: "On"
+            color: success
+          - type: status
+            when: "{{show_light_status_off}}"
+            text: "Off"
+            color: muted
+          - type: status
+            when: "{{is_toggle_chip}}"
+            text: "{{friendly_name}} · {{display_value}}"
+            color: accent
+          - type: status
+            when: "{{is_entity_chip}}"
+            text: "{{friendly_name}} · {{display_value}}"
+            color: accent
+          - type: toggle
+            when: "{{show_toggle_off}}"
+            label: Power
+            value: true
+            color: success
+            action:
+              dispatch: tool
+              tool: "{{toggle_off_tool}}"
+              args:
+                name: "{{toggle_target_name}}"
+              optimistic: true
+          - type: toggle
+            when: "{{show_toggle_on}}"
+            label: Power
+            value: false
+            action:
+              dispatch: tool
+              tool: "{{toggle_on_tool}}"
+              args:
+                name: "{{toggle_target_name}}"
+              optimistic: true
+          - type: button
+            when: "{{show_brightness_button_hide}}"
+            label: Hide brightness
+            subtle: true
+            action:
+              dispatch: widget_config
+              config:
+                show_brightness: false
+          - type: button
+            when: "{{show_brightness_button_show}}"
+            label: Show brightness
+            subtle: true
+            action:
+              dispatch: widget_config
+              config:
+                show_brightness: true
+          - type: slider
+            when: "{{show_brightness}}"
+            label: Brightness
+            value: "{{brightness}}"
+            min: 0
+            max: 100
+            step: 5
+            unit: "%"
+            color: accent
+            action:
+              dispatch: tool
+              tool: HassLightSet
+              args:
+                name: "{{toggle_target_name}}"
+              value_key: brightness
           - type: properties
+            when: "{{is_sensor_card}}"
             layout: inline
             items:
               - label: entity
                 value: "{{entity_id}}"
               - label: updated
                 value: "{{last_changed | date_relative}}"
+          - type: properties
+            when: "{{is_light_card}}"
+            layout: inline
+            items:
+              - label: entity
+                value: "{{entity_id}}"
+              - label: updated
+                value: "{{last_changed | date_relative}}"
+          - type: properties
+            when: "{{is_toggle_chip}}"
+            layout: inline
+            items:
+              - label: entity
+                value: "{{entity_id}}"
+          - type: properties
+            when: "{{is_entity_chip}}"
+            layout: inline
+            items:
+              - label: entity
+                value: "{{entity_id}}"
     template:
       v: 1
       components:
-        - type: heading
-          text: "{{data.attributes.friendly_name}}"
-          level: 3
         - type: status
-          text: "{{data.state}}{{data.attributes.unit_of_measurement}}"
-          color: accent
-        - type: properties
-          layout: inline
-          items:
-            - label: entity
-              value: "{{data.entity_id}}"
-            - label: updated
-              value: "{{data.last_changed | date_relative}}"
+          text: "{{data.attributes.friendly_name}}"
+          color: info
 
   # Community ha-mcp: search results list. The section is collapsed by
   # default so the chat thread stays compact — clicking the section header

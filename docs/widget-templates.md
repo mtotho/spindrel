@@ -9,6 +9,19 @@ via `ComponentRenderer`.
 
 Packages are editable in the admin UI at **Tools → Widget Library**.
 
+## Product terms
+
+The UI now separates four related concepts:
+
+| Term | Meaning |
+|---|---|
+| Widget preset | A ready-to-pin widget with a guided binding flow. Example: "Home Assistant Light Card" where the user only selects an entity. |
+| Tool renderer | A YAML/HTML definition that renders the output of a specific tool call. This is what this document describes. |
+| Native widget | A first-party React widget like Notes or Todo with host-owned actions and persistence. |
+| HTML widget | A standalone iframe/bundle widget, either library-backed or emitted at runtime via `emit_html_widget`. |
+
+Use a **preset** when the product should guide the user through binding a real object like an entity, device, or task feed. Use a **tool renderer** when you are authoring how one tool's output should render once the tool has already been called.
+
 ## Picking a mode
 
 There are three ways to turn a tool result into a rendered card. They coexist and target different problems:

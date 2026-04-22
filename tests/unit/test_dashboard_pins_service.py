@@ -68,6 +68,17 @@ async def test_create_rejects_empty_envelope(db_session):
 
 
 @pytest.mark.asyncio
+async def test_create_pin_seeds_ha_entity_id_widget_config(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="ha_get_state",
+        envelope=_env("light.office_desk_led_strip"),
+    )
+    assert pin.widget_config == {"entity_id": "light.office_desk_led_strip"}
+
+
+@pytest.mark.asyncio
 async def test_delete_then_get_raises_404(db_session):
     pin = await create_pin(db_session, source_kind="adhoc", tool_name="t", envelope=_env())
     await delete_pin(db_session, pin.id)

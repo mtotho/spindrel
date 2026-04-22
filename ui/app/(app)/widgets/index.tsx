@@ -498,7 +498,7 @@ export default function WidgetsDashboardPage() {
 
       <div
         className={
-          "relative flex-1 p-2 sm:p-4 md:p-6 "
+          "relative flex-1 p-2 sm:p-4 md:p-3 "
           // Panel mode should keep overflow on the dashboard surface so
           // tall rail columns page-scroll with the rest of the view.
           + "overflow-auto "

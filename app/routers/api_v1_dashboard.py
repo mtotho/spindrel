@@ -1095,6 +1095,25 @@ class PreviewForToolRequest(BaseModel):
     source_channel_id: uuid.UUID | None = None
 
 
+class WidgetPresetPreviewRequest(BaseModel):
+    config: dict | None = None
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+
+
+class WidgetPresetBindingOptionsRequest(BaseModel):
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+
+
+class PinWidgetPresetRequest(BaseModel):
+    dashboard_key: str | None = None
+    config: dict | None = None
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+    display_label: str | None = None
+
+
 class WidgetConfigPatch(BaseModel):
     config: dict
     merge: bool = True
@@ -1201,6 +1220,115 @@ async def preview_dashboard_widget_for_tool(
         source_bot_id=body.source_bot_id,
         source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
     )
+
+
+@router.get(
+    "/presets",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def list_dashboard_widget_presets():
+    from app.services.widget_presets import list_widget_presets, serialize_widget_preset
+
+    return {"presets": [serialize_widget_preset(p) for p in list_widget_presets()]}
+
+
+@router.get(
+    "/presets/{preset_id}",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_dashboard_widget_preset(
+    preset_id: str,
+):
+    from app.services.widget_presets import get_widget_preset, serialize_widget_preset
+
+    return serialize_widget_preset(get_widget_preset(preset_id))
+
+
+@router.post(
+    "/presets/{preset_id}/binding-options/{source_id}",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_dashboard_widget_preset_binding_options(
+    preset_id: str,
+    source_id: str,
+    body: WidgetPresetBindingOptionsRequest,
+):
+    from app.services.widget_presets import list_binding_options
+
+    options = await list_binding_options(
+        preset_id=preset_id,
+        source_id=source_id,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
+    return {"options": options}
+
+
+@router.post(
+    "/presets/{preset_id}/preview",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def preview_dashboard_widget_preset(
+    preset_id: str,
+    body: WidgetPresetPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.widget_presets import preview_envelope_to_dict, preview_widget_preset
+
+    preview, resolved_config, _tool_args = await preview_widget_preset(
+        db,
+        preset_id=preset_id,
+        config=body.config,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
+    return {
+        "ok": preview.ok,
+        "envelope": preview_envelope_to_dict(preview.envelope),
+        "errors": [err.model_dump(mode="json") for err in preview.errors],
+        "config": resolved_config,
+    }
+
+
+@router.post(
+    "/presets/{preset_id}/pin",
+    dependencies=[Depends(require_scopes("channels:write"))],
+)
+async def pin_dashboard_widget_preset(
+    preset_id: str,
+    body: PinWidgetPresetRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.widget_presets import get_widget_preset, preview_widget_preset
+
+    preview, resolved_config, tool_args = await preview_widget_preset(
+        db,
+        preset_id=preset_id,
+        config=body.config,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
+    if not preview.ok or preview.envelope is None:
+        raise HTTPException(400, f"Preset '{preset_id}' preview failed")
+
+    preset = get_widget_preset(preset_id)
+    tool_name = preset.get("tool_name")
+    if not isinstance(tool_name, str) or not tool_name.strip():
+        raise HTTPException(400, f"Preset '{preset_id}' missing tool_name")
+
+    pin = await create_pin(
+        db,
+        source_kind="adhoc",
+        tool_name=tool_name,
+        envelope=preview_envelope_to_dict(preview.envelope),
+        source_channel_id=body.source_channel_id,
+        source_bot_id=body.source_bot_id,
+        tool_args=tool_args,
+        widget_config=resolved_config,
+        display_label=body.display_label,
+        dashboard_key=body.dashboard_key or DEFAULT_DASHBOARD_KEY,
+    )
+    return serialize_pin(pin)
 
 
 @router.post(

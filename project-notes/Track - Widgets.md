@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-21 (session-local plan mode landed for widget work)
+updated: 2026-04-22 (Widget presets UI split + Home Assistant binding flow)
 ---
 # Track — Widget System DX + Robustness
 
@@ -31,6 +31,9 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
+- **Home Assistant adaptive entity widget landed** (2026-04-22) — `integrations/homeassistant/integration.yaml:ha_get_state` now renders four shapes off one tool contract: sensor card, light card, toggle chip, and generic entity/value chip. `state_poll.args.entity_id` reads `{{config.entity_id}}`; `app/services/dashboard_pins.py` seeds that config from `display_label` once at pin-create time so refresh no longer depends on label scraping after the pin exists.
+- **Widget presets landed as a first-class surface** (2026-04-22) — integrations can now declare `widget_presets:` alongside `tool_widgets:`. `app/services/widget_presets.py` resolves preset metadata, binding-source options, preview, and pinning through the existing widget engine, and `/api/v1/widgets/presets*` powers both Add Widget and `/widgets/dev`. New invariant: presets own guided binding inputs; tool renderers remain the advanced “render a tool result” path.
+- **Expression grammar still constrains widget authoring** — this HA pass had to push the variant branching into `widget_transforms.py` because the template engine still lacks `and` / `or` / ternary / prefix tests. That keeps P1-2 (`and` / `or` / `not` / ternary) relevant for lowering authoring friction on bindable integration widgets.
 - **JSON Schema artifact** at `ui/src/types/widget-components.schema.json` generated from `ComponentBody.model_json_schema()` — enables future admin playground (P2-6) to lint YAML live. Small script under `scripts/`.
 - **TS type hoist**: lift the `ComponentNode` union out of `ui/src/components/chat/renderers/ComponentRenderer.tsx` into `ui/src/types/widgets.ts` so the renderer imports from a single source of truth. Today Pydantic is the canonical schema for validation, but the TS is still a manual parallel.
 - **`with:` overlays on fragments**: per-ref variable overrides (`{type: fragment, ref: X, with: {bot_id: "{{override}}"}}`). Not needed by the refactored `schedule_task`; add if a second widget wants the same fragment but against different keys.

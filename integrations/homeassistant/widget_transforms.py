@@ -10,6 +10,7 @@ returns a flat dict the state_poll template can render.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import re
@@ -80,6 +81,7 @@ def entity_state(raw_result: str, widget_meta: dict) -> dict:
 
 
 _ON_STATES = ("on", "open", "playing", "home", "active", "unlocked", "heat", "cool")
+_TOGGLEABLE_DOMAINS = {"light", "switch", "fan", "input_boolean", "media_player"}
 
 
 def _unwrap(raw_result: str) -> dict:
@@ -131,6 +133,24 @@ def single_entity_state(raw_result: str, widget_meta: dict) -> dict:
     if not isinstance(entity, dict) or not entity.get("entity_id"):
         return {}
 
+    config = widget_meta.get("config") if isinstance(widget_meta.get("config"), dict) else {}
+    return _single_entity_view(entity, config)
+
+
+def render_single_entity_widget(data: dict, _components: list[dict]) -> list[dict]:
+    """Code transform for the initial ha_get_state render.
+
+    The template language is intentionally small, so build the adaptive component
+    tree in Python once from the same view-model used by state_poll refreshes.
+    """
+    entity = data.get("data") if isinstance(data.get("data"), dict) else {}
+    if not entity or not entity.get("entity_id"):
+        return _components
+    config = data.get("config") if isinstance(data.get("config"), dict) else {}
+    return _build_entity_widget_components(_single_entity_view(entity, config))
+
+
+def _single_entity_view(entity: dict, config: dict) -> dict:
     entity_id = entity.get("entity_id") or ""
     state = entity.get("state", "")
     attrs = entity.get("attributes") or {}
@@ -138,6 +158,26 @@ def single_entity_state(raw_result: str, widget_meta: dict) -> dict:
     unit = attrs.get("unit_of_measurement") or ""
     domain = entity_id.split(".", 1)[0] if entity_id else ""
     is_on = str(state).lower() in _ON_STATES
+
+    supports_toggle = domain in _TOGGLEABLE_DOMAINS
+    supports_brightness = domain == "light"
+    forced_variant = str(config.get("preset_variant") or "").strip().lower()
+    allow_action = bool(config.get("allow_action", False))
+
+    if forced_variant in {"sensor_card", "light_card", "toggle_chip", "entity_chip"}:
+        widget_variant = forced_variant
+    elif domain == "sensor":
+        widget_variant = "sensor_card"
+    elif domain == "light":
+        widget_variant = "light_card"
+    elif supports_toggle:
+        widget_variant = "toggle_chip"
+    else:
+        widget_variant = "entity_chip"
+
+    brightness_raw = attrs.get("brightness")
+    brightness = _parse_brightness(brightness_raw) if brightness_raw is not None else (100 if is_on else 0)
+    show_brightness = supports_brightness and is_on and bool(config.get("show_brightness", True))
 
     return {
         "entity_id": entity_id,
@@ -150,7 +190,143 @@ def single_entity_state(raw_result: str, widget_meta: dict) -> dict:
         "is_on": is_on,
         "is_off": not is_on,
         "display_value": _format_display_value(state, unit),
+        "widget_variant": widget_variant,
+        "is_sensor_card": widget_variant == "sensor_card",
+        "is_light_card": widget_variant == "light_card",
+        "is_toggle_chip": widget_variant == "toggle_chip",
+        "is_entity_chip": widget_variant == "entity_chip",
+        "supports_toggle": supports_toggle,
+        "supports_brightness": supports_brightness,
+        "allow_action": allow_action,
+        "show_brightness": show_brightness,
+        "brightness": brightness,
+        "show_toggle_on": supports_toggle and not is_on and (
+            widget_variant == "toggle_chip"
+            or widget_variant == "light_card"
+            or allow_action
+        ),
+        "show_toggle_off": supports_toggle and is_on and (
+            widget_variant == "toggle_chip"
+            or widget_variant == "light_card"
+            or allow_action
+        ),
+        "show_light_status_on": widget_variant == "light_card" and is_on,
+        "show_light_status_off": widget_variant == "light_card" and not is_on,
+        "show_brightness_button_show": supports_brightness and is_on and not show_brightness,
+        "show_brightness_button_hide": supports_brightness and is_on and show_brightness,
+        "toggle_target_name": friendly,
+        "toggle_on_tool": "HassTurnOn" if supports_toggle else "",
+        "toggle_off_tool": "HassTurnOff" if supports_toggle else "",
     }
+
+
+def _build_entity_widget_components(view: dict) -> list[dict]:
+    components: list[dict] = []
+
+    if view.get("is_sensor_card") or view.get("is_light_card"):
+        components.append({
+            "type": "heading",
+            "text": view.get("friendly_name", ""),
+            "level": 3,
+        })
+
+    if view.get("is_sensor_card"):
+        components.append({
+            "type": "status",
+            "text": view.get("display_value", ""),
+            "color": "accent",
+        })
+
+    if view.get("is_light_card"):
+        components.append({
+            "type": "status",
+            "text": "On" if view.get("is_on") else "Off",
+            "color": "success" if view.get("is_on") else "muted",
+        })
+
+    if view.get("is_toggle_chip") or view.get("is_entity_chip"):
+        components.append({
+            "type": "status",
+            "text": f"{view.get('friendly_name', '')} · {view.get('display_value', '')}".strip(" ·"),
+            "color": "success" if view.get("is_on") else "accent",
+        })
+
+    if view.get("show_toggle_off"):
+        components.append({
+            "type": "toggle",
+            "label": "Power",
+            "value": True,
+            "color": "success",
+            "action": {
+                "dispatch": "tool",
+                "tool": view.get("toggle_off_tool", ""),
+                "args": {"name": view.get("toggle_target_name", "")},
+                "optimistic": True,
+            },
+        })
+
+    if view.get("show_toggle_on"):
+        components.append({
+            "type": "toggle",
+            "label": "Power",
+            "value": False,
+            "action": {
+                "dispatch": "tool",
+                "tool": view.get("toggle_on_tool", ""),
+                "args": {"name": view.get("toggle_target_name", "")},
+                "optimistic": True,
+            },
+        })
+
+    if view.get("show_brightness_button_hide"):
+        components.append({
+            "type": "button",
+            "label": "Hide brightness",
+            "subtle": True,
+            "action": {
+                "dispatch": "widget_config",
+                "config": {"show_brightness": False},
+            },
+        })
+    elif view.get("show_brightness_button_show"):
+        components.append({
+            "type": "button",
+            "label": "Show brightness",
+            "subtle": True,
+            "action": {
+                "dispatch": "widget_config",
+                "config": {"show_brightness": True},
+            },
+        })
+
+    if view.get("show_brightness"):
+        components.append({
+            "type": "slider",
+            "label": "Brightness",
+            "value": view.get("brightness", 0),
+            "min": 0,
+            "max": 100,
+            "step": 5,
+            "unit": "%",
+            "color": "accent",
+            "action": {
+                "dispatch": "tool",
+                "tool": "HassLightSet",
+                "args": {"name": view.get("toggle_target_name", "")},
+                "value_key": "brightness",
+            },
+        })
+
+    props = [{"label": "entity", "value": view.get("entity_id", "")}]
+    if view.get("is_sensor_card") or view.get("is_light_card"):
+        props.append({"label": "updated", "value": view.get("last_changed", "")})
+    components.append({
+        "type": "properties",
+        "layout": "inline",
+        "items": props,
+    })
+
+    return copy.deepcopy(components)
 
 
 def _compute_live_context_view(raw_text: str, raw_filter: str) -> dict:

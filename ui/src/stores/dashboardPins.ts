@@ -44,6 +44,13 @@ interface DashboardPinsState {
     display_label?: string | null;
   }) => Promise<WidgetDashboardPin>;
 
+  pinPreset: (presetId: string, body: {
+    config?: Record<string, unknown>;
+    source_bot_id?: string | null;
+    source_channel_id?: string | null;
+    display_label?: string | null;
+  }) => Promise<WidgetDashboardPin>;
+
   /** Atomically pin every member of a widget suite onto the current dashboard.
    *
    *  ``source_bot_id`` selects the iframe auth scope:
@@ -152,6 +159,20 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
     const slug = get().currentSlug;
     const created = await apiFetch<WidgetDashboardPin>(
       "/api/v1/widgets/dashboard/pins",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, dashboard_key: slug }),
+      },
+    );
+    set((s) => ({ pins: [...s.pins, created] }));
+    return created;
+  },
+
+  pinPreset: async (presetId, body) => {
+    const slug = get().currentSlug;
+    const created = await apiFetch<WidgetDashboardPin>(
+      `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/pin`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

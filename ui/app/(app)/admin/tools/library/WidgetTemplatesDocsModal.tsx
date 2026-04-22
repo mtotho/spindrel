@@ -52,7 +52,7 @@ export function WidgetTemplatesDocsModal({ onClose }: Props) {
           }}
         >
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text }}>
-            Widget Templates
+            Widget Authoring
           </span>
           <button type="button" onClick={onClose}>
             <X size={16} color={t.textDim} />
@@ -66,7 +66,7 @@ export function WidgetTemplatesDocsModal({ onClose }: Props) {
           )}
           {isError && (
             <div style={{ padding: 20, fontSize: 13, color: t.textDim, textAlign: "center" }}>
-              Failed to load widget-templates documentation.
+              Failed to load widget authoring documentation.
             </div>
           )}
           {data?.content && <MarkdownViewer content={data.content} />}

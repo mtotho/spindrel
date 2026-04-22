@@ -1,6 +1,6 @@
 /**
- * RecentTab — browse recent ToolCall rows and hand them off to the Templates
- * editor or pin them directly to the dashboard.
+ * RecentTab — browse recent ToolCall rows and hand them off to renderer
+ * authoring or pin them directly to the dashboard.
  *
  * Two-pane layout mirrors ToolsSandbox. Left: filter bar + scrollable list.
  * Right: selected call detail with arguments, raw result, rendered preview,
@@ -419,7 +419,7 @@ function CallDetail({
     [detail?.result],
   );
 
-  // The sample payload the Import-into-Templates button hands off. Falls back
+  // The sample payload the Import-into-Renderer-Authoring button hands off. Falls back
   // to the call's arguments when the stored result is absent so widget
   // authors can still scaffold a template from a historical call that lost
   // its result (null / truncation edge cases). For emit_html_widget the
@@ -559,11 +559,11 @@ function CallDetail({
           title={
             importSample == null
               ? "No result body to import"
-              : "Open Templates editor with this call's result as the sample payload"
+              : "Open renderer authoring with this call's result as the sample payload"
           }
         >
           <Wand2 size={13} />
-          Import into Templates
+          Import into Renderer Authoring
         </button>
         <button
           type="button"
@@ -663,7 +663,7 @@ function CallDetail({
               )}
               {!envLoading && !envelope && (
                 <span className="text-[12px] text-text-dim">
-                  No widget available. Try Import into Templates to build one.
+                  No widget available. Try importing this result into renderer authoring to build one.
                 </span>
               )}
             </div>

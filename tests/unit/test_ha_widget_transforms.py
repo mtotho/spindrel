@@ -55,6 +55,9 @@ def test_single_entity_state_temperature():
     assert out["display_value"] == "75.344°F"
     assert out["is_off"] is True
     assert out["is_on"] is False
+    assert out["widget_variant"] == "sensor_card"
+    assert out["supports_toggle"] is False
+    assert out["supports_brightness"] is False
 
 
 def test_single_entity_state_light_on():
@@ -64,6 +67,33 @@ def test_single_entity_state_light_on():
     assert out["domain"] == "light"
     # No unit → state echoed bare
     assert out["display_value"] == "on"
+    assert out["widget_variant"] == "light_card"
+    assert out["supports_toggle"] is True
+    assert out["supports_brightness"] is True
+    assert out["show_brightness"] is True
+    assert out["brightness"] == 71
+
+
+def test_single_entity_state_light_hides_brightness_when_config_disabled():
+    out = single_entity_state(HA_GET_STATE_LIGHT_ON, {"config": {"show_brightness": False}})
+    assert out["supports_brightness"] is True
+    assert out["show_brightness"] is False
+
+
+def test_single_entity_state_toggle_chip_variant():
+    payload = json.dumps({
+        "data": {
+            "entity_id": "switch.espresso_machine",
+            "state": "off",
+            "attributes": {"friendly_name": "Espresso Machine"},
+        },
+    })
+    out = single_entity_state(payload, {})
+    assert out["widget_variant"] == "toggle_chip"
+    assert out["supports_toggle"] is True
+    assert out["toggle_target_name"] == "Espresso Machine"
+    assert out["toggle_on_tool"] == "HassTurnOn"
+    assert out["toggle_off_tool"] == "HassTurnOff"
 
 
 def test_single_entity_state_invalid_json():
@@ -262,14 +292,9 @@ def test_live_context_summary_bad_input_passthrough(payload):
 # ── Regression: ha_get_state pin wiring ──
 
 def test_ha_get_state_widget_shape_matches_transform_contract():
-    """The ha_get_state widget must expose entity_id via display_label.
-
-    Regression guard for the pin bug: state_poll.args can only reference
-    {{display_label}} / {{tool_name}} / {{config.*}} (see
-    ``app/routers/api_v1_widget_actions.py:_do_state_poll``). If anyone
-    changes display_label to {{data.attributes.friendly_name}}, the pinned
-    widget will silently stop refreshing because HA's ha_get_state tool
-    cannot look up an entity by friendly name.
+    """ha_get_state pins now seed config.entity_id at create time, and the
+    poll path must read that explicit binding instead of depending on
+    display_label hacks forever.
     """
     import yaml
 
@@ -277,12 +302,9 @@ def test_ha_get_state_widget_shape_matches_transform_contract():
         doc = yaml.safe_load(f)
 
     spec = doc["tool_widgets"]["ha_get_state"]
-    assert spec["display_label"] == "{{data.entity_id}}", (
-        "display_label must be entity_id — state_poll.args.entity_id "
-        "references {{display_label}} and entity_id can't be recovered "
-        "from friendly_name."
-    )
-    assert spec["state_poll"]["args"]["entity_id"] == "{{display_label}}"
+    assert spec["display_label"] == "{{data.entity_id}}"
+    assert spec["state_poll"]["args"]["entity_id"] == "{{config.entity_id}}"
+    assert spec["default_config"]["show_brightness"] is True
 
 
 def test_live_context_poll_returns_data_dict_for_each_block_template():

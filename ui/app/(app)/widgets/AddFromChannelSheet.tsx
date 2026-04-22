@@ -20,6 +20,7 @@ import {
   WidgetLibrary,
   libraryPinIdentity,
 } from "./WidgetLibrary";
+import { WidgetPresetsPane } from "./WidgetPresetsPane";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -40,7 +41,7 @@ interface Props {
   scopeChannelId?: string | null;
 }
 
-type Tab = "channel" | "recent" | "library" | "suites" | "build";
+type Tab = "presets" | "channel" | "recent" | "library" | "suites" | "build";
 
 interface SuiteEntry {
   suite_id: string;
@@ -82,7 +83,7 @@ export default function AddFromChannelSheet({
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
   const [tab, setTab] = useState<Tab>(
-    scopeChannelId ? "recent" : "channel",
+    "presets",
   );
   const [query, setQuery] = useState("");
   const pins = useDashboardPinsStore((s) => s.pins);
@@ -245,6 +246,9 @@ export default function AddFromChannelSheet({
         </header>
 
         <div className="flex gap-1 px-4 pt-3 pb-0">
+          <TabButton active={tab === "presets"} onClick={() => setTab("presets")}>
+            Presets
+          </TabButton>
           <TabButton active={tab === "recent"} onClick={() => setTab("recent")}>
             Recent calls
           </TabButton>
@@ -262,7 +266,7 @@ export default function AddFromChannelSheet({
             </TabButton>
           )}
           <TabButton active={tab === "build"} onClick={() => setTab("build")}>
-            Build new
+            Authoring
           </TabButton>
         </div>
 
@@ -276,7 +280,7 @@ export default function AddFromChannelSheet({
           </div>
         )}
 
-        {(tab === "channel" || tab === "library") && (
+        {(tab === "channel" || tab === "library" || tab === "presets") && (
           <div className="px-4 py-2.5">
             <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
               <Search size={13} className="text-text-dim" />
@@ -286,6 +290,8 @@ export default function AddFromChannelSheet({
                 placeholder={
                   tab === "library"
                     ? "Search library widgets"
+                    : tab === "presets"
+                    ? "Search presets"
                     : "Search channels or widgets"
                 }
                 className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
@@ -304,6 +310,29 @@ export default function AddFromChannelSheet({
         )}
 
         <div className="flex-1 overflow-auto">
+          {tab === "presets" && (
+            <WidgetPresetsPane
+              mode="pin"
+              query={query}
+              scopeChannelId={scopeChannelId ?? null}
+              onPinCreated={(pinId) => {
+                toast({
+                  kind: "success",
+                  message: `Added preset to ${dashboardName ?? "dashboard"}`,
+                  action: onPinned
+                    ? {
+                        label: "View",
+                        onClick: () => {
+                          onPinned(pinId);
+                          onClose();
+                        },
+                      }
+                    : undefined,
+                });
+                onPinned?.(pinId);
+              }}
+            />
+          )}
           {tab === "recent" && (
             <RecentCallsTab
               loaded={recent}

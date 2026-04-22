@@ -38,6 +38,24 @@ _HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive"
 _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
 
 
+def _seed_widget_config(tool_name: str, envelope: dict, widget_config: dict | None) -> dict:
+    """Backfill per-pin config from the rendered envelope when a widget's
+    refresh contract needs an explicit binding key.
+
+    Home Assistant's ``ha_get_state`` widget now polls via ``config.entity_id``
+    instead of scraping identity back out of ``display_label`` on every refresh.
+    Existing preview/pin flows do not yet send widget_config explicitly, so
+    seed the binding once at pin-create time from the emitted envelope.
+    """
+    merged = dict(widget_config or {})
+    bare_tool_name = tool_name.split("-", 1)[1] if "-" in tool_name else tool_name
+    if bare_tool_name == "ha_get_state" and not merged.get("entity_id"):
+        display_label = (envelope.get("display_label") or "").strip()
+        if display_label:
+            merged["entity_id"] = display_label
+    return merged
+
+
 def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, int]:
     """Compute a day-0 layout slot for a pin at the given position.
 
@@ -249,6 +267,7 @@ async def create_pin(
     await get_dashboard(db, dashboard_key)
 
     position = await _next_position(db, dashboard_key=dashboard_key)
+    widget_config = _seed_widget_config(tool_name, envelope, widget_config)
     widget_instance_id: uuid.UUID | None = None
     if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
         widget_ref = extract_native_widget_ref_from_envelope(envelope)
