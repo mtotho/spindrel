@@ -6,12 +6,14 @@ import type { SessionPlan } from "./useSessionPlanMode";
 export function SessionPlanCard({
   plan,
   busy,
+  showPath = false,
   onApprove,
   onExit,
   onStepStatus,
 }: {
   plan: SessionPlan;
   busy?: boolean;
+  showPath?: boolean;
   onApprove: () => void;
   onExit: () => void;
   onStepStatus: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
@@ -56,7 +58,6 @@ export function SessionPlanCard({
         display: "flex",
         flexDirection: "column",
         gap: 12,
-        marginTop: 10,
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -85,7 +86,9 @@ export function SessionPlanCard({
             <span style={{ fontSize: 11, color: t.textDim }}>rev {plan.revision}</span>
           </div>
           <div style={{ fontSize: 13, color: t.textMuted }}>{plan.summary}</div>
-          <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>{plan.path}</div>
+          {showPath && plan.path ? (
+            <div style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>{plan.path}</div>
+          ) : null}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {plan.mode === "planning" && (

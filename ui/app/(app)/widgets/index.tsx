@@ -171,12 +171,18 @@ export default function WidgetsDashboardPage() {
   }, [pins]);
 
   const { kiosk, enterKiosk, exitKiosk, idle: kioskIdle } = useKioskMode();
-  const [sheetOpen, setSheetOpen] = useState(false);
 
   // `?dock=expanded` — the channel screen's Minimize button navigates here
   // with this flag so the dock opens already expanded (landing continuity).
   // Read once, scrub from the URL on mount so a later refresh doesn't re-open.
   const [searchParams, setSearchParams] = useSearchParams();
+  const builderOpen = searchParams.get("builder") === "1";
+  const builderTab = (searchParams.get("builder_tab") ?? "presets") as
+    "presets" | "channel" | "recent" | "library" | "suites" | "build";
+  const builderQuery = searchParams.get("builder_q") ?? "";
+  const builderPresetId = searchParams.get("builder_preset") ?? "";
+  const builderStep = (searchParams.get("builder_step") ?? "catalog") as
+    "catalog" | "configure" | "preview";
   const [initialDockExpanded] = useState(() => searchParams.get("dock") === "expanded");
   const scratchSessionIdFromQuery = searchParams.get("scratch_session_id");
   const scratchReturnSessionId = useScratchReturnStore(
@@ -395,6 +401,34 @@ export default function WidgetsDashboardPage() {
   };
 
   const navigate = useNavigate();
+  const patchBuilderSearch = useCallback(
+    (mutate: (params: URLSearchParams) => void, replace = false) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        mutate(next);
+        return next;
+      }, { replace });
+    },
+    [setSearchParams],
+  );
+
+  const openBuilder = useCallback(() => {
+    patchBuilderSearch((params) => {
+      params.set("builder", "1");
+      if (!params.get("builder_tab")) params.set("builder_tab", "presets");
+      if (!params.get("builder_step")) params.set("builder_step", "catalog");
+    });
+  }, [patchBuilderSearch]);
+
+  const closeBuilder = useCallback(() => {
+    patchBuilderSearch((params) => {
+      params.delete("builder");
+      params.delete("builder_tab");
+      params.delete("builder_q");
+      params.delete("builder_preset");
+      params.delete("builder_step");
+    });
+  }, [patchBuilderSearch]);
 
   const actions = (
     <>
@@ -430,7 +464,7 @@ export default function WidgetsDashboardPage() {
           back-button + Pin target picker seed to this dashboard — works the
           same on channel-scoped and global dashboards. */}
       <AddWidgetSplitButton
-        onOpenSheet={() => setSheetOpen(true)}
+        onOpenSheet={openBuilder}
         devPanelHref={`/widgets/dev?from=${encodeURIComponent(slug)}`}
       />
       {/* Open chat — ALWAYS rendered as the rightmost button so it occupies
@@ -536,7 +570,7 @@ export default function WidgetsDashboardPage() {
           </div>
         )}
         {!isLoading && !error && pins.length === 0 && (
-          <EmptyState onAddClick={() => setSheetOpen(true)} />
+          <EmptyState onAddClick={openBuilder} />
         )}
         {!isLoading && !error && pins.length > 0 && inPanelMode && panelPin && (
           <PanelModeView
@@ -616,11 +650,41 @@ export default function WidgetsDashboardPage() {
       </div>
 
       <AddFromChannelSheet
-        open={sheetOpen}
-        onClose={() => setSheetOpen(false)}
+        open={builderOpen}
+        onClose={closeBuilder}
+        tab={builderTab}
+        onTabChange={(tab) => {
+          patchBuilderSearch((params) => {
+            params.set("builder", "1");
+            params.set("builder_tab", tab);
+          });
+        }}
+        query={builderQuery}
+        onQueryChange={(query) => {
+          patchBuilderSearch((params) => {
+            params.set("builder", "1");
+            if (query.trim()) params.set("builder_q", query);
+            else params.delete("builder_q");
+          }, true);
+        }}
         dashboardName={currentDashboard?.name ?? "dashboard"}
         onPinned={highlightPin}
         scopeChannelId={channelScopedId}
+        selectedPresetId={builderPresetId}
+        onSelectedPresetIdChange={(presetId) => {
+          patchBuilderSearch((params) => {
+            params.set("builder", "1");
+            if (presetId) params.set("builder_preset", presetId);
+            else params.delete("builder_preset");
+          }, true);
+        }}
+        presetStep={builderStep}
+        onPresetStepChange={(step) => {
+          patchBuilderSearch((params) => {
+            params.set("builder", "1");
+            params.set("builder_step", step);
+          }, true);
+        }}
       />
       <EditPinDrawer
         pinId={editingPinId}
@@ -731,7 +795,7 @@ function EmptyState({ onAddClick }: { onAddClick: () => void }) {
           className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 transition-opacity"
         >
           <Plus size={13} />
-          Add from channel
+          Open widget builder
         </button>
         <Link
           to="/widgets/dev#tools"

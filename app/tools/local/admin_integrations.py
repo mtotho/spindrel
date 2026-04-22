@@ -13,7 +13,6 @@ logger = logging.getLogger(__name__)
 _VALID_FEATURES = {
     "tools",
     "skills",
-    "carapaces",
     "hooks",
     "process",
     "workflows",
@@ -114,7 +113,7 @@ Custom integration scaffolded via `manage_integration(action="scaffold")`.
 ## Setup
 
 1. Edit `integration.yaml` to declare settings, dependencies, bindings
-2. Add tools in `tools/`, skills in `skills/`, carapaces in `carapaces/`
+2. Add tools in `tools/` and skills in `skills/`
 3. Run `manage_integration(action="reload")` to hot-load without restart
 
 ## Files
@@ -167,27 +166,6 @@ description: "Guide for using the {pretty_name} integration"
 # {pretty_name} Guide
 
 Describe when and how to use this integration here.
-''')
-
-    if "carapaces" in features:
-        carapaces_dir = integration_dir / "carapaces"
-        carapaces_dir.mkdir()
-        (carapaces_dir / f"{integration_id}.yaml").write_text(f'''id: {integration_id}
-name: {pretty_name}
-description: "{pretty_name} expertise bundle"
-tags: [{integration_id}]
-
-skills:
-  # - id: integrations/{integration_id}/{integration_id}-guide
-  #   mode: on_demand
-
-local_tools:
-  # - {integration_id}_example
-
-system_prompt_fragment: |
-  ## {pretty_name}
-
-  You have {pretty_name} capabilities. Describe triggers and usage here.
 ''')
 
     if "renderer" in features:
@@ -484,7 +462,7 @@ async def _reload_integrations_inner(app=None) -> dict:
         logger.exception("Failed to re-index tools")
         errors.append(f"tool indexing: {e}")
 
-    # 4. Sync file-sourced skills/carapaces/workflows
+    # 4. Sync file-sourced skills/prompts/workflows
     try:
         from app.services import file_sync
         await file_sync.sync_all_files()
@@ -499,13 +477,6 @@ async def _reload_integrations_inner(app=None) -> dict:
     except Exception as e:
         logger.exception("Failed to reload skills")
         errors.append(f"skills: {e}")
-
-    try:
-        from app.agent.carapaces import load_carapaces
-        await load_carapaces()
-    except Exception as e:
-        logger.exception("Failed to reload carapaces")
-        errors.append(f"carapaces: {e}")
 
     try:
         from app.services.workflows import load_workflows
@@ -531,8 +502,6 @@ async def _reload_integrations_inner(app=None) -> dict:
             capabilities.append("tools")
         if (integration_dir / "skills").is_dir():
             capabilities.append("skills")
-        if (integration_dir / "carapaces").is_dir():
-            capabilities.append("carapaces")
         if (integration_dir / "dispatcher.py").exists():
             capabilities.append("dispatcher")
         if (integration_dir / "hooks.py").exists():
@@ -592,7 +561,7 @@ async def _reload_integrations_inner(app=None) -> dict:
                     "items": {"type": "string", "enum": sorted(_VALID_FEATURES)},
                     "description": (
                         "For scaffold: optional features to include. "
-                        "Choices: carapaces, dispatcher, hooks, process, skills, tools, workflows."
+                        "Choices: dispatcher, hooks, process, skills, tools, workflows."
                     ),
                 },
             },

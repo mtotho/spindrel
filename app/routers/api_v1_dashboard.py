@@ -1102,6 +1102,7 @@ class WidgetPresetPreviewRequest(BaseModel):
 
 
 class WidgetPresetBindingOptionsRequest(BaseModel):
+    source_id: str | None = None
     source_bot_id: str | None = None
     source_channel_id: uuid.UUID | None = None
 
@@ -1242,6 +1243,27 @@ async def get_dashboard_widget_preset(
     from app.services.widget_presets import get_widget_preset, serialize_widget_preset
 
     return serialize_widget_preset(get_widget_preset(preset_id))
+
+
+@router.post(
+    "/presets/{preset_id}/binding-options",
+    dependencies=[Depends(require_scopes("channels:read"))],
+)
+async def get_dashboard_widget_preset_binding_options_body(
+    preset_id: str,
+    body: WidgetPresetBindingOptionsRequest,
+):
+    from app.services.widget_presets import list_binding_options
+
+    if not body.source_id:
+        raise HTTPException(400, "source_id is required")
+    options = await list_binding_options(
+        preset_id=preset_id,
+        source_id=body.source_id,
+        source_bot_id=body.source_bot_id,
+        source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+    )
+    return {"options": options}
 
 
 @router.post(

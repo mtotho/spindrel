@@ -35,6 +35,31 @@ def test_create_plan_writes_markdown_and_metadata(monkeypatch, tmp_path):
     assert "## Execution Checklist" in tmp_path.joinpath(".sessions", str(session.id), "plans", "build-widget-planner.md").read_text()
 
 
+def test_enter_plan_mode_does_not_create_plan_file(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+
+    spm.enter_session_plan_mode(session)
+
+    assert session.metadata_["plan_mode"] == spm.PLAN_MODE_PLANNING
+    assert session.metadata_.get("plan_active_path") is None
+    assert spm.load_session_plan(session, required=False) is None
+    assert not tmp_path.joinpath(".sessions", str(session.id), "plans").exists()
+
+
+def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    lines = spm.build_plan_mode_system_context(session)
+
+    assert lines
+    assert any("Plan mode is active" in line for line in lines)
+    assert any("publish" in line.lower() for line in lines)
+    assert all("Canonical plan file:" not in line for line in lines)
+
+
 def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
@@ -46,6 +71,28 @@ def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):
     assert plan.steps[0].status == spm.STEP_STATUS_IN_PROGRESS
     assert session.metadata_["plan_mode"] == spm.PLAN_MODE_EXECUTING
     assert session.metadata_["plan_accepted_revision"] == 1
+
+
+def test_publish_plan_creates_first_artifact(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    plan = spm.publish_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Plan the widget work.",
+        scope="Transcript-first plan mode",
+        steps=[
+            {"id": "gather", "label": "Gather constraints"},
+            {"id": "publish", "label": "Publish the first draft"},
+        ],
+    )
+
+    assert plan.revision == 1
+    assert plan.path is not None
+    assert plan.steps[0].label == "Gather constraints"
+    assert session.metadata_["plan_active_path"].endswith("build-widget-planner.md")
 
 
 def test_done_step_auto_advances_and_finishes(monkeypatch, tmp_path):

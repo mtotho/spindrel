@@ -119,8 +119,8 @@ class SkillOptionOut(BaseModel):
 
 class ResolvedToolEntry(BaseModel):
     name: str
-    source: str  # "bot", "carapace:<id>", "memory_scheme"
-    source_label: str  # human-readable: "Bot config", "Capability: Orchestrator", etc.
+    source: str  # "bot", "memory_scheme", "auto"
+    source_label: str  # human-readable provenance label
     integration: str = "core"  # integration grouping for the tool
 
 
@@ -297,8 +297,6 @@ PACK_METADATA: dict[str, dict] = {
     "admin_system":       {"label": "System Admin",      "group": "Admin"},
     # Discovery
     "discovery":    {"label": "Discovery",      "group": "Discovery"},
-    "capabilities": {"label": "Capabilities",   "group": "Discovery"},
-    "carapaces":    {"label": "Carapaces",      "group": "Discovery"},
     "bot_skills":   {"label": "Bot Skills",     "group": "Discovery"},
     "skills":       {"label": "Skills",         "group": "Discovery"},
 }
@@ -512,7 +510,6 @@ class BotUpdateIn(BaseModel):
     skill_review_model_provider_id: Optional[str] = None
     skill_review_target_hour: Optional[int] = None
     skill_review_extra_instructions: Optional[str] = None
-    carapaces: Optional[list[str]] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
 
@@ -657,7 +654,6 @@ class BotCreateIn(BaseModel):
     client_tools: Optional[list[str]] = None
     pinned_tools: Optional[list[str]] = None
     skills: Optional[list[dict]] = None
-    carapaces: Optional[list[str]] = None
     tool_retrieval: Optional[bool] = True
     tool_discovery: Optional[bool] = True
     tool_similarity_threshold: Optional[float] = None

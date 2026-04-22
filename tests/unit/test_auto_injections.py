@@ -19,7 +19,6 @@ def _bot(**kwargs) -> BotConfig:
         client_tools=[],
         pinned_tools=[],
         skills=[],
-        carapaces=[],
         memory_scheme="workspace-files",
         history_mode="file",
         tool_retrieval=False,
@@ -35,7 +34,6 @@ def _eff(**kwargs) -> EffectiveTools:
         client_tools=[],
         pinned_tools=[],
         skills=[],
-        carapaces=[],
     )
     defaults.update(kwargs)
     return EffectiveTools(**defaults)
@@ -154,18 +152,6 @@ class TestChannelAwarenessInjection:
         assert "read_sub_session" in result.local_tools
         assert "read_sub_session" in result.pinned_tools
 
-
-class TestActivateCapability:
-    """activate_capability is always injected."""
-
-    def test_always_injected(self):
-        bot = _bot(memory_scheme=None, tool_retrieval=False, history_mode="standard")
-        eff = _eff(skills=[])
-        result = apply_auto_injections(eff, bot)
-
-        assert "activate_capability" in result.local_tools
-
-
 class TestCombinedInjections:
     """All injections apply together for a fully configured bot."""
 
@@ -190,8 +176,6 @@ class TestCombinedInjections:
             # channel awareness
             "list_channels", "read_conversation_history",
             "list_sub_sessions", "read_sub_session",
-            # always
-            "activate_capability",
         }
         actual = set(result.local_tools)
         missing = expected - actual

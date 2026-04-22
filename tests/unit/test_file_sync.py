@@ -229,7 +229,7 @@ def isolate_file_sync(tmp_path, monkeypatch):
     """Chdir into an empty tmp dir and mock embeddings + reload hooks.
 
     ``sync_all_files`` scans relative paths (``skills/``, ``prompts/``,
-    ``integrations/``, ``packages/``, ``carapaces/``) and opens its own
+    ``integrations/``, ``packages/``) and opens its own
     ``async_session`` blocks. We chdir so the scan sees only what the test
     created, and mock the external/embedding touchpoints (E.1).
     """
@@ -237,10 +237,6 @@ def isolate_file_sync(tmp_path, monkeypatch):
     with patch(
         "app.services.file_sync._embed_skill_from_content",
         new_callable=AsyncMock,
-    ) as embed, patch(
-        "app.agent.carapaces.collect_carapace_files", return_value=[]
-    ), patch(
-        "app.agent.carapaces.reload_carapaces", new_callable=AsyncMock
     ), patch(
         "app.services.workflows.collect_workflow_files", return_value=[]
     ), patch(

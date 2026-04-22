@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { X, CheckCircle2, ChevronDown, Loader2, Wrench, Search, Pin, Clock } from "lucide-react";
+import { X, CheckCircle2, ChevronDown, Loader2, Wrench, Pin, Clock } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useBots } from "@/src/api/hooks/useBots";
@@ -21,6 +21,7 @@ import {
   libraryPinIdentity,
 } from "./WidgetLibrary";
 import { WidgetPresetsPane } from "./WidgetPresetsPane";
+import { WidgetBuilderSearchBar } from "./WidgetBuilderSearchBar";
 
 /** Previews are read-only — widget `callTool` dispatches inside the sheet
  *  don't mutate anything. A no-op dispatcher makes that explicit. */
@@ -31,6 +32,10 @@ const NOOP_DISPATCHER: WidgetActionDispatcher = {
 interface Props {
   open: boolean;
   onClose: () => void;
+  tab: Tab;
+  onTabChange: (tab: Tab) => void;
+  query: string;
+  onQueryChange: (query: string) => void;
   /** Name of the active dashboard — used in the success toast. */
   dashboardName?: string;
   /** Called with the new pin's id after a successful add. The dashboard page
@@ -39,6 +44,10 @@ interface Props {
   /** When set, the "Recent calls" tab pre-filters to calls in this channel
    *  and becomes the default tab (channel dashboards open here most often). */
   scopeChannelId?: string | null;
+  selectedPresetId?: string;
+  onSelectedPresetIdChange?: (presetId: string) => void;
+  presetStep?: "catalog" | "configure" | "preview";
+  onPresetStepChange?: (step: "catalog" | "configure" | "preview") => void;
 }
 
 type Tab = "presets" | "channel" | "recent" | "library" | "suites" | "build";
@@ -73,19 +82,23 @@ interface ChannelPinsGroup {
 export default function AddFromChannelSheet({
   open,
   onClose,
+  tab,
+  onTabChange,
+  query,
+  onQueryChange,
   dashboardName,
   onPinned,
   scopeChannelId,
+  selectedPresetId,
+  onSelectedPresetIdChange,
+  presetStep,
+  onPresetStepChange,
 }: Props) {
   // "From channel" is the promote-channel-pin-upward tab — only meaningful
   // on the global (non-channel) dashboard. Inside a channel dashboard it's
   // redundant (you ARE that channel's board) so the tab hides, and Recent
   // calls becomes the natural landing.
   const showChannelTab = !scopeChannelId;
-  const [tab, setTab] = useState<Tab>(
-    "presets",
-  );
-  const [query, setQuery] = useState("");
   const pins = useDashboardPinsStore((s) => s.pins);
   const pinWidget = useDashboardPinsStore((s) => s.pinWidget);
   const pinSuite = useDashboardPinsStore((s) => s.pinSuite);
@@ -216,7 +229,7 @@ export default function AddFromChannelSheet({
   if (!open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[10030] flex justify-end">
+    <div className="fixed inset-0 z-[10030] flex items-end justify-center">
       {/* Backdrop */}
       <button
         type="button"
@@ -224,20 +237,18 @@ export default function AddFromChannelSheet({
         onClick={onClose}
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
       />
-      {/* Panel — shadow + surface-raised separates it from the scrim; no
-          border-l needed (chrome lines read as low-polish admin UI). */}
-      <div className="relative z-10 flex h-full w-full sm:w-[440px] flex-col bg-surface-raised shadow-2xl">
-        <header className="flex items-center justify-between px-5 pt-4 pb-3">
+      <div className="relative z-10 flex h-[min(88dvh,980px)] w-full max-w-[min(1600px,calc(100vw-24px))] flex-col overflow-hidden bg-surface-raised shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+        <header className="flex items-start justify-between gap-4 px-6 pt-5 pb-2">
           <div>
-            <h2 className="text-[14px] font-semibold text-text">Add widget</h2>
+            <h2 className="text-base font-bold text-text">Widget builder</h2>
             <p className="mt-0.5 text-[11px] text-text-muted">
-              Bring a pinned widget onto your dashboard
+              Browse, configure, preview, and pin widgets into {dashboardName ?? "this dashboard"}.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
             aria-label="Close"
             title="Close"
           >
@@ -245,33 +256,33 @@ export default function AddFromChannelSheet({
           </button>
         </header>
 
-        <div className="flex gap-1 px-4 pt-3 pb-0">
-          <TabButton active={tab === "presets"} onClick={() => setTab("presets")}>
+        <div className="flex flex-wrap gap-1 px-5 pt-1 pb-0">
+          <TabButton active={tab === "presets"} onClick={() => onTabChange("presets")}>
             Presets
           </TabButton>
-          <TabButton active={tab === "recent"} onClick={() => setTab("recent")}>
+          <TabButton active={tab === "recent"} onClick={() => onTabChange("recent")}>
             Recent calls
           </TabButton>
           {showChannelTab && (
-            <TabButton active={tab === "channel"} onClick={() => setTab("channel")}>
+            <TabButton active={tab === "channel"} onClick={() => onTabChange("channel")}>
               From channel
             </TabButton>
           )}
-          <TabButton active={tab === "library"} onClick={() => setTab("library")}>
+          <TabButton active={tab === "library"} onClick={() => onTabChange("library")}>
             Library
           </TabButton>
           {suites && suites.length > 0 && (
-            <TabButton active={tab === "suites"} onClick={() => setTab("suites")}>
+            <TabButton active={tab === "suites"} onClick={() => onTabChange("suites")}>
               Suites
             </TabButton>
           )}
-          <TabButton active={tab === "build"} onClick={() => setTab("build")}>
+          <TabButton active={tab === "build"} onClick={() => onTabChange("build")}>
             Authoring
           </TabButton>
         </div>
 
         {(tab === "suites" || tab === "library") && (
-          <div className="mx-4 mt-2">
+          <div className="mx-5 mt-2">
             <PinScopePicker
               scope={pinScope}
               onChange={setPinScope}
@@ -281,32 +292,18 @@ export default function AddFromChannelSheet({
         )}
 
         {(tab === "channel" || tab === "library" || tab === "presets") && (
-          <div className="px-4 py-2.5">
-            <label className="flex items-center gap-2 rounded-md border border-surface-border bg-surface px-2.5 py-1.5 focus-within:border-accent/60">
-              <Search size={13} className="text-text-dim" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  tab === "library"
-                    ? "Search library widgets"
-                    : tab === "presets"
-                    ? "Search presets"
-                    : "Search channels or widgets"
-                }
-                className="flex-1 bg-transparent text-[12px] text-text placeholder-text-dim outline-none"
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery("")}
-                  className="rounded p-0.5 text-text-dim hover:bg-surface-overlay"
-                >
-                  <X size={11} />
-                </button>
-              )}
-            </label>
-          </div>
+          <WidgetBuilderSearchBar
+            className="px-5 py-3"
+            value={query}
+            onChange={onQueryChange}
+            placeholder={
+              tab === "library"
+                ? "Search library widgets"
+                : tab === "presets"
+                ? "Search presets"
+                : "Search channels or widgets"
+            }
+          />
         )}
 
         <div className="flex-1 overflow-auto">
@@ -315,6 +312,11 @@ export default function AddFromChannelSheet({
               mode="pin"
               query={query}
               scopeChannelId={scopeChannelId ?? null}
+              layout="builder"
+              selectedPresetId={selectedPresetId}
+              onSelectedPresetIdChange={onSelectedPresetIdChange}
+              step={presetStep}
+              onStepChange={onPresetStepChange}
               onPinCreated={(pinId) => {
                 toast({
                   kind: "success",
@@ -544,7 +546,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={[
-        "relative rounded-t-md px-3 py-1.5 text-[12px] font-medium transition-colors",
+        "relative rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
         active
           ? "text-accent"
           : "text-text-muted hover:text-text",
@@ -552,7 +554,7 @@ function TabButton({
     >
       {children}
       {active && (
-        <span className="absolute inset-x-0 -bottom-px h-0.5 bg-accent" />
+        <span className="absolute -bottom-px left-2 right-2 h-[2px] rounded-full bg-accent" />
       )}
     </button>
   );

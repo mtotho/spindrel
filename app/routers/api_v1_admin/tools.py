@@ -155,8 +155,8 @@ async def admin_execute_tool(
     Only local (Python) tools are supported — MCP and client tools cannot be
     executed through this endpoint.  Returns the raw tool result as JSON.
 
-    Bot-scoped API keys are restricted to the bot's configured local_tools
-    (including tools provided by carapaces).  Admin keys have unrestricted access.
+    Bot-scoped API keys are restricted to the bot's configured local_tools.
+    Admin keys have unrestricted access.
     """
     from app.tools.registry import is_local_tool
     from app.tools.mcp import is_mcp_tool
@@ -226,16 +226,6 @@ async def _resolve_bot_tools(db: AsyncSession, key_id: UUID) -> set[str] | None:
     # Start with the bot's base local_tools + pinned_tools
     allowed = set(bot.local_tools)
     allowed.update(bot.pinned_tools)
-
-    # Add tools from carapaces
-    if bot.carapaces:
-        try:
-            from app.agent.carapaces import resolve_carapaces
-            resolved = resolve_carapaces(list(bot.carapaces))
-            allowed.update(resolved.local_tools)
-            allowed.update(resolved.pinned_tools)
-        except Exception:
-            logger.warning("Failed to resolve carapace tools for bot %s", bot_id)
 
     return allowed
 

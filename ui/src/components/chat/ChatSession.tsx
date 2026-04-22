@@ -173,17 +173,15 @@ function useChatSessionPlan(sessionId: string | null | undefined) {
     || sessionPlan.updateStepStatus.isPending;
   const handleTogglePlanMode = useCallback(() => {
     if (!sessionId) return;
-    if (sessionPlan.data && sessionPlan.data.mode !== "chat") {
+    if (sessionPlan.mode !== "chat") {
       sessionPlan.exitPlan.mutate();
       return;
     }
-    if (sessionPlan.data && sessionPlan.data.mode === "chat") {
+    if (sessionPlan.hasPlan) {
       sessionPlan.resumePlan.mutate();
       return;
     }
-    const title = window.prompt("Plan title");
-    if (!title || !title.trim()) return;
-    sessionPlan.startPlan.mutate(title.trim());
+    sessionPlan.startPlan.mutate();
   }, [sessionId, sessionPlan]);
   return { sessionPlan, planBusy, handleTogglePlanMode };
 }
@@ -490,12 +488,12 @@ function ChannelChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
-                  planMode={sessionPlan.data?.mode ?? "chat"}
-                  hasPlan={!!sessionPlan.data}
+                  planMode={sessionPlan.mode}
+                  hasPlan={sessionPlan.hasPlan}
                   planBusy={planBusy}
                   canTogglePlanMode={!!src.sessionId}
                   onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             }
@@ -547,12 +545,12 @@ function ChannelChatSession({
               configOverhead={overheadPct}
               compact
               chatMode={chatMode}
-              planMode={sessionPlan.data?.mode ?? "chat"}
-              hasPlan={!!sessionPlan.data}
+              planMode={sessionPlan.mode}
+              hasPlan={sessionPlan.hasPlan}
               planBusy={planBusy}
               canTogglePlanMode={!!src.sessionId}
               onTogglePlanMode={src.sessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}
@@ -1029,12 +1027,12 @@ function EphemeralChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
-                  planMode={sessionPlan.data?.mode ?? "chat"}
-                  hasPlan={!!sessionPlan.data}
+                  planMode={sessionPlan.mode}
+                  hasPlan={sessionPlan.hasPlan}
                   planBusy={planBusy}
                   canTogglePlanMode={!!sessionId}
                   onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1081,12 +1079,12 @@ function EphemeralChatSession({
                   configOverhead={overheadPct}
                   compact
                   chatMode={chatMode}
-                  planMode={sessionPlan.data?.mode ?? "chat"}
-                  hasPlan={!!sessionPlan.data}
+                  planMode={sessionPlan.mode}
+                  hasPlan={sessionPlan.hasPlan}
                   planBusy={planBusy}
                   canTogglePlanMode={!!sessionId}
                   onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1118,12 +1116,12 @@ function EphemeralChatSession({
               configOverhead={overheadPct}
               compact
               chatMode={chatMode}
-              planMode={sessionPlan.data?.mode ?? "chat"}
-              hasPlan={!!sessionPlan.data}
+              planMode={sessionPlan.mode}
+              hasPlan={sessionPlan.hasPlan}
               planBusy={planBusy}
               canTogglePlanMode={!!sessionId}
               onTogglePlanMode={sessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}
@@ -1445,12 +1443,12 @@ function ThreadChatSession({
                   }}
                   compact
                   chatMode={chatMode}
-                  planMode={sessionPlan.data?.mode ?? "chat"}
-                  hasPlan={!!sessionPlan.data}
+                  planMode={sessionPlan.mode}
+                  hasPlan={sessionPlan.hasPlan}
                   planBusy={planBusy}
                   canTogglePlanMode={!!effectiveSessionId}
                   onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1495,12 +1493,12 @@ function ThreadChatSession({
                   }}
                   compact
                   chatMode={chatMode}
-                  planMode={sessionPlan.data?.mode ?? "chat"}
-                  hasPlan={!!sessionPlan.data}
+                  planMode={sessionPlan.mode}
+                  hasPlan={sessionPlan.hasPlan}
                   planBusy={planBusy}
                   canTogglePlanMode={!!effectiveSessionId}
                   onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-                  onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+                  onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
                 />
               </>
             ) : undefined}
@@ -1532,12 +1530,12 @@ function ThreadChatSession({
               }}
               compact
               chatMode={chatMode}
-              planMode={sessionPlan.data?.mode ?? "chat"}
-              hasPlan={!!sessionPlan.data}
+              planMode={sessionPlan.mode}
+              hasPlan={sessionPlan.hasPlan}
               planBusy={planBusy}
               canTogglePlanMode={!!effectiveSessionId}
               onTogglePlanMode={effectiveSessionId ? handleTogglePlanMode : undefined}
-              onApprovePlan={sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined}
+              onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
             />
           </div>
         )}

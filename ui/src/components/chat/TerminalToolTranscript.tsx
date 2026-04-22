@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
-import { normalizeToolCall, type ToolCall, type ToolResultEnvelope } from "../../types/api";
+import type { ToolCall, ToolCallSummary, ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -8,11 +8,12 @@ const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Mon
 type InlineWidgetEntry = { envelope: ToolResultEnvelope; toolName: string; recordId?: string };
 
 type TranscriptEntry = {
-  kind: "activity" | "widget" | "approval";
+  kind: "activity" | "file" | "widget" | "approval";
   summary: string;
   id?: string;
   detail?: string | null;
   tone?: "default" | "muted" | "success" | "warning" | "danger" | "accent";
+  metaLabel?: string | null;
   widget?: InlineWidgetEntry;
   approval?: {
     approvalId: string;
@@ -27,9 +28,25 @@ type ParsedFileAction = {
   detail?: string;
 };
 
+type DiffStats = {
+  additions: number;
+  deletions: number;
+};
+
+type DetailRow = {
+  text: string;
+  tone?: "default" | "muted" | "success" | "warning" | "danger" | "accent";
+  lineNumber?: string | null;
+  sign?: string | null;
+};
+
 function truncate(text: string, max = 140): string {
   const clean = text.trim();
   return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
+function shortToolName(name: string): string {
+  return name.includes("-") ? name.slice(name.lastIndexOf("-") + 1) : name;
 }
 
 function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
@@ -66,6 +83,21 @@ function extractDiff(text: string | null | undefined): string | null {
   return trimmed.split(/\r?\n/).slice(0, 16).join("\n");
 }
 
+function summarizeDiffStats(diff: string | null | undefined): DiffStats | null {
+  if (!diff) return null;
+  const lines = diff.split(/\r?\n/);
+  let additions = 0;
+  let deletions = 0;
+  for (const line of lines) {
+    if (!line) continue;
+    if (line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("@@")) continue;
+    if (line.startsWith("+")) additions += 1;
+    if (line.startsWith("-")) deletions += 1;
+  }
+  if (additions === 0 && deletions === 0) return null;
+  return { additions, deletions };
+}
+
 function truncateBlock(text: string | null | undefined, maxChars = 900, maxLines = 18): string | null {
   if (!text) return null;
   const lines = text.trim().split(/\r?\n/);
@@ -84,6 +116,34 @@ function parseFileAction(summary: string): ParsedFileAction | null {
   };
 }
 
+function parseEnvelopeJson(envelope: ToolResultEnvelope | undefined): Record<string, unknown> | null {
+  if (!envelope) return null;
+  if (typeof envelope.body === "string") return parseJsonObject(envelope.body);
+  return null;
+}
+
+function extractArgValue(args: string | undefined, ...keys: string[]): string | null {
+  const parsed = parseJsonObject(args);
+  for (const key of keys) {
+    const fromJson = formatValue(parsed?.[key]);
+    if (fromJson) return fromJson;
+  }
+  if (!args) return null;
+  for (const key of keys) {
+    const pattern = new RegExp(`"${key}"\\s*:\\s*"([^"]+)"`);
+    const match = args.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+function formatSkillRef(skillId: string): string {
+  const clean = skillId.trim();
+  if (!clean) return "skill";
+  if (clean.includes("/")) return `${clean}.md`;
+  return `${clean}/INDEX.md`;
+}
+
 function toneColor(tone: TranscriptEntry["tone"], t: ThemeTokens): string {
   if (tone === "success") return t.success;
   if (tone === "warning") return t.warning;
@@ -91,6 +151,22 @@ function toneColor(tone: TranscriptEntry["tone"], t: ThemeTokens): string {
   if (tone === "accent") return t.accent;
   if (tone === "muted") return t.textMuted;
   return t.text;
+}
+
+function normalizePersistedToolCall(tc: ToolCall | undefined): { name: string; arguments?: string; summary?: ToolCallSummary | null } | null {
+  if (!tc) return null;
+  if (tc.function) {
+    return {
+      name: tc.function.name,
+      arguments: typeof tc.function.arguments === "string" ? tc.function.arguments : JSON.stringify(tc.function.arguments ?? {}),
+      summary: tc.summary,
+    };
+  }
+  return {
+    name: tc.name ?? tc.tool_name ?? "unknown",
+    arguments: tc.arguments ?? tc.args,
+    summary: tc.summary,
+  };
 }
 
 function summarizeEnvelope(envelope: ToolResultEnvelope | undefined | null): string | null {
@@ -151,12 +227,12 @@ function extractNonJsonOutput(envelope: ToolResultEnvelope | undefined): string 
 }
 
 function summarizeGenericTool(toolName: string, args?: string): string {
-  const parsed = parseJsonObject(args);
-  if (toolName === "get_skill" || toolName === "load_skill") {
-    const skill = (parsed?.name || parsed?.id || parsed?.skill_name || parsed?.skill_id) as string | undefined;
-    return skill ? `Loaded skill ${skill}` : "Loaded skill";
+  const shortName = shortToolName(toolName);
+  if (shortName === "get_skill" || shortName === "load_skill") {
+    return "Loaded skill";
   }
-  if (toolName === "inspect_widget_pin") {
+  const parsed = parseJsonObject(args);
+  if (shortName === "inspect_widget_pin") {
     const widget = (
       parsed?.display_label ||
       parsed?.name ||
@@ -166,7 +242,7 @@ function summarizeGenericTool(toolName: string, args?: string): string {
     ) as string | undefined;
     return widget ? `Inspected widget pin ${widget}` : "Inspected widget pin";
   }
-  if (toolName === "file") {
+  if (shortName === "file") {
     const path = (parsed?.path || parsed?.file_path || parsed?.target_path) as string | undefined;
     return path ? `Updated ${path}` : "Updated file";
   }
@@ -178,22 +254,137 @@ function summarizeGenericTool(toolName: string, args?: string): string {
 function shouldPreferGenericSummary(envelopeSummary: string | null, genericSummary: string): boolean {
   if (!envelopeSummary) return true;
   if (envelopeSummary === genericSummary) return false;
-  if (/^loaded skill$/i.test(envelopeSummary) && /^Loaded skill\s+\S+/.test(genericSummary)) return true;
+  if (/^loaded skill$/i.test(envelopeSummary) && genericSummary === "Loaded skill") return true;
   if (/^inspected widget pin$/i.test(envelopeSummary) && /^Inspected widget pin\s+\S+/.test(genericSummary)) return true;
   return false;
 }
 
-function buildPersistedEntry(toolName: string, args: string | undefined, result: ToolResultEnvelope | undefined): TranscriptEntry {
+function resolveSkillRef(
+  toolName: string,
+  args: string | undefined,
+  result: ToolResultEnvelope | undefined,
+  rawCall?: ToolCall,
+): string | null {
+  const shortName = shortToolName(toolName);
+  if (shortName !== "get_skill" && shortName !== "load_skill") return null;
+  const resultJson = parseEnvelopeJson(result);
+  const skillId = formatValue(resultJson?.id)
+    || extractArgValue(args, "skill_id", "skill_name", "skillId", "name", "id");
+  if (skillId) return formatSkillRef(skillId);
+  const rawText = rawCall ? JSON.stringify(rawCall) : "";
+  const rawMatch = rawText.match(/"skill_id"\s*:\s*"([^"]+)"/) || rawText.match(/\\"skill_id\\"\s*:\s*\\"([^"]+)\\"/);
+  return rawMatch?.[1] ? formatSkillRef(rawMatch[1]) : null;
+}
+
+function buildEntryFromSummary(toolName: string, summary: ToolCallSummary, result: ToolResultEnvelope | undefined): TranscriptEntry {
+  if (summary.kind === "diff" && summary.subject_type === "file") {
+    return {
+      kind: "file",
+      id: `${toolName}:${summary.label}`,
+      summary: summary.label,
+      metaLabel: summary.diff_stats ? `(+${summary.diff_stats.additions} -${summary.diff_stats.deletions})` : null,
+      detail: typeof result?.body === "string" ? result.body : (result?.plain_body || null),
+      tone: "muted",
+    };
+  }
+  if (summary.kind === "read" && summary.subject_type === "file") {
+    return {
+      kind: "file",
+      id: `${toolName}:${summary.label}`,
+      summary: summary.label,
+      metaLabel: null,
+      detail: null,
+      tone: "muted",
+    };
+  }
+  return {
+    kind: "activity",
+    id: `${toolName}:${summary.label}`,
+    summary: summary.label,
+    metaLabel: summary.target_label ? `(${summary.target_label})` : null,
+    detail: summary.kind === "error" ? summary.error || null : null,
+    tone: summary.kind === "error" ? "danger" : "default",
+  };
+}
+
+function diffRows(detail: string): DetailRow[] {
+  const rows: DetailRow[] = [];
+  let oldLine: number | null = null;
+  let newLine: number | null = null;
+
+  for (const line of detail.split(/\r?\n/)) {
+    const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      oldLine = Number(hunk[1]);
+      newLine = Number(hunk[2]);
+      rows.push({ text: line, tone: "accent", lineNumber: null });
+      continue;
+    }
+    if (line.startsWith("---") || line.startsWith("+++")) {
+      rows.push({ text: line, tone: "muted", lineNumber: null, sign: null });
+      continue;
+    }
+    if (line.startsWith("+")) {
+      rows.push({ text: line.slice(1), tone: "success", lineNumber: newLine != null ? String(newLine) : null, sign: "+" });
+      if (newLine != null) newLine += 1;
+      continue;
+    }
+    if (line.startsWith("-")) {
+      rows.push({ text: line.slice(1), tone: "danger", lineNumber: oldLine != null ? String(oldLine) : null, sign: "-" });
+      if (oldLine != null) oldLine += 1;
+      continue;
+    }
+    rows.push({
+      text: line.startsWith(" ") ? line.slice(1) : line,
+      tone: "muted",
+      lineNumber: newLine != null ? String(newLine) : null,
+      sign: " ",
+    });
+    if (oldLine != null) oldLine += 1;
+    if (newLine != null) newLine += 1;
+  }
+
+  return rows;
+}
+
+function plainRows(detail: string): DetailRow[] {
+  return detail.split(/\r?\n/).map((line, index) => ({
+    text: line,
+    tone: "muted",
+    lineNumber: String(index + 1),
+    sign: null,
+  }));
+}
+
+function detailRows(detail: string): DetailRow[] {
+  return extractDiff(detail) ? diffRows(detail) : plainRows(detail);
+}
+
+function buildPersistedEntry(
+  toolName: string,
+  args: string | undefined,
+  result: ToolResultEnvelope | undefined,
+  toolSummary: ToolCallSummary | null | undefined,
+  rawCall?: ToolCall,
+): TranscriptEntry {
+  if (toolSummary) {
+    return buildEntryFromSummary(toolName, toolSummary, result);
+  }
   const envelopeSummary = summarizeEnvelope(result);
   const fileAction = envelopeSummary ? parseFileAction(envelopeSummary) : null;
   if (fileAction) {
     const bodyText = typeof result?.body === "string" ? result.body : undefined;
+    const diff = extractDiff(bodyText || result?.plain_body);
+    const diffStats = summarizeDiffStats(diff);
+    const lowerVerb = fileAction.verb.toLowerCase();
+    const isRead = lowerVerb === "read";
     return {
-      kind: "activity",
+      kind: "file",
       id: `${toolName}:${fileAction.verb}:${fileAction.path}`,
       summary: `${fileAction.verb} ${fileAction.path}`,
-      detail: fileAction.detail ?? extractDiff(bodyText || result?.plain_body),
-      tone: fileAction.verb.toLowerCase() === "deleted" ? "danger" : "muted",
+      metaLabel: diffStats ? `(+${diffStats.additions} -${diffStats.deletions})` : null,
+      detail: isRead ? null : (diff ?? truncateBlock(bodyText || result?.plain_body, 900, 18)),
+      tone: lowerVerb === "deleted" ? "danger" : "muted",
     };
   }
 
@@ -206,43 +397,20 @@ function buildPersistedEntry(toolName: string, args: string | undefined, result:
   const summary = shouldPreferGenericSummary(envelopeSummary, genericSummary)
     ? genericSummary
     : envelopeSummary!;
+  const skillRef = resolveSkillRef(toolName, args, result, rawCall);
 
   return {
     kind: "activity",
     id: `${toolName}:${envelopeSummary || "activity"}`,
     summary,
+    metaLabel: skillRef ? `(${skillRef})` : null,
     detail,
     tone: result?.content_type.includes("error") ? "danger" : "default",
   };
 }
 
 function collapseConsecutiveFileEntries(entries: TranscriptEntry[]): TranscriptEntry[] {
-  const collapsed: TranscriptEntry[] = [];
-
-  for (const entry of entries) {
-    const currentFile = parseFileAction(entry.summary);
-    const previous = collapsed[collapsed.length - 1];
-    const previousFile = previous ? parseFileAction(previous.summary) : null;
-
-    if (
-      currentFile &&
-      previous &&
-      previous.kind === "activity" &&
-      previousFile &&
-      currentFile.verb === previousFile.verb &&
-      currentFile.path === previousFile.path
-    ) {
-      const countMatch = previous.detail?.match(/^(\d+) changes$/);
-      const nextCount = countMatch ? Number(countMatch[1]) + 1 : 2;
-      previous.detail = `${nextCount} changes`;
-      previous.tone = entry.tone ?? previous.tone;
-      continue;
-    }
-
-    collapsed.push({ ...entry });
-  }
-
-  return collapsed;
+  return entries.map((entry) => ({ ...entry }));
 }
 
 function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
@@ -258,8 +426,9 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 7, marginTop: 8 }}>
       {entries.map((entry, index) => {
         const rowId = entry.id ?? `${entry.kind}-${index}`;
-        const expandable = !!entry.detail && !looksLikeJson(entry.detail);
+        const expandable = entry.kind !== "file" && !!entry.detail && !looksLikeJson(entry.detail);
         const isExpanded = expanded.has(rowId);
+        const structuredDetail = entry.kind === "file" && entry.detail ? detailRows(entry.detail) : null;
         return (
         <div key={rowId} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <div
@@ -307,6 +476,18 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
               >
                 {entry.summary}
               </span>
+              {entry.metaLabel && (
+                <span
+                  style={{
+                    color: t.textDim,
+                    marginLeft: 8,
+                    fontSize: 11.5,
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {entry.metaLabel}
+                </span>
+              )}
             </div>
             {entry.widget && onAddWidget && (
               <button
@@ -330,7 +511,75 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
             )}
           </div>
 
-          {isExpanded && entry.detail && !looksLikeJson(entry.detail) && (
+          {entry.kind === "file" && structuredDetail && (
+            <div
+              style={{
+                marginLeft: 10,
+                fontFamily: TERMINAL_FONT_STACK,
+                fontSize: 11.5,
+                lineHeight: 1.45,
+              }}
+            >
+              {structuredDetail.map((line, lineIndex) => (
+                <div
+                  key={`${rowId}-detail-${lineIndex}`}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "38px 14px minmax(0, 1fr)",
+                    gap: 8,
+                    alignItems: "start",
+                    background: line.tone === "success"
+                      ? t.successSubtle
+                      : line.tone === "danger"
+                        ? t.dangerSubtle
+                        : line.tone === "accent"
+                          ? t.overlayLight
+                          : "transparent",
+                    borderRadius: 3,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: t.textDim,
+                      textAlign: "right",
+                      userSelect: "none",
+                      padding: "0 0 0 2px",
+                    }}
+                  >
+                    {line.lineNumber ?? ""}
+                  </span>
+                  <span
+                    style={{
+                      color: line.tone === "success"
+                        ? t.success
+                        : line.tone === "danger"
+                          ? t.danger
+                          : line.tone === "accent"
+                            ? t.accent
+                            : t.textDim,
+                      textAlign: "center",
+                      userSelect: "none",
+                    }}
+                  >
+                    {line.sign ?? ""}
+                  </span>
+                  <span
+                    style={{
+                      color: toneColor(line.tone, t),
+                      padding: "0 4px 0 0",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      overflowWrap: "anywhere",
+                    }}
+                  >
+                    {line.text || " "}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {isExpanded && entry.kind !== "file" && entry.detail && !looksLikeJson(entry.detail) && (
             <div
               style={{
                 marginLeft: 18,
@@ -430,11 +679,13 @@ export function TerminalPersistedToolTranscript({
   const count = Math.max(remainingToolCalls.length, remainingToolNames.length, remainingToolResults.length);
   for (let i = 0; i < count; i++) {
     const call = remainingToolCalls[i];
-    const normalized = call ? normalizeToolCall(call) : null;
+    const normalized = normalizePersistedToolCall(call);
     entries.push(buildPersistedEntry(
       normalized?.name ?? remainingToolNames[i] ?? "tool",
       normalized?.arguments,
       remainingToolResults[i],
+      normalized?.summary,
+      call,
     ));
   }
 

@@ -8,6 +8,14 @@ export interface SessionPlanStep {
   note?: string | null;
 }
 
+export interface SessionPlanArtifact {
+  kind: string;
+  label: string;
+  ref?: string | null;
+  created_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface SessionPlan {
   title: string;
   status: "draft" | "approved" | "executing" | "blocked" | "done";
@@ -19,23 +27,45 @@ export interface SessionPlan {
   assumptions: string[];
   open_questions: string[];
   steps: SessionPlanStep[];
+  artifacts: SessionPlanArtifact[];
   acceptance_criteria: string[];
   outcome: string;
   path?: string | null;
   mode: "chat" | "planning" | "executing" | "blocked" | "done";
 }
 
-const queryKeyFor = (sessionId: string | undefined) => ["session-plan", sessionId];
+export interface SessionPlanState {
+  mode: "chat" | "planning" | "executing" | "blocked" | "done";
+  has_plan: boolean;
+  path?: string | null;
+  task_slug?: string | null;
+  revision?: number | null;
+  accepted_revision?: number | null;
+  status?: "draft" | "approved" | "executing" | "blocked" | "done" | null;
+}
+
+const stateQueryKeyFor = (sessionId: string | undefined) => ["session-plan-state", sessionId];
+const planQueryKeyFor = (sessionId: string | undefined) => ["session-plan", sessionId];
 
 export function useSessionPlanMode(sessionId: string | undefined) {
   const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: queryKeyFor(sessionId),
+
+  const stateQuery = useQuery({
+    queryKey: stateQueryKeyFor(sessionId),
     enabled: !!sessionId,
     refetchInterval: (q) => {
-      const plan = q.state.data;
-      return plan && plan.mode !== "chat" ? 3000 : false;
+      const state = q.state.data;
+      return state && state.mode !== "chat" ? 3000 : false;
     },
+    queryFn: async () => {
+      if (!sessionId) return null;
+      return apiFetch<SessionPlanState>(`/sessions/${sessionId}/plan-state`);
+    },
+  });
+
+  const planQuery = useQuery({
+    queryKey: planQueryKeyFor(sessionId),
+    enabled: !!sessionId && !!stateQuery.data?.has_plan,
     queryFn: async () => {
       if (!sessionId) return null;
       try {
@@ -48,16 +78,15 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     },
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeyFor(sessionId) });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: stateQueryKeyFor(sessionId) });
+    queryClient.invalidateQueries({ queryKey: planQueryKeyFor(sessionId) });
+  };
 
   const startPlan = useMutation({
-    mutationFn: async (title: string) => {
+    mutationFn: async () => {
       if (!sessionId) throw new Error("Missing session id");
-      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plans`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
+      return apiFetch<SessionPlanState>(`/sessions/${sessionId}/plan/start`, { method: "POST" });
     },
     onSuccess: invalidate,
   });
@@ -65,9 +94,7 @@ export function useSessionPlanMode(sessionId: string | undefined) {
   const approvePlan = useMutation({
     mutationFn: async () => {
       if (!sessionId) throw new Error("Missing session id");
-      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/approve`, {
-        method: "POST",
-      });
+      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/approve`, { method: "POST" });
     },
     onSuccess: invalidate,
   });
@@ -75,9 +102,7 @@ export function useSessionPlanMode(sessionId: string | undefined) {
   const exitPlan = useMutation({
     mutationFn: async () => {
       if (!sessionId) throw new Error("Missing session id");
-      return apiFetch(`/sessions/${sessionId}/plan/exit`, {
-        method: "POST",
-      });
+      return apiFetch(`/sessions/${sessionId}/plan/exit`, { method: "POST" });
     },
     onSuccess: invalidate,
   });
@@ -85,9 +110,7 @@ export function useSessionPlanMode(sessionId: string | undefined) {
   const resumePlan = useMutation({
     mutationFn: async () => {
       if (!sessionId) throw new Error("Missing session id");
-      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/resume`, {
-        method: "POST",
-      });
+      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/resume`, { method: "POST" });
     },
     onSuccess: invalidate,
   });
@@ -105,7 +128,12 @@ export function useSessionPlanMode(sessionId: string | undefined) {
   });
 
   return {
-    ...query,
+    ...stateQuery,
+    data: planQuery.data,
+    mode: stateQuery.data?.mode ?? "chat",
+    hasPlan: !!stateQuery.data?.has_plan,
+    state: stateQuery.data ?? null,
+    planQuery,
     startPlan,
     approvePlan,
     exitPlan,

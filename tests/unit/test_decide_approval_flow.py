@@ -6,8 +6,7 @@ of three terminal outcomes — approved, denied, or stale. Along the way it:
 1. Flips ``ToolApproval.status``.
 2. Flips the linked ``ToolCall.status`` (guarded on current status).
 3. Optionally creates a ``ToolPolicyRule`` (bot- or global-scoped).
-4. Optionally pins a capability to ``Bot.carapaces`` and triggers a reload.
-5. Adds a session-scoped allow + resolves the waiting future.
+4. Adds a session-scoped allow + resolves the waiting future.
 
 This file covers each of those paths with real DB writes so the post-decide
 DB state matches what the snapshot endpoint and subsequent re-dispatch rely
@@ -25,7 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.agent import approval_pending, session_allows
-from app.db.models import Bot, ToolApproval, ToolCall, ToolPolicyRule
+from app.db.models import ToolApproval, ToolCall, ToolPolicyRule
 from app.routers.api_v1_approvals import DecideRequest, decide_approval
 
 
@@ -202,86 +201,6 @@ class TestDenyFlow:
         )
 
         assert not session_allows.is_session_allowed(str(appr.correlation_id), appr.tool_name)
-
-
-class TestCapabilityPin:
-    async def test_pin_capability_appends_to_bot_carapaces(self, db_session):
-        db_session.add(Bot(
-            id="rolland", name="Rolland", model="test/model",
-            system_prompt="", carapaces=["existing-cap"],
-        ))
-        appr, _ = await _seed_pending_approval(db_session, bot_id="rolland")
-        # reload_bots triggers an MCP + file-sync dance that isn't available
-        # in the unit-test engine — stub it out. Assertion focuses on the DB
-        # write that makes the pin survive reload, not the reload itself.
-        from app.agent import bots as bots_mod
-        async def _noop():
-            return None
-        orig = bots_mod.reload_bots
-        bots_mod.reload_bots = _noop
-        try:
-            out = await decide_approval(
-                approval_id=appr.id,
-                body=DecideRequest(
-                    approved=True, decided_by="api:admin",
-                    pin_capability="new-cap",
-                ),
-                _auth=None, db=db_session,
-            )
-        finally:
-            bots_mod.reload_bots = orig
-
-        bot = await db_session.get(Bot, "rolland")
-        assert out.capability_pinned == "new-cap"
-        assert bot.carapaces == ["existing-cap", "new-cap"]
-
-    async def test_pin_capability_idempotent_on_existing(self, db_session):
-        """Pinning a capability already in carapaces must not duplicate it."""
-        db_session.add(Bot(
-            id="rolland", name="Rolland", model="test/model",
-            system_prompt="", carapaces=["cap-x"],
-        ))
-        appr, _ = await _seed_pending_approval(db_session, bot_id="rolland")
-        from app.agent import bots as bots_mod
-        async def _noop():
-            return None
-        orig = bots_mod.reload_bots
-        bots_mod.reload_bots = _noop
-        try:
-            await decide_approval(
-                approval_id=appr.id,
-                body=DecideRequest(
-                    approved=True, decided_by="api:admin",
-                    pin_capability="cap-x",
-                ),
-                _auth=None, db=db_session,
-            )
-        finally:
-            bots_mod.reload_bots = orig
-
-        bot = await db_session.get(Bot, "rolland")
-        assert bot.carapaces == ["cap-x"]
-
-    async def test_deny_with_pin_capability_does_not_pin(self, db_session):
-        """Pin only fires on approve — denied approvals must leave carapaces untouched."""
-        db_session.add(Bot(
-            id="rolland", name="Rolland", model="test/model",
-            system_prompt="", carapaces=[],
-        ))
-        appr, _ = await _seed_pending_approval(db_session, bot_id="rolland")
-
-        out = await decide_approval(
-            approval_id=appr.id,
-            body=DecideRequest(
-                approved=False, decided_by="api:admin",
-                pin_capability="should-not-appear",
-            ),
-            _auth=None, db=db_session,
-        )
-
-        bot = await db_session.get(Bot, "rolland")
-        assert out.capability_pinned is None
-        assert bot.carapaces == []
 
 
 class TestGuardBranches:

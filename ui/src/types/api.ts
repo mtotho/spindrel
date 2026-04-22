@@ -842,6 +842,20 @@ export interface Message {
   created_at: string;
 }
 
+export type ToolSurface = "transcript" | "widget" | "rich_result";
+
+export interface ToolCallSummary {
+  kind: "lookup" | "read" | "write" | "diff" | "action" | "result" | "error";
+  subject_type: "file" | "skill" | "widget" | "tool" | "session" | "channel" | "entity" | "generic";
+  label: string;
+  target_id?: string | null;
+  target_label?: string | null;
+  path?: string | null;
+  preview_text?: string | null;
+  diff_stats?: { additions: number; deletions: number } | null;
+  error?: string | null;
+}
+
 /** OpenAI function-call format as stored in DB */
 export interface ToolCall {
   id: string;
@@ -850,6 +864,10 @@ export interface ToolCall {
   // Flattened form (for convenience)
   name?: string;
   arguments?: string;
+  args?: string;
+  tool_name?: string;
+  surface?: ToolSurface;
+  summary?: ToolCallSummary | null;
 }
 
 /** Extract name and arguments from a ToolCall regardless of format */
@@ -857,7 +875,7 @@ export function normalizeToolCall(tc: ToolCall): { name: string; arguments: stri
   if (tc.function) {
     return { name: tc.function.name, arguments: tc.function.arguments };
   }
-  return { name: tc.name ?? "unknown", arguments: tc.arguments ?? "{}" };
+  return { name: tc.name ?? tc.tool_name ?? "unknown", arguments: tc.arguments ?? tc.args ?? "{}" };
 }
 
 /**

@@ -22,7 +22,7 @@ class TestLoadedIds:
             integrations.discover_integrations()
             assert len(integrations._loaded_ids) > 0
             # Should include known in-repo integrations
-            assert "example" in integrations._loaded_ids
+            assert "discord" in integrations._loaded_ids
         finally:
             integrations._loaded_ids = original
 
@@ -98,7 +98,7 @@ class TestScaffold:
         int_dir = tmp_path / "my_test_integration"
         assert int_dir.is_dir()
         assert (int_dir / "__init__.py").exists()
-        assert (int_dir / "setup.py").exists()
+        assert (int_dir / "integration.yaml").exists()
         assert (int_dir / "router.py").exists()
         assert (int_dir / "README.md").exists()
         assert (int_dir / "tools").is_dir()
@@ -108,7 +108,7 @@ class TestScaffold:
     def test_scaffold_all_features(self, tmp_path):
         scaffold = self._get_scaffold_fn()
         all_features = [
-            "tools", "skills", "carapaces", "hooks", "process",
+            "tools", "skills", "hooks", "process",
             "workflows", "renderer",
         ]
         with patch("app.tools.local.admin_integrations._get_scaffold_dir", return_value=tmp_path):
@@ -118,7 +118,6 @@ class TestScaffold:
         int_dir = tmp_path / "full_integration"
         assert (int_dir / "tools").is_dir()
         assert (int_dir / "skills").is_dir()
-        assert (int_dir / "carapaces").is_dir()
         assert (int_dir / "hooks.py").exists()
         assert (int_dir / "process.py").exists()
         assert (int_dir / "workflows").is_dir()
@@ -167,7 +166,7 @@ class TestScaffold:
         assert result["ok"] is True
         int_dir = tmp_path / "minimal_integration"
         assert (int_dir / "__init__.py").exists()
-        assert (int_dir / "setup.py").exists()
+        assert (int_dir / "integration.yaml").exists()
         assert (int_dir / "router.py").exists()
         assert (int_dir / "README.md").exists()
         # No optional dirs
@@ -237,7 +236,7 @@ class TestScaffold:
     def test_scaffold_all_python_files_are_valid(self, tmp_path):
         """All generated Python files should be syntactically valid."""
         scaffold = self._get_scaffold_fn()
-        all_features = ["tools", "skills", "carapaces", "dispatcher", "hooks", "process", "workflows"]
+        all_features = ["tools", "skills", "hooks", "process", "workflows", "renderer"]
         with patch("app.tools.local.admin_integrations._get_scaffold_dir", return_value=tmp_path):
             scaffold("valid_py", all_features)
 
@@ -283,7 +282,6 @@ class TestReloadAction:
              patch("app.agent.tools.index_local_tools", new_callable=AsyncMock), \
              patch("app.services.file_sync.sync_all_files", new_callable=AsyncMock), \
              patch("app.agent.skills.load_skills", new_callable=AsyncMock), \
-             patch("app.agent.carapaces.load_carapaces", new_callable=AsyncMock), \
              patch("app.services.workflows.load_workflows", new_callable=AsyncMock), \
              patch("integrations.discover_sidebar_sections"), \
              patch("integrations.discover_activation_manifests"):
@@ -325,7 +323,6 @@ class TestReloadAction:
              patch("app.agent.tools.index_local_tools", new_callable=AsyncMock, side_effect=Exception("index boom")), \
              patch("app.services.file_sync.sync_all_files", new_callable=AsyncMock) as mock_sync, \
              patch("app.agent.skills.load_skills", new_callable=AsyncMock) as mock_skills, \
-             patch("app.agent.carapaces.load_carapaces", new_callable=AsyncMock), \
              patch("app.services.workflows.load_workflows", new_callable=AsyncMock), \
              patch("integrations.discover_sidebar_sections"), \
              patch("integrations.discover_activation_manifests"):
@@ -343,16 +340,17 @@ class TestReloadAction:
 class TestScaffoldYaml:
     """Tests for YAML validity in scaffolded files."""
 
-    def test_scaffolded_carapace_yaml_is_valid(self, tmp_path):
+    def test_scaffolded_integration_yaml_is_valid(self, tmp_path):
         import yaml
         from app.tools.local.admin_integrations import _scaffold_integration
         with patch("app.tools.local.admin_integrations._get_scaffold_dir", return_value=tmp_path):
-            _scaffold_integration("yaml_test", ["carapaces"])
+            _scaffold_integration("yaml_test", ["skills"])
 
-        carapace_file = tmp_path / "yaml_test" / "carapaces" / "yaml_test.yaml"
-        data = yaml.safe_load(carapace_file.read_text())
+        integration_file = tmp_path / "yaml_test" / "integration.yaml"
+        data = yaml.safe_load(integration_file.read_text())
         assert data["id"] == "yaml_test"
-        assert isinstance(data.get("skills"), type(None)) or isinstance(data.get("skills"), list)
+        assert data["name"] == "Yaml Test"
+        assert isinstance(data.get("provides"), list)
 
     def test_scaffolded_workflow_yaml_is_valid(self, tmp_path):
         import yaml

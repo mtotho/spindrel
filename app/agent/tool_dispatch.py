@@ -873,11 +873,14 @@ async def dispatch_tool_call(
 
     safe_create_task(_complete_tool_call(
         _tc_record_id,
+        tool_name=name,
+        arguments=_tc_args_pre,
         result=result_obj.result,  # use redacted result
         error=_tc_error,
         duration_ms=_tc_duration,
         status="error" if _tc_error else "done",
         store_full_result=_store_full,
+        envelope=result_obj.envelope.compact_dict(),
     ))
 
     if _will_summarize:

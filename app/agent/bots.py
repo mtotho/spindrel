@@ -219,8 +219,6 @@ class BotConfig:
     shared_workspace_id: str | None = None  # UUID string
     shared_workspace_role: str | None = None  # 'member' | 'orchestrator'
     shared_workspace_cwd: str | None = None  # resolved cwd override
-    # Carapaces (composable skill+tool bundles)
-    carapaces: list[str] = field(default_factory=list)
     # Context pruning (trim old tool results at assembly time)
     context_pruning: bool | None = None
     # History mode: "file" (default) | "summary" | "structured"
@@ -458,7 +456,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         user_id=_user_id,
         shared_workspace_id=str(_sw_id) if _sw_id else None,
         shared_workspace_role=_sw_role,
-        carapaces=row.carapaces or [],
         context_pruning=getattr(row, "context_pruning", None),
         history_mode=row.history_mode or "file",
         memory_scheme=getattr(row, "memory_scheme", None),
@@ -552,7 +549,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         },
         "fallback_models": data.get("fallback_models", []),
         "workspace": data.get("workspace", {"enabled": False}),
-        "carapaces": data.get("carapaces", []),
         "context_pruning": data.get("context_pruning"),
         "history_mode": data.get("history_mode", "file"),
         "memory_scheme": data.get("memory_scheme"),

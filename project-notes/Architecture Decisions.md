@@ -8,6 +8,25 @@
 
 ## Key Decisions
 
+### Persisted tool outcomes carry a normalized presentation contract beside raw audit data
+**Decided 2026-04-22.** Persisted tool data now has three layers:
+
+- raw audit identity/payload on `tool_calls` (`tool_name`, `arguments`, `result`, `error`)
+- `surface` deciding which first-party web UI owns the outcome (`transcript` | `widget` | `rich_result`)
+- `summary` giving chat renderers one stable label/primitive contract (`kind`, `subject_type`, `label`, optional target/path/diff stats)
+
+**Why.**
+- `get_skill` was excluded from rich result envelopes, which forced terminal mode to reverse-engineer meaning from mixed raw `tool_calls` shapes (`function.arguments`, `arguments`, `args`) and ad hoc blobs.
+- File reads/edits, widget-producing tools, and transcript-only lookup tools were each deriving labels differently in different chat surfaces.
+- The app already had the right raw data, but not a stable persisted presentation layer between audit storage and renderer heuristics.
+
+**Load-bearing invariants.**
+- Raw `arguments` / `result` / `error` stay stored unchanged for fidelity, deep inspection, and future consumers.
+- First-party web chat is the only v1 consumer updated to use `surface` + `summary`; Slack/integration dispatchers remain unchanged.
+- Widget-producing tools keep widget ownership (`surface="widget"`); rich-envelope tools keep rich-render ownership (`surface="rich_result"`); transcript-owned tools such as `get_skill`, `file`, and `inspect_widget_pin` read from `summary`.
+- `summary.kind` is a render primitive, not a tool alias. Example: `file` edit and any other file-editing tool can both map to `kind="diff", subject_type="file"` while preserving their real `tool_name`.
+- Persisted assistant `message.tool_calls[]` now carry normalized top-level `name`, `arguments`, `surface`, and `summary` so chat UIs stop guessing across legacy shapes.
+
 ### Scratch sessions are internal-first session records; promotion swaps the channel primary
 **Decided 2026-04-21.** Scratch sessions are no longer a client-side convenience pointer layered on top of the main channel session. They are first-class `Session` rows with their own `title`, `summary`, `ConversationSection` history, and selector stats. The channel's canonical external conversation is still exactly one session: `channel.active_session_id`.
 

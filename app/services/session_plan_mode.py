@@ -357,6 +357,19 @@ def get_session_active_plan_path(session: Session) -> str | None:
     return str(path) if path else None
 
 
+def get_session_plan_state(session: Session) -> dict[str, Any]:
+    meta = session.metadata_ or {}
+    return {
+        "mode": get_session_plan_mode(session),
+        "has_plan": bool(get_session_active_plan_path(session)),
+        "path": get_session_active_plan_path(session),
+        "task_slug": meta.get(PLAN_SLUG_METADATA_KEY),
+        "revision": meta.get(PLAN_REVISION_METADATA_KEY),
+        "accepted_revision": meta.get(PLAN_ACCEPTED_REVISION_METADATA_KEY),
+        "status": meta.get(PLAN_STATUS_METADATA_KEY),
+    }
+
+
 def _plan_channel_id(session: Session) -> uuid.UUID | None:
     return session.channel_id or session.parent_channel_id
 
@@ -441,6 +454,11 @@ def save_session_plan(session: Session, plan: SessionPlan, *, mode: str | None =
     return plan
 
 
+def enter_session_plan_mode(session: Session) -> dict[str, Any]:
+    write_session_plan_metadata(session, mode=PLAN_MODE_PLANNING)
+    return get_session_plan_state(session)
+
+
 def create_session_plan(
     session: Session,
     *,
@@ -480,6 +498,57 @@ def create_session_plan(
         outcome="Pending execution.",
     )
     return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING)
+
+
+def publish_session_plan(
+    session: Session,
+    *,
+    title: str,
+    summary: str | None = None,
+    scope: str | None = None,
+    assumptions: list[str] | None = None,
+    open_questions: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    steps: list[dict[str, Any]] | None = None,
+    outcome: str | None = None,
+) -> SessionPlan:
+    existing = load_session_plan(session, required=False)
+    if existing is None:
+        return create_session_plan(
+            session,
+            title=title,
+            summary=summary,
+            scope=scope,
+            assumptions=assumptions,
+            open_questions=open_questions,
+            acceptance_criteria=acceptance_criteria,
+            steps=steps,
+        )
+
+    existing.title = title.strip() or existing.title
+    existing.summary = _normalize_free_text(summary, existing.summary)
+    existing.scope = _normalize_free_text(scope, existing.scope)
+    if assumptions is not None:
+        existing.assumptions = [item.strip() for item in assumptions if item.strip()]
+    if open_questions is not None:
+        existing.open_questions = [item.strip() for item in open_questions if item.strip()]
+    if acceptance_criteria is not None:
+        existing.acceptance_criteria = [item.strip() for item in acceptance_criteria if item.strip()]
+    if outcome is not None:
+        existing.outcome = outcome.strip() or existing.outcome
+    if steps is not None:
+        existing.steps = [
+            PlanStep(
+                id=str(item.get("id") or slugify_task(str(item.get("label") or f"step-{idx + 1}"))),
+                label=str(item.get("label") or f"Step {idx + 1}"),
+                status=str(item.get("status") or STEP_STATUS_PENDING),
+                note=(str(item.get("note")).strip() if item.get("note") is not None else None),
+            )
+            for idx, item in enumerate(steps)
+        ]
+    existing.revision += 1
+    existing.status = PLAN_STATUS_DRAFT
+    return save_session_plan(session, existing, mode=PLAN_MODE_PLANNING, accepted_revision=0)
 
 
 def update_session_plan(
@@ -556,7 +625,7 @@ def approve_session_plan(session: Session) -> SessionPlan:
 
 def exit_session_plan_mode(session: Session) -> None:
     if load_session_plan(session, required=False) is None:
-        write_session_plan_metadata(session, clear_plan=True)
+        write_session_plan_metadata(session, mode=PLAN_MODE_CHAT)
         return
     plan = load_session_plan(session, required=True)
     assert plan is not None
@@ -663,6 +732,11 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         return []
     lines: list[str] = []
     if plan is None:
+        if mode == PLAN_MODE_PLANNING:
+            return [
+                "Plan mode is active. Stay in planning mode: ask clarifying questions, narrow scope, do not edit non-plan files, and do not execute implementation changes yet.",
+                "When you have enough information to propose a concrete plan, publish it as the session plan artifact instead of editing application files.",
+            ]
         return []
     path = plan.path or get_session_active_plan_path(session) or "<unknown>"
     if mode == PLAN_MODE_PLANNING:

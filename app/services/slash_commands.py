@@ -17,7 +17,7 @@ from app.db.models import Channel, Session, Task
 from app.services import session_locks
 from app.services.context_breakdown import compute_context_breakdown, fetch_latest_context_budget
 from app.services.session_plan_mode import (
-    create_session_plan,
+    enter_session_plan_mode,
     exit_session_plan_mode,
     get_session_plan_mode,
     load_session_plan,
@@ -336,14 +336,6 @@ async def _compact_session(
     return _side_effect_result(payload, command_id="compact")
 
 
-def _default_plan_title(*, session: Session, channel: Channel | None) -> str:
-    if session.title and session.title.strip():
-        return session.title.strip()
-    if channel is not None and channel.name and channel.name.strip():
-        return f"{channel.name.strip()} plan"
-    return "Active plan"
-
-
 async def _toggle_plan_mode(
     *,
     session: Session,
@@ -355,17 +347,14 @@ async def _toggle_plan_mode(
     existing = load_session_plan(session, required=False)
     mode = get_session_plan_mode(session)
     if existing is None:
-        plan = create_session_plan(
-            session,
-            title=_default_plan_title(session=session, channel=channel),
-        )
+        enter_session_plan_mode(session)
         await db.commit()
         payload = SideEffectPayload(
             effect="plan",
             scope_kind=scope_kind,
             scope_id=str(scope_id),
             title="Plan mode started",
-            detail=f"Started plan mode with {plan.title!r}.",
+            detail="Started session plan mode. The agent can now discuss and publish a plan in-chat.",
         )
         return _side_effect_result(payload, command_id="plan")
     if mode == "chat":

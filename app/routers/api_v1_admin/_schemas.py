@@ -92,7 +92,6 @@ class BotOut(BaseModel):
     skill_review_model_provider_id: Optional[str] = None
     skill_review_target_hour: Optional[int] = None
     skill_review_extra_instructions: Optional[str] = None
-    carapaces: list[str] = []
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
     source_type: str = "manual"
@@ -105,5 +104,4 @@ class BotOut(BaseModel):
 class BotListOut(BaseModel):
     bots: list[BotOut]
     total: int
-
 

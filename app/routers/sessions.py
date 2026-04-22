@@ -24,7 +24,9 @@ from app.services.session_plan_mode import (
     STEP_STATUS_PENDING,
     approve_session_plan,
     create_session_plan,
+    enter_session_plan_mode,
     exit_session_plan_mode,
+    get_session_plan_state,
     get_session_plan_mode,
     list_session_plans,
     load_session_plan,
@@ -85,6 +87,16 @@ class SessionPlanOut(BaseModel):
     mode: str
 
 
+class SessionPlanStateOut(BaseModel):
+    mode: str
+    has_plan: bool
+    path: Optional[str] = None
+    task_slug: Optional[str] = None
+    revision: Optional[int] = None
+    accepted_revision: Optional[int] = None
+    status: Optional[str] = None
+
+
 class SessionPlanCreateRequest(BaseModel):
     title: str
     summary: Optional[str] = None
@@ -115,6 +127,10 @@ def _serialize_plan(session: Session) -> SessionPlanOut:
     plan = load_session_plan(session, required=True)
     assert plan is not None
     return SessionPlanOut(**plan.as_dict(), mode=get_session_plan_mode(session))
+
+
+def _serialize_plan_state(session: Session) -> SessionPlanStateOut:
+    return SessionPlanStateOut(**get_session_plan_state(session))
 
 
 @router.get("", response_model=list[SessionSummary])
@@ -174,6 +190,33 @@ async def get_session_plan(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return _serialize_plan(session)
+
+
+@router.get("/{session_id}/plan-state", response_model=SessionPlanStateOut)
+async def get_session_plan_state_route(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:read")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _serialize_plan_state(session)
+
+
+@router.post("/{session_id}/plan/start", response_model=SessionPlanStateOut)
+async def start_session_plan_mode(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    enter_session_plan_mode(session)
+    await db.commit()
+    await db.refresh(session)
+    return _serialize_plan_state(session)
 
 
 @router.post("/{session_id}/plans", response_model=SessionPlanOut)

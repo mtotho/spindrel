@@ -32,6 +32,8 @@ class ToolCallOut(BaseModel):
     server_name: Optional[str] = None
     iteration: Optional[int] = None
     arguments: dict
+    surface: Optional[str] = None
+    summary: Optional[dict] = None
     result: Optional[str] = None
     error: Optional[str] = None
     duration_ms: Optional[int] = None

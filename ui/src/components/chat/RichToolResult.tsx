@@ -40,6 +40,7 @@ import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
 import { NativeAppRenderer } from "./renderers/NativeAppRenderer";
+import { PlanResultRenderer } from "./renderers/PlanResultRenderer";
 import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
 
@@ -243,6 +244,9 @@ export function RichToolResult({
             t={t}
           />
         );
+        break;
+      case "application/vnd.spindrel.plan+json":
+        content = <PlanResultRenderer envelope={envelope} sessionId={sessionId} />;
         break;
       case "text/plain":
       default:

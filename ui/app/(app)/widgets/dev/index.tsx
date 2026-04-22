@@ -17,6 +17,7 @@ import { RecentTab } from "./RecentTab";
 import { ThemesTab } from "./ThemesTab";
 import { DashboardTargetPicker } from "./DashboardTargetPicker";
 import { WidgetPresetsPane } from "../WidgetPresetsPane";
+import { WidgetBuilderSearchBar } from "../WidgetBuilderSearchBar";
 
 type DevTab = "library" | "presets" | "templates" | "themes" | "tools" | "recent";
 const TABS: readonly DevTab[] = ["library", "presets", "templates", "themes", "tools", "recent"] as const;
@@ -41,6 +42,7 @@ function useOriginSlug(): string | null {
 export default function WidgetDevPanelPage() {
   const [tab, setTab] = useHashTab<DevTab>("library", TABS);
   const [docsOpen, setDocsOpen] = useState(false);
+  const [presetQuery, setPresetQuery] = useState("");
   const originSlug = useOriginSlug();
 
   // Channel dashboard: route back via the pretty /widgets/channel/<id> form.
@@ -114,9 +116,25 @@ export default function WidgetDevPanelPage() {
         </button>
       </div>
 
+      {tab === "presets" && (
+        <WidgetBuilderSearchBar
+          className="px-4 py-3"
+          value={presetQuery}
+          onChange={setPresetQuery}
+          placeholder="Search presets"
+        />
+      )}
+
       {/* Tab content */}
       {tab === "library" && <LibraryTab originChannelId={originChannelId} />}
-      {tab === "presets" && <WidgetPresetsPane mode="pin" scopeChannelId={originChannelId} />}
+      {tab === "presets" && (
+        <WidgetPresetsPane
+          mode="pin"
+          scopeChannelId={originChannelId}
+          layout="builder"
+          query={presetQuery}
+        />
+      )}
       {tab === "templates" && <TemplatesTab />}
       {tab === "themes" && <ThemesTab originChannelId={originChannelId} />}
       {tab === "tools" && <ToolsSandbox />}

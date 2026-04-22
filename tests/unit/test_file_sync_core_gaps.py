@@ -1,9 +1,9 @@
 """Phase B.6 targeted sweep of file_sync.py core gap #28 (sync_changed_file kind branches).
 
-Covers the five `kind` branches of `sync_changed_file` plus the deletion path
-(path.exists() is False) across all four tables, and the reload cascade for
-carapaces and workflows. Uses real DB + real files on disk (chdir to tmp_path)
-following the same pattern as `TestSyncAllFilesSkills` in test_file_sync.py.
+Covers the remaining managed `sync_changed_file` branches plus the deletion path
+(path.exists() is False) across skills, prompts, and workflows. Uses real DB +
+real files on disk (chdir to tmp_path) following the same pattern as
+`TestSyncAllFilesSkills` in test_file_sync.py.
 """
 from __future__ import annotations
 
@@ -14,12 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import select
 
-from app.db.models import (
-    Carapace as CarapaceRow,
-    PromptTemplate,
-    Skill as SkillRow,
-    Workflow as WorkflowRow,
-)
+from app.db.models import PromptTemplate, Skill as SkillRow, Workflow as WorkflowRow
 from app.services.file_sync import SOURCE_FILE
 
 
@@ -35,14 +30,11 @@ def isolate_watch(tmp_path, monkeypatch):
     with patch(
         "app.services.file_sync._embed_skill_from_content", new_callable=AsyncMock
     ) as embed, patch(
-        "app.agent.carapaces.reload_carapaces", new_callable=AsyncMock
-    ) as reload_cap, patch(
         "app.services.workflows.reload_workflows", new_callable=AsyncMock
     ) as reload_wf:
         yield {
             "tmp_path": tmp_path,
             "embed": embed,
-            "reload_carapaces": reload_cap,
             "reload_workflows": reload_wf,
         }
 
@@ -53,7 +45,7 @@ def isolate_watch(tmp_path, monkeypatch):
 
 
 class TestSyncChangedFileDeletion:
-    """Verify deleted-file cleanup across all four tables + reload cascade."""
+    """Verify deleted-file cleanup across remaining managed tables + reload cascade."""
 
     @pytest.mark.asyncio
     async def test_when_deleted_skill_file_then_skill_row_removed(
@@ -99,26 +91,6 @@ class TestSyncChangedFileDeletion:
         assert remaining == []
 
     @pytest.mark.asyncio
-    async def test_when_deleted_carapace_file_then_row_removed_and_reload_fired(
-        self, db_session, patched_async_sessions, isolate_watch
-    ):
-        tmp = isolate_watch["tmp_path"]
-        gone = tmp / "carapaces" / "gone.yaml"
-        db_session.add(CarapaceRow(
-            id="gone", name="Gone", source_type=SOURCE_FILE,
-            source_path=str(gone.resolve()), content_hash="h",
-            updated_at=datetime.now(timezone.utc),
-        ))
-        await db_session.commit()
-
-        from app.services.file_sync import sync_changed_file
-        await sync_changed_file(gone)
-
-        remaining = (await db_session.execute(select(CarapaceRow))).scalars().all()
-        assert remaining == []
-        isolate_watch["reload_carapaces"].assert_awaited_once()
-
-    @pytest.mark.asyncio
     async def test_when_deleted_workflow_file_then_row_removed_and_reload_fired(
         self, db_session, patched_async_sessions, isolate_watch
     ):
@@ -143,12 +115,11 @@ class TestSyncChangedFileDeletion:
         self, db_session, patched_async_sessions, isolate_watch
     ):
         tmp = isolate_watch["tmp_path"]
-        ghost = tmp / "carapaces" / "never_existed.yaml"
+        ghost = tmp / "workflows" / "never_existed.yaml"
 
         from app.services.file_sync import sync_changed_file
         await sync_changed_file(ghost)
 
-        isolate_watch["reload_carapaces"].assert_not_awaited()
         isolate_watch["reload_workflows"].assert_not_awaited()
 
 
@@ -228,35 +199,6 @@ class TestSyncChangedFilePromptTemplate:
         ).scalar_one()
         assert row.category == "core"
         assert row.tags == ["intro"]
-
-
-# ---------------------------------------------------------------------------
-# Carapace branch
-# ---------------------------------------------------------------------------
-
-
-class TestSyncChangedFileCarapace:
-    @pytest.mark.asyncio
-    async def test_when_new_carapace_file_then_row_added_and_reload_fired(
-        self, db_session, patched_async_sessions, isolate_watch
-    ):
-        tmp = isolate_watch["tmp_path"]
-        cdir = tmp / "carapaces"
-        cdir.mkdir()
-        path = cdir / "helper.yaml"
-        path.write_text(
-            "id: helper\nname: Helper Cap\nlocal_tools: [foo, bar]\n"
-        )
-
-        from app.services.file_sync import sync_changed_file
-        await sync_changed_file(path)
-
-        row = (
-            await db_session.execute(select(CarapaceRow).where(CarapaceRow.id == "helper"))
-        ).scalar_one()
-        assert row.name == "Helper Cap"
-        assert row.local_tools == ["foo", "bar"]
-        isolate_watch["reload_carapaces"].assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

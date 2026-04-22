@@ -768,33 +768,6 @@ class TestClientActionSchema:
 
 
 # ---------------------------------------------------------------------------
-# manage_capability — returns schema coverage
-# ---------------------------------------------------------------------------
-
-class TestManageCapabilitySchema:
-    @pytest.mark.asyncio
-    async def test_list_empty_matches_schema(self, db_session, patched_async_sessions):
-        from app.tools.local.carapaces import manage_capability
-
-        # list_carapaces is imported lazily inside manage_capability — patch at source
-        with patch("app.agent.carapaces.list_carapaces", return_value=[]):
-            result = await manage_capability(action="list")
-
-        data = _validate(result, "manage_capability")
-        assert "carapaces" in data
-
-    @pytest.mark.asyncio
-    async def test_get_missing_returns_error(self, db_session, patched_async_sessions):
-        from app.tools.local.carapaces import manage_capability
-
-        with patch("app.agent.carapaces.get_carapace", return_value=None):
-            result = await manage_capability(action="get", id="nonexistent")
-
-        data = _validate(result, "manage_capability")
-        assert "error" in data
-
-
-# ---------------------------------------------------------------------------
 # git_pull — returns schema coverage
 # ---------------------------------------------------------------------------
 

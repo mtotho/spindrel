@@ -1,6 +1,6 @@
 """Workflow registry — in-memory cache of workflow definitions.
 
-Follows the carapace registry pattern: loaded from DB at startup,
+Follows the in-memory registry pattern: loaded from DB at startup,
 refreshed after edits. YAML files from ``workflows/`` and
 ``integrations/*/workflows/`` are synced via ``file_sync.py``.
 """

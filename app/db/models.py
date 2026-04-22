@@ -529,6 +529,8 @@ class ToolCall(Base):
     server_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     iteration: Mapped[int | None] = mapped_column(nullable=True)
     arguments: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
+    surface: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(nullable=True)

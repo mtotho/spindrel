@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-22 (Widget presets UI split + Home Assistant binding flow)
+updated: 2026-04-22 (Preset binding-source route hardening + route-backed widget builder overlay)
 ---
 # Track — Widget System DX + Robustness
 
@@ -33,6 +33,9 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 - **Home Assistant adaptive entity widget landed** (2026-04-22) — `integrations/homeassistant/integration.yaml:ha_get_state` now renders four shapes off one tool contract: sensor card, light card, toggle chip, and generic entity/value chip. `state_poll.args.entity_id` reads `{{config.entity_id}}`; `app/services/dashboard_pins.py` seeds that config from `display_label` once at pin-create time so refresh no longer depends on label scraping after the pin exists.
 - **Widget presets landed as a first-class surface** (2026-04-22) — integrations can now declare `widget_presets:` alongside `tool_widgets:`. `app/services/widget_presets.py` resolves preset metadata, binding-source options, preview, and pinning through the existing widget engine, and `/api/v1/widgets/presets*` powers both Add Widget and `/widgets/dev`. New invariant: presets own guided binding inputs; tool renderers remain the advanced “render a tool result” path.
+- **Widget Builder is now route-backed instead of local-modal state** (2026-04-22) — the dashboard page now drives the Add Widget surface off URL state (`builder`, `builder_tab`, `builder_q`, `builder_preset`, `builder_step`) so refresh/back-forward restore the open builder and selected preset flow. The old narrow side sheet is restyled into a wide bottom-attached overlay and the presets pane now uses a 3-region builder layout (catalog / configure / preview) instead of stacking everything into one cramped column.
+- **Preset binding-option requests no longer depend on dotted path segments** (2026-04-22) — `POST /api/v1/widgets/presets/{preset_id}/binding-options` now accepts `source_id` in the JSON body, with the old `.../binding-options/{source_id}` path kept for compatibility. Frontend calls the body-based route first and falls back to the legacy path on 404 so `homeassistant.entities`-style ids stop depending on proxy/path behavior.
+- **Widget Builder chrome should match the chat dock shell, not modal cards** (2026-04-22) — use one strong outer container with square edges and sparse separators, then keep catalog / configure / preview panes visually adjacent instead of wrapping each region in its own rounded bordered card.
 - **Expression grammar still constrains widget authoring** — this HA pass had to push the variant branching into `widget_transforms.py` because the template engine still lacks `and` / `or` / ternary / prefix tests. That keeps P1-2 (`and` / `or` / `not` / ternary) relevant for lowering authoring friction on bindable integration widgets.
 - **JSON Schema artifact** at `ui/src/types/widget-components.schema.json` generated from `ComponentBody.model_json_schema()` — enables future admin playground (P2-6) to lint YAML live. Small script under `scripts/`.
 - **TS type hoist**: lift the `ComponentNode` union out of `ui/src/components/chat/renderers/ComponentRenderer.tsx` into `ui/src/types/widgets.ts` so the renderer imports from a single source of truth. Today Pydantic is the canonical schema for validation, but the TS is still a manual parallel.
@@ -162,15 +165,17 @@ Shipped a first real "plan first, execute later" loop without reviving the remov
 - UI:
   - plan mode entry moved into the composer as a low-chrome pill/dropdown
   - default chat places the plan control just left of the model picker; terminal mode places it under the input on the right opposite the model picker
-  - channel screen renders a live plan card with revision/mode/path, checklist, approve/exit actions, and per-step status controls
   - existing session can enter plan mode mid-conversation; no scratch/planner session split
   - `/plan` is available in channel/session/thread chat surfaces and toggles the existing session plan state via the shared slash-command backend
+  - entering plan mode is now mode-only: the toggle no longer creates a placeholder plan or mounts page-level chrome
+  - the first real plan appears only when the agent calls `publish_plan`, which writes the canonical Markdown file and emits an in-feed plan envelope rendered through the existing `RichToolResult` path
+  - plan updates are transcript-first now; the top-of-channel `SessionPlanCard` mount was removed and the transcript plan card owns approve/exit/step actions
 
 Verification:
 
-- `pytest agent-server/tests/unit/test_session_plan_mode.py -q` → `3 passed`
+- `pytest agent-server/tests/unit/test_session_plan_mode.py -q` → `7 passed`
 - `cd agent-server/ui && npx tsc --noEmit`
-- `python -m py_compile app/services/slash_commands.py`
+- `python -m py_compile app/services/session_plan_mode.py app/routers/sessions.py app/services/slash_commands.py app/tools/local/publish_plan.py`
 
 Integration note:
 
@@ -178,7 +183,7 @@ Integration note:
 
 Known limitation:
 
-- The first pass stops at a session-local card + runtime contract. It does not yet emit the plan as an inline native-app chat result/widget, and the executor is still session-turn-driven rather than a fully automatic background step runner.
+- execution is still session-turn-driven rather than a fully automatic background step runner; the transcript-first publish/render path is now in place, but the executor itself is not yet a detached loop
 
 ### Phase 0.6 — Plan mode + widget revision artifacts docs pass (done, 2026-04-21)
 

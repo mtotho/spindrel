@@ -350,7 +350,6 @@ SCOPE_PRESETS: dict[str, dict] = {
             "todos:read", "todos:write",
             "workspaces.files:read", "workspaces.files:write",
             "attachments:read", "attachments:write",
-            "carapaces:read", "carapaces:write",
             "tools:read", "tools:execute",
         ],
         "instructions": (

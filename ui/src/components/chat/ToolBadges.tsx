@@ -62,6 +62,11 @@ function introspectionTarget(name: string, argsList: (string | undefined)[]): st
   return null;
 }
 
+function summaryLabel(tc: ToolCall | undefined): string | null {
+  const label = tc?.summary?.target_label;
+  return typeof label === "string" && label.trim() ? label.trim() : null;
+}
+
 /** Check if an envelope represents an error result. */
 function isErrorEnvelope(env: ToolResultEnvelope | undefined): boolean {
   if (!env) return false;
@@ -110,14 +115,15 @@ function buildItems(
       const norm = normalizeToolCall(tc);
       const env = toolResults?.[envIdx];
       envIdx++;
+      const displayName = tc?.summary?.label || norm.name;
       const last = items[items.length - 1];
-      if (last && last.name === norm.name) {
+      if (last && last.name === displayName) {
         last.count++;
         last.argsList.push(norm.arguments);
         last.envelopes.push(env);
       } else {
         items.push({
-          name: norm.name,
+          name: displayName,
           count: 1,
           argsList: [norm.arguments],
           envelopes: [env],
@@ -207,7 +213,7 @@ export function ToolBadges({
         const env = item.envelopes[i];
         out.push({
           toolName: item.name,
-          target: introspectionTarget(item.name, [item.argsList[i]]),
+          target: summaryLabel(toolCalls?.find((tc) => normalizeToolCall(tc).name === item.name)) || introspectionTarget(item.name, [item.argsList[i]]),
           isError: isErrorEnvelope(env),
         });
       }

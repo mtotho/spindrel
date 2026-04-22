@@ -2052,25 +2052,6 @@ async def admin_channel_context_preview(
     if bot.system_prompt:
         blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})
 
-    # --- Carapace fragments ---
-    # The runtime context assembly injects each resolved carapace's
-    # system_prompt_fragment into the system message stream
-    # (see app/agent/context_assembly.py:921-928). This preview endpoint
-    # mirrors that behavior so the UI and tests can see the same content.
-    if bot.carapaces:
-        try:
-            from app.agent.carapaces import resolve_carapaces as _resolve_caps
-            _resolved = _resolve_caps(list(bot.carapaces))
-            if _resolved.system_prompt_fragments:
-                _frag_text = "\n\n".join(_resolved.system_prompt_fragments)
-                blocks.append({
-                    "label": f"Carapace Fragments ({len(_resolved.system_prompt_fragments)})",
-                    "role": "system",
-                    "content": _frag_text,
-                })
-        except Exception:
-            logger.warning("context-preview: failed to resolve carapaces for bot %s", bot.id, exc_info=True)
-
     # Memory guidelines — deprecated (DB memory no longer in use)
 
     # --- Persona ---
@@ -2293,29 +2274,19 @@ async def list_activatable_integrations_global(
     All items returned with activated=False since there's no channel yet.
     """
     from integrations import get_activation_manifests, get_chat_huds, get_chat_hud_presets
-    from app.agent.carapaces import resolve_carapaces
 
     manifests = get_activation_manifests()
     huds = get_chat_huds()
     hud_presets = get_chat_hud_presets()
     result = []
     for itype, manifest in manifests.items():
-        carapace_ids = manifest.get("carapaces", [])
-        resolved = resolve_carapaces(carapace_ids) if carapace_ids else None
-        tool_names: list[str] = []
-        has_system_prompt = False
-        if resolved:
-            tool_names = list(resolved.local_tools)
-            has_system_prompt = len(resolved.system_prompt_fragments) > 0
-
         result.append({
             "integration_type": itype,
             "description": manifest.get("description", ""),
             "requires_workspace": manifest.get("requires_workspace", False),
             "activated": False,
-            "carapaces": carapace_ids,
-            "tools": tool_names,
-            "has_system_prompt": has_system_prompt,
+            "tools": list(manifest.get("tools", []) or []),
+            "has_system_prompt": bool(manifest.get("system_prompt")),
             "version": manifest.get("version"),
             "includes": manifest.get("includes", []),
             "chat_hud": huds.get(itype, []),

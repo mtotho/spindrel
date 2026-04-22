@@ -49,8 +49,6 @@ logger = logging.getLogger(__name__)
                         "context_compaction, "
                         "model_override, display_name, channel_prompt, "
                         "workspace_id (UUID string or null to assign/clear workspace), "
-                        "carapaces_extra (list of carapace IDs to add), "
-                        "carapaces_disabled (list of carapace IDs to suppress), "
                         "widget_theme_ref (custom/<slug> or null to inherit global default)."
                     ),
                 },
@@ -179,7 +177,6 @@ async def manage_channel(
                 "context_compaction", "compaction_interval", "compaction_keep_turns",
                 "require_mention",
                 "workspace_schema_template_id",
-                "carapaces_extra", "carapaces_disabled",
             ]
 
             # Handle workspace_id separately (needs UUID conversion)

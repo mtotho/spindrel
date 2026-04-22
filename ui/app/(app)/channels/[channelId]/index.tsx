@@ -50,7 +50,6 @@ import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import { useSessionPlanMode } from "./useSessionPlanMode";
-import { SessionPlanCard } from "./SessionPlanCard";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
@@ -574,17 +573,15 @@ export default function ChatScreen() {
 
   const handleTogglePlanMode = useCallback(() => {
     if (!channel?.active_session_id) return;
-    if (sessionPlan.data && sessionPlan.data.mode !== "chat") {
+    if (sessionPlan.mode !== "chat") {
       sessionPlan.exitPlan.mutate();
       return;
     }
-    if (sessionPlan.data && sessionPlan.data.mode === "chat") {
+    if (sessionPlan.hasPlan) {
       sessionPlan.resumePlan.mutate();
       return;
     }
-    const title = window.prompt("Plan title");
-    if (!title || !title.trim()) return;
-    sessionPlan.startPlan.mutate(title.trim());
+    sessionPlan.startPlan.mutate();
   }, [channel?.active_session_id, sessionPlan]);
 
   const renderMessage = useCallback(
@@ -873,12 +870,12 @@ export default function ChatScreen() {
     configOverhead: configOverheadData?.overhead_pct ?? null,
     onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
     chatMode,
-    planMode: sessionPlan.data?.mode ?? "chat",
-    hasPlan: !!sessionPlan.data,
+    planMode: sessionPlan.mode,
+    hasPlan: sessionPlan.hasPlan,
     planBusy,
     canTogglePlanMode: !!channel?.active_session_id,
     onTogglePlanMode: channel?.active_session_id ? handleTogglePlanMode : undefined,
-    onApprovePlan: sessionPlan.data?.mode === "planning" ? () => sessionPlan.approvePlan.mutate() : undefined,
+    onApprovePlan: sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined,
   };
 
   // ---- Shared message area props ----
@@ -1076,19 +1073,6 @@ export default function ChatScreen() {
         <OrchestratorLaunchpad
           channelId={channelId}
           onOpenFindings={() => setFindingsPanelOpen(true)}
-        />
-      )}
-
-      {sessionPlan.data && sessionPlan.data.mode !== "chat" && (
-        <SessionPlanCard
-          plan={sessionPlan.data}
-          busy={planBusy}
-          onApprove={() => sessionPlan.approvePlan.mutate()}
-          onExit={() => sessionPlan.exitPlan.mutate()}
-          onStepStatus={(stepId, status) => {
-            const note = status === "blocked" ? (window.prompt("Why is this step blocked?") ?? "") : undefined;
-            sessionPlan.updateStepStatus.mutate({ stepId, status, note });
-          }}
         />
       )}
 

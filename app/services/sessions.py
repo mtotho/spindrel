@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, Message, Session, SharedWorkspace, SharedWorkspaceBot
 from app.services.session_plan_mode import build_plan_mode_system_context
+from app.services.tool_presentation import normalize_persisted_tool_calls
 
 
 logger = logging.getLogger(__name__)
@@ -621,7 +622,10 @@ async def persist_turn(
             session_id=session_id,
             role=msg["role"],
             content=_content_for_db(msg),
-            tool_calls=msg.get("tool_calls"),
+            tool_calls=normalize_persisted_tool_calls(
+                msg.get("tool_calls"),
+                envelopes=msg.get("_tool_envelopes"),
+            ) if msg.get("role") == "assistant" else msg.get("tool_calls"),
             tool_call_id=msg.get("tool_call_id"),
             correlation_id=correlation_id,
             metadata_=meta,

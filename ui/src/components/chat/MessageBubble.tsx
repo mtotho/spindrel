@@ -254,8 +254,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   // Partition tool results: extract inline widget envelopes for WidgetCard rendering.
   // Widget tools are fully owned by WidgetCard — no badge or collapsed result shown.
   // (must be above early returns to satisfy rules of hooks)
-  const { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults } = useMemo(() => {
+  const { inlineWidgets, inlineRichResults, remainingToolNames, remainingToolCalls, remainingToolResults } = useMemo(() => {
     const inlineWidgets: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
+    const inlineRichResults: { envelope: ToolResultEnvelope; toolName: string; recordId?: string }[] = [];
     const remainingToolNames: string[] = [];
     const remainingToolCalls: ToolCall[] = [];
     const remainingToolResults: (ToolResultEnvelope | undefined)[] = [];
@@ -279,11 +280,16 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         const name = call ? normalizeToolCall(call).name : names[i];
         inlineWidgets.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
         inlineIndices.add(i);
+      } else if (env && env.display === "inline") {
+        const call = calls[i];
+        const name = call ? normalizeToolCall(call).name : names[i];
+        inlineRichResults.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
+        inlineIndices.add(i);
       }
     }
 
     // Build the set of inline widget tool names for dedup across misaligned arrays
-    const inlineToolNames = new Set(inlineWidgets.map((w) => w.toolName));
+    const inlineToolNames = new Set([...inlineWidgets, ...inlineRichResults].map((w) => w.toolName));
 
     // Second pass: collect remaining (non-widget) entries, skipping any that were inlined
     for (let i = 0; i < count; i++) {
@@ -298,7 +304,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       remainingToolResults.push(env);
     }
 
-    return { inlineWidgets, remainingToolNames, remainingToolCalls, remainingToolResults };
+    return { inlineWidgets, inlineRichResults, remainingToolNames, remainingToolCalls, remainingToolResults };
   }, [msgToolCalls, toolsUsed, toolResults]);
 
   // Broadcast envelopes when new tool results arrive in messages.
@@ -415,6 +421,17 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
       )}
+      {!isTerminalMode && inlineRichResults.map((w, i) => (
+        <div
+          key={`rich-${w.recordId ?? i}`}
+          className="rounded-lg border mt-2"
+          style={{ borderColor: t.surfaceBorder, backgroundColor: t.surfaceRaised }}
+        >
+          <div className="px-3 py-2">
+            <RichToolResult envelope={w.envelope} sessionId={message.session_id} channelId={channelId} botId={senderBotId} t={t} />
+          </div>
+        </div>
+      ))}
       {!isTerminalMode && inlineWidgets.map((w, i) => (
         <WidgetCard
           key={w.recordId ?? i}

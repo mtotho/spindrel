@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "../client";
+import { ApiError, apiFetch } from "../client";
 
 export interface WidgetPresetFieldUi {
   control?: string;
@@ -84,12 +84,21 @@ export function getWidgetPresetBindingOptions(
   },
 ) {
   return apiFetch<{ options: WidgetPresetOption[] }>(
-    `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/binding-options/${encodeURIComponent(sourceId)}`,
+    `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/binding-options`,
     {
       method: "POST",
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, source_id: sourceId }),
     },
-  );
+  ).catch((err) => {
+    if (!(err instanceof ApiError) || err.status !== 404) throw err;
+    return apiFetch<{ options: WidgetPresetOption[] }>(
+      `/api/v1/widgets/presets/${encodeURIComponent(presetId)}/binding-options/${encodeURIComponent(sourceId)}`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    );
+  });
 }
 
 export function previewWidgetPreset(

@@ -125,6 +125,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const [showPlanMenu, setShowPlanMenu] = useState(false);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const planControlRef = useRef<HTMLDivElement>(null);
+  const planMenuRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<TiptapChatInputHandle>(null);
   const editorWrapperRef = useRef<HTMLDivElement>(null);
   const [isFocused, setIsFocused] = useState(false);
@@ -272,7 +273,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if (!showPlanMenu) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
-      if (planControlRef.current && target && !planControlRef.current.contains(target)) {
+      const clickedTrigger = !!(planControlRef.current && target && planControlRef.current.contains(target));
+      const clickedMenu = !!(planMenuRef.current && target && planMenuRef.current.contains(target));
+      if (!clickedTrigger && !clickedMenu) {
         setShowPlanMenu(false);
       }
     };
@@ -284,19 +287,28 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     <div ref={planControlRef} style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
       <button
         type="button"
-        onClick={() => setShowPlanMenu((open) => !open)}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setShowPlanMenu((open) => !open);
+        }}
         disabled={disabled || planBusy}
         title={activePlanMode ? `Plan mode: ${planLabel}` : "Plan mode"}
         style={{
           display: "flex",
           flexDirection: "row",
           alignItems: "center",
+          justifyContent: "center",
           gap: 4,
-          minHeight: isTerminalMode ? 22 : 0,
+          minHeight: isTerminalMode ? 22 : 24,
           padding: isTerminalMode ? "0 0 0 2px" : "4px 8px",
-          border: isTerminalMode ? "none" : `1px solid ${activePlanMode ? t.warningBorder : "transparent"}`,
+          border: isTerminalMode ? "none" : `1px solid ${activePlanMode ? t.warningBorder : t.surfaceBorder}`,
           borderRadius: isTerminalMode ? 0 : 8,
-          background: isTerminalMode ? "transparent" : activePlanMode ? t.warningSubtle : "transparent",
+          background: isTerminalMode ? "transparent" : activePlanMode ? t.warningSubtle : `${t.overlayLight}33`,
           color: activePlanMode ? t.warningMuted : t.textMuted,
           cursor: disabled || planBusy ? "default" : "pointer",
           fontSize: 11,
@@ -304,6 +316,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           whiteSpace: "nowrap",
           fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
           opacity: disabled || planBusy ? 0.55 : 1,
+          flexShrink: 0,
         }}
       >
         <ListTodo size={isTerminalMode ? 13 : 14} color={activePlanMode ? t.warning : t.textDim} />
@@ -324,39 +337,52 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               style={{ position: "fixed", inset: 0, zIndex: 50000 }}
             />
             <div
+              ref={planMenuRef}
               style={{
                 position: "fixed",
                 bottom: dropdownBottom,
                 left: dropdownLeft,
-                width: dropdownWidth,
-                background: t.surfaceRaised,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 8,
-                boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
-                padding: 4,
+                width: isTerminalMode ? 136 : 156,
+                background: isTerminalMode ? t.overlayLight : t.surfaceRaised,
+                border: isTerminalMode ? `1px solid ${terminalBorder}` : `1px solid ${t.surfaceBorder}`,
+                borderRadius: isTerminalMode ? 6 : 10,
+                boxShadow: isTerminalMode ? "none" : "0 10px 24px rgba(0,0,0,0.14)",
+                padding: isTerminalMode ? 2 : 4,
                 zIndex: 50001,
               }}
             >
               <button
                 type="button"
-                onClick={() => {
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
                   setShowPlanMenu(false);
                   onTogglePlanMode?.();
                 }}
-                style={menuItemStyle(t)}
+                style={menuItemStyle(t, isTerminalMode)}
               >
-                {activePlanMode ? "Exit plan mode" : hasPlan ? "Resume plan mode" : "Start plan mode"}
+                {activePlanMode ? "Exit plan" : hasPlan ? "Resume plan" : "Start plan"}
               </button>
               {planMode === "planning" && onApprovePlan && (
                 <button
                   type="button"
-                  onClick={() => {
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
                     setShowPlanMenu(false);
                     onApprovePlan();
                   }}
-                  style={menuItemStyle(t)}
+                  style={menuItemStyle(t, isTerminalMode)}
                 >
-                  Approve and execute
+                  Approve plan
                 </button>
               )}
             </div>
@@ -974,16 +1000,17 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function menuItemStyle(t: ReturnType<typeof useThemeTokens>) {
+function menuItemStyle(t: ReturnType<typeof useThemeTokens>, isTerminalMode = false) {
   return {
     width: "100%",
     display: "block",
     background: "transparent",
     border: "none",
-    borderRadius: 8,
-    padding: "8px 10px",
-    color: t.text,
-    fontSize: 12,
+    borderRadius: isTerminalMode ? 4 : 8,
+    padding: isTerminalMode ? "6px 8px" : "8px 10px",
+    color: isTerminalMode ? t.textMuted : t.text,
+    fontSize: isTerminalMode ? 11 : 12,
+    fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
     textAlign: "left" as const,
     cursor: "pointer",
   };

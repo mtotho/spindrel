@@ -1551,7 +1551,7 @@ async def assemble_context(
         yield {"type": "delegate_index", "count": len(_delegate_lines)}
 
     # --- DB memory injection REMOVED (deprecated — use memory_scheme='workspace-files') ---
-    # --- DB RAG knowledge injection REMOVED (deprecated — use skills/carapaces instead) ---
+    # --- DB RAG knowledge injection REMOVED (deprecated — use file-backed skills instead) ---
 
     # --- conversation section retrieval (structured mode) + section index (file mode) ---
     if channel_id is not None and _ch_row is not None:

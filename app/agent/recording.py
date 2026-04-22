@@ -8,6 +8,7 @@ from sqlalchemy import update
 
 from app.db.engine import async_session
 from app.db.models import ToolCall, TraceEvent
+from app.services.tool_presentation import derive_tool_presentation
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,7 @@ async def _record_tool_call(
     correlation_id: uuid.UUID | None = None,
     store_full_result: bool = False,
     status: str = "done",
+    envelope: dict | None = None,
 ) -> None:
     """Fire-and-forget: write a complete ToolCall row in one shot.
 
@@ -160,6 +162,13 @@ async def _record_tool_call(
     """
     try:
         stored_result = _trim_stored_result(result, store_full_result)
+        surface, summary = derive_tool_presentation(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            envelope=envelope,
+            error=error,
+        )
         now = datetime.now(timezone.utc)
         kwargs: dict = dict(
             session_id=session_id,
@@ -170,6 +179,8 @@ async def _record_tool_call(
             server_name=server_name,
             iteration=iteration,
             arguments=arguments,
+            surface=surface,
+            summary=summary,
             result=stored_result,
             error=error,
             duration_ms=duration_ms,
@@ -219,6 +230,8 @@ async def _start_tool_call(
                 server_name=server_name,
                 iteration=iteration,
                 arguments=arguments,
+                surface=None,
+                summary=None,
                 result=None,
                 error=None,
                 duration_ms=None,
@@ -235,11 +248,14 @@ async def _start_tool_call(
 async def _complete_tool_call(
     row_id: uuid.UUID,
     *,
+    tool_name: str,
+    arguments: dict,
     result: str | None,
     error: str | None,
     duration_ms: int,
     status: str = "done",
     store_full_result: bool = False,
+    envelope: dict | None = None,
 ) -> None:
     """Fire-and-forget: UPDATE an existing ToolCall row on completion.
 
@@ -249,11 +265,20 @@ async def _complete_tool_call(
     """
     try:
         stored_result = _trim_stored_result(result, store_full_result)
+        surface, summary = derive_tool_presentation(
+            tool_name=tool_name,
+            arguments=arguments,
+            result=result,
+            envelope=envelope,
+            error=error,
+        )
         async with async_session() as db:
             await db.execute(
                 update(ToolCall)
                 .where(ToolCall.id == row_id)
                 .values(
+                    surface=surface,
+                    summary=summary,
                     result=stored_result,
                     error=error,
                     duration_ms=duration_ms,
