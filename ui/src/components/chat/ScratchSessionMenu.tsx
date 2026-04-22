@@ -6,7 +6,7 @@ import {
   useScratchHistory,
   useScratchSession,
 } from "@/src/api/hooks/useEphemeralSession";
-import { ArrowUpCircle, Check, Loader2, Pencil, RotateCcw, StickyNote, X } from "lucide-react";
+import { Check, Loader2, RotateCcw, StickyNote, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 interface ScratchSessionMenuProps {
@@ -45,6 +45,22 @@ function sessionLabel(row: { title?: string | null; preview?: string }): string 
   return previewLabel(row.preview);
 }
 
+function formatSessionStats(messageCount?: number, sectionCount?: number): string {
+  const messages = messageCount ?? 0;
+  const sections = sectionCount ?? 0;
+  return `${messages} msg${messages === 1 ? "" : "s"} · ${sections} section${sections === 1 ? "" : "s"}`;
+}
+
+function handleButtonLikeKeyDown(
+  event: React.KeyboardEvent<HTMLElement>,
+  onActivate: () => void,
+) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    onActivate();
+  }
+}
+
 function isUntouchedDraftSession(session: {
   message_count?: number;
   section_count?: number;
@@ -75,6 +91,12 @@ export function ScratchSessionMenu({
   onNavigateSession,
 }: ScratchSessionMenuProps) {
   const t = useThemeTokens();
+  const desktopPanelStyle = !mobile
+    ? {
+        border: "none",
+        borderRadius: 0,
+      }
+    : undefined;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -100,14 +122,42 @@ export function ScratchSessionMenu({
 
   const visibleHistory = useMemo(() => {
     if (!history) return [];
-    return history.slice(0, 4);
+    return history.filter((row) => row.session_id !== currentSessionId).slice(0, 4);
   }, [history]);
+  const showPrimarySessionRow = !!currentSessionId && !!onOpenMainChat;
+  const currentRow = useMemo(() => {
+    if (!currentSessionId) return null;
+    const fromHistory = history?.find((row) => row.session_id === currentSessionId);
+    if (fromHistory) return fromHistory;
+    if (!currentSession || currentSession.session_id !== currentSessionId) return null;
+    return {
+      session_id: currentSession.session_id,
+      bot_id: currentSession.bot_id,
+      created_at: currentSession.created_at,
+      last_active: currentSession.created_at,
+      is_current: currentSession.is_current,
+      message_count: currentSession.message_count ?? 0,
+      preview: currentSession.title?.trim() || undefined,
+      title: currentSession.title,
+      summary: currentSession.summary,
+      section_count: currentSession.section_count ?? 0,
+      session_scope: currentSession.session_scope,
+    };
+  }, [currentSession, currentSessionId, history]);
 
   const reusableDraftSessionId = useMemo(() => {
     if (!isUntouchedDraftSession(currentSession)) return null;
     return currentSession?.session_id ?? null;
   }, [currentSession]);
   const waitingOnCurrentSession = canQueryCurrent && isCurrentSessionLoading && !currentSession;
+  const activateSessionRow = (sessionId: string) => {
+    onClose();
+    if (!mobile && !currentSessionId && onOpenSidePane) {
+      onOpenSidePane(sessionId);
+    } else {
+      onNavigateSession(sessionId);
+    }
+  };
   const saveRename = (sessionId: string) => {
     renameSession.mutate(
       {
@@ -127,6 +177,8 @@ export function ScratchSessionMenu({
 
   if (!open) return null;
 
+  const isEditingCurrentSession = editingSessionId === currentRow?.session_id;
+
   const panel = (
     <div
       ref={panelRef}
@@ -135,18 +187,14 @@ export function ScratchSessionMenu({
       aria-label="Sessions"
       className={
         mobile
-          ? "fixed inset-x-3 bottom-3 top-20 z-[9996] flex flex-col overflow-hidden rounded-md border border-surface-border bg-surface-raised shadow-2xl"
-          : "absolute right-0 top-full z-[80] mt-1.5 flex w-[360px] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-md border border-surface-border bg-surface-raised shadow-xl"
+          ? "fixed inset-0 z-[9996] flex flex-col overflow-hidden bg-surface-raised"
+          : "absolute right-0 top-full z-[80] mt-0.5 flex w-[328px] max-w-[calc(100vw-16px)] flex-col overflow-hidden bg-surface-raised shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
       }
+      style={desktopPanelStyle}
     >
-      <div className="flex items-center gap-2 border-b border-surface-border px-3 py-2">
+      <div className={`flex items-center gap-2 border-b border-surface-border px-3 py-2.5 ${mobile ? "pt-4" : ""}`}>
         <StickyNote size={14} className="shrink-0 text-text-dim" />
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-text">Session</div>
-          <div className="truncate text-[11px] text-text-dim">
-            Start a new session in this channel or reopen a recent one without replacing the main channel chat
-          </div>
-        </div>
+        <div className="min-w-0 flex-1 text-[12px] font-medium text-text">Session</div>
         <button
           type="button"
           onClick={() => {
@@ -196,22 +244,7 @@ export function ScratchSessionMenu({
         </button>
       </div>
 
-      <div className="overflow-y-auto py-1">
-        {currentSessionId && onOpenMainChat ? (
-          <>
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onOpenMainChat();
-              }}
-              className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-[12px] text-text transition-colors hover:bg-surface-overlay"
-            >
-              Open main channel chat
-            </button>
-            <div className="mx-3 my-1 h-px bg-surface-border" />
-          </>
-        ) : null}
+      <div className="overflow-y-auto py-1.5">
         {!currentSession && canQueryCurrent ? (
           <div className="px-3 py-2 text-[12px] text-text-dim">
             Loading session…
@@ -223,7 +256,156 @@ export function ScratchSessionMenu({
           </div>
         ) : null}
 
-        <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-text-dim">
+        {currentRow ? (
+          <>
+            <div className="px-3 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
+              Current session
+            </div>
+            <div
+              role={isEditingCurrentSession ? undefined : "button"}
+              tabIndex={isEditingCurrentSession ? -1 : 0}
+              onClick={isEditingCurrentSession ? undefined : () => activateSessionRow(currentRow.session_id)}
+              onKeyDown={isEditingCurrentSession ? undefined : (event) => handleButtonLikeKeyDown(event, () => activateSessionRow(currentRow.session_id))}
+              className={`flex items-start gap-3 bg-surface-overlay px-3 py-2 transition-colors ${isEditingCurrentSession ? "" : "cursor-pointer hover:bg-surface-overlay"}`}
+            >
+              <div className="min-w-0 flex-1">
+                {isEditingCurrentSession ? (
+                  <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      autoFocus
+                      value={editingTitle}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        event.stopPropagation();
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          saveRename(currentRow.session_id);
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          setEditingSessionId(null);
+                          setEditingTitle("");
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-md border border-surface-border bg-surface px-2 py-1 text-[12px] text-text outline-none transition-colors focus:border-accent"
+                      aria-label="Session name"
+                    />
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        saveRename(currentRow.session_id);
+                      }}
+                      disabled={renameSession.isPending}
+                      className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text disabled:opacity-50"
+                      aria-label="Save session name"
+                      title="Save"
+                    >
+                      <Check size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditingSessionId(null);
+                        setEditingTitle("");
+                      }}
+                      className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                      aria-label="Cancel rename"
+                      title="Cancel"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="truncate text-[12px] font-medium text-text">{sessionLabel(currentRow)}</div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setEditingSessionId(currentRow.session_id);
+                          setEditingTitle(currentRow.title?.trim() || "");
+                        }}
+                        className="inline-flex h-6 items-center px-0 text-[11px] font-medium text-text-dim transition-colors hover:text-text disabled:opacity-50"
+                        aria-label="Rename session"
+                        title="Rename"
+                        disabled={renameSession.isPending}
+                      >
+                        Rename
+                      </button>
+                      <span
+                        className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                        style={{ background: t.surface, color: t.textDim }}
+                      >
+                        Current
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-dim">
+                  <span>{formatTimestamp(currentRow.last_active)}</span>
+                  {showPrimarySessionRow ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        promoteScratch.mutate(
+                          {
+                            session_id: currentRow.session_id,
+                            parent_channel_id: channelId,
+                            bot_id: botId ?? undefined,
+                          },
+                          {
+                            onSuccess: () => {
+                              onClose();
+                              onOpenMainChat?.();
+                            },
+                          },
+                        );
+                      }}
+                      disabled={promoteScratch.isPending}
+                      className="inline-flex h-6 items-center px-0 text-[11px] font-medium text-text-dim transition-colors hover:text-text disabled:opacity-50"
+                      aria-label="Make primary session"
+                      title="Make primary"
+                    >
+                      Make primary
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-1 text-[11px] text-text-dim">
+                  {formatSessionStats(currentRow.message_count, currentRow.section_count)}
+                </div>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {showPrimarySessionRow ? (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              onClose();
+              onOpenMainChat?.();
+            }}
+            onKeyDown={(event) => handleButtonLikeKeyDown(event, () => {
+              onClose();
+              onOpenMainChat?.();
+            })}
+            className="flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors hover:bg-surface-overlay"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[12px] font-medium text-text">Primary channel session</div>
+              <div className="mt-1 text-[11px] text-text-dim">
+                Return to the channel&apos;s main conversation
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="px-3 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
           Recent sessions
         </div>
         {isLoading && <div className="px-3 py-2 text-[12px] text-text-dim">Loading sessions…</div>}
@@ -238,19 +420,27 @@ export function ScratchSessionMenu({
         {!isLoading && !error && visibleHistory.length > 0 && (
           <ul>
             {visibleHistory.map((row) => {
-              const isViewingSession = row.session_id === currentSessionId;
               const isEditingSession = editingSessionId === row.session_id;
+              const showPromoteAction = !!onOpenMainChat;
               return (
                 <li key={row.session_id}>
-                  <div className="flex items-start gap-3 px-3 py-2 transition-colors hover:bg-surface-overlay">
+                  <div
+                    role={isEditingSession ? undefined : "button"}
+                    tabIndex={isEditingSession ? -1 : 0}
+                    onClick={isEditingSession ? undefined : () => activateSessionRow(row.session_id)}
+                    onKeyDown={isEditingSession ? undefined : (event) => handleButtonLikeKeyDown(event, () => activateSessionRow(row.session_id))}
+                    className={`group flex items-start gap-3 px-3 py-2 transition-colors ${isEditingSession ? "" : "cursor-pointer hover:bg-surface-overlay"}`}
+                  >
                     <div className="min-w-0 flex-1">
                       {isEditingSession ? (
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
                           <input
                             autoFocus
                             value={editingTitle}
                             onChange={(event) => setEditingTitle(event.target.value)}
+                            onClick={(event) => event.stopPropagation()}
                             onKeyDown={(event) => {
+                              event.stopPropagation();
                               if (event.key === "Enter") {
                                 event.preventDefault();
                                 saveRename(row.session_id);
@@ -287,77 +477,59 @@ export function ScratchSessionMenu({
                           </button>
                         </div>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onClose();
-                            if (!mobile && !currentSessionId && onOpenSidePane) {
-                              onOpenSidePane(row.session_id);
-                            } else {
-                              onNavigateSession(row.session_id);
-                            }
-                          }}
-                          className="block w-full cursor-pointer text-left"
-                        >
-                          <div className="truncate text-[12px] text-text">{sessionLabel(row)}</div>
-                        </button>
+                        <div className="block w-full text-left">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="truncate text-[12px] font-medium text-text">{sessionLabel(row)}</div>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setEditingSessionId(row.session_id);
+                                setEditingTitle(row.title?.trim() || "");
+                              }}
+                              className="inline-flex h-6 items-center px-0 text-[11px] font-medium text-text-dim transition-colors hover:text-text disabled:opacity-50"
+                              aria-label="Rename session"
+                              title="Rename"
+                              disabled={renameSession.isPending}
+                            >
+                              Rename
+                            </button>
+                          </div>
+                        </div>
                       )}
-                      {row.summary?.trim() ? (
-                        <div className="mt-0.5 line-clamp-2 text-[11px] text-text-dim">{row.summary.trim()}</div>
-                      ) : null}
-                      <div className="mt-0.5 text-[11px] text-text-dim">
-                        {formatTimestamp(row.last_active)} · {row.message_count} msg{row.message_count === 1 ? "" : "s"} · {row.section_count ?? 0} section{(row.section_count ?? 0) === 1 ? "" : "s"}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setEditingSessionId(row.session_id);
-                          setEditingTitle(row.title?.trim() || "");
-                        }}
-                        className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
-                        aria-label="Rename session"
-                        title="Rename"
-                        disabled={renameSession.isPending}
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      {!row.is_current && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            promoteScratch.mutate(
-                              {
-                                session_id: row.session_id,
-                                parent_channel_id: channelId,
-                                bot_id: botId ?? undefined,
-                              },
-                              {
-                                onSuccess: () => {
-                                  onClose();
-                                  onOpenMainChat?.();
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-dim">
+                        <span>{formatTimestamp(row.last_active)}</span>
+                        {showPromoteAction ? (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              promoteScratch.mutate(
+                                {
+                                  session_id: row.session_id,
+                                  parent_channel_id: channelId,
+                                  bot_id: botId ?? undefined,
                                 },
-                              },
-                            );
-                          }}
-                          className="rounded-md p-1 text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
-                          aria-label="Make primary session"
-                          title="Make primary"
-                        >
-                          <ArrowUpCircle size={12} />
-                        </button>
-                      )}
-                      {isViewingSession && (
-                        <span
-                          className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
-                          style={{ background: t.accentSubtle, color: t.accent }}
-                        >
-                          Viewing
-                        </span>
-                      )}
+                                {
+                                  onSuccess: () => {
+                                    onClose();
+                                    onOpenMainChat?.();
+                                  },
+                                },
+                              );
+                            }}
+                            disabled={promoteScratch.isPending}
+                            className="inline-flex h-6 items-center px-0 text-[11px] font-medium text-text-dim transition-colors hover:text-text disabled:opacity-50"
+                            aria-label="Make primary session"
+                            title="Make primary"
+                          >
+                            Make primary
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 text-[11px] text-text-dim">
+                        {formatSessionStats(row.message_count, row.section_count)}
+                      </div>
                     </div>
                   </div>
                 </li>

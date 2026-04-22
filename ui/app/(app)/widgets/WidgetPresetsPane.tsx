@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
+import { ApiError } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import {
@@ -140,7 +141,11 @@ export function WidgetPresetsPane({
         setSourceLoading((prev) => ({ ...prev, [sourceId]: false }));
       }).catch((err) => {
         if (cancelled) return;
-        setSourceError(err instanceof Error ? err.message : String(err));
+        if (err instanceof ApiError && err.status === 404) {
+          setSourceError("Could not load picker options from this server. Enter the entity id manually.");
+        } else {
+          setSourceError(err instanceof Error ? err.message : String(err));
+        }
         setSourceLoading((prev) => ({ ...prev, [sourceId]: false }));
       });
     }
@@ -238,7 +243,7 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 lg:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 md:grid-cols-[220px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
         <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 border border-surface-border bg-surface"}>
@@ -313,12 +318,12 @@ export function WidgetPresetsPane({
           ) : (
             <div className="flex h-full min-h-0 flex-col">
               <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <div className="min-w-0">
                     <div className="text-[15px] font-semibold text-text">{selectedPreset.name}</div>
                     <div className="mt-1 text-[11px] text-text-muted">{selectedPreset.description}</div>
                   </div>
-                  <div className="w-full max-w-[240px]">
+                  <div className="w-full 2xl:max-w-[240px]">
                     <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-text-dim">
                       Run as bot
                     </label>
@@ -349,6 +354,7 @@ export function WidgetPresetsPane({
                       value={config[fieldId]}
                       options={sourceOptions[field.ui?.source ?? ""] ?? []}
                       loading={sourceLoading[field.ui?.source ?? ""] ?? false}
+                      pickerUnavailable={Boolean(field.ui?.source && sourceError)}
                       onChange={(next) => {
                         setConfig((prev) => ({ ...prev, [fieldId]: next }));
                         setActiveStep("configure");
@@ -405,7 +411,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "min-h-0 bg-transparent lg:col-span-2 2xl:col-span-1" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "min-h-0 bg-transparent md:col-span-2 2xl:col-span-1" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview
@@ -460,6 +466,7 @@ function PresetField({
   value,
   options,
   loading,
+  pickerUnavailable,
   onChange,
 }: {
   fieldId: string;
@@ -467,6 +474,7 @@ function PresetField({
   value: unknown;
   options: WidgetPresetOption[];
   loading: boolean;
+  pickerUnavailable?: boolean;
   onChange: (next: unknown) => void;
 }) {
   const control = field.ui?.control;
@@ -477,20 +485,29 @@ function PresetField({
         {field.title ?? fieldId}
       </span>
       {control === "picker" ? (
-        <select
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value)}
-          className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
-        >
-          <option value="">
-            {loading ? "Loading…" : "Select…"}
-          </option>
-          {options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.group ? `${option.group} · ${option.label}` : option.label}
+        pickerUnavailable ? (
+          <input
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Enter id manually…"
+            className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+          />
+        ) : (
+          <select
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(e.target.value)}
+            className="rounded-md border border-surface-border bg-input px-2.5 py-2 text-[12px] text-text outline-none focus:border-accent/50"
+          >
+            <option value="">
+              {loading ? "Loading…" : "Select…"}
             </option>
-          ))}
-        </select>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.group ? `${option.group} · ${option.label}` : option.label}
+              </option>
+            ))}
+          </select>
+        )
       ) : field.type === "boolean" ? (
         <button
           type="button"

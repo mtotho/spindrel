@@ -2,23 +2,18 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
-  Cog, PanelRight, Plug, StickyNote,
-  MessageSquare, Code2, Mail, Camera, Tv, Terminal, MessageCircle, Minimize2,
+  Cog, PanelRight, StickyNote,
+  Minimize2,
   User as UserIcon, MoreHorizontal,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
-import { useActivatableIntegrations, useChannel } from "@/src/api/hooks/useChannels";
-import { useIntegrationIcons } from "@/src/api/hooks/useIntegrations";
+import { useChannel } from "@/src/api/hooks/useChannels";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
+import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemeralSession";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
-import { prettyIntegrationName } from "@/src/utils/format";
 import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
-
-const INTEGRATION_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
-  MessageSquare, Code2, Mail, Camera, LayoutDashboard, Tv, Terminal, MessageCircle, Plug,
-};
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -64,6 +59,18 @@ export interface ChannelHeaderProps {
   };
 }
 
+function formatScratchHeaderTimestamp(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ChannelHeader({
   channelId,
   displayName,
@@ -107,9 +114,11 @@ export function ChannelHeader({
   const widgetsDrawerActive = isMobile && drawerOpen && drawerTab === "widgets";
 
   const { data: channelData } = useChannel(channelId);
-  const { data: activatable } = useActivatableIntegrations(channelId);
-  const { data: iconsData } = useIntegrationIcons();
-  const integrationIconNames = iconsData?.icons ?? {};
+  const { data: scratchHistory } = useScratchHistory(scratchFullpageMode ? channelId : null);
+  const { data: currentScratchSession } = useScratchSession(
+    scratchFullpageMode && bot?.id ? channelId : null,
+    scratchFullpageMode && bot?.id ? bot.id : null,
+  );
 
   // Admin-only: resolve owner display name for the header chip. Non-admins
   // don't see the chip at all (no cross-user visibility signal).
@@ -125,21 +134,10 @@ export function ChannelHeader({
 
   const isPrivate = !!channelData?.private;
 
-  const activeIntegrations = (activatable ?? []).filter((ig) => ig.activated);
-  const activeTypes = new Set(activeIntegrations.map((ig) => ig.integration_type));
-  const boundOnly = (channelData?.integrations ?? []).filter(
-    (b) => !activeTypes.has(b.integration_type),
-  );
-
   const fmtTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
     if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
     return String(n);
-  };
-
-  const resolveIntegrationIcon = (integrationType: string) => {
-    const name = integrationIconNames[integrationType];
-    return (name && INTEGRATION_ICON_MAP[name]) || Plug;
   };
 
   void columns;
@@ -152,10 +150,10 @@ export function ChannelHeader({
   const scratchBadgeLabel = "Scratch session";
   const sessionButtonLabel = "Sessions";
   const scratchTone = {
-    bg: t.warningSubtle,
-    border: t.warningBorder,
-    text: t.warningMuted,
-    icon: t.warning,
+    bg: t.surfaceOverlay,
+    border: t.surfaceBorder,
+    text: t.textMuted,
+    icon: t.textDim,
   };
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = !isMobile;
@@ -192,6 +190,42 @@ export function ChannelHeader({
       </span>
     ) : null,
   ].filter(Boolean);
+  const scratchSessionMeta = React.useMemo(() => {
+    if (!showScratchState || !scratchSessionId) return null;
+    const matchedHistory = scratchHistory?.find((row) => row.session_id === scratchSessionId) ?? null;
+    const matchedCurrent = currentScratchSession?.session_id === scratchSessionId ? currentScratchSession : null;
+    const label =
+      matchedHistory?.title?.trim()
+      || matchedHistory?.summary?.trim()
+      || matchedHistory?.preview?.trim()
+      || matchedCurrent?.title?.trim()
+      || matchedCurrent?.summary?.trim()
+      || null;
+    const bits = [
+      formatScratchHeaderTimestamp(matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null),
+      typeof matchedHistory?.message_count === "number"
+        ? `${matchedHistory.message_count} msg${matchedHistory.message_count === 1 ? "" : "s"}`
+        : typeof matchedCurrent?.message_count === "number"
+          ? `${matchedCurrent.message_count} msg${matchedCurrent.message_count === 1 ? "" : "s"}`
+          : null,
+      typeof matchedHistory?.section_count === "number"
+        ? `${matchedHistory.section_count} section${matchedHistory.section_count === 1 ? "" : "s"}`
+        : typeof matchedCurrent?.section_count === "number"
+          ? `${matchedCurrent.section_count} section${matchedCurrent.section_count === 1 ? "" : "s"}`
+          : null,
+      ...headerMetaBits.map((bit) => {
+        if (!React.isValidElement(bit)) return null;
+        const children = (bit.props as { children?: React.ReactNode } | null | undefined)?.children;
+        if (typeof children === "string") return children;
+        if (typeof children === "number") return String(children);
+        return null;
+      }),
+    ].filter(Boolean);
+    return {
+      label,
+      stats: bits.join(" · ") || null,
+    };
+  }, [currentScratchSession, headerMetaBits, scratchHistory, scratchSessionId, showScratchState]);
   const mobileOverflowActions = [
     showFindingsButton
       ? {
@@ -317,10 +351,8 @@ export function ChannelHeader({
           </span>
           {showScratchState && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0"
+              className="inline-flex items-center gap-1 px-0 py-0 text-[10px] font-semibold shrink-0"
               style={{
-                background: scratchTone.bg,
-                border: `1px solid ${scratchTone.border}`,
                 color: scratchTone.text,
               }}
               title={scratchBadgeLabel}
@@ -369,15 +401,31 @@ export function ChannelHeader({
             System configuration channel
           </div>
         )}
-        {!isSystemChannel && !isMobile && bot && (
+        {!isSystemChannel && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
             {scratchFullpageMode ? (
-              <span
-                className="truncate text-[11px]"
-                style={{ color: t.warningMuted }}
-              >
-                Private scratch session for this channel
-              </span>
+              <>
+                {scratchSessionMeta?.label ? (
+                  <span
+                    className="truncate text-[11px]"
+                    style={{ color: t.text }}
+                  >
+                    {scratchSessionMeta.label}
+                  </span>
+                ) : (
+                  <span
+                    className="truncate text-[11px]"
+                    style={{ color: t.textDim }}
+                  >
+                    Session
+                  </span>
+                )}
+                {scratchSessionMeta?.stats ? (
+                  <span className="truncate text-[11px]" style={{ color: t.textDim }}>
+                    {scratchSessionMeta.stats}
+                  </span>
+                ) : null}
+              </>
             ) : (
             <a
               className="header-bot-link"
@@ -388,44 +436,7 @@ export function ChannelHeader({
               {bot.name}
             </a>
             )}
-
-            {/* Inline integration dots — subtle; replaces the vertical ActiveBadgeBar.
-                Activated integrations use the theme success dot; bound-only dim. */}
-            {(activeIntegrations.length > 0 || boundOnly.length > 0) && (
-              <span className="flex flex-row items-center gap-1 shrink-0">
-                {activeIntegrations.map((ig) => {
-                  const Icon = resolveIntegrationIcon(ig.integration_type);
-                  return (
-                    <button
-                      key={`a-${ig.integration_type}`}
-                      onClick={() => navigate(`/channels/${channelId}/settings#integrations`)}
-                      title={`${prettyIntegrationName(ig.integration_type)} — active`}
-                      className="flex flex-row items-center gap-0.5 bg-transparent border-none cursor-pointer p-0"
-                    >
-                      <Icon size={10} color={t.textDim} />
-                      <span
-                        style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: t.success, display: "inline-block" }}
-                      />
-                    </button>
-                  );
-                })}
-                {boundOnly.map((b) => {
-                  const Icon = resolveIntegrationIcon(b.integration_type);
-                  return (
-                    <button
-                      key={`b-${b.id}`}
-                      onClick={() => navigate(`/channels/${channelId}/settings#integrations`)}
-                      title={`${prettyIntegrationName(b.integration_type)} — bound`}
-                      className="flex flex-row items-center bg-transparent border-none cursor-pointer p-0 opacity-50"
-                    >
-                      <Icon size={10} color={t.textDim} />
-                    </button>
-                  );
-                })}
-              </span>
-            )}
-
-            {headerMetaBits.map((bit, idx) => (
+            {!scratchFullpageMode && headerMetaBits.map((bit, idx) => (
               <React.Fragment key={idx}>{bit}</React.Fragment>
             ))}
           </div>
@@ -479,7 +490,7 @@ export function ChannelHeader({
           <Minimize2 size={16} color={t.textDim} />
         </button>
       )}
-      {channelId && onOpenScratch && (
+      {!isMobile && channelId && onOpenScratch && (
         <div ref={scratchMenuRef} className="relative shrink-0">
           <button
             type="button"
@@ -594,11 +605,9 @@ export function ChannelHeader({
           {mobileOverflowOpen && (
             <div
               role="menu"
-              className="absolute right-0 top-full mt-2 min-w-[190px] rounded-xl border shadow-lg overflow-hidden"
+              className="absolute right-0 top-full mt-1 min-w-[190px] overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.4)]"
               style={{
                 background: t.surfaceRaised,
-                borderColor: t.surfaceBorder,
-                boxShadow: "0 16px 40px rgba(0,0,0,0.28)",
                 zIndex: 40,
               }}
             >
@@ -633,6 +642,23 @@ export function ChannelHeader({
             </div>
           )}
         </div>
+      )}
+      {isMobile && channelId && onOpenScratch && (
+        <ScratchSessionMenu
+          open={scratchMenuOpen}
+          onClose={() => setScratchMenuOpen(false)}
+          channelId={channelId}
+          botId={bot?.id}
+          currentSessionId={scratchSessionId}
+          mobile
+          onOpenSidePane={onOpenScratch}
+          onOpenMainChat={onOpenMainChat}
+          onStartNewSession={onStartNewScratchSession}
+          onNavigateSession={(sessionId) => {
+            setScratchMenuOpen(false);
+            navigate(`/channels/${channelId}/session/${sessionId}?scratch=true`);
+          }}
+        />
       )}
     </header>
   );

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Wrench, Check, XCircle, ShieldAlert, Sparkles, Pin, ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, ImageOff } from "lucide-react";
+import { ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, ImageOff } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
 import { formatToolArgs } from "./toolCallUtils";
 import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
 import { TerminalStreamingToolTranscript } from "./TerminalToolTranscript";
+import { DefaultToolRows } from "./ToolBadges";
+import { buildLiveToolEntries } from "./toolTranscriptModel";
 import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -177,335 +179,6 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
   );
 }
 
-type ToolCallItem = Props["toolCalls"][number];
-
-/** Group consecutive tool calls with the same name */
-function groupToolCalls(toolCalls: ToolCallItem[]): { name: string; calls: ToolCallItem[]; isCap: boolean }[] {
-  const groups: { name: string; calls: ToolCallItem[]; isCap: boolean }[] = [];
-  for (const tc of toolCalls) {
-    const isCap = !!tc.capability;
-    const displayName = isCap ? tc.capability!.name : tc.name;
-    const last = groups[groups.length - 1];
-    if (last && last.name === displayName) {
-      last.calls.push(tc);
-    } else {
-      groups.push({ name: displayName, calls: [tc], isCap });
-    }
-  }
-  return groups;
-}
-
-/** Mini status dots for a group of tool calls */
-function StatusDots({ calls, t }: { calls: ToolCallItem[]; t: ReturnType<typeof useThemeTokens> }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
-      {calls.map((tc, i) => {
-        const color = tc.status === "denied" ? t.danger
-          : tc.status === "awaiting_approval" ? t.warning
-          : tc.status === "running" ? t.purple
-          : t.success;
-        const isRunning = tc.status === "running";
-        return (
-          <div
-            key={i}
-            className={isRunning ? "thinking-pulse" : undefined}
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: "50%",
-              backgroundColor: color,
-              transition: "background-color 0.3s ease",
-            }}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-/** Single tool call card (used for ungrouped or expanded view) */
-function SingleToolCallCard({
-  tc, t, isExpanded, onToggle, handleDecide, isDeciding,
-}: {
-  tc: ToolCallItem;
-  t: ReturnType<typeof useThemeTokens>;
-  isExpanded: boolean;
-  onToggle: () => void;
-  handleDecide: (approvalId: string, approved: boolean) => void;
-  isDeciding: boolean;
-}) {
-  const formatted = formatToolArgs(tc.args);
-  const isAwaiting = tc.status === "awaiting_approval";
-  const isDenied = tc.status === "denied";
-  const isCap = !!tc.capability;
-  const iconColor = isDenied ? t.danger : isAwaiting ? t.warning : tc.status === "running" ? t.purple : t.success;
-  const borderColor = isAwaiting ? t.warningBorder : isDenied ? t.dangerBorder : t.overlayBorder;
-  const hasExpandableContent = !!formatted && !isCap;
-
-  return (
-    <div
-      style={{
-        borderRadius: 6,
-        backgroundColor: t.overlayLight,
-        border: `1px solid ${borderColor}`,
-        overflow: "hidden",
-        alignSelf: "flex-start",
-        maxWidth: "100%",
-        transition: "border-color 0.2s ease",
-      }}
-    >
-      {/* Header row */}
-      <div
-        onClick={hasExpandableContent ? onToggle : undefined}
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          padding: "6px 10px",
-          cursor: hasExpandableContent ? "pointer" : "default",
-          userSelect: "none",
-        }}
-      >
-        {isCap && isAwaiting ? (
-          <Sparkles size={12} color={iconColor} />
-        ) : isAwaiting ? (
-          <ShieldAlert size={12} color={iconColor} />
-        ) : (
-          <Wrench size={12} color={iconColor} />
-        )}
-        <span style={{ fontSize: 12, color: isCap ? t.text : t.textMuted, fontWeight: isCap ? 600 : 400, fontFamily: isCap ? "inherit" : "'Menlo', monospace" }}>
-          {isCap ? tc.capability!.name : tc.name}
-        </span>
-        {tc.status === "running" && <Loader2 size={10} color={t.purple} className="animate-spin" />}
-        {tc.status === "done" && <Check size={10} color={t.success} />}
-        {isDenied && <XCircle size={10} color={t.danger} />}
-        {isAwaiting && !isCap && (
-          <span style={{ fontSize: 11, color: t.warning, fontWeight: 500 }}>
-            Waiting for approval…
-          </span>
-        )}
-        {isDenied && (
-          <span style={{ fontSize: 11, color: t.danger, fontWeight: 500 }}>Denied</span>
-        )}
-        {hasExpandableContent && (
-          isExpanded
-            ? <ChevronDown size={10} color={t.textDim} />
-            : <ChevronRight size={10} color={t.textDim} />
-        )}
-      </div>
-      {/* Capability details */}
-      {isCap && (
-        <div style={{ padding: "0 10px 6px", display: "flex", flexDirection: "column", gap: 3 }}>
-          {tc.capability!.description && (
-            <span style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.3" }}>
-              {tc.capability!.description}
-            </span>
-          )}
-          <span style={{ fontSize: 10, color: t.textDim }}>
-            Provides: {tc.capability!.tools_count} tool{tc.capability!.tools_count !== 1 ? "s" : ""}, {tc.capability!.skills_count} skill{tc.capability!.skills_count !== 1 ? "s" : ""}
-          </span>
-        </div>
-      )}
-      {/* Approval buttons */}
-      {isAwaiting && tc.approvalId && (
-        <div
-          style={{
-            borderTop: `1px solid ${borderColor}`,
-            padding: "8px 10px",
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            flexWrap: "wrap",
-          }}
-        >
-          <span style={{ fontSize: 11, color: t.textMuted, flex: 1, minWidth: 100 }}>
-            {tc.approvalReason || "Tool policy requires approval before execution"}
-          </span>
-          <button
-            disabled={isDeciding}
-            onClick={() => handleDecide(tc.approvalId!, true)}
-            style={{
-              fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
-              border: "none", cursor: isDeciding ? "default" : "pointer",
-              backgroundColor: t.success, color: "#fff", opacity: isDeciding ? 0.6 : 1,
-            }}
-          >
-            {isCap ? "Allow" : "Approve"}
-          </button>
-          <button
-            disabled={isDeciding}
-            onClick={() => handleDecide(tc.approvalId!, false)}
-            style={{
-              fontSize: 12, fontWeight: 600, padding: "4px 12px", borderRadius: 4,
-              border: "none", cursor: isDeciding ? "default" : "pointer",
-              backgroundColor: t.danger, color: "#fff", opacity: isDeciding ? 0.6 : 1,
-            }}
-          >
-            Deny
-          </button>
-        </div>
-      )}
-      {/* Collapsible args body */}
-      {isExpanded && formatted && !isCap && (
-        <div
-          style={{
-            borderTop: `1px solid ${t.overlayBorder}`,
-            padding: "6px 10px",
-            maxHeight: 200,
-            overflowY: "auto",
-          }}
-        >
-          <pre
-            style={{
-              margin: 0, fontSize: 11,
-              fontFamily: "'Menlo', 'Monaco', 'Consolas', monospace",
-              color: t.textMuted, whiteSpace: "pre-wrap",
-              wordBreak: "break-word", lineHeight: "1.4",
-            }}
-          >
-            {formatted}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Tool call cards with grouping, collapsing, and approval support (web only) */
-function ToolCallCards({ toolCalls, t, botId }: { toolCalls: Props["toolCalls"]; t: ReturnType<typeof useThemeTokens>; botId?: string }) {
-  const decideApproval = useDecideApproval();
-  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
-  const [expandedArgs, setExpandedArgs] = useState<Set<number>>(new Set());
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
-
-  const handleDecide = (approvalId: string, approved: boolean) => {
-    setDecidingIds((prev) => new Set(prev).add(approvalId));
-    const data: DecideRequest = { approved, decided_by: "web:admin" };
-    decideApproval.mutate(
-      { approvalId, data },
-      {
-        onError: () => setDecidingIds((prev) => { const next = new Set(prev); next.delete(approvalId); return next; }),
-      },
-    );
-  };
-
-  const toggleArgs = (idx: number) => {
-    setExpandedArgs((prev) => { const next = new Set(prev); next.has(idx) ? next.delete(idx) : next.add(idx); return next; });
-  };
-  const toggleGroup = (idx: number) => {
-    setExpandedGroups((prev) => { const next = new Set(prev); next.has(idx) ? next.delete(idx) : next.add(idx); return next; });
-  };
-
-  const groups = groupToolCalls(toolCalls);
-  let globalIdx = 0;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
-      {groups.map((group, gi) => {
-        const startIdx = globalIdx;
-        globalIdx += group.calls.length;
-
-        // Grouped tool calls (2+) — compact summary row
-        if (group.calls.length > 1) {
-          const doneCount = group.calls.filter(c => c.status === "done").length;
-          const runningCount = group.calls.filter(c => c.status === "running").length;
-          const total = group.calls.length;
-          const allDone = doneCount === total;
-          const hasAwaiting = group.calls.some(c => c.status === "awaiting_approval");
-          const isGroupExpanded = expandedGroups.has(gi);
-
-          return (
-            <div key={gi}>
-              {/* Group summary row */}
-              <div
-                onClick={() => toggleGroup(gi)}
-                style={{
-                  display: "flex", flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  padding: "7px 12px",
-                  borderRadius: 6,
-                  backgroundColor: t.overlayLight,
-                  border: `1px solid ${hasAwaiting ? t.warningBorder : t.overlayBorder}`,
-                  cursor: "pointer",
-                  userSelect: "none",
-                  transition: "background-color 0.15s ease",
-                  alignSelf: "flex-start",
-                  maxWidth: "100%",
-                }}
-              >
-                <Wrench size={12} color={allDone ? t.success : runningCount > 0 ? t.purple : t.textDim} />
-                <span style={{
-                  fontSize: 12,
-                  color: t.textMuted,
-                  fontFamily: "'Menlo', monospace",
-                }}>
-                  {group.name}
-                </span>
-                {/* Progress: status dots */}
-                <StatusDots calls={group.calls} t={t} />
-                {/* Count label */}
-                <span style={{
-                  fontSize: 11,
-                  color: allDone ? t.success : runningCount > 0 ? t.purple : t.textDim,
-                  fontWeight: 500,
-                  fontVariantNumeric: "tabular-nums",
-                }}>
-                  {doneCount}/{total}
-                </span>
-                {isGroupExpanded
-                  ? <ChevronDown size={10} color={t.textDim} />
-                  : <ChevronRight size={10} color={t.textDim} />}
-              </div>
-              {/* Expanded: show individual cards */}
-              {isGroupExpanded && (
-                <div style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  paddingLeft: 16,
-                  marginTop: 4,
-                  borderLeft: `2px solid ${t.overlayBorder}`,
-                }}>
-                  {group.calls.map((tc, ci) => {
-                    const idx = startIdx + ci;
-                    return (
-                      <SingleToolCallCard
-                        key={idx}
-                        tc={tc}
-                        t={t}
-                        isExpanded={expandedArgs.has(idx)}
-                        onToggle={() => toggleArgs(idx)}
-                        handleDecide={handleDecide}
-                        isDeciding={tc.approvalId ? decidingIds.has(tc.approvalId) : false}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        }
-
-        // Single tool call — render directly
-        const tc = group.calls[0];
-        const idx = startIdx;
-        return (
-          <SingleToolCallCard
-            key={gi}
-            tc={tc}
-            t={t}
-            isExpanded={expandedArgs.has(idx)}
-            onToggle={() => toggleArgs(idx)}
-            handleDecide={handleDecide}
-            isDeciding={tc.approvalId ? decidingIds.has(tc.approvalId) : false}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
 function InterleavedTranscript({
   entries,
   toolCalls,
@@ -571,15 +244,18 @@ function InterleavedTranscript({
           return <TerminalStreamingToolTranscript key={entry.id} toolCalls={[toolCall]} t={t} />;
         }
 
+        const liveEntries = buildLiveToolEntries([toolCall]);
+        if (liveEntries.length === 0) return null;
+
         return (
-          <SingleToolCallCard
+          <DefaultToolRows
             key={entry.id}
-            tc={toolCall}
+            entries={liveEntries}
+            expandedIdx={expandedArgs.has(toolCall.id) ? 0 : null}
+            setExpandedIdx={(value) => toggleArgs(toolCall.id)}
             t={t}
-            isExpanded={expandedArgs.has(toolCall.id)}
-            onToggle={() => toggleArgs(toolCall.id)}
-            handleDecide={handleDecide}
-            isDeciding={toolCall.approvalId ? decidingIds.has(toolCall.approvalId) : false}
+            onApproval={handleDecide}
+            decidingIds={decidingIds}
           />
         );
       })}

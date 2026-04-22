@@ -203,6 +203,48 @@ class TestListMessages:
         messages = resp.json()
         assert len(messages) == 2
 
+    async def test_list_messages_includes_tool_calls(self, client, db_session):
+        resp = await client.post(
+            "/api/v1/sessions",
+            json={"bot_id": "test-bot", "client_id": f"toolcall-client-{uuid.uuid4().hex[:8]}"},
+            headers=AUTH_HEADERS,
+        )
+        sid = uuid.UUID(resp.json()["session_id"])
+
+        tool_calls = [{
+            "id": "call_1",
+            "name": "get_skill",
+            "arguments": "{\"skill_id\":\"widgets\"}",
+            "surface": "transcript",
+            "summary": {
+                "kind": "read",
+                "subject_type": "skill",
+                "label": "Loaded skill",
+                "target_id": "widgets",
+                "target_label": "widgets/INDEX.md",
+            },
+        }]
+        correlation_id = uuid.uuid4()
+        db_session.add(Message(
+            session_id=sid,
+            role="assistant",
+            content="Loaded widgets skill.",
+            tool_calls=tool_calls,
+            correlation_id=correlation_id,
+            metadata_={"tools_used": ["get_skill"]},
+        ))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/sessions/{sid}/messages",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        messages = resp.json()
+        assistant = next(m for m in messages if m["role"] == "assistant")
+        assert assistant["tool_calls"] == tool_calls
+        assert assistant["correlation_id"] == str(correlation_id)
+
     async def test_list_messages_session_not_found(self, client):
         resp = await client.get(
             f"/api/v1/sessions/{uuid.uuid4()}/messages",
@@ -304,4 +346,3 @@ class TestSessionConfigOverhead:
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 404
-
