@@ -1,7 +1,7 @@
 """tool call presentation contract
 
 Revision ID: 238_tool_call_presentation_contract
-Revises: 237_native_widget_instances
+Revises: 237
 Create Date: 2026-04-22
 """
 
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "238_tool_call_presentation_contract"
-down_revision = "237_native_widget_instances"
+down_revision = "237"
 branch_labels = None
 depends_on = None
 

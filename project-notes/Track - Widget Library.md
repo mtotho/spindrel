@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-22 (native widget refresh persistence repair)
+updated: 2026-04-22 (native widget refresh persistence repair; migration chain repair)
 ---
 
 # Track — Widget Library
@@ -218,6 +218,11 @@ Phase 18 shipped 2026-04-21 — the unified widget interface now covers a third 
   - persistent note body stored in `widget_instances.state`
   - direct inline editing in the UI via the shared widget-actions plumbing
   - bot action support through `invoke_widget_action`
+
+2026-04-22 follow-up:
+
+- Repaired the Alembic chain after Phase 18/19 work: `migrations/versions/238_tool_call_presentation_contract.py` was authored with `down_revision = "237_native_widget_instances"` while migration 237's actual revision ID is plain `"237"`. That mismatch broke `alembic upgrade head` during app startup with `KeyError: '237_native_widget_instances'`.
+- Added a regression test at `tests/unit/test_migration_revision_chain.py` that loads the Alembic script directory and resolves `head`, so future broken revision links fail fast in CI.
 - **Shared placement/catalog semantics kept intact** — `widget_library_list`, `/api/v1/widgets/library-widgets*`, `pin_widget`, dashboard pin serialization, and `describe_dashboard` now surface native widget metadata/action availability without changing the existing HTML/template mental model.
 - **Docs/skills updated** — `skills/widgets/index.md` and `skills/widgets/bot-callable-handlers.md` now teach the three-lane model (`template` / `html` / `native_app`), the unified bot tool, and the rule that bots must inspect declared action schemas before calling actions.
 
