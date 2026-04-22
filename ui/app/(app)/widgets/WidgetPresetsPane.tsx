@@ -230,10 +230,10 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          ? "flex min-h-0 flex-1 flex-col gap-6 px-5 pb-5 2xl:grid 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
-        <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 border border-surface-border bg-surface"}>
+        <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
           <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-3 py-2"}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
               Presets
@@ -264,7 +264,7 @@ export function WidgetPresetsPane({
               </div>
             </div>
           )}
-          <div className={builder ? "max-h-full space-y-1 overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
+          <div className={builder ? "space-y-1 2xl:max-h-full 2xl:overflow-auto" : "max-h-full space-y-1 overflow-auto p-2"}>
             {filtered.map((preset) => {
               const active = preset.id === selectedPreset?.id;
               return (
@@ -297,13 +297,13 @@ export function WidgetPresetsPane({
           </div>
         </section>
 
-        <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+        <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
           {!selectedPreset ? (
             <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-[12px] text-text-muted">
               Select a preset to configure it.
             </div>
           ) : (
-            <div className="flex h-full min-h-0 flex-col">
+            <div className="flex flex-col 2xl:h-full 2xl:min-h-0">
               <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
                 <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <div className="min-w-0">
@@ -331,7 +331,7 @@ export function WidgetPresetsPane({
                 )}
               </div>
 
-              <div className={builder ? "flex-1 overflow-auto px-1 py-4" : "flex-1 overflow-auto p-4"}>
+              <div className={builder ? "px-1 py-4 2xl:flex-1 2xl:overflow-auto" : "flex-1 overflow-auto p-4"}>
                 <div className="grid gap-3">
                   {Object.entries(selectedPreset.binding_schema.properties ?? {}).map(([fieldId, field]) => (
                     <PresetField
@@ -398,7 +398,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "bg-transparent 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview
@@ -407,7 +407,7 @@ export function WidgetPresetsPane({
                 Confirm the widget before pinning it onto the dashboard.
               </div>
             </div>
-            <div className={builder ? "flex h-full min-h-[320px] flex-col overflow-auto px-1 py-4" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
+            <div className={builder ? "flex min-h-[320px] flex-col px-1 py-4 2xl:h-full 2xl:overflow-auto" : "flex h-full min-h-[320px] flex-col overflow-auto p-4"}>
               {previewState.running ? (
                 <div className="flex flex-1 items-center justify-center text-[12px] text-text-muted">
                   <Loader2 size={16} className="mr-2 animate-spin" />

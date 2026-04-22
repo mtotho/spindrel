@@ -873,7 +873,7 @@ async def _instantiate_tool_renderer_entry(
     if not tool_name:
         return None, None, "tool-renderer ref is empty."
 
-    requires_bot, _requires_channel, _channel_uuid = validate_tool_context_requirements(
+    _resolved_tool_name, requires_bot, _requires_channel, _channel_uuid = validate_tool_context_requirements(
         tool_name,
         bot_id=bot_id,
         channel_id=str(channel_id) if channel_id else None,

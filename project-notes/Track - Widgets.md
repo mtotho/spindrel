@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-22 (Preset binding-source route hardening + route-backed widget builder overlay)
+updated: 2026-04-22 (Preset binding-source tool-name normalization fix)
 ---
 # Track — Widget System DX + Robustness
 
@@ -33,6 +33,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 - **Home Assistant adaptive entity widget landed** (2026-04-22) — `integrations/homeassistant/integration.yaml:ha_get_state` now renders four shapes off one tool contract: sensor card, light card, toggle chip, and generic entity/value chip. `state_poll.args.entity_id` reads `{{config.entity_id}}`; `app/services/dashboard_pins.py` seeds that config from `display_label` once at pin-create time so refresh no longer depends on label scraping after the pin exists.
 - **Widget presets landed as a first-class surface** (2026-04-22) — integrations can now declare `widget_presets:` alongside `tool_widgets:`. `app/services/widget_presets.py` resolves preset metadata, binding-source options, preview, and pinning through the existing widget engine, and `/api/v1/widgets/presets*` powers both Add Widget and `/widgets/dev`. New invariant: presets own guided binding inputs; tool renderers remain the advanced “render a tool result” path.
+- **Preset binding sources now execute through shared tool-name normalization** (2026-04-22) — the Home Assistant picker failure (`Tool 'GetLiveContext' not found`) came from preset bindings executing manifest-declared bare tool names literally while runtime MCP tools were namespaced (`homeassistant-GetLiveContext`). `app/services/tool_execution.py` now resolves canonical tool names before both context validation and execution, and widget-actions/admin direct tool execution reuse that same path instead of carrying parallel MCP-prefix logic. New invariant: preset bindings, widget actions, and other non-agent runtime callers all share the same bare-name MCP recovery path.
 - **Widget Builder is now route-backed instead of local-modal state** (2026-04-22) — the dashboard page now drives the Add Widget surface off URL state (`builder`, `builder_tab`, `builder_q`, `builder_preset`, `builder_step`) so refresh/back-forward restore the open builder and selected preset flow. The old narrow side sheet is restyled into a wide bottom-attached overlay and the presets pane now uses a 3-region builder layout (catalog / configure / preview) instead of stacking everything into one cramped column.
 - **Preset binding-option requests no longer depend on dotted path segments** (2026-04-22) — `POST /api/v1/widgets/presets/{preset_id}/binding-options` now accepts `source_id` in the JSON body, with the old `.../binding-options/{source_id}` path kept for compatibility. Frontend calls the body-based route first and falls back to the legacy path on 404 so `homeassistant.entities`-style ids stop depending on proxy/path behavior.
 - **Widget Builder chrome should match the chat dock shell, not modal cards** (2026-04-22) — use one strong outer container with square edges and sparse separators, then keep catalog / configure / preview panes visually adjacent instead of wrapping each region in its own rounded bordered card.

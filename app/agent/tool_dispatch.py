@@ -496,7 +496,7 @@ async def dispatch_tool_call(
         _auth_err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
         result_obj.result = json.dumps({"error": _auth_err})
         result_obj.result_for_llm = result_obj.result
-        result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _auth_err}
+        result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _auth_err}
         safe_create_task(_record_tool_call(
             session_id=session_id,
             client_id=client_id,
@@ -533,7 +533,7 @@ async def dispatch_tool_call(
                     _deny_err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
                     result_obj.result = json.dumps({"error": _deny_err})
                     result_obj.result_for_llm = result_obj.result
-                    result_obj.tool_event = {"type": "tool_result", "tool": name, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
                     _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
                     safe_create_task(_record_tool_call(
                         session_id=session_id,
@@ -600,7 +600,7 @@ async def dispatch_tool_call(
                     result_obj.approval_reason = _approval_reason
                     result_obj.record_id = _tc_pending_id
                     result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _approval_reason})
-                    result_obj.tool_event = {"type": "tool_result", "tool": name, "pending_approval": True}
+                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "pending_approval": True}
                     _trace("⏳ %s requires approval (%s)", name,
                            f"tier={decision.tier}" if decision.tier else f"rule {decision.rule_id}")
                     return result_obj
@@ -609,7 +609,7 @@ async def dispatch_tool_call(
             _policy_err = "Tool call denied: policy evaluation error. Please retry."
             result_obj.result = json.dumps({"error": _policy_err})
             result_obj.result_for_llm = result_obj.result
-            result_obj.tool_event = {"type": "tool_result", "tool": name, "error": _policy_err}
+            result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _policy_err}
             return result_obj
 
     # Determine tool type for hook data
@@ -923,7 +923,7 @@ async def dispatch_tool_call(
     # Build tool_event — use redacted result to avoid leaking secrets
     # in SSE events, log output, or memory previews
     _redacted_result = result_obj.result
-    tool_event: dict[str, Any] = {"type": "tool_result", "tool": name}
+    tool_event: dict[str, Any] = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id}
     if _was_summarized:
         tool_event["summarized"] = True
     try:

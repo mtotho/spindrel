@@ -402,6 +402,11 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
+def _should_hide_from_session_history(message: "Message") -> bool:
+    meta = message.metadata_ or {}
+    return bool(meta.get("hidden")) and not bool(meta.get("pipeline_step"))
+
+
 async def _recover_orphan_attachments(
     db: AsyncSession,
     channel_id: uuid.UUID,
@@ -469,25 +474,46 @@ async def get_session_messages(
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    stmt = (
-        select(Message)
-        .options(selectinload(Message.attachments))
-        .where(Message.session_id == session_id)
-    )
-
+    cursor_created_at: datetime | None = None
     if before:
-        # Get the created_at of the cursor message
         cursor_msg = await db.get(Message, before)
         if cursor_msg:
-            stmt = stmt.where(Message.created_at < cursor_msg.created_at)
+            cursor_created_at = cursor_msg.created_at
 
-    # Fetch limit+1 to determine has_more
-    stmt = stmt.order_by(Message.created_at.desc()).limit(limit + 1)
-    result = await db.execute(stmt)
-    rows = list(result.scalars().all())
+    visible_rows: list[Message] = []
+    has_more = False
 
-    has_more = len(rows) > limit
-    messages = rows[:limit]
+    while len(visible_rows) < limit + 1:
+        stmt = (
+            select(Message)
+            .options(selectinload(Message.attachments))
+            .where(Message.session_id == session_id)
+        )
+        if cursor_created_at is not None:
+            stmt = stmt.where(Message.created_at < cursor_created_at)
+        stmt = stmt.order_by(Message.created_at.desc()).limit(limit + 1)
+        result = await db.execute(stmt)
+        rows = list(result.scalars().all())
+        if not rows:
+            break
+
+        for row in rows:
+            if _should_hide_from_session_history(row):
+                continue
+            visible_rows.append(row)
+            if len(visible_rows) > limit:
+                has_more = True
+                break
+
+        if has_more:
+            break
+
+        if len(rows) <= limit:
+            break
+
+        cursor_created_at = rows[-1].created_at
+
+    messages = visible_rows[:limit]
     # Reverse to chronological order
     messages.reverse()
 

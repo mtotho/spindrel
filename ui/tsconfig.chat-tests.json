@@ -12,6 +12,8 @@
   },
   "include": [
     "src/types/api.ts",
+    "src/stores/chat.ts",
+    "src/stores/chat.test.ts",
     "src/components/chat/toolTranscriptModel.ts",
     "src/components/chat/toolTranscriptModel.test.ts"
   ]

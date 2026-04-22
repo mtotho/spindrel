@@ -115,6 +115,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Current-row fallback heuristics were removed instead of preserved** — the new ordered current-turn builder does not read `tools_used`, does not do source-order fallback, and throws if `transcript_entries` reference a missing canonical tool call. Because the feature is unreleased, missing canonical tool/result data is treated as a producer bug rather than a compatibility case the UI should paper over.
 - [x] **Ordered current-turn model now has a targeted UI harness** — added a small compile-and-run TypeScript test bundle around `toolTranscriptModel.ts` so this invariant is executable instead of purely visual. It checks transcript order, in-place rich/widget surface resolution, live-vs-persisted item parity, and the expected hard failure when canonical tool-call data is missing.
 - [x] **Chat + scratch headers now follow the viewed session, not just the channel active session** — channel header, scratch full-page header, mini-chat/scratch subheaders, and the legacy context tracker widget now accept the selected `session_id` when present. Scratch/session views show the same live token counts as normal chat, plus compact turn metadata (`turns in ctx`, `until compact`) sourced from session diagnostics instead of guessing off the channel default session.
+- [x] **Live and refetched turns now share canonical tool-call identity** — the previous pass only wired real ids onto `tool_start`, but the SSE bridge was still dropping them before the chat store and `tool_result` events still lacked `tool_call_id` entirely. The stream contract now carries real ids on both start and result payloads end-to-end (`tool_dispatch` → `turn_event_emit` → `useChannelEvents` → `chat.ts`), and the live store reconciles results by `tool_call_id` instead of "last running tool with this name", closing the same-name multi-tool ordering/ownership hole.
+- [x] **Normal session history now excludes hidden intermediate assistant rows at the source** — the browser chat was consuming `/sessions/{id}/messages` from `app/routers/sessions.py`, not the API-v1 router. That endpoint now filters `metadata.hidden` rows server-side for normal history while preserving `pipeline_step` child rows for sub-session run views, so the final visible assistant row is the canonical persisted owner of the turn body instead of relying on client-only hidden-row filtering.
+- [x] **Contract regressions are now pinned with executable end-to-end guards** — added a session-router integration test for hidden intermediate rows + canonical final assistant row shape, extended `test_turn_event_emit.py` to assert `tool_call_id` survives on both tool-start and tool-result payloads, and added a focused UI store test that proves repeated same-name tool calls reconcile to the correct envelopes by id.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -143,10 +146,13 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 30s npx tsc --noEmit --pretty false` after ordered current-turn model unification
+- [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/stores/chat.test.js`
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
   `tests/integration/test_slash_commands.py -q` also stalled under the wrapper here without producing a Python failure trace.
+- [ ] Session-history contract pytest is still wrapper-limited here:
+  focused `pytest tests/unit/test_turn_event_emit.py tests/integration/test_sessions_router.py -q` reached full test-dot progress in the sandbox but the shell wrapper never surfaced the normal pytest summary line before `timeout` terminated the process. The new assertions are in place and should be rerun once in a normal repo shell to capture a clean pass/fail summary.
 - [ ] Follow-up scratch-copy polish verification remains wrapper-limited:
   `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` did not report TypeScript errors here, but the sandbox command wrapper hung until `timeout 5s` terminated it.
 - [ ] Session-aware context-header backend regression pytest is still wrapper-limited here:

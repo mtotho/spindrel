@@ -163,30 +163,30 @@ async def admin_execute_tool(
 
     args_json = json.dumps(body.arguments)
 
-    validate_tool_context_requirements(
+    resolved_tool_name, _requires_bot, _requires_channel, _channel_uuid = validate_tool_context_requirements(
         tool_name,
         bot_id=body.bot_id,
         channel_id=body.channel_id,
     )
 
-    if is_local_tool(tool_name):
+    if is_local_tool(resolved_tool_name):
         if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
             if not has_scope(auth.scopes, "tools:execute"):
                 raise HTTPException(status_code=403, detail="Missing tools:execute scope")
             allowed = await _resolve_bot_tools(db, auth.key_id)
-            if allowed is not None and tool_name not in allowed:
+            if allowed is not None and resolved_tool_name not in allowed:
                 raise HTTPException(
                     status_code=403,
                     detail=f"Bot does not have access to tool '{tool_name}'",
                 )
-        logger.info("Direct tool execute (local): %s args=%s", tool_name, args_json[:200])
-    elif is_mcp_tool(tool_name):
+        logger.info("Direct tool execute (local): %s args=%s", resolved_tool_name, args_json[:200])
+    elif is_mcp_tool(resolved_tool_name):
         if isinstance(auth, ApiKeyAuth) and not has_scope(auth.scopes, "admin"):
             raise HTTPException(
                 status_code=403,
                 detail="MCP tools can only be executed by admin keys from this endpoint",
             )
-        logger.info("Direct tool execute (mcp): %s args=%s", tool_name, args_json[:200])
+        logger.info("Direct tool execute (mcp): %s args=%s", resolved_tool_name, args_json[:200])
     else:
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 

@@ -89,15 +89,9 @@ router = APIRouter(
 
 
 def _resolve_tool_name(name: str) -> str:
-    """Resolve a tool name, trying MCP server-prefixed variants if bare name fails.
+    from app.services.tool_execution import resolve_tool_name
 
-    Widget templates use bare tool names (e.g., "HassTurnOff") but MCP tools
-    are registered with a server prefix (e.g., "homeassistant-HassTurnOff").
-    """
-    if is_local_tool(name):
-        return name
-    from app.tools.mcp import resolve_mcp_tool_name
-    return resolve_mcp_tool_name(name) or name
+    return resolve_tool_name(name)
 
 # ── Allowlisted internal API path prefixes for dispatch:"api" ──
 _API_ALLOWLIST = [

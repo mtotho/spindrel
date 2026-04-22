@@ -385,19 +385,24 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         case "tool_result": {
           const data = event.data as {
             tool?: string;
+            tool_call_id?: string;
             is_error?: boolean;
             envelope?: ToolResultEnvelope;
             surface?: ToolSurface;
             summary?: ToolCallSummary | null;
           };
           const tcs = [...turn.toolCalls];
-          // Match the tool by name (last running entry with that name)
-          // so concurrent tool calls don't get mismatched.
           let idx = -1;
-          for (let i = tcs.length - 1; i >= 0; i--) {
-            if (tcs[i].status === "running" && (!data.tool || tcs[i].name === data.tool)) {
-              idx = i;
-              break;
+          if (data.tool_call_id) {
+            idx = tcs.findIndex((toolCall) => toolCall.id === data.tool_call_id);
+          }
+          if (idx < 0) {
+            // Legacy fallback for older publishers that didn't include the canonical id.
+            for (let i = tcs.length - 1; i >= 0; i--) {
+              if (tcs[i].status === "running" && (!data.tool || tcs[i].name === data.tool)) {
+                idx = i;
+                break;
+              }
             }
           }
           if (idx >= 0) {

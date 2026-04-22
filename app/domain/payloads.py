@@ -136,6 +136,7 @@ class TurnStreamToolResultPayload:
     turn_id: uuid.UUID
     tool_name: str
     result_summary: str
+    tool_call_id: str | None = None
     is_error: bool = False
     envelope: dict | None = None
     surface: str | None = None

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.services.widget_presets import (
@@ -81,6 +83,50 @@ async def test_list_binding_options_normalizes_live_context(monkeypatch):
         )
 
     monkeypatch.setattr("app.services.tool_execution.execute_tool_with_context", _exec)
+    options = await list_binding_options(
+        preset_id="homeassistant-light-card",
+        source_id="homeassistant.light_entities",
+        source_bot_id="bot-1",
+        source_channel_id=None,
+    )
+    assert options == [{
+        "value": "light.office_desk_led_strip",
+        "label": "Office Desk LED Strip",
+        "description": "light.office_desk_led_strip",
+        "group": "Office",
+        "meta": {"domain": "light", "area": "Office"},
+    }]
+
+
+@pytest.mark.asyncio
+async def test_list_binding_options_resolves_bare_mcp_tool_names(monkeypatch):
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
+    monkeypatch.setattr("app.tools.registry.is_local_tool", lambda _name: False)
+    monkeypatch.setattr(
+        "app.tools.mcp.resolve_mcp_tool_name",
+        lambda name: "homeassistant-GetLiveContext" if name == "GetLiveContext" else None,
+    )
+    monkeypatch.setattr(
+        "app.tools.mcp.is_mcp_tool",
+        lambda name: name == "homeassistant-GetLiveContext",
+    )
+
+    async def _call_mcp_tool(tool_name: str, arguments: str) -> str:
+        assert tool_name == "homeassistant-GetLiveContext"
+        assert json.loads(arguments) == {}
+        return json.dumps({
+            "result": (
+                "Live Context: overview\n"
+                "- names: Office Desk LED Strip\n"
+                "  domain: light\n"
+                "  state: 'on'\n"
+                "  areas: Office\n"
+            ),
+        })
+
+    monkeypatch.setattr("app.tools.mcp.call_mcp_tool", _call_mcp_tool)
+    monkeypatch.setattr("app.agent.bots._registry", {"bot-1": object()})
+
     options = await list_binding_options(
         preset_id="homeassistant-light-card",
         source_id="homeassistant.light_entities",

@@ -485,6 +485,7 @@ export function useChannelEvents(
             event: "tool_start",
             data: {
               tool: payload?.tool_name ?? "unknown",
+              tool_call_id: payload?.tool_call_id,
               args: argsStr,
               surface: payload?.surface,
               summary: payload?.summary,
@@ -507,6 +508,7 @@ export function useChannelEvents(
             event: "tool_result",
             data: {
               tool: payload?.tool_name,
+              tool_call_id: payload?.tool_call_id,
               is_error: !!payload?.is_error,
               envelope: payload?.envelope,
               surface: payload?.surface,

@@ -125,11 +125,12 @@ class TestEmitRunStreamEvents:
         ch = uuid.uuid4()
 
         yielded, published = await _run(
-            [{"type": "tool_start", "tool": "get_skill", "args": '{"skill_id": "widgets"}'}], ch
+            [{"type": "tool_start", "tool": "get_skill", "tool_call_id": "call-1", "args": '{"skill_id": "widgets"}'}], ch
         )
 
         assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_START
         assert published[0].payload.tool_name == "get_skill"
+        assert published[0].payload.tool_call_id == "call-1"
         assert published[0].payload.arguments == {"skill_id": "widgets"}
         assert published[0].payload.surface == "transcript"
         assert published[0].payload.summary == {
@@ -165,6 +166,7 @@ class TestEmitRunStreamEvents:
             [{
                 "type": "tool_result",
                 "tool": "file",
+                "tool_call_id": "call-edit",
                 "result": "ok",
                 "envelope": {
                     "content_type": "application/vnd.spindrel.diff+text",
@@ -186,6 +188,7 @@ class TestEmitRunStreamEvents:
 
         assert yielded[0]["type"] == "tool_result"
         assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
+        assert published[0].payload.tool_call_id == "call-edit"
         assert published[0].payload.surface == "transcript"
         assert published[0].payload.summary == {
             "kind": "diff",
