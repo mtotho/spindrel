@@ -22,6 +22,8 @@ import type { Message, ToolCall, ToolResultEnvelope } from "../../types/api";
 import type { ThreadSummary } from "../../api/hooks/useThreads";
 import { SlashCommandResultCard } from "./SlashCommandResultCard";
 import { buildPersistedRenderItems, type PersistedRenderItem } from "./toolTranscriptModel";
+import { OrderedTranscript } from "./OrderedTranscript";
+import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
 
 // Re-export for external consumers
 export { extractDisplayText } from "./messageUtils";
@@ -68,6 +70,40 @@ function collectInvalidatedLibraryRefs(toolCalls?: ToolCall[]): string[] {
     }
   }
   return Array.from(refs);
+}
+
+function toTranscriptToolCalls(
+  toolCalls: ToolCall[] | undefined,
+  toolNames: string[] | undefined,
+  toolResults: (ToolResultEnvelope | undefined)[] | undefined,
+): LiveToolCall[] {
+  if (toolCalls?.length) {
+    return toolCalls.map((toolCall, index) => {
+      const normalized = normalizeToolCall(toolCall);
+      return {
+        id: toolCall.id || `persisted-tool-${index + 1}`,
+        name: normalized.name,
+        args: normalized.arguments,
+        surface: toolCall.surface,
+        summary: toolCall.summary,
+        status: "done" as const,
+        envelope: toolResults?.[index],
+      };
+    });
+  }
+  if (!toolNames?.length && !toolResults?.length) return [];
+  const total = Math.max(toolNames?.length ?? 0, toolResults?.length ?? 0);
+  return Array.from({ length: total }, (_, index) => {
+    const toolName = toolNames?.[index] || `tool-${index + 1}`;
+    const fallbackArgs = "{}";
+    return {
+      id: `persisted-tool-${index + 1}`,
+      name: toolName,
+      args: fallbackArgs,
+      status: "done" as const,
+      envelope: toolResults?.[index],
+    };
+  });
 }
 
 interface Props {
@@ -340,6 +376,11 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       ? meta.thinking_content
       : "";
   const thinkingText = rawThinking.trim();
+  const persistedTranscriptEntries = (meta.transcript_entries as TurnTranscriptEntry[] | undefined) ?? [];
+  const transcriptToolCalls = useMemo(
+    () => toTranscriptToolCalls(msgToolCalls, toolsUsed, toolResults),
+    [msgToolCalls, toolResults, toolsUsed],
+  );
   const isTightRichEnvelope = (envelope: ToolResultEnvelope | undefined) =>
     envelope?.content_type === "application/vnd.spindrel.diff+text"
     || envelope?.content_type === "application/vnd.spindrel.file-listing+json";
@@ -469,13 +510,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const messageContent = (
     <>
       {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
-      {displayContent.length > 0 ? (
+      {persistedTranscriptEntries.length > 0 ? (
+        <OrderedTranscript
+          entries={persistedTranscriptEntries}
+          toolCalls={transcriptToolCalls}
+          t={t}
+          chatMode={chatMode}
+        />
+      ) : displayContent.length > 0 ? (
         <MarkdownContent text={displayContent} t={t} chatMode={chatMode} />
       ) : null}
       {message.attachments && message.attachments.length > 0 && (
         <AttachmentImages attachments={message.attachments} />
       )}
-      {persistedRenderItems.map(renderPersistedToolItem)}
+      {persistedTranscriptEntries.length === 0 && persistedRenderItems.map(renderPersistedToolItem)}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
     </>
   );

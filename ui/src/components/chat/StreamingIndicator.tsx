@@ -2,13 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronRight, ChevronDown, Brain, BookOpen, RefreshCw, ArrowRightLeft, ImageOff } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 import { MarkdownContent } from "./MarkdownContent";
-import { formatToolArgs } from "./toolCallUtils";
-import { useDecideApproval, type DecideRequest } from "../../api/hooks/useApprovals";
 import { Avatar } from "./MessageActions";
-import { TerminalStreamingToolTranscript } from "./TerminalToolTranscript";
-import { DefaultToolRows } from "./ToolBadges";
-import { buildLiveToolEntries } from "./toolTranscriptModel";
 import type { ToolCall as LiveToolCall, TurnTranscriptEntry } from "../../stores/chat";
+import { OrderedTranscript } from "./OrderedTranscript";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
@@ -175,90 +171,6 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function InterleavedTranscript({
-  entries,
-  toolCalls,
-  t,
-  botId,
-  chatMode,
-}: {
-  entries: TurnTranscriptEntry[];
-  toolCalls: LiveToolCall[];
-  t: ReturnType<typeof useThemeTokens>;
-  botId?: string;
-  chatMode: "default" | "terminal";
-}) {
-  const decideApproval = useDecideApproval();
-  const [decidingIds, setDecidingIds] = useState<Set<string>>(new Set());
-  const [expandedArgs, setExpandedArgs] = useState<Set<string>>(new Set());
-  const isTerminalMode = chatMode === "terminal";
-
-  const toolCallById = new Map(toolCalls.map((toolCall) => [toolCall.id, toolCall]));
-
-  const handleDecide = (approvalId: string, approved: boolean) => {
-    setDecidingIds((prev) => new Set(prev).add(approvalId));
-    const data: DecideRequest = { approved, decided_by: "web:admin" };
-    decideApproval.mutate(
-      { approvalId, data },
-      {
-        onSettled: () => {
-          setDecidingIds((prev) => {
-            const next = new Set(prev);
-            next.delete(approvalId);
-            return next;
-          });
-        },
-      },
-    );
-  };
-
-  const toggleArgs = (toolCallId: string) => {
-    setExpandedArgs((prev) => {
-      const next = new Set(prev);
-      if (next.has(toolCallId)) next.delete(toolCallId);
-      else next.add(toolCallId);
-      return next;
-    });
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {entries.map((entry) => {
-        if (entry.kind === "text") {
-          if (!entry.text.trim()) return null;
-          return (
-            <div key={entry.id} style={{ contain: "content" }}>
-              <MarkdownContent text={entry.text} t={t} chatMode={chatMode} />
-            </div>
-          );
-        }
-
-        const toolCall = toolCallById.get(entry.toolCallId);
-        if (!toolCall) return null;
-
-        if (isTerminalMode) {
-          return <TerminalStreamingToolTranscript key={entry.id} toolCalls={[toolCall]} t={t} />;
-        }
-
-        const liveEntries = buildLiveToolEntries([toolCall]);
-        if (liveEntries.length === 0) return null;
-
-        return (
-          <DefaultToolRows
-            key={entry.id}
-            entries={liveEntries}
-            expandedIdx={expandedArgs.has(toolCall.id) ? 0 : null}
-            setExpandedIdx={(value) => toggleArgs(toolCall.id)}
-            t={t}
-            onApproval={handleDecide}
-            decidingIds={decidingIds}
-          />
-        );
-      })}
     </div>
   );
 }
@@ -433,7 +345,15 @@ export function StreamingIndicator({
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: isTerminalMode ? 13 : 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
+          <span style={{
+            fontSize: isTerminalMode ? 13 : 15,
+            fontWeight: isTerminalMode ? 600 : 700,
+            color: bg,
+            fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+            textTransform: isTerminalMode ? "lowercase" : undefined,
+          }}>
+            {isTerminalMode ? `assistant:${name}` : name}
+          </span>
         </div>
 
         {/* Thinking content */}
@@ -448,11 +368,10 @@ export function StreamingIndicator({
 
         {/* Ordered transcript body */}
         {hasTranscriptEntries ? (
-          <InterleavedTranscript
+          <OrderedTranscript
             entries={transcriptEntries}
             toolCalls={toolCalls}
             t={t}
-            botId={botId}
             chatMode={chatMode}
           />
         ) : displayContent ? (

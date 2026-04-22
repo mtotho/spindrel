@@ -4,6 +4,8 @@ from app.agent.loop import (
     _CLASSIFY_SYS_MSG,
     _EMPTY_RESPONSE_GENERIC_FALLBACK,
     _SYS_MSG_PREFIXES,
+    _append_transcript_text_entry,
+    _append_transcript_tool_entry,
     _sanitize_messages,
     _synthesize_empty_response_fallback,
 )
@@ -78,6 +80,26 @@ class TestTaskCreationCountContextVar:
             assert task_creation_count.get() == 2
         finally:
             task_creation_count.reset(token)
+
+
+class TestTranscriptEntryHelpers:
+    def test_append_text_merges_adjacent_entries(self):
+        entries = [{"id": "text:1", "kind": "text", "text": "Hello"}]
+
+        _append_transcript_text_entry(entries, " world")
+
+        assert entries == [{"id": "text:1", "kind": "text", "text": "Hello world"}]
+
+    def test_append_tool_then_text_creates_distinct_entries(self):
+        entries: list[dict] = []
+
+        _append_transcript_tool_entry(entries, "call-1")
+        _append_transcript_text_entry(entries, "Done.")
+
+        assert entries == [
+            {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+            {"id": "text:2", "kind": "text", "text": "Done."},
+        ]
 
     def test_pending_tasks_event_emitted_when_count_positive(self):
         """Simulate the logic in run_stream: emit pending_tasks when count > 0."""

@@ -459,3 +459,29 @@ class TestPersistTurn:
         roles = [m.role for m in added]
         assert "user" in roles
         assert "assistant" in roles
+
+    @pytest.mark.asyncio
+    async def test_persists_transcript_entries_on_assistant_metadata(self):
+        from app.services.sessions import persist_turn
+
+        db = AsyncMock()
+        db.add = MagicMock()
+        session_id = uuid.uuid4()
+        bot = _make_bot()
+        transcript_entries = [
+            {"id": "tool:call-1", "kind": "tool_call", "toolCallId": "call-1"},
+            {"id": "text:2", "kind": "text", "text": "Done."},
+        ]
+        messages = [
+            {
+                "role": "assistant",
+                "content": "Done.",
+                "_transcript_entries": transcript_entries,
+            },
+        ]
+
+        await persist_turn(db, session_id, bot, messages, from_index=0)
+
+        added = [call[0][0] for call in db.add.call_args_list]
+        assistant = next(m for m in added if m.role == "assistant")
+        assert assistant.metadata_["transcript_entries"] == transcript_entries

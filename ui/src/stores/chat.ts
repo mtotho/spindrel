@@ -178,6 +178,10 @@ function seedTranscriptFromToolCalls(toolCalls: ToolCall[]): TurnTranscriptEntry
   }));
 }
 
+function toPersistedTranscriptEntries(entries: TurnTranscriptEntry[]): TurnTranscriptEntry[] | undefined {
+  return entries.length > 0 ? entries.map((entry) => ({ ...entry })) : undefined;
+}
+
 function toPersistedToolCall(toolCall: ToolCall): PersistedToolCall {
   return {
     id: toolCall.id,
@@ -558,12 +562,14 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         const toolsUsed = turn.toolCalls.length > 0
           ? turn.toolCalls.map((tc) => tc.name)
           : undefined;
+        const transcriptEntries = toPersistedTranscriptEntries(turn.transcriptEntries);
         // Carry envelopes from the streaming turn into the synthetic message
         // so the rich tool result UI doesn't blink empty between finishTurn
         // and the session-messages refetch landing.
         const metadata: Record<string, any> = {
           ...(toolsUsed ? { tools_used: toolsUsed } : {}),
           ...(toolResults && toolResults.length > 0 ? { tool_results: toolResults } : {}),
+          ...(transcriptEntries ? { transcript_entries: transcriptEntries } : {}),
           ...(turn.thinkingContent ? { thinking: turn.thinkingContent } : {}),
           ...(turn.botName ? { sender_display_name: turn.botName } : {}),
           ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),

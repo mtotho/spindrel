@@ -575,6 +575,9 @@ async def persist_turn(
         # ThinkingBlock on historical (page-refresh) views — not just live.
         if msg.get("_thinking_content"):
             meta = {**meta, "thinking": msg["_thinking_content"]}
+        # Carry forward the ordered text/tool transcript for settled-chat replay.
+        if msg.get("_transcript_entries"):
+            meta = {**meta, "transcript_entries": msg["_transcript_entries"]}
         # Carry forward tool record ID for retrieval-pointer pruning
         if msg.get("_tool_record_id"):
             meta = {**meta, "tool_record_id": msg["_tool_record_id"]}

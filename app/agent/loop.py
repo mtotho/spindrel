@@ -199,6 +199,27 @@ def _synthesize_empty_response_fallback(
     return f"I completed {_tool_list} but couldn't generate a summary."
 
 
+def _append_transcript_text_entry(entries: list[dict], text: str) -> None:
+    if not text:
+        return
+    if entries and entries[-1].get("kind") == "text":
+        entries[-1]["text"] = f'{entries[-1].get("text", "")}{text}'
+        return
+    entries.append({
+        "id": f"text:{len(entries) + 1}",
+        "kind": "text",
+        "text": text,
+    })
+
+
+def _append_transcript_tool_entry(entries: list[dict], tool_call_id: str) -> None:
+    entries.append({
+        "id": f"tool:{tool_call_id}",
+        "kind": "tool_call",
+        "toolCallId": tool_call_id,
+    })
+
+
 def _finalize_response(
     text: str,
     *,
@@ -214,6 +235,7 @@ def _finalize_response(
     transcript_emitted: bool,
     tool_calls_made: list[str],
     tool_envelopes_made: list[dict],
+    transcript_entries: list[dict],
     thinking_content_buf: str,
     turn_start: int,
     embedded_client_actions: list[dict],
@@ -285,6 +307,9 @@ def _finalize_response(
         and messages[-1].get("role") == "assistant"
     ):
         messages[-1]["_thinking_content"] = thinking_content_buf
+
+    if transcript_entries and messages and messages[-1].get("role") == "assistant":
+        messages[-1]["_transcript_entries"] = list(transcript_entries)
 
     events.append(_event_with_compaction_tag({
         "type": "response",
@@ -435,6 +460,7 @@ async def run_agent_tool_loop(
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
     tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() in invocation order — persisted to Message.metadata.tool_results
+    transcript_entries: list[dict] = []  # ordered settled-chat replay model for the assistant turn
     thinking_content_buf: str = ""  # accumulated thinking across loop iterations — persisted to final assistant message metadata
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
     _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
@@ -902,6 +928,7 @@ async def run_agent_tool_loop(
                                 "message": text,
                             }, compaction)
 
+                _append_transcript_text_entry(transcript_entries, text)
                 _fin_events, transcript_emitted = _finalize_response(
                     text,
                     messages=messages, bot=bot, session_id=session_id,
@@ -911,6 +938,7 @@ async def run_agent_tool_loop(
                     transcript_emitted=transcript_emitted,
                     tool_calls_made=tool_calls_made,
                     tool_envelopes_made=tool_envelopes_made,
+                    transcript_entries=transcript_entries,
                     thinking_content_buf=thinking_content_buf,
                     turn_start=turn_start,
                     embedded_client_actions=embedded_client_actions,
@@ -936,6 +964,7 @@ async def run_agent_tool_loop(
             _intermediate_text = _sanitize_llm_text(_acc_content or "")
             _intermediate_text = _redact_secrets(_intermediate_text)
             if _intermediate_text:
+                _append_transcript_text_entry(transcript_entries, _intermediate_text)
                 yield _event_with_compaction_tag(
                     {"type": "assistant_text", "text": _intermediate_text},
                     compaction,
@@ -972,6 +1001,7 @@ async def run_agent_tool_loop(
                 for tc in _acc_tool_calls:
                     _p_name = tc["function"]["name"]
                     _p_args = tc["function"]["arguments"]
+                    _append_transcript_tool_entry(transcript_entries, tc["id"])
                     logger.info("Tool call: %s", _p_name)
                     logger.debug("Tool call %s args: %s", _p_name, _p_args)
                     _trace("→ %s", _p_name)
@@ -1187,6 +1217,7 @@ async def run_agent_tool_loop(
 
                     name = tc["function"]["name"]
                     args = tc["function"]["arguments"]
+                    _append_transcript_tool_entry(transcript_entries, tc["id"])
                     logger.info("Tool call: %s", name)
                     logger.debug("Tool call %s args: %s", name, args)
 
@@ -1481,6 +1512,7 @@ async def run_agent_tool_loop(
                 event_type="token_usage",
                 data=_usage_data2,
             ))
+        _append_transcript_text_entry(transcript_entries, text)
         _fin_events, transcript_emitted = _finalize_response(
             text,
             messages=messages, bot=bot, session_id=session_id,
@@ -1490,6 +1522,7 @@ async def run_agent_tool_loop(
             transcript_emitted=transcript_emitted,
             tool_calls_made=tool_calls_made,
             tool_envelopes_made=tool_envelopes_made,
+            transcript_entries=transcript_entries,
             thinking_content_buf=thinking_content_buf,
             turn_start=turn_start,
             embedded_client_actions=embedded_client_actions,
