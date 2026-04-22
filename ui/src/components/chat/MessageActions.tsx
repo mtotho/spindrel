@@ -5,11 +5,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Copy, Check, Activity, Cog, FileText, MessageCircle, CornerDownRight } from "lucide-react";
+import { Copy, Check, Activity, Cog, FileText, MessageCircle, CornerDownRight, Braces } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { writeToClipboard } from "../../utils/clipboard";
 import type { ThemeTokens } from "../../theme/tokens";
+import type { Message } from "../../types/api";
 
 // ---------------------------------------------------------------------------
 // Copy + trace buttons -- appears on hover (web only)
@@ -18,6 +19,7 @@ import type { ThemeTokens } from "../../theme/tokens";
 export function MessageActions({
   text,
   fullTurnText,
+  fullTurnMessages,
   correlationId,
   t,
   canReplyInThread,
@@ -26,6 +28,7 @@ export function MessageActions({
   text: string;
   /** Concatenated text of all segments in a multi-segment bot turn */
   fullTurnText?: string;
+  fullTurnMessages?: Message[];
   correlationId?: string;
   t: ThemeTokens;
   /** Show the Reply-in-thread button. Callers gate this to false inside
@@ -34,7 +37,7 @@ export function MessageActions({
   /** Click handler for the Reply-in-thread button. */
   onReplyInThread?: () => void;
 }) {
-  const [copied, setCopied] = useState<"single" | "full" | false>(false);
+  const [copied, setCopied] = useState<"single" | "full" | "json" | false>(false);
   const navigate = useNavigate();
 
   const btnStyle = (active?: boolean): React.CSSProperties => ({
@@ -52,12 +55,16 @@ export function MessageActions({
     boxShadow: "0 1px 4px rgba(0,0,0,0.15)",
   });
 
-  const doCopy = (value: string, which: "single" | "full") => {
+  const doCopy = (value: string, which: "single" | "full" | "json") => {
     writeToClipboard(value).then(() => {
       setCopied(which);
       setTimeout(() => setCopied(false), 2000);
     });
   };
+
+  const fullTurnJson = fullTurnMessages?.length ? JSON.stringify(fullTurnMessages, null, 2) : null;
+  const copyTextLabel = fullTurnText ? "Copy full response" : "Copy message";
+  const copyTextValue = fullTurnText || text;
 
   return (
     <div className="msg-actions" style={{ userSelect: "none" }}>
@@ -85,16 +92,30 @@ export function MessageActions({
           <Activity size={14} />
         </button>
       )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          doCopy(fullTurnText || text, fullTurnText ? "full" : "single");
-        }}
-        title={fullTurnText ? "Copy full response" : "Copy message"}
-        style={btnStyle(!!copied)}
-      >
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-      </button>
+      {copyTextValue && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            doCopy(copyTextValue, fullTurnText ? "full" : "single");
+          }}
+          title={copyTextLabel}
+          style={btnStyle(copied === "single" || copied === "full")}
+        >
+          {copied === "single" || copied === "full" ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      )}
+      {fullTurnJson && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            doCopy(fullTurnJson, "json");
+          }}
+          title="Copy JSON"
+          style={btnStyle(copied === "json")}
+        >
+          {copied === "json" ? <Check size={14} /> : <Braces size={14} />}
+        </button>
+      )}
     </div>
   );
 }
@@ -113,6 +134,7 @@ export interface TimestampActionsProps {
   text: string;
   /** Concatenated text of all segments in a multi-segment bot turn */
   fullTurnText?: string;
+  fullTurnMessages?: Message[];
   correlationId?: string;
   /** When defined, this is a bot message and "View bot info" becomes available */
   onBotClick?: () => void;
@@ -127,6 +149,7 @@ export function TimestampActions({
   timestamp,
   text,
   fullTurnText,
+  fullTurnMessages,
   correlationId,
   onBotClick,
   canReplyInThread,
@@ -135,7 +158,7 @@ export function TimestampActions({
 }: TimestampActionsProps) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [copied, setCopied] = useState<"single" | "full" | false>(false);
+  const [copied, setCopied] = useState<"single" | "full" | "json" | false>(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
@@ -178,7 +201,7 @@ export function TimestampActions({
     };
   }, [open]);
 
-  const doCopy = (value: string, which: "single" | "full") => {
+  const doCopy = (value: string, which: "single" | "full" | "json") => {
     writeToClipboard(value).then(() => {
       setCopied(which);
       setTimeout(() => setCopied(false), 1500);
@@ -186,8 +209,10 @@ export function TimestampActions({
   };
 
   const hasFullTurn = !!fullTurnText && fullTurnText !== text && fullTurnText.length > text.length;
+  const fullTurnJson = fullTurnMessages?.length ? JSON.stringify(fullTurnMessages, null, 2) : null;
+  const hasSingleMessageText = !!text;
   const showReply = !!(canReplyInThread && onReplyInThread);
-  const nothingToShow = !correlationId && !onBotClick && !text && !showReply;
+  const nothingToShow = !correlationId && !onBotClick && !text && !showReply && !fullTurnJson;
   if (nothingToShow) {
     return (
       <span style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
@@ -235,7 +260,7 @@ export function TimestampActions({
               }}
             />
           )}
-          {text && (
+          {hasSingleMessageText && (
             <MenuItem
               icon={copied === "single" ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
               label={copied === "single" ? "Copied!" : "Copy message"}
@@ -249,6 +274,14 @@ export function TimestampActions({
               label={copied === "full" ? "Copied!" : "Copy full response"}
               t={t}
               onClick={() => doCopy(fullTurnText!, "full")}
+            />
+          )}
+          {fullTurnJson && (
+            <MenuItem
+              icon={copied === "json" ? <Check size={14} color="#10b981" /> : <Braces size={14} />}
+              label={copied === "json" ? "Copied!" : "Copy JSON"}
+              t={t}
+              onClick={() => doCopy(fullTurnJson, "json")}
             />
           )}
           {onBotClick && (

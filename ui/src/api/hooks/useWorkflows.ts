@@ -3,10 +3,11 @@ import { apiFetch } from "../client";
 import type { Workflow, WorkflowRun, WorkflowConnection } from "../../types/api";
 import type { TasksResponse } from "../../components/shared/TaskConstants";
 
-export function useWorkflows() {
+export function useWorkflows(enabled = true) {
   return useQuery({
     queryKey: ["workflows"],
     queryFn: () => apiFetch<Workflow[]>("/api/v1/admin/workflows"),
+    enabled,
   });
 }
 

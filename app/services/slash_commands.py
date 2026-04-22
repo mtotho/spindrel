@@ -29,6 +29,11 @@ class ContextSummaryBudget(BaseModel):
     utilization: float | None = None
     consumed_tokens: int | None = None
     total_tokens: int | None = None
+    gross_prompt_tokens: int | None = None
+    current_prompt_tokens: int | None = None
+    cached_prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    context_profile: str | None = None
     source: str | None = None
 
 
@@ -109,16 +114,19 @@ def list_supported_slash_commands() -> list[dict[str, str]]:
 
 
 def _format_budget_headline(budget: ContextSummaryBudget | None, headline: str) -> str:
-    if budget is None or budget.total_tokens is None or budget.consumed_tokens is None:
+    if budget is None or budget.total_tokens is None:
+        return headline
+    gross = budget.gross_prompt_tokens or budget.consumed_tokens
+    if gross is None:
         return headline
     pct = (
-        round((budget.consumed_tokens / budget.total_tokens) * 100)
+        round((gross / budget.total_tokens) * 100)
         if budget.total_tokens > 0
         else None
     )
     if pct is None:
         return headline
-    return f"{headline} ({budget.consumed_tokens:,}/{budget.total_tokens:,} tokens, {pct}%)"
+    return f"{headline} ({gross:,}/{budget.total_tokens:,} tokens, {pct}%)"
 
 
 def _payload_to_fallback(payload: ContextSummaryPayload) -> str:
@@ -173,6 +181,17 @@ async def _build_channel_context_summary(
         total_chars=breakdown.total_chars,
         notes=[
             breakdown.disclaimer,
+            (f"Profile: {budget.context_profile}" if budget.context_profile else ""),
+            (
+                f"Prompt split: {budget.current_prompt_tokens:,} current"
+                + (
+                    f", {budget.cached_prompt_tokens:,} cached"
+                    if budget.cached_prompt_tokens is not None
+                    else ""
+                )
+                if budget.current_prompt_tokens is not None
+                else ""
+            ),
             f"Compaction {'on' if breakdown.compaction.enabled else 'off'}",
         ],
     )
@@ -230,6 +249,7 @@ async def _build_session_context_summary(
 ) -> SlashCommandResult:
     from app.agent.bots import get_bot
     from app.agent.context_assembly import AssemblyResult, assemble_context
+    from app.agent.context_profiles import resolve_context_profile
     from app.services.sessions import _load_messages
 
     session = await db.get(Session, session_id)
@@ -252,6 +272,7 @@ async def _build_session_context_summary(
         attachments=None,
         native_audio=False,
         result=result,
+        context_profile_name=resolve_context_profile(session=session).name,
     ):
         pass
 

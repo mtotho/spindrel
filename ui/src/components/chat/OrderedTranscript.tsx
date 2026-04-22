@@ -104,6 +104,7 @@ export function OrderedTranscript({
               botId={botId}
               widgetId={item.widget.recordId}
               t={t}
+              chatMode={chatMode}
               isLatestBotMessage={isLatestBotMessage}
               defaultCollapsed={defaultCollapsed}
               onPin={onPin}

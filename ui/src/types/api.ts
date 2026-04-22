@@ -790,6 +790,11 @@ export interface ContextSummaryPayload {
     utilization?: number | null;
     consumed_tokens?: number | null;
     total_tokens?: number | null;
+    gross_prompt_tokens?: number | null;
+    current_prompt_tokens?: number | null;
+    cached_prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    context_profile?: string | null;
     source?: string | null;
   } | null;
   top_categories: Array<{
@@ -904,6 +909,7 @@ export function normalizeToolCall(tc: ToolCall): { name: string; arguments: stri
  * via `GET /api/v1/sessions/{sid}/tool-calls/{record_id}/result`.
  */
 export interface ToolResultEnvelope {
+  tool_call_id?: string | null;
   content_type: string;
   body: string | Record<string, unknown> | null;
   plain_body: string;
@@ -1181,6 +1187,7 @@ export interface ContextBreakdown {
   channel_id: string;
   session_id: string | null;
   bot_id: string;
+  context_profile?: string | null;
   categories: ContextCategory[];
   total_chars: number;
   total_tokens_approx: number;
@@ -1188,6 +1195,29 @@ export interface ContextBreakdown {
   compression?: CompressionState | null;
   reranking: RerankState;
   effective_settings: Record<string, EffectiveSetting>;
+  context_budget?: {
+    context_profile?: string | null;
+    estimate?: {
+      total_tokens?: number | null;
+      reserve_tokens?: number | null;
+      available_tokens?: number | null;
+      gross_prompt_tokens?: number | null;
+      current_prompt_tokens?: number | null;
+      cached_prompt_tokens?: number | null;
+      completion_tokens?: number | null;
+      utilization?: number | null;
+      source?: string | null;
+    } | null;
+    usage?: {
+      total_tokens?: number | null;
+      gross_prompt_tokens?: number | null;
+      current_prompt_tokens?: number | null;
+      cached_prompt_tokens?: number | null;
+      completion_tokens?: number | null;
+      utilization?: number | null;
+      source?: string | null;
+    } | null;
+  } | null;
   disclaimer: string;
 }
 

@@ -6,7 +6,7 @@ export function useDockerStacks(filters?: {
   bot_id?: string;
   channel_id?: string;
   status?: string;
-}) {
+}, enabled = true) {
   const params = new URLSearchParams();
   if (filters?.bot_id) params.set("bot_id", filters.bot_id);
   if (filters?.channel_id) params.set("channel_id", filters.channel_id);
@@ -18,6 +18,7 @@ export function useDockerStacks(filters?: {
       apiFetch<DockerStack[]>(
         `/api/v1/admin/docker-stacks${qs ? `?${qs}` : ""}`
       ),
+    enabled,
     refetchInterval: 15000,
   });
 }

@@ -353,6 +353,60 @@ test("live and persisted widget error results stay rich instead of flattening to
   assert.equal(persistedItems[0].widget.recordId, "search-error");
 });
 
+test("persisted tool results resolve by tool_call_id before index position", () => {
+  const items = buildAssistantTurnBodyItems({
+    assistantTurnBody: {
+      version: 1,
+      items: [{ id: "tool-search", kind: "tool_call", toolCallId: "call-search" }],
+    },
+    toolCalls: [
+      {
+        id: "call-skill",
+        name: "get_skill",
+        arguments: '{"skill_id":"workspace_files"}',
+        surface: "transcript",
+        summary: {
+          kind: "read",
+          subject_type: "skill",
+          label: "Loaded skill",
+          target_id: "workspace_files",
+          target_label: "workspace_files/INDEX.md",
+        },
+      },
+      {
+        id: "call-search",
+        name: "web_search",
+        arguments: '{"query":"latest OpenAI news","num_results":5}',
+        surface: "widget",
+        summary: {
+          kind: "result",
+          subject_type: "widget",
+          label: "Widget available",
+          target_label: "Web search",
+        },
+      },
+    ],
+    toolResults: [
+      {
+        tool_call_id: "call-search",
+        content_type: "application/vnd.spindrel.html+interactive",
+        body: "<html><body>widget</body></html>",
+        plain_body: "Widget: web_search",
+        display: "inline",
+        truncated: false,
+        record_id: "widget-search",
+        byte_size: 32,
+        display_label: "Web search",
+      },
+    ],
+  });
+
+  assert.equal(items[0]?.kind, "widget");
+  if (items[0]?.kind !== "widget") throw new Error("expected widget item");
+  assert.equal(items[0].widget.toolName, "web_search");
+  assert.equal(items[0].widget.recordId, "widget-search");
+});
+
 test("canonical tool surfaces are not re-inferred from envelopes", () => {
   const items = buildAssistantTurnBodyItems({
     assistantTurnBody: {

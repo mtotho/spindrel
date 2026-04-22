@@ -29,10 +29,23 @@ export interface ChannelHeaderProps {
   onBrowseWorkspace: () => void;
   isMobile: boolean;
   /** Context budget from last SSE stream */
-  contextBudget?: { utilization: number; consumed: number; total: number } | null;
+  contextBudget?: {
+    utilization: number;
+    consumed: number;
+    total: number;
+    gross?: number;
+    current?: number;
+    cached?: number;
+    contextProfile?: string;
+  } | null;
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
   sessionHeaderStats?: {
+    grossPromptTokens: number | null;
+    currentPromptTokens: number | null;
+    cachedPromptTokens: number | null;
+    completionTokens: number | null;
+    contextProfile: string | null;
     turnsInContext: number | null;
     turnsUntilCompaction: number | null;
   } | null;
@@ -160,6 +173,20 @@ export function ChannelHeader({
   const showDashboardInline = !isMobile;
   const headerMetaBits = [
     contextBudget && contextBudget.total > 0 ? (
+      (() => {
+        const gross = contextBudget.gross ?? sessionHeaderStats?.grossPromptTokens ?? contextBudget.consumed;
+        const current = contextBudget.current ?? sessionHeaderStats?.currentPromptTokens;
+        const cached = contextBudget.cached ?? sessionHeaderStats?.cachedPromptTokens;
+        const profile = contextBudget.contextProfile ?? sessionHeaderStats?.contextProfile;
+        const completion = sessionHeaderStats?.completionTokens;
+        const titleParts = [
+          `Prompt: ${fmtTokens(gross)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`,
+          current != null ? `Current: ${fmtTokens(current)}` : null,
+          cached != null ? `Cached: ${fmtTokens(cached)}` : null,
+          completion != null ? `Completion: ${fmtTokens(completion)}` : null,
+          profile ? `Profile: ${profile}` : null,
+        ].filter(Boolean);
+        return (
       <span
         key="tokens"
         onClick={onContextBudgetClick}
@@ -174,10 +201,12 @@ export function ChannelHeader({
         }}
         onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
         onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-        title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
+        title={titleParts.join("\n")}
       >
-        {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
+        {fmtTokens(gross)}/{fmtTokens(contextBudget.total)}
       </span>
+        );
+      })()
     ) : null,
     typeof sessionHeaderStats?.turnsInContext === "number" ? (
       <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>

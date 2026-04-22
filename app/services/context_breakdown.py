@@ -96,6 +96,7 @@ class ContextBreakdownResult:
     compaction: CompactionState
     reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
+    context_profile: str | None = None
     context_budget: dict | None = None
     disclaimer: str = ""
 
@@ -153,6 +154,7 @@ async def fetch_latest_context_budget(
     )
     inj_data = inj_row.scalar_one_or_none()
     inj_budget = (inj_data or {}).get("context_budget") or {}
+    context_profile = (inj_data or {}).get("context_profile")
     total_tokens = inj_budget.get("total_tokens")
     est_consumed = inj_budget.get("consumed_tokens")
 
@@ -170,13 +172,30 @@ async def fetch_latest_context_budget(
         usage_query.order_by(TraceEvent.created_at.desc()).limit(1)
     )
     usage_data = usage_row.scalar_one_or_none() or {}
-    api_prompt_tokens = usage_data.get("prompt_tokens")
+    api_prompt_tokens = usage_data.get("gross_prompt_tokens")
+    if api_prompt_tokens is None:
+        api_prompt_tokens = usage_data.get("prompt_tokens")
+    cached_prompt_tokens = usage_data.get("cached_prompt_tokens")
+    if cached_prompt_tokens is None:
+        cached_prompt_tokens = usage_data.get("cached_tokens")
+    current_prompt_tokens = usage_data.get("current_prompt_tokens")
+    if current_prompt_tokens is None and api_prompt_tokens is not None:
+        if cached_prompt_tokens is None:
+            current_prompt_tokens = api_prompt_tokens
+        else:
+            current_prompt_tokens = max(0, api_prompt_tokens - cached_prompt_tokens)
+    completion_tokens = usage_data.get("completion_tokens")
 
     if api_prompt_tokens is None and est_consumed is None:
         return {
             "utilization": None,
             "consumed_tokens": None,
             "total_tokens": None,
+            "gross_prompt_tokens": None,
+            "current_prompt_tokens": None,
+            "cached_prompt_tokens": None,
+            "completion_tokens": None,
+            "context_profile": context_profile,
             "source": "none",
         }
 
@@ -192,6 +211,11 @@ async def fetch_latest_context_budget(
         "utilization": utilization,
         "consumed_tokens": consumed,
         "total_tokens": total_tokens,
+        "gross_prompt_tokens": consumed,
+        "current_prompt_tokens": current_prompt_tokens if api_prompt_tokens is not None else est_consumed,
+        "cached_prompt_tokens": cached_prompt_tokens if api_prompt_tokens is not None else None,
+        "completion_tokens": completion_tokens if api_prompt_tokens is not None else None,
+        "context_profile": context_profile,
         "source": "api" if api_prompt_tokens is not None else "estimate",
     }
 
@@ -753,6 +777,7 @@ async def compute_context_breakdown(
     # Context budget info (if enabled)
     _budget_info = None
     api_total_tokens: int | None = None
+    context_profile: str | None = None
     if settings.CONTEXT_BUDGET_ENABLED:
         try:
             from app.agent.context_budget import get_model_context_window
@@ -761,19 +786,30 @@ async def compute_context_breakdown(
             _available = _window - _reserve
             # Pull the API-reported prompt_tokens for last_turn alignment.
             _latest = await fetch_latest_context_budget(channel_id, db, session_id=target_session_id)
+            context_profile = _latest.get("context_profile")
             api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
             _budget_info = {
-                "model_context_window": _window,
-                "reserve_tokens": _reserve,
-                "available_tokens": _available,
-                "estimated_consumed_tokens": forecast_total_tokens,
-                "estimated_utilization": round(forecast_total_tokens / _available, 3) if _available > 0 else 1.0,
-                "api_consumed_tokens": api_total_tokens,
-                "api_utilization": (
-                    round(api_total_tokens / _window, 3)
-                    if api_total_tokens and _window > 0
-                    else None
-                ),
+                "context_profile": context_profile,
+                "estimate": {
+                    "total_tokens": _window,
+                    "reserve_tokens": _reserve,
+                    "available_tokens": _available,
+                    "gross_prompt_tokens": forecast_total_tokens,
+                    "current_prompt_tokens": forecast_total_tokens,
+                    "cached_prompt_tokens": None,
+                    "completion_tokens": None,
+                    "utilization": round(forecast_total_tokens / _available, 3) if _available > 0 else 1.0,
+                    "source": "estimate",
+                },
+                "usage": None if _latest.get("source") == "none" else {
+                    "total_tokens": _latest.get("total_tokens"),
+                    "gross_prompt_tokens": _latest.get("gross_prompt_tokens"),
+                    "current_prompt_tokens": _latest.get("current_prompt_tokens"),
+                    "cached_prompt_tokens": _latest.get("cached_prompt_tokens"),
+                    "completion_tokens": _latest.get("completion_tokens"),
+                    "utilization": _latest.get("utilization"),
+                    "source": _latest.get("source"),
+                },
             }
         except Exception:
             logger.debug("budget block compute failed", exc_info=True)
@@ -795,6 +831,7 @@ async def compute_context_breakdown(
         compaction=compaction,
         reranking=reranking,
         effective_settings=effective_settings,
+        context_profile=context_profile,
         context_budget=_budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )

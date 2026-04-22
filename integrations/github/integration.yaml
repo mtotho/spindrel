@@ -49,7 +49,6 @@ webhook:
   description: "GitHub webhook receiver (push, PR, issue events)"
 
 activation:
-  carapaces: [github]
   requires_workspace: false
   description: "GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring"
 
@@ -75,7 +74,6 @@ provides:
   - renderer
   - router
   - tools
-  - carapaces
   - skills
 
 # Interactive widget buttons for GitHub tools.

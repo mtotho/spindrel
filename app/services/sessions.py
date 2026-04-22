@@ -10,6 +10,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.bots import BotConfig, get_bot
+from app.agent.context_profiles import (
+    resolve_context_profile,
+    trim_messages_to_recent_turns,
+)
 from app.agent.persona import get_persona
 from app.db.engine import async_session
 from sqlalchemy.orm import selectinload
@@ -291,6 +295,7 @@ async def load_or_create(
     locked: bool = False,
     channel_id: uuid.UUID | None = None,
     preserve_metadata: bool = False,
+    context_profile_name: str | None = None,
 ) -> tuple[uuid.UUID, list[dict]]:
     if session_id is not None:
         existing = await db.get(Session, session_id)
@@ -302,7 +307,12 @@ async def load_or_create(
                 )
                 await db.commit()
                 await db.refresh(existing)
-            messages = await _load_messages(db, existing, preserve_metadata=preserve_metadata)
+            messages = await _load_messages(
+                db,
+                existing,
+                preserve_metadata=preserve_metadata,
+                context_profile_name=context_profile_name,
+            )
             return session_id, messages
 
     if session_id is None:
@@ -352,7 +362,13 @@ def _format_passive_context(passive_msgs: list[dict]) -> str:
 
 
 
-async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadata: bool = False) -> list[dict]:
+async def _load_messages(
+    db: AsyncSession,
+    session: Session,
+    *,
+    preserve_metadata: bool = False,
+    context_profile_name: str | None = None,
+) -> list[dict]:
     """Load messages for a session, using compacted summary when available.
 
     When preserve_metadata=True, the internal ``_metadata`` dict is kept on each
@@ -360,6 +376,10 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
     for stripping it before passing messages to the LLM (use ``strip_metadata_keys``).
     """
     bot = get_bot(session.bot_id)
+    context_profile = resolve_context_profile(
+        session=session,
+        profile_name=context_profile_name,
+    )
 
     ws_base_enabled = await _resolve_workspace_base_prompt_enabled(
         db, session.bot_id, session.channel_id,
@@ -441,15 +461,16 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
                 # with proper count/verbosity — skip executive summary here to
                 # avoid duplicating section titles+summaries in context.
                 pass
-            elif _history_mode == "structured":
+            elif context_profile.include_compaction_summary and _history_mode == "structured":
                 # Structured mode: inject compact executive summary (section retrieval happens in context_assembly)
                 messages.append({"role": "system", "content": f"Executive summary of conversation history:\n\n{session.summary}"})
-            else:
+            elif context_profile.include_compaction_summary:
                 # Default summary mode
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
 
             _inject_channel_context(messages, passive)
             _inject_bootstrap_context(messages, len(active))
+            active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -471,12 +492,13 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
             passive = [m for m in passive if not _is_internal_history_message(m)]
             active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
             messages = _base_messages()
-            if _history_mode != "file" or not session.channel_id:
+            if context_profile.include_compaction_summary and (_history_mode != "file" or not session.channel_id):
                 # In file mode, section index is injected by context_assembly.py —
                 # skip executive summary here to avoid duplication.
                 messages.append({"role": "system", "content": f"Summary of the conversation so far:\n\n{session.summary}"})
             _inject_channel_context(messages, passive)
             _inject_bootstrap_context(messages, len(active))
+            active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
             if active:
                 messages.append({"role": "system", "content": "--- BEGIN RECENT CONVERSATION HISTORY ---"})
                 messages.extend(active)
@@ -495,6 +517,7 @@ async def _load_messages(db: AsyncSession, session: Session, *, preserve_metadat
     passive, active = _split_passive_active(non_system_msgs)
     passive = [m for m in passive if not _is_internal_history_message(m)]
     active = _rewrite_active_history_for_model(_filter_old_heartbeats(active))
+    active = trim_messages_to_recent_turns(active, context_profile.live_history_turns)
     messages = _base_messages()
     _inject_channel_context(messages, passive)
     _inject_bootstrap_context(messages, len(active))

@@ -5,9 +5,10 @@ import { useChatStore } from "../../stores/chat";
 import { useChannel, useUpdateChannelSettings } from "./useChannels";
 import { useChannelEvents } from "./useChannelEvents";
 import { useCancelChat, useSubmitChat } from "./useChat";
-import { extractDisplayText } from "@/src/components/chat/MessageBubble";
 import { MessagePage, PAGE_SIZE } from "@/app/(app)/channels/[channelId]/chatUtils";
+import { extractDisplayText } from "@/src/components/chat/messageUtils";
 import type { ChatRequest, Message } from "../../types/api";
+import { mergePersistedAndSyntheticMessages } from "@/src/components/chat/sessionMessageSync";
 
 export interface UseChannelChatSourceReturn {
   channelId: string;
@@ -108,33 +109,12 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
         });
 
       // Preserve synthetic streaming messages that haven't persisted yet.
-      // Content-prefix match drops synthetic rows the DB has already
-      // canonicalised. Logic mirrors useChannelChat.ts.
+      // If a fetched row matches by correlation/content but is still
+      // structurally weaker (for example: missing widget/rich tool
+      // presentation metadata), keep the richer synthetic row until the
+      // canonical DB message catches up.
       const current = useChatStore.getState().channels[channelId]?.messages ?? [];
-      const dbCorrelationIds = new Set(
-        allMessages.map((m) => m.correlation_id).filter(Boolean),
-      );
-      const CONTENT_PREFIX_LEN = 120;
-      const prefix = (raw: unknown): string => {
-        if (typeof raw !== "string") return "";
-        return extractDisplayText(raw).trim().replace(/\s+/g, "").slice(0, CONTENT_PREFIX_LEN);
-      };
-      const dbPrefixes = new Set<string>();
-      for (const m of allMessages) {
-        if (m.role !== "assistant") continue;
-        const p = prefix(m.content);
-        if (p) dbPrefixes.add(p);
-      }
-      const syntheticKeep = current.filter((m) => {
-        if (!(m.id.startsWith("turn-") || m.id.startsWith("msg-"))) return false;
-        if (m.role !== "assistant") return false;
-        if (m.correlation_id && dbCorrelationIds.has(m.correlation_id)) return false;
-        const p = prefix(m.content);
-        if (p && dbPrefixes.has(p)) return false;
-        return true;
-      });
-
-      setMessages(channelId, [...allMessages, ...syntheticKeep]);
+      setMessages(channelId, mergePersistedAndSyntheticMessages(allMessages, current));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channelId, pages]);

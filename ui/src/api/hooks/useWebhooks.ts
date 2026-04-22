@@ -63,10 +63,11 @@ export interface WebhookRotateSecretResponse {
   secret: string;
 }
 
-export function useWebhooks() {
+export function useWebhooks(enabled = true) {
   return useQuery({
     queryKey: ["admin-webhooks"],
     queryFn: () => apiFetch<WebhookEndpointItem[]>("/api/v1/admin/webhooks"),
+    enabled,
   });
 }
 

@@ -132,3 +132,81 @@ async def test_persist_turn_normalizes_assistant_tool_calls_with_surface_and_sum
             },
         },
     ]
+
+
+@pytest.mark.asyncio
+async def test_persist_turn_matches_tool_envelopes_by_tool_call_id_before_position(db_session, bot):
+    sid = uuid.uuid4()
+    db_session.add(Session(id=sid, client_id="c1", bot_id=bot.id))
+    await db_session.commit()
+
+    messages = [
+        {"role": "user", "content": "search the web"},
+        {
+            "role": "assistant",
+            "content": "Found it.",
+            "tool_calls": [
+                {
+                    "id": "call_skill",
+                    "type": "function",
+                    "function": {
+                        "name": "get_skill",
+                        "arguments": "{\"skill_id\":\"workspace_files\"}",
+                    },
+                },
+                {
+                    "id": "call_search",
+                    "type": "function",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": "{\"query\":\"latest OpenAI news\",\"num_results\":5}",
+                    },
+                },
+            ],
+            "_tool_envelopes": [
+                {
+                    "tool_call_id": "call_search",
+                    "content_type": "application/vnd.spindrel.html+interactive",
+                    "body": "<html><body>widget</body></html>",
+                    "plain_body": "Widget: web_search",
+                    "display": "inline",
+                    "truncated": False,
+                    "record_id": None,
+                    "byte_size": 32,
+                    "display_label": "Web search",
+                },
+            ],
+        },
+    ]
+
+    with patch("app.services.sessions.get_bot", return_value=bot):
+        await persist_turn(
+            db_session,
+            session_id=sid,
+            bot=bot,
+            messages=messages,
+            from_index=0,
+        )
+
+    from sqlalchemy import select
+
+    row = (
+        await db_session.execute(
+            select(Message).where(
+                Message.session_id == sid,
+                Message.role == "assistant",
+            )
+        )
+    ).scalar_one()
+
+    assert row.tool_calls[0]["id"] == "call_skill"
+    assert row.tool_calls[0]["surface"] == "transcript"
+    assert row.tool_calls[1]["id"] == "call_search"
+    assert row.tool_calls[1]["surface"] == "widget"
+    assert row.tool_calls[1]["summary"] == {
+        "kind": "result",
+        "subject_type": "widget",
+        "label": "Widget available",
+        "target_label": "Web search",
+    }
+    assert row.metadata_["tool_results"][0]["tool_call_id"] == "call_search"

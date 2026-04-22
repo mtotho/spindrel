@@ -6,6 +6,8 @@ updated: 2026-04-22 (session switcher polish follow-up — visible Make main act
 
 # Track — Task Sub-Sessions (pipeline-as-chat refactor)
 
+Context replay/compaction/history-policy details referenced here defer to the canonical guide at `agent-server/docs/guides/context-management.md`.
+
 ## Phase 9 session-aware scratch metadata, history, and promotion (shipped 2026-04-21)
 
 Scratch sessions stopped being a thin "current pointer + first-message preview" layer and became first-class session records with names, summaries, section stats, and session-aware history semantics.

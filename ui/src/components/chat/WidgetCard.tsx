@@ -34,6 +34,7 @@ interface WidgetCardProps {
   channelId?: string;
   botId?: string;
   t: ThemeTokens;
+  chatMode?: "default" | "terminal";
   /** Stable identity for pin references (derived from tool call record_id) */
   widgetId?: string;
   /** When true, this is part of the latest bot message — keep expanded */
@@ -58,6 +59,7 @@ export function WidgetCard({
   channelId,
   botId,
   t,
+  chatMode = "default",
   widgetId,
   isLatestBotMessage,
   defaultCollapsed,
@@ -220,13 +222,19 @@ export function WidgetCard({
   if (isHtmlWidget && !hasPathSource && !body) return null;
 
   const displayName = cleanToolName(toolName);
+  const isTerminalMode = chatMode === "terminal";
 
   // Auto-collapse: when pinned (older messages) or when defaultCollapsed is set (stacked widgets)
   const autoCollapsed = (isPinned && !isLatestBotMessage) || (defaultCollapsed ?? false);
   const isCollapsed = manualExpand !== null ? !manualExpand : autoCollapsed;
 
   const content = isHtmlWidget ? (
-    <InteractiveHtmlRenderer envelope={currentEnvelope} channelId={channelId} t={t} />
+    <InteractiveHtmlRenderer
+      envelope={currentEnvelope}
+      channelId={channelId}
+      hostSurface={isTerminalMode ? "plain" : "surface"}
+      t={t}
+    />
   ) : showJson ? (
     <JsonTreeRenderer body={body ?? ""} t={t} />
   ) : (
@@ -245,10 +253,11 @@ export function WidgetCard({
       <button
         type="button"
         onClick={() => setManualExpand(true)}
-        className="rounded-lg border mt-1.5 px-3 py-1.5 flex items-center gap-2 w-full text-left hover:bg-white/[0.02] transition-colors duration-150"
+        className="rounded-lg border mt-1.5 px-3 py-1.5 flex items-center gap-2 w-full text-left transition-colors duration-150"
         style={{
           borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
-          backgroundColor: t.surfaceRaised,
+          backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
+          borderRadius: isTerminalMode ? 6 : undefined,
         }}
       >
         <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: t.textDim }}>
@@ -271,10 +280,11 @@ export function WidgetCard({
 
   return (
     <div
-      className="rounded-lg border mt-1.5"
+        className="rounded-lg border mt-1.5"
       style={{
         borderColor: isPinned ? `${t.accent}40` : t.surfaceBorder,
-        backgroundColor: t.surfaceRaised,
+        backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
+        borderRadius: isTerminalMode ? 6 : undefined,
       }}
     >
       {/* Header: tool name + pinned badge + pin button. Clicking the row
@@ -289,13 +299,16 @@ export function WidgetCard({
             setManualExpand(false);
           }
         }}
-        className="px-3 pt-2 pb-0.5 flex items-center gap-2 cursor-pointer hover:bg-white/[0.02] transition-colors duration-150"
+        className="px-3 pt-2 pb-0.5 flex items-center gap-2 cursor-pointer transition-colors duration-150"
         title="Collapse"
       >
         <ChevronDown size={11} style={{ color: t.textDim, flexShrink: 0 }} />
         <span
           className="text-[10px] font-medium uppercase tracking-wider"
-          style={{ color: t.textDim }}
+          style={{
+            color: t.textDim,
+            fontFamily: isTerminalMode ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+          }}
         >
           {displayName}
         </span>
@@ -358,6 +371,7 @@ export function WidgetCard({
             ? "px-3 pb-2"
             : "px-3 pb-2 max-h-[400px] overflow-y-auto"
         }
+        style={isTerminalMode ? { paddingTop: 6 } : undefined}
       >
         {wrapped}
       </div>

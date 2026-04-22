@@ -211,13 +211,6 @@ class EventHandler:
         else:
             self._context_items.append(f"{count} skill{'s' if count != 1 else ''}")
 
-    def _on_carapace_context(self, event: dict) -> None:
-        count = event.get("count", 0)
-        if self.verbose:
-            print_status(f"Using {count} carapace{'s' if count != 1 else ''}")
-        else:
-            self._context_items.append(f"{count} carapace{'s' if count != 1 else ''}")
-
     def _on_memory_scheme(self, event: dict) -> None:
         etype = event.get("type", "")
         chars = event.get("chars", 0)
@@ -303,7 +296,6 @@ _HANDLERS: dict[str, Any] = {
     "context_budget": EventHandler._on_context_budget,
     "skill_context": EventHandler._on_skill_context,
     "skill_pinned_context": EventHandler._on_skill_context,
-    "carapace_context": EventHandler._on_carapace_context,
     "memory_scheme_bootstrap": EventHandler._on_memory_scheme,
     "memory_scheme_today_log": EventHandler._on_memory_scheme,
     "memory_scheme_yesterday_log": EventHandler._on_memory_scheme,

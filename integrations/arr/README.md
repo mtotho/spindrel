@@ -45,14 +45,7 @@ FLARESOLVERR_URL=http://192.168.1.x:8191
 
 ## Bot Configuration
 
-Add the `arr` carapace to your bot for full media stack support:
-
-```yaml
-carapaces:
-  - arr
-```
-
-Or add individual tools to the bot's `local_tools` list in `bots/*.yaml`:
+Enroll the ARR tools you want on the bot for full media stack support:
 
 ```yaml
 local_tools:
@@ -81,10 +74,6 @@ local_tools:
   - jellyseerr_manage
   # Bazarr
   - bazarr_subtitles
-
-# Note: skills are NOT declared on the carapace. The system_prompt_fragment's
-# Deep Knowledge table points at them via get_skill('id') instead, and the
-# bot's working set auto-enrolls each one on first successful fetch.
 ```
 
 ## Tools

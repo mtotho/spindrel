@@ -1,4 +1,5 @@
 import type { RecentPage } from "../stores/ui";
+import { canonicalizePaletteHref, isRecordablePaletteHref } from "./paletteRoutes.js";
 
 const LEGACY_SCRATCH_SESSION_RE = /^\/channels\/[^/]+\/session\/[^/?#]+$/;
 const CHANNEL_ROUTE_RE = /^\/channels\/([^/?#]+)$/;
@@ -19,10 +20,10 @@ export function buildRecentHref(
 }
 
 export function migrateRecentPage(page: RecentPage): RecentPage {
-  if (LEGACY_SCRATCH_SESSION_RE.test(page.href)) {
-    return { ...page, href: `${page.href}?scratch=true` };
-  }
-  return page;
+  const href = LEGACY_SCRATCH_SESSION_RE.test(page.href)
+    ? `${page.href}?scratch=true`
+    : page.href;
+  return { ...page, href: canonicalizePaletteHref(href), version: 2 };
 }
 
 export function shouldSkipRecentPage(
@@ -30,8 +31,10 @@ export function shouldSkipRecentPage(
   currentHref: string,
   isAdmin: boolean,
 ): boolean {
-  if (page.href === currentHref) return true;
+  const href = canonicalizePaletteHref(page.href);
+  if (href === canonicalizePaletteHref(currentHref)) return true;
   if (!isAdmin && page.href.startsWith("/admin/")) return true;
+  if (!isRecordablePaletteHref(href)) return true;
   return false;
 }
 

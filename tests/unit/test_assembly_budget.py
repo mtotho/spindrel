@@ -16,7 +16,7 @@ from app.agent.context_budget import ContextBudget, estimate_tokens
 def _minimal_bot(**overrides) -> BotConfig:
     """Return a minimal BotConfig with defaults overridden by kwargs."""
     defaults = dict(
-        id="test-bot",
+        id="",
         name="Test Bot",
         model="gpt-4o",
         system_prompt="You are a test bot.",
@@ -48,6 +48,13 @@ def _assembly_patches():
     return [
         patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
         patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+        patch("app.agent.context_assembly._get_bot_authored_skill_ids", new_callable=AsyncMock, return_value=[]),
+        patch("app.services.skill_enrollment.enroll_many", new_callable=AsyncMock, return_value=0),
+        patch("app.services.skill_enrollment.get_enrolled_skill_ids", new_callable=AsyncMock, return_value=[]),
+        patch("app.services.skill_enrollment.get_enrolled_source_map", new_callable=AsyncMock, return_value={}),
+        patch("app.agent.context_assembly.resolve_tags", new_callable=AsyncMock, return_value=[]),
+        patch("app.agent.rag.retrieve_skill_index", new_callable=AsyncMock, return_value=([], 0.0, [])),
+        patch("app.services.widget_handler_tools.list_widget_handler_tools", new_callable=AsyncMock, return_value=([], None)),
     ]
 
 
@@ -189,6 +196,7 @@ class TestAssemblyBudgetTight:
         tool_index_events = [e for e in events if e.get("type") == "tool_index"]
         assert len(tool_index_events) == 0
         assert "tool_index" not in budget.breakdown
+        assert result.inject_decisions["tool_index"] == "skipped_by_budget"
 
     @pytest.mark.asyncio
     async def test_p3_fs_rag_budget_gate(self):
@@ -247,7 +255,60 @@ class TestAssemblyBudgetTight:
         tool_index_events = [e for e in events if e.get("type") == "tool_index"]
         assert len(tool_index_events) == 1
         assert "tool_index" in budget.breakdown
-        assert budget.breakdown["tool_index"] > 0
+        assert result.inject_decisions["tool_index"] == "admitted"
+
+    @pytest.mark.asyncio
+    async def test_tool_index_skipped_by_profile_for_task_none(self):
+        bot = _minimal_bot(
+            local_tools=["web_search", "file", "exec_command"],
+            tool_retrieval=True,
+        )
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        mock_schemas = {
+            "web_search": {"type": "function", "function": {"name": "web_search", "description": "Search", "parameters": {}}},
+            "file": {"type": "function", "function": {"name": "file", "description": "File ops", "parameters": {}}},
+            "exec_command": {"type": "function", "function": {"name": "exec_command", "description": "Run command", "parameters": {}}},
+        }
+
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
+                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+            )),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            events = await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="search for cats",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="task_none",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert not [e for e in events if e.get("type") == "tool_index"]
+        assert "tool_index" not in budget.breakdown
+        assert result.context_profile == "task_none"
+        assert result.inject_decisions["tool_index"] == "skipped_by_profile"
 
 
 # ---------------------------------------------------------------------------

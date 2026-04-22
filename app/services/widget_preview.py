@@ -90,12 +90,15 @@ def render_preview_envelope(
 
     template = widget_def.get("template") or {}
     filled = _substitute(copy.deepcopy(template), data_with_config)
+    if not isinstance(filled, dict):
+        filled = {}
 
     transform_ref = widget_def.get("transform")
-    if transform_ref and isinstance(filled, dict):
+    if transform_ref:
         components = filled.get("components")
-        if isinstance(components, list):
-            filled["components"] = _apply_code_transform(transform_ref, data_with_config, components)
+        base_components = components if isinstance(components, list) else []
+        filled["v"] = 1
+        filled["components"] = _apply_code_transform(transform_ref, data_with_config, base_components)
 
     return PreviewEnvelope(
         content_type=widget_def.get(

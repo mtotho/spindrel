@@ -134,13 +134,14 @@ export function useDocsPage(path: string) {
   });
 }
 
-export function useIntegrations() {
+export function useIntegrations(enabled = true) {
   return useQuery({
     queryKey: ["admin-integrations"],
     queryFn: () =>
       apiFetch<{ integrations: IntegrationItem[] }>(
         "/api/v1/admin/integrations"
       ),
+    enabled,
   });
 }
 
@@ -372,13 +373,14 @@ export interface SidebarSection {
   readiness_field: string | null;
 }
 
-export function useSidebarSections() {
+export function useSidebarSections(enabled = true) {
   return useQuery({
     queryKey: ["admin-sidebar-sections"],
     queryFn: () =>
       apiFetch<{ sections: SidebarSection[] }>(
         "/api/v1/admin/integrations/sidebar-sections"
       ),
+    enabled,
     staleTime: 300_000, // 5 min — sidebar sections rarely change
   });
 }

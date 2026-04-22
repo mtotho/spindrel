@@ -329,6 +329,7 @@ class ContextBudgetPayload:
     total_tokens: int
     utilization: float
     model: str = ""
+    context_profile: str | None = None
     available_budget: int = 0
     live_history_tokens: int = 0
     live_history_utilization: float = 0.0

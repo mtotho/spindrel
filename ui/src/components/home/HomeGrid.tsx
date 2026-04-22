@@ -12,9 +12,11 @@ import { HomeGridTile } from "./HomeGridTile";
 import { NewChannelTile } from "./NewChannelTile";
 import { Link } from "react-router-dom";
 import { buildRecentHref } from "../../lib/recentPages";
+import type { PaletteItem } from "../palette/types";
 
 const MIN_TILE_WIDTH = 220;
 const GRID_GAP = 8;
+type NavigablePaletteItem = PaletteItem & { href: string };
 
 /**
  * Full-screen palette-as-grid that owns the desktop `/` route.
@@ -44,13 +46,18 @@ export function HomeGrid() {
   // The palette surfaces "Home" (self-link here) and "New channel" (replaced
   // by the pinned NewChannelTile below) — drop them to avoid duplicates.
   const items = useMemo(
-    () => allItems.filter((it) => it.id !== "nav-home" && it.id !== "nav-new-channel"),
+    () =>
+      allItems.filter(
+        (it): it is NavigablePaletteItem =>
+          typeof it.href === "string" && it.id !== "nav-home" && it.id !== "nav-new-channel",
+      ),
     [allItems],
   );
 
   const { groups: rawGroups, isEmpty } = usePaletteSearch(items, query, {
     currentHref: buildRecentHref(location.pathname, location.search, location.hash),
     searchLimit: 200,
+    isAdmin,
   });
 
   // Home page order differs from the palette overlay's CATEGORY_ORDER: we push
@@ -229,6 +236,7 @@ export function HomeGrid() {
         navigate("/channels/new");
       } else {
         const href = target.scored.item.href;
+        if (!href) return;
         recordPageVisit(href);
         const hashIdx = href.indexOf("#");
         if (hashIdx >= 0) {
@@ -498,20 +506,21 @@ export function HomeGrid() {
                 )}
                 {group.items.map((scored) => {
                   const flatIdx = flatIndexByScoredId.get(scored.item.id) ?? -1;
+                  const navigableScored = scored as typeof scored & { item: NavigablePaletteItem };
                   return (
                     <HomeGridTile
-                      key={scored.item.id}
+                      key={navigableScored.item.id}
                       ref={(el) => {
                         if (flatIdx >= 0) tileRefs.current[flatIdx] = el;
                       }}
-                      scored={scored}
+                      scored={navigableScored}
                       selected={flatIdx === selectedIndex}
                       onHover={() => {
                         isKeyboardNav.current = false;
                         setSelectedIndex(flatIdx);
                       }}
                       onClick={() => {
-                        recordPageVisit(scored.item.href);
+                        recordPageVisit(navigableScored.item.href);
                       }}
                     />
                   );

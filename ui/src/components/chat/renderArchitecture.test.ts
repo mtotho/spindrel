@@ -42,6 +42,7 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
   const orderedTranscript = readChatFile("OrderedTranscript.tsx");
   const toolBadges = readChatFile("ToolBadges.tsx");
   const richToolResult = readChatFile("RichToolResult.tsx");
+  const widgetCard = readChatFile("WidgetCard.tsx");
 
   assert.match(richToolResult, /RichRendererChromeMode/);
   assert.match(richToolResult, /chromeMode\?:\s*RichRendererChromeMode/);
@@ -53,4 +54,26 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
 
   assert.match(toolBadges, /rendererVariant=\{isTerminalMode \? "terminal-chat" : "default-chat"\}/);
   assert.match(toolBadges, /chromeMode="embedded"/);
+
+  assert.match(orderedTranscript, /chatMode=\{chatMode\}/);
+  assert.match(widgetCard, /chatMode\?:\s*"default"\s*\|\s*"terminal"/);
+  assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
+});
+
+test("chat copy actions share one assistant-response bundle primitive for text and json", () => {
+  const channelPage = readFileSync(
+    resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),
+    "utf8",
+  );
+  const chatSession = readChatFile("ChatSession.tsx");
+  const sessionChatView = readChatFile("SessionChatView.tsx");
+  const messageBubble = readChatFile("MessageBubble.tsx");
+  const messageActions = readChatFile("MessageActions.tsx");
+
+  assert.match(channelPage, /getTurnMessages/);
+  assert.match(chatSession, /getTurnMessages/);
+  assert.match(sessionChatView, /getTurnMessages/);
+  assert.match(messageBubble, /fullTurnMessages\?:\s*Message\[\]/);
+  assert.match(messageBubble, /fullTurnMessages=\{fullTurnMessages\}/);
+  assert.match(messageActions, /Copy JSON/);
 });

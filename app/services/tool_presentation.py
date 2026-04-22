@@ -402,8 +402,28 @@ def normalize_persisted_tool_calls(
 ) -> list[dict[str, Any]] | None:
     if not tool_calls:
         return None
+    envelopes_by_tool_call_id: dict[str, Mapping[str, Any] | None] = {}
+    legacy_envelopes: list[Mapping[str, Any] | None] = []
+    for envelope in envelopes or []:
+        envelope_tool_call_id = (
+            envelope.get("tool_call_id") if isinstance(envelope, Mapping) else None
+        )
+        if isinstance(envelope_tool_call_id, str) and envelope_tool_call_id:
+            envelopes_by_tool_call_id[envelope_tool_call_id] = envelope
+            continue
+        legacy_envelopes.append(envelope)
+
     out: list[dict[str, Any]] = []
-    for index, tool_call in enumerate(tool_calls):
-        envelope = envelopes[index] if envelopes and index < len(envelopes) else None
+    legacy_index = 0
+    for tool_call in tool_calls:
+        tool_call_id = tool_call.get("id") if isinstance(tool_call, Mapping) else None
+        envelope = (
+            envelopes_by_tool_call_id.get(tool_call_id)
+            if isinstance(tool_call_id, str) and tool_call_id
+            else None
+        )
+        if envelope is None and legacy_index < len(legacy_envelopes):
+            envelope = legacy_envelopes[legacy_index]
+            legacy_index += 1
         out.append(normalize_persisted_tool_call(tool_call, envelope=envelope))
     return out

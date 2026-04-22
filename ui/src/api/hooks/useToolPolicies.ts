@@ -50,7 +50,7 @@ export interface PolicyTestResponse {
   timeout: number;
 }
 
-export function useToolPolicies(botId?: string, toolName?: string) {
+export function useToolPolicies(botId?: string, toolName?: string, enabled = true) {
   const params = new URLSearchParams();
   if (botId) params.set("bot_id", botId);
   if (toolName) params.set("tool_name", toolName);
@@ -59,6 +59,7 @@ export function useToolPolicies(botId?: string, toolName?: string) {
     queryKey: ["tool-policies", botId, toolName],
     queryFn: () =>
       apiFetch<ToolPolicyRule[]>(`/api/v1/tool-policies${qs ? `?${qs}` : ""}`),
+    enabled,
   });
 }
 

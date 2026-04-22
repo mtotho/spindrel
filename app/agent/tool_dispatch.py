@@ -118,6 +118,7 @@ class ToolResultEnvelope:
     # which remains the generic widget/card/library label.
     panel_title: str | None = None
     show_panel_title: bool | None = None
+    tool_call_id: str | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -157,6 +158,8 @@ class ToolResultEnvelope:
             d["panel_title"] = self.panel_title
         if self.show_panel_title is not None:
             d["show_panel_title"] = self.show_panel_title
+        if self.tool_call_id:
+            d["tool_call_id"] = self.tool_call_id
         return d
 
 
@@ -904,6 +907,7 @@ async def dispatch_tool_call(
     # via ``compact_dict()``. Set here (after both the opt-in and
     # default/widget branches) so all paths carry it uniformly.
     result_obj.envelope.tool_name = name
+    result_obj.envelope.tool_call_id = tool_call_id
 
     if _envelope_optin is None:
         # A bot-triggered mutation may have changed state that a pinned widget

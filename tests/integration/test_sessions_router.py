@@ -83,6 +83,58 @@ class TestSessionMessagesRouter:
         assert final_row["metadata"]["assistant_turn_body"]["items"][1]["toolCallId"] == "call-1"
         assert final_row["metadata"]["tool_results"][0]["content_type"] == "application/vnd.spindrel.diff+text"
 
+    async def test_get_session_messages_preserves_widget_owned_tool_rows(self, client, db_session):
+        session_id = uuid.uuid4()
+        db_session.add(Session(id=session_id, client_id=f"router-client-{uuid.uuid4().hex[:8]}", bot_id="test-bot"))
+        await db_session.flush()
+
+        widget_row = Message(
+            session_id=session_id,
+            role="assistant",
+            content="Succeeded on retry.",
+            tool_calls=[{
+                "id": "call-search",
+                "name": "web_search",
+                "arguments": '{"q":"weather in Lambertville NJ today"}',
+                "surface": "widget",
+                "summary": {
+                    "kind": "result",
+                    "subject_type": "widget",
+                    "label": "Widget available",
+                    "target_label": "Web search",
+                },
+            }],
+            metadata_={
+                "assistant_turn_body": {
+                    "version": 1,
+                    "items": [
+                        {"id": "tool:call-search", "kind": "tool_call", "toolCallId": "call-search"},
+                        {"id": "text:1", "kind": "text", "text": "Succeeded on retry."},
+                    ],
+                },
+                "tool_results": [{
+                    "content_type": "application/vnd.spindrel.html+interactive",
+                    "body": "<html><body>widget</body></html>",
+                    "plain_body": "Web search",
+                    "display": "inline",
+                    "truncated": False,
+                    "record_id": "widget-1",
+                    "byte_size": 32,
+                }],
+            },
+        )
+        db_session.add(widget_row)
+        await db_session.commit()
+
+        resp = await client.get(f"/sessions/{session_id}/messages", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        body = resp.json()
+        message = body["messages"][0]
+        assert message["tool_calls"][0]["surface"] == "widget"
+        assert message["metadata"]["assistant_turn_body"]["items"][0]["toolCallId"] == "call-search"
+        assert message["metadata"]["tool_results"][0]["content_type"] == "application/vnd.spindrel.html+interactive"
+
     async def test_plan_endpoints_return_revision_history_and_reject_stale_approve(
         self,
         client,

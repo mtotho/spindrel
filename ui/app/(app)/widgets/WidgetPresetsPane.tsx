@@ -3,6 +3,7 @@ import ReactDOM from "react-dom";
 import { Check, ChevronDown, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
+import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
 import {
   previewWidgetPreset,
   useWidgetPresets,
@@ -11,6 +12,7 @@ import {
   type WidgetPresetBindingSchema,
 } from "@/src/api/hooks/useWidgetPresets";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
+import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -223,39 +225,49 @@ export function WidgetPresetsPane({
     return normalized;
   };
 
-  const runPreview = async () => {
-    if (!selectedPreset || !selectedBotId) return;
-    setPreviewState((prev) => ({ ...prev, running: true, error: null, envelope: null }));
+  const executePreview = async (
+    nextConfig: Record<string, unknown>,
+    options?: { stepOnSuccess?: boolean; stepOnFailure?: boolean },
+  ): Promise<ToolResultEnvelope | null> => {
+    if (!selectedPreset || !selectedBotId) return null;
+    setPreviewState((prev) => ({ ...prev, running: true, error: null, envelope: prev.envelope }));
     setPinSuccess(false);
     setPinError(null);
     try {
       const resp = await previewWidgetPreset(selectedPreset.id, {
-        config,
+        config: nextConfig,
         source_bot_id: selectedBotId,
         source_channel_id: scopeChannelId ?? null,
       });
       if (!resp.ok || !resp.envelope) {
         const first = resp.errors[0]?.message ?? "Preview failed";
-        setPreviewState({ running: false, error: first, envelope: null, config: resp.config ?? config });
-        setActiveStep("configure");
-        return;
+        setPreviewState({ running: false, error: first, envelope: null, config: resp.config ?? nextConfig });
+        if (options?.stepOnFailure ?? true) setActiveStep("configure");
+        return null;
       }
+      const nextEnvelope = resp.envelope as unknown as ToolResultEnvelope;
       setPreviewState({
         running: false,
         error: null,
-        envelope: resp.envelope as unknown as ToolResultEnvelope,
-        config: resp.config ?? config,
+        envelope: nextEnvelope,
+        config: resp.config ?? nextConfig,
       });
-      setActiveStep("preview");
+      if (options?.stepOnSuccess ?? true) setActiveStep("preview");
+      return nextEnvelope;
     } catch (err) {
       setPreviewState({
         running: false,
         error: err instanceof Error ? err.message : "Preview failed",
         envelope: null,
-        config,
+        config: nextConfig,
       });
-      setActiveStep("configure");
+      if (options?.stepOnFailure ?? true) setActiveStep("configure");
+      return null;
     }
+  };
+
+  const runPreview = async () => {
+    await executePreview(config, { stepOnSuccess: true, stepOnFailure: true });
   };
 
   const selectedEntityLabel = useMemo(() => {
@@ -292,10 +304,37 @@ export function WidgetPresetsPane({
     if (previewSignature === lastAutoPreviewSignatureRef.current) return;
     const timer = window.setTimeout(() => {
       lastAutoPreviewSignatureRef.current = previewSignature;
-      void runPreview();
+      void executePreview(config, { stepOnSuccess: true, stepOnFailure: true });
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [canAutoPreview, previewSignature, previewState.running]);
+  }, [canAutoPreview, config, previewSignature, previewState.running]);
+
+  const previewToolDispatch = useWidgetAction(
+    scopeChannelId ?? undefined,
+    selectedBotId || undefined,
+    previewState.envelope?.display_label ?? String(previewState.config.entity_id ?? config.entity_id ?? ""),
+    undefined,
+    previewState.config,
+  );
+
+  const previewDispatcher = useMemo<WidgetActionDispatcher | undefined>(() => {
+    if (!selectedBotId) return undefined;
+    return {
+      dispatchAction: async (action, value) => {
+        if (action.dispatch === "widget_config") {
+          const patch = action.config ?? {};
+          const nextConfig = { ...previewState.config, ...patch };
+          setConfig(nextConfig);
+          const envelope = await executePreview(nextConfig, { stepOnSuccess: false, stepOnFailure: false });
+          return { envelope, apiResponse: patch };
+        }
+
+        const result = await previewToolDispatch(action, value);
+        const envelope = await executePreview(previewState.config, { stepOnSuccess: false, stepOnFailure: false });
+        return { envelope: envelope ?? result.envelope, apiResponse: result.apiResponse };
+      },
+    };
+  }, [executePreview, previewState.config, previewToolDispatch, selectedBotId]);
 
   const pinDisabled = mode !== "pin" || !selectedPreset || !selectedBotId || !previewState.envelope || pinning;
   const handlePin = async () => {
@@ -321,7 +360,7 @@ export function WidgetPresetsPane({
   const builder = layout === "builder";
 
   return (
-    <div className={builder ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden" : "flex flex-col gap-3 p-3"}>
+    <div className={builder ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto" : "flex flex-col gap-3 p-3"}>
       {!builder && (
         <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
           <Home size={12} className="mt-0.5 shrink-0 text-accent/70" />
@@ -333,10 +372,10 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "flex min-h-0 min-w-0 flex-1 flex-col gap-6 overflow-x-hidden px-5 pb-5 xl:grid xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          ? "flex min-w-0 flex-col gap-6 overflow-visible px-5 pb-8 xl:min-h-0 xl:flex-1 xl:overflow-x-hidden xl:grid xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
-        <section className={builder ? "relative z-20 min-w-0 shrink-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 border border-surface-border bg-surface"}>
+        <section className={builder ? "relative z-20 min-w-0 shrink-0 bg-transparent xl:min-h-0 xl:overflow-hidden" : "min-h-0 border border-surface-border bg-surface"}>
           <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-3 py-2"}>
             <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
               Presets
@@ -400,7 +439,7 @@ export function WidgetPresetsPane({
           </div>
         </section>
 
-        <section className={builder ? "relative min-w-0 overflow-hidden bg-transparent xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+        <section className={builder ? "relative min-w-0 bg-transparent xl:min-h-0 xl:overflow-hidden" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
           {!selectedPreset ? (
             <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-[12px] text-text-muted">
               Select a preset to configure it.
@@ -512,7 +551,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "relative min-w-0 overflow-hidden bg-transparent xl:col-span-2 2xl:col-span-1 2xl:min-h-0" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "relative min-w-0 bg-transparent xl:col-span-2 2xl:col-span-1 2xl:min-h-0 xl:overflow-hidden" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview
@@ -531,8 +570,7 @@ export function WidgetPresetsPane({
                 <div className="min-h-0 min-w-0 overflow-x-hidden bg-surface-overlay/10 p-3">
                   <RichToolResult
                     envelope={previewState.envelope}
-                    channelId={scopeChannelId ?? undefined}
-                    botId={selectedBotId || undefined}
+                    dispatcher={previewDispatcher}
                     t={t}
                   />
                 </div>

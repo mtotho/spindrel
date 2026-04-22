@@ -123,10 +123,8 @@ class TestContextSummary:
     def test_context_events_accumulated(self):
         handler = _make_handler(verbose=False)
         handler.handle({"type": "skill_context", "count": 3, "chars": 1500})
-        handler.handle({"type": "carapace_context", "count": 2, "chars": 800})
-        assert len(handler._context_items) == 2
+        assert len(handler._context_items) == 1
         assert "3 skills" in handler._context_items[0]
-        assert "2 carapaces" in handler._context_items[1]
 
     def test_context_flushed_on_tool_start(self):
         handler = _make_handler(verbose=False)
@@ -138,7 +136,7 @@ class TestContextSummary:
         display = MagicMock(spec=StreamDisplay)
         display.is_active = False
         handler = _make_handler(display=display, verbose=False)
-        handler.handle({"type": "carapace_context", "count": 1, "chars": 500})
+        handler.handle({"type": "skill_context", "count": 1, "chars": 500})
         handler.handle({"type": "assistant_text", "text": "Hello"})
         assert len(handler._context_items) == 0  # flushed
 

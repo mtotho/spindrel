@@ -133,7 +133,7 @@ export interface TracesParams {
   before?: string;
 }
 
-export function useTraces(params: TracesParams) {
+export function useTraces(params: TracesParams, enabled = true) {
   const qs = new URLSearchParams();
   if (params.count) qs.set("count", String(params.count));
   if (params.bot_id) qs.set("bot_id", params.bot_id);
@@ -145,5 +145,6 @@ export function useTraces(params: TracesParams) {
     queryKey: ["admin-traces", params],
     queryFn: () =>
       apiFetch<TracesListResponse>(`/api/v1/admin/traces${query ? `?${query}` : ""}`),
+    enabled,
   });
 }

@@ -48,6 +48,15 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
   - builder preview now passes real `channelId` / `botId` context into `RichToolResult`
   - Home Assistant `ha_get_state` now emits shared `chip_text`, `chip_color`, and `toggle_target_entity_id` fields so preview and `state_poll` stay aligned and actions target the exact entity id
   New invariant: builder preview must use the same widget-action dispatch path as live widgets; never fake interactivity in preview with a no-op dispatcher.
+- **Transform-only preset previews + stacked-flow scrolling** (2026-04-22) — a later browser pass exposed that some preset widgets were still only previewing correctly by accident:
+  - `render_preview_envelope()` only applied code transforms when a widget already had a static `template.components` list, which broke transform-first widgets like Home Assistant `ha_get_state`
+  - stacked builder mode still had overflow clipping in places where it should have behaved like normal document flow
+  - tool actions inside builder preview needed to refresh back into the preset preview, not leave the surface on the action tool's envelope
+  Fixes:
+  - preview rendering now runs transforms against an empty component list when there is no static template
+  - builder preview owns its local interactive state again: widget-config actions patch local config + rerun preview, tool actions dispatch then rerun preview
+  - stacked builder flow now allows vertical overflow, with `overflow-hidden` reserved for the wider split layouts only
+  New invariant: transform-driven widgets must preview correctly even with no static top-level template, and stacked builder mode should behave like a scrollable document, not a prematurely split pane.
 - **Preset binding-option requests no longer depend on dotted path segments** (2026-04-22) — `POST /api/v1/widgets/presets/{preset_id}/binding-options` now accepts `source_id` in the JSON body, with the old `.../binding-options/{source_id}` path kept for compatibility. Frontend calls the body-based route first and falls back to the legacy path on 404 so `homeassistant.entities`-style ids stop depending on proxy/path behavior.
 - **Widget Builder chrome should match the chat dock shell, not modal cards** (2026-04-22) — use one strong outer container with square edges and sparse separators, then keep catalog / configure / preview panes visually adjacent instead of wrapping each region in its own rounded bordered card.
 - **Expression grammar still constrains widget authoring** — this HA pass had to push the variant branching into `widget_transforms.py` because the template engine still lacks `and` / `or` / ternary / prefix tests. That keeps P1-2 (`and` / `or` / `not` / ternary) relevant for lowering authoring friction on bindable integration widgets.

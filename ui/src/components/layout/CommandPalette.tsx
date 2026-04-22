@@ -1,241 +1,25 @@
-/**
- * Global command palette (Ctrl+K / Cmd+K) for quick navigation.
- * Fuzzy-searches channels, bots, admin screens, skills, and integration pages.
- */
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import ReactDOM from "react-dom";
 import {
-  Search,
-  Hash,
-  Bot,
-  Settings,
-  Plug,
-  Server,
-  Cable,
-  Wrench,
-  BookOpen,
-  FileText,
-  Paperclip,
-  Boxes,
-  ClipboardList,
-  Zap,
-  Lock,
-  Shield,
-  ShieldCheck,
-  Key,
-  Webhook,
-  FileCode,
-  BarChart3,
-  Activity,
-  Users,
-  ScrollText,
-  HardDrive,
-  Code2,
-  CornerDownLeft,
-  Brain,
-  ChevronUp,
   ChevronDown,
-  Home,
-  Plus,
+  ChevronUp,
+  CornerDownLeft,
+  Search,
   X,
-  LayoutDashboard,
 } from "lucide-react";
-import { useChannels } from "../../api/hooks/useChannels";
-import { useBots } from "../../api/hooks/useBots";
-import { useSidebarSections, useIntegrations } from "../../api/hooks/useIntegrations";
-import { useIsAdmin } from "../../hooks/useScope";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
-import { useUIStore, type RecentPage } from "../../stores/ui";
+import { useUIStore } from "../../stores/ui";
 import { usePaletteActions } from "../../stores/paletteActions";
+import { buildRecentHref } from "../../lib/recentPages";
+import { normalizePalettePathInput, resolvePaletteRoute } from "../../lib/paletteRoutes.js";
+import { useIsAdmin } from "../../hooks/useScope";
 import { SpindrelLogo } from "./SpindrelLogo";
-import { buildRecentHref, shouldSkipRecentPage } from "../../lib/recentPages";
-import { resolveRecentPaletteItem, type RecentPaletteItemCandidate } from "../palette/recent";
-
-// ---------------------------------------------------------------------------
-// Fuzzy matching
-// ---------------------------------------------------------------------------
-
-/** Returns [score, matchedIndices[]]. Score 0 = no match. */
-function fuzzyMatch(query: string, target: string): [number, number[]] {
-  const q = query.toLowerCase();
-  const t = target.toLowerCase();
-  if (q.length === 0) return [1, []];
-
-  // Exact substring — highlight the contiguous range
-  const substringIdx = t.indexOf(q);
-  if (substringIdx >= 0) {
-    const indices = Array.from({ length: q.length }, (_, i) => substringIdx + i);
-    return [100 + (q.length / t.length) * 50, indices];
-  }
-
-  let qi = 0;
-  let score = 0;
-  let consecutive = 0;
-  let lastMatch = -1;
-  const indices: number[] = [];
-
-  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-    if (t[ti] === q[qi]) {
-      indices.push(ti);
-      qi++;
-      score += 1 + consecutive * 2;
-      if (ti === 0 || t[ti - 1] === " " || t[ti - 1] === "-" || t[ti - 1] === "/") {
-        score += 5;
-      }
-      if (lastMatch >= 0 && ti - lastMatch === 1) {
-        consecutive++;
-      } else {
-        consecutive = 0;
-      }
-      lastMatch = ti;
-    }
-  }
-
-  return qi === q.length ? [score, indices] : [0, []];
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface PaletteItem {
-  id: string;
-  label: string;
-  hint?: string;
-  /** Navigation target. Omit (along with providing onSelect) for action items. */
-  href?: string;
-  icon: React.ComponentType<{ size: number; color: string }>;
-  category: string;
-  /** Optional action handler — takes precedence over `href` when present. */
-  onSelect?: () => void;
-}
-
-interface ScoredItem {
-  item: PaletteItem;
-  score: number;
-  matchIndices: number[];
-}
-
-// ---------------------------------------------------------------------------
-// Static admin items
-// ---------------------------------------------------------------------------
-
-const ADMIN_ITEMS: PaletteItem[] = [
-  // -- Configure --
-  { id: "nav-bots", label: "Bots", href: "/admin/bots", icon: Bot, category: "Configure" },
-  { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
-  { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },
-  { id: "nav-mcp", label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable, category: "Configure" },
-  { id: "nav-tools", label: "Tools", href: "/admin/tools", icon: Wrench, category: "Configure" },
-  { id: "nav-skills", label: "Skills", href: "/admin/skills", icon: BookOpen, category: "Configure" },
-  { id: "nav-templates", label: "Templates", href: "/admin/prompt-templates", icon: FileText, category: "Configure" },
-  { id: "nav-attachments", label: "Attachments", href: "/admin/attachments", icon: Paperclip, category: "Configure" },
-  { id: "nav-docker", label: "Docker Stacks", href: "/admin/docker-stacks", icon: Boxes, category: "Configure" },
-  // -- Automate --
-  { id: "nav-learning", label: "Learning Center", href: "/admin/learning", icon: Brain, category: "Automate" },
-  { id: "nav-learning-overview", label: "Learning: Overview", hint: "Learning Center", href: "/admin/learning#Overview", icon: Brain, category: "Automate" },
-  { id: "nav-learning-dreaming", label: "Learning: Dreaming", hint: "Learning Center", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
-  { id: "nav-learning-skills", label: "Learning: Skills", hint: "Learning Center", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
-  { id: "nav-tasks", label: "Tasks", href: "/admin/tasks", icon: ClipboardList, category: "Automate" },
-  { id: "nav-workflows", label: "Workflows", href: "/admin/workflows", icon: Zap, category: "Automate" },
-  // -- Security --
-  { id: "nav-secrets", label: "Secrets", href: "/admin/secret-values", icon: Lock, category: "Security" },
-  { id: "nav-policies", label: "Policies", href: "/admin/tool-policies", icon: Shield, category: "Security" },
-  { id: "nav-approvals", label: "Approvals", href: "/admin/approvals", icon: ShieldCheck, category: "Security" },
-  // -- Developer --
-  { id: "nav-apikeys", label: "API Keys", href: "/admin/api-keys", icon: Key, category: "Developer" },
-  { id: "nav-webhooks", label: "Webhooks", href: "/admin/webhooks", icon: Webhook, category: "Developer" },
-  { id: "nav-apidocs", label: "API Docs", href: "/admin/api-docs", icon: FileCode, category: "Developer" },
-  // -- Monitor --
-  { id: "nav-usage", label: "Usage", href: "/admin/usage", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-overview", label: "Usage: Overview", hint: "Usage", href: "/admin/usage#Overview", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-forecast", label: "Usage: Forecast", hint: "Usage", href: "/admin/usage#Forecast", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-logs", label: "Usage: Logs", hint: "Usage", href: "/admin/usage#Logs", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-charts", label: "Usage: Charts", hint: "Usage", href: "/admin/usage#Charts", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-limits", label: "Usage: Limits", hint: "Usage", href: "/admin/usage#Limits", icon: BarChart3, category: "Monitor" },
-  { id: "nav-usage-alerts", label: "Usage: Alerts", hint: "Usage", href: "/admin/usage#Alerts", icon: BarChart3, category: "Monitor" },
-  { id: "nav-toolcalls", label: "Tool Calls", href: "/admin/tool-calls", icon: Activity, category: "Monitor" },
-  { id: "nav-users", label: "Users", href: "/admin/users", icon: Users, category: "Monitor" },
-  { id: "nav-logs", label: "Logs", href: "/admin/logs", icon: ScrollText, category: "Monitor" },
-  { id: "nav-logs-traces", label: "Logs: Traces", hint: "Logs", href: "/admin/logs/traces", icon: ScrollText, category: "Monitor" },
-  { id: "nav-logs-server", label: "Logs: Server", hint: "Logs", href: "/admin/logs/server", icon: ScrollText, category: "Monitor" },
-  { id: "nav-logs-fallbacks", label: "Logs: Fallbacks", hint: "Logs", href: "/admin/logs/fallbacks", icon: ScrollText, category: "Monitor" },
-  { id: "nav-diagnostics", label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive, category: "Monitor" },
-  { id: "nav-config", label: "Config State", href: "/admin/config-state", icon: Code2, category: "Monitor" },
-  // -- Settings (top-level + sub-pages) --
-  { id: "nav-settings", label: "Settings", href: "/settings", icon: Settings, category: "Settings" },
-  { id: "nav-settings-global", label: "Settings: Global", hint: "Settings", href: "/settings#Global", icon: Settings, category: "Settings" },
-  { id: "nav-settings-system", label: "Settings: System", hint: "Settings", href: "/settings#System", icon: Settings, category: "Settings" },
-  { id: "nav-settings-paths", label: "Settings: Paths", hint: "Settings", href: "/settings#Paths", icon: Settings, category: "Settings" },
-  { id: "nav-settings-general", label: "Settings: General", hint: "Settings", href: "/settings#General", icon: Settings, category: "Settings" },
-  { id: "nav-settings-agent", label: "Settings: Agent", hint: "Settings", href: "/settings#Agent", icon: Settings, category: "Settings" },
-  { id: "nav-settings-chat-history", label: "Settings: Chat History", hint: "Settings", href: "/settings#Chat History", icon: Settings, category: "Settings" },
-  { id: "nav-settings-embeddings", label: "Settings: Embeddings & RAG", hint: "Settings", href: "/settings#Embeddings & RAG", icon: Settings, category: "Settings" },
-  { id: "nav-settings-reranking", label: "Settings: RAG Re-ranking", hint: "Settings", href: "/settings#RAG Re-ranking", icon: Settings, category: "Settings" },
-  { id: "nav-settings-attachments", label: "Settings: Attachments", hint: "Settings", href: "/settings#Attachments", icon: Settings, category: "Settings" },
-  { id: "nav-settings-memory", label: "Settings: Memory & Learning", hint: "Settings", href: "/settings#Memory & Learning", icon: Settings, category: "Settings" },
-  { id: "nav-settings-heartbeat", label: "Settings: Heartbeat", hint: "Settings", href: "/settings#Heartbeat", icon: Settings, category: "Settings" },
-  { id: "nav-settings-tool-summarization", label: "Settings: Tool Summarization", hint: "Settings", href: "/settings#Tool Summarization", icon: Settings, category: "Settings" },
-  { id: "nav-settings-tool-policies", label: "Settings: Tool Policies", hint: "Settings", href: "/settings#Tool Policies", icon: Settings, category: "Settings" },
-  { id: "nav-settings-image-gen", label: "Settings: Image Generation", hint: "Settings", href: "/settings#Image Generation", icon: Settings, category: "Settings" },
-  { id: "nav-settings-stt", label: "Settings: Speech-to-Text", hint: "Settings", href: "/settings#Speech-to-Text", icon: Settings, category: "Settings" },
-  { id: "nav-settings-prompt-gen", label: "Settings: Prompt Generation", hint: "Settings", href: "/settings#Prompt Generation", icon: Settings, category: "Settings" },
-  { id: "nav-settings-docker", label: "Settings: Docker Stacks", hint: "Settings", href: "/settings#Docker Stacks", icon: Settings, category: "Settings" },
-  { id: "nav-settings-rate-limiting", label: "Settings: API Rate Limiting", hint: "Settings", href: "/settings#API Rate Limiting", icon: Settings, category: "Settings" },
-  { id: "nav-settings-security", label: "Settings: Security", hint: "Settings", href: "/settings#Security", icon: Settings, category: "Settings" },
-  { id: "nav-settings-data-retention", label: "Settings: Data Retention", hint: "Settings", href: "/settings#Data Retention", icon: Settings, category: "Settings" },
-  { id: "nav-settings-backup", label: "Settings: Backup", hint: "Settings", href: "/settings#Backup", icon: Settings, category: "Settings" },
-];
-
-// ---------------------------------------------------------------------------
-// Highlighted label renderer
-// ---------------------------------------------------------------------------
-
-function HighlightedLabel({
-  text,
-  indices,
-  color,
-  accentColor,
-}: {
-  text: string;
-  indices: number[];
-  color: string;
-  accentColor: string;
-}) {
-  if (indices.length === 0) {
-    return <>{text}</>;
-  }
-  const set = new Set(indices);
-  const parts: React.ReactNode[] = [];
-  let run = "";
-  let inMatch = false;
-
-  for (let i = 0; i <= text.length; i++) {
-    const isMatch = set.has(i);
-    if (i === text.length || isMatch !== inMatch) {
-      if (run) {
-        parts.push(
-          inMatch ? (
-            <span key={i} style={{ color: accentColor, fontWeight: 600 }}>{run}</span>
-          ) : (
-            <span key={i} style={{ color }}>{run}</span>
-          ),
-        );
-      }
-      run = "";
-      inMatch = isMatch;
-    }
-    if (i < text.length) run += text[i];
-  }
-
-  return <>{parts}</>;
-}
-
-// ---------------------------------------------------------------------------
-// Hook: global keyboard shortcut
-// ---------------------------------------------------------------------------
+import { HighlightedLabel } from "../palette/HighlightedLabel";
+import { usePaletteItems } from "../palette/items";
+import { usePaletteSearch } from "../palette/search";
+import type { PaletteItem, ScoredItem } from "../palette/types";
 
 export function useCommandPaletteShortcut() {
   const openPalette = useUIStore((s) => s.openPalette);
@@ -255,54 +39,11 @@ export function useCommandPaletteShortcut() {
   }, [openPalette, closePalette]);
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-// Category ordering for the empty-state browse view.
-const CATEGORY_ORDER = [
-  "Recent",
-  "This Channel",
-  "Channels",
-  "Widgets",
-  "Bots",
-  "Configure",
-  "Automate",
-  "Security",
-  "Developer",
-  "Monitor",
-  "Integrations",
-  "Settings",
-];
-
-function categoryRank(cat: string): number {
-  const idx = CATEGORY_ORDER.indexOf(cat);
-  return idx === -1 ? CATEGORY_ORDER.length : idx;
-}
-
-// ---------------------------------------------------------------------------
-// CommandPaletteContent — the search+results guts, rendered either inside the
-// modal portal (CommandPalette below) or inline inside the channel OmniPanel's
-// "Jump" tab. No portal / backdrop / container styling of its own — fills the
-// parent.
-//
-// Variant affects behaviour:
-//   "modal"  : onAfterSelect fires after selection (modal closes), Esc fires
-//              onAfterSelect, kbd footer visible on desktop, auto-focuses the
-//              input by default.
-//   "inline" : onAfterSelect fires after selection (caller can no-op), Esc
-//              clears the query instead of closing anything, no kbd footer,
-//              does NOT auto-focus on mount (user is likely typing in chat).
-// ---------------------------------------------------------------------------
 export interface CommandPaletteContentProps {
   variant: "modal" | "inline";
-  /** Called after a selection fires (modal uses to close; inline can no-op). */
   onAfterSelect?: () => void;
-  /** Auto-focus the search input on mount. Defaults to true for modal, false for inline. */
   autoFocus?: boolean;
-  /** Render the close/esc hint in the search bar row. Modal uses this on mobile. */
   showInlineClose?: boolean;
-  /** Fires when the user hits Escape from inside the input (modal uses for close). */
   onEscape?: () => void;
 }
 
@@ -318,18 +59,21 @@ export function CommandPaletteContent({
   const location = useLocation();
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
+  const isAdmin = useIsAdmin();
   const currentHref = buildRecentHref(location.pathname, location.search, location.hash);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const closeMobileSidebar = useUIStore((s) => s.closeMobileSidebar);
+  const recordPageVisit = useUIStore((s) => s.recordPageVisit);
+  const registeredActions = usePaletteActions((s) => s.actions);
   const shouldAutoFocus = autoFocus ?? (variant === "modal");
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [recentsExpanded, setRecentsExpanded] = useState(false);
   const isKeyboardNav = useRef(false);
 
   useEffect(() => {
     if (shouldAutoFocus) {
-      // Two rAFs to outlast any parent mount animation.
       const a = requestAnimationFrame(() => {
         const b = requestAnimationFrame(() => inputRef.current?.focus());
         return () => cancelAnimationFrame(b);
@@ -339,308 +83,81 @@ export function CommandPaletteContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Data sources
-  const { data: channels } = useChannels();
-  const { data: bots } = useBots();
-  const { data: sidebarData } = useSidebarSections();
-  const { data: integrationsData } = useIntegrations();
-  const registeredActions = usePaletteActions((s) => s.actions);
-  const isAdmin = useIsAdmin();
-
-  // Build flat item list
-  const allItems = useMemo<PaletteItem[]>(() => {
-    const items: PaletteItem[] = [];
-
-    // Context-scoped actions (registered by the active view) come first so
-    // they land at the top of their category bucket.
-    for (const a of registeredActions) {
-      items.push({
-        id: a.id,
-        label: a.label,
-        hint: a.hint,
-        icon: a.icon,
-        category: a.category,
-        onSelect: a.onSelect,
-      });
-    }
-
-    // Channel-management entry points. Listed first so they appear at the
-    // top of the Channels section — the mobile palette is the only way to
-    // reach the home screen / add-channel flow now that the drawer is gone.
-    items.push({
-      id: "nav-home",
-      label: "Home",
-      hint: "All channels",
-      href: "/",
-      icon: Home,
-      category: "Channels",
-    });
-    items.push({
-      id: "nav-new-channel",
-      label: "New channel",
-      hint: "Create a channel",
-      href: "/channels/new",
-      icon: Plus,
-      category: "Channels",
-    });
-    items.push({
-      id: "nav-widgets",
-      label: "Widgets",
-      hint: "Pinned widgets dashboard",
-      href: "/widgets",
-      icon: LayoutDashboard,
-      category: "Widgets",
-    });
-    items.push({
-      id: "nav-widgets-dev",
-      label: "Widgets: Developer panel",
-      hint: "Widgets",
-      href: "/widgets/dev",
-      icon: Wrench,
-      category: "Widgets",
-    });
-
-    if (channels) {
-      const botNameById = new Map(
-        (bots ?? []).map((b) => [b.id, b.name])
-      );
-      for (const ch of channels) {
-        const botName = ch.bot_id ? botNameById.get(ch.bot_id) : undefined;
-        const hintParts = [ch.integration, botName].filter(Boolean);
-        items.push({
-          id: `ch-${ch.id}`,
-          label: ch.name,
-          hint: hintParts.length ? hintParts.join(" · ") : undefined,
-          href: `/channels/${ch.id}`,
-          icon: ch.private ? Lock : Hash,
-          category: "Channels",
-        });
-      }
-    }
-
-    // Admin-only surfaces: bot edit, ADMIN_ITEMS, integration admin pages,
-    // sidebar sections (which point into /admin/*). Skip for non-admins so
-    // they don't see chrome that 403s on click.
-    if (isAdmin) {
-      if (bots) {
-        for (const bot of bots) {
-          items.push({
-            id: `bot-${bot.id}`,
-            label: bot.name,
-            hint: "Edit bot",
-            href: `/admin/bots/${bot.id}`,
-            icon: Bot,
-            category: "Bots",
-          });
-        }
-      }
-
-      items.push(...ADMIN_ITEMS);
-
-      if (integrationsData?.integrations) {
-        for (const int of integrationsData.integrations) {
-          // Only surface integrations the user has adopted.
-          if (int.lifecycle_status === "available") continue;
-          items.push({
-            id: `integration-${int.id}`,
-            label: int.name,
-            hint: "Integration",
-            href: `/admin/integrations/${int.id}`,
-            icon: Plug,
-            category: "Integrations",
-          });
-        }
-      }
-
-      if (sidebarData?.sections) {
-        for (const section of sidebarData.sections) {
-          for (const item of section.items) {
-            items.push({
-              id: `int-${section.id}-${item.href}`,
-              label: item.label,
-              hint: section.title,
-              href: item.href,
-              icon: Plug,
-              category: section.title,
-            });
-          }
-        }
-      }
-    }
-
-    return items;
-  }, [channels, bots, sidebarData, integrationsData, registeredActions, isAdmin]);
-
-  const channelNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of allItems) {
-      if (!item.href?.startsWith("/channels/")) continue;
-      if (item.category !== "Channels") continue;
-      const channelId = item.href.slice("/channels/".length);
-      if (!channelId || channelId.includes("/")) continue;
-      map.set(channelId, item.label);
-    }
-    return map;
-  }, [allItems]);
-
-  // Recent pages from persisted store
-  const recentPages = useUIStore((s) => s.recentPages);
-  const recordPageVisit = useUIStore((s) => s.recordPageVisit);
-
-  // Expand/collapse state for the Recent section in empty-state view
-  const [recentsExpanded, setRecentsExpanded] = useState(false);
-
-  // Resolve a RecentPage to a PaletteItem — match allItems first, then synthesize
-  const resolveRecent = useCallback(
-    (rp: RecentPage): PaletteItem | null => {
-      const navigableItems: RecentPaletteItemCandidate[] = allItems.filter(
-        (it): it is RecentPaletteItemCandidate => typeof it.href === "string",
-      );
-      return resolveRecentPaletteItem(rp, navigableItems, { channelNameById });
-    },
-    [allItems, channelNameById],
+  const sharedItems = usePaletteItems();
+  const actionItems = useMemo<PaletteItem[]>(
+    () =>
+      registeredActions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        hint: action.hint,
+        icon: action.icon,
+        category: action.category,
+        onSelect: action.onSelect,
+      })),
+    [registeredActions],
   );
 
-  // Set of top-level labels referenced by sub-page `hint` fields. Sub-pages
-  // are pruned from the empty-state browse view (they remain searchable).
-  const parentLabels = useMemo(() => {
-    const set = new Set<string>();
-    for (const it of allItems) if (!it.hint?.startsWith("Edit")) set.add(it.label);
-    return set;
-  }, [allItems]);
+  const exactPathItem = useMemo<PaletteItem | null>(() => {
+    if (!query.trim()) return null;
+    const normalized = normalizePalettePathInput(query);
+    if (!normalized) return null;
+    const route = resolvePaletteRoute(normalized);
+    if (!route) return null;
+    return {
+      id: `open-path-${route.canonicalHref}`,
+      label: `Open path · ${route.canonicalHref}`,
+      hint: route.label,
+      href: route.canonicalHref,
+      icon: route.icon,
+      category: route.category,
+      routeKind: route.routeKind,
+    };
+  }, [query]);
 
-  const isSubPage = useCallback(
-    (it: PaletteItem) => it.hint != null && parentLabels.has(it.hint),
-    [parentLabels],
+  const allItems = useMemo(
+    () => [...actionItems, ...sharedItems, ...(exactPathItem ? [exactPathItem] : [])],
+    [actionItems, exactPathItem, sharedItems],
   );
 
-  // Filter + sort by fuzzy score, preserving match indices
-  const scoredResults = useMemo<ScoredItem[]>(() => {
-    if (!query.trim()) {
-      // Resolve recent hrefs to PaletteItems, skipping the current page
-      const recentItems: ScoredItem[] = [];
-      const recentHrefSet = new Set<string>();
-      const recentLimit = recentsExpanded ? 20 : 5;
-      for (const rp of recentPages) {
-        if (recentItems.length >= recentLimit) break;
-        if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
-        const resolved = resolveRecent(rp);
-        if (resolved) {
-          recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
-          recentHrefSet.add(rp.href);
-        }
-      }
-      // Empty-state browse: show every top-level nav target, skipping
-      // recents (already at top) and sub-page items (surface only when typing).
-      const rest = allItems
-        .filter((it) => (it.href == null || !recentHrefSet.has(it.href)) && !isSubPage(it))
-        .map((item) => ({ item, score: 1, matchIndices: [] as number[] }));
-      return [...recentItems, ...rest];
-    }
+  const { groups, scored, totalRecents } = usePaletteSearch(allItems, query, {
+    currentHref,
+    recentLimit: recentsExpanded ? 20 : 5,
+    searchLimit: 30,
+    isAdmin,
+  });
 
-    // Build synthetic items from recents that aren't already in allItems
-    const allItemsByHref = new Set(
-      allItems.map((it) => it.href).filter((h): h is string => typeof h === "string"),
-    );
-    const syntheticRecents: PaletteItem[] = [];
-    for (const rp of recentPages) {
-      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
-      if (allItemsByHref.has(rp.href)) continue;
-      const resolved = resolveRecent(rp);
-      if (resolved) syntheticRecents.push(resolved);
-    }
-    const searchPool = [...allItems, ...syntheticRecents];
-
-    // Build a map of recency bonuses (decaying across the top 5), skipping current page
-    const recencyBonus = new Map<string, number>();
-    let bonusSlot = 0;
-    for (const rp of recentPages) {
-      if (bonusSlot >= 5) break;
-      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
-      recencyBonus.set(rp.href, 15 - bonusSlot * 3);
-      bonusSlot++;
-    }
-
-    return searchPool
-      .map((item) => {
-        const [labelScore, labelIndices] = fuzzyMatch(query, item.label);
-        const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
-        const [catScore] = fuzzyMatch(query, item.category);
-        const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3);
-        const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
-        return {
-          item,
-          score: bestScore + bonus,
-          matchIndices: labelScore >= hintScore * 0.5 ? labelIndices : [],
-        };
-      })
-      .filter((r) => r.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 30);
-  }, [query, allItems, recentPages, currentHref, recentsExpanded, resolveRecent, isAdmin]);
-
-  // Count how many valid recents exist (for show-more toggle)
-  const totalRecents = useMemo(() => {
-    let count = 0;
-    for (const rp of recentPages) {
-      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
-      if (resolveRecent(rp)) count++;
-    }
-    return count;
-  }, [recentPages, currentHref, resolveRecent, isAdmin]);
-
-  // Whether to show the "show more" toggle in the Recent group
   const showRecentsToggle = !query.trim() && totalRecents > 5;
 
-  const isEmpty = !query.trim();
-
-  // Group results by category for display, then assign flatIndex in VISUAL order.
-  // No collapse state — empty-state browse is one big categorized list.
   const groupedResults = useMemo(() => {
-    const groups: { category: string; items: { scored: ScoredItem; flatIndex: number }[] }[] = [];
-    const catMap = new Map<string, { scored: ScoredItem; flatIndex: number }[]>();
-
-    for (const scored of scoredResults) {
-      const cat = scored.item.category;
-      let arr = catMap.get(cat);
-      if (!arr) {
-        arr = [];
-        catMap.set(cat, arr);
-        groups.push({ category: cat, items: arr });
-      }
-      arr.push({ scored, flatIndex: 0 });
-    }
-
-    // Stable sort groups by CATEGORY_ORDER when empty-state. When searching,
-    // preserve score-based insertion order.
-    if (isEmpty) {
-      groups.sort((a, b) => categoryRank(a.category) - categoryRank(b.category));
-    }
-
     let flatIndex = 0;
     let showMoreToggleIndex = -1;
     const flat: (ScoredItem | null)[] = [];
-
-    for (const group of groups) {
-      for (const entry of group.items) {
-        entry.flatIndex = flatIndex++;
-        flat.push(entry.scored);
-      }
+    const indexedGroups = groups.map((group) => {
+      const entries = group.items.map((scoredItem) => {
+        const entry = { scored: scoredItem, flatIndex };
+        flat.push(scoredItem);
+        flatIndex += 1;
+        return entry;
+      });
       if (group.category === "Recent" && showRecentsToggle) {
-        showMoreToggleIndex = flatIndex++;
-        flat.push(null); // show-more slot
+        showMoreToggleIndex = flatIndex;
+        flat.push(null);
+        flatIndex += 1;
       }
-    }
+      return { category: group.category, items: entries };
+    });
 
-    return { groups, totalCount: flatIndex, flat, showMoreToggleIndex };
-  }, [scoredResults, showRecentsToggle, isEmpty]);
+    return { groups: indexedGroups, totalCount: flatIndex, flat, showMoreToggleIndex };
+  }, [groups, showRecentsToggle]);
 
-  // Collapse recents when user starts searching
   useEffect(() => {
     if (query.trim()) setRecentsExpanded(false);
   }, [query]);
 
-  // Scroll selected item into view (only for keyboard navigation)
+  useEffect(() => {
+    setSelectedIndex((idx) => Math.max(0, Math.min(idx, Math.max(groupedResults.totalCount - 1, 0))));
+  }, [groupedResults.totalCount]);
+
   useEffect(() => {
     if (!listRef.current || !isKeyboardNav.current) return;
     const el = listRef.current.querySelector(`[data-idx="${selectedIndex}"]`) as HTMLElement | null;
@@ -656,7 +173,6 @@ export function CommandPaletteContent({
       if (hashIdx >= 0) {
         const path = href.slice(0, hashIdx);
         const hash = href.slice(hashIdx);
-        // Navigate to the path first, then set the hash so useHashTab picks it up
         navigate(path);
         requestAnimationFrame(() => {
           window.location.hash = hash;
@@ -664,14 +180,12 @@ export function CommandPaletteContent({
       } else {
         navigate(href);
       }
-      // After navigating away, clear the inline tab's query so next open is fresh.
       setQuery("");
       setSelectedIndex(0);
     },
-    [onAfterSelect, closeMobileSidebar, navigate, recordPageVisit],
+    [closeMobileSidebar, navigate, onAfterSelect, recordPageVisit],
   );
 
-  // Dispatch selection: fire onSelect for action items, otherwise navigate.
   const selectItem = useCallback(
     (item: PaletteItem) => {
       if (item.onSelect) {
@@ -682,17 +196,14 @@ export function CommandPaletteContent({
       }
       if (item.href) go(item.href);
     },
-    [go, onAfterSelect, closeMobileSidebar],
+    [closeMobileSidebar, go, onAfterSelect],
   );
-
-  const totalCount = groupedResults.totalCount;
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         if (variant === "inline" && query) {
-          // Inline tab: clear query instead of closing anything.
           setQuery("");
           setSelectedIndex(0);
         } else {
@@ -701,277 +212,270 @@ export function CommandPaletteContent({
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         isKeyboardNav.current = true;
-        setSelectedIndex((i) => (totalCount > 0 ? Math.min(i + 1, totalCount - 1) : 0));
+        setSelectedIndex((idx) => (groupedResults.totalCount > 0 ? Math.min(idx + 1, groupedResults.totalCount - 1) : 0));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         isKeyboardNav.current = true;
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndex((idx) => Math.max(idx - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
         if (selectedIndex === groupedResults.showMoreToggleIndex) {
-          setRecentsExpanded((v) => !v);
+          setRecentsExpanded((value) => !value);
           return;
         }
         const entry = groupedResults.flat[selectedIndex];
         if (entry) selectItem(entry.item);
       }
     },
-    [variant, query, onEscape, groupedResults, selectedIndex, selectItem, totalCount],
+    [groupedResults, onEscape, query, selectedIndex, selectItem, variant],
   );
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
   const modKey = isMac ? "\u2318" : "Ctrl";
 
-  // Both variants render inside a flex column that fills the parent.
-  // Modal wrapper handles the portal + backdrop + position/animation.
-  const containerStyle: React.CSSProperties = {
-    flex: 1,
-    minHeight: 0,
-    background: "transparent",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-  };
-
   return (
-      <div style={containerStyle}>
-        {/* Search input */}
-        <div
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        background: "transparent",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 10,
+          padding: isMobile ? "12px 12px" : "14px 16px",
+          paddingTop: isMobile ? "max(12px, env(safe-area-inset-top))" : 14,
+          borderBottom: `1px solid ${t.surfaceBorder}`,
+        }}
+      >
+        <span
           style={{
-            display: "flex", flexDirection: "row",
+            flexShrink: 0,
+            display: "flex",
+            flexDirection: "row",
             alignItems: "center",
-            gap: 10,
-            padding: isMobile ? "12px 12px" : "14px 16px",
-            paddingTop: isMobile ? "max(12px, env(safe-area-inset-top))" : 14,
-            borderBottom: `1px solid ${t.surfaceBorder}`,
+            color: t.textMuted,
           }}
+          aria-label="Spindrel"
         >
-          <span
+          <SpindrelLogo size={isMobile ? 20 : 18} />
+        </span>
+        <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+          <Search size={isMobile ? 18 : 16} color={t.textDim} />
+        </span>
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSelectedIndex(0);
+          }}
+          onKeyDown={onKeyDown}
+          placeholder={isMobile ? "Search or browse..." : "Search channels, bots, settings..."}
+          style={{
+            flex: 1,
+            background: "none",
+            border: "none",
+            outline: "none",
+            fontSize: isMobile ? 16 : 15,
+            color: t.text,
+            fontFamily: "inherit",
+            minWidth: 0,
+          }}
+        />
+        {showInlineClose ? (
+          <button
+            onClick={() => onEscape?.()}
+            aria-label="Close"
             style={{
               flexShrink: 0,
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              color: t.textMuted,
-            }}
-            aria-label="Spindrel"
-          >
-            <SpindrelLogo size={isMobile ? 20 : 18} />
-          </span>
-          <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}><Search size={isMobile ? 18 : 16} color={t.textDim} /></span>
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setSelectedIndex(0);
-            }}
-            onKeyDown={onKeyDown}
-            placeholder={isMobile ? "Search or browse..." : "Search channels, bots, settings..."}
-            style={{
-              flex: 1,
-              background: "none",
+              width: 36,
+              height: 36,
+              borderRadius: 8,
+              background: "transparent",
               border: "none",
-              outline: "none",
-              fontSize: isMobile ? 16 : 15, // 16px avoids iOS auto-zoom on focus
-              color: t.text,
-              fontFamily: "inherit",
-              minWidth: 0,
+              color: t.textMuted,
+              fontSize: 14,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 0,
             }}
-          />
-          {showInlineClose ? (
-            <button
-              onClick={() => onEscape?.()}
-              aria-label="Close"
-              style={{
-                flexShrink: 0,
-                width: 36,
-                height: 36,
-                borderRadius: 8,
-                background: "transparent",
-                border: "none",
-                color: t.textMuted,
-                fontSize: 14,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-              }}
-            >
-              <X size={20} color={t.textMuted} />
-            </button>
-          ) : variant === "modal" && !isMobile ? (
-            <kbd
-              style={{
-                fontSize: 11,
-                color: t.textDim,
-                background: t.surface,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 4,
-                padding: "2px 6px",
-                flexShrink: 0,
-              }}
-            >
-              esc
-            </kbd>
-          ) : null}
-        </div>
+          >
+            <X size={20} color={t.textMuted} />
+          </button>
+        ) : variant === "modal" && !isMobile ? (
+          <kbd
+            style={{
+              fontSize: 11,
+              color: t.textDim,
+              background: t.surface,
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 4,
+              padding: "2px 6px",
+              flexShrink: 0,
+            }}
+          >
+            esc
+          </kbd>
+        ) : null}
+      </div>
 
-        {/* Results list */}
-        <div
-          ref={listRef}
-          className="scroll-subtle"
-          style={{
-            overflow: "auto",
-            flex: 1,
-            padding: "4px 0",
-          }}
-        >
-          {scoredResults.length === 0 && query.trim() && (
+      <div
+        ref={listRef}
+        className="scroll-subtle"
+        style={{
+          overflow: "auto",
+          flex: 1,
+          padding: "4px 0",
+        }}
+      >
+        {scored.length === 0 && query.trim() && (
+          <div
+            style={{
+              padding: "32px 16px",
+              textAlign: "center",
+              fontSize: 13,
+              color: t.textDim,
+            }}
+          >
+            No results for &ldquo;{query}&rdquo;
+          </div>
+        )}
+        {groupedResults.groups.map((group) => (
+          <div key={group.category}>
             <div
               style={{
-                padding: "32px 16px",
-                textAlign: "center",
-                fontSize: 13,
+                padding: isMobile ? "10px 16px 4px" : "8px 18px 4px",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: 0.3,
                 color: t.textDim,
+                textTransform: "uppercase",
               }}
             >
-              No results for &ldquo;{query}&rdquo;
+              {group.category}
             </div>
-          )}
-          {groupedResults.groups.map((group) => (
-            <div key={group.category}>
-              {/* Category header */}
+            {group.items.map(({ scored: scoredItem, flatIndex }) => {
+              const { item, matchIndices } = scoredItem;
+              const Icon = item.icon;
+              const selected = flatIndex === selectedIndex;
+              return (
+                <div
+                  key={item.id}
+                  data-idx={flatIndex}
+                  onClick={() => selectItem(item)}
+                  onMouseMove={() => {
+                    isKeyboardNav.current = false;
+                    setSelectedIndex(flatIndex);
+                  }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: isMobile ? 12 : 10,
+                    padding: isMobile ? "12px 14px" : "7px 14px",
+                    minHeight: isMobile ? 48 : undefined,
+                    margin: "0 6px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    backgroundColor: selected ? t.accentSubtle : "transparent",
+                    transition: "background-color 80ms ease",
+                  }}
+                >
+                  <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                    <Icon size={isMobile ? 18 : 16} color={selected ? t.accent : t.textDim} />
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: isMobile ? 15 : 14,
+                      color: selected ? t.text : t.textMuted,
+                      fontWeight: selected ? 500 : 400,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <HighlightedLabel
+                      text={item.label}
+                      indices={matchIndices}
+                      color={selected ? t.text : t.textMuted}
+                      accentColor={t.accent}
+                    />
+                  </span>
+                  {item.hint && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: t.textDim,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {item.hint}
+                    </span>
+                  )}
+                  {selected && (
+                    <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                      <CornerDownLeft size={12} color={t.textDim} />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+            {group.category === "Recent" && showRecentsToggle && (
               <div
+                data-idx={groupedResults.showMoreToggleIndex}
+                onClick={() => setRecentsExpanded((value) => !value)}
+                onMouseMove={() => {
+                  isKeyboardNav.current = false;
+                  setSelectedIndex(groupedResults.showMoreToggleIndex);
+                }}
                 style={{
-                  padding: isMobile ? "10px 16px 4px" : "8px 18px 4px",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.3,
-                  color: t.textDim,
-                  textTransform: "uppercase",
+                  display: "flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "7px 14px",
+                  margin: "0 6px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  backgroundColor: groupedResults.showMoreToggleIndex === selectedIndex ? t.accentSubtle : "transparent",
+                  transition: "background-color 80ms ease",
                 }}
               >
-                {group.category}
+                <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                  {recentsExpanded ? <ChevronUp size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: t.textDim,
+                  }}
+                >
+                  {recentsExpanded ? "Show less" : `Show more (${totalRecents - 5})`}
+                </span>
               </div>
-              {group.items.map(({ scored, flatIndex }) => {
-                const { item, matchIndices } = scored;
-                const Icon = item.icon;
-                const selected = flatIndex === selectedIndex;
-                return (
-                  <div
-                    key={item.id}
-                    data-idx={flatIndex}
-                    onClick={() => selectItem(item)}
-                    onMouseMove={() => {
-                      isKeyboardNav.current = false;
-                      setSelectedIndex(flatIndex);
-                    }}
-                    style={{
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      gap: isMobile ? 12 : 10,
-                      padding: isMobile ? "12px 14px" : "7px 14px",
-                      minHeight: isMobile ? 48 : undefined,
-                      margin: "0 6px",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      backgroundColor: selected ? t.accentSubtle : "transparent",
-                      transition: "background-color 80ms ease",
-                    }}
-                  >
-                    <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
-                      <Icon size={isMobile ? 18 : 16} color={selected ? t.accent : t.textDim} />
-                    </span>
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: isMobile ? 15 : 14,
-                        color: selected ? t.text : t.textMuted,
-                        fontWeight: selected ? 500 : 400,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      <HighlightedLabel
-                        text={item.label}
-                        indices={matchIndices}
-                        color={selected ? t.text : t.textMuted}
-                        accentColor={t.accent}
-                      />
-                    </span>
-                    {item.hint && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          color: t.textDim,
-                          whiteSpace: "nowrap",
-                          flexShrink: 0,
-                        }}
-                      >
-                        {item.hint}
-                      </span>
-                    )}
-                    {selected && (
-                      <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
-                        <CornerDownLeft size={12} color={t.textDim} />
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-              {/* "Show more / Show less" toggle for Recent group */}
-              {group.category === "Recent" && showRecentsToggle && (() => {
-                const toggleIdx = groupedResults.showMoreToggleIndex;
-                const selected = toggleIdx === selectedIndex;
-                const ToggleIcon = recentsExpanded ? ChevronUp : ChevronDown;
-                return (
-                  <div
-                    data-idx={toggleIdx}
-                    onClick={() => setRecentsExpanded((v) => !v)}
-                    onMouseMove={() => {
-                      isKeyboardNav.current = false;
-                      setSelectedIndex(toggleIdx);
-                    }}
-                    style={{
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "7px 14px",
-                      margin: "0 6px",
-                      borderRadius: 6,
-                      cursor: "pointer",
-                      backgroundColor: selected ? t.accentSubtle : "transparent",
-                      transition: "background-color 80ms ease",
-                    }}
-                  >
-                    <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
-                      <ToggleIcon size={14} color={t.textDim} />
-                    </span>
-                    <span
-                      style={{
-                        flex: 1,
-                        fontSize: 13,
-                        color: t.textDim,
-                        fontWeight: 400,
-                      }}
-                    >
-                      {recentsExpanded ? "Show less" : `Show more (${totalRecents - 5})`}
-                    </span>
-                  </div>
-                );
-              })()}
-            </div>
-          ))}
-        </div>
+            )}
+          </div>
+        ))}
+      </div>
 
-        {/* Footer hint — modal desktop only. Inline tab hides it to save height. */}
-        {variant === "modal" && !isMobile && (
+      {variant === "modal" && !isMobile && (
         <div
           style={{
-            display: "flex", flexDirection: "row",
+            display: "flex",
+            flexDirection: "row",
             alignItems: "center",
             gap: 16,
             padding: "8px 16px",
@@ -994,15 +498,10 @@ export function CommandPaletteContent({
             toggle
           </span>
         </div>
-        )}
-      </div>
+      )}
+    </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Modal wrapper — portal + backdrop + mount/animate + positioning. Renders
-// CommandPaletteContent inside. Triggered via Cmd/Ctrl-K or mobile palette.
-// ---------------------------------------------------------------------------
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const t = useThemeTokens();
@@ -1026,7 +525,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   if (!mounted || typeof document === "undefined") return null;
 
-  const shellStyle: React.CSSProperties = isMobile
+  const shellStyle: CSSProperties = isMobile
     ? {
         position: "fixed",
         inset: 0,
@@ -1096,7 +595,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   );
 }
 
-// Small kbd tag component to reduce repetition
 function Kbd({ t, children }: { t: ReturnType<typeof useThemeTokens>; children: React.ReactNode }) {
   return (
     <kbd

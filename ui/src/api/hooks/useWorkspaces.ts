@@ -8,10 +8,11 @@ import type {
   CronEntry,
 } from "../../types/api";
 
-export function useWorkspaces() {
+export function useWorkspaces(enabled = true) {
   return useQuery({
     queryKey: ["workspaces"],
     queryFn: () => apiFetch<SharedWorkspace[]>("/api/v1/workspaces"),
+    enabled,
   });
 }
 

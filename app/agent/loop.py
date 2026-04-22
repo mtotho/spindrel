@@ -220,8 +220,8 @@ def _append_transcript_tool_entry(entries: list[dict], tool_call_id: str) -> Non
     })
 
 
-def _collapse_final_assistant_tool_turn(messages: list[dict]) -> None:
-    """Move intermediate assistant tool_calls onto the final assistant row.
+def _collapse_final_assistant_tool_turn(messages: list[dict], *, turn_start: int) -> None:
+    """Move current-turn assistant tool_calls onto the final assistant row.
 
     The loop can accumulate multiple assistant messages in one turn:
     intermediate assistant content with tool_calls, then a final assistant
@@ -229,35 +229,69 @@ def _collapse_final_assistant_tool_turn(messages: list[dict]) -> None:
     visible assistant row to own both the transcript ordering and the canonical
     tool_calls used to resolve transcript tool slots.
 
-    Mark earlier assistant tool-call rows hidden for persistence/UI filtering
-    and merge their tool_calls onto the final assistant row.
+    Mark current-turn intermediate assistant tool-call rows hidden for
+    persistence/UI filtering and merge only current-turn tool_calls onto the
+    final assistant row. Previous turns are intentionally ignored.
     """
     assistant_indices = [
         index for index, msg in enumerate(messages)
-        if msg.get("role") == "assistant"
+        if index >= turn_start and msg.get("role") == "assistant"
     ]
-    if len(assistant_indices) < 2:
+    if not assistant_indices:
         return
 
     final_idx = assistant_indices[-1]
     final_msg = messages[final_idx]
-    merged_tool_calls: list[dict] = []
+    tool_call_by_id: dict[str, dict] = {}
+    ordered_tool_call_ids: list[str] = []
+    anonymous_tool_calls: list[dict] = []
 
-    for index in assistant_indices[:-1]:
+    for index in assistant_indices:
         msg = messages[index]
         tool_calls = msg.get("tool_calls")
         if not tool_calls:
             continue
-        merged_tool_calls.extend(tool_calls)
-        msg["_hidden"] = True
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            tool_call_id = tool_call.get("id")
+            if isinstance(tool_call_id, str) and tool_call_id:
+                if tool_call_id not in tool_call_by_id:
+                    ordered_tool_call_ids.append(tool_call_id)
+                tool_call_by_id[tool_call_id] = tool_call
+            else:
+                anonymous_tool_calls.append(tool_call)
+        if index != final_idx:
+            msg["_hidden"] = True
 
-    if not merged_tool_calls:
+    if not tool_call_by_id and not anonymous_tool_calls:
         return
 
-    final_msg["tool_calls"] = [
-        *merged_tool_calls,
-        *(final_msg.get("tool_calls") or []),
-    ]
+    ordered_tool_calls: list[dict] = []
+    seen_tool_call_ids: set[str] = set()
+    assistant_turn_body = final_msg.get("_assistant_turn_body")
+    items = assistant_turn_body.get("items") if isinstance(assistant_turn_body, dict) else None
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict) or item.get("kind") != "tool_call":
+                continue
+            tool_call_id = item.get("toolCallId")
+            if not isinstance(tool_call_id, str) or not tool_call_id or tool_call_id in seen_tool_call_ids:
+                continue
+            tool_call = tool_call_by_id.get(tool_call_id)
+            if tool_call is None:
+                continue
+            ordered_tool_calls.append(tool_call)
+            seen_tool_call_ids.add(tool_call_id)
+
+    for tool_call_id in ordered_tool_call_ids:
+        if tool_call_id in seen_tool_call_ids:
+            continue
+        ordered_tool_calls.append(tool_call_by_id[tool_call_id])
+        seen_tool_call_ids.add(tool_call_id)
+
+    ordered_tool_calls.extend(anonymous_tool_calls)
+    final_msg["tool_calls"] = ordered_tool_calls
 
 
 def _finalize_response(
@@ -355,7 +389,7 @@ def _finalize_response(
         }
 
     if messages and messages[-1].get("role") == "assistant":
-        _collapse_final_assistant_tool_turn(messages)
+        _collapse_final_assistant_tool_turn(messages, turn_start=turn_start)
 
     events.append(_event_with_compaction_tag({
         "type": "response",
@@ -505,7 +539,7 @@ async def run_agent_tool_loop(
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
     tool_calls_made: list[str] = []  # track tool names for elevation classifier
-    tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() in invocation order — persisted to Message.metadata.tool_results
+    tool_envelopes_made: list[dict] = []  # ToolResultEnvelope.compact_dict() with tool_call ownership — persisted to Message.metadata.tool_results
     transcript_entries: list[dict] = []  # ordered settled-chat replay model for the assistant turn
     thinking_content_buf: str = ""  # accumulated thinking across loop iterations — persisted to final assistant message metadata
     tool_call_trace: list[ToolCallSignature] = []  # for within-run cycle detection
@@ -823,17 +857,26 @@ async def run_agent_tool_loop(
                     accumulated_msg.usage.total_tokens,
                 )
                 if correlation_id is not None:
+                    _gross_prompt_tokens = accumulated_msg.usage.prompt_tokens
+                    _cached_prompt_tokens = accumulated_msg.cached_tokens
+                    _current_prompt_tokens = _gross_prompt_tokens
+                    if _cached_prompt_tokens is not None:
+                        _current_prompt_tokens = max(0, _gross_prompt_tokens - _cached_prompt_tokens)
                     _usage_data = {
-                        "prompt_tokens": accumulated_msg.usage.prompt_tokens,
+                        "prompt_tokens": _gross_prompt_tokens,
+                        "gross_prompt_tokens": _gross_prompt_tokens,
+                        "current_prompt_tokens": _current_prompt_tokens,
                         "completion_tokens": accumulated_msg.usage.completion_tokens,
                         "total_tokens": accumulated_msg.usage.total_tokens,
+                        "consumed_tokens": _gross_prompt_tokens,
                         "iteration": iteration + 1,
                         "model": effective_model,
                         "provider_id": effective_provider_id,
                         "channel_id": str(channel_id) if channel_id else None,
                     }
-                    if accumulated_msg.cached_tokens is not None:
-                        _usage_data["cached_tokens"] = accumulated_msg.cached_tokens
+                    if _cached_prompt_tokens is not None:
+                        _usage_data["cached_tokens"] = _cached_prompt_tokens
+                        _usage_data["cached_prompt_tokens"] = _cached_prompt_tokens
                     if accumulated_msg.response_cost is not None:
                         _usage_data["response_cost"] = accumulated_msg.response_cost
                     safe_create_task(_record_trace_event(
@@ -1208,6 +1251,7 @@ async def run_agent_tool_loop(
                         }, compaction)
 
                     tool_calls_made.append(name)
+                    tc_result.envelope.tool_call_id = tc["id"]
                     tool_envelopes_made.append(tc_result.envelope.compact_dict())
                     tool_call_trace.append(make_signature(name, args))
                     for pre_event in tc_result.pre_events:
@@ -1371,6 +1415,7 @@ async def run_agent_tool_loop(
                         }, compaction)
 
                     tool_calls_made.append(name)
+                    tc_result.envelope.tool_call_id = tc["id"]
                     tool_envelopes_made.append(tc_result.envelope.compact_dict())
                     tool_call_trace.append(make_signature(name, args))
                     for pre_event in tc_result.pre_events:
@@ -1550,16 +1595,27 @@ async def run_agent_tool_loop(
         _post_loop_msg["content"] = text
         messages.append(_post_loop_msg)
         if response.usage and correlation_id is not None:
+            _usage_extras2 = _extract_usage_extras(response)
+            _gross_prompt_tokens2 = response.usage.prompt_tokens
+            _cached_prompt_tokens2 = _usage_extras2.get("cached_tokens")
+            _current_prompt_tokens2 = _gross_prompt_tokens2
+            if _cached_prompt_tokens2 is not None:
+                _current_prompt_tokens2 = max(0, _gross_prompt_tokens2 - _cached_prompt_tokens2)
             _usage_data2 = {
-                "prompt_tokens": response.usage.prompt_tokens,
+                "prompt_tokens": _gross_prompt_tokens2,
+                "gross_prompt_tokens": _gross_prompt_tokens2,
+                "current_prompt_tokens": _current_prompt_tokens2,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
+                "consumed_tokens": _gross_prompt_tokens2,
                 "iteration": iteration + 2,  # +1 for 0-index, +1 for this forced call
                 "model": model,
                 "provider_id": effective_provider_id,
                 "channel_id": str(channel_id) if channel_id else None,
-                **_extract_usage_extras(response),
+                **_usage_extras2,
             }
+            if _cached_prompt_tokens2 is not None:
+                _usage_data2["cached_prompt_tokens"] = _cached_prompt_tokens2
             safe_create_task(_record_trace_event(
                 correlation_id=correlation_id,
                 session_id=session_id,
@@ -1637,6 +1693,7 @@ async def run_stream(
     skip_tool_policy: bool = False,
     task_mode: bool = False,
     skip_skill_inject: bool = False,
+    context_profile_name: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1695,6 +1752,26 @@ async def run_stream(
     native_audio = audio_data is not None
     turn_start = len(messages)
 
+    from app.agent.context import current_run_origin
+    from app.agent.context_profiles import resolve_context_profile
+
+    _resolved_context_profile = context_profile_name
+    if _resolved_context_profile is None:
+        _origin = current_run_origin.get(None)
+        _session = None
+        if session_id is not None:
+            try:
+                from app.db.engine import async_session as _async_session
+                from app.db.models import Session as _Session
+                async with _async_session() as _profile_db:
+                    _session = await _profile_db.get(_Session, session_id)
+            except Exception:
+                logger.debug("context profile session lookup failed", exc_info=True)
+        _resolved_context_profile = resolve_context_profile(
+            session=_session,
+            origin=_origin,
+        ).name
+
     # --- context budget ---
     _budget = None
     if settings.CONTEXT_BUDGET_ENABLED:
@@ -1726,6 +1803,7 @@ async def run_stream(
         budget=_budget,
         task_mode=task_mode,
         skip_skill_inject=skip_skill_inject,
+        context_profile_name=_resolved_context_profile,
     ):
         yield event
 
@@ -1752,6 +1830,7 @@ async def run_stream(
             "live_history_utilization": _budget_dict["live_history_utilization"],
             "static_injection_tokens": _budget_dict["static_injection_tokens"],
             "tool_schema_tokens": _budget_dict["tool_schema_tokens"],
+            "context_profile": _resolved_context_profile,
         }
 
     # Surface skills-still-in-context for the UI "skill orb" on the persisted
@@ -1952,6 +2031,7 @@ async def run(
     skip_tool_policy: bool = False,
     task_mode: bool = False,
     skip_skill_inject: bool = False,
+    context_profile_name: str | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1973,6 +2053,7 @@ async def run(
         skip_tool_policy=skip_tool_policy,
         task_mode=task_mode,
         skip_skill_inject=skip_skill_inject,
+        context_profile_name=context_profile_name,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

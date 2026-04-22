@@ -91,8 +91,6 @@ steps:
     tools:
       - search_channel_workspace
       - query_feed_store
-    carapaces:
-      - gmail-feeds
     when:
       step: poll
       output_contains: "Delivered"

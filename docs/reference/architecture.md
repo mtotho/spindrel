@@ -1,5 +1,7 @@
 # Architecture
 
+For the canonical document covering runtime context policy, replay/compaction behavior, history modes, context profiles, and prompt-budget reporting, see [Context Management](../guides/context-management.md).
+
 ## System Overview
 
 Spindrel is a FastAPI application backed by PostgreSQL with pgvector. It supports multiple LLM provider types: OpenAI-compatible endpoints (OpenAI, Gemini, Ollama, OpenRouter, LiteLLM, vLLM), native Anthropic (direct API and Bedrock), and any custom provider configured via the admin UI. Each bot can use a different provider via `model_provider_id`. The default provider is configured via `LLM_BASE_URL`/`LLM_API_KEY` in `.env` (aliases `LITELLM_BASE_URL`/`LITELLM_API_KEY` also accepted).
@@ -21,6 +23,8 @@ The core iteration skeleton. Handles stream orchestration, tool call accumulatio
 ### Context Assembly (`app/agent/context_assembly.py`)
 
 Builds the message array for each LLM call. The pipeline runs in order:
+
+For the exact runtime admission/replay policy, treat [Context Management](../guides/context-management.md) as the source of truth; this page stays at the system-overview level.
 
 1. **Current time injection** (timezone-aware)
 2. **Context pruning** (trim stale tool results from old turns)
@@ -47,7 +51,7 @@ Routes tool calls to the correct executor:
 
 ### LLM Infrastructure (`app/agent/llm.py`)
 
-Retry/backoff, fallback model support, tool result summarization for context management.
+Retry/backoff, fallback model support, and the LLM-call plumbing that consumes the context assembled upstream. Context-management policy itself is documented canonically in [Context Management](../guides/context-management.md).
 
 ## Capabilities
 

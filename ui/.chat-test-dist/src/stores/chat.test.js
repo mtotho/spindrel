@@ -1,0 +1,209 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { useChatStore } from "./chat.js";
+test("tool results reconcile by tool_call_id when the same tool name appears multiple times", () => {
+    useChatStore.setState({ channels: {} });
+    const store = useChatStore.getState();
+    store.startTurn("channel-1", "turn-1", "bot-1", "Bot", true);
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_start",
+        data: {
+            tool: "file",
+            tool_call_id: "call-1",
+            args: "{\"operation\":\"edit\",\"path\":\"a.md\"}",
+            surface: "rich_result",
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_start",
+        data: {
+            tool: "file",
+            tool_call_id: "call-2",
+            args: "{\"operation\":\"edit\",\"path\":\"b.md\"}",
+            surface: "rich_result",
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_result",
+        data: {
+            tool: "file",
+            tool_call_id: "call-2",
+            surface: "rich_result",
+            envelope: {
+                content_type: "application/vnd.spindrel.diff+text",
+                body: "@@ -1 +1 @@\n-old-b\n+new-b",
+                plain_body: "Edited b.md",
+                display: "inline",
+                truncated: false,
+                record_id: "result-b",
+                byte_size: 24,
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_result",
+        data: {
+            tool: "file",
+            tool_call_id: "call-1",
+            surface: "rich_result",
+            envelope: {
+                content_type: "application/vnd.spindrel.diff+text",
+                body: "@@ -1 +1 @@\n-old-a\n+new-a",
+                plain_body: "Edited a.md",
+                display: "inline",
+                truncated: false,
+                record_id: "result-a",
+                byte_size: 24,
+            },
+        },
+    });
+    const toolCalls = useChatStore.getState().getChannel("channel-1").turns["turn-1"]?.toolCalls ?? [];
+    assert.equal(toolCalls.length, 2);
+    assert.equal(toolCalls[0]?.id, "call-1");
+    assert.equal(toolCalls[0]?.envelope?.record_id, "result-a");
+    assert.equal(toolCalls[1]?.id, "call-2");
+    assert.equal(toolCalls[1]?.envelope?.record_id, "result-b");
+});
+test("finishTurn materializes the canonical assistant turn body", () => {
+    useChatStore.setState({ channels: {} });
+    const store = useChatStore.getState();
+    store.startTurn("channel-1", "turn-1", "bot-1", "Bot", true);
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_start",
+        data: {
+            tool: "file",
+            tool_call_id: "call-edit-1",
+            args: "{\"operation\":\"edit\",\"path\":\"a.md\"}",
+            surface: "rich_result",
+            summary: {
+                kind: "diff",
+                subject_type: "file",
+                label: "Edited a.md",
+                path: "a.md",
+                diff_stats: { additions: 1, deletions: 1 },
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_result",
+        data: {
+            tool: "file",
+            tool_call_id: "call-edit-1",
+            surface: "rich_result",
+            summary: {
+                kind: "diff",
+                subject_type: "file",
+                label: "Edited a.md",
+                path: "a.md",
+                diff_stats: { additions: 1, deletions: 1 },
+            },
+            envelope: {
+                content_type: "application/vnd.spindrel.diff+text",
+                body: "@@ -1 +1 @@\n-old-a\n+new-a",
+                plain_body: "Edited a.md",
+                display: "inline",
+                truncated: false,
+                record_id: "result-a",
+                byte_size: 24,
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "text_delta",
+        data: { delta: "Checking the current time.\n" },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_start",
+        data: {
+            tool: "get_current_local_time",
+            tool_call_id: "call-time",
+            args: "{}",
+            surface: "transcript",
+            summary: {
+                kind: "result",
+                subject_type: "generic",
+                label: "Got current local time",
+                preview_text: "2026-04-22 14:05 EDT",
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_result",
+        data: {
+            tool: "get_current_local_time",
+            tool_call_id: "call-time",
+            surface: "transcript",
+            summary: {
+                kind: "result",
+                subject_type: "generic",
+                label: "Got current local time",
+                preview_text: "2026-04-22 14:05 EDT",
+            },
+            envelope: {
+                content_type: "text/plain",
+                body: "2026-04-22 14:05 EDT",
+                plain_body: "2026-04-22 14:05 EDT",
+                display: "badge",
+                truncated: false,
+                record_id: "result-time",
+                byte_size: 20,
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_start",
+        data: {
+            tool: "file",
+            tool_call_id: "call-edit-2",
+            args: "{\"operation\":\"edit\",\"path\":\"b.md\"}",
+            surface: "rich_result",
+            summary: {
+                kind: "diff",
+                subject_type: "file",
+                label: "Edited b.md",
+                path: "b.md",
+                diff_stats: { additions: 1, deletions: 0 },
+            },
+        },
+    });
+    store.handleTurnEvent("channel-1", "turn-1", {
+        event: "tool_result",
+        data: {
+            tool: "file",
+            tool_call_id: "call-edit-2",
+            surface: "rich_result",
+            summary: {
+                kind: "diff",
+                subject_type: "file",
+                label: "Edited b.md",
+                path: "b.md",
+                diff_stats: { additions: 1, deletions: 0 },
+            },
+            envelope: {
+                content_type: "application/vnd.spindrel.diff+text",
+                body: "@@ -1 +1 @@\n old\n+new-b",
+                plain_body: "Edited b.md",
+                display: "inline",
+                truncated: false,
+                record_id: "result-b",
+                byte_size: 21,
+            },
+        },
+    });
+    store.finishTurn("channel-1", "turn-1");
+    const messages = useChatStore.getState().getChannel("channel-1").messages;
+    assert.equal(messages.length, 1);
+    const metadata = messages[0]?.metadata ?? {};
+    assert.deepEqual(metadata.assistant_turn_body, {
+        version: 1,
+        items: [
+            { id: "tool:call-edit-1", kind: "tool_call", toolCallId: "call-edit-1" },
+            { id: "text:2", kind: "text", text: "Checking the current time.\n" },
+            { id: "tool:call-time", kind: "tool_call", toolCallId: "call-time" },
+            { id: "tool:call-edit-2", kind: "tool_call", toolCallId: "call-edit-2" },
+        ],
+    });
+    assert.equal(metadata.tool_results?.[0]?.record_id, "result-a");
+    assert.equal(metadata.tool_results?.[1]?.record_id, "result-time");
+    assert.equal(metadata.tool_results?.[2]?.record_id, "result-b");
+});

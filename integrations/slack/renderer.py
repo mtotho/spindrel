@@ -858,12 +858,10 @@ def _action_to_dict(action) -> dict:
 def _build_capability_approval_blocks(
     approval_id: str, bot_id: str, cap: dict,
 ) -> list:
-    """Block Kit layout for capability activation approvals.
+    """Block Kit layout for legacy capability activation approvals.
 
     Ported from ``SlackDispatcher._build_capability_approval_blocks``.
     """
-    import json as _json
-
     cap_name = cap.get("name", "Unknown")
     cap_desc = cap.get("description", "")
     cap_id = cap.get("id", "")
@@ -886,17 +884,6 @@ def _build_capability_approval_blocks(
             "text": {"type": "plain_text", "text": "Allow"},
             "action_id": "approve_tool_call",
             "value": approval_id,
-        },
-        {
-            "type": "button",
-            "text": {"type": "plain_text", "text": "Allow & Pin"},
-            "style": "primary",
-            "action_id": "pin_capability",
-            "value": _json.dumps({
-                "approval_id": approval_id,
-                "capability_id": cap_id,
-                "capability_name": cap_name,
-            }),
         },
         {
             "type": "button",

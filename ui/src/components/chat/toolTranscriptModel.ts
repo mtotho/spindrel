@@ -747,11 +747,26 @@ export function buildAssistantTurnBodyItems({
   rootEnvelope?: ToolResultEnvelope;
   missingToolBehavior?: "throw" | "placeholder";
 }): OrderedTurnBodyItem[] {
+  const toolResultById = new Map<string, ToolResultEnvelope>();
+  const legacyToolResults: (ToolResultEnvelope | undefined)[] = [];
+  for (const toolResult of toolResults ?? []) {
+    if (toolResult?.tool_call_id) {
+      toolResultById.set(toolResult.tool_call_id, toolResult);
+      continue;
+    }
+    legacyToolResults.push(toolResult);
+  }
+
   const orderedTools = new Map<string, OrderedToolResolution>();
+  let legacyToolResultIndex = 0;
   for (let index = 0; index < toolCalls.length; index += 1) {
     const toolCall = toolCalls[index];
     const toolId = toolCall.id || `tool-${index + 1}`;
-    orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResults?.[index], index));
+    const toolResult = toolResultById.get(toolId) ?? legacyToolResults[legacyToolResultIndex];
+    if (!toolResultById.get(toolId) && legacyToolResultIndex < legacyToolResults.length) {
+      legacyToolResultIndex += 1;
+    }
+    orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResult, index));
   }
   return materializeAssistantTurnBodyItems({
     assistantTurnBody,

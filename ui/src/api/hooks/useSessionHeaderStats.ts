@@ -5,6 +5,11 @@ interface ContextBudgetResponse {
   utilization: number | null;
   consumed_tokens: number | null;
   total_tokens: number | null;
+  gross_prompt_tokens?: number | null;
+  current_prompt_tokens?: number | null;
+  cached_prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  context_profile?: string | null;
 }
 
 interface SessionDiagnosticsResponse {
@@ -29,6 +34,11 @@ export interface SessionHeaderStats {
   utilization: number | null;
   consumedTokens: number | null;
   totalTokens: number | null;
+  grossPromptTokens: number | null;
+  currentPromptTokens: number | null;
+  cachedPromptTokens: number | null;
+  completionTokens: number | null;
+  contextProfile: string | null;
   turnsInContext: number | null;
   turnsUntilCompaction: number | null;
 }
@@ -52,6 +62,11 @@ export function useSessionHeaderStats(
         utilization: budget.utilization,
         consumedTokens: budget.consumed_tokens,
         totalTokens: budget.total_tokens,
+        grossPromptTokens: budget.gross_prompt_tokens ?? budget.consumed_tokens,
+        currentPromptTokens: budget.current_prompt_tokens ?? budget.gross_prompt_tokens ?? budget.consumed_tokens,
+        cachedPromptTokens: budget.cached_prompt_tokens ?? null,
+        completionTokens: budget.completion_tokens ?? null,
+        contextProfile: budget.context_profile ?? null,
         turnsInContext: diagnostics?.compaction.user_turns_since_watermark ?? null,
         turnsUntilCompaction: diagnostics?.compaction.turns_until_next ?? null,
       };

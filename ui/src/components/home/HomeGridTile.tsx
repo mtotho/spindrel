@@ -4,9 +4,10 @@ import type { ScoredItem } from "../palette/types";
 import { HighlightedLabel } from "../palette/HighlightedLabel";
 import { useThemeTokens } from "../../theme/tokens";
 import { formatRelativeTime } from "../../utils/format";
+import type { PaletteItem } from "../palette/types";
 
 interface HomeGridTileProps {
-  scored: ScoredItem;
+  scored: ScoredItem & { item: PaletteItem & { href: string } };
   selected: boolean;
   onHover: () => void;
   onClick: () => void;

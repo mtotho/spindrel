@@ -48,7 +48,7 @@ async def _setup_channel_with_trace(
         db_session.add(TraceEvent(
             session_id=session_id,
             event_type="context_injection_summary",
-            data={"context_budget": budget},
+            data={"context_budget": budget, "context_profile": "chat"},
             created_at=now,
         ))
     await db_session.commit()
@@ -74,6 +74,12 @@ class TestPublicContextBudget:
             "utilization": 0.42,
             "consumed_tokens": 8400,
             "total_tokens": 20000,
+            "gross_prompt_tokens": 8400,
+            "current_prompt_tokens": 8400,
+            "cached_prompt_tokens": None,
+            "completion_tokens": None,
+            "context_profile": "chat",
+            "source": "estimate",
         }
 
     @pytest.mark.asyncio
@@ -90,6 +96,12 @@ class TestPublicContextBudget:
             "utilization": None,
             "consumed_tokens": None,
             "total_tokens": None,
+            "gross_prompt_tokens": None,
+            "current_prompt_tokens": None,
+            "cached_prompt_tokens": None,
+            "completion_tokens": None,
+            "context_profile": None,
+            "source": "none",
         }
 
     @pytest.mark.asyncio
@@ -195,7 +207,7 @@ class TestPublicContextBreakdown:
         for key in (
             "channel_id", "session_id", "bot_id",
             "categories", "total_chars", "total_tokens_approx",
-            "compaction", "reranking", "context_budget", "disclaimer",
+            "compaction", "reranking", "context_budget", "context_profile", "disclaimer",
         ):
             assert key in body, f"missing key {key!r} in breakdown response"
         assert isinstance(body["categories"], list)

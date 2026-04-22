@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { migrateRecentPage } from "../lib/recentPages";
+import { canonicalizePaletteHref, resolvePaletteRoute } from "../lib/paletteRoutes";
 
 interface DetailPanelState {
   type: string | null;
@@ -11,8 +12,13 @@ interface DetailPanelState {
 export interface RecentPage {
   href: string;
   label?: string;
+  hint?: string;
   iconKey?: string;
   category?: string;
+  routeKind?: string;
+  pageType?: string;
+  contextLabel?: string;
+  version?: number;
 }
 
 export const SIDEBAR_MIN_WIDTH = 180;
@@ -80,7 +86,7 @@ interface UIState {
   toggleHudCollapsed: (channelId: string) => void;
   toggleHudExpandedOnMobile: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
-  enrichRecentPage: (href: string, label: string) => void;
+  enrichRecentPage: (href: string, patch: string | Partial<RecentPage>) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -151,18 +157,35 @@ export const useUIStore = create<UIState>()(
         })),
       recordPageVisit: (href) =>
         set((s) => {
-          const existing = s.recentPages.find((p) => p.href === href);
+          const canonicalHref = canonicalizePaletteHref(href);
+          const route = resolvePaletteRoute(canonicalHref);
+          if (route && !route.recordable) return s;
+          const base: RecentPage = {
+            href: canonicalHref,
+            hint: route?.hint,
+            category: route?.category,
+            routeKind: route?.routeKind,
+            pageType: route?.pageType,
+            version: 2,
+          };
+          const existing = s.recentPages.find((p) => p.href === canonicalHref);
           return {
             recentPages: [
-              existing ?? { href },
-              ...s.recentPages.filter((p) => p.href !== href),
+              { ...base, ...existing },
+              ...s.recentPages.filter((p) => p.href !== canonicalHref),
             ].slice(0, 20),
           };
         }),
-      enrichRecentPage: (href, label) =>
+      enrichRecentPage: (href, patch) =>
         set((s) => ({
           recentPages: s.recentPages.map((p) =>
-            p.href === href ? { ...p, label } : p,
+            p.href === canonicalizePaletteHref(href)
+              ? {
+                  ...p,
+                  ...(typeof patch === "string" ? { label: patch } : patch),
+                  version: 2,
+                }
+              : p,
           ),
         })),
     }),

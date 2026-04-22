@@ -88,7 +88,6 @@ events:
 
 activation:
   description: "iMessage relay via BlueBubbles -- connection status and kill switch"
-  carapaces: []
   requires_workspace: false
 
 chat_hud:

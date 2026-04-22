@@ -163,6 +163,8 @@ export function ContextTab({ channelId }: { channelId: string }) {
   const t = useThemeTokens();
   const [mode, setMode] = useState<ContextBreakdownMode>("last_turn");
   const { data, isLoading } = useChannelContextBreakdown(channelId, mode);
+  const fmtNum = (value?: number | null) => (value == null ? "\u2014" : value.toLocaleString());
+  const fmtPct = (value?: number | null) => (value == null ? "\u2014" : `${Math.round(value * 100)}%`);
 
   const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
     static:       { bar: t.accent, dot: "#60a5fa" },
@@ -228,6 +230,7 @@ export function ContextTab({ channelId }: { channelId: string }) {
             ["Total Tokens", `~${data.total_tokens_approx.toLocaleString()}`],
             ["Total Chars", data.total_chars.toLocaleString()],
             ["Bot", data.bot_id],
+            ["Profile", data.context_profile ?? "unknown"],
             ["Conversation", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
           ].map(([label, val]) => (
             <div key={String(label)} style={{
@@ -239,6 +242,33 @@ export function ContextTab({ channelId }: { channelId: string }) {
           ))}
         </div>
       </Section>
+
+      {data.context_budget && (
+        <Section title="Prompt Budget">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+            {[
+              ["Profile", data.context_budget.context_profile ?? data.context_profile ?? "\u2014"],
+              ["Estimate Gross", fmtNum(data.context_budget.estimate?.gross_prompt_tokens)],
+              ["Estimate Util.", fmtPct(data.context_budget.estimate?.utilization)],
+              ["Last Gross", fmtNum(data.context_budget.usage?.gross_prompt_tokens)],
+              ["Last Current", fmtNum(data.context_budget.usage?.current_prompt_tokens)],
+              ["Last Cached", fmtNum(data.context_budget.usage?.cached_prompt_tokens)],
+              ["Last Completion", fmtNum(data.context_budget.usage?.completion_tokens)],
+              ["Window", fmtNum(data.context_budget.estimate?.total_tokens ?? data.context_budget.usage?.total_tokens)],
+            ].map(([label, val]) => (
+              <div key={String(label)} style={{
+                padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 600, color: t.text }}>{String(val)}</div>
+                <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", marginTop: 8 }}>
+            Gross prompt tokens stay aligned with the header pill. Current and cached splits come from the latest API usage when available.
+          </div>
+        </Section>
+      )}
 
       {/* Stacked bar */}
       <Section title="Proportions">

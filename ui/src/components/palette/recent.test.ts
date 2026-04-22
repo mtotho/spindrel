@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { RecentPage } from "../../stores/ui";
 import type { PaletteItem } from "./types";
+import type { RecentPaletteItemCandidate } from "./recent";
 import {
   buildRecentHref,
   migrateRecentPage,
@@ -13,15 +14,14 @@ function makeRecent(href: string, label?: string): RecentPage {
   return { href, label };
 }
 
-function makeItem(overrides: Partial<PaletteItem> & Pick<PaletteItem, "id" | "label" | "href">): PaletteItem {
+function makeItem(overrides: Partial<PaletteItem> & Pick<PaletteItem, "id" | "label" | "href">): RecentPaletteItemCandidate {
   return {
     id: overrides.id,
     label: overrides.label,
-    href: overrides.href,
+    href: overrides.href!,
     icon: overrides.icon ?? (() => null),
     category: overrides.category ?? "Channels",
     hint: overrides.hint,
-    lastMessageAt: overrides.lastMessageAt ?? null,
   };
 }
 
@@ -33,10 +33,9 @@ test("buildRecentHref preserves search and hash", () => {
 });
 
 test("migrateRecentPage upgrades legacy session hrefs to scratch routes", () => {
-  assert.deepEqual(
-    migrateRecentPage(makeRecent("/channels/channel-1/session/session-1")),
-    makeRecent("/channels/channel-1/session/session-1?scratch=true"),
-  );
+  const migrated = migrateRecentPage(makeRecent("/channels/channel-1/session/session-1"));
+  assert.equal(migrated.href, "/channels/channel-1/session/session-1?scratch=true");
+  assert.equal(migrated.version, 2);
 });
 
 test("resolveRecentPaletteItem formats untitled session recents without guids", () => {
@@ -55,14 +54,14 @@ test("resolveRecentPaletteItem formats untitled session recents without guids", 
     },
     {
       label: "Session · #quality-assurance",
-      hint: "Session",
+      hint: "#quality-assurance",
       href: "/channels/channel-1/session/session-1?scratch=true",
-      category: "Channels",
+      category: "Recent",
     },
   );
 });
 
-test("resolveRecentPaletteItem formats titled session recents without adding a guid prefix", () => {
+test("resolveRecentPaletteItem formats titled session recents as type-first labels", () => {
   const resolved = resolveRecentPaletteItem(
     makeRecent(
       "/channels/channel-1/session/session-1?scratch=true",
@@ -80,10 +79,31 @@ test("resolveRecentPaletteItem formats titled session recents without adding a g
       category: resolved.category,
     },
     {
-      label: "Inbox cleanup · #quality-assurance",
-      hint: "Session",
+      label: "Session · Inbox cleanup",
+      hint: "#quality-assurance",
       href: "/channels/channel-1/session/session-1?scratch=true",
-      category: "Channels",
+      category: "Recent",
+    },
+  );
+});
+
+test("resolveRecentPaletteItem formats channel chat recents as explicit chat destinations", () => {
+  const resolved = resolveRecentPaletteItem(
+    makeRecent("/channels/channel-1"),
+    [],
+    { channelNameById: new Map([["channel-1", "quality-assurance"]]) },
+  );
+
+  assert.deepEqual(
+    resolved && {
+      label: resolved.label,
+      hint: resolved.hint,
+      category: resolved.category,
+    },
+    {
+      label: "Chat · #quality-assurance",
+      hint: "Channels",
+      category: "Recent",
     },
   );
 });
@@ -103,10 +123,10 @@ test("shouldSkipRecentPage treats a full href with search as the current page", 
   );
 });
 
-test("resolveRecentPaletteItem still prefers exact palette items when present", () => {
+test("resolveRecentPaletteItem uses exact palette items only as metadata, not as the final recent label", () => {
   const exactItem = makeItem({
     id: "ch-channel-1",
-    label: "quality-assurance",
+    label: "Chat · #quality-assurance",
     href: "/channels/channel-1",
     hint: "slack",
   });
@@ -117,6 +137,7 @@ test("resolveRecentPaletteItem still prefers exact palette items when present", 
     { channelNameById: new Map([["channel-1", "quality-assurance"]]) },
   );
 
-  assert.equal(resolved?.label, "quality-assurance");
+  assert.equal(resolved?.label, "Chat · #quality-assurance");
   assert.equal(resolved?.hint, "slack");
+  assert.equal(resolved?.category, "Recent");
 });

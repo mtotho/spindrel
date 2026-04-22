@@ -58,9 +58,18 @@ export function SlashCommandResultCard({ message }: Props) {
       {budget && (
         <div style={{ marginTop: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12, color: t.textDim }}>
-            <span>{fmtTokens(budget.consumed_tokens)}/{fmtTokens(budget.total_tokens)} tokens</span>
+            <span>{fmtTokens(budget.gross_prompt_tokens ?? budget.consumed_tokens)}/{fmtTokens(budget.total_tokens)} tokens</span>
             <span>{fmtPct(budget.utilization)}</span>
           </div>
+          {(budget.current_prompt_tokens != null || budget.cached_prompt_tokens != null || budget.context_profile) && (
+            <div style={{ marginTop: 4, fontSize: 11, color: t.textDim }}>
+              {[
+                budget.current_prompt_tokens != null ? `current ${fmtTokens(budget.current_prompt_tokens)}` : null,
+                budget.cached_prompt_tokens != null ? `cached ${fmtTokens(budget.cached_prompt_tokens)}` : null,
+                budget.context_profile ? budget.context_profile : null,
+              ].filter(Boolean).join(" · ")}
+            </div>
+          )}
           <div style={{ marginTop: 6, height: 7, borderRadius: 999, background: t.overlayLight, overflow: "hidden" }}>
             <div
               style={{

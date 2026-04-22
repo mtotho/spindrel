@@ -57,7 +57,6 @@ events:
   - { type: object_detected, label: Object detected, description: "New object detection event from Frigate", category: webhook }
 
 activation:
-  carapaces: [frigate]
   requires_workspace: false
   description: "Security camera monitoring with Frigate NVR -- live events, clip management, detection alerts, and camera status"
 
@@ -93,7 +92,6 @@ provides:
   - router
   - tools
   - skills
-  - carapaces
 
 # Tool-specific HTML widget. See docs/widget-templates.md § HTML template mode.
 # The tool's raw JSON result rides into the iframe as window.spindrel.toolResult;

@@ -9,6 +9,7 @@ import zoneinfo
 from sqlalchemy import select
 
 from app.config import settings
+from app.agent.context_profiles import trim_messages_to_recent_turns
 from app.db.engine import async_session
 from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCall
 
@@ -26,35 +27,7 @@ def _trim_history_for_task(messages: list[dict], max_turns: int) -> list[dict]:
     When *max_turns* is 0, all non-system messages are stripped (no history).
     When *max_turns* is negative, no trimming is applied.
     """
-    if max_turns < 0:
-        return messages
-
-    # Split: leading system messages vs conversation body
-    sys_prefix: list[dict] = []
-    body: list[dict] = []
-    in_body = False
-    for m in messages:
-        if not in_body and m.get("role") == "system":
-            sys_prefix.append(m)
-        else:
-            in_body = True
-            body.append(m)
-
-    if max_turns == 0 or not body:
-        return sys_prefix
-
-    # Identify turn boundaries (each user message starts a turn)
-    turn_starts: list[int] = []
-    for i, m in enumerate(body):
-        if m.get("role") == "user":
-            turn_starts.append(i)
-
-    if not turn_starts:
-        return sys_prefix + body
-
-    # Keep last max_turns turns
-    keep_from = turn_starts[-max_turns] if max_turns <= len(turn_starts) else 0
-    return sys_prefix + body[keep_from:]
+    return trim_messages_to_recent_turns(messages, max_turns)
 
 
 def next_aligned_time(now: datetime, interval_minutes: int) -> datetime:
@@ -611,7 +584,11 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         bot = get_bot(bot_id)
         async with async_session() as db:
             eff_session_id, messages = await load_or_create(
-                db, session_id, client_id or "heartbeat", bot_id
+                db,
+                session_id,
+                client_id or "heartbeat",
+                bot_id,
+                context_profile_name="heartbeat",
             )
 
         # Trim conversation history for small task models — full history
@@ -642,6 +619,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 system_preamble=heartbeat_preamble,
                 skip_tool_policy=hb.skip_tool_approval,
                 task_mode=True,
+                context_profile_name="heartbeat",
             ),
             timeout=_hb_timeout,
         )

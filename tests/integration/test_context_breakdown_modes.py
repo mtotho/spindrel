@@ -55,6 +55,7 @@ async def _seed_channel_with_token_usage(
         data={
             "breakdown": {"system_prompt": 1000, "memory": 500},
             "total_chars": 1500,
+            "context_profile": "chat",
             "context_budget": {
                 "consumed_tokens": estimate_consumed,
                 "total_tokens": estimate_total,
@@ -71,6 +72,9 @@ async def _seed_channel_with_token_usage(
         event_type="token_usage",
         data={
             "prompt_tokens": api_prompt_tokens,
+            "gross_prompt_tokens": api_prompt_tokens,
+            "current_prompt_tokens": api_prompt_tokens - 100,
+            "cached_prompt_tokens": 100,
             "completion_tokens": 42,
             "total_tokens": api_prompt_tokens + 42,
         },
@@ -102,6 +106,10 @@ class TestBreakdownModes:
         data = resp.json()
         assert data["mode"] == "last_turn"
         assert data["total_tokens_approx"] == 12345
+        assert data["context_profile"] == "chat"
+        assert data["context_budget"]["usage"]["gross_prompt_tokens"] == 12345
+        assert data["context_budget"]["usage"]["current_prompt_tokens"] == 12245
+        assert data["context_budget"]["usage"]["cached_prompt_tokens"] == 100
 
     @pytest.mark.asyncio
     async def test_next_turn_total_uses_forecast_not_api(
@@ -151,6 +159,11 @@ class TestBreakdownModes:
         assert resp.status_code == 200
         data = resp.json()
         assert data["consumed_tokens"] == 54321
+        assert data["gross_prompt_tokens"] == 54321
+        assert data["current_prompt_tokens"] == 54221
+        assert data["cached_prompt_tokens"] == 100
+        assert data["completion_tokens"] == 42
+        assert data["context_profile"] == "chat"
         assert data["source"] == "api"
 
     @pytest.mark.asyncio
@@ -176,7 +189,7 @@ class TestBreakdownModes:
             event_type="context_injection_summary",
             data={"context_budget": {
                 "consumed_tokens": 777, "total_tokens": 200_000, "utilization": 0.004,
-            }},
+            }, "context_profile": "planning"},
             created_at=now,
         ))
         await db_session.commit()
@@ -188,6 +201,10 @@ class TestBreakdownModes:
         assert resp.status_code == 200
         data = resp.json()
         assert data["consumed_tokens"] == 777
+        assert data["gross_prompt_tokens"] == 777
+        assert data["current_prompt_tokens"] == 777
+        assert data["cached_prompt_tokens"] is None
+        assert data["context_profile"] == "planning"
         assert data["source"] == "estimate"
 
     @pytest.mark.asyncio

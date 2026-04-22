@@ -23,6 +23,8 @@ import {
   Code2,
   Brain,
   Settings,
+  MessageCircle,
+  Zap,
 } from "lucide-react";
 import type { PaletteItem } from "./types";
 
@@ -43,7 +45,7 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-learning-dreaming", label: "Learning: Dreaming", hint: "Learning Center", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
   { id: "nav-learning-skills", label: "Learning: Skills", hint: "Learning Center", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
   { id: "nav-tasks", label: "Tasks", href: "/admin/tasks", icon: ClipboardList, category: "Automate" },
-  // Workflows: deprecated — superseded by task pipelines (see Roadmap 2026-04).
+  { id: "nav-workflows", label: "Workflows", href: "/admin/workflows", icon: Zap, category: "Automate" },
   // -- Security --
   { id: "nav-secrets", label: "Secrets", href: "/admin/secret-values", icon: Lock, category: "Security" },
   { id: "nav-policies", label: "Policies", href: "/admin/tool-policies", icon: Shield, category: "Security" },
@@ -68,7 +70,13 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-logs-fallbacks", label: "Logs: Fallbacks", hint: "Logs", href: "/admin/logs/fallbacks", icon: ScrollText, category: "Monitor" },
   { id: "nav-diagnostics", label: "Diagnostics", href: "/admin/diagnostics", icon: HardDrive, category: "Monitor" },
   { id: "nav-config", label: "Config State", href: "/admin/config-state", icon: Code2, category: "Monitor" },
-  // -- Settings (top-level + sub-pages) --
+  { id: "nav-delegations", label: "Delegations", href: "/admin/delegations", icon: Users, category: "Monitor" },
+  { id: "nav-memories", label: "Memories", href: "/admin/memories", icon: Brain, category: "Monitor" },
+  { id: "nav-sandboxes", label: "Sandboxes", href: "/admin/sandboxes", icon: Boxes, category: "Monitor" },
+  { id: "nav-sessions", label: "Sessions", href: "/admin/sessions", icon: MessageCircle, category: "Monitor" },
+];
+
+export const SETTINGS_ITEMS: PaletteItem[] = [
   { id: "nav-settings", label: "Settings", href: "/settings", icon: Settings, category: "Settings" },
   { id: "nav-settings-global", label: "Settings: Global", hint: "Settings", href: "/settings#Global", icon: Settings, category: "Settings" },
   { id: "nav-settings-system", label: "Settings: System", hint: "Settings", href: "/settings#System", icon: Settings, category: "Settings" },
@@ -95,7 +103,9 @@ export const ADMIN_ITEMS: PaletteItem[] = [
 
 export const CATEGORY_ORDER = [
   "Recent",
+  "This Channel",
   "Channels",
+  "Widgets",
   "Bots",
   "Configure",
   "Automate",

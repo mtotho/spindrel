@@ -1891,6 +1891,7 @@ async def admin_channel_context_breakdown(
         "channel_id": result.channel_id,
         "session_id": result.session_id,
         "bot_id": result.bot_id,
+        "context_profile": result.context_profile,
         "categories": [asdict(c) for c in result.categories],
         "total_chars": result.total_chars,
         "total_tokens_approx": result.total_tokens_approx,

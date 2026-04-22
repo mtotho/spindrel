@@ -126,11 +126,52 @@ class TestTranscriptEntryHelpers:
             },
         ]
 
-        _collapse_final_assistant_tool_turn(messages)
+        _collapse_final_assistant_tool_turn(messages, turn_start=0)
 
         assert messages[0]["_hidden"] is True
         assert messages[2]["tool_calls"] == [
             {"id": "call-1", "function": {"name": "file", "arguments": "{}"}},
+        ]
+
+    def test_collapse_final_assistant_tool_turn_only_considers_current_turn_rows(self):
+        messages = [
+            {"role": "user", "content": "earlier turn"},
+            {
+                "role": "assistant",
+                "content": "Earlier tool row.",
+                "tool_calls": [
+                    {"id": "call-old", "function": {"name": "web_search", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-old", "content": "Earlier result"},
+            {"role": "user", "content": "current turn"},
+            {
+                "role": "assistant",
+                "content": "Current tool row.",
+                "tool_calls": [
+                    {"id": "call-new", "function": {"name": "web_search", "arguments": "{}"}},
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call-new", "content": "Current result"},
+            {
+                "role": "assistant",
+                "content": "Done.",
+                "_assistant_turn_body": {
+                    "version": 1,
+                    "items": [
+                        {"id": "tool:call-new", "kind": "tool_call", "toolCallId": "call-new"},
+                        {"id": "text:1", "kind": "text", "text": "Done."},
+                    ],
+                },
+            },
+        ]
+
+        _collapse_final_assistant_tool_turn(messages, turn_start=3)
+
+        assert messages[1].get("_hidden") is None
+        assert messages[4]["_hidden"] is True
+        assert messages[6]["tool_calls"] == [
+            {"id": "call-new", "function": {"name": "web_search", "arguments": "{}"}},
         ]
 
     def test_pending_tasks_event_emitted_when_count_positive(self):

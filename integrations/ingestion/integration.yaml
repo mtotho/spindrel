@@ -34,7 +34,6 @@ web_ui:
 
 activation:
   description: "Content feed health monitoring and status strip"
-  carapaces: []
   requires_workspace: false
 
 chat_hud:

@@ -20,9 +20,9 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 
 OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM — or any OpenAI-compatible endpoint. A dedicated **ChatGPT Subscription** provider type signs in via OAuth device code and bills against your existing Plus/Pro plan ($0 per call). Mix providers across bots. Automatic retry with fallback models. Cost tracking via LiteLLM pricing data.
 
-### Auto-Discovery (Capabilities, Tools, Skills)
+### Auto-Discovery (Tools + Skills)
 
-Bots need only `model` + `system_prompt` — everything else is discovered at runtime. Composable **capabilities** (tools + skills + behavioral instructions, `carapaces:` in config) activate from the conversation via hybrid RAG. Tool and skill retrieval use the same pipeline, with a semantic `search_tools` fallback when the initial retrieval misses. Capability gating filters by declared requirements so unavailable tools never leak into the model's context.
+Bots need only `model` + `system_prompt` — everything else is surfaced through the existing tool and skill systems. Tools are discovered at runtime, and skills are fetched on demand from the catalog or working set. Tool and skill retrieval use the same pipeline, with a semantic `search_tools` fallback when the initial retrieval misses. Tool gating still filters by declared requirements so unavailable tools never leak into the model's context.
 
 ### Widget Dashboards + Interactive HTML Widgets
 
@@ -91,7 +91,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
 | Guide | Description |
 |-------|-------------|
-| [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, capabilities, workspaces, integrations, and how they compose. |
+| [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, skills, tools, workspaces, integrations, and how they compose. |
 | [Setup Guide](setup.md) | Installation, providers, workspaces, integrations, troubleshooting. |
 | [Feature Status](guides/feature-status.md) | High-level product-feature snapshot: what is working, partial, advanced, experimental, or deprecated. |
 | [Integration Status](guides/integration-status.md) | Honest snapshot of which integrations are working, partial, untested, or experimental. |
@@ -113,9 +113,9 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Context Management](guides/context-management.md) | Canonical guide for replay policy, compaction, live-history budgeting, and how Spindrel keeps context useful without replaying everything. |
 | [Sub-Agents](guides/subagents.md) | Five presets, parallel execution, depth and rate limits. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and pipeline triggers. |
-| [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair with capabilities for domain expertise. |
+| [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair them with skills and normal tool enrollment. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
-| [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, load external capabilities and skills. |
+| [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, and load external tools and skills. |
 | [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards plus channel-dashboard zones: left rail, center dashboard, right rail, and top-center chips. |
 | [HTML Widgets](guides/html-widgets.md) | Bot-authored live dashboards. How the bot-scoped iframe auth works and how to provision bots that can build them. |
 | [Widget Templates](widget-templates.md) | YAML widget templates that render tool results as live, interactive UI. Component templates, HTML templates, and the `state_poll` field. |

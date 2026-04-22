@@ -7,7 +7,6 @@ description: >
 
 defaults:
   model: gemini/gemini-2.5-flash
-  carapaces: [arr]
   timeout: 120
   inject_prior_results: true
   prior_result_max_chars: 1500

@@ -979,9 +979,16 @@ async def run_task(task: Task) -> None:
                     task.id, child_session_id, delegation_depth, delegation_root_id,
                 )
             else:
+                _initial_profile = "task_none" if (task.execution_config or {}).get("history_mode") == "none" else "task_recent"
+                if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
+                    _initial_profile = "task_none"
                 session_id, messages = await load_or_create(
-                    db, task.session_id, task.client_id or "task", task.bot_id,
+                    db,
+                    task.session_id,
+                    task.client_id or "task",
+                    task.bot_id,
                     channel_id=task.channel_id,
+                    context_profile_name=_initial_profile,
                 )
 
         # Trim conversation history. Respects `execution_config.history_mode`
@@ -1005,6 +1012,9 @@ async def run_task(task: Task) -> None:
         else:
             _hist_turns = settings.HEARTBEAT_MAX_HISTORY_TURNS
         messages = _trim_history_for_task(messages, _hist_turns)
+        _context_profile_name = "task_none" if _hist_turns == 0 else "task_recent"
+        if task.task_type in ("memory_hygiene", "skill_review", "delegation"):
+            _context_profile_name = "task_none"
 
         correlation_id = uuid.uuid4()
         task.correlation_id = correlation_id  # reflect back to in-memory object for hooks
@@ -1118,6 +1128,7 @@ async def run_task(task: Task) -> None:
                 skip_tool_policy=_skip_tool_policy,
                 task_mode=True,
                 skip_skill_inject=_skip_skill_inject,
+                context_profile_name=_context_profile_name,
             ),
             timeout=_task_timeout,
         )

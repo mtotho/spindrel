@@ -38,10 +38,11 @@ export interface MCPServerTestResult {
   tools: string[];
 }
 
-export function useMCPServers() {
+export function useMCPServers(enabled = true) {
   return useQuery({
     queryKey: ["admin-mcp-servers"],
     queryFn: () => apiFetch<MCPServerItem[]>("/api/v1/admin/mcp-servers"),
+    enabled,
   });
 }
 

@@ -36,6 +36,7 @@ import {
   formatDateSeparator,
   isDifferentDay,
   shouldGroup,
+  getTurnMessages,
   getTurnText,
 } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -330,6 +331,7 @@ function ChannelChatSession({
       ) {
         headerIdx++;
       }
+      const fullTurnMessages = getTurnMessages(src.invertedData, headerIdx);
       const fullTurnText = getTurnText(src.invertedData, headerIdx);
       const isLatest = item.role === "assistant" && index === 0;
       return (
@@ -340,6 +342,7 @@ function ChannelChatSession({
             botName={bot?.name}
             isGrouped={isGrouped}
             fullTurnText={fullTurnText}
+            fullTurnMessages={fullTurnMessages}
             channelId={source.channelId}
             isLatestBotMessage={isLatest}
             compact

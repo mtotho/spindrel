@@ -80,7 +80,6 @@ provides:
   - hooks
   - router
   - tools
-  - carapaces
   - skills
 
 process:

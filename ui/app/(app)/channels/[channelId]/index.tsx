@@ -38,7 +38,7 @@ import { PinnedPanelsRail } from "@/src/components/chat/PinnedPanels";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
-import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnText } from "./chatUtils";
+import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
@@ -476,6 +476,10 @@ export default function ChatScreen() {
       utilization: savedBudget.utilization,
       consumed: savedBudget.consumed_tokens ?? 0,
       total: savedBudget.total_tokens ?? 0,
+      gross: savedBudget.gross_prompt_tokens ?? savedBudget.consumed_tokens ?? 0,
+      current: savedBudget.current_prompt_tokens ?? savedBudget.gross_prompt_tokens ?? savedBudget.consumed_tokens ?? 0,
+      cached: savedBudget.cached_prompt_tokens ?? undefined,
+      contextProfile: savedBudget.context_profile ?? undefined,
     } : null
   );
 
@@ -618,10 +622,11 @@ export default function ChatScreen() {
       while (headerIdx < invertedData.length - 1 && shouldGroup(invertedData[headerIdx], invertedData[headerIdx + 1])) {
         headerIdx++;
       }
+      const fullTurnMessages = getTurnMessages(invertedData, headerIdx);
       const fullTurnText = getTurnText(invertedData, headerIdx);
       const isLatestBotMessage = item.role === "assistant" && index === 0;
       const threadSummary = threadSummaries?.[item.id] ?? null;
-      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
+      const bubble = <MessageBubble message={item} botName={bot?.name} isGrouped={isGrouped} onBotClick={handleBotClick} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} channelId={channelId} isLatestBotMessage={isLatestBotMessage} isMobile={columns === "single"} threadSummary={threadSummary} onReplyInThread={handleReplyInThread} canReplyInThread={true} chatMode={chatMode} />;
       return <>{dateSep}{bubble}</>;
     },
     [invertedData, bot?.name, handleBotClick, channelId, latestAnchorByGroup, columns, threadSummaries, handleReplyInThread, chatMode]

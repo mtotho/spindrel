@@ -51,10 +51,11 @@ export interface ScopeGroupsResponse {
   presets: Record<string, ScopePreset>;
 }
 
-export function useApiKeys() {
+export function useApiKeys(enabled = true) {
   return useQuery({
     queryKey: ["admin-api-keys"],
     queryFn: () => apiFetch<ApiKeyItem[]>("/api/v1/admin/api-keys"),
+    enabled,
   });
 }
 

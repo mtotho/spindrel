@@ -2,9 +2,9 @@ import { useCallback, useMemo } from "react";
 import { useUIStore, type RecentPage } from "../../stores/ui";
 import type { PaletteItem, ScoredItem } from "./types";
 import { fuzzyMatch } from "./fuzzy";
-import { categoryRank } from "./admin-items";
+import { categoryRank } from "./admin-items.js";
 import { shouldSkipRecentPage } from "../../lib/recentPages";
-import { resolveRecentPaletteItem } from "./recent";
+import { resolveRecentPaletteItem, type RecentPaletteItemCandidate } from "./recent";
 
 export interface PaletteSearchOptions {
   /** Current page href — excluded from Recent to avoid self-link. */
@@ -13,6 +13,8 @@ export interface PaletteSearchOptions {
   recentLimit?: number;
   /** Cap on search-result entries returned when query is non-empty. */
   searchLimit?: number;
+  /** Whether admin-only recent targets should be shown. */
+  isAdmin?: boolean;
 }
 
 export interface PaletteSearchResult {
@@ -36,22 +38,34 @@ export interface PaletteSearchResult {
 export function usePaletteSearch(
   allItems: PaletteItem[],
   query: string,
-  { currentHref, recentLimit = 20, searchLimit = 30 }: PaletteSearchOptions,
+  { currentHref, recentLimit = 20, searchLimit = 30, isAdmin = true }: PaletteSearchOptions,
 ): PaletteSearchResult {
   const recentPages = useUIStore((s) => s.recentPages);
   const channelNameById = useMemo(
-    () =>
-      new Map(
-        allItems
-          .filter((it) => it.category === "Channels" && it.href.startsWith("/channels/") && !it.href.slice("/channels/".length).includes("/"))
-          .map((it) => [it.href.slice("/channels/".length), it.label]),
-      ),
+    () => {
+      const channelItems = allItems.filter(
+        (item): item is PaletteItem & { href: string } =>
+          item.category === "Channels"
+          && typeof item.href === "string"
+          && item.href.startsWith("/channels/")
+          && !item.href.slice("/channels/".length).includes("/"),
+      );
+      return new Map(
+        channelItems.map((item) => [
+          item.href.slice("/channels/".length),
+          item.label.replace(/^Chat · /, "").replace(/^#/, ""),
+        ]),
+      );
+    },
     [allItems],
   );
 
   const resolveRecent = useCallback(
     (rp: RecentPage): PaletteItem | null => {
-      return resolveRecentPaletteItem(rp, allItems, { channelNameById });
+      const navigableItems = allItems.filter(
+        (item): item is RecentPaletteItemCandidate => typeof item.href === "string",
+      );
+      return resolveRecentPaletteItem(rp, navigableItems, { channelNameById });
     },
     [allItems, channelNameById],
   );
@@ -70,39 +84,44 @@ export function usePaletteSearch(
   const totalRecents = useMemo(() => {
     let count = 0;
     for (const rp of recentPages) {
-      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       if (resolveRecent(rp)) count++;
     }
     return count;
-  }, [recentPages, currentHref, resolveRecent]);
+  }, [recentPages, currentHref, resolveRecent, isAdmin]);
 
   const scored = useMemo<ScoredItem[]>(() => {
     if (!query.trim()) {
-      // Pin recents at the top as their own "Recent" category, but also keep
-      // them in their original category so users can find them where they
-      // expect (e.g. a recently-opened channel still appears under Channels).
       const recentItems: ScoredItem[] = [];
+      const recentHrefs = new Set<string>();
       for (const rp of recentPages) {
         if (recentItems.length >= recentLimit) break;
-        if (shouldSkipRecentPage(rp, currentHref, true)) continue;
+        if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
         const resolved = resolveRecent(rp);
-        if (resolved) {
-          recentItems.push({ item: { ...resolved, category: "Recent" }, score: 2, matchIndices: [] });
+        if (resolved?.href) {
+          recentItems.push({ item: resolved, score: 2, matchIndices: [] });
+          recentHrefs.add(resolved.href);
         }
       }
       const rest = allItems
-        .filter((it) => !isSubPage(it))
+        .filter((it) => {
+          if (isSubPage(it)) return false;
+          const href = it.href;
+          return typeof href !== "string" || !recentHrefs.has(href);
+        })
         .map((item) => ({ item, score: 1, matchIndices: [] as number[] }));
       return [...recentItems, ...rest];
     }
 
-    const allItemsByHref = new Set(allItems.map((it) => it.href));
+    const allItemsByHref = new Set(
+      allItems.map((it) => it.href).filter((href): href is string => typeof href === "string"),
+    );
     const syntheticRecents: PaletteItem[] = [];
     for (const rp of recentPages) {
-      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       if (allItemsByHref.has(rp.href)) continue;
       const resolved = resolveRecent(rp);
-      if (resolved) syntheticRecents.push(resolved);
+      if (resolved?.href) syntheticRecents.push(resolved);
     }
     const searchPool = [...allItems, ...syntheticRecents];
 
@@ -110,7 +129,7 @@ export function usePaletteSearch(
     let bonusSlot = 0;
     for (const rp of recentPages) {
       if (bonusSlot >= 3) break;
-      if (shouldSkipRecentPage(rp, currentHref, true)) continue;
+      if (shouldSkipRecentPage(rp, currentHref, isAdmin)) continue;
       recencyBonus.set(rp.href, 15 - bonusSlot * 5);
       bonusSlot++;
     }
@@ -121,7 +140,7 @@ export function usePaletteSearch(
         const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
         const [catScore] = fuzzyMatch(query, item.category);
         const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3);
-        const bonus = recencyBonus.get(item.href) ?? 0;
+        const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
         return {
           item,
           score: bestScore + bonus,
@@ -131,7 +150,7 @@ export function usePaletteSearch(
       .filter((r) => r.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, searchLimit);
-  }, [query, allItems, recentPages, currentHref, resolveRecent, isSubPage, recentLimit, searchLimit]);
+  }, [query, allItems, recentPages, currentHref, resolveRecent, isSubPage, recentLimit, searchLimit, isAdmin]);
 
   const isEmpty = !query.trim();
 

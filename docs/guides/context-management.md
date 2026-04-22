@@ -114,6 +114,13 @@ Budget accounting now distinguishes:
 
 That split is emitted downstream so compaction can react to replayable-history pressure specifically, instead of only one blended prompt number.
 
+Context assembly is now also **profile-aware**:
+
+- every run resolves to one of `chat`, `planning`, `executing`, `task_recent`, `task_none`, or `heartbeat`
+- the active profile controls how much live history is replayed
+- optional static injections are admitted only if the profile allows them and the budget can afford them
+- trace/reporting now records per-source admit/skip reasons so "skipped by profile" and "skipped by budget" are visible separately
+
 ---
 
 ## History Modes
@@ -355,11 +362,11 @@ not in an ever-growing live transcript window.
 
 ## Plan Mode, Tasks, Heartbeats
 
-This is where the system is partly implemented and partly still evolving.
+This area is now implemented in the runtime with explicit context profiles. The remaining work is policy tuning, not inventing the mechanism.
 
 ### Plan mode
 
-Today, plan mode already changes runtime behavior:
+Plan mode already changes runtime behavior:
 
 - plan-mode instructions are injected every turn
 - plan mode tightens write policy
@@ -367,40 +374,46 @@ Today, plan mode already changes runtime behavior:
 
 Canonical plan behavior is documented in [Session Plan Mode](../planning/session-plan-mode.md).
 
+Context policy now follows mode too:
+
+- `planning` keeps only the last `2` user-started exchanges live
+- `planning` admits conversation sections and tool-index hints
+- `planning` does **not** admit workspace context, temporal prose, pinned-widget prose, recent memory logs, or tool-refusal guard text
+- `executing` keeps the last `4` user-started exchanges live
+- `executing` admits conversation sections, channel/workspace context, workspace RAG, tool-index hints, and tool-refusal guard text
+- `executing` still drops the more ambient/instructional additions such as temporal prose, pinned widgets, and recent memory logs
+
 ### Heartbeats
 
-Today:
+Heartbeat runs now have their own profile:
 
 - old heartbeat turns are filtered from reload
-- heartbeat state is already treated specially during compaction/reload
+- heartbeat reload trims live history to `0`
+- heartbeat runs do not admit optional conversation-derived or ambient static injections
 
-That is good and should remain.
+That is the intended steady-state behavior.
 
 ### Tasks / sub-sessions
 
-Today:
+Task runs now split into two profiles:
 
-- tasks can trim conversation history depending on task history mode
-- but additive injections are not yet fully profile-aware by task origin
+- `task_recent` respects task-selected history trimming but keeps the additive policy narrow
+- `task_recent` allows conversation sections / section index when history is present
+- `task_recent` does not admit workspace RAG, channel workspace prose, pinned widgets, temporal prose, or recent memory logs
+- `task_none` trims live history to `0`, does not reload compaction summaries, and suppresses optional static injections
 
-That means the app has improved replay discipline, but still does not have a fully separate context-admission policy for every origin.
+Special origins such as hygiene/subagent-style runs are also mapped to the restrictive `task_none` policy by default.
 
-### Known gap
+### Current profile summary
 
-The remaining architectural follow-up is **origin-aware context profiles**.
+Shipped profiles:
 
-Target direction:
-
-- `chat`
-- `planning`
-- `executing`
-- `task_recent`
-- `task_none`
-- `heartbeat`
-
-Each should have different admission rules for live history and optional injections.
-
-That work is not complete yet, so this document does not pretend it already exists.
+- `chat`: current full chat policy, with optional injections admitted by both profile and budget
+- `planning`: short live window, sections + tool index only
+- `executing`: medium live window, execution-relevant workspace/context sources on, ambient prose off
+- `task_recent`: task history only, narrow optional admissions
+- `task_none`: no live replay beyond system/base layers, no optional ambient injections
+- `heartbeat`: same restrictive admission posture as `task_none`
 
 ---
 
@@ -423,6 +436,7 @@ The real protection comes from:
 
 Current config defaults are still:
 
+- default direction: `history_mode: file`
 - `COMPACTION_INTERVAL = 30`
 - `COMPACTION_KEEP_TURNS = 10`
 
@@ -442,11 +456,13 @@ For continuity-heavy channels:
 
 - `keep_turns: 12-15` can be valid, but only if live-history caps and assistant compaction are doing their job
 
-For planning/execution profiles, once mode-aware profiles land:
+For the shipped mode-aware profiles:
 
-- planning will likely want `2-3` verbatim planning exchanges
-- execution will likely want `3-5`
-- heartbeat/task-none should be near `0-1`
+- planning currently keeps `2`
+- execution currently keeps `4`
+- heartbeat/task-none currently keep `0`
+
+Those are good starting points, but they should be treated as policy defaults that can still be tuned from live evidence.
 
 ### Tool-pruning recommendations
 
@@ -557,9 +573,9 @@ Spindrel should not just match the generic “trim/summarize” baseline. It sho
 2. **Token-aware live-history guardrails**
    Turn counts alone are not enough.
 3. **Mode-aware policies**
-   Planning, execution, heartbeat, and task runs should not all share one generic replay strategy.
+   Planning, execution, heartbeat, and task runs now have distinct replay/admission profiles. Keep that separation explicit.
 4. **Better observability**
-   Gross token totals, cached tokens, current prompt size, and live-history share should be visible separately.
+   Gross prompt size, current prompt size, cached prompt size, and live-history share should remain visible as separate numbers.
 
 That is the bar.
 
@@ -577,12 +593,12 @@ That is the bar.
 
 The biggest remaining gaps are:
 
-1. **Origin-aware admission policy is incomplete**
-   Tasks, heartbeat follow-ups, and plan/execution modes still share too much of the same additive injection policy.
-2. **Static injection admission is not yet strict enough**
-   Some optional blocks are still “inject then consume” instead of “admit only if affordable.”
-3. **Operator reporting still needs to distinguish gross vs current context more clearly**
-   A turn with multiple LLM iterations can still look much larger than the actual current prompt.
+1. **Profile tuning now matters more than profile invention**
+   The mechanism exists; the remaining question is whether the shipped planning/executing/task/heartbeat policies are the right defaults under real traffic.
+2. **Context-breakdown categories are still partly heuristic**
+   The headline usage/reporting can now show gross/current/cached API truth, but some category estimates are still derived from char counts and static heuristics.
+3. **Pre-call estimates and post-call usage are still different surfaces**
+   The stream-time budget event is an estimate; cached-token truth only exists after the model reports usage.
 
 ---
 
@@ -594,11 +610,11 @@ If you want Spindrel to feel efficient and competitive, keep these rules:
 2. Treat `summary` mode as a secondary/simpler option, not the main path.
 3. Treat `keep_turns` as a continuity setting, not as a context-budget guarantee.
 4. Prefer `8-12` live turns for general chat unless the channel clearly needs more or less.
-5. Use lower live windows for tool-heavy or planning-heavy flows.
+5. Use lower live windows for tool-heavy or planning-heavy flows; the shipped profile defaults (`planning=2`, `executing=4`, `task_none/heartbeat=0`) are the current reference point.
 6. Keep tool pruning on, and use `in-loop keep iterations = 2` unless you have evidence you need `1` or `3`.
 7. Keep old assistant/tool verbosity out of replay.
 8. Let archived history, memory files, and plan artifacts carry older state.
-9. Fix admission policy before chasing ever-larger raw context windows.
+9. Tune admission policy before chasing ever-larger raw context windows.
 
 The target is not “fit everything.”
 

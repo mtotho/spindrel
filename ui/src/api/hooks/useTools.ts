@@ -36,10 +36,11 @@ export interface PublicToolSignature {
   requires_channel_context?: boolean;
 }
 
-export function useTools() {
+export function useTools(enabled = true) {
   return useQuery({
     queryKey: ["admin-tools"],
     queryFn: () => apiFetch<ToolItem[]>("/api/v1/admin/tools"),
+    enabled,
   });
 }
 

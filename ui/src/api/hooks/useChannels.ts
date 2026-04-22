@@ -542,7 +542,17 @@ export function useChannelContextBudget(
   channelId: string | undefined,
   sessionId?: string | null,
 ) {
-  return useQuery<{ utilization: number | null; consumed_tokens: number | null; total_tokens: number | null }>({
+  return useQuery<{
+    utilization: number | null;
+    consumed_tokens: number | null;
+    total_tokens: number | null;
+    gross_prompt_tokens?: number | null;
+    current_prompt_tokens?: number | null;
+    cached_prompt_tokens?: number | null;
+    completion_tokens?: number | null;
+    context_profile?: string | null;
+    source?: string | null;
+  }>({
     queryKey: ["channel-context-budget", channelId, sessionId ?? null],
     queryFn: () => {
       const params = new URLSearchParams();

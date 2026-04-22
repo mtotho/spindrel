@@ -16,6 +16,7 @@ from dataclasses import replace as _dc_replace
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import EffectiveTools, apply_auto_injections, resolve_effective_tools
 from app.agent.context import set_ephemeral_delegates, set_ephemeral_skills
+from app.agent.context_profiles import ContextProfile, get_context_profile
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -324,6 +325,16 @@ class AssemblyResult:
     # next-turn forecast). Mirrors the dict written into the
     # `context_injection_summary` trace event.
     inject_chars: dict[str, int] = field(default_factory=dict)
+    inject_decisions: dict[str, str] = field(default_factory=dict)
+    context_profile: str | None = None
+
+
+def _mark_injection_decision(
+    inject_decisions: dict[str, str],
+    key: str,
+    decision: str,
+) -> None:
+    inject_decisions[key] = decision
 
 
 async def _inject_memory_scheme(
@@ -331,7 +342,10 @@ async def _inject_memory_scheme(
     bot: BotConfig,
     inject_chars: dict[str, int],
     budget_consume: Any,
+    budget_can_afford: Any,
     injected_paths: set[str],
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject memory scheme files (MEMORY.md, daily logs, reference index).
 
@@ -358,51 +372,81 @@ async def _inject_memory_scheme(
                 messages.append({"role": "system", "content": full})
                 budget_consume("memory_bootstrap", full)
                 injected_paths.add(f"{mem_rel}/MEMORY.md")
+                _mark_injection_decision(inject_decisions, "memory_bootstrap", "admitted")
                 yield {"type": "memory_scheme_bootstrap", "chars": len(content)}
 
                 line_count = content.count("\n") + 1
                 if settings.MEMORY_MD_NUDGE_THRESHOLD > 0 and line_count > settings.MEMORY_MD_NUDGE_THRESHOLD:
-                    messages.append({
-                        "role": "system",
-                        "content": (
-                            f"[Memory housekeeping] Your MEMORY.md is {line_count} lines "
-                            f"(threshold: {settings.MEMORY_MD_NUDGE_THRESHOLD}). "
-                            "Consider pruning stale entries, merging duplicates, or moving detailed "
-                            "notes to reference/ files to keep MEMORY.md concise and fast to scan."
-                        ),
-                    })
+                    _nudge_text = (
+                        f"[Memory housekeeping] Your MEMORY.md is {line_count} lines "
+                        f"(threshold: {settings.MEMORY_MD_NUDGE_THRESHOLD}). "
+                        "Consider pruning stale entries, merging duplicates, or moving detailed "
+                        "notes to reference/ files to keep MEMORY.md concise and fast to scan."
+                    )
+                    if context_profile.allow_memory_recent_logs and budget_can_afford(_nudge_text):
+                        messages.append({"role": "system", "content": _nudge_text})
+                        budget_consume("memory_housekeeping", _nudge_text)
+                        _mark_injection_decision(inject_decisions, "memory_housekeeping", "admitted")
+                    elif not context_profile.allow_memory_recent_logs:
+                        _mark_injection_decision(inject_decisions, "memory_housekeeping", "skipped_by_profile")
+                    else:
+                        _mark_injection_decision(inject_decisions, "memory_housekeeping", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_bootstrap", "skipped_empty")
+        else:
+            _mark_injection_decision(inject_decisions, "memory_bootstrap", "skipped_missing")
 
         # 2. Today's daily log
         today = date.today().isoformat()
         today_path = os.path.join(mem_root, "logs", f"{today}.md")
-        if os.path.isfile(today_path):
+        if not context_profile.allow_memory_recent_logs:
+            _mark_injection_decision(inject_decisions, "memory_today_log", "skipped_by_profile")
+        elif os.path.isfile(today_path):
             content = Path(today_path).read_text()
             if content.strip():
-                inject_chars["memory_today_log"] = len(content)
-                messages.append({
-                    "role": "system",
-                    "content": f"Today's daily log ({mem_file_rel}/logs/{today}.md):\n\n{content}",
-                })
-                injected_paths.add(f"{mem_rel}/logs/{today}.md")
-                yield {"type": "memory_scheme_today_log", "chars": len(content)}
+                full = f"Today's daily log ({mem_file_rel}/logs/{today}.md):\n\n{content}"
+                if budget_can_afford(full):
+                    inject_chars["memory_today_log"] = len(content)
+                    messages.append({"role": "system", "content": full})
+                    budget_consume("memory_today_log", full)
+                    injected_paths.add(f"{mem_rel}/logs/{today}.md")
+                    _mark_injection_decision(inject_decisions, "memory_today_log", "admitted")
+                    yield {"type": "memory_scheme_today_log", "chars": len(content)}
+                else:
+                    _mark_injection_decision(inject_decisions, "memory_today_log", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_today_log", "skipped_empty")
+        else:
+            _mark_injection_decision(inject_decisions, "memory_today_log", "skipped_missing")
 
         # 3. Yesterday's daily log
         yesterday = (date.today() - timedelta(days=1)).isoformat()
         yesterday_path = os.path.join(mem_root, "logs", f"{yesterday}.md")
-        if os.path.isfile(yesterday_path):
+        if not context_profile.allow_memory_recent_logs:
+            _mark_injection_decision(inject_decisions, "memory_yesterday_log", "skipped_by_profile")
+        elif os.path.isfile(yesterday_path):
             content = Path(yesterday_path).read_text()
             if content.strip():
-                inject_chars["memory_yesterday_log"] = len(content)
-                messages.append({
-                    "role": "system",
-                    "content": f"Yesterday's daily log ({mem_file_rel}/logs/{yesterday}.md):\n\n{content}",
-                })
-                injected_paths.add(f"{mem_rel}/logs/{yesterday}.md")
-                yield {"type": "memory_scheme_yesterday_log", "chars": len(content)}
+                full = f"Yesterday's daily log ({mem_file_rel}/logs/{yesterday}.md):\n\n{content}"
+                if budget_can_afford(full):
+                    inject_chars["memory_yesterday_log"] = len(content)
+                    messages.append({"role": "system", "content": full})
+                    budget_consume("memory_yesterday_log", full)
+                    injected_paths.add(f"{mem_rel}/logs/{yesterday}.md")
+                    _mark_injection_decision(inject_decisions, "memory_yesterday_log", "admitted")
+                    yield {"type": "memory_scheme_yesterday_log", "chars": len(content)}
+                else:
+                    _mark_injection_decision(inject_decisions, "memory_yesterday_log", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_yesterday_log", "skipped_empty")
+        else:
+            _mark_injection_decision(inject_decisions, "memory_yesterday_log", "skipped_missing")
 
         # 4. List reference/ files
         ref_dir = os.path.join(mem_root, "reference")
-        if os.path.isdir(ref_dir):
+        if not context_profile.allow_memory_recent_logs:
+            _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_profile")
+        elif os.path.isdir(ref_dir):
             ref_files = sorted(
                 f for f in os.listdir(ref_dir)
                 if f.endswith(".md") and os.path.isfile(os.path.join(ref_dir, f))
@@ -416,39 +460,56 @@ async def _inject_memory_scheme(
                         ref_entries.append(f"  - {rf} (modified {rf_date})")
                     except Exception:
                         ref_entries.append(f"  - {rf}")
-                messages.append({
-                    "role": "system",
-                    "content": f"Reference documents in {mem_file_rel}/reference/ (use get_memory_file to read):\n"
-                               + "\n".join(ref_entries),
-                })
-                yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
+                content = (
+                    f"Reference documents in {mem_file_rel}/reference/ (use get_memory_file to read):\n"
+                    + "\n".join(ref_entries)
+                )
+                if budget_can_afford(content):
+                    messages.append({"role": "system", "content": content})
+                    budget_consume("memory_reference_index", content)
+                    _mark_injection_decision(inject_decisions, "memory_reference_index", "admitted")
+                    yield {"type": "memory_scheme_reference_index", "count": len(ref_files)}
+                else:
+                    _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_empty")
+        else:
+            _mark_injection_decision(inject_decisions, "memory_reference_index", "skipped_missing")
 
         # 5. List loose .md files in memory/ root (not MEMORY.md, not dirs)
         _skip = {"MEMORY.md"}
-        loose_files = sorted(
-            f for f in os.listdir(mem_root)
-            if f.endswith(".md") and f not in _skip
-            and os.path.isfile(os.path.join(mem_root, f))
-        )
-        if loose_files:
-            loose_entries = []
-            for lf in loose_files:
-                try:
-                    mtime = os.path.getmtime(os.path.join(mem_root, lf))
-                    lf_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-                    loose_entries.append(f"  - {lf} (modified {lf_date})")
-                except Exception:
-                    loose_entries.append(f"  - {lf}")
-            messages.append({
-                "role": "system",
-                "content": (
+        if not context_profile.allow_memory_recent_logs:
+            _mark_injection_decision(inject_decisions, "memory_loose_files", "skipped_by_profile")
+        else:
+            loose_files = sorted(
+                f for f in os.listdir(mem_root)
+                if f.endswith(".md") and f not in _skip
+                and os.path.isfile(os.path.join(mem_root, f))
+            )
+            if loose_files:
+                loose_entries = []
+                for lf in loose_files:
+                    try:
+                        mtime = os.path.getmtime(os.path.join(mem_root, lf))
+                        lf_date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
+                        loose_entries.append(f"  - {lf} (modified {lf_date})")
+                    except Exception:
+                        loose_entries.append(f"  - {lf}")
+                content = (
                     f"Other files in {mem_file_rel}/ (use file(read) to access):\n"
                     + "\n".join(loose_entries)
                     + f"\n\nTip: consider moving these to {mem_file_rel}/reference/ "
                     "so they appear in the reference index."
-                ),
-            })
-            yield {"type": "memory_scheme_loose_files", "count": len(loose_files)}
+                )
+                if budget_can_afford(content):
+                    messages.append({"role": "system", "content": content})
+                    budget_consume("memory_loose_files", content)
+                    _mark_injection_decision(inject_decisions, "memory_loose_files", "admitted")
+                    yield {"type": "memory_scheme_loose_files", "count": len(loose_files)}
+                else:
+                    _mark_injection_decision(inject_decisions, "memory_loose_files", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_loose_files", "skipped_empty")
 
         # 6. Memory-write nudge — remind bot to save if it hasn't written
         #    to memory/ recently. Scan messages for file tool calls that
@@ -481,15 +542,22 @@ async def _inject_memory_scheme(
                     break
 
         if user_turns_since_memory_write >= _NUDGE_TURN_THRESHOLD and not found_memory_write:
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"[Memory reminder] {user_turns_since_memory_write} user messages since your "
-                    "last memory write. If the user stated any preferences, corrections, facts, "
-                    "or decisions, write them to memory NOW — they will be lost on compaction."
-                ),
-            })
-            yield {"type": "memory_scheme_nudge", "turns_since_write": user_turns_since_memory_write}
+            content = (
+                f"[Memory reminder] {user_turns_since_memory_write} user messages since your "
+                "last memory write. If the user stated any preferences, corrections, facts, "
+                "or decisions, write them to memory NOW — they will be lost on compaction."
+            )
+            if context_profile.allow_memory_recent_logs and budget_can_afford(content):
+                messages.append({"role": "system", "content": content})
+                budget_consume("memory_nudge", content)
+                _mark_injection_decision(inject_decisions, "memory_nudge", "admitted")
+                yield {"type": "memory_scheme_nudge", "turns_since_write": user_turns_since_memory_write}
+            elif not context_profile.allow_memory_recent_logs:
+                _mark_injection_decision(inject_decisions, "memory_nudge", "skipped_by_profile")
+            else:
+                _mark_injection_decision(inject_decisions, "memory_nudge", "skipped_by_budget")
+        elif context_profile.allow_memory_recent_logs:
+            _mark_injection_decision(inject_decisions, "memory_nudge", "skipped_empty")
 
     except Exception:
         logger.warning("Failed to inject memory scheme files for bot %s", bot.id, exc_info=True)
@@ -509,6 +577,9 @@ async def _inject_channel_workspace(
     user_message: str,
     inject_chars: dict[str, int],
     budget_consume: Any,
+    budget_can_afford: Any,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject channel workspace files, data listing, schema, index segments, and plan stall detection."""
     import os
@@ -586,11 +657,18 @@ async def _inject_channel_workspace(
             sections = [f"## {cw_abs}/{fname}\n\n{fcontent}" for fname, fcontent in cw_files]
             body = "\n\n---\n\n".join(sections)
 
-        inject_chars["channel_workspace"] = total_chars
         full = helper + body
-        messages.append({"role": "system", "content": full})
-        budget_consume("channel_workspace", full)
-        yield {"type": "channel_workspace_context", "count": len(cw_files), "chars": total_chars}
+        if context_profile.allow_channel_workspace:
+            if budget_can_afford(full):
+                inject_chars["channel_workspace"] = total_chars
+                messages.append({"role": "system", "content": full})
+                budget_consume("channel_workspace", full)
+                _mark_injection_decision(inject_decisions, "channel_workspace", "admitted")
+                yield {"type": "channel_workspace_context", "count": len(cw_files), "chars": total_chars}
+            else:
+                _mark_injection_decision(inject_decisions, "channel_workspace", "skipped_by_budget")
+        else:
+            _mark_injection_decision(inject_decisions, "channel_workspace", "skipped_by_profile")
 
         # Background re-index
         from app.services.channel_workspace_indexing import index_channel_workspace
@@ -637,9 +715,19 @@ async def _inject_channel_workspace(
                     seg_header += "(Call search_channel_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
                 elif "search_workspace" in bot.local_tools:
                     seg_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
-                messages.append({"role": "system", "content": seg_header + seg_body})
-                inject_chars["channel_index_segments"] = len(seg_body)
-                yield {"type": "channel_index_segments", "count": len(chunks), "similarity": sim}
+                seg_content = seg_header + seg_body
+                if not context_profile.allow_channel_index_segments:
+                    _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_by_profile")
+                elif budget_can_afford(seg_content):
+                    messages.append({"role": "system", "content": seg_content})
+                    budget_consume("channel_index_segments", seg_content)
+                    inject_chars["channel_index_segments"] = len(seg_body)
+                    _mark_injection_decision(inject_decisions, "channel_index_segments", "admitted")
+                    yield {"type": "channel_index_segments", "count": len(chunks), "similarity": sim}
+                else:
+                    _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "channel_index_segments", "skipped_empty")
         except Exception:
             logger.warning("Failed to retrieve channel knowledge-base / index segments for channel %s", ch_row.id, exc_info=True)
 
@@ -655,6 +743,10 @@ async def _inject_conversation_sections(
     session_id: uuid.UUID | None,
     user_message: str,
     inject_chars: dict[str, int],
+    budget_consume: Any,
+    budget_can_afford: Any,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject conversation section context (structured mode) or section index (file mode)."""
     from app.db.engine import async_session
@@ -662,6 +754,11 @@ async def _inject_conversation_sections(
     from app.services.compaction import _get_history_mode
     from sqlalchemy import func, select
     from sqlalchemy.orm import defer
+
+    if not context_profile.allow_conversation_sections:
+        _mark_injection_decision(inject_decisions, "conversation_sections", "skipped_by_profile")
+        _mark_injection_decision(inject_decisions, "section_index", "skipped_by_profile")
+        return
 
     hist_mode = _get_history_mode(bot, ch_row)
 
@@ -682,15 +779,21 @@ async def _inject_conversation_sections(
         if rows:
             texts = [r.transcript if r.transcript else f"## {r.title}\n{r.summary}" for r in rows]
             chars = sum(len(t) for t in texts)
-            inject_chars["conversation_sections"] = chars
-            messages.append({
-                "role": "system",
-                "content": "Relevant conversation history sections:\n\n" + "\n\n---\n\n".join(texts),
-            })
-            yield {"type": "section_context", "count": len(rows), "chars": chars}
+            content = "Relevant conversation history sections:\n\n" + "\n\n---\n\n".join(texts)
+            if budget_can_afford(content):
+                inject_chars["conversation_sections"] = chars
+                messages.append({"role": "system", "content": content})
+                budget_consume("conversation_sections", content)
+                _mark_injection_decision(inject_decisions, "conversation_sections", "admitted")
+                yield {"type": "section_context", "count": len(rows), "chars": chars}
+            else:
+                _mark_injection_decision(inject_decisions, "conversation_sections", "skipped_by_budget")
+        else:
+            _mark_injection_decision(inject_decisions, "conversation_sections", "skipped_empty")
 
     elif hist_mode == "file":
         if session_id is None:
+            _mark_injection_decision(inject_decisions, "section_index", "skipped_missing")
             return
         si_count = getattr(ch_row, "section_index_count", None)
         si_count = si_count if si_count is not None else settings.SECTION_INDEX_COUNT
@@ -719,9 +822,18 @@ async def _inject_conversation_sections(
             if rows:
                 from app.services.compaction import format_section_index
                 text = format_section_index(rows, verbosity=si_verbosity, total_sections=total, all_tags=all_tags)
-                inject_chars["section_index"] = len(text)
-                messages.append({"role": "system", "content": text})
-                yield {"type": "section_index_context", "count": len(rows), "chars": len(text)}
+                if budget_can_afford(text):
+                    inject_chars["section_index"] = len(text)
+                    messages.append({"role": "system", "content": text})
+                    budget_consume("section_index", text)
+                    _mark_injection_decision(inject_decisions, "section_index", "admitted")
+                    yield {"type": "section_index_context", "count": len(rows), "chars": len(text)}
+                else:
+                    _mark_injection_decision(inject_decisions, "section_index", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "section_index", "skipped_empty")
+        else:
+            _mark_injection_decision(inject_decisions, "section_index", "skipped_empty")
 
 
 async def _inject_workspace_rag(
@@ -738,9 +850,15 @@ async def _inject_workspace_rag(
     budget_can_afford: Any,
     budget: Any,
     memory_scheme_injected_paths: set[str],
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject workspace filesystem RAG context (current and legacy paths)."""
     from app.agent.fs_indexer import retrieve_filesystem_context
+
+    if not context_profile.allow_workspace_rag:
+        _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_by_profile")
+        return
 
     do_rag = False
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
@@ -778,9 +896,13 @@ async def _inject_workspace_rag(
                     ))
                 messages.append({"role": "system", "content": body})
                 budget_consume("fs_context", body)
+                _mark_injection_decision(inject_decisions, "workspace_rag", "admitted")
             else:
+                _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_by_budget")
                 logger.info("Budget: skipping workspace fs RAG (%d chunks, budget remaining: %d)",
                            len(fs_chunks), budget.remaining if budget else 0)
+        else:
+            _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_empty")
 
     elif bot.filesystem_indexes:
         fs_threshold = min(
@@ -789,6 +911,14 @@ async def _inject_workspace_rag(
         )
         fs_chunks, fs_sim = await retrieve_filesystem_context(user_message, bot.id, threshold=fs_threshold)
         if fs_chunks:
+            body = (
+                "Relevant file excerpts from indexed directories (partial segments — "
+                "use the file tool with operation=\"read\" to read full file contents):\n\n"
+                + "\n\n---\n\n".join(fs_chunks)
+            )
+            if not budget_can_afford(body):
+                _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_by_budget")
+                return
             yield {"type": "fs_context", "count": len(fs_chunks)}
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
@@ -797,14 +927,11 @@ async def _inject_workspace_rag(
                     event_type="fs_context", count=len(fs_chunks),
                     data={"preview": fs_chunks[0][:200], "best_similarity": _safe_sim(fs_sim)},
                 ))
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Relevant file excerpts from indexed directories (partial segments — "
-                    "use the file tool with operation=\"read\" to read full file contents):\n\n"
-                    + "\n\n---\n\n".join(fs_chunks)
-                ),
-            })
+            messages.append({"role": "system", "content": body})
+            budget_consume("fs_context", body)
+            _mark_injection_decision(inject_decisions, "workspace_rag", "admitted")
+        else:
+            _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_empty")
 
 
 async def assemble_context(
@@ -824,6 +951,7 @@ async def assemble_context(
     budget: "ContextBudget | None" = None,
     task_mode: bool = False,
     skip_skill_inject: bool = False,
+    context_profile_name: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -838,6 +966,9 @@ async def assemble_context(
     ))
 
     _inject_chars: dict[str, int] = {}
+    _inject_decisions: dict[str, str] = {}
+    context_profile = get_context_profile(context_profile_name or "chat")
+    result.context_profile = context_profile.name
 
     def _budget_consume(category: str, text: str) -> None:
         """Record consumption in the budget if one is active."""
@@ -1020,7 +1151,8 @@ async def assemble_context(
     _memory_scheme_injected_paths: set[str] = set()
     if bot.memory_scheme == "workspace-files":
         async for evt in _inject_memory_scheme(
-            messages, bot, _inject_chars, _budget_consume, _memory_scheme_injected_paths,
+            messages, bot, _inject_chars, _budget_consume, _budget_can_afford,
+            _memory_scheme_injected_paths, context_profile, _inject_decisions,
         ):
             yield evt
 
@@ -1038,6 +1170,7 @@ async def assemble_context(
         )
         async for evt in _inject_channel_workspace(
             messages, bot, _ch_row, user_message, _inject_chars, _budget_consume,
+            _budget_can_afford, context_profile, _inject_decisions,
         ):
             yield evt
 
@@ -1565,6 +1698,7 @@ async def assemble_context(
     if channel_id is not None and _ch_row is not None:
         async for evt in _inject_conversation_sections(
             messages, bot, _ch_row, channel_id, session_id, user_message, _inject_chars,
+            _budget_consume, _budget_can_afford, context_profile, _inject_decisions,
         ):
             yield evt
 
@@ -1573,7 +1707,7 @@ async def assemble_context(
         messages, bot, _ch_row, channel_id, user_message,
         correlation_id, session_id, client_id,
         _inject_chars, _budget_consume, _budget_can_afford, budget,
-        _memory_scheme_injected_paths,
+        _memory_scheme_injected_paths, context_profile, _inject_decisions,
     ):
         yield evt
 
@@ -1731,12 +1865,18 @@ async def assemble_context(
                 )
                 _tool_idx_content = _header + _index_lines
                 # P4: expendable — skip if budget is tight
-                if _budget_can_afford(_tool_idx_content):
+                if not context_profile.allow_tool_index:
+                    _mark_injection_decision(_inject_decisions, "tool_index", "skipped_by_profile")
+                elif _budget_can_afford(_tool_idx_content):
                     messages.append({"role": "system", "content": _tool_idx_content})
                     _budget_consume("tool_index", _tool_idx_content)
+                    _mark_injection_decision(_inject_decisions, "tool_index", "admitted")
                     yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
                 else:
+                    _mark_injection_decision(_inject_decisions, "tool_index", "skipped_by_budget")
                     logger.info("Budget: skipping tool index hints (%d tools)", len(_unretrieved))
+            elif context_profile.allow_tool_index:
+                _mark_injection_decision(_inject_decisions, "tool_index", "skipped_empty")
 
             # Capture tool discovery info for discovery_summary event (emitted at end).
             _tool_discovery_info = {
@@ -1858,95 +1998,89 @@ async def assemble_context(
     result.effective_local_tools = list(bot.local_tools)
 
     # --- datetime + conversation-gap framing (injected late to avoid busting prompt cache prefix) ---
-    try:
-        from zoneinfo import ZoneInfo
-        from app.services.temporal_context import (
-            ScanMessage,
-            TemporalBlockInputs,
-            build_current_time_block,
-        )
-        _tz = ZoneInfo(settings.TIMEZONE)
-        _now_local = datetime.now(_tz)
-        _now_utc = datetime.now(timezone.utc)
+    if context_profile.allow_temporal_context:
+        try:
+            from zoneinfo import ZoneInfo
+            from app.services.temporal_context import (
+                ScanMessage,
+                TemporalBlockInputs,
+                build_current_time_block,
+            )
+            _tz = ZoneInfo(settings.TIMEZONE)
+            _now_local = datetime.now(_tz)
+            _now_utc = datetime.now(timezone.utc)
 
-        _last_human_dt: datetime | None = None
-        _last_non_human_dt: datetime | None = None
-        _scan_messages: list[ScanMessage] = []
-        if session_id is not None:
-            try:
-                from sqlalchemy import select as _sa_select_t
-                from app.db.engine import async_session as _async_session_t
-                from app.db.models import Message as _MessageT
-                # The incoming user message was pre-persisted to the DB by the
-                # turn worker before this function runs (see turn_worker.py:
-                # _persist_and_publish_user_message). Exclude it from the "most
-                # recent" / scan view so we surface the PRIOR turn, which is
-                # what conveys the gap.
-                _cutoff = _now_utc - timedelta(seconds=5)
-                async with _async_session_t() as _tdb:
-                    # Pull the recent message window once: content + role + metadata + created_at.
-                    # We derive last_human_dt, last_non_human_dt, AND the scan window
-                    # from this single query (~15 rows, indexed by session_id).
-                    _recent_rows = (await _tdb.execute(
-                        _sa_select_t(
-                            _MessageT.role,
-                            _MessageT.content,
-                            _MessageT.metadata_,
-                            _MessageT.created_at,
-                        )
-                        .where(_MessageT.session_id == session_id)
-                        .where(_MessageT.role.in_(("user", "assistant")))
-                        .where(_MessageT.created_at < _cutoff)
-                        .order_by(_MessageT.created_at.desc())
-                        .limit(15)
-                    )).all()
-
-                    for _r in _recent_rows:
-                        _meta = _r.metadata_ or {}
-                        _is_bot_sender = _meta.get("sender_type") == "bot"
-                        _is_hb = bool(_meta.get("is_heartbeat"))
-                        _is_human = _r.role == "user" and not _is_bot_sender and not _is_hb
-                        # "Non-user activity" = anything the user didn't send: any
-                        # assistant/tool message, plus bot-mirrored user-role
-                        # messages in multi-bot channels.
-                        if not _is_human and _last_non_human_dt is None:
-                            _last_non_human_dt = _r.created_at
-                        if _is_human and _last_human_dt is None:
-                            _last_human_dt = _r.created_at
-                        # Feed the scan window.
-                        _content = _r.content if isinstance(_r.content, str) else ""
-                        if _content:
-                            # is_self: True when the assistant turn was authored
-                            # by the bot currently running; drives "you" vs
-                            # "another bot" attribution in multi-bot sessions.
-                            _sender_id = _meta.get("sender_id") or _meta.get("bot_id")
-                            _is_self = _r.role == "assistant" and (
-                                _sender_id is None or _sender_id == bot.id
+            _last_human_dt: datetime | None = None
+            _last_non_human_dt: datetime | None = None
+            _scan_messages: list[ScanMessage] = []
+            if session_id is not None:
+                try:
+                    from sqlalchemy import select as _sa_select_t
+                    from app.db.engine import async_session as _async_session_t
+                    from app.db.models import Message as _MessageT
+                    _cutoff = _now_utc - timedelta(seconds=5)
+                    async with _async_session_t() as _tdb:
+                        _recent_rows = (await _tdb.execute(
+                            _sa_select_t(
+                                _MessageT.role,
+                                _MessageT.content,
+                                _MessageT.metadata_,
+                                _MessageT.created_at,
                             )
-                            _scan_messages.append(ScanMessage(
-                                role=_r.role,
-                                content=_content,
-                                created_at=_r.created_at,
-                                is_human=_is_human,
-                                is_self=_is_self,
-                            ))
-            except Exception:
-                logger.debug("temporal_context: DB lookup failed", exc_info=True)
+                            .where(_MessageT.session_id == session_id)
+                            .where(_MessageT.role.in_(("user", "assistant")))
+                            .where(_MessageT.created_at < _cutoff)
+                            .order_by(_MessageT.created_at.desc())
+                            .limit(15)
+                        )).all()
 
-        _time_block = build_current_time_block(TemporalBlockInputs(
-            now_local=_now_local,
-            now_utc=_now_utc,
-            last_human_dt=_last_human_dt,
-            last_non_human_dt=_last_non_human_dt,
-            recent_messages=_scan_messages,
-        ))
-        messages.append({"role": "system", "content": _time_block})
-    except Exception:
-        pass  # non-fatal if timezone lookup fails
+                        for _r in _recent_rows:
+                            _meta = _r.metadata_ or {}
+                            _is_bot_sender = _meta.get("sender_type") == "bot"
+                            _is_hb = bool(_meta.get("is_heartbeat"))
+                            _is_human = _r.role == "user" and not _is_bot_sender and not _is_hb
+                            if not _is_human and _last_non_human_dt is None:
+                                _last_non_human_dt = _r.created_at
+                            if _is_human and _last_human_dt is None:
+                                _last_human_dt = _r.created_at
+                            _content = _r.content if isinstance(_r.content, str) else ""
+                            if _content:
+                                _sender_id = _meta.get("sender_id") or _meta.get("bot_id")
+                                _is_self = _r.role == "assistant" and (
+                                    _sender_id is None or _sender_id == bot.id
+                                )
+                                _scan_messages.append(ScanMessage(
+                                    role=_r.role,
+                                    content=_content,
+                                    created_at=_r.created_at,
+                                    is_human=_is_human,
+                                    is_self=_is_self,
+                                ))
+                except Exception:
+                    logger.debug("temporal_context: DB lookup failed", exc_info=True)
+
+            _time_block = build_current_time_block(TemporalBlockInputs(
+                now_local=_now_local,
+                now_utc=_now_utc,
+                last_human_dt=_last_human_dt,
+                last_non_human_dt=_last_non_human_dt,
+                recent_messages=_scan_messages,
+            ))
+            if _budget_can_afford(_time_block):
+                messages.append({"role": "system", "content": _time_block})
+                _budget_consume("temporal_context", _time_block)
+                _inject_chars["temporal_context"] = len(_time_block)
+                _mark_injection_decision(_inject_decisions, "temporal_context", "admitted")
+            else:
+                _mark_injection_decision(_inject_decisions, "temporal_context", "skipped_by_budget")
+        except Exception:
+            pass
+    else:
+        _mark_injection_decision(_inject_decisions, "temporal_context", "skipped_by_profile")
 
     # --- pinned widget state (stale-but-OK, same cache-safety band as temporal) ---
     try:
-        if _ch_row is not None:
+        if _ch_row is not None and context_profile.allow_pinned_widgets:
             from app.db.engine import async_session as _pw_session
             from app.services.widget_context import (
                 build_widget_context_block, fetch_channel_pin_dicts,
@@ -1955,18 +2089,28 @@ async def assemble_context(
                 _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
             if _pins:
                 _widget_block = build_widget_context_block(_pins, bot_id=bot.id)
-                if _widget_block:
+                if _widget_block and _budget_can_afford(_widget_block):
                     messages.append({"role": "system", "content": _widget_block})
+                    _budget_consume("pinned_widgets", _widget_block)
                     _inject_chars["pinned_widgets"] = len(_widget_block)
+                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "admitted")
+                elif _widget_block:
+                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_budget")
+                else:
+                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
+            else:
+                _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
     except Exception:
         logger.debug("pinned_widgets: injection failed", exc_info=True)
+    if not context_profile.allow_pinned_widgets:
+        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_profile")
 
     # --- tool refusal guard (counters history poisoning from prior "I can't" turns) ---
     # Scans recent assistant turns for refusal phrases. If any are found, injects a
     # corrective system message; if the refusal named a tool that IS now authorized,
     # the message names it specifically. Same cache-safety band as temporal/widgets.
     try:
-        if _authorized_names:
+        if _authorized_names and context_profile.allow_tool_refusal_guard:
             from app.services.tool_refusal_guard import (
                 build_tool_authority_block,
                 scan_assistant_refusals,
@@ -1979,16 +2123,24 @@ async def assemble_context(
             _assistant_contents.reverse()
             _refusal = scan_assistant_refusals(_assistant_contents, set(_authorized_names))
             _guard_block = build_tool_authority_block(_refusal)
-            if _guard_block:
+            if _guard_block and _budget_can_afford(_guard_block):
                 messages.append({"role": "system", "content": _guard_block})
+                _budget_consume("tool_refusal_guard", _guard_block)
                 _inject_chars["tool_refusal_guard"] = len(_guard_block)
+                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "admitted")
                 if _refusal.stale_refused:
                     logger.info(
                         "tool_refusal_guard: correcting stale refusals for %s on channel %s",
                         _refusal.stale_refused, channel_id,
                     )
+            elif _guard_block:
+                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_by_budget")
+            else:
+                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_empty")
     except Exception:
         logger.debug("tool_refusal_guard: injection failed", exc_info=True)
+    if not context_profile.allow_tool_refusal_guard:
+        _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_by_profile")
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:
@@ -2074,12 +2226,16 @@ async def assemble_context(
     # callers can read it without scraping trace events.
     if _inject_chars:
         result.inject_chars = dict(_inject_chars)
+    if _inject_decisions:
+        result.inject_decisions = dict(_inject_decisions)
 
     # --- injection summary trace ---
-    if correlation_id is not None and _inject_chars:
+    if correlation_id is not None and (_inject_chars or _inject_decisions):
         _summary_data: dict[str, Any] = {
             "breakdown": _inject_chars,
             "total_chars": sum(_inject_chars.values()),
+            "context_profile": context_profile.name,
+            "decisions": _inject_decisions,
         }
         if budget is not None:
             _summary_data["context_budget"] = budget.to_dict()
@@ -2188,6 +2344,7 @@ async def assemble_for_preview(
     """
     from app.agent.bots import get_bot
     from app.agent.context_budget import ContextBudget, get_model_context_window
+    from app.agent.context_profiles import resolve_context_profile
     from app.db.engine import async_session
     from app.db.models import Channel, Session
     from app.services.sessions import _load_messages
@@ -2245,6 +2402,7 @@ async def assemble_for_preview(
         budget=budget,
         task_mode=False,
         skip_skill_inject=False,
+        context_profile_name=resolve_context_profile(session=session).name if session is not None else "chat",
     ):
         pass
 

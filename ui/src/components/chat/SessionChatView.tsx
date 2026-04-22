@@ -9,6 +9,7 @@ import {
   formatDateSeparator,
   isDifferentDay,
   shouldGroup,
+  getTurnMessages,
   getTurnText,
 } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { MessageBubble } from "./MessageBubble";
@@ -204,6 +205,7 @@ export function SessionChatView({
     ) {
       headerIdx++;
     }
+    const fullTurnMessages = getTurnMessages(renderedData, headerIdx);
     const fullTurnText = getTurnText(renderedData, headerIdx);
     const isLatest = item.role === "assistant" && index === 0;
     return (
@@ -213,6 +215,7 @@ export function SessionChatView({
           message={item}
           isGrouped={isGrouped}
           fullTurnText={fullTurnText}
+          fullTurnMessages={fullTurnMessages}
           isLatestBotMessage={isLatest}
           chatMode={chatMode}
         />

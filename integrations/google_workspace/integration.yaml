@@ -43,7 +43,6 @@ oauth:
     - meet
 
 activation:
-  carapaces: [google-workspace]
   requires_workspace: false
   description: "Google Workspace -- Drive, Gmail, Calendar, Sheets, Docs, and more"
   config_fields:
@@ -79,4 +78,3 @@ provides:
   - router
   - tools
   - skills
-  - carapaces

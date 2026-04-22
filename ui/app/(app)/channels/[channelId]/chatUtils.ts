@@ -46,16 +46,9 @@ export function getTurnText(
   invertedData: Message[],
   index: number,
 ): string | undefined {
-  const header = invertedData[index];
-  if (header.role !== "assistant") return undefined;
-  const texts = [extractDisplayText(header.content)];
-  // Walk toward newer messages (lower indices in inverted list)
-  for (let i = index - 1; i >= 0; i--) {
-    const msg = invertedData[i];
-    if (!shouldGroup(msg, invertedData[i + 1])) break;
-    texts.push(extractDisplayText(msg.content));
-  }
-  return texts.length > 1 ? texts.join("\n\n") : undefined;
+  const messages = getTurnMessages(invertedData, index);
+  if (!messages || messages.length < 2) return undefined;
+  return messages.map((message) => extractDisplayText(message.content)).join("\n\n");
 }
 
 /** Are two timestamps on different calendar days (local time)? */
@@ -63,4 +56,26 @@ export function isDifferentDay(a: string, b: string): boolean {
   const da = new Date(a);
   const db = new Date(b);
   return da.getFullYear() !== db.getFullYear() || da.getMonth() !== db.getMonth() || da.getDate() !== db.getDate();
+}
+
+/** Collect the grouped assistant rows for the response bundle at `index`.
+ * Returns rows in chronological order (oldest-first), matching `getTurnText`. */
+export function getTurnMessages(
+  invertedData: Message[],
+  index: number,
+): Message[] | undefined {
+  const header = invertedData[index];
+  if (header.role !== "assistant") return undefined;
+  const messages = [header];
+  for (let i = index - 1; i >= 0; i--) {
+    const msg = invertedData[i];
+    if (!shouldGroup(msg, invertedData[i + 1])) break;
+    messages.push(msg);
+  }
+  return messages;
+}
+
+export function stringifyTurnMessages(messages: Message[] | undefined): string | undefined {
+  if (!messages?.length) return undefined;
+  return JSON.stringify(messages, null, 2);
 }

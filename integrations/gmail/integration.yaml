@@ -53,7 +53,6 @@ events:
   - { type: new_email, label: New email received, description: "New email found during poll cycle", category: poll }
 
 activation:
-  carapaces: [gmail-feeds]
   requires_workspace: true
   description: "Email ingestion and digest management via Gmail IMAP"
 
@@ -73,4 +72,3 @@ provides:
   - router
   - tools
   - skills
-  - carapaces

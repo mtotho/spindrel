@@ -79,6 +79,8 @@ interface Props {
   onBotClick?: (senderBotId: string | null) => void;
   /** Full concatenated text for multi-segment bot turns (only set on the turn header) */
   fullTurnText?: string;
+  /** Full grouped assistant response rows for copy/debug actions. */
+  fullTurnMessages?: Message[];
   /** Channel id — used to look up the per-channel "compact tool results"
    *  preference and to thread sessionId-style auth into RichToolResult's
    *  lazy-fetch path. Optional for back-compat with non-channel call sites. */
@@ -155,7 +157,7 @@ function HistoricalThinking({ text, t }: { text: string; t: ThemeTokens }) {
 // MessageBubble -- Slack-style flat layout
 // ---------------------------------------------------------------------------
 
-export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default" }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, botName, isGrouped, onBotClick, fullTurnText, fullTurnMessages, channelId, isLatestBotMessage, isMobile = false, compact: compactLayout = false, threadSummary = null, onReplyInThread, canReplyInThread = false, chatMode = "default" }: Props) {
   const t = useThemeTokens();
   const narrow = isMobile || compactLayout;
   const isTerminalMode = chatMode === "terminal";
@@ -407,7 +409,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           }}
         >
           {messageContent}
-          {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
+          {(displayContent.length > 0 || !!fullTurnMessages?.length) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
         </div>
         {threadAnchorEl}
       </>
@@ -473,6 +475,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             timestamp={timestamp}
             text={displayContent}
             fullTurnText={fullTurnText}
+            fullTurnMessages={fullTurnMessages}
             correlationId={message.correlation_id}
             onBotClick={handleBotClick}
             canReplyInThread={canReplyInThread && !!onReplyInThread}
@@ -553,7 +556,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         </div>
       </div>
 
-      {displayContent.length > 0 && <MessageActions text={displayContent} fullTurnText={fullTurnText} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
+      {(displayContent.length > 0 || !!fullTurnMessages?.length) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
     </div>
     {threadAnchorEl}
     </>

@@ -406,8 +406,6 @@ def _load_single_integration(
         detected_provides.add("router")
     if (candidate / "tools").is_dir() and any((candidate / "tools").glob("*.py")):
         detected_provides.add("tools")
-    if (candidate / "carapaces").is_dir() and any((candidate / "carapaces").glob("*.yaml")):
-        detected_provides.add("carapaces")
     if (candidate / "skills").is_dir() and any((candidate / "skills").glob("*.md")):
         detected_provides.add("skills")
 
@@ -584,7 +582,6 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "has_hooks": (candidate / "hooks.py").exists(),
             "has_tools": any((candidate / "tools").glob("*.py")) if (candidate / "tools").is_dir() else False,
             "has_skills": any((candidate / "skills").glob("**/*.md")) if (candidate / "skills").is_dir() else False,
-            "has_carapaces": any((candidate / "carapaces").glob("**/*.yaml")) if (candidate / "carapaces").is_dir() else False,
             "has_process": has_process,
             "process_launchable": process_launchable,
             "process_description": process_description,
@@ -596,7 +593,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "readme": None,
         }
 
-        # Enumerate tool/skill/carapace names for detail display
+        # Enumerate tool/skill names for detail display
         # Prefer live registry (shows actual loaded tool names); fall back to files on disk
         try:
             from app.tools.registry import _tools as _reg_tools
@@ -651,20 +648,6 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             )
         else:
             entry["skill_files"] = []
-        carapaces_dir = candidate / "carapaces"
-        if carapaces_dir.is_dir():
-            # Flat: carapaces/foo.yaml → stem is "foo"
-            # Nested: carapaces/foo/carapace.yaml → use parent dir name
-            carapace_names: set[str] = set()
-            for f in carapaces_dir.glob("**/*.yaml"):
-                if f.name == "carapace.yaml":
-                    carapace_names.add(f.parent.name)
-                else:
-                    carapace_names.add(f.stem)
-            entry["carapace_files"] = sorted(carapace_names)
-        else:
-            entry["carapace_files"] = []
-
         # Tool widget templates (declared in integration.yaml tool_widgets section)
         _tw_names: list[str] = []
         try:
@@ -831,7 +814,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
         deps_ok = entry.get("deps_installed", True) and entry.get("npm_deps_installed", True) and entry.get("system_deps_installed", True)
         if not required_vars:
             # No required vars declared — "ready" if has any capability file AND deps installed
-            if entry["has_router"] or entry["has_dispatcher"] or entry["has_renderer"] or entry["has_hooks"] or entry["has_tools"] or entry["has_carapaces"]:
+            if entry["has_router"] or entry["has_dispatcher"] or entry["has_renderer"] or entry["has_hooks"] or entry["has_tools"]:
                 entry["status"] = "ready" if deps_ok else "partial"
         else:
             set_count = sum(1 for v in required_vars if v["is_set"])
@@ -1047,6 +1030,34 @@ def get_chat_hud_presets() -> dict[str, dict[str, dict]]:
 _activation_manifests: dict[str, dict] | None = None
 
 
+def _discover_activation_tools(candidate: Path, integration_id: str) -> list[str]:
+    """Best-effort tool list for activation manifests.
+
+    Prefer the live registry because file names are only a fallback proxy for
+    registered tool names. When tools are not loaded yet, fall back to the
+    integration's ``tools/*.py`` filenames so the admin UI still has a useful
+    summary.
+    """
+    try:
+        from app.tools.registry import _tools as _reg_tools
+
+        names = sorted(
+            name for name, meta in _reg_tools.items()
+            if meta.get("source_integration") == integration_id
+        )
+        if names:
+            return names
+    except Exception:
+        logger.debug("Failed to inspect tool registry for %s", integration_id, exc_info=True)
+
+    tools_dir = candidate / "tools"
+    if not tools_dir.is_dir():
+        return []
+    return sorted(
+        f.stem for f in tools_dir.glob("*.py") if not f.name.startswith("_")
+    )
+
+
 def discover_activation_manifests() -> dict[str, dict]:
     """Discover activation manifests from integration setup.py SETUP dicts.
 
@@ -1054,7 +1065,7 @@ def discover_activation_manifests() -> dict[str, dict]:
     declare an ``"activation"`` key in their SETUP dict.
 
     Supports ``"includes": ["other_integration"]`` — the including manifest
-    inherits the included integration's carapaces (merged, deduped).
+    inherits the included integration's declared tools (merged, deduped).
     """
     global _activation_manifests
     results: dict[str, dict] = {}
@@ -1069,25 +1080,27 @@ def discover_activation_manifests() -> dict[str, dict]:
             version = setup.get("version")
             if version and "version" not in activation:
                 activation = {**activation, "version": version}
+            if not activation.get("tools"):
+                activation = {**activation, "tools": _discover_activation_tools(candidate, integration_id)}
             results[integration_id] = activation
 
-    # Resolve "includes" — merge carapaces and config_fields from included
+    # Resolve "includes" — merge tools and config_fields from included
     # integrations.  requires_workspace is NOT inherited — each integration
     # declares its own requirement.
     for itype, manifest in results.items():
         includes = manifest.get("includes")
         if not includes or not isinstance(includes, list):
             continue
-        merged_carapaces = list(manifest.get("carapaces", []))
+        merged_tools = list(manifest.get("tools", []))
         merged_config_fields = list(manifest.get("config_fields", []))
         existing_keys = {f["key"] for f in merged_config_fields}
         for included_id in includes:
             included = results.get(included_id)
             if not included:
                 continue
-            for cap_id in included.get("carapaces", []):
-                if cap_id not in merged_carapaces:
-                    merged_carapaces.append(cap_id)
+            for tool_name in included.get("tools", []):
+                if tool_name not in merged_tools:
+                    merged_tools.append(tool_name)
             for field in included.get("config_fields", []):
                 if field["key"] not in existing_keys:
                     merged_config_fields.append({
@@ -1095,7 +1108,8 @@ def discover_activation_manifests() -> dict[str, dict]:
                         "source_integration": included_id,
                     })
                     existing_keys.add(field["key"])
-        manifest["carapaces"] = merged_carapaces
+        if merged_tools:
+            manifest["tools"] = merged_tools
         if merged_config_fields:
             manifest["config_fields"] = merged_config_fields
 

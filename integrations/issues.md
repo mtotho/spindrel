@@ -68,11 +68,10 @@ Responding to assistant (discussion about arr integration mission control compat
 
   What I'd do next
 
-  1. Add activation to ARR setup.py — {"carapaces": ["arr"], "requires_workspace": True} so it auto-injects when activated
+  1. Add activation metadata to ARR so the channel activation surface declares the ARR tools directly and marks `requires_workspace: true`
   2. Slim down download-monitoring.md to be an interactive reference, not a heartbeat protocol duplicate
   3. Add a learnings note to the carapace — brief guidance on what goes where (workspace data vs bot memory)
   4. Consider whether the heartbeat template is too long — 250 lines is a lot of prompt. At ~13 tokens/line that's ~3.2k tokens just for heartbeat instructions.
    Might be fine for a dedicated heartbeat run, but worth being aware of.
 
   Want me to start on any of these?
-
