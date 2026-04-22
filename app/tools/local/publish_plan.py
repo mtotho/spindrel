@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from app.agent.context import current_session_id
-from app.agent.tool_dispatch import ToolResultEnvelope
 from app.db.engine import async_session
 from app.db.models import Session
 from app.services.session_plan_mode import (
@@ -113,6 +112,8 @@ async def publish_plan(
         **plan.as_dict(),
         "mode": PLAN_MODE_PLANNING,
     }
+    from app.agent.tool_dispatch import ToolResultEnvelope
+
     envelope = ToolResultEnvelope(
         content_type=PLAN_CONTENT_TYPE,
         body=json.dumps(payload),
