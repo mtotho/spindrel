@@ -108,6 +108,14 @@ icon: gauge
   let pollInFlight = false;
   let pollingDisabled = false;
   const POLL_MS = 15_000;
+  const sessionId = typeof sp.sessionId === "string" && sp.sessionId ? sp.sessionId : null;
+
+  function scopedApiPath(path) {
+    if (!sessionId) return path;
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set("session_id", sessionId);
+    return url.pathname + url.search;
+  }
 
   const fmtPct = (u) => (u == null ? "—" : (u * 100).toFixed(0) + "%");
   const fmtTokens = (c, t) => (c || 0).toLocaleString() + " / " + (t || 0).toLocaleString();
@@ -139,6 +147,9 @@ icon: gauge
     tokensEl.textContent = budget && budget.total_tokens
       ? fmtTokens(budget.consumed_tokens, budget.total_tokens)
       : "no turns yet";
+    sessionEl.textContent = sessionId
+      ? "session " + sessionId.slice(0, 8)
+      : "active session";
   }
 
   const sparkEl = document.getElementById("ctx-spark");
@@ -239,13 +250,13 @@ icon: gauge
     pollInFlight = true;
     try {
       const [budget, breakdown] = await Promise.all([
-        sp.api("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-budget"),
-        sp.api("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-breakdown"),
+        sp.api(scopedApiPath("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-budget")),
+        sp.api(scopedApiPath("/api/v1/channels/" + encodeURIComponent(sp.channelId) + "/context-breakdown")),
       ]);
       renderGauge(budget);
       if (budget && typeof budget.utilization === "number") pushUtil(budget.utilization);
       renderBreakdown(breakdown);
-      if (breakdown && breakdown.bot_id) {
+      if (!sessionId && breakdown && breakdown.bot_id) {
         sessionEl.textContent = breakdown.bot_id;
       }
     } catch (err) {

@@ -162,6 +162,9 @@ interface WidgetTokenResponse {
 
 interface Props {
   envelope: ToolResultEnvelope;
+  /** Current viewed session when the widget is rendered inside a session-
+   *  scoped surface (scratch/session page, mini chat, etc.). */
+  sessionId?: string;
   /** Channel the widget is rendering in. Used to build the injected
    *  `window.spindrel` helper so bot JS can call channel-scoped APIs.
    *  Falls back to `envelope.source_channel_id` when omitted. */
@@ -352,6 +355,7 @@ function escapeInlineJsonForScript(jsonText: string): string {
  */
 function spindrelBootstrap(
   channelId: string | null,
+  sessionId: string | null,
   botId: string | null,
   botName: string | null,
   serverUrl: string | null,
@@ -370,6 +374,7 @@ function spindrelBootstrap(
   return `<script>
 (function () {
   const channelId = ${jsonForScript(channelId)};
+  const sessionId = ${jsonForScript(sessionId)};
   const botId = ${jsonForScript(botId)};
   const botName = ${jsonForScript(botName)};
   const serverUrl = ${jsonForScript(serverUrl)};
@@ -2207,6 +2212,7 @@ function spindrelBootstrap(
 
   window.spindrel = {
     channelId: channelId,
+    sessionId: sessionId,
     botId: botId,
     botName: botName,
     serverUrl: serverUrl,
@@ -2372,6 +2378,7 @@ function extractToolResultFromBody(body: string): unknown | undefined {
 function wrapHtml(
   body: string,
   channelId: string | null,
+  sessionId: string | null,
   botId: string | null,
   botName: string | null,
   serverUrl: string | null,
@@ -2394,7 +2401,7 @@ function wrapHtml(
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
-${spindrelBootstrap(channelId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout, hostSurface)}
+${spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout, hostSurface)}
 </head>
 <body data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}">
 ${WIDGET_ICON_SPRITE}
@@ -2418,6 +2425,7 @@ function formatRelative(ts: number | null): string {
 
 export function InteractiveHtmlRenderer({
   envelope,
+  sessionId,
   channelId,
   fillHeight,
   dashboardPinId,
@@ -2986,6 +2994,7 @@ export function InteractiveHtmlRenderer({
     () => `${wrapHtml(
       bodyWithoutPreamble,
       effectiveChannelId,
+      sessionId ?? null,
       sourceBotId,
       botName,
       serverUrl,
@@ -3004,6 +3013,7 @@ export function InteractiveHtmlRenderer({
     [
       bodyWithoutPreamble,
       effectiveChannelId,
+      sessionId,
       sourceBotId,
       botName,
       widgetToken,

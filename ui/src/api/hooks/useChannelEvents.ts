@@ -483,7 +483,12 @@ export function useChannelEvents(
               : undefined;
           store.handleTurnEvent(storeKey, turnId, {
             event: "tool_start",
-            data: { tool: payload?.tool_name ?? "unknown", args: argsStr },
+            data: {
+              tool: payload?.tool_name ?? "unknown",
+              args: argsStr,
+              surface: payload?.surface,
+              summary: payload?.summary,
+            },
           });
           return;
         }
@@ -504,6 +509,8 @@ export function useChannelEvents(
               tool: payload?.tool_name,
               is_error: !!payload?.is_error,
               envelope: payload?.envelope,
+              surface: payload?.surface,
+              summary: payload?.summary,
             } as any,
           });
           return;

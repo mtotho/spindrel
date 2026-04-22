@@ -313,11 +313,12 @@ export function MarkdownContent({
   return (
     <div
       style={{
-        fontSize: isTerminalMode ? 14 : 15,
-        lineHeight: isTerminalMode ? "1.55" : "1.6",
+        fontSize: isTerminalMode ? 13 : 15,
+        lineHeight: isTerminalMode ? "1.5" : "1.6",
         color: t.contentText,
         overflowWrap: "break-word",
         minWidth: 0,
+        fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
       }}
     >
       {blocks.map((block, i) => {
@@ -327,7 +328,7 @@ export function MarkdownContent({
               key={i}
               style={{
                 fontFamily: TERMINAL_FONT_STACK,
-                fontSize: 13,
+                fontSize: isTerminalMode ? 12 : 13,
                 background: isTerminalMode ? "transparent" : t.codeBg,
                 padding: isTerminalMode ? "2px 0 2px 12px" : "12px 16px",
                 borderRadius: isTerminalMode ? 0 : 8,

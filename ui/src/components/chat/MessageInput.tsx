@@ -193,6 +193,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     return () => window.removeEventListener("keydown", handler);
   }, [recorder.isRecording, recorder.cancelRecording, handleMicToggle]);
 
+  useEffect(() => {
+    const handlePlanFill = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string }>).detail;
+      const incoming = (detail?.text ?? "").trim();
+      if (!incoming) return;
+      const current = (editorRef.current?.getMarkdown() ?? text).trim();
+      const next = current ? `${current}\n\n${incoming}` : incoming;
+      setText(next);
+      editorRef.current?.focus();
+    };
+    window.addEventListener("spindrel:plan-question-fill", handlePlanFill as EventListener);
+    return () => window.removeEventListener("spindrel:plan-question-fill", handlePlanFill as EventListener);
+  }, [setText, text]);
+
   // --- File handling ---
   const handleFileSelect = useCallback(async (files: FileList | null) => {
     if (!files) return;

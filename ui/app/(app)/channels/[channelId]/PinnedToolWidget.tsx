@@ -7,6 +7,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
 import { Pencil, X, GripVertical, RefreshCw, Bug } from "lucide-react";
+import { useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -114,6 +115,14 @@ export function PinnedToolWidget({
   const isDashboard = scope.kind === "dashboard";
   const channelId =
     scope.kind === "channel" ? scope.channelId : scope.channelId ?? null;
+  const scratchSessionRouteMatch = useMatch("/channels/:channelId/session/:sessionId");
+  const [searchParams] = useSearchParams();
+  const scratchRouteSessionId =
+    searchParams.get("scratch") === "true"
+      ? scratchSessionRouteMatch?.params.sessionId ?? null
+      : null;
+  const dashboardScratchSessionId = searchParams.get("scratch_session_id");
+  const viewedSessionId = scratchRouteSessionId ?? dashboardScratchSessionId ?? null;
   const isChip = scope.kind === "channel" && scope.compact === "chip";
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.
@@ -653,6 +662,7 @@ export function PinnedToolWidget({
         >
           <RichToolResult
             envelope={currentEnvelope}
+            sessionId={viewedSessionId ?? undefined}
             channelId={channelId ?? undefined}
             dispatcher={dispatcher}
             fillHeight={false}
@@ -865,6 +875,7 @@ export function PinnedToolWidget({
       >
         <RichToolResult
           envelope={currentEnvelope}
+          sessionId={viewedSessionId ?? undefined}
           channelId={channelId ?? undefined}
           dispatcher={dispatcher}
           fillHeight={isDashboard}

@@ -1858,6 +1858,7 @@ async def admin_channel_compaction_logs(
 async def admin_channel_context_breakdown(
     channel_id: uuid.UUID,
     mode: str = "last_turn",
+    session_id: uuid.UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
@@ -1877,7 +1878,12 @@ async def admin_channel_context_breakdown(
         raise HTTPException(status_code=422, detail="mode must be 'last_turn' or 'next_turn'")
 
     try:
-        result = await compute_context_breakdown(str(channel_id), db, mode=mode)
+        result = await compute_context_breakdown(
+            str(channel_id),
+            db,
+            mode=mode,
+            session_id=session_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

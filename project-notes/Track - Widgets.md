@@ -185,6 +185,18 @@ Known limitation:
 
 - execution is still session-turn-driven rather than a fully automatic background step runner; the transcript-first publish/render path is now in place, but the executor itself is not yet a detached loop
 
+Follow-up hardening (2026-04-22):
+
+- Tightened the injected plan-mode runtime contract so the model is now told, every turn, to:
+  - ask at most 1-3 focused clarifying questions before drafting
+  - avoid giant freeform markdown proposals in plain chat
+  - prefer the dedicated question/publish tools instead of hand-formatting planning UI in prose
+- Added `ask_plan_questions`, a local tool that emits a transcript-native `core/plan_questions` native-app card for structured planning Q&A.
+  - Supports `text`, `textarea`, and `select` fields.
+  - Intended flow: ask structured questions first, then `publish_plan` once key scope answers are in.
+- The plan-questions card now feeds answers back into the composer for review/send, keeping the planning interaction transcript-first without inventing a second approval surface.
+- Cold-start hardening: `ask_plan_questions` moved its `ToolResultEnvelope` import to call time and now has a registry bootstrap test alongside `publish_plan`, preventing another local-tool discovery circular import from slipping in.
+
 ### Phase 0.6 — Plan mode + widget revision artifacts docs pass (done, 2026-04-21)
 
 Follow-up docs pass after session-local plan mode landed:

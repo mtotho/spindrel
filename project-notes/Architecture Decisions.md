@@ -27,6 +27,18 @@
 - `summary.kind` is a render primitive, not a tool alias. Example: `file` edit and any other file-editing tool can both map to `kind="diff", subject_type="file"` while preserving their real `tool_name`.
 - Persisted assistant `message.tool_calls[]` now carry normalized top-level `name`, `arguments`, `surface`, and `summary` so chat UIs stop guessing across legacy shapes.
 
+### Live turns reuse the same tool presentation contract as persisted messages
+**Decided 2026-04-22.** The normalized `surface` + `summary` contract is not persistence-only metadata. Live tool SSE events and the optimistic assistant message synthesized by `finishTurn()` now carry the same contract too.
+
+**Why.**
+- The web chat previously had three different tool shapes for the same turn: live `TurnState.toolCalls`, a weaker client-synthesized post-stream message, and the eventual persisted/refetched message.
+- That split was the reason tool rows behaved differently during streaming vs after refresh, even after the backend normalization landed.
+
+**Load-bearing invariants.**
+- `turn_stream_tool_start` / `turn_stream_tool_result` payloads may carry `surface` + `summary`; frontend store state preserves them verbatim.
+- `finishTurn()` must synthesize `message.tool_calls[]` with normalized `name`, `arguments`, `surface`, and `summary` so the optimistic finished message matches the later persisted message shape.
+- Any renderer fallback against raw `tool_name` / raw args is compatibility glue for old rows/events only, not the primary path for new turns.
+
 ### Scratch sessions are internal-first session records; promotion swaps the channel primary
 **Decided 2026-04-21.** Scratch sessions are no longer a client-side convenience pointer layered on top of the main channel session. They are first-class `Session` rows with their own `title`, `summary`, `ConversationSection` history, and selector stats. The channel's canonical external conversation is still exactly one session: `channel.active_session_id`.
 

@@ -115,6 +115,8 @@ class TurnStreamToolStartPayload:
     turn_id: uuid.UUID
     tool_name: str
     arguments: dict = field(default_factory=dict)
+    surface: str | None = None
+    summary: dict | None = None
     session_id: uuid.UUID | None = None
 
 
@@ -135,6 +137,8 @@ class TurnStreamToolResultPayload:
     result_summary: str
     is_error: bool = False
     envelope: dict | None = None
+    surface: str | None = None
+    summary: dict | None = None
     session_id: uuid.UUID | None = None
 
 

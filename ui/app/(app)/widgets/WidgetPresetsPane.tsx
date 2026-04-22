@@ -238,7 +238,7 @@ export function WidgetPresetsPane({
 
       <div
         className={builder
-          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 xl:grid-cols-[280px_360px_minmax(0,1fr)]"
+          ? "grid min-h-0 flex-1 gap-6 px-5 pb-5 lg:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
         <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 border border-surface-border bg-surface"}>
@@ -405,7 +405,7 @@ export function WidgetPresetsPane({
         </section>
 
         {(builder || previewState.envelope || previewState.running || previewState.error) && (
-          <section className={builder ? "min-h-0 bg-transparent" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
+          <section className={builder ? "min-h-0 bg-transparent lg:col-span-2 2xl:col-span-1" : "min-h-0 rounded-xl border border-surface-border bg-surface"}>
             <div className={builder ? "px-1 py-2" : "border-b border-surface-border px-4 py-3"}>
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
                 Preview

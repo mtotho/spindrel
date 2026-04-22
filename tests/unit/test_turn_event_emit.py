@@ -125,12 +125,20 @@ class TestEmitRunStreamEvents:
         ch = uuid.uuid4()
 
         yielded, published = await _run(
-            [{"type": "tool_start", "tool": "web_search", "args": '{"query": "cats"}'}], ch
+            [{"type": "tool_start", "tool": "get_skill", "args": '{"skill_id": "widgets"}'}], ch
         )
 
         assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_START
-        assert published[0].payload.tool_name == "web_search"
-        assert published[0].payload.arguments == {"query": "cats"}
+        assert published[0].payload.tool_name == "get_skill"
+        assert published[0].payload.arguments == {"skill_id": "widgets"}
+        assert published[0].payload.surface == "transcript"
+        assert published[0].payload.summary == {
+            "kind": "read",
+            "subject_type": "skill",
+            "label": "Loaded skill",
+            "target_id": "widgets",
+            "target_label": "widgets/INDEX.md",
+        }
 
     async def test_when_tool_result_with_error_field_then_is_error_true(self):
         ch = uuid.uuid4()
@@ -142,6 +150,50 @@ class TestEmitRunStreamEvents:
         assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
         assert published[0].payload.is_error is True
         assert published[0].payload.result_summary == "timeout"
+
+    async def test_when_tool_result_includes_presentation_then_payload_preserves_it(self):
+        ch = uuid.uuid4()
+        diff_body = "\n".join([
+            "--- a/index.html",
+            "+++ b/index.html",
+            "@@ -1 +1 @@",
+            "-old line",
+            "+new line",
+        ])
+
+        yielded, published = await _run(
+            [{
+                "type": "tool_result",
+                "tool": "file",
+                "result": "ok",
+                "envelope": {
+                    "content_type": "application/vnd.spindrel.diff+text",
+                    "body": diff_body,
+                    "plain_body": "Edited index.html",
+                    "display": "inline",
+                },
+                "surface": "transcript",
+                "summary": {
+                    "kind": "diff",
+                    "subject_type": "file",
+                    "label": "Edited index.html",
+                    "path": "index.html",
+                    "diff_stats": {"additions": 1, "deletions": 1},
+                },
+            }],
+            ch,
+        )
+
+        assert yielded[0]["type"] == "tool_result"
+        assert published[0].kind is ChannelEventKind.TURN_STREAM_TOOL_RESULT
+        assert published[0].payload.surface == "transcript"
+        assert published[0].payload.summary == {
+            "kind": "diff",
+            "subject_type": "file",
+            "label": "Edited index.html",
+            "path": "index.html",
+            "diff_stats": {"additions": 1, "deletions": 1},
+        }
 
     async def test_when_unknown_event_type_then_no_bus_publish_but_still_yielded(self):
         ch = uuid.uuid4()

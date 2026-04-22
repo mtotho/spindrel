@@ -214,6 +214,7 @@ export function RichToolResult({
         content = (
           <InteractiveHtmlRenderer
             envelope={envelope}
+            sessionId={sessionId}
             channelId={channelId}
             fillHeight={fillHeight}
             dashboardPinId={dashboardPinId}

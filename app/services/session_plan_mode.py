@@ -734,18 +734,23 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
     if plan is None:
         if mode == PLAN_MODE_PLANNING:
             return [
-                "Plan mode is active. Stay in planning mode: ask clarifying questions, narrow scope, do not edit non-plan files, and do not execute implementation changes yet.",
-                "When you have enough information to propose a concrete plan, publish it as the session plan artifact instead of editing application files.",
+                "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
+                "Your first job in plan mode is to narrow scope. Ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
+                "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",
+                "Do not publish a plan until the user has answered the key scope questions or explicitly said to proceed with assumptions.",
+                "When you are ready to propose the actual plan, use publish_plan instead of writing a giant markdown response in chat. Keep conversational replies short and scoped to the next decision.",
             ]
         return []
     path = plan.path or get_session_active_plan_path(session) or "<unknown>"
     if mode == PLAN_MODE_PLANNING:
         lines.append(
-            "Plan mode is active. Stay in planning mode: ask clarifying questions, refine the canonical plan file, "
+            "Plan mode is active. Stay in planning mode: ask focused clarifying questions, keep chat replies concise, refine the canonical plan artifact via tools, "
             "and do not edit non-plan files or execute implementation changes."
         )
+        lines.append("Formatting contract: keep planning chat terse and decision-oriented; use publish_plan for the structured draft and avoid restating the whole plan in normal assistant prose.")
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Current revision: {plan.revision} ({plan.status})")
+        lines.append("Use publish_plan for plan revisions instead of dumping long markdown into chat. If more user input is needed, prefer ask_plan_questions.")
         if plan.open_questions:
             lines.append("Outstanding questions:\n" + "\n".join(f"- {item}" for item in plan.open_questions))
     elif mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:

@@ -40,6 +40,7 @@ from app.domain.payloads import (
     TurnStreamToolStartPayload,
 )
 from app.services.channel_events import publish_typed
+from app.services.tool_presentation import derive_tool_presentation
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,28 @@ def _coerce_tool_arguments(raw: Any) -> dict:
         return {"_raw": parsed}
     # Last-ditch: stringify and stash so the bus payload still validates.
     return {"_raw": str(raw)}
+
+
+def _tool_presentation_from_event(
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    result: Any = None,
+    envelope: Any = None,
+    error: Any = None,
+    surface: Any = None,
+    summary: Any = None,
+) -> tuple[str | None, dict | None]:
+    if isinstance(surface, str) and isinstance(summary, dict):
+        return surface, summary
+    derived_surface, derived_summary = derive_tool_presentation(
+        tool_name=tool_name,
+        arguments=arguments,
+        result=str(result) if isinstance(result, str) else None,
+        envelope=envelope if isinstance(envelope, dict) else None,
+        error=str(error) if isinstance(error, str) else None,
+    )
+    return derived_surface, derived_summary
 
 
 async def emit_run_stream_events(
@@ -146,6 +169,13 @@ async def emit_run_stream_events(
                 )
 
         elif etype == "tool_start":
+            _arguments = _coerce_tool_arguments(event.get("args"))
+            _surface, _summary = _tool_presentation_from_event(
+                tool_name=event.get("tool", ""),
+                arguments=_arguments,
+                surface=event.get("surface"),
+                summary=event.get("summary"),
+            )
             publish_typed(
                 channel_id,
                 ChannelEvent(
@@ -155,7 +185,9 @@ async def emit_run_stream_events(
                         bot_id=bot_id,
                         turn_id=turn_id,
                         tool_name=event.get("tool", ""),
-                        arguments=_coerce_tool_arguments(event.get("args")),
+                        arguments=_arguments,
+                        surface=_surface,
+                        summary=_summary,
                         session_id=session_id,
                     ),
                 ),
@@ -163,6 +195,16 @@ async def emit_run_stream_events(
 
         elif etype == "tool_result":
             _result_text = event.get("result") or event.get("error") or ""
+            _arguments = _coerce_tool_arguments(event.get("args"))
+            _surface, _summary = _tool_presentation_from_event(
+                tool_name=event.get("tool", ""),
+                arguments=_arguments,
+                result=event.get("result"),
+                envelope=event.get("envelope"),
+                error=event.get("error"),
+                surface=event.get("surface"),
+                summary=event.get("summary"),
+            )
             publish_typed(
                 channel_id,
                 ChannelEvent(
@@ -175,6 +217,8 @@ async def emit_run_stream_events(
                         result_summary=str(_result_text)[:500],
                         is_error=bool(event.get("error")),
                         envelope=event.get("envelope"),
+                        surface=_surface,
+                        summary=_summary,
                         session_id=session_id,
                     ),
                 ),

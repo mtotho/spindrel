@@ -57,6 +57,7 @@ def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
     assert lines
     assert any("Plan mode is active" in line for line in lines)
     assert any("publish" in line.lower() for line in lines)
+    assert any("ask_plan_questions" in line for line in lines)
     assert all("Canonical plan file:" not in line for line in lines)
 
 

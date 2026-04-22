@@ -10,13 +10,13 @@ without the `admin` scope. Covers:
 And asserts parity with the admin routes where they overlap.
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Session, TraceEvent
+from app.db.models import Channel, Message, Session, TraceEvent
 
 
 AUTH_HEADERS = {"Authorization": "Bearer test-key"}
@@ -199,6 +199,100 @@ class TestPublicContextBreakdown:
         ):
             assert key in body, f"missing key {key!r} in breakdown response"
         assert isinstance(body["categories"], list)
+
+    @pytest.mark.asyncio
+    async def test_session_scoped_breakdown_uses_selected_session(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        channel_id = uuid.uuid4()
+        main_session_id = uuid.uuid4()
+        scratch_session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        watermark_time = now - timedelta(minutes=10)
+        after_watermark = now - timedelta(minutes=5)
+
+        db_session.add(Channel(
+            id=channel_id,
+            name="ctx-public-breakdown-session-scope",
+            bot_id="test-bot",
+            active_session_id=main_session_id,
+            compaction_interval=10,
+        ))
+        db_session.add_all([
+            Session(
+                id=main_session_id,
+                bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-main",
+                channel_id=channel_id,
+            ),
+            Session(
+                id=scratch_session_id,
+                bot_id="test-bot",
+                client_id=f"c-{channel_id.hex[:8]}-scratch",
+                channel_id=channel_id,
+                summary="Scratch summary",
+            ),
+        ])
+        watermark_message = Message(
+            id=uuid.uuid4(),
+            session_id=scratch_session_id,
+            role="assistant",
+            content="summary watermark",
+            created_at=watermark_time,
+        )
+        db_session.add(watermark_message)
+        await db_session.flush()
+
+        scratch_session = await db_session.get(Session, scratch_session_id)
+        assert scratch_session is not None
+        scratch_session.summary_message_id = watermark_message.id
+
+        db_session.add_all([
+            Message(
+                id=uuid.uuid4(),
+                session_id=main_session_id,
+                role="user",
+                content="main session message",
+                created_at=after_watermark,
+            ),
+            Message(
+                id=uuid.uuid4(),
+                session_id=scratch_session_id,
+                role="user",
+                content="scratch user one",
+                created_at=after_watermark,
+            ),
+            Message(
+                id=uuid.uuid4(),
+                session_id=scratch_session_id,
+                role="assistant",
+                content="scratch assistant one",
+                created_at=after_watermark + timedelta(seconds=1),
+            ),
+            Message(
+                id=uuid.uuid4(),
+                session_id=scratch_session_id,
+                role="user",
+                content="scratch user two",
+                created_at=after_watermark + timedelta(seconds=2),
+            ),
+        ])
+        await db_session.commit()
+
+        public = (await client.get(
+            f"/api/v1/channels/{channel_id}/context-breakdown?session_id={scratch_session_id}",
+            headers=AUTH_HEADERS,
+        )).json()
+        admin = (await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-breakdown?session_id={scratch_session_id}",
+            headers=AUTH_HEADERS,
+        )).json()
+
+        assert public == admin
+        assert public["session_id"] == str(scratch_session_id)
+        assert public["compaction"]["messages_since_watermark"] == 3
+        assert public["compaction"]["total_messages"] == 4
+        assert public["compaction"]["turns_until_next"] == 8
 
 
 class TestWidgetPinImplicitAuth:

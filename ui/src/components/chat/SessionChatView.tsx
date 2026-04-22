@@ -109,7 +109,8 @@ export function SessionChatView({
         m.role === "assistant" &&
         !extractDisplayText(m.content) &&
         (!m.attachments || m.attachments.length === 0) &&
-        !meta.tool_results
+        !meta.tool_results &&
+        (!m.tool_calls || m.tool_calls.length === 0)
       )
         return false;
       return true;

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-22 (mini chat inherits chat mode, terminal dock chrome tightened, session-plan composer affordances restored)
+updated: 2026-04-22 (session-aware context headers + compaction metadata across chat/scratch surfaces)
 ---
 # Track — UI Polish
 
@@ -96,6 +96,10 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Mini-chat open animation no longer "snaps in" from mid-screen** — `chat-dock-expand-in` now uses a small bottom-right anchored translate/scale instead of a large viewport-center translate, so opening the dock no longer reads like it first mounted ~100px away from its final corner.
 - [x] **Normal chat-screen loads no longer full-page fade after the skeleton swap** — `channels/[channelId]/index.tsx` now applies the screen animation only for the explicit `?from=dock` route transition. The old unconditional `.chat-fade-in` on every mount was causing the whole chat screen to briefly fade right after first paint on ordinary loads, which read as a white/dark "flash" once the page was already mostly visible.
 - [x] **Persisted tool presentation contract** — `tool_calls` now carry server-derived `surface` + `summary`, persisted assistant `message.tool_calls[]` are normalized to include those fields, terminal transcript now prefers the normalized summary instead of re-deriving `Loaded skill`/file-diff semantics from raw blobs, and raw result/envelope data remain intact for rich rendering and deep inspection.
+- [x] **Persisted tool presentation contract now owns the chat UI path** — default `MessageBubble` partitioning now prefers `tool_call.surface` over envelope heuristics, `ToolBadges` renders summary-first rows so file diffs show inline prettified hunks while file reads stay compact, and `SkillsInContextPanel` now recognizes loaded skills from normalized tool-call summaries before falling back to raw `get_skill` args.
+- [x] **Live turns now reuse that same contract end-to-end** — typed `turn_stream_tool_start` / `turn_stream_tool_result` payloads now carry normalized `surface` + `summary`, the live chat store preserves them on `TurnState.toolCalls`, terminal streaming rows read the same summary contract as persisted rows, and `finishTurn()` now synthesizes `message.tool_calls[]` instead of a contract-less assistant message. This removes the streaming vs post-refresh split-brain for `Loaded skill`, file diffs, and widget/rich-result ownership.
+- [x] **Terminal-mode typography tightened again after manual review** — reduced terminal transcript/body/code/thinking font sizes and explicitly applied the terminal font family to streaming thinking/content paths so live rows match the settled transcript more closely instead of briefly falling back to non-terminal typography.
+- [x] **Chat + scratch headers now follow the viewed session, not just the channel active session** — channel header, scratch full-page header, mini-chat/scratch subheaders, and the legacy context tracker widget now accept the selected `session_id` when present. Scratch/session views show the same live token counts as normal chat, plus compact turn metadata (`turns in ctx`, `until compact`) sourced from session diagnostics instead of guessing off the channel default session.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -105,9 +109,18 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after terminal dock chrome + mini-chat session-plan composer wiring
 - [x] `python -m py_compile app/routers/api_v1_channels.py app/routers/api_v1_admin/channels.py app/tools/local/propose_config_change.py`
 - [x] `python -m py_compile app/services/slash_commands.py app/routers/api_v1_slash_commands.py tests/integration/test_slash_commands.py`
+- [x] `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` after summary/surface UI adoption
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after terminal typography + plan-question transcript widget wiring
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after session-aware context header + scratch session widget plumbing
+- [x] `cd agent-server && pytest tests/unit/test_tool_presentation.py -q`
+- [x] `cd agent-server && pytest tests/unit/test_turn_event_emit.py tests/unit/test_tool_presentation.py -q`
+- [x] `python -m py_compile app/domain/payloads.py app/services/turn_event_emit.py app/agent/tool_dispatch.py`
+- [x] `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` after live/persisted tool contract unification
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
   `tests/integration/test_slash_commands.py -q` also stalled under the wrapper here without producing a Python failure trace.
 - [ ] Follow-up scratch-copy polish verification remains wrapper-limited:
   `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false` did not report TypeScript errors here, but the sandbox command wrapper hung until `timeout 5s` terminated it.
+- [ ] Session-aware context-header backend regression pytest is still wrapper-limited here:
+  targeted `tests/integration/test_context_endpoints_public.py` / `test_context_breakdown_modes.py` runs exited ambiguously under the sandbox shell wrapper without surfacing Python pass/fail output, so manual rerun in a normal repo shell is still needed even though the new regression test was added.

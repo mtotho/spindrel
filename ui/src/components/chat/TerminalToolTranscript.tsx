@@ -277,6 +277,9 @@ function resolveSkillRef(
 }
 
 function buildEntryFromSummary(toolName: string, summary: ToolCallSummary, result: ToolResultEnvelope | undefined): TranscriptEntry {
+  const skillMetaLabel = summary.subject_type === "skill"
+    ? `(${summary.target_label || (summary.target_id ? formatSkillRef(summary.target_id) : "")})`
+    : null;
   if (summary.kind === "diff" && summary.subject_type === "file") {
     return {
       kind: "file",
@@ -301,7 +304,7 @@ function buildEntryFromSummary(toolName: string, summary: ToolCallSummary, resul
     kind: "activity",
     id: `${toolName}:${summary.label}`,
     summary: summary.label,
-    metaLabel: summary.target_label ? `(${summary.target_label})` : null,
+    metaLabel: skillMetaLabel || (summary.target_label ? `(${summary.target_label})` : null),
     detail: summary.kind === "error" ? summary.error || null : null,
     tone: summary.kind === "error" ? "danger" : "default",
   };
@@ -446,7 +449,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
               alignItems: "baseline",
               gap: 6,
               fontFamily: TERMINAL_FONT_STACK,
-              fontSize: 12.5,
+              fontSize: 11.5,
               lineHeight: 1.5,
               cursor: expandable ? "pointer" : undefined,
             }}
@@ -459,7 +462,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                 display: "inline-flex",
                 alignItems: "center",
                 justifyContent: "center",
-                fontSize: expandable ? 12.5 : 11,
+                fontSize: expandable ? 11.5 : 10.5,
                 lineHeight: 1,
               }}
             >
@@ -481,7 +484,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                   style={{
                     color: t.textDim,
                     marginLeft: 8,
-                    fontSize: 11.5,
+                    fontSize: 10.5,
                     whiteSpace: "pre-wrap",
                   }}
                 >
@@ -498,7 +501,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                   background: "transparent",
                   color: t.accent,
                   fontFamily: TERMINAL_FONT_STACK,
-                  fontSize: 11.5,
+                  fontSize: 10.5,
                   lineHeight: 1.2,
                   padding: "2px 6px",
                   borderRadius: 2,
@@ -516,7 +519,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
               style={{
                 marginLeft: 10,
                 fontFamily: TERMINAL_FONT_STACK,
-                fontSize: 11.5,
+                fontSize: 10.5,
                 lineHeight: 1.45,
               }}
             >
@@ -585,7 +588,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                 marginLeft: 18,
                 color: t.textMuted,
                 fontFamily: TERMINAL_FONT_STACK,
-                fontSize: 11.5,
+                fontSize: 10.5,
                 lineHeight: 1.5,
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
@@ -607,7 +610,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                   background: "transparent",
                   color: t.success,
                   fontFamily: TERMINAL_FONT_STACK,
-                  fontSize: 11.5,
+                  fontSize: 10.5,
                   padding: "2px 6px",
                   borderRadius: 2,
                   cursor: "pointer",
@@ -624,7 +627,7 @@ function TranscriptBlock({ entries, t, onAddWidget, decidingIds, onApproval }: {
                   background: "transparent",
                   color: t.danger,
                   fontFamily: TERMINAL_FONT_STACK,
-                  fontSize: 11.5,
+                  fontSize: 10.5,
                   padding: "2px 6px",
                   borderRadius: 2,
                   cursor: "pointer",
@@ -728,6 +731,8 @@ export function TerminalStreamingToolTranscript({
   toolCalls: {
     name: string;
     args?: string;
+    summary?: ToolCallSummary | null;
+    envelope?: ToolResultEnvelope;
     status: "running" | "done" | "awaiting_approval" | "denied";
     approvalId?: string;
     approvalReason?: string;
@@ -757,6 +762,41 @@ export function TerminalStreamingToolTranscript({
 
   const entries = toolCalls.map<TranscriptEntry>((tc, index) => {
     const toolName = tc.capability?.name || tc.name;
+    if (tc.summary) {
+      const summarized = buildEntryFromSummary(toolName, tc.summary, tc.envelope);
+      return {
+        ...summarized,
+        id: `stream:${toolName}:${tc.status}:${index}`,
+        kind: tc.status === "awaiting_approval" && tc.approvalId ? "approval" : summarized.kind,
+        summary: tc.status === "awaiting_approval"
+          ? `Approval required: ${toolName}`
+          : tc.status === "running"
+            ? `${summarized.summary}`
+            : tc.status === "done"
+              ? `${summarized.summary}`
+              : `Denied ${summarized.summary}`,
+        detail:
+          formatSimpleParams(tc.args) ||
+          tc.approvalReason ||
+          tc.capability?.description ||
+          summarized.detail ||
+          null,
+        tone: tc.status === "done"
+          ? summarized.tone === "danger"
+            ? "danger"
+            : "success"
+          : tc.status === "awaiting_approval"
+            ? "warning"
+            : tc.status === "denied"
+              ? "danger"
+              : "muted",
+        approval: tc.approvalId ? {
+          approvalId: tc.approvalId,
+          capabilityId: tc.capability?.id,
+          reason: tc.approvalReason,
+        } : undefined,
+      };
+    }
     const baseSummary = summarizeGenericTool(toolName, tc.args);
     const tone = tc.status === "done"
       ? "success"
@@ -774,8 +814,9 @@ export function TerminalStreamingToolTranscript({
         : tc.status === "running"
           ? `Running ${baseSummary}`
           : tc.status === "done"
-            ? `Completed ${baseSummary}`
-            : `Denied ${baseSummary}`,
+          ? `Completed ${baseSummary}`
+          : `Denied ${baseSummary}`,
+      metaLabel: null,
       detail: formatSimpleParams(tc.args) || tc.approvalReason || tc.capability?.description || null,
       tone,
       approval: tc.approvalId ? {

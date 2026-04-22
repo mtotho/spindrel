@@ -222,7 +222,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const isUser = isCurrentUser;
   const timestamp = formatTimeShort(message.created_at);
   const toolsUsed: string[] = (meta.tools_used as string[]) || [];
-  const toolResults: ToolResultEnvelope[] | undefined = meta.tool_results as ToolResultEnvelope[] | undefined;
+  const toolResults: (ToolResultEnvelope | undefined)[] | undefined = meta.tool_results as
+    | (ToolResultEnvelope | undefined)[]
+    | undefined;
   const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
@@ -266,23 +268,27 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     const results = toolResults;
     const count = Math.max(calls.length, names.length);
 
-    // First pass: identify which indices are inline widgets
+    // First pass: identify which indices are inline widgets / rich results.
+    // Prefer the persisted tool-call surface contract for new rows; fall back
+    // to the historical envelope heuristics for older messages.
     const inlineIndices = new Set<number>();
     for (let i = 0; i < count; i++) {
       const env = results?.[i];
-      if (
+      const call = calls[i];
+      const name = call ? normalizeToolCall(call).name : names[i];
+      const surface = call?.surface;
+      const isLegacyInlineWidget = !!(
         env &&
         env.display === "inline" &&
         (env.content_type === "application/vnd.spindrel.components+json" ||
           env.content_type === "application/vnd.spindrel.html+interactive")
-      ) {
-        const call = calls[i];
-        const name = call ? normalizeToolCall(call).name : names[i];
+      );
+      const isLegacyInlineRichResult = !!(env && env.display === "inline" && !isLegacyInlineWidget);
+
+      if (env && (surface === "widget" || (!surface && isLegacyInlineWidget))) {
         inlineWidgets.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
         inlineIndices.add(i);
-      } else if (env && env.display === "inline") {
-        const call = calls[i];
-        const name = call ? normalizeToolCall(call).name : names[i];
+      } else if (env && (surface === "rich_result" || (!surface && isLegacyInlineRichResult))) {
         inlineRichResults.push({ envelope: env, toolName: name ?? "", recordId: env.record_id ?? undefined });
         inlineIndices.add(i);
       }
@@ -535,7 +541,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             onClick={handleBotClick}
             className={handleBotClick ? "bot-name-link" : undefined}
             style={{
-              fontSize: isTerminalMode ? 14 : 15,
+              fontSize: isTerminalMode ? 13 : 15,
               fontWeight: isTerminalMode ? 600 : 700,
               color: isTerminalMode ? (isUser ? t.accent : avatarColor(displayName)) : isUser ? t.text : avatarColor(displayName),
               cursor: handleBotClick ? "pointer" : undefined,

@@ -18,6 +18,7 @@ import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
+import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
@@ -397,8 +398,11 @@ export default function ChatScreen() {
   const scratchSessionState = useChatStore((s) =>
     scratchUrlSessionId ? s.getChannel(scratchUrlSessionId) : null,
   );
-  const currentBudgetSessionId = isScratchRoute ? scratchUrlSessionId : null;
+  const currentBudgetSessionId = isScratchRoute
+    ? scratchUrlSessionId
+    : channel?.active_session_id ?? null;
   const { data: savedBudget } = useChannelContextBudget(channelId, currentBudgetSessionId);
+  const { data: sessionHeaderStats } = useSessionHeaderStats(channelId, currentBudgetSessionId);
   const handleExitScratchRoute = useCallback(() => {
     if (!channelId) return;
     clearScratchReturn(channelId);
@@ -1036,6 +1040,7 @@ export default function ChatScreen() {
           onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
           contextBudget={effectiveContextBudget}
+          sessionHeaderStats={sessionHeaderStats ?? null}
           onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
           isSystemChannel={isSystemChannel}
           findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}

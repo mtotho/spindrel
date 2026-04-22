@@ -28,7 +28,7 @@ function TerminalThinkingStatus({
         padding: compact ? "2px 0 0" : "4px 0",
         color,
         fontFamily: TERMINAL_FONT_STACK,
-        fontSize: 13,
+        fontSize: 12,
         lineHeight: 1.35,
         letterSpacing: 0.1,
       }}
@@ -57,9 +57,10 @@ function avatarColor(name: string): string {
 }
 
 /** Auto-scrolling thinking block — keeps latest content visible as it streams */
-function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: string; borderColor: string; textColor: string; labelColor: string }) {
+function ThinkingBlock({ text, borderColor, textColor, labelColor, chatMode = "default" }: { text: string; borderColor: string; textColor: string; labelColor: string; chatMode?: "default" | "terminal" }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
+  const isTerminalMode = chatMode === "terminal";
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -96,6 +97,7 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
         display: "flex", flexDirection: "row",
         alignItems: "center",
         gap: 6,
+        fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
       }}>
         <Brain size={12} color={labelColor} style={{ opacity: 0.7 }} />
         <span style={{ fontSize: 11, color: labelColor, fontWeight: 500, letterSpacing: 0.3, textTransform: "uppercase" }}>
@@ -125,7 +127,8 @@ function ThinkingBlock({ text, borderColor, textColor, labelColor }: { text: str
         >
           <div
             style={{
-              fontSize: 13,
+              fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+              fontSize: isTerminalMode ? 12 : 13,
               lineHeight: "1.55",
               color: textColor,
               fontStyle: "italic",
@@ -157,7 +160,7 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
+          <span style={{ fontSize: isTerminalMode ? 13 : 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
         </div>
         {isTerminalMode ? (
           <TerminalThinkingStatus color={t.textMuted} dimColor={t.textDim} />
@@ -754,12 +757,12 @@ export function StreamingIndicator({
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Name header */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
+          <span style={{ fontSize: isTerminalMode ? 13 : 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
         </div>
 
         {/* Thinking content */}
         {displayThinking ? (
-          <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} />
+          <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} chatMode={chatMode} />
         ) : null}
 
         {/* Auto-injected skills */}

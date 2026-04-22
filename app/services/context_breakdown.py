@@ -210,6 +210,7 @@ async def compute_context_breakdown(
     db: AsyncSession,
     *,
     mode: str = "last_turn",
+    session_id: str | Any | None = None,
 ) -> ContextBreakdownResult:
     """Compute the dev-panel context breakdown for a channel.
 
@@ -224,7 +225,8 @@ async def compute_context_breakdown(
       live tokenizer (``count_text_tokens_sync`` against the assembled char
       count). May differ from the chat header by design.
     """
-    cache_key = (str(channel_id), mode)
+    session_id_str = str(session_id) if session_id is not None else None
+    cache_key = (str(channel_id), mode, session_id_str)
     cached = _breakdown_cache.get(cache_key)
     if cached is not None:
         expiry, payload = cached
@@ -475,27 +477,37 @@ async def compute_context_breakdown(
                     description=f"{_shown} recent section(s) in {_si_verbosity} mode (file history)",
                 ))
 
+    target_session_id = session_id_str or (str(channel.active_session_id) if channel.active_session_id else None)
+    target_session_pk = _uuid.UUID(target_session_id) if target_session_id else None
+    target_session = None
+    if target_session_pk is not None:
+        target_session = await db.get(Session, target_session_pk)
+        if target_session is None:
+            raise ValueError(f"Session not found: {target_session_id}")
+        if str(target_session.channel_id) != str(channel.id):
+            raise ValueError(f"Session {target_session_id} does not belong to channel {channel_id}")
+
     # -----------------------------------------------------------------------
     # 3. Conversation history (live from DB)
     # -----------------------------------------------------------------------
-    session_id = str(channel.active_session_id) if channel.active_session_id else None
     total_messages = 0
     total_msg_chars = 0
     msgs_since_watermark = 0
     chars_since_watermark = 0
+    watermark_msg = None
 
-    if channel.active_session_id:
-        session = await db.get(Session, channel.active_session_id)
+    if target_session_pk:
+        session = target_session
 
         # Total messages
         total_messages = (await db.execute(
             select(func.count()).select_from(Message)
-            .where(Message.session_id == channel.active_session_id)
+            .where(Message.session_id == target_session_pk)
         )).scalar_one()
 
         total_msg_chars = (await db.execute(
             select(func.coalesce(func.sum(func.length(Message.content)), 0))
-            .where(Message.session_id == channel.active_session_id)
+            .where(Message.session_id == target_session_pk)
         )).scalar_one()
 
         # Messages since watermark
@@ -505,7 +517,7 @@ async def compute_context_breakdown(
                 result = await db.execute(
                     select(func.count(), func.coalesce(func.sum(func.length(Message.content)), 0))
                     .where(
-                        Message.session_id == channel.active_session_id,
+                        Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                     )
                 )
@@ -516,7 +528,7 @@ async def compute_context_breakdown(
                 user_msgs_since_watermark = (await db.execute(
                     select(func.count())
                     .where(
-                        Message.session_id == channel.active_session_id,
+                        Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                         Message.role == "user",
                     )
@@ -569,7 +581,7 @@ async def compute_context_breakdown(
                     func.count(),
                     func.coalesce(func.sum(func.length(Message.content)), 0),
                 ).where(
-                    Message.session_id == channel.active_session_id,
+                    Message.session_id == target_session_pk,
                     _watermark_clause,
                     Message.role == "tool",
                     func.length(Message.content) >= _min_len,
@@ -606,8 +618,8 @@ async def compute_context_breakdown(
 
     summary_chars = 0
     has_summary = False
-    if channel.active_session_id:
-        session = await db.get(Session, channel.active_session_id)
+    if target_session_pk:
+        session = target_session
         if session and session.summary:
             has_summary = True
             summary_chars = len(session.summary)
@@ -620,15 +632,14 @@ async def compute_context_breakdown(
 
     # Count user turns since watermark for "turns until next"
     user_turns_since = 0
-    if channel.active_session_id:
-        session = await db.get(Session, channel.active_session_id)
+    if target_session_pk:
+        session = target_session
         if session and session.summary_message_id:
-            watermark_msg = await db.get(Message, session.summary_message_id)
             if watermark_msg:
                 user_turns_since = (await db.execute(
                     select(func.count()).select_from(Message)
                     .where(
-                        Message.session_id == channel.active_session_id,
+                        Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                         Message.role == "user",
                     )
@@ -637,7 +648,7 @@ async def compute_context_breakdown(
                 user_turns_since = (await db.execute(
                     select(func.count()).select_from(Message)
                     .where(
-                        Message.session_id == channel.active_session_id,
+                        Message.session_id == target_session_pk,
                         Message.role == "user",
                     )
                 )).scalar_one()
@@ -645,7 +656,7 @@ async def compute_context_breakdown(
             user_turns_since = (await db.execute(
                 select(func.count()).select_from(Message)
                 .where(
-                    Message.session_id == channel.active_session_id,
+                    Message.session_id == target_session_pk,
                     Message.role == "user",
                 )
             )).scalar_one()
@@ -749,7 +760,7 @@ async def compute_context_breakdown(
             _reserve = int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO)
             _available = _window - _reserve
             # Pull the API-reported prompt_tokens for last_turn alignment.
-            _latest = await fetch_latest_context_budget(channel_id, db)
+            _latest = await fetch_latest_context_budget(channel_id, db, session_id=target_session_id)
             api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
             _budget_info = {
                 "model_context_window": _window,
@@ -776,7 +787,7 @@ async def compute_context_breakdown(
 
     result = ContextBreakdownResult(
         channel_id=str(channel_id),
-        session_id=session_id,
+        session_id=target_session_id,
         bot_id=channel.bot_id,
         categories=categories,
         total_chars=total_chars,

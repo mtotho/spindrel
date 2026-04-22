@@ -37,6 +37,10 @@ export interface ChannelHeaderProps {
   contextBudget?: { utilization: number; consumed: number; total: number } | null;
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
+  sessionHeaderStats?: {
+    turnsInContext: number | null;
+    turnsUntilCompaction: number | null;
+  } | null;
   /** Orchestrator / system-control channel — renders SYSTEM pill next to title. */
   isSystemChannel?: boolean;
   /** Findings panel state (awaiting-user-input pipelines). Inline icon shows
@@ -69,6 +73,7 @@ export function ChannelHeader({
   isMobile,
   contextBudget,
   onContextBudgetClick,
+  sessionHeaderStats,
   isSystemChannel,
   findingsPanelOpen,
   toggleFindingsPanel,
@@ -155,6 +160,38 @@ export function ChannelHeader({
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = !isMobile;
   const showDashboardInline = !isMobile;
+  const headerMetaBits = [
+    contextBudget && contextBudget.total > 0 ? (
+      <span
+        key="tokens"
+        onClick={onContextBudgetClick}
+        style={{
+          fontSize: 10,
+          fontFamily: "monospace",
+          color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
+          flexShrink: 0,
+          cursor: onContextBudgetClick ? "pointer" : undefined,
+          borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
+          transition: "border-color 0.15s",
+        }}
+        onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
+        onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
+        title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
+      >
+        {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
+      </span>
+    ) : null,
+    typeof sessionHeaderStats?.turnsInContext === "number" ? (
+      <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+        {sessionHeaderStats.turnsInContext} turn{sessionHeaderStats.turnsInContext === 1 ? "" : "s"} in ctx
+      </span>
+    ) : null,
+    typeof sessionHeaderStats?.turnsUntilCompaction === "number" ? (
+      <span key="turns-until-compaction" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+        {sessionHeaderStats.turnsUntilCompaction} until compact
+      </span>
+    ) : null,
+  ].filter(Boolean);
   const mobileOverflowActions = [
     showFindingsButton
       ? {
@@ -388,25 +425,9 @@ export function ChannelHeader({
               </span>
             )}
 
-            {contextBudget && contextBudget.total > 0 && (
-              <span
-                onClick={onContextBudgetClick}
-                style={{
-                  fontSize: 10,
-                  fontFamily: "monospace",
-                  color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
-                  flexShrink: 0,
-                  cursor: onContextBudgetClick ? "pointer" : undefined,
-                  borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
-                  transition: "border-color 0.15s",
-                }}
-                onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
-                onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-                title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`}
-              >
-                {fmtTokens(contextBudget.consumed)}/{fmtTokens(contextBudget.total)}
-              </span>
-            )}
+            {headerMetaBits.map((bit, idx) => (
+              <React.Fragment key={idx}>{bit}</React.Fragment>
+            ))}
           </div>
         )}
       </div>

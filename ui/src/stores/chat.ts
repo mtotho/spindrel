@@ -1,10 +1,19 @@
 import { create } from "zustand";
-import type { Message, SSEEvent, ToolResultEnvelope } from "../types/api";
+import type {
+  Message,
+  SSEEvent,
+  ToolCall as PersistedToolCall,
+  ToolCallSummary,
+  ToolResultEnvelope,
+  ToolSurface,
+} from "../types/api";
 
 export type ToolCall = {
   id: string;
   name: string;
   args?: string;
+  surface?: ToolSurface;
+  summary?: ToolCallSummary | null;
   status: "running" | "done" | "awaiting_approval" | "denied";
   approvalId?: string;
   approvalReason?: string;
@@ -167,6 +176,16 @@ function seedTranscriptFromToolCalls(toolCalls: ToolCall[]): TurnTranscriptEntry
     kind: "tool_call" as const,
     toolCallId: toolCall.id,
   }));
+}
+
+function toPersistedToolCall(toolCall: ToolCall): PersistedToolCall {
+  return {
+    id: toolCall.id,
+    name: toolCall.name,
+    arguments: toolCall.args ?? "{}",
+    ...(toolCall.surface ? { surface: toolCall.surface } : {}),
+    ...(toolCall.summary ? { summary: toolCall.summary } : {}),
+  };
 }
 
 export const useChatStore = create<ChatState>()((set, get) => ({
@@ -334,11 +353,18 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
         case "tool_start": {
-          const data = event.data as { tool?: string; args?: string };
+          const data = event.data as {
+            tool?: string;
+            args?: string;
+            surface?: ToolSurface;
+            summary?: ToolCallSummary | null;
+          };
           const toolCall: ToolCall = {
             id: makeToolCallId(turnId, turn.toolCalls.length),
             name: data.tool ?? "unknown",
             args: data.args,
+            surface: data.surface,
+            summary: data.summary ?? null,
             status: "running",
           };
           updated = {
@@ -352,7 +378,13 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           break;
         }
         case "tool_result": {
-          const data = event.data as { tool?: string; is_error?: boolean; envelope?: ToolResultEnvelope };
+          const data = event.data as {
+            tool?: string;
+            is_error?: boolean;
+            envelope?: ToolResultEnvelope;
+            surface?: ToolSurface;
+            summary?: ToolCallSummary | null;
+          };
           const tcs = [...turn.toolCalls];
           // Match the tool by name (last running entry with that name)
           // so concurrent tool calls don't get mismatched.
@@ -369,6 +401,8 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               status: "done",
               isError: data.is_error || tcs[idx].isError,
               envelope: data.envelope ?? tcs[idx].envelope,
+              surface: data.surface ?? tcs[idx].surface,
+              summary: data.summary ?? tcs[idx].summary ?? null,
             };
           }
           updated = { ...turn, toolCalls: tcs };
@@ -508,8 +542,11 @@ export const useChatStore = create<ChatState>()((set, get) => ({
 
       // Materialize the turn's content as a synthetic message.
       let messages = ch.messages;
+      const toolCalls = turn.toolCalls.length > 0
+        ? turn.toolCalls.map(toPersistedToolCall)
+        : undefined;
       const toolResults = turn.toolCalls.length > 0
-        ? turn.toolCalls.map((tc) => tc.envelope ?? null).filter((e): e is NonNullable<typeof e> => e !== null)
+        ? turn.toolCalls.map((tc) => tc.envelope)
         : undefined;
       const shouldMaterialize =
         !!turn.streamingContent ||
@@ -542,6 +579,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             role: "assistant" as const,
             content: turn.streamingContent,
             created_at: new Date().toISOString(),
+            ...(toolCalls ? { tool_calls: toolCalls } : {}),
             ...(turn.correlationId ? { correlation_id: turn.correlationId } : {}),
             ...(hasMetadata ? { metadata } : {}),
           },

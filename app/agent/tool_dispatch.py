@@ -940,6 +940,20 @@ async def dispatch_tool_call(
     # Attach the rendered envelope so SSE consumers (web UI) can pick a
     # mimetype-keyed renderer instead of just showing the tool name.
     tool_event["envelope"] = result_obj.envelope.compact_dict()
+    from app.services.tool_presentation import derive_tool_presentation
+    try:
+        _tool_args = json.loads(args) if args else {}
+    except (json.JSONDecodeError, TypeError):
+        _tool_args = {}
+    _surface, _summary = derive_tool_presentation(
+        tool_name=name,
+        arguments=_tool_args,
+        result=result_obj.result,
+        envelope=tool_event["envelope"],
+        error=tool_event.get("error"),
+    )
+    tool_event["surface"] = _surface
+    tool_event["summary"] = _summary
     result_obj.tool_event = tool_event
 
     return result_obj

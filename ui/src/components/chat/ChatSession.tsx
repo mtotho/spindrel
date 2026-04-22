@@ -15,6 +15,7 @@ import {
   type StoredEphemeralState,
 } from "@/src/api/hooks/useEphemeralSession";
 import { useSessionConfigOverhead } from "@/src/api/hooks/useSessionConfigOverhead";
+import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
 import { useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
@@ -61,6 +62,20 @@ function formatSessionHeaderTimestamp(iso?: string | null): string | null {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatHeaderTurnMeta(stats: {
+  turnsInContext: number | null;
+  turnsUntilCompaction: number | null;
+} | null | undefined): string[] {
+  const bits: string[] = [];
+  if (typeof stats?.turnsInContext === "number") {
+    bits.push(`${stats.turnsInContext} turn${stats.turnsInContext === 1 ? "" : "s"} in ctx`);
+  }
+  if (typeof stats?.turnsUntilCompaction === "number") {
+    bits.push(`${stats.turnsUntilCompaction} until compact`);
+  }
+  return bits;
 }
 
 /** Discriminator picks which backend path the chat component talks to.
@@ -859,6 +874,10 @@ function EphemeralChatSession({
     }
     setMode((m) => (m === "dock" ? "modal" : "dock"));
   }, [canNavigateFullpage, scratchBoundChannelId, sessionId, navigate]);
+  const { data: headerStats } = useSessionHeaderStats(
+    scratchBoundChannelId ?? parentChannelId ?? undefined,
+    sessionId,
+  );
   const overheadColor = useMemo(() => {
     if (overheadPct == null) return null;
     if (overheadPct >= 0.4) return "#ef4444";
@@ -889,13 +908,14 @@ function EphemeralChatSession({
       typeof sectionCount === "number"
         ? `${sectionCount} section${sectionCount === 1 ? "" : "s"}`
         : null,
+      ...formatHeaderTurnMeta(headerStats),
     ].filter(Boolean).join(" · ");
     if (!label && !stats) return null;
     return {
       label,
       stats: stats || null,
     };
-  }, [scratchBoundChannelId, sessionId, scratchHistory, scratchQuery.data]);
+  }, [headerStats, scratchBoundChannelId, sessionId, scratchHistory, scratchQuery.data]);
   const displayHeaderTitle =
     sessionHeaderMeta?.label
     ?? (scratchBoundChannelId ? "Session" : title);

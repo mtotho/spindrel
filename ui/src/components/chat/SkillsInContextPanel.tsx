@@ -11,6 +11,7 @@ import { useChatStore } from "../../stores/chat";
 import { parseSkillTags } from "../../lib/skillTags";
 import { useSkills, type SkillItem } from "../../api/hooks/useSkills";
 import { useEnrolledSkills } from "../../api/hooks/useEnrolledSkills";
+import { normalizeToolCall, type ToolCall } from "../../types/api";
 import { tokenize } from "../shared/ToolSelector";
 
 const SOURCE_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -343,7 +344,7 @@ function CatalogRow({
 type AnyMessage = {
   role?: string;
   metadata?: Record<string, unknown> | null;
-  tool_calls?: Array<{ name?: string; args?: string }>;
+  tool_calls?: ToolCall[];
 };
 
 function deriveEntries(
@@ -378,9 +379,21 @@ function deriveEntries(
       if (m.role !== "assistant" && m.role !== "bot") continue;
       const calls = m.tool_calls ?? [];
       for (const tc of calls) {
-        if (tc.name !== "get_skill") continue;
+        const summary = tc.summary;
+        if (
+          summary?.subject_type === "skill" &&
+          summary.target_id === sk.id &&
+          (summary.kind === "read" || summary.kind === "result")
+        ) {
+          msgsAgo.set(sk.id, dist);
+          fromGetSkill.add(sk.id);
+          found = true;
+          break;
+        }
+        const norm = normalizeToolCall(tc);
+        if (norm.name !== "get_skill" && norm.name !== "load_skill") continue;
         try {
-          const args = JSON.parse(tc.args ?? "{}") as { skill_id?: string };
+          const args = JSON.parse(norm.arguments ?? "{}") as { skill_id?: string };
           if (args.skill_id === sk.id) {
             msgsAgo.set(sk.id, dist);
             fromGetSkill.add(sk.id);
