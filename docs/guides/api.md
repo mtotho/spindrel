@@ -369,6 +369,53 @@ Lists currently paired browser connections. Admin auth required.
 
 Generates a new global pairing token for the integration. Rotating the token disconnects existing paired browsers until they re-pair. Admin auth required.
 
+## Local Companion endpoints
+
+The `local_companion` integration exposes both operator endpoints and session lease endpoints.
+
+### Admin status
+
+`GET /integrations/local_companion/admin/status`
+
+Lists enrolled machine targets plus live connection state. Admin auth required.
+
+### Enroll target
+
+`POST /integrations/local_companion/admin/enroll`
+
+Creates a new companion target enrollment and returns the target metadata, token, websocket path, and example launch command. Admin auth required.
+
+### Revoke target
+
+`DELETE /integrations/local_companion/admin/targets/{target_id}`
+
+Removes an enrolled target and clears any active session lease that still points at it. Admin auth required.
+
+### Session machine-target state
+
+`GET /api/v1/sessions/{session_id}/machine-target`
+
+Returns the current session's machine lease, if any, plus the visible target list.
+
+### Grant lease
+
+`POST /api/v1/sessions/{session_id}/machine-target/lease`
+
+Grants the session a lease for one connected target. Body:
+
+```json
+{
+  "target_id": "uuid",
+  "ttl_seconds": 900
+}
+```
+
+### Revoke lease
+
+`DELETE /api/v1/sessions/{session_id}/machine-target/lease`
+
+Clears the active lease for that session.
+
 ## Common Patterns
 
 ### Create a Channel and Send a Message

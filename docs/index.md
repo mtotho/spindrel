@@ -12,6 +12,22 @@ Built on FastAPI + PostgreSQL (pgvector). Bring your own API keys — use any LL
 !!! warning "Early Access"
     Spindrel is under active development and in daily use by the maintainer. Core features are stable, but APIs, configuration formats, and database schemas may change between releases. Bug reports, feature requests, and contributions are welcome.
 
+## Best Fit Today
+
+Spindrel is strongest today for:
+
+- homelabbers and self-hosted hobbyists
+- solo operators who want one powerful personal agent server
+- small trusted groups running on their own hardware or LAN
+
+Spindrel is **not** currently positioned as:
+
+- a polished consumer assistant
+- a turnkey hosted SaaS
+- a hardened public multi-tenant platform for hostile environments
+
+For the blunt version, read [Feature Status](guides/feature-status.md) and [Integration Status](guides/integration-status.md) before you commit to a setup.
+
 ---
 
 ## Features

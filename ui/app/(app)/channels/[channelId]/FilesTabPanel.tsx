@@ -20,7 +20,6 @@ import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { apiFetch } from "@/src/api/client";
 import {
-  useChannel,
   useChannels,
   useChannelWorkspaceFiles,
   useMoveChannelWorkspaceFile,
@@ -34,9 +33,12 @@ import {
   useUploadWorkspaceFile,
 } from "@/src/api/hooks/useWorkspaces";
 import { useBot } from "@/src/api/hooks/useBots";
+import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { useUIStore } from "@/src/stores/ui";
+import { channelSlug } from "@/src/stores/dashboards";
 import { ContextMenu, type ContextMenuItem, estimateTokens } from "./ChannelFileExplorerData";
+import { parsePayload } from "@/src/components/chat/renderers/nativeApps/shared";
 import {
   ScopeStrip,
   Breadcrumb,
@@ -48,6 +50,20 @@ import {
 // Matches the old InContextCard budget. Shared between the "~Ntok" pill here
 // and the channel header's context-budget chip so the two read consistent.
 const TOKEN_BUDGET = 8000;
+const PINNED_FILES_WIDGET_REF = "core/pinned_files_native";
+
+function pinnedPathsFromDashboardPins(
+  pins: Array<{ envelope?: { body?: unknown } }> | undefined,
+): Set<string> {
+  const match = (pins ?? []).find((pin) => {
+    const payload = parsePayload(pin.envelope as any);
+    return payload.widget_ref === PINNED_FILES_WIDGET_REF;
+  });
+  if (!match) return new Set<string>();
+  const payload = parsePayload(match.envelope as any);
+  const items = (payload.state?.pinned_files as Array<{ path?: string }> | undefined) ?? [];
+  return new Set(items.map((item) => item.path).filter((path): path is string => !!path));
+}
 
 function joinPath(...parts: string[]): string {
   return parts.map((p) => stripSlashes(p)).filter(Boolean).join("/");
@@ -99,11 +115,10 @@ export function FilesTabPanel({
 
   const { data: bot } = useBot(botId);
   const sharedWorkspace = !!bot?.shared_workspace_id;
-
-  const { data: channelData } = useChannel(channelId);
+  const { pins: dashboardPins, refetch: refetchDashboardPins } = useDashboardPins(channelSlug(channelId));
   const pinnedPaths = useMemo(
-    () => new Set((channelData?.config?.pinned_panels ?? []).map((p) => p.path)),
-    [channelData?.config?.pinned_panels],
+    () => pinnedPathsFromDashboardPins(dashboardPins),
+    [dashboardPins],
   );
 
   const { data: allChannels } = useChannels();
@@ -487,7 +502,7 @@ export function FilesTabPanel({
                 body: JSON.stringify({ path: stripped, position: "right" }),
               });
             }
-            queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+            await refetchDashboardPins();
           } catch (err) {
             console.error("Pin/unpin failed:", err);
           }
@@ -506,7 +521,7 @@ export function FilesTabPanel({
 
       setContextMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, queryClient, confirm],
+    [channelId, moveChannel, onSelectFile, deleteEntry, pinnedPaths, refetchDashboardPins, confirm],
   );
 
   const openFolderContextMenu = useCallback(

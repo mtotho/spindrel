@@ -706,15 +706,13 @@ export function useChannelEvents(
         }
 
         case "pinned_file_updated": {
-          // A pinned file's content changed — invalidate per-path query so
-          // the PinnedPanel component re-fetches.
+          // A pinned file's content changed — invalidate the pinned-files
+          // widget preview query for that path.
           if (payload?.path) {
             queryClient.invalidateQueries({
-              queryKey: ["pinned-panel-content", payload.path],
+              queryKey: ["pinned-files-preview", chId, payload.path],
             });
           }
-          // Also refresh the channel data so pinned_panels list stays current
-          queryClient.invalidateQueries({ queryKey: ["channels", chId] });
           return;
         }
 

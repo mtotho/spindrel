@@ -303,6 +303,37 @@ Revoking a target also clears any session lease that still points at it.
 
 ---
 
+## How to use it now
+
+Current operator flow:
+
+1. Enroll a machine target from the local companion integration admin surface.
+2. Start the companion process on the target machine using the enrollment command returned by the server.
+3. Open the chat or plan session you want to use.
+4. Grant a lease for one connected target to that session.
+5. Use `local_status`, `local_inspect_command`, or `local_exec_command` from that session.
+6. Revoke the lease when you are done, or let it expire.
+
+Important current UX caveat:
+
+- the channel header only shows machine control when the session already has an active lease or there is at least one connected companion target
+- the header is no longer the setup/enrollment surface for brand-new machines
+- denied tool calls in chat now render an inline "Machine access required" card with grant/revoke actions
+
+So today the setup flow is:
+
+- enroll in admin/integration UI
+- connect the companion
+- then use session-level lease controls
+
+Transcript/result UX now includes:
+
+- `local_status` renders a native machine-status card
+- `local_inspect_command` and `local_exec_command` render terminal-style command result cards
+- lease denials surface an inline grant/revoke card instead of raw JSON
+
+---
+
 ## Current safety model
 
 This feature is intentionally fail-closed.
@@ -350,21 +381,29 @@ This is deliberate. If the product wants a future exception, that exception shou
 
 ## UI model
 
-Current UI is a desktop `MachineTargetChip` in the channel header.
+Current UI is split between transcript-native result cards and a lightweight `MachineTargetChip` in the channel header.
 
-It shows:
+The transcript/result layer handles:
+
+- status inspection
+- inline grant/revoke when a tool is denied for lack of lease
+- command output presentation
+
+The header chip shows:
 
 - current lease state
 - connected enrolled targets
-- lease/revoke actions
-- enroll/remove actions
-- copyable companion launch command
+- quick lease/revoke actions
 
 Important UX choice:
 
 - machine control is session chrome, not a hidden background state
 
 That keeps the control surface close to the conversation that is using it.
+
+Current non-goal:
+
+- the channel header is not the machine-enrollment entrypoint for unconfigured sessions
 
 ---
 
@@ -433,9 +472,9 @@ Use the same:
 
 But back the target with SSH for headless LAN/server machines.
 
-### 2. Add an inline transcript grant flow
+### 2. Move more of the lease UX into transcript-native surfaces
 
-When a machine tool returns `local_control_required`, the transcript should offer a direct "Grant machine access" action instead of just showing a generic tool error.
+The inline grant/revoke card now exists, but setup and longer-lived control flows can still become more transcript-native and less dependent on session chrome.
 
 ### 3. Reuse the lease model for other live-control surfaces
 
@@ -463,4 +502,6 @@ Current answer is no. That should remain the default unless there is a very expl
 - [Browser Live](browser-live.md)
 - [Command Execution](command-execution.md)
 - [Programmatic Tool Calling](programmatic-tool-calling.md)
+- [`integrations/local_companion/README.md`](../../integrations/local_companion/README.md)
+- [`skills/machine_control.md`](../../skills/machine_control.md)
 - [Architecture](../reference/architecture.md)

@@ -6,6 +6,7 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
+from app.db.models import WidgetInstance
 from app.services.dashboard_pins import (
     apply_dashboard_pin_config_patch,
     apply_layout_bulk,
@@ -17,6 +18,7 @@ from app.services.dashboard_pins import (
     serialize_pin,
     update_pin_envelope,
 )
+from app.services.native_app_widgets import build_native_widget_preview_envelope
 
 
 def _env(label: str = "Light 1") -> dict:
@@ -38,6 +40,32 @@ async def test_create_assigns_sequential_positions(db_session):
     b = await create_pin(db_session, source_kind="adhoc", tool_name="b", envelope=_env("b"))
     assert a.position == 0
     assert b.position == 1
+
+
+@pytest.mark.asyncio
+async def test_create_pin_accepts_non_grid_zone(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="t",
+        envelope=_env("dock"),
+        zone="dock",
+    )
+    assert pin.zone == "dock"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 1, "h": 10}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_defaults_header_zone_to_top_rail_card(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="t",
+        envelope=_env("header"),
+        zone="header",
+    )
+    assert pin.zone == "header"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 2}
 
 
 @pytest.mark.asyncio
@@ -92,6 +120,35 @@ async def test_delete_missing_raises_404(db_session):
     with pytest.raises(HTTPException) as exc:
         await delete_pin(db_session, uuid.uuid4())
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_pinned_files_pin_clears_widget_state(db_session):
+    channel_id = uuid.uuid4()
+    pin = await create_pin(
+        db_session,
+        dashboard_key=f"channel:{channel_id}",
+        source_kind="channel",
+        source_channel_id=channel_id,
+        tool_name="core/pinned_files_native",
+        envelope=build_native_widget_preview_envelope("core/pinned_files_native"),
+        zone="dock",
+    )
+    instance = await db_session.get(WidgetInstance, pin.widget_instance_id)
+    assert instance is not None
+    instance.state = {
+        "pinned_files": [
+            {"path": "notes.md", "pinned_at": "2026-04-23T10:00:00+00:00", "pinned_by": "user"},
+        ],
+        "active_path": "notes.md",
+        "created_at": "2026-04-23T10:00:00+00:00",
+        "updated_at": "2026-04-23T10:00:00+00:00",
+    }
+
+    await delete_pin(db_session, pin.id)
+    await db_session.refresh(instance)
+    assert instance.state["pinned_files"] == []
+    assert instance.state["active_path"] is None
 
 
 @pytest.mark.asyncio
@@ -209,7 +266,7 @@ async def test_apply_layout_bulk_persists(db_session):
 
 @pytest.mark.asyncio
 async def test_apply_layout_normalizes_header_zone(db_session):
-    """Writing zone=header now snaps to the one supported fixed chip slot."""
+    """Writing zone=header clamps into the 2-row top rail instead of a singleton slot."""
     pin = await create_pin(
         db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
     )
@@ -220,7 +277,22 @@ async def test_apply_layout_normalizes_header_zone(db_session):
     rows = {r.id: r for r in await list_pins(db_session)}
     row = rows[pin.id]
     assert row.zone == "header"
-    assert row.grid_layout == {"x": 0, "y": 0, "w": 1, "h": 1}
+    assert row.grid_layout == {"x": 0, "y": 1, "w": 12, "h": 2}
+
+
+@pytest.mark.asyncio
+async def test_apply_layout_normalizes_header_x_to_fit_preset_width(db_session):
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    )
+    items = [{
+        "id": str(pin.id), "x": 11, "y": 0, "w": 4, "h": 1, "zone": "header",
+    }]
+    await apply_layout_bulk(db_session, items)
+    rows = {r.id: r for r in await list_pins(db_session)}
+    row = rows[pin.id]
+    assert row.zone == "header"
+    assert row.grid_layout == {"x": 8, "y": 0, "w": 4, "h": 1}
 
 
 @pytest.mark.asyncio
@@ -254,4 +326,21 @@ async def test_list_pins_heals_stale_header_coords(db_session):
 
     rows = await list_pins(db_session)
     row = next(r for r in rows if r.id == pin.id)
-    assert row.grid_layout == {"x": 0, "y": 0, "w": 1, "h": 1}
+    assert row.grid_layout == {"x": 0, "y": 1, "w": 12, "h": 2}
+
+
+@pytest.mark.asyncio
+async def test_list_pins_upgrades_legacy_header_singleton_to_chip_size(db_session):
+    from sqlalchemy.orm.attributes import flag_modified
+
+    pin = await create_pin(
+        db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
+    )
+    pin.zone = "header"
+    pin.grid_layout = {"x": 0, "y": 0, "w": 1, "h": 1}
+    flag_modified(pin, "grid_layout")
+    await db_session.commit()
+
+    rows = await list_pins(db_session)
+    row = next(r for r in rows if r.id == pin.id)
+    assert row.grid_layout == {"x": 0, "y": 0, "w": 4, "h": 1}

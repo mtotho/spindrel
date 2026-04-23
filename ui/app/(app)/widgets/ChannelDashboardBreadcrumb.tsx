@@ -9,8 +9,7 @@ interface Props {
   railCount: number;
   pinCount: number;
   /** Opens the dashboard settings drawer (preset / grid config / etc).
-   *  Mirrors the gear icon on `DashboardTabs` so channel dashboards aren't
-   *  second-class citizens missing dashboard-scoped controls. */
+   *  Opens the quick layout-controls drawer for the channel dashboard. */
   onOpenManage?: () => void;
   /** When present, the dashboard chat dock is bound to a scratch sub-session
    *  instead of the parent channel chat. Widgets and layout stay channel-
@@ -70,8 +69,8 @@ export function ChannelDashboardBreadcrumb({
         <button
           type="button"
           onClick={onOpenManage}
-          title="Dashboard settings"
-          aria-label="Dashboard settings"
+          title="Dashboard layout controls"
+          aria-label="Dashboard layout controls"
           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
         >
           <Settings size={13} />
@@ -89,23 +88,23 @@ export function ChannelDashboardBreadcrumb({
         <div
           className="ml-1 hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] xl:flex"
           style={{
-            border: `1px solid ${t.warningBorder}`,
-            background: t.warningSubtle,
-            color: t.warningMuted,
+            border: `1px solid ${t.surfaceBorder}`,
+            background: t.surfaceOverlay,
+            color: t.textDim,
           }}
-          title="Chat replies on this dashboard go to the active scratch sub-session. Widgets and dashboard layout still belong to the parent channel."
+          title="Chat replies on this dashboard go to the current session. Widgets and dashboard layout still belong to the parent channel."
         >
-          <StickyNote size={12} className="shrink-0" style={{ color: t.warningMuted }} />
+          <StickyNote size={12} className="shrink-0" style={{ color: t.textDim }} />
           <span className="font-medium">
-            Scratch chat
+            Session chat
           </span>
           {scratchHref && (
             <Link
               to={scratchHref}
               className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
               style={{
-                border: `1px solid ${t.warningBorder}`,
-                color: t.warningMuted,
+                border: `1px solid ${t.surfaceBorder}`,
+                color: t.textDim,
               }}
             >
               Open

@@ -30,6 +30,24 @@ It is meant to answer questions like:
 | `medium` | Working in practice, but with meaningful caveats, limited soak time, or open uncertainty |
 | `low` | Present and promising, but not exercised enough to trust broadly yet |
 
+## Best Fit Today
+
+Spindrel is currently the best fit for:
+
+- homelabbers and self-hosted hobbyists
+- solo operators who want one self-hosted personal AI agent server
+- small trusted groups on a LAN, VPN, or other known environment
+
+## Not The Pitch Today
+
+Spindrel should not be pitched today as:
+
+- a consumer-grade assistant for non-technical users
+- a drop-in enterprise platform for strict compliance or internet-hostile exposure
+- a polished public SaaS with strong multi-tenant isolation guarantees
+
+The product is powerful now, but the honest framing is "serious self-hosted operator software" rather than "finished mass-market agent platform."
+
 ## Core agent experience
 
 | Feature | Status | Confidence | What it means today |

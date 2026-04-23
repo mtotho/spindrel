@@ -37,11 +37,11 @@ export function ScratchHistoryModal({ open, onClose, channelId }: ScratchHistory
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Scratch history"
+        aria-label="Session history"
         className="fixed z-[9996] inset-x-4 top-16 bottom-16 md:inset-auto md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[520px] md:max-h-[75vh] rounded-xl bg-surface-raised border border-surface-border shadow-[0_8px_32px_rgba(0,0,0,0.4)] flex flex-col overflow-hidden"
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border">
-          <span className="text-sm font-semibold text-text">Scratch history</span>
+          <span className="text-sm font-semibold text-text">Session history</span>
           <button
             onClick={onClose}
             className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5"
@@ -62,7 +62,7 @@ export function ScratchHistoryModal({ open, onClose, channelId }: ScratchHistory
           )}
           {!isLoading && !error && data && data.length === 0 && (
             <div className="p-6 text-sm text-text-dim">
-              No prior scratch sessions yet.
+              No prior sessions yet.
             </div>
           )}
           {!isLoading && !error && data && data.length > 0 && (
@@ -87,7 +87,7 @@ export function ScratchHistoryModal({ open, onClose, channelId }: ScratchHistory
                       )}
                     </div>
                     <div className="text-sm text-text truncate">
-                      {row.preview || <em className="text-text-dim">(empty)</em>}
+                      {row.title?.trim() || row.preview || <em className="text-text-dim">(empty)</em>}
                     </div>
                   </button>
                 </li>

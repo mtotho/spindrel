@@ -4,7 +4,7 @@
  * Each canvas mirrors its chat-runtime chrome so edit mode looks like
  * reality:
  *   - Rail   ↔ OmniPanel          (bare flex-col, runtime panel width)
- *   - Header ↔ ChannelHeaderChip  (centered chip pill strip)
+ *   - Header ↔ ChannelHeaderChip  (floating 2-row top rail)
  *   - Grid   ↔ ChatMessageArea    (bare surface, fills height)
  *   - Dock   ↔ WidgetDockRight    (bare flex-col, runtime panel width)
  *
@@ -14,14 +14,14 @@
  *
  * Drag gestures:
  *   - Within rail / dock (vertical): `SortableContext` (y-ordered).
- *   - Within header (horizontal):    `SortableContext` (x-ordered).
+ *   - Within header (2-D):           `useDraggable` + pointer-to-cell snap.
  *   - Within grid (2-D):             `useDraggable` + pointer-to-cell snap.
  *   - Cross-canvas:                  drop onto another `DroppableCanvas`.
  *
  * Resize:
  *   - Rail / dock tiles:  south edge handle (h only; w locked to 1).
  *   - Grid tiles:         south / east / south-east handles.
- *   - Header chips:       east edge handle (w only; h locked to 1).
+ *   - Header tiles:       east / south / south-east handles (2-row max).
  *
  * Layout source of truth: every pin's `grid_layout.{x,y,w,h}` + `zone`.
  * All persistence goes through `applyLayout([{id, zone, x, y, w, h}])`.
@@ -52,6 +52,7 @@ import {
 } from "@dnd-kit/sortable";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { PinnedToolWidget } from "@/app/(app)/channels/[channelId]/PinnedToolWidget";
+import type { WidgetLayout } from "@/src/components/chat/renderers/InteractiveHtmlRenderer";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import type {
   ChatZone,
@@ -81,10 +82,8 @@ import {
 // Widths mirror the runtime chat workbench/dock defaults.
 const RAIL_WIDTH_PX = CHANNEL_PANEL_DEFAULT_WIDTH;
 const DOCK_WIDTH_PX = CHANNEL_PANEL_DEFAULT_WIDTH;
-// Header is temporarily one fixed chip slot that mirrors the chat runtime.
-const HEADER_SLOT_WIDTH_PX = 180;
-const HEADER_SLOT_HEIGHT_PX = 32;
-const HEADER_FIXED_LAYOUT = { x: 0, y: 0, w: 1, h: 1 } as const;
+const HEADER_ROW_HEIGHT_PX = 32;
+const HEADER_MAX_ROWS = 2;
 const GAP_PX = 12;
 // Matches the inner `p-3` padding on the canvas content wrappers — kept in a
 // constant so pointerToCell math and the ghost target overlay agree.
@@ -159,6 +158,10 @@ function boxesOverlap(a: GridLayoutItem, b: GridLayoutItem): boolean {
   );
 }
 
+function isChipLikeHeaderLayout(layout: GridLayoutItem): boolean {
+  return layout.h === 1 && layout.w <= 4;
+}
+
 interface Props {
   pins: WidgetDashboardPin[];
   preset: GridPreset;
@@ -226,7 +229,11 @@ export function ChannelDashboardMultiCanvas({
       pins
         .filter((p) => p.zone === "header")
         .slice()
-        .sort((a, b) => toGridLayout(a).x - toGridLayout(b).x),
+        .sort((a, b) => {
+          const ag = toGridLayout(a);
+          const bg = toGridLayout(b);
+          return ag.y - bg.y || ag.x - bg.x;
+        }),
     [pins],
   );
   const dockPins = useMemo(
@@ -261,7 +268,7 @@ export function ChannelDashboardMultiCanvas({
         case "dock":
           return { w: 1, h: 6 };
         case "header":
-          return { w: HEADER_FIXED_LAYOUT.w, h: HEADER_FIXED_LAYOUT.h };
+          return { w: 6, h: 2 };
         case "grid":
         default:
           return { w: preset.defaultTile.w, h: preset.defaultTile.h };
@@ -396,12 +403,29 @@ export function ChannelDashboardMultiCanvas({
         return;
       }
 
-      // Header: one fixed slot only.
+      // Header: pointer-snapped placement on the 2-row top rail.
       if (targetZone === "header") {
+        const rect = headerMeasure.rect;
+        if (!rect) return;
+        const { x, y } = pointerToCell(
+          clientX - rect.left - CANVAS_INNER_PADDING,
+          clientY - rect.top - CANVAS_INNER_PADDING,
+          {
+            cols: preset.cols.lg,
+            rowHeight: HEADER_ROW_HEIGHT_PX,
+            gap: GAP_PX,
+            canvasWidth: Math.max(1, rect.width - CANVAS_INNER_PADDING * 2),
+          },
+        );
+        const placement = clampPlacement(x, y, size.w, Math.min(size.h, HEADER_MAX_ROWS), preset.cols.lg);
         try {
-          await applyLayout([
-            { id: pinId, zone: "header", ...HEADER_FIXED_LAYOUT },
-          ]);
+          await applyLayout([{
+            id: pinId,
+            zone: "header",
+            ...placement,
+            y: Math.min(HEADER_MAX_ROWS - Math.min(size.h, HEADER_MAX_ROWS), placement.y),
+            h: Math.min(size.h, HEADER_MAX_ROWS),
+          }]);
           pulseMoved(pinId);
         } catch (err) {
           setError(err instanceof Error ? err.message : "Failed to move widget");
@@ -462,6 +486,7 @@ export function ChannelDashboardMultiCanvas({
       defaultSizeForZone,
       pulseMoved,
       bodyMeasure.rect,
+      headerMeasure.rect,
       bodyMetrics,
       preset.cols.lg,
       preset.rowHeight,
@@ -542,6 +567,38 @@ export function ChannelDashboardMultiCanvas({
     [pins, applyLayout, preset.cols.lg, preset.rowHeight, bodyMeasure, bodyMetrics, pulseMoved],
   );
 
+  const commitHeaderMove = useCallback(
+    async (pinId: string, clientX: number, clientY: number) => {
+      const rect = headerMeasure.rect;
+      const pin = pins.find((p) => p.id === pinId);
+      if (!rect || !pin) return;
+      const existing = toGridLayout(pin);
+      const { x, y } = pointerToCell(
+        clientX - rect.left - CANVAS_INNER_PADDING,
+        clientY - rect.top - CANVAS_INNER_PADDING,
+        {
+          cols: preset.cols.lg,
+          rowHeight: HEADER_ROW_HEIGHT_PX,
+          gap: GAP_PX,
+          canvasWidth: Math.max(1, rect.width - CANVAS_INNER_PADDING * 2),
+        },
+      );
+      const placement = clampPlacement(x, y, existing.w, Math.min(existing.h, HEADER_MAX_ROWS), preset.cols.lg);
+      const next = {
+        ...placement,
+        y: Math.min(HEADER_MAX_ROWS - Math.min(existing.h, HEADER_MAX_ROWS), placement.y),
+        h: Math.min(existing.h, HEADER_MAX_ROWS),
+      };
+      try {
+        await applyLayout([{ id: pinId, zone: "header", ...next }]);
+        pulseMoved(pinId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to place widget");
+      }
+    },
+    [pins, applyLayout, preset.cols.lg, headerMeasure.rect, pulseMoved],
+  );
+
   const onDragEnd = useCallback(
     async (e: DragEndEvent) => {
       const activeId = String(e.active.id);
@@ -580,42 +637,17 @@ export function ChannelDashboardMultiCanvas({
       }
 
       if (targetZone !== active.zone) {
-        if (targetZone === "header") {
-          const displaced = pins
-            .filter((p) => p.zone === "header" && p.id !== activeId)
-            .slice()
-            .sort((a, b) => toGridLayout(a).x - toGridLayout(b).x)[0];
-          const items: Array<{
-            id: string;
-            zone: ChatZone;
-            x: number;
-            y: number;
-            w: number;
-            h: number;
-          }> = [
-            { id: activeId, zone: "header", ...HEADER_FIXED_LAYOUT },
-          ];
-          if (displaced) {
-            items.push({
-              id: displaced.id,
-              zone: "grid",
-              ...nextGridPlacement([activeId, displaced.id]),
-            });
-          }
-          try {
-            await applyLayout(items);
-            pulseMoved(activeId);
-          } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to move widget");
-          }
-          return;
-        }
         // Cross-canvas move — pointer-aware placement.
         await commitCrossCanvasMove(activeId, targetZone, releaseX, releaseY);
         return;
       }
 
       // Same-zone move:
+      if (targetZone === "header") {
+        await commitHeaderMove(activeId, releaseX, releaseY);
+        return;
+      }
+
       if (targetZone === "grid") {
         // Free placement: snap pointer to a cell.
         await commitGridMove(activeId, releaseX, releaseY);
@@ -626,7 +658,7 @@ export function ChannelDashboardMultiCanvas({
         await commitCrossCanvasMove(activeId, targetZone, releaseX, releaseY);
       }
     },
-    [pins, bodyMeasure.rect, bodyMetrics, applyLayout, commitCrossCanvasMove, commitGridMove, nextGridPlacement, pulseMoved],
+    [pins, bodyMeasure.rect, bodyMetrics, applyLayout, commitCrossCanvasMove, commitGridMove, commitHeaderMove, pulseMoved],
   );
 
   const activePin = activeDragId ? pins.find((p) => p.id === activeDragId) ?? null : null;
@@ -639,11 +671,27 @@ export function ChannelDashboardMultiCanvas({
     return zoneFromBodyX(relX, bodyMetrics);
   }, [dragPointer, bodyMeasure.rect, bodyMetrics]);
 
-  /** Header has one fixed slot — the ghost is simply "show the slot". */
+  /** Ghost target for the 2-row header rail. */
   const headerGhost = useMemo(() => {
-    if (overZone !== "header" || !dragPointer || !activePin) return false;
-    return true;
-  }, [overZone, dragPointer, activePin]);
+    if (overZone !== "header" || !dragPointer || !activePin || !headerMeasure.rect) return null;
+    const existing = toGridLayout(activePin);
+    const { x, y } = pointerToCell(
+      dragPointer.x - headerMeasure.rect.left - CANVAS_INNER_PADDING,
+      dragPointer.y - headerMeasure.rect.top - CANVAS_INNER_PADDING,
+      {
+        cols: preset.cols.lg,
+        rowHeight: HEADER_ROW_HEIGHT_PX,
+        gap: GAP_PX,
+        canvasWidth: Math.max(1, headerMeasure.rect.width - CANVAS_INNER_PADDING * 2),
+      },
+    );
+    const placement = clampPlacement(x, y, existing.w, Math.min(existing.h, HEADER_MAX_ROWS), preset.cols.lg);
+    return {
+      ...placement,
+      y: Math.min(HEADER_MAX_ROWS - Math.min(existing.h, HEADER_MAX_ROWS), placement.y),
+      h: Math.min(existing.h, HEADER_MAX_ROWS),
+    };
+  }, [overZone, dragPointer, activePin, headerMeasure.rect, preset.cols.lg]);
 
   /** Ghost target box for the grid canvas — the snapped cell where the
    *  active drag will land on release. Null unless dragging over the grid.
@@ -697,6 +745,7 @@ export function ChannelDashboardMultiCanvas({
           applyLayout={applyLayout}
           channelId={channelId}
           measure={headerMeasure}
+          cols={preset.cols.lg}
           justMovedId={justMovedId}
           onTileMoved={pulseMoved}
           ghost={headerGhost}
@@ -738,7 +787,7 @@ function DragOverlayPreview({ pin }: { pin: WidgetDashboardPin }) {
     pin.envelope?.display_label
     || pin.envelope?.panel_title
     || pin.tool_name;
-  const isChip = pin.zone === "header";
+  const isChip = pin.zone === "header" && isChipLikeHeaderLayout(toGridLayout(pin));
   return (
     <div
       className={
@@ -775,7 +824,7 @@ function DragOverlayPreview({ pin }: { pin: WidgetDashboardPin }) {
 }
 
 // ---------------------------------------------------------------------------
-// Header canvas — horizontal sortable strip of chips (12-cell grid).
+// Header canvas — 2-row floating top rail aligned to the center track.
 // ---------------------------------------------------------------------------
 
 interface CanvasSharedProps {
@@ -809,7 +858,8 @@ interface CanvasSharedProps {
 
 interface HeaderCanvasProps extends CanvasSharedProps {
   measure: ReturnType<typeof useCanvasMeasure>;
-  ghost: boolean;
+  cols: number;
+  ghost: { x: number; y: number; w: number; h: number } | null;
 }
 
 function HeaderCanvas({
@@ -824,131 +874,136 @@ function HeaderCanvas({
   applyLayout,
   channelId,
   measure,
+  cols,
   justMovedId,
   onTileMoved,
   ghost,
 }: HeaderCanvasProps) {
   const t = useThemeTokens();
-  // All hooks must run before any early return so React's hook order stays
-  // stable when edit mode or pin count toggles the empty-state branch.
   if (!editMode && pins.length === 0) return null;
-  // Chip scope in BOTH modes so the author sees exactly what the chat shows.
-  const chipScope: WidgetScope = { kind: "channel", channelId, compact: "chip" };
-  const pin = pins[0] ?? null;
+  const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
+  const railHeight = HEADER_ROW_HEIGHT_PX * HEADER_MAX_ROWS + GAP_PX * (HEADER_MAX_ROWS - 1);
+  const gridStyle: CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${HEADER_MAX_ROWS}, ${HEADER_ROW_HEIGHT_PX}px)`,
+    gap: `${GAP_PX}px`,
+  };
 
   return (
     <DroppableCanvas
       zone="header"
-      extraClass="w-full flex justify-center"
+      extraClass="w-full"
       editMode={editMode}
       anyDragging={anyDragging}
       isOver={isOver}
-      ringRadius="9999px"
+      ringRadius="12px"
       measureRef={measure.setRef}
     >
       <div
-        className={
-          "relative flex items-center justify-center px-3 py-1.5 rounded-full "
-          + (pin
-              ? "bg-surface-raised/50 backdrop-blur-md shadow-sm"
-              : editMode
-                ? "bg-surface-raised/30"
-                : "")
-        }
-        style={{
-          minHeight: HEADER_SLOT_HEIGHT_PX + 12,
-          width: HEADER_SLOT_WIDTH_PX + 24,
-          maxWidth: "100%",
-        }}
+        className="relative min-h-0 p-3"
+        style={{ minHeight: railHeight + CANVAS_INNER_PADDING * 2 }}
       >
-        {pin == null ? (
-          editMode ? (
-            <div className="relative w-full flex items-center justify-center">
-              {ghost && (
-                <div
-                  aria-hidden
-                  style={{
-                    position: "absolute",
-                    left: 12,
-                    width: HEADER_SLOT_WIDTH_PX,
-                    top: 0,
-                    bottom: 0,
-                    border: `1.5px dashed ${t.accent}`,
-                    borderRadius: 9999,
-                    background: `${t.accent}14`,
-                    pointerEvents: "none",
-                  }}
-                />
-              )}
-              <div
-                className="pointer-events-none inline-flex max-w-[260px] items-center justify-center rounded-full px-4 py-1.5 text-center text-[11px] leading-tight"
-                style={{
-                  color: t.textMuted,
-                  background: `${t.surfaceRaised}66`,
-                }}
-              >
-                Drop a widget here for the chat header chip
-              </div>
-            </div>
-          ) : null
-        ) : (
-          <div
-            className={
-              "relative w-full flex items-center justify-center "
-              + (justMovedId === pin.id ? "pin-flash" : "")
-            }
-          >
-            {ghost && (
-              <div
-                aria-hidden
-                style={{
-                  position: "absolute",
-                  left: 12,
-                  width: HEADER_SLOT_WIDTH_PX,
-                  top: 0,
-                  bottom: 0,
-                  border: `1.5px dashed ${t.accent}`,
-                  borderRadius: 9999,
-                  background: `${t.accent}14`,
-                  pointerEvents: "none",
-                }}
-              />
-            )}
+        <div style={gridStyle} className="relative">
+          {ghost && (
             <div
+              aria-hidden
+              className="pointer-events-none"
               style={{
-                width: HEADER_SLOT_WIDTH_PX,
-                minWidth: 0,
+                gridColumn: `${ghost.x + 1} / span ${ghost.w}`,
+                gridRow: `${ghost.y + 1} / span ${ghost.h}`,
+                border: `1.5px dashed ${t.accent}`,
+                borderRadius: 8,
+                background: `${t.accent}14`,
+                transition: "grid-column 90ms ease-out, grid-row 90ms ease-out",
+                zIndex: 2,
               }}
-            >
-              <SortableTile id={pin.id} disabled={!editMode}>
-                {(binding) => (
-                  <div
-                    ref={binding.setNodeRef}
-                    {...binding.attributes}
-                    data-pin-id={pin.id}
-                    className="relative"
-                    style={{
-                      ...binding.style,
-                      minWidth: 0,
-                    }}
-                  >
-                    <TileShell
-                      binding={{ ...binding, setNodeRef: () => {} }}
-                      pin={pin}
-                      editMode={editMode}
-                      chrome={chrome}
-                      scope={chipScope}
-                      onUnpin={onUnpin}
-                      onEnvelopeUpdate={onEnvelopeUpdate}
-                      onEditPin={onEditPin}
-                      resize={null}
-                    />
-                  </div>
-                )}
-              </SortableTile>
-            </div>
-          </div>
-        )}
+            />
+          )}
+          {pins.length === 0 ? (
+            editMode ? (
+              <div
+                className="pointer-events-none absolute inset-0 flex items-center justify-center px-4 text-center text-[11px] opacity-60"
+                style={{ color: t.textMuted }}
+              >
+                Drop widgets here to float them over chat without consuming page height.
+              </div>
+            ) : null
+          ) : (
+            pins.map((pin) => {
+              const gl = toGridLayout(pin);
+              const chipLike = isChipLikeHeaderLayout(gl);
+              const scope: WidgetScope = chipLike
+                ? { kind: "channel", channelId, compact: "chip" }
+                : dashboardScope();
+              return (
+                <GridTile
+                  key={pin.id}
+                  id={pin.id}
+                  disabled={!editMode}
+                  gridColumn={`${gl.x + 1} / span ${gl.w}`}
+                  gridRow={`${gl.y + 1} / span ${gl.h}`}
+                >
+                  {(binding) => (
+                    <div
+                      ref={binding.setNodeRef}
+                      {...binding.attributes}
+                      data-pin-id={pin.id}
+                      data-pin-zone="header"
+                      className={
+                        "relative min-w-0 "
+                        + (justMovedId === pin.id ? "pin-flash" : "")
+                      }
+                      style={binding.style}
+                    >
+                      <TileShell
+                        binding={{ ...binding, setNodeRef: () => {} }}
+                        pin={pin}
+                        editMode={editMode}
+                        chrome={chrome}
+                        scope={scope}
+                        onUnpin={onUnpin}
+                        onEnvelopeUpdate={onEnvelopeUpdate}
+                        onEditPin={onEditPin}
+                        layout={chipLike ? "chip" : "header"}
+                        resize={
+                          editMode
+                            ? {
+                                edges: chipLike
+                                  ? (["e"] as ResizeEdge[])
+                                  : (["s", "e", "se"] as ResizeEdge[]),
+                                initial: { x: gl.x, y: gl.y, w: gl.w, h: gl.h },
+                                cellPx: {
+                                  w:
+                                    ((measure.rect?.width ?? 0) - CANVAS_INNER_PADDING * 2 - (cols - 1) * GAP_PX)
+                                    / cols
+                                    + GAP_PX,
+                                  h: HEADER_ROW_HEIGHT_PX + GAP_PX,
+                                },
+                                clampW: { min: 1, max: cols },
+                                clampH: { min: 1, max: HEADER_MAX_ROWS },
+                                showRest: true,
+                                onCommit: ({ x, w, h }) => {
+                                  const next = clampPlacement(x, gl.y, w, Math.min(h, HEADER_MAX_ROWS), cols);
+                                  void applyLayout([{
+                                    id: pin.id,
+                                    zone: "header",
+                                    ...next,
+                                    y: Math.min(HEADER_MAX_ROWS - Math.min(h, HEADER_MAX_ROWS), gl.y),
+                                    h: Math.min(h, HEADER_MAX_ROWS),
+                                  }]).then(() => onTileMoved?.(pin.id));
+                                },
+                              }
+                            : null
+                        }
+                      />
+                    </div>
+                  )}
+                </GridTile>
+              );
+            })
+          )}
+        </div>
       </div>
     </DroppableCanvas>
   );
@@ -1074,10 +1129,10 @@ function UnifiedBodyCanvas({
 
         {pins.map((p) => {
           const gl = toGridLayout(p);
-          const isResizing = resizePreview?.id === p.id;
-          const effX = isResizing ? resizePreview.x : gl.x;
-          const effW = isResizing ? resizePreview.w : gl.w;
-          const effH = isResizing ? resizePreview.h : gl.h;
+          const preview = resizePreview?.id === p.id ? resizePreview : null;
+          const effX = preview ? preview.x : gl.x;
+          const effW = preview ? preview.w : gl.w;
+          const effH = preview ? preview.h : gl.h;
           const railLike = p.zone === "rail" || p.zone === "dock";
           const gridColumn =
             p.zone === "rail"
@@ -1557,6 +1612,7 @@ interface TileShellProps {
   editMode: boolean;
   chrome: DashboardChrome;
   scope: WidgetScope;
+  layout?: WidgetLayout;
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   onEditPin: (id: string) => void;
@@ -1581,6 +1637,7 @@ function TileShell({
   editMode,
   chrome,
   scope,
+  layout,
   onUnpin,
   onEnvelopeUpdate,
   onEditPin,
@@ -1601,6 +1658,7 @@ function TileShell({
         hideTitles={chrome.hideTitles}
         panelSurface={railMode}
         railMode={railMode}
+        layout={layout}
         externalDrag={binding}
       />
       {resize && (

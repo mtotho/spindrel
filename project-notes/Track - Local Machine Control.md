@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-23 (v1 companion driver + session leases shipped)
+updated: 2026-04-23 (phase 5A rich-result UX + docs/skill shipped)
 ---
 # Track — Local Machine Control
 
@@ -27,7 +27,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 2 | Session APIs + channel-header machine chip + enrollment flow | ✅ shipped 2026-04-23 |
 | 3 | Guardrails on non-interactive surfaces (`run_script`, admin tool execute, widget-style direct dispatch) | ✅ partial 2026-04-23 |
 | 4 | Canonical docs + architecture linking | ✅ shipped 2026-04-23 |
-| 5 | Follow-up drivers and UX polish (SSH driver, inline grant card, browser_live lease adoption) | ⏳ deferred |
+| 5 | Rich result UX, inline grant/revoke flow, operator docs, and generic machine-control skill | ✅ partial 2026-04-23 |
 
 ## What Shipped
 
@@ -83,15 +83,34 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - vault `Architecture Decisions.md`
   - MkDocs navigation
 
+### Phase 5A — Native-feeling result UX + packaging
+
+- Local machine-control tools now render as semantic rich results instead of generic JSON blobs:
+  - `local_status` -> `core.machine_target_status`
+  - `local_inspect_command` / `local_exec_command` -> `core.command_result`
+- Execution-policy denials in chat now return a `core.machine_access_required` envelope with:
+  - denial reason
+  - connected target list
+  - inline grant/revoke actions backed by the existing session lease endpoints
+  - deep link to the local companion integration when no targets are connected
+- Added `tool_widgets` metadata for the local companion tools so widget contracts/catalog surfaces understand the result views.
+- Added `integrations/local_companion/README.md` for operator setup/use and `skills/machine_control.md` for agent-facing behavior on the machine-target abstraction.
+- Updated docs parity:
+  - `docs/setup.md`
+  - `docs/guides/api.md`
+  - `docs/reference/widget-inventory.md`
+  - canonical local-machine-control guide to reflect transcript-native grant/status/result UX
+
 ## Deferred
 
 - `driver="ssh"` for headless LAN/server targets.
-- Inline transcript "Grant machine access" card for `local_control_required` results.
 - Applying the same lease abstraction to `browser_live` and any future desktop/file automation drivers.
 - Companion-side richer capabilities beyond shell (`files`, `browser`, `input`, screenshots).
+- Better integrations/settings management surfaces for target enrollment and long-lived machine administration.
 
 ## Verification
 
 - `python -m py_compile` on the new/edited backend files
 - `pytest tests/unit/test_registry.py tests/integration/test_internal_tools_exec.py tests/integration/test_machine_target_sessions.py -q`
+- `pytest tests/unit/test_local_machine_control_phase5a.py -q`
 - `cd agent-server/ui && npx tsc --noEmit --pretty false`

@@ -772,7 +772,7 @@ function EphemeralChatSession({
           // Server-scratch mode: the hook auto-creates on mount. If we
           // still have no id something is wrong upstream — surface it
           // rather than silently double-spawning via the ephemeral POST.
-          setSendError("Scratch session not ready yet — try again.");
+          setSendError("Session not ready yet — try again.");
           return;
         }
         try {
@@ -880,7 +880,7 @@ function EphemeralChatSession({
   // can deep-link / share / back-button the scratch view.
   const canNavigateFullpage = !!scratchBoundChannelId && !!sessionId;
   const expandTitle = canNavigateFullpage
-    ? "Open full scratch page"
+    ? "Open full session page"
     : mode === "dock"
       ? "Expand to full view"
       : "Minimize to dock";
@@ -1010,8 +1010,8 @@ function EphemeralChatSession({
         {scratchBoundChannelId && (
           <button
             onClick={() => setHistoryOpen(true)}
-            title="Scratch history"
-            aria-label="Open scratch history"
+            title="Session history"
+            aria-label="Open session history"
             className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
           >
             <History size={13} />
@@ -1020,8 +1020,8 @@ function EphemeralChatSession({
         {sessionId && (
           <button
             onClick={handleReset}
-            title={resetArmed ? "Click again within 3 s to reset the scratch session" : "Reset scratch session"}
-            aria-label="Reset scratch session"
+            title={resetArmed ? "Click again within 3 s to reset the session" : "Reset session"}
+            aria-label="Reset session"
             className={`p-1.5 rounded transition-colors ${
               resetArmed
                 ? "text-red-400 bg-red-500/10 animate-pulse"

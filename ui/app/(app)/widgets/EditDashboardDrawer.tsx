@@ -260,26 +260,37 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
         </header>
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[12px] font-medium text-text-muted">
-              Name
-              {isChannel && (
-                <span className="ml-2 text-[11px] font-normal text-text-dim">
-                  (tied to the channel)
-                </span>
-              )}
-            </span>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              readOnly={isChannel}
-              disabled={isChannel}
-              className="rounded-md border border-surface-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/60 disabled:opacity-60 disabled:cursor-not-allowed"
-            />
-          </label>
+          {isChannel ? (
+            <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-3">
+              <div className="text-[12.5px] font-medium text-text">
+                Channel-owned settings live in channel settings
+              </div>
+              <div className="text-[11px] leading-snug text-text-dim">
+                Name, prompt, history, and presentation defaults are configured once for the channel. This drawer only keeps quick dashboard layout controls.
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate(`/channels/${slug.replace(/^channel:/, "")}/settings?from=dashboard#presentation`)}
+                className="inline-flex w-fit items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+              >
+                Presentation settings
+              </button>
+            </div>
+          ) : (
+            <>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[12px] font-medium text-text-muted">Name</span>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="rounded-md border border-surface-border bg-surface px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/60"
+                />
+              </label>
 
-          <IconPicker value={icon} onChange={setIcon} label="Icon" />
+              <IconPicker value={icon} onChange={setIcon} label="Icon" />
+            </>
+          )}
 
           <RailScopePicker
             value={railChoice}

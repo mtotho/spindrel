@@ -10,6 +10,30 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Channel-dashboard `header` is a floating top rail, and `chip` is an authoring alias rather than a persisted zone
+**Decided 2026-04-23.** The top-of-chat widget area is now modeled as a real floating `header` rail, not a singleton chip slot and not a separate persisted `chip` zone.
+
+**What changed.**
+- `widget_dashboard_pins.zone` remains one of `rail | header | dock | grid`.
+- `header` now uses normal tile coords with a hard 2-row cap instead of a forced singleton layout.
+- Chat runtime renders `header` as a floating overlay spanning only the center workspace between the side panels.
+- The channel dashboard editor authors against that same `header` geometry.
+- Preset `preferred_zone: chip` now resolves to `zone=header` with compact `4x1` defaults.
+- Compact chip widgets remain a dedicated widget family/presentation target, but their persisted placement still lives in `header`.
+
+**Why.**
+- The singleton header slot made the system lie: it suggested a real placement surface while only supporting one centered chip.
+- The user expectation for the top band is overlay behavior over chat, not a layout row that consumes page height.
+- `chip` is useful product vocabulary for authoring and presentation, but making it a persisted zone would duplicate the real host surface and complicate placement rules.
+
+**Load-bearing invariants.**
+- `header` is the only persisted top-of-chat zone.
+- `header` floats over content; empty rail area must stay transparent/click-through.
+- `header` spans only the center workspace, not the left rail or right dock.
+- The host clamps `header` tiles to two rows; it does not auto-grow the rail.
+- `chip` remains an authoring alias / compact widget family, not a database zone.
+- Any widget may be placed in `header`, but only dedicated chip widgets are expected to look truly chip-native there.
+
 ### Local machine control is a leased machine-target abstraction, not a hidden server-side exec backdoor
 **Decided 2026-04-23.** "Run on my computer" is now modeled explicitly as temporary control over one leased machine target.
 

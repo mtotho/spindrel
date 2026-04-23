@@ -346,6 +346,42 @@ async def build_session_machine_target_payload(
     }
 
 
+async def build_machine_access_required_payload(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID | None,
+    reason: str,
+    execution_policy: str,
+    requested_tool: str | None = None,
+) -> dict[str, Any]:
+    session: Session | None = None
+    if session_id is not None:
+        session = await db.get(Session, session_id)
+
+    if session is not None:
+        session_payload = await build_session_machine_target_payload(db, session=session)
+        lease = session_payload.get("lease")
+        targets = list(session_payload.get("targets") or [])
+        resolved_session_id = session_payload.get("session_id")
+    else:
+        lease = None
+        targets = build_targets_status()
+        resolved_session_id = str(session_id) if session_id else None
+
+    connected_targets = [target for target in targets if target.get("connected")]
+    return {
+        "reason": reason,
+        "execution_policy": execution_policy,
+        "requested_tool": requested_tool,
+        "session_id": resolved_session_id,
+        "lease": lease,
+        "targets": targets,
+        "connected_targets": connected_targets,
+        "connected_target_count": len(connected_targets),
+        "integration_admin_href": "/admin/integrations/local_companion",
+    }
+
+
 async def validate_current_execution_policy(
     execution_policy: str,
 ) -> ExecutionPolicyResolution:

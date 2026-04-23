@@ -1136,6 +1136,8 @@ class CreatePinRequest(BaseModel):
     widget_config: dict | None = None
     display_label: str | None = None
     dashboard_key: str | None = None
+    zone: str | None = None
+    grid_layout: dict | None = None
 
 
 class PreviewForToolRequest(BaseModel):
@@ -1164,6 +1166,46 @@ class PinWidgetPresetRequest(BaseModel):
     source_bot_id: str | None = None
     source_channel_id: uuid.UUID | None = None
     display_label: str | None = None
+
+
+def _pin_seed_from_layout_hints(layout_hints: dict | None) -> tuple[str | None, dict | None]:
+    if not isinstance(layout_hints, dict):
+        return None, None
+    preferred_zone = layout_hints.get("preferred_zone")
+    if not isinstance(preferred_zone, str) or not preferred_zone.strip():
+        return None, None
+
+    zone = preferred_zone.strip()
+    min_cells = layout_hints.get("min_cells") if isinstance(layout_hints.get("min_cells"), dict) else {}
+    max_cells = layout_hints.get("max_cells") if isinstance(layout_hints.get("max_cells"), dict) else {}
+
+    def _cell_value(source: dict, key: str) -> int | None:
+        value = source.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+        return None
+
+    if zone == "chip":
+        return "header", {"x": 0, "y": 0, "w": 4, "h": 1}
+
+    if zone == "header":
+        width = 6
+        height = 2
+        min_w = _cell_value(min_cells, "w")
+        min_h = _cell_value(min_cells, "h")
+        max_w = _cell_value(max_cells, "w")
+        max_h = _cell_value(max_cells, "h")
+        if min_w is not None:
+            width = max(width, min_w)
+        if min_h is not None:
+            height = max(height, min_h)
+        if max_w is not None:
+            width = min(width, max_w)
+        if max_h is not None:
+            height = min(height, max_h)
+        return "header", {"x": 0, "y": 0, "w": width, "h": min(height, 2)}
+
+    return zone, None
 
 
 class WidgetConfigPatch(BaseModel):
@@ -1421,6 +1463,7 @@ async def pin_dashboard_widget_preset(
         preview_envelope_to_dict,
         preview_widget_preset,
     )
+    from app.services.widget_contracts import normalize_layout_hints
 
     preview, resolved_config, tool_args = await preview_widget_preset(
         db,
@@ -1436,6 +1479,9 @@ async def pin_dashboard_widget_preset(
     tool_name = preset.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name.strip():
         raise HTTPException(400, f"Preset '{preset_id}' missing tool_name")
+    preferred_zone, initial_grid_layout = _pin_seed_from_layout_hints(
+        normalize_layout_hints(preset.get("layout_hints"))
+    )
 
     envelope = preview_envelope_to_dict(preview.envelope)
     if isinstance(envelope, dict):
@@ -1453,6 +1499,8 @@ async def pin_dashboard_widget_preset(
         widget_config=resolved_config,
         display_label=body.display_label,
         dashboard_key=body.dashboard_key or DEFAULT_DASHBOARD_KEY,
+        zone=preferred_zone,
+        grid_layout=initial_grid_layout,
     )
     return serialize_pin(pin)
 
@@ -1477,6 +1525,8 @@ async def create_dashboard_pin(
         widget_config=body.widget_config,
         display_label=body.display_label,
         dashboard_key=body.dashboard_key or DEFAULT_DASHBOARD_KEY,
+        zone=body.zone,
+        grid_layout=body.grid_layout,
     )
     logger.info(
         "Dashboard pin created: id=%s dashboard=%s tool=%s source=%s",

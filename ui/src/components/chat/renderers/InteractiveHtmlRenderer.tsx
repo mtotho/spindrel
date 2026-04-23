@@ -199,7 +199,7 @@ interface Props {
    *  preamble (see `app/services/widget_templates.py::_build_html_widget_body`). */
   hoverScrollbars?: boolean;
   /** Host-zone classification, exposed to widget JS as
-   *  ``window.spindrel.layout``. One of ``"chip" | "rail" | "dock" | "grid"``;
+ *  ``window.spindrel.layout``. One of ``"chip" | "header" | "rail" | "dock" | "grid"``;
    *  undefined falls through to ``"grid"`` so widgets can branch on layout
    *  without null-checks. Chip-authored widgets read this to render the 180×32
    *  compact variant; grid widgets render full-size. */
@@ -212,7 +212,7 @@ interface Props {
   t: ThemeTokens;
 }
 
-export type WidgetLayout = "chip" | "rail" | "dock" | "grid";
+export type WidgetLayout = "chip" | "header" | "rail" | "dock" | "grid";
 export type HostSurface = "surface" | "plain";
 
 // Default CSP directive → baseline source list. Kept as structured data

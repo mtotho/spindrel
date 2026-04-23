@@ -1,5 +1,6 @@
+import { BookOpen } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { Section } from "@/src/components/shared/FormControls";
+import { Section, FormRow, SelectInput } from "@/src/components/shared/FormControls";
 import type { ChannelSettings } from "@/src/types/api";
 
 export const HISTORY_MODES: ReadonlyArray<{
@@ -41,10 +42,11 @@ export const HISTORY_MODES: ReadonlyArray<{
   },
 ];
 
-export function HistoryModeSection({ form, patch, botHistoryMode }: {
+export function HistoryModeSection({ form, patch, botHistoryMode, onOpenGuide }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   botHistoryMode?: string | null;
+  onOpenGuide?: () => void;
 }) {
   const t = useThemeTokens();
   const isInherited = !form.history_mode;
@@ -52,66 +54,58 @@ export function HistoryModeSection({ form, patch, botHistoryMode }: {
   const mode = HISTORY_MODES.find((m) => m.value === effectiveMode) || HISTORY_MODES[0];
 
   return (
-    <Section title="History Mode">
-      {/* Compact horizontal selector */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
-        {HISTORY_MODES.map((m) => {
-          const isSelected = effectiveMode === m.value;
-          return (
-            <button
-              key={m.value}
-              onClick={() => patch("history_mode", m.value)}
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                padding: "6px 12px", borderRadius: 6, cursor: "pointer",
-                background: isSelected ? `${m.accentColor}12` : "none",
-                border: `1px solid ${isSelected ? m.accentColor : t.surfaceOverlay}`,
-                transition: "all 0.12s ease",
-              }}
-            >
-              <span style={{
-                fontSize: 12, fontWeight: isSelected ? 700 : 500,
-                color: isSelected ? m.accentColor : t.textMuted,
-              }}>
-                {m.label}
-              </span>
-              {m.recommended && (
-                <span style={{
-                  fontSize: 9, fontWeight: 600, color: t.warningMuted,
-                  padding: "0 4px", background: "rgba(217,119,6,0.08)", borderRadius: 4,
-                }}>rec</span>
-              )}
-            </button>
-          );
-        })}
-        {!isInherited && (
-          <button
-            onClick={() => patch("history_mode", null)}
+    <Section
+      title="History Mode"
+      action={onOpenGuide ? (
+        <button
+          type="button"
+          onClick={onOpenGuide}
+          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+          aria-label="Read context management guide"
+          title="Read the guide"
+        >
+          <BookOpen size={12} />
+          Docs
+        </button>
+      ) : null}
+    >
+      <FormRow
+        label="Mode"
+        description={isInherited ? `Inherited from bot default${botHistoryMode ? ` (${botHistoryMode})` : ""}.` : "Override the bot default for this channel."}
+      >
+        <SelectInput
+          value={isInherited ? "__inherit__" : effectiveMode}
+          onChange={(value) => patch("history_mode", (value === "__inherit__" ? null : value) as ChannelSettings["history_mode"])}
+          options={[
+            { label: `Inherit bot default${botHistoryMode ? ` (${botHistoryMode})` : ""}`, value: "__inherit__" },
+            ...HISTORY_MODES.map((entry) => ({
+              label: entry.recommended ? `${entry.label} (recommended)` : entry.label,
+              value: entry.value,
+            })),
+          ]}
+        />
+      </FormRow>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span
             style={{
-              padding: "6px 10px", fontSize: 10, fontWeight: 600,
-              color: t.textDim, background: "none", border: `1px solid ${t.surfaceOverlay}`,
-              borderRadius: 6, cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 700,
+              color: mode.accentColor,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
             }}
           >
-            Reset{botHistoryMode ? ` (${botHistoryMode})` : ""}
-          </button>
-        )}
-      </div>
-
-      {isInherited && (
-        <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-          Inherited from bot default
+            {mode.label}
+          </span>
+          <span style={{ fontSize: 12, color: t.text }}>
+            {mode.summary}
+          </span>
         </div>
-      )}
-
-      {/* Detail for selected mode */}
-      <div style={{
-        marginTop: 6, padding: "10px 12px",
-        background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-        borderRadius: 6, fontSize: 11, lineHeight: "1.5", color: t.textMuted,
-      }}>
-        <span style={{ fontWeight: 600, color: mode.accentColor }}>{mode.label}:</span>{" "}
-        {mode.summary}. {mode.detail}
+        <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
+          {mode.detail}
+        </div>
       </div>
     </Section>
   );

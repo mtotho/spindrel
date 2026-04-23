@@ -3,7 +3,7 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import { useHashTab } from "@/src/hooks/useHashTab";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
@@ -20,7 +20,6 @@ import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
 
 // Tab components
-import { GeneralTab } from "./GeneralTab";
 import { HistoryTab } from "./HistoryTab";
 import { ContextTab } from "./ContextTab";
 import { ToolsOverrideTab } from "./ToolsOverrideTab";
@@ -32,6 +31,12 @@ import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
 import { PipelinesTab } from "./PipelinesTab";
 import { ParticipantsTab } from "./ParticipantsTab";
+import {
+  ChannelTabSections,
+  AgentTabSections,
+  PresentationTabSections,
+  AutomationTabSections,
+} from "./ChannelSettingsSections";
 
 // ---------------------------------------------------------------------------
 // Tab definitions — single flat list, all visible. A separator divides
@@ -41,17 +46,13 @@ import { ParticipantsTab } from "./ParticipantsTab";
 // ---------------------------------------------------------------------------
 type TabDef = { key: string; label: string; separator?: boolean; adminOnly?: boolean };
 const ALL_TABS: TabDef[] = [
-  { key: "general", label: "General" },
-  { key: "participants", label: "Participants" },
-  { key: "workspace", label: "Workspace" },
-  { key: "capabilities", label: "Skills" },
-  { key: "integrations", label: "Integrations", adminOnly: true },
-  { key: "heartbeat", label: "Heartbeat" },
-  { key: "history", label: "History" },
-  { key: "attachments", label: "Attachments" },
+  { key: "channel", label: "Channel" },
+  { key: "agent", label: "Agent" },
+  { key: "presentation", label: "Presentation" },
+  { key: "knowledge", label: "Knowledge" },
+  { key: "memory", label: "Memory" },
+  { key: "automation", label: "Automation" },
   { key: "context", label: "Context", separator: true },
-  { key: "pipelines", label: "Pipelines" },
-  { key: "tasks", label: "Tasks" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -62,9 +63,11 @@ export default function ChannelSettingsScreen() {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
+  const location = useLocation();
   const isAdmin = useIsAdmin();
   const { channelId } = useParams<{ channelId: string }>();
-  const goBack = useGoBack(`/channels/${channelId}`);
+  const fromDashboard = new URLSearchParams(location.search).get("from") === "dashboard";
+  const goBack = useGoBack(fromDashboard ? `/widgets/channel/${channelId}` : `/channels/${channelId}`);
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: channel } = useChannel(channelId);
   const { data: settings, isLoading } = useChannelSettings(channelId);
@@ -79,7 +82,7 @@ export default function ChannelSettingsScreen() {
 
   const visibleTabs = ALL_TABS.filter((tb) => !tb.adminOnly || isAdmin);
   const tabKeys = visibleTabs.map((tab) => tab.key);
-  const [tab, setTab] = useHashTab("general", tabKeys);
+  const [tab, setTab] = useHashTab("channel", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
   const [saved, setSaved] = useState(false);
 
@@ -137,6 +140,8 @@ export default function ChannelSettingsScreen() {
     if (settings) {
       setForm({
         name: settings.name,
+        private: settings.private,
+        user_id: settings.user_id,
         bot_id: settings.bot_id,
         require_mention: settings.require_mention,
         passive_memory: settings.passive_memory,
@@ -175,6 +180,9 @@ export default function ChannelSettingsScreen() {
         tags: settings.tags ?? [],
         category: settings.category ?? null,
         chat_mode: settings.chat_mode ?? "default",
+        layout_mode: settings.layout_mode,
+        widget_theme_ref: settings.widget_theme_ref,
+        pipeline_mode: settings.pipeline_mode,
       });
     }
   }, [settings]);
@@ -416,13 +424,31 @@ export default function ChannelSettingsScreen() {
         contentContainerStyle={{ padding: isMobile ? 12 : 16, gap: isMobile ? 16 : 20, width: "100%", boxSizing: "border-box", overflowX: "hidden" } as any}
         key={tab}
       >
-        {tab === "general" && (
-          <GeneralTab form={form} patch={patch} bots={bots} settings={settings} workspaceId={currentBot?.shared_workspace_id} channelId={channelId!} />
+        {tab === "channel" && (
+          <>
+            <ChannelTabSections form={form} patch={patch} channelId={channelId!} settings={settings} />
+            <ParticipantsTab channelId={channelId!} primaryBotId={settings?.bot_id ?? ""} />
+            {isAdmin && <IntegrationsTab channelId={channelId!} />}
+          </>
         )}
-        {tab === "participants" && (
-          <ParticipantsTab channelId={channelId!} primaryBotId={settings?.bot_id ?? ""} />
+        {tab === "agent" && (
+          <>
+            <AgentTabSections
+              form={form}
+              patch={patch}
+              bots={bots}
+              settings={settings}
+              workspaceId={currentBot?.shared_workspace_id}
+              channelId={channelId!}
+            />
+            <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />
+          </>
         )}
-        {tab === "workspace" && (
+        {tab === "presentation" && (
+          <PresentationTabSections form={form} patch={patch} channelId={channelId!} />
+        )}
+        {tab === "knowledge" && (
+          <>
           <ChannelWorkspaceTab
             form={form}
             patch={patch}
@@ -432,17 +458,21 @@ export default function ChannelSettingsScreen() {
             hasSharedWorkspace={hasWorkspace}
             sharedWorkspaceId={currentBot?.shared_workspace_id}
           />
+            <AttachmentsTab channelId={channelId!} />
+          </>
         )}
-        {tab === "heartbeat" && <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} botModel={currentBot?.model} />}
-        {tab === "history" && (
+        {tab === "memory" && (
           <HistoryTab form={form} patch={patch} channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} memoryScheme={currentBot?.memory_scheme} botHistoryMode={currentBot?.history_mode} />
         )}
-        {tab === "capabilities" && <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />}
-        {tab === "integrations" && isAdmin && <IntegrationsTab channelId={channelId!} />}
-        {tab === "attachments" && <AttachmentsTab channelId={channelId!} />}
+        {tab === "automation" && (
+          <>
+            <AutomationTabSections form={form} patch={patch} />
+            <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} botModel={currentBot?.model} />
+            <PipelinesTab channelId={channelId!} />
+            <TasksTab channelId={channelId!} botId={channel?.bot_id} />
+          </>
+        )}
         {tab === "context" && <ContextTab channelId={channelId!} />}
-        {tab === "pipelines" && <PipelinesTab channelId={channelId!} />}
-        {tab === "tasks" && <TasksTab channelId={channelId!} botId={channel?.bot_id} />}
         {tab === "logs" && <LogsTab channelId={channelId!} />}
       </RefreshableScrollView>
     </div>

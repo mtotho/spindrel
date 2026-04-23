@@ -35,7 +35,6 @@ import { HudSidePanel } from "./hud/HudSidePanel";
 import { HudInputBar } from "./hud/HudInputBar";
 import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
-import { PinnedPanelsRail } from "@/src/components/chat/PinnedPanels";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
@@ -1263,14 +1262,14 @@ export default function ChatScreen() {
       <div
         className="inline-flex items-center gap-2 rounded-full px-3 py-1.5"
         style={{
-          backgroundColor: t.warningSubtle,
-          border: `1px solid ${t.warningBorder}`,
-          color: t.warningMuted,
+          backgroundColor: t.surfaceOverlay,
+          border: `1px solid ${t.surfaceBorder}`,
+          color: t.textDim,
         }}
       >
-        <StickyNote size={13} color={t.warning} />
+        <StickyNote size={13} color={t.textDim} />
         <span className="text-[11px] font-semibold tracking-[0.18em] uppercase">
-          Scratch session
+          Session
         </span>
       </div>
       <div className="space-y-2">
@@ -1282,7 +1281,7 @@ export default function ChatScreen() {
             letterSpacing: "-0.02em",
           }}
         >
-          Work in a fresh session for this channel.
+          Work in a separate session for this channel.
         </div>
         <div
           style={{
@@ -1292,7 +1291,7 @@ export default function ChatScreen() {
             lineHeight: 1.55,
           }}
         >
-          {"Use this scratch session to explore ideas without adding them to the main channel transcript. It's a separate session inside this channel."}
+          {"This session stays attached to the channel while keeping its own context and history apart from the primary conversation."}
         </div>
       </div>
     </div>
@@ -1333,7 +1332,7 @@ export default function ChatScreen() {
             shape="fullpage"
             open
             onClose={handleExitScratchRoute}
-            title="Scratch session"
+            title="Session"
             emptyState={scratchEmptyState}
             chatMode={chatMode}
           />
@@ -1421,13 +1420,18 @@ export default function ChatScreen() {
   // Header-zone chip strip — rendered as an absolute overlay centered over
   // the top of the three-column row so it floats without consuming vertical
   // space. Desktop only; mobile surfaces these in the drawer's Widgets tab.
-  // `pointer-events-none` on the wrapper lets clicks pass through dead space
-  // to the chat below; the chip itself re-enables pointer events. The chip
-  // already carries its own surface + border, so no enclosing pill chrome.
+  // The overlay spans the real center track between the left and right
+  // panels, but remains transparent/click-through outside the actual widgets.
   const headerChipOverlay =
     !isMobile && channelId && hasHeaderChips && showHeaderChips ? (
-      <div className="absolute left-1/2 -translate-x-1/2 top-1 z-20 pointer-events-none flex justify-center">
-        <div className="pointer-events-auto">
+      <div
+        className="absolute top-1 z-20 pointer-events-none"
+        style={{
+          left: panelLayout.left.mode === "push" ? panelLayout.left.width + 12 : 12,
+          right: panelLayout.right.mode === "push" ? panelLayout.right.width + 12 : 12,
+        }}
+      >
+        <div className="w-full">
           <ChannelHeaderChip channelId={channelId} />
         </div>
       </div>
@@ -1519,7 +1523,7 @@ export default function ChatScreen() {
         /* ---- Desktop/tablet: full-width header + side-by-side row ----
            ChannelHeader spans above the three columns so the chat screen
            mirrors the dashboard layout (header-row above rail/grid/dock).
-           The row beneath houses OmniPanel | chat | PinnedPanelsRail | WidgetDockRight. */
+           Pinned files now ride the normal dock widget system. */
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
           {channelHeaderBlock}
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative", minHeight: 0 }}>
@@ -1696,11 +1700,6 @@ export default function ChatScreen() {
             <HudSidePanel key={h.key} hud={h} />
           ))}
 
-          {/* Pinned workspace-file panels — hidden on system channels. */}
-          {!isMobile && channelId && !isSystemChannel && (
-            <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
-          )}
-
           {!isMobile && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (panelLayout.right.mode === "closed" || dockBlockedByFileViewer) && (
             <CollapsedPanelSpine
               side="right"
@@ -1875,7 +1874,7 @@ export default function ChatScreen() {
           shape="dock"
           open={scratchOpen}
           onClose={handleScratchClose}
-          title="Scratch session"
+          title="Session"
           emptyState={scratchEmptyState}
           initiallyExpanded
           chatMode={chatMode}

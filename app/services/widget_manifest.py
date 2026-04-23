@@ -103,7 +103,7 @@ class LayoutHints:
     max_cells: dict[str, int] | None = None
 
 
-VALID_LAYOUT_ZONES: frozenset[str] = frozenset({"chip", "rail", "dock", "grid"})
+VALID_LAYOUT_ZONES: frozenset[str] = frozenset({"chip", "rail", "header", "dock", "grid"})
 
 
 @dataclass

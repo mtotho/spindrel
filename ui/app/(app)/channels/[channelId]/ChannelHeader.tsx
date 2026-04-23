@@ -15,6 +15,7 @@ import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
 import { MachineTargetChip } from "./MachineTargetChip";
+import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -42,6 +43,9 @@ export interface ChannelHeaderProps {
   /** Called when user clicks the context budget indicator */
   onContextBudgetClick?: () => void;
   sessionHeaderStats?: {
+    utilization: number | null;
+    consumedTokens?: number | null;
+    totalTokens: number | null;
     grossPromptTokens: number | null;
     currentPromptTokens: number | null;
     cachedPromptTokens: number | null;
@@ -164,75 +168,24 @@ export function ChannelHeader({
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
   const showScratchState = !!scratchFullpageMode;
-  const scratchBadgeLabel = "Scratch";
   const sessionButtonLabel = "Sessions";
-  const scratchTone = {
-    bg: t.surfaceOverlay,
-    border: t.surfaceBorder,
-    text: t.textMuted,
-    icon: t.textDim,
-  };
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = !isMobile;
   const showDashboardInline = !isMobile;
-  const headerMetaBits = [
-    contextBudget && contextBudget.total > 0 ? (
-      (() => {
-        const gross = contextBudget.gross ?? sessionHeaderStats?.grossPromptTokens ?? contextBudget.consumed;
-        const current = contextBudget.current ?? sessionHeaderStats?.currentPromptTokens;
-        const cached = contextBudget.cached ?? sessionHeaderStats?.cachedPromptTokens;
-        const profile = contextBudget.contextProfile ?? sessionHeaderStats?.contextProfile;
-        const completion = sessionHeaderStats?.completionTokens;
-        const titleParts = [
-          `Prompt: ${fmtTokens(gross)} / ${fmtTokens(contextBudget.total)} tokens (${Math.round(contextBudget.utilization * 100)}%)`,
-          current != null ? `Current: ${fmtTokens(current)}` : null,
-          cached != null ? `Cached: ${fmtTokens(cached)}` : null,
-          completion != null ? `Completion: ${fmtTokens(completion)}` : null,
-          profile ? `Profile: ${profile}` : null,
-        ].filter(Boolean);
-        return (
-      <span
-        key="tokens"
-        onClick={onContextBudgetClick}
-        style={{
-          fontSize: 10,
-          fontFamily: "monospace",
-          color: contextBudget.utilization > 0.8 ? "#f87171" : contextBudget.utilization > 0.5 ? "#fbbf24" : t.textDim,
-          flexShrink: 0,
-          cursor: onContextBudgetClick ? "pointer" : undefined,
-          borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
-          transition: "border-color 0.15s",
-        }}
-        onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
-        onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-        title={titleParts.join("\n")}
-      >
-        {fmtTokens(gross)}/{fmtTokens(contextBudget.total)}
-      </span>
-        );
-      })()
-    ) : null,
-    typeof sessionHeaderStats?.turnsInContext === "number" ? (
-      <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
-        {sessionHeaderStats.turnsInContext} turn{sessionHeaderStats.turnsInContext === 1 ? "" : "s"} in ctx
-      </span>
-    ) : null,
-    typeof sessionHeaderStats?.turnsUntilCompaction === "number" ? (
-      <span key="turns-until-compaction" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
-        {sessionHeaderStats.turnsUntilCompaction} until compact
-      </span>
-    ) : null,
-  ].filter(Boolean);
+  const resolvedMetrics = resolveHeaderMetrics(contextBudget, sessionHeaderStats);
   const scratchSessionMeta = React.useMemo(() => {
     if (!showScratchState || !scratchSessionId) return null;
     const matchedHistory = scratchHistory?.find((row) => row.session_id === scratchSessionId) ?? null;
     const matchedCurrent = currentScratchSession?.session_id === scratchSessionId ? currentScratchSession : null;
+    const lastActiveLabel = formatScratchHeaderTimestamp(
+      matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null,
+    );
     const label =
       matchedHistory?.title?.trim()
       || matchedCurrent?.title?.trim()
       || null;
     const bits = [
-      formatScratchHeaderTimestamp(matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null),
+      lastActiveLabel,
       typeof matchedHistory?.message_count === "number"
         ? `${matchedHistory.message_count} msg${matchedHistory.message_count === 1 ? "" : "s"}`
         : typeof matchedCurrent?.message_count === "number"
@@ -246,9 +199,62 @@ export function ChannelHeader({
     ].filter(Boolean);
     return {
       label,
+      lastActiveLabel,
       stats: bits.join(" · ") || null,
     };
   }, [currentScratchSession, scratchHistory, scratchSessionId, showScratchState]);
+  const headerSessionChrome = resolveRouteSessionChrome(
+    showScratchState,
+    scratchSessionMeta?.label ?? null,
+    scratchSessionMeta?.lastActiveLabel ?? null,
+  );
+  const headerMetaBits = [
+    resolvedMetrics.hasAnyTokenUsage ? (
+      <span
+        key="tokens"
+        onClick={onContextBudgetClick}
+        style={{
+          fontSize: 10,
+          fontFamily: "monospace",
+          color: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : (resolvedMetrics.utilization ?? 0) > 0.5 ? "#fbbf24" : t.textDim,
+          flexShrink: 0,
+          cursor: onContextBudgetClick ? "pointer" : undefined,
+          borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
+          transition: "border-color 0.15s",
+        }}
+        onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
+        onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
+        title={[
+          resolvedMetrics.hasTokenMetrics
+            ? `Prompt: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} tokens (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`
+            : `Prompt: ${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tokens`,
+          resolvedMetrics.current != null ? `Current: ${fmtTokens(resolvedMetrics.current)}` : null,
+          resolvedMetrics.cached != null ? `Cached: ${fmtTokens(resolvedMetrics.cached)}` : null,
+          resolvedMetrics.completion != null ? `Completion: ${fmtTokens(resolvedMetrics.completion)}` : null,
+          resolvedMetrics.contextProfile ? `Profile: ${resolvedMetrics.contextProfile}` : null,
+        ].filter(Boolean).join("\n")}
+      >
+        {resolvedMetrics.hasTokenMetrics
+          ? `${fmtTokens(resolvedMetrics.gross ?? 0)}/${fmtTokens(resolvedMetrics.total ?? 0)}`
+          : `${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tok`}
+      </span>
+    ) : null,
+    !resolvedMetrics.hasTokenMetrics && showScratchState ? (
+      <span key="session-kind" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+        {headerSessionChrome.subtitleIdentity ?? "session"}
+      </span>
+    ) : null,
+    typeof resolvedMetrics.turnsInContext === "number" ? (
+      <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+        {resolvedMetrics.turnsInContext} turn{resolvedMetrics.turnsInContext === 1 ? "" : "s"} in ctx
+      </span>
+    ) : null,
+    typeof resolvedMetrics.turnsUntilCompaction === "number" ? (
+      <span key="turns-until-compaction" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
+        {resolvedMetrics.turnsUntilCompaction} until compact
+      </span>
+    ) : null,
+  ].filter(Boolean);
   const mobileOverflowActions = [
     showFindingsButton
       ? {
@@ -372,24 +378,42 @@ export function ChannelHeader({
           <span style={{ fontSize: 15, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {displayName}
           </span>
-          {showScratchState && (
+          {!isSystemChannel && (
             <span
-              className="inline-flex items-center gap-1 px-0 py-0 text-[10px] font-semibold shrink-0"
+              className="inline-flex items-center gap-1 px-0 py-0 text-[10px] font-medium uppercase tracking-[0.16em] shrink-0"
               style={{
-                color: scratchTone.text,
+                color: t.textDim,
               }}
               title={
                 [
-                  "Scratch session",
+                  showScratchState ? "Session" : "Primary",
                   scratchSessionMeta?.label ?? null,
                   scratchSessionMeta?.stats ?? null,
-                ].filter(Boolean).join("\n") || "Scratch session"
+                ].filter(Boolean).join("\n") || headerSessionChrome.modeLabel
               }
             >
-              <StickyNote size={10} color={scratchTone.icon} />
-              {scratchBadgeLabel}
+              {showScratchState ? <StickyNote size={10} color={t.textDim} /> : null}
+              {headerSessionChrome.modeLabel}
             </span>
           )}
+          {headerSessionChrome.inlineMeta ? (
+            <span
+              className="shrink-0 text-[10px] uppercase tracking-[0.12em]"
+              style={{ color: t.textDim }}
+              title={headerSessionChrome.inlineMeta}
+            >
+              {headerSessionChrome.inlineMeta}
+            </span>
+          ) : null}
+          {headerSessionChrome.inlineTitle ? (
+            <span
+              className="truncate text-[11px] shrink max-w-[28rem]"
+              style={{ color: t.textMuted }}
+              title={headerSessionChrome.inlineTitle}
+            >
+              {headerSessionChrome.inlineTitle}
+            </span>
+          ) : null}
           {isSystemChannel && (
             <span
               className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
@@ -412,16 +436,16 @@ export function ChannelHeader({
               {ownerName ?? "owner"}
             </span>
           )}
-          {isMobile && !isSystemChannel && contextBudget && contextBudget.total > 0 && contextBudget.utilization > 0.5 && (
+          {isMobile && !isSystemChannel && resolvedMetrics.hasTokenMetrics && (resolvedMetrics.utilization ?? 0) > 0.5 && (
             <span
               style={{
                 width: 6,
                 height: 6,
                 borderRadius: "50%",
-                backgroundColor: contextBudget.utilization > 0.8 ? "#f87171" : "#fbbf24",
+                backgroundColor: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : "#fbbf24",
                 flexShrink: 0,
               }}
-              title={`Context: ${fmtTokens(contextBudget.consumed)} / ${fmtTokens(contextBudget.total)} (${Math.round(contextBudget.utilization * 100)}%)`}
+              title={`Context: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`}
             />
           )}
         </div>
@@ -432,48 +456,16 @@ export function ChannelHeader({
         )}
         {!isSystemChannel && bot && (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
-            {scratchFullpageMode ? (
-              <>
-                <a
-                  className="header-bot-link"
-                  onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
-                  href={`/admin/bots/${bot.id}`}
-                  style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                  title={bot.name}
-                >
-                  {bot.name}
-                </a>
-                <span
-                  className="shrink-0 text-[11px]"
-                  style={{ color: t.textDim }}
-                  title={
-                    [
-                      scratchSessionMeta?.label ?? null,
-                      scratchSessionMeta?.stats ?? null,
-                    ].filter(Boolean).join("\n") || "Private scratch session for this channel"
-                  }
-                >
-                  scratch session
-                </span>
-                {headerMetaBits.length > 0 ? (
-                  headerMetaBits.map((bit, idx) => <React.Fragment key={idx}>{bit}</React.Fragment>)
-                ) : scratchSessionMeta?.stats ? (
-                  <span className="truncate text-[11px]" style={{ color: t.textDim }}>
-                    {scratchSessionMeta.stats}
-                  </span>
-                ) : null}
-              </>
-            ) : (
             <a
               className="header-bot-link"
               onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
               href={`/admin/bots/${bot.id}`}
               style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              title={bot.name}
             >
               {bot.name}
             </a>
-            )}
-            {!scratchFullpageMode && headerMetaBits.map((bit, idx) => (
+            {headerMetaBits.map((bit, idx) => (
               <React.Fragment key={idx}>{bit}</React.Fragment>
             ))}
           </div>

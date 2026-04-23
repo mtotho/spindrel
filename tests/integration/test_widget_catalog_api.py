@@ -289,6 +289,7 @@ class TestLibraryWidgetsEndpoint:
         assert "todo_native" in names
         assert "notes_native" in names
         assert "context_tracker" in names
+        assert "pinned_files_native" not in names
         assert "notes" not in names
         for e in body["core"]:
             assert e["scope"] == "core"

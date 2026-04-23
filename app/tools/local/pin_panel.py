@@ -1,11 +1,8 @@
-"""Bot tools for pinning/unpinning workspace files to a channel's side rail."""
-import copy
+"""Bot tools for pinning/unpinning workspace files to a channel's pinned-files widget."""
 import json
-import uuid
-from datetime import datetime, timezone
 
+from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.context import current_bot_id, current_channel_id
 from app.db.engine import async_session
@@ -17,10 +14,8 @@ _PIN_PANEL_SCHEMA = {
     "function": {
         "name": "pin_panel",
         "description": (
-            "Pin a workspace file to the channel's side rail so the user "
-            "can see its content live. The panel auto-updates when the file "
-            "changes. Use this for dashboards, reports, or any file the user "
-            "should monitor alongside the conversation."
+            "Pin a workspace file into the channel's pinned-files widget so "
+            "the user can preview it live alongside the conversation."
         ),
         "parameters": {
             "type": "object",
@@ -71,32 +66,18 @@ async def pin_panel(path: str, position: str = "right") -> str:
         if not ch:
             return json.dumps({"error": "Channel not found"}, ensure_ascii=False)
 
-        cfg = copy.deepcopy(ch.config or {})
-        panels = cfg.setdefault("pinned_panels", [])
-        panels = [p for p in panels if p["path"] != path]
-        now_iso = datetime.now(timezone.utc).isoformat()
-        panels.append({
-            "path": path,
-            "position": position,
-            "pinned_at": now_iso,
-            "pinned_by": bot_id,
-        })
-        cfg["pinned_panels"] = panels
-        ch.config = cfg
-        flag_modified(ch, "config")
-        await db.commit()
+        from app.services.pinned_panels import pin_file_for_channel
 
-    from app.services.pinned_panels import invalidate_channel
-    await invalidate_channel(channel_id)
+        await pin_file_for_channel(db, channel_id, path, actor=bot_id)
 
     return json.dumps({
         "_envelope": {
             "content_type": "text/markdown",
-            "body": f"**Pinned** `{path}` to {position} rail",
-            "plain_body": f"Pinned {path} to {position} rail",
+            "body": f"**Pinned** `{path}` to the channel pinned-files widget",
+            "plain_body": f"Pinned {path} to the channel pinned-files widget",
             "display": "panel",
         },
-        "llm": f"Pinned {path} to the channel's {position} panel.",
+        "llm": f"Pinned {path} to the channel's pinned-files widget.",
     }, ensure_ascii=False)
 
 
@@ -104,7 +85,7 @@ _UNPIN_PANEL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "unpin_panel",
-        "description": "Remove a pinned file panel from the channel's side rail.",
+        "description": "Remove a pinned file from the channel's pinned-files widget.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -144,18 +125,12 @@ async def unpin_panel(path: str) -> str:
         if not ch:
             return json.dumps({"error": "Channel not found"}, ensure_ascii=False)
 
-        cfg = copy.deepcopy(ch.config or {})
-        panels = cfg.get("pinned_panels", [])
-        new_panels = [p for p in panels if p["path"] != path]
-        if len(new_panels) == len(panels):
-            return json.dumps({"error": f"{path} is not pinned in this channel."}, ensure_ascii=False)
-        cfg["pinned_panels"] = new_panels
-        ch.config = cfg
-        flag_modified(ch, "config")
-        await db.commit()
+        from app.services.pinned_panels import unpin_file_for_channel
 
-    from app.services.pinned_panels import invalidate_channel
-    await invalidate_channel(channel_id)
+        try:
+            await unpin_file_for_channel(db, channel_id, path)
+        except HTTPException:
+            return json.dumps({"error": f"{path} is not pinned in this channel."}, ensure_ascii=False)
 
     return json.dumps({
         "_envelope": {

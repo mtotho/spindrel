@@ -148,13 +148,20 @@ async def fetch_latest_context_budget(
     Shared by ``GET /admin/channels/{id}/context-budget`` and
     ``GET /channels/{id}/context-budget`` so the two cannot drift.
     """
+    session_scope_clause = Session.channel_id == channel_id
+    if session_id is not None:
+        session_scope_clause = or_(
+            Session.channel_id == channel_id,
+            Session.parent_channel_id == channel_id,
+        )
+
     # Latest pre-call estimate carries `total_tokens` (the model's window)
     # which the API usage event doesn't, so we read both and merge.
     inj_query = (
         select(TraceEvent.data)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
-            Session.channel_id == channel_id,
+            session_scope_clause,
             TraceEvent.event_type == "context_injection_summary",
         )
     )
@@ -178,7 +185,7 @@ async def fetch_latest_context_budget(
         select(TraceEvent.data)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
-            Session.channel_id == channel_id,
+            session_scope_clause,
             TraceEvent.event_type == "token_usage",
         )
     )
@@ -205,7 +212,7 @@ async def fetch_latest_context_budget(
         select(TraceEvent.created_at)
         .join(Session, TraceEvent.session_id == Session.id)
         .where(
-            Session.channel_id == channel_id,
+            session_scope_clause,
             TraceEvent.event_type == "compaction_done",
         )
     )
@@ -221,7 +228,7 @@ async def fetch_latest_context_budget(
             select(TraceEvent.created_at)
             .join(Session, TraceEvent.session_id == Session.id)
             .where(
-                Session.channel_id == channel_id,
+                session_scope_clause,
                 TraceEvent.event_type == "token_usage",
             )
         )

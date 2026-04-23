@@ -56,6 +56,7 @@ class NativeWidgetSpec:
     actions: tuple[NativeWidgetActionSpec, ...] = ()
     panel_title: str | None = None
     show_panel_title: bool | None = None
+    catalog_visible: bool = True
 
     def catalog_entry(self) -> dict[str, Any]:
         return {
@@ -285,6 +286,64 @@ _TODO_ACTIONS = (
     ),
 )
 
+_PINNED_FILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "path": {"type": "string"},
+        "pinned_at": {"type": "string"},
+        "pinned_by": {"type": "string"},
+    },
+    "required": ["path", "pinned_at", "pinned_by"],
+}
+
+_PINNED_FILES_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="set_active_path",
+        description="Switch the currently previewed pinned file.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Pinned file path to focus.",
+                },
+            },
+            "required": ["path"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "active_path": {"type": "string"},
+            },
+            "required": ["active_path"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="unpin_path",
+        description="Remove a file from the pinned-files list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Pinned file path to remove.",
+                },
+            },
+            "required": ["path"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {
+                "removed": {"type": "boolean"},
+                "path": {"type": "string"},
+                "active_path": {"type": ["string", "null"]},
+                "pinned_files": {"type": "array", "items": _PINNED_FILE_SCHEMA},
+            },
+            "required": ["removed", "path", "active_path", "pinned_files"],
+        },
+    ),
+)
+
 
 _REGISTRY: dict[str, NativeWidgetSpec] = {
     "core/notes_native": NativeWidgetSpec(
@@ -364,6 +423,24 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Channel files",
         show_panel_title=True,
     ),
+    "core/pinned_files_native": NativeWidgetSpec(
+        widget_ref="core/pinned_files_native",
+        name="pinned_files_native",
+        display_label="Pinned files",
+        description="First-party native channel widget for channel-scoped pinned file previews.",
+        icon="panel-right-dashed",
+        supported_scopes=("channel",),
+        default_state={
+            "pinned_files": [],
+            "active_path": None,
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=_PINNED_FILES_ACTIONS,
+        panel_title="Pinned files",
+        show_panel_title=True,
+        catalog_visible=False,
+    ),
     "core/upcoming_activity_native": NativeWidgetSpec(
         widget_ref="core/upcoming_activity_native",
         name="upcoming_activity_native",
@@ -383,7 +460,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
 
 
 def list_native_widget_catalog_entries() -> list[dict[str, Any]]:
-    return [spec.catalog_entry() for spec in _REGISTRY.values()]
+    return [spec.catalog_entry() for spec in _REGISTRY.values() if spec.catalog_visible]
 
 
 def get_native_widget_spec(widget_ref: str) -> NativeWidgetSpec | None:
@@ -589,6 +666,40 @@ def _todo_counts(items: list[dict[str, Any]]) -> dict[str, int]:
     return {"total": total, "open": total - completed, "completed": completed}
 
 
+def _pinned_files_state(instance: WidgetInstance) -> dict[str, Any]:
+    state = copy.deepcopy(instance.state or {})
+    items: list[dict[str, str]] = []
+    for item in state.get("pinned_files") or []:
+        if not isinstance(item, dict):
+            continue
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        items.append(
+            {
+                "path": path,
+                "pinned_at": str(item.get("pinned_at") or ""),
+                "pinned_by": str(item.get("pinned_by") or "user"),
+            }
+        )
+    state["pinned_files"] = items
+    state["created_at"] = str(state.get("created_at") or "") or _now_iso()
+    state["updated_at"] = str(state.get("updated_at") or "") or state["created_at"]
+    active_path = str(state.get("active_path") or "").strip() or None
+    valid_paths = {item["path"] for item in items}
+    if active_path not in valid_paths:
+        active_path = items[0]["path"] if items else None
+    state["active_path"] = active_path
+    return state
+
+
+def _find_pinned_file(items: list[dict[str, str]], path: str) -> tuple[int, dict[str, str]]:
+    for idx, item in enumerate(items):
+        if item["path"] == path:
+            return idx, item
+    raise HTTPException(404, f"unknown pinned file path: {path}")
+
+
 def _require_todo_title(args: dict[str, Any] | None) -> str:
     title = str((args or {}).get("title") or "").strip()
     if not title:
@@ -720,6 +831,56 @@ async def _dispatch_todo_action(
     return result
 
 
+async def _dispatch_pinned_files_action(
+    db: AsyncSession,
+    instance: WidgetInstance,
+    action: str,
+    args: dict[str, Any] | None,
+) -> Any:
+    state = _pinned_files_state(instance)
+    items = list(state.get("pinned_files") or [])
+    path = str((args or {}).get("path") or "").strip()
+    if not path:
+        raise HTTPException(400, "path is required")
+
+    if action == "set_active_path":
+        _find_pinned_file(items, path)
+        state["active_path"] = path
+        state["updated_at"] = _now_iso()
+        result: Any = {"active_path": path}
+    elif action == "unpin_path":
+        idx, _ = _find_pinned_file(items, path)
+        del items[idx]
+        state["pinned_files"] = items
+        if state.get("active_path") == path:
+            state["active_path"] = items[0]["path"] if items else None
+        state["updated_at"] = _now_iso()
+        result = {
+            "removed": True,
+            "path": path,
+            "active_path": state.get("active_path"),
+            "pinned_files": items,
+        }
+    else:
+        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+
+    instance.state = state
+    flag_modified(instance, "state")
+    await db.flush()
+
+    if instance.scope_kind == "channel":
+        from app.services.pinned_panels import replace_channel_paths
+
+        try:
+            replace_channel_paths(
+                uuid.UUID(instance.scope_ref),
+                [item["path"] for item in state.get("pinned_files") or []],
+            )
+        except ValueError:
+            pass
+    return result
+
+
 async def dispatch_native_widget_action(
     db: AsyncSession,
     *,
@@ -742,6 +903,8 @@ async def dispatch_native_widget_action(
         return await _dispatch_notes_action(db, instance, action, args)
     if instance.widget_ref == "core/todo_native":
         return await _dispatch_todo_action(db, instance, action, args)
+    if instance.widget_ref == "core/pinned_files_native":
+        return await _dispatch_pinned_files_action(db, instance, action, args)
 
     raise HTTPException(404, f"No native action dispatcher registered for {instance.widget_ref!r}")
 

@@ -300,7 +300,7 @@ function deriveDensity(
 ): ComponentDensity {
   const width = gridDimensions?.width ?? 0;
   const height = gridDimensions?.height ?? 0;
-  if (layout === "rail") return "compact";
+  if (layout === "rail" || layout === "header") return "compact";
   if ((width > 0 && width < 280) || (height > 0 && height < 150)) return "compact";
   if (width >= 520 && height >= 360) return "expanded";
   return "standard";

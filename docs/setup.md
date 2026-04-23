@@ -479,6 +479,7 @@ agent-server/
 │   ├── gmail/             # Gmail IMAP polling
 │   ├── frigate/           # Frigate NVR
 │   ├── browser_live/      # Real-browser automation via paired Chrome extension
+│   ├── local_companion/   # Paired local-machine shell control via session leases
 │   ├── arr/               # Sonarr/Radarr media management
 │   ├── claude_code/       # Claude Code CLI integration
 │   ├── bluebubbles/       # iMessage via BlueBubbles
@@ -495,6 +496,20 @@ agent-server/
 
 > **Screenshot placeholder:** replace the older setup/admin images in this guide with the new
 > web-native UI captures as they become available.
+
+## Local Companion
+
+`local_companion` is the local-machine-control integration. It lets a live admin user grant one session temporary access to one enrolled machine target, then use `local_status`, `local_inspect_command`, and `local_exec_command` against that machine.
+
+Current setup flow:
+
+1. Enroll the target from **Admin > Integrations > Local Companion**.
+2. Run the returned companion launch command on the target machine.
+3. Open the chat session you want to use.
+4. Grant that session a machine lease.
+5. Use the local machine tools from that session.
+
+For the architecture and safety model, read [Local Machine Control](guides/local-machine-control.md). For the integration-specific operator notes, read [`integrations/local_companion/README.md`](../integrations/local_companion/README.md).
 
 ## Remote Access & Networking
 

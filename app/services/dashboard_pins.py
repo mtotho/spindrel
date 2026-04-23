@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import ApiKey, Bot, WidgetDashboardPin, WidgetInstance
+from app.db.models import ApiKey, Bot, WidgetDashboard, WidgetDashboardPin, WidgetInstance
 from app.services.native_app_widgets import (
     NATIVE_APP_CONTENT_TYPE,
     build_envelope_for_native_instance,
@@ -37,6 +37,10 @@ _HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive"
 
 
 _VALID_LAYOUT_KEYS = {"x", "y", "w", "h"}
+_DASHBOARD_PRESET_DEFAULT = "standard"
+_HEADER_PRESET_COLS = {"standard": 12, "fine": 24}
+_HEADER_DEFAULT_LAYOUT = {"x": 0, "y": 0, "w": 6, "h": 2}
+_HEADER_CHIP_LAYOUT = {"x": 0, "y": 0, "w": 4, "h": 1}
 
 
 def _seed_widget_config(tool_name: str, envelope: dict, widget_config: dict | None) -> dict:
@@ -73,6 +77,32 @@ def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, i
         "w": 6,
         "h": 10,
     }
+
+
+def _resolve_dashboard_preset_name(grid_config: dict | None) -> str:
+    if not isinstance(grid_config, dict):
+        return _DASHBOARD_PRESET_DEFAULT
+    preset = grid_config.get("preset")
+    if isinstance(preset, str) and preset in _HEADER_PRESET_COLS:
+        return preset
+    return _DASHBOARD_PRESET_DEFAULT
+
+
+def _header_cols_for_preset(preset_name: str) -> int:
+    return _HEADER_PRESET_COLS.get(preset_name, _HEADER_PRESET_COLS[_DASHBOARD_PRESET_DEFAULT])
+
+
+def _default_layout_for_zone(
+    position: int,
+    zone: str,
+    *,
+    channel: bool = False,
+) -> dict[str, int]:
+    if zone == "header":
+        return dict(_HEADER_DEFAULT_LAYOUT)
+    if zone in ("rail", "dock"):
+        return {"x": 0, "y": position * 10, "w": 1, "h": 10}
+    return _default_grid_layout(position, channel=channel)
 
 
 def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
@@ -157,6 +187,12 @@ async def _sync_native_pin_envelopes(
 async def list_pins(
     db: AsyncSession, *, dashboard_key: str = DEFAULT_DASHBOARD_KEY,
 ) -> list[WidgetDashboardPin]:
+    dashboard = (
+        await db.execute(
+            select(WidgetDashboard.grid_config).where(WidgetDashboard.slug == dashboard_key)
+        )
+    ).first()
+    preset_name = _resolve_dashboard_preset_name(dashboard[0] if dashboard else None)
     rows = (await db.execute(
         select(WidgetDashboardPin)
         .where(WidgetDashboardPin.dashboard_key == dashboard_key)
@@ -171,7 +207,10 @@ async def list_pins(
         gl = row.grid_layout
         if not isinstance(gl, dict) or not gl:
             continue
-        normalized = _normalize_coords_for_zone(gl, row.zone or "grid")
+        if (row.zone or "grid") == "header" and gl == {"x": 0, "y": 0, "w": 1, "h": 1}:
+            normalized = dict(_HEADER_CHIP_LAYOUT)
+        else:
+            normalized = _normalize_coords_for_zone(gl, row.zone or "grid", preset_name=preset_name)
         if normalized != gl:
             row.grid_layout = normalized
             flag_modified(row, "grid_layout")
@@ -205,6 +244,8 @@ async def create_pin(
     widget_config: dict | None = None,
     display_label: str | None = None,
     dashboard_key: str = DEFAULT_DASHBOARD_KEY,
+    zone: str | None = None,
+    grid_layout: dict | None = None,
 ) -> WidgetDashboardPin:
     if source_kind not in ("channel", "adhoc"):
         raise HTTPException(400, f"Invalid source_kind: {source_kind}")
@@ -273,10 +314,14 @@ async def create_pin(
                 "source_channel_id is required when pinning to a channel dashboard",
             )
         await ensure_channel_dashboard(db, source_channel_id)
-    await get_dashboard(db, dashboard_key)
+    dashboard = await get_dashboard(db, dashboard_key)
+    preset_name = _resolve_dashboard_preset_name(getattr(dashboard, "grid_config", None))
 
     position = await _next_position(db, dashboard_key=dashboard_key)
     widget_config = _seed_widget_config(tool_name, envelope, widget_config)
+    resolved_zone = zone or "grid"
+    if resolved_zone not in _VALID_ZONES:
+        raise HTTPException(400, f"Invalid zone: {resolved_zone}")
     widget_instance_id: uuid.UUID | None = None
     if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
         widget_ref = extract_native_widget_ref_from_envelope(envelope)
@@ -307,8 +352,16 @@ async def create_pin(
         widget_config=widget_config or {},
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
-        grid_layout=_default_grid_layout(position, channel=is_channel),
-        zone="grid",
+        grid_layout=_normalize_coords_for_zone(
+            (
+                grid_layout
+                if isinstance(grid_layout, dict)
+                else _default_layout_for_zone(position, resolved_zone, channel=is_channel)
+            ),
+            resolved_zone,
+            preset_name=preset_name,
+        ),
+        zone=resolved_zone,
     )
     db.add(pin)
     await db.flush()
@@ -490,8 +543,19 @@ async def delete_pin(
 
     # Resolve DB path before deleting the pin (we need bot/channel info from pin).
     orphan_info: dict | None = None
+    pinned_files_channel_id: uuid.UUID | None = None
     if delete_bundle_data:
         orphan_info = await check_pin_db_content(pin)
+    if pin.widget_instance_id is not None:
+        instance = await db.get(WidgetInstance, pin.widget_instance_id)
+        if instance is not None and instance.widget_ref == "core/pinned_files_native":
+            from app.services.pinned_panels import clear_pinned_files_instance
+
+            await clear_pinned_files_instance(instance)
+            try:
+                pinned_files_channel_id = uuid.UUID(instance.scope_ref)
+            except ValueError:
+                pass
 
     # Cancel live event subscribers BEFORE the pin row drops — otherwise a
     # subscriber might race on a missing pin in the brief window before the
@@ -509,6 +573,10 @@ async def delete_pin(
         # mode — otherwise the renderer would show an empty main area.
         await _set_dashboard_layout_mode(db, dashboard_key, None)
     await db.commit()
+    if pinned_files_channel_id is not None:
+        from app.services.pinned_panels import replace_channel_paths
+
+        replace_channel_paths(pinned_files_channel_id, [])
 
     result: dict = {"deleted": True}
     if delete_bundle_data and orphan_info:
@@ -645,17 +713,15 @@ async def update_pin_scope(
 
 _VALID_ZONES = {"rail", "header", "dock", "grid"}
 
-# Zone invariants enforced at write-time so chat-surface canvases always
-# receive coords they can render. Header is temporarily a single fixed chip
-# slot; Rail and Dock are 1-wide vertical lists. Grid has no sub-zone
-# constraints — the dashboard's preset owns column count for that canvas.
-_HEADER_FIXED_LAYOUT = {"x": 0, "y": 0, "w": 1, "h": 1}
-
-
-def _normalize_coords_for_zone(coords: dict[str, int], zone: str) -> dict[str, int]:
+def _normalize_coords_for_zone(
+    coords: dict[str, int],
+    zone: str,
+    *,
+    preset_name: str = _DASHBOARD_PRESET_DEFAULT,
+) -> dict[str, int]:
     """Clamp ``coords`` to the invariants of ``zone``.
 
-    Header → single fixed slot.
+    Header → two-row top rail with preset-width columns.
     Rail / Dock → ``x=0, w=1`` (h/y pass through).
     Grid → pass through (preset-wide validation happens at drag-commit).
     """
@@ -664,7 +730,14 @@ def _normalize_coords_for_zone(coords: dict[str, int], zone: str) -> dict[str, i
     w = coords.get("w", 1)
     h = coords.get("h", 1)
     if zone == "header":
-        return dict(_HEADER_FIXED_LAYOUT)
+        cols = _header_cols_for_preset(preset_name)
+        w = max(1, min(cols, w))
+        h = max(1, min(2, h))
+        x = max(0, x)
+        y = min(1, max(0, y))
+        max_x = max(0, cols - w)
+        x = min(x, max_x)
+        return {"x": x, "y": y, "w": w, "h": h}
     if zone in ("rail", "dock"):
         return {"x": 0, "y": max(0, y), "w": 1, "h": max(1, h)}
     return {"x": max(0, x), "y": max(0, y), "w": max(1, w), "h": max(1, h)}
@@ -814,6 +887,12 @@ async def apply_layout_bulk(
             )
         )
     ).scalars().all()
+    dashboard = (
+        await db.execute(
+            select(WidgetDashboard.grid_config).where(WidgetDashboard.slug == dashboard_key)
+        )
+    ).first()
+    preset_name = _resolve_dashboard_preset_name(dashboard[0] if dashboard else None)
     by_id = {row.id: row for row in rows}
     missing = [str(pid) for pid in pin_ids if pid not in by_id]
     if missing:
@@ -822,7 +901,11 @@ async def apply_layout_bulk(
     for pin_id, coords, zone in parsed:
         row = by_id[pin_id]
         effective_zone = zone if zone is not None else (row.zone or "grid")
-        row.grid_layout = _normalize_coords_for_zone(coords, effective_zone)
+        row.grid_layout = _normalize_coords_for_zone(
+            coords,
+            effective_zone,
+            preset_name=preset_name,
+        )
         flag_modified(row, "grid_layout")
         if zone is not None:
             row.zone = zone

@@ -9,6 +9,31 @@ from app.services.local_machine_control import validate_current_execution_policy
 from ..bridge import bridge
 
 
+def _build_command_payload(
+    *,
+    command: str,
+    working_dir: str,
+    target_id: str,
+    result: dict,
+) -> dict:
+    from app.services.local_machine_control import get_target_by_id
+
+    target = get_target_by_id(target_id) or {}
+    return {
+        "command": command,
+        "working_dir": working_dir,
+        "target_id": target_id,
+        "target_label": target.get("label") or target_id,
+        "target_hostname": target.get("hostname") or "",
+        "target_platform": target.get("platform") or "",
+        "stdout": str(result.get("stdout") or ""),
+        "stderr": str(result.get("stderr") or ""),
+        "exit_code": int(result.get("exit_code") or 0),
+        "duration_ms": int(result.get("duration_ms") or 0),
+        "truncated": bool(result.get("truncated")),
+    }
+
+
 @register(
     {
         "type": "function",
@@ -52,9 +77,19 @@ async def local_status() -> str:
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
-            return json.dumps({"targets": build_targets_status(), "lease": None}, ensure_ascii=False)
+            targets = build_targets_status()
+            return json.dumps({
+                "targets": targets,
+                "lease": None,
+                "connected_target_count": sum(1 for target in targets if target.get("connected")),
+            }, ensure_ascii=False)
         payload = await build_session_machine_target_payload(db, session=session)
-    return json.dumps({"targets": payload["targets"], "lease": payload["lease"]}, ensure_ascii=False)
+    return json.dumps({
+        "session_id": payload["session_id"],
+        "targets": payload["targets"],
+        "lease": payload["lease"],
+        "connected_target_count": sum(1 for target in payload["targets"] if target.get("connected")),
+    }, ensure_ascii=False)
 
 
 @register(
@@ -101,8 +136,15 @@ async def local_inspect_command(command: str) -> str:
         )
     except Exception as exc:
         return json.dumps({"error": "local_companion_error", "message": str(exc)}, ensure_ascii=False)
-    result["target_id"] = resolution.lease["target_id"]
-    return json.dumps(result, ensure_ascii=False)
+    return json.dumps(
+        _build_command_payload(
+            command=command,
+            working_dir="",
+            target_id=resolution.lease["target_id"],
+            result=result,
+        ),
+        ensure_ascii=False,
+    )
 
 
 @register(
@@ -149,5 +191,12 @@ async def local_exec_command(command: str, working_dir: str = "") -> str:
         )
     except Exception as exc:
         return json.dumps({"error": "local_companion_error", "message": str(exc)}, ensure_ascii=False)
-    result["target_id"] = resolution.lease["target_id"]
-    return json.dumps(result, ensure_ascii=False)
+    return json.dumps(
+        _build_command_payload(
+            command=command,
+            working_dir=working_dir,
+            target_id=resolution.lease["target_id"],
+            result=result,
+        ),
+        ensure_ascii=False,
+    )

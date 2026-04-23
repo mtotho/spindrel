@@ -595,7 +595,10 @@ async def dispatch_tool_call(
         _execution_policy = get_tool_execution_policy(name)
         if _execution_policy != "normal":
             try:
-                from app.services.local_machine_control import validate_current_execution_policy
+                from app.services.local_machine_control import (
+                    build_machine_access_required_payload,
+                    validate_current_execution_policy,
+                )
 
                 _execution_resolution = await validate_current_execution_policy(_execution_policy)
             except Exception:
@@ -607,8 +610,53 @@ async def dispatch_tool_call(
                 return result_obj
             if _execution_resolution is not None and not _execution_resolution.allowed:
                 _exec_err = _execution_resolution.reason or "Tool call denied by execution policy."
-                result_obj.result = json.dumps({"error": "local_control_required", "message": _exec_err})
+                _deny_result = json.dumps({"error": "local_control_required", "message": _exec_err})
+                _deny_payload = {
+                    "reason": _exec_err,
+                    "execution_policy": _execution_policy,
+                    "requested_tool": name,
+                    "session_id": str(session_id) if session_id else None,
+                    "lease": None,
+                    "targets": [],
+                    "connected_targets": [],
+                    "connected_target_count": 0,
+                    "integration_admin_href": "/admin/integrations/local_companion",
+                }
+                try:
+                    async with async_session() as db:
+                        _deny_payload = await build_machine_access_required_payload(
+                            db,
+                            session_id=session_id,
+                            reason=_exec_err,
+                            execution_policy=_execution_policy,
+                            requested_tool=name,
+                        )
+                except Exception:
+                    logger.debug("Failed to build machine-control denial payload for %s", name, exc_info=True)
+                result_obj.result = _deny_result
                 result_obj.result_for_llm = result_obj.result
+                result_obj.envelope = _build_envelope_from_optin(
+                    {
+                        "content_type": "application/vnd.spindrel.components+json",
+                        "display": "inline",
+                        "plain_body": _exec_err,
+                        "body": {
+                            "v": 1,
+                            "components": [
+                                {
+                                    "type": "heading",
+                                    "text": "Machine access required",
+                                    "level": 3,
+                                },
+                            ],
+                        },
+                        "view_key": "core.machine_access_required",
+                        "data": _deny_payload,
+                    },
+                    _deny_result,
+                )
+                result_obj.envelope.tool_name = name
+                result_obj.envelope.tool_call_id = tool_call_id
                 result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _exec_err}
                 safe_create_task(_record_tool_call(
                     session_id=session_id,
@@ -624,6 +672,7 @@ async def dispatch_tool_call(
                     duration_ms=0,
                     correlation_id=correlation_id,
                     status="denied",
+                    envelope=result_obj.envelope.compact_dict(),
                 ))
                 return result_obj
 

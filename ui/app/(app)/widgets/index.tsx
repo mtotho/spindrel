@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -474,6 +474,17 @@ export default function WidgetsDashboardPage() {
         onOpenSheet={openBuilder}
         devPanelHref={`/widgets/dev?from=${encodeURIComponent(slug)}`}
       />
+      {isChannelScoped && channelScopedId && !isMobile && (
+        <button
+          type="button"
+          onClick={() => navigate(`/widgets/channel/${channelScopedId}/settings`)}
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-text transition-colors"
+          aria-label="Open channel settings"
+          title="Open channel settings"
+        >
+          <Settings size={14} />
+        </button>
+      )}
       {/* Open chat — ALWAYS rendered as the rightmost button so it occupies
           the mirror-image slot of the "Open dashboard" button in the channel
           header. Clicking either lands you back at the same screen x/y
@@ -766,8 +777,8 @@ function DashboardChatDock({
     : { kind: "channel", channelId };
   const title = scratchSessionId
     ? channelName
-      ? `Scratch session · #${channelName}`
-      : "Scratch session"
+      ? `Session · #${channelName}`
+      : "Session"
     : channelName
       ? `#${channelName}`
       : "Channel chat";

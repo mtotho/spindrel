@@ -511,7 +511,7 @@ export interface WidgetContract {
 }
 
 export interface WidgetLayoutHints {
-  preferred_zone?: "chip" | "rail" | "dock" | "grid" | string | null;
+  preferred_zone?: "chip" | "rail" | "header" | "dock" | "grid" | string | null;
   min_cells?: { w?: number; h?: number } | null;
   max_cells?: { w?: number; h?: number } | null;
 }

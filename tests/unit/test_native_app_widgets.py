@@ -175,6 +175,72 @@ def test_native_catalog_entries_expose_contract():
     assert usage["supported_scopes"] == ["channel", "dashboard"]
     upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
     assert upcoming["supported_scopes"] == ["channel", "dashboard"]
+    names = {entry["name"] for entry in entries}
+    assert "pinned_files_native" not in names
+
+
+@pytest.mark.asyncio
+async def test_pinned_files_native_actions_round_trip(db_session):
+    channel_id = uuid.uuid4()
+    instance = await get_or_create_native_widget_instance(
+        db_session,
+        widget_ref="core/pinned_files_native",
+        dashboard_key=f"channel:{channel_id}",
+        source_channel_id=channel_id,
+        state={
+            "pinned_files": [
+                {"path": "notes.md", "pinned_at": "2026-04-23T10:00:00+00:00", "pinned_by": "user"},
+                {"path": "report.md", "pinned_at": "2026-04-23T09:00:00+00:00", "pinned_by": "user"},
+            ],
+            "active_path": "notes.md",
+        },
+    )
+
+    switched = await dispatch_native_widget_action(
+        db_session,
+        instance=instance,
+        action="set_active_path",
+        args={"path": "report.md"},
+    )
+    assert switched == {"active_path": "report.md"}
+    assert (instance.state or {})["active_path"] == "report.md"
+
+    removed = await dispatch_native_widget_action(
+        db_session,
+        instance=instance,
+        action="unpin_path",
+        args={"path": "report.md"},
+    )
+    assert removed["removed"] is True
+    assert removed["active_path"] == "notes.md"
+    assert removed["pinned_files"] == [
+        {"path": "notes.md", "pinned_at": "2026-04-23T10:00:00+00:00", "pinned_by": "user"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pinned_files_native_rejects_unknown_path(db_session):
+    channel_id = uuid.uuid4()
+    instance = await get_or_create_native_widget_instance(
+        db_session,
+        widget_ref="core/pinned_files_native",
+        dashboard_key=f"channel:{channel_id}",
+        source_channel_id=channel_id,
+        state={
+            "pinned_files": [
+                {"path": "notes.md", "pinned_at": "2026-04-23T10:00:00+00:00", "pinned_by": "user"},
+            ],
+            "active_path": "notes.md",
+        },
+    )
+
+    with pytest.raises(HTTPException, match="unknown pinned file path"):
+        await dispatch_native_widget_action(
+            db_session,
+            instance=instance,
+            action="set_active_path",
+            args={"path": "missing.md"},
+        )
 
 
 @pytest.mark.asyncio

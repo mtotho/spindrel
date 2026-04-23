@@ -214,6 +214,58 @@ Current trigger reasons:
 - `live_history_ratio`
 - fallback `total_utilization`
 
+### How the knobs interact in practice
+
+This is the simplest mental model:
+
+- `compaction_interval` is the **normal cadence**
+- `compaction_keep_turns` is the **minimum verbatim floor**
+- the token/ration guards are **early safety valves**
+
+So:
+
+- under normal conditions, compaction happens when the interval is reached
+- when that happens, Spindrel summarizes only the range older than the kept live window
+- if the live window becomes too expensive before the interval is reached, Spindrel can compact early
+- early compaction still respects the keep-turns floor
+
+In other words, the turn-based settings define the desired conversational shape, while the token-based settings prevent that shape from becoming too expensive.
+
+### What the ratio guard actually means
+
+`COMPACTION_LIVE_HISTORY_MAX_RATIO` does **not** count turns.
+
+It asks:
+
+- how much of the usable prompt budget is being consumed by replayable live history alone?
+
+That matters because turn counts and token counts diverge badly in agent conversations:
+
+- 8 tool-heavy turns can be larger than 25 lightweight chat turns
+- a big pasted file or verbose tool result can make a "small" live window expensive
+
+So the ratio guard catches cases where the live window is semantically short but already too costly.
+
+With today's defaults:
+
+- `COMPACTION_LIVE_HISTORY_MAX_RATIO = 0.20`
+- `COMPACTION_LIVE_HISTORY_MAX_TOKENS = 60_000`
+- `COMPACTION_TRIGGER_UTILIZATION_SOFT = 0.70`
+
+That means early compaction fires when any of these is true:
+
+1. live history reaches 60k tokens
+2. live history alone reaches 20% of the usable prompt window
+3. total prompt utilization is already above 70%, even if live history is not the sole cause
+
+Example:
+
+- if the usable prompt window for a run is 200k tokens, the 20% ratio guard trips around 40k live-history tokens
+- if live history reaches 60k first, the absolute cap trips even if the ratio would allow more
+- if a run is already crowded by static injections, tool schemas, or other prompt layers, the 70% total-utilization fallback can compact early even when live history is below the other two guards
+
+This is why the UI should present interval/keep-turns as the primary user-facing controls, but still explain that compaction may happen earlier when prompt pressure is high.
+
 ### Non-overlapping summary window
 
 This is load-bearing.

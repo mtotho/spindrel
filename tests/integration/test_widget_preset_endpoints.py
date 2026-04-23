@@ -146,7 +146,11 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
     )
     monkeypatch.setattr(
         "app.services.widget_presets.get_widget_preset",
-        lambda preset_id: {"id": preset_id, "tool_name": "GetLiveContext"},
+        lambda preset_id: {
+            "id": preset_id,
+            "tool_name": "GetLiveContext",
+            "layout_hints": {"preferred_zone": "chip"},
+        },
     )
 
     resp = await client.post(
@@ -170,3 +174,5 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
     assert body["widget_config"]["entity_id"] == "light.kitchen_ceiling_lights"
     assert body["envelope"]["source_instantiation_kind"] == "preset"
     assert body["envelope"]["source_preset_id"] == "homeassistant-entity-chip"
+    assert body["zone"] == "header"
+    assert body["grid_layout"] == {"x": 0, "y": 0, "w": 4, "h": 1}

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-21 (docs audit — README/setup/architecture drift + browser_live/widget-library gaps)
+updated: 2026-04-23 (entry-point positioning pass — docs index + feature-status fit framing; website top-level pages linked to status guides)
 ---
 
 # Track - Docs Refresh
@@ -118,6 +118,13 @@ Purpose:
 Follow-up refinement the same day:
 
 - Split the page into **readiness** and **confidence** instead of pretending those are the same thing
+
+### 2026-04-23 progress — positioning / honesty pass
+
+- Added an explicit **Best Fit Today** section to `docs/index.md` so the docs landing page says plainly who Spindrel is for right now and who it is not for.
+- Added companion "best fit / not the pitch today" framing to `docs/guides/feature-status.md` so the current product/security posture is visible in the canonical readiness doc, not just implied by row labels.
+- Updated the marketing site's shared metadata plus `/`, `/features`, `/how-it-works`, and `/guides` to point directly at the docs status pages and soften overclaims like "fleet", blanket "no cloud" language, and broad public-cloud security framing.
+- Remaining website follow-up is a deeper terminology sweep on `/skills` and `/integrations`, which still expose older `carapace` / legacy-automation wording more directly than the refreshed entry pages.
 
 ### 2026-04-23 progress — subagent docs corrected to match runtime hardening
 

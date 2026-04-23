@@ -154,7 +154,9 @@ class TestPublicContextBudget:
                 id=scratch_session_id,
                 bot_id="test-bot",
                 client_id=f"c-{channel_id.hex[:8]}-scratch",
-                channel_id=channel_id,
+                channel_id=None,
+                parent_channel_id=channel_id,
+                session_type="ephemeral",
             ),
             Session(
                 id=channel_session_id,

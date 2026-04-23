@@ -29,6 +29,7 @@ async def test_lists_core_widgets():
     assert "notes" not in names
     assert "notes_native" in names
     assert "context_tracker" in names
+    assert "pinned_files_native" not in names
     # Every entry carries the required fields.
     for widget in data["widgets"]:
         assert widget["scope"] == "core"

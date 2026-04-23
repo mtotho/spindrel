@@ -258,8 +258,8 @@ export function ScratchSessionMenu({
 
         {currentRow ? (
           <>
-            <div className="px-3 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
-              Current session
+              <div className="px-3 pb-1 pt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-text-dim">
+              This session
             </div>
             <div
               role={isEditingCurrentSession ? undefined : "button"}
@@ -397,9 +397,9 @@ export function ScratchSessionMenu({
             className="flex cursor-pointer items-start gap-3 px-3 py-2 transition-colors hover:bg-surface-overlay"
           >
             <div className="min-w-0 flex-1">
-              <div className="truncate text-[12px] font-medium text-text">Primary channel session</div>
+              <div className="truncate text-[12px] font-medium text-text">Primary session</div>
               <div className="mt-1 text-[11px] text-text-dim">
-                Return to the channel&apos;s main conversation
+                Return to the channel&apos;s default conversation
               </div>
             </div>
           </div>

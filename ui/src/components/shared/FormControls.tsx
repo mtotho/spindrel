@@ -8,15 +8,22 @@ import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 // ---------------------------------------------------------------------------
 // Section card
 // ---------------------------------------------------------------------------
-export function Section({ title, description, action, children }: {
+export function Section({ title, description, action, children, noDivider = false }: {
   title: React.ReactNode;
   description?: string;
   action?: React.ReactNode;
   children: React.ReactNode;
+  noDivider?: boolean;
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 16 }}>
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 16,
+      borderTop: noDivider ? "none" : `1px solid ${t.surfaceBorder}`,
+      paddingTop: noDivider ? 0 : 16,
+    }}>
       <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block" }}>{title}</span>

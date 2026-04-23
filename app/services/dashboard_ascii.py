@@ -25,7 +25,7 @@ Two conceptual views:
 Zones:
 
   - ``rail``   — 1-col canvas on the left (pin x=0, varies in y/h).
-  - ``header`` — horizontal strip across the top (y=0, h=1, varies in x/w).
+  - ``header`` — two-row top rail across the top (y=0..1, h=1..2, varies in x/w).
   - ``dock``   — 1-col canvas on the right.
   - ``grid``   — main 2D grid at the preset col count (12 or 24).
 """
@@ -158,19 +158,20 @@ def _render_header_strip(
     labels: dict[str, str],
     *,
     cols: int,
+    rows: int,
 ) -> list[str]:
-    """Render the header zone as a single row of ``cols`` cells."""
-    grid = _occupancy(header_pins, cols=cols, rows=1, labels=labels)
-    line = _row_to_str(grid[0])
-    width = len(line)
+    """Render the header zone as a capped multi-row strip."""
+    grid = _occupancy(header_pins, cols=cols, rows=rows, labels=labels)
+    lines = [_row_to_str(row) for row in grid]
+    width = len(lines[0]) if lines else 0
     bar = _BAR * (width + 2)
     title = " header "
     title_line = title.center(width + 2, _BAR)
-    return [
-        f"┌{title_line}┐",
-        f"│ {line} │",
-        f"└{bar}┘",
-    ]
+    out = [f"┌{title_line}┐"]
+    for line in lines:
+        out.append(f"│ {line} │")
+    out.append(f"└{bar}┘")
+    return out
 
 
 def _render_middle_row(
@@ -279,6 +280,7 @@ def render_layout(
     buckets = _group_by_zone(pins)
 
     header_cols = preset["header_cols"]
+    header_rows = _zone_max_rows("header", preset_name)
     grid_cols = preset["cols"]
 
     rows_for_rail_dock = _zone_height(
@@ -294,7 +296,14 @@ def render_layout(
         chat_title = f"CHAT VIEW — what the user sees while chatting "
         chat_title += f"(preset={preset_name})"
         block = [chat_title, "─" * len(chat_title)]
-        block.extend(_render_header_strip(buckets["header"], labels, cols=header_cols))
+        block.extend(
+            _render_header_strip(
+                buckets["header"],
+                labels,
+                cols=header_cols,
+                rows=header_rows,
+            )
+        )
         # Middle row width: match the grid row width so chat view and full view
         # visually line up. grid row width = cols * 3 - 1 (two chars + one space).
         middle_width = grid_cols * 3 - 1
@@ -310,7 +319,14 @@ def render_layout(
         full_title = f"FULL DASHBOARD VIEW — /widgets/channel/<uuid> "
         full_title += f"(preset={preset_name}, {grid_cols} cols)"
         block = [full_title, "─" * len(full_title)]
-        block.extend(_render_header_strip(buckets["header"], labels, cols=header_cols))
+        block.extend(
+            _render_header_strip(
+                buckets["header"],
+                labels,
+                cols=header_cols,
+                rows=header_rows,
+            )
+        )
         block.extend(_render_middle_grid_row(
             buckets["rail"], buckets["dock"], buckets["grid"], labels,
             cols=grid_cols,
@@ -360,12 +376,12 @@ def _zone_cols(zone: ChatZone, preset_name: str) -> int:
 def _zone_max_rows(zone: ChatZone, preset_name: str) -> int:
     """Soft cap on scan height when finding a free slot.
 
-    ``header`` is a single row; rail/dock/grid can grow further. The cap
+    ``header`` is a two-row top rail; rail/dock/grid can grow further. The cap
     exists so searching an empty dashboard doesn't iterate forever — 40
     rows is generous for any real layout.
     """
     if zone == "header":
-        return 1
+        return 2
     return 40
 
 
@@ -374,12 +390,12 @@ def default_size_for_zone(zone: ChatZone) -> tuple[int, int]:
 
     - ``grid``    → 6×6 tile (matches ``dashboard_pins._default_grid_layout``).
     - ``rail`` / ``dock`` → 1×4 vertical strip (single column, medium height).
-    - ``header``  → 2×1 chip.
+    - ``header``  → 6×2 top-rail card.
     """
     if zone == "grid":
         return (6, 6)
     if zone == "header":
-        return (2, 1)
+        return (6, 2)
     return (1, 4)
 
 

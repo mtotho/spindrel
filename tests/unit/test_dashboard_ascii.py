@@ -58,8 +58,8 @@ class TestDefaultSizes:
     def test_grid_default_is_6x6(self):
         assert default_size_for_zone("grid") == (6, 6)
 
-    def test_header_default_is_2x1(self):
-        assert default_size_for_zone("header") == (2, 1)
+    def test_header_default_is_6x2(self):
+        assert default_size_for_zone("header") == (6, 2)
 
     def test_rail_default_is_1x4(self):
         assert default_size_for_zone("rail") == (1, 4)
@@ -112,9 +112,12 @@ class TestRenderLayout:
     def test_header_pin_appears_in_preview(self):
         p = _pin(zone="header", x=0, y=0, w=2, h=1, display_label="Chip A")
         out = render_layout({}, [p])
-        # Label 'A' should appear at least twice in the preview (once per w=2
-        # cell in the header strip, plus the legend).
         assert "Chip A" in out
+
+    def test_header_preview_supports_second_row(self):
+        p = _pin(zone="header", x=0, y=1, w=2, h=1, display_label="Row Two")
+        out = render_layout({}, [p])
+        assert "Row Two" in out
 
     def test_grid_pin_renders_in_full_view_only(self):
         p = _pin(zone="grid", x=2, y=2, w=3, h=3, display_label="Board")
@@ -193,6 +196,11 @@ class TestFindFreeSlot:
         pins = [_pin(zone="header", x=0, y=0, w=3, h=1)]
         y, x = find_free_slot(pins, zone="header", w=2, h=1)
         assert (y, x) == (0, 3)
+
+    def test_header_uses_second_row_before_wrapping_outside_cap(self):
+        pins = [_pin(zone="header", x=0, y=0, w=12, h=1)]
+        y, x = find_free_slot(pins, zone="header", w=4, h=1)
+        assert (y, x) == (1, 0)
 
     def test_fine_preset_uses_24_cols(self):
         # A 6×6 grid pin at (0, 12) should be allowed under fine preset but

@@ -13,6 +13,8 @@
   "include": [
     "app/(app)/channels/[channelId]/chatUtils.ts",
     "app/(app)/channels/[channelId]/chatUtils.test.ts",
+    "app/(app)/channels/[channelId]/sessionHeaderChrome.ts",
+    "app/(app)/channels/[channelId]/sessionHeaderChrome.test.ts",
     "src/types/api.ts",
     "src/stores/chat.ts",
     "src/stores/chat.test.ts",

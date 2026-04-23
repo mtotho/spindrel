@@ -1,28 +1,28 @@
-"""Integration tests for channel pin/unpin endpoints.
-
-POST /api/v1/channels/{channel_id}/pins
-DELETE /api/v1/channels/{channel_id}/pins?path=...
-"""
+"""Integration tests for channel file pin/unpin endpoints."""
 import uuid
-from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
-from app.db.models import Channel
+from app.db.models import Channel, WidgetDashboardPin, WidgetInstance
 from tests.integration.conftest import client, db_session, engine, _TEST_REGISTRY  # noqa: F401
 
-# Mock invalidate_channel since it opens its own DB session
-@pytest.fixture(autouse=True)
-def _mock_cache():
-    with patch(
-        "app.services.pinned_panels.invalidate_channel",
-        new_callable=AsyncMock,
-    ):
-        yield
+
+async def _get_channel_pinned_files_instance(db_session, channel_id: uuid.UUID) -> WidgetInstance | None:
+    return (
+        await db_session.execute(
+            select(WidgetInstance).where(
+                WidgetInstance.widget_kind == "native_app",
+                WidgetInstance.widget_ref == "core/pinned_files_native",
+                WidgetInstance.scope_kind == "channel",
+                WidgetInstance.scope_ref == str(channel_id),
+            )
+        )
+    ).scalar_one_or_none()
 
 
 @pytest.mark.asyncio
-async def test_pin_file_creates_entry(client, db_session):
+async def test_pin_file_creates_widget_instance_and_dock_pin(client, db_session):
     ch = Channel(id=uuid.uuid4(), name="test-ch", bot_id="test-bot", config={})
     db_session.add(ch)
     await db_session.commit()
@@ -31,50 +31,94 @@ async def test_pin_file_creates_entry(client, db_session):
         f"/api/v1/channels/{ch.id}/pins",
         json={"path": "report.md", "position": "right"},
     )
-    assert res.status_code == 200
+    assert res.status_code == 200, res.text
     body = res.json()
     assert body["path"] == "report.md"
     assert body["position"] == "right"
     assert body["pinned_by"] == "user"
     assert "pinned_at" in body
 
+    instance = await _get_channel_pinned_files_instance(db_session, ch.id)
+    assert instance is not None
+    state = instance.state or {}
+    assert state["active_path"] == "report.md"
+    assert state["pinned_files"] == [{
+        "path": "report.md",
+        "pinned_at": body["pinned_at"],
+        "pinned_by": "user",
+    }]
+
+    pin = (
+        await db_session.execute(
+            select(WidgetDashboardPin).where(
+                WidgetDashboardPin.dashboard_key == f"channel:{ch.id}",
+                WidgetDashboardPin.widget_instance_id == instance.id,
+            )
+        )
+    ).scalar_one_or_none()
+    assert pin is not None
+    assert pin.zone == "dock"
+
 
 @pytest.mark.asyncio
-async def test_pin_deduplicates_by_path(client, db_session):
+async def test_pin_deduplicates_by_path_and_reuses_single_widget(client, db_session):
     ch = Channel(id=uuid.uuid4(), name="test-ch", bot_id="test-bot", config={})
     db_session.add(ch)
     await db_session.commit()
 
-    # Pin twice
-    await client.post(f"/api/v1/channels/{ch.id}/pins", json={"path": "report.md", "position": "right"})
-    await client.post(f"/api/v1/channels/{ch.id}/pins", json={"path": "report.md", "position": "bottom"})
+    first = await client.post(
+        f"/api/v1/channels/{ch.id}/pins",
+        json={"path": "report.md", "position": "right"},
+    )
+    assert first.status_code == 200, first.text
+    await client.post(
+        f"/api/v1/channels/{ch.id}/pins",
+        json={"path": "notes.md", "position": "right"},
+    )
+    second = await client.post(
+        f"/api/v1/channels/{ch.id}/pins",
+        json={"path": "report.md", "position": "bottom"},
+    )
+    assert second.status_code == 200, second.text
 
-    # Fetch channel and check only one entry
-    await db_session.refresh(ch)
-    panels = (ch.config or {}).get("pinned_panels", [])
-    assert len(panels) == 1
-    assert panels[0]["position"] == "bottom"
+    instance = await _get_channel_pinned_files_instance(db_session, ch.id)
+    assert instance is not None
+    state = instance.state or {}
+    assert state["active_path"] == "report.md"
+    assert [item["path"] for item in state["pinned_files"]] == ["report.md", "notes.md"]
+    assert len(state["pinned_files"]) == 2
+
+    pins = (
+        await db_session.execute(
+            select(WidgetDashboardPin).where(
+                WidgetDashboardPin.dashboard_key == f"channel:{ch.id}",
+                WidgetDashboardPin.widget_instance_id == instance.id,
+            )
+        )
+    ).scalars().all()
+    assert len(pins) == 1
 
 
 @pytest.mark.asyncio
-async def test_unpin_removes_entry(client, db_session):
-    ch = Channel(
-        id=uuid.uuid4(),
-        name="test-ch",
-        bot_id="test-bot",
-        config={"pinned_panels": [
-            {"path": "report.md", "position": "right", "pinned_at": "2026-01-01T00:00:00Z", "pinned_by": "user"},
-        ]},
-    )
+async def test_unpin_removes_entry_but_keeps_empty_widget(client, db_session):
+    ch = Channel(id=uuid.uuid4(), name="test-ch", bot_id="test-bot", config={})
     db_session.add(ch)
     await db_session.commit()
 
-    res = await client.delete(f"/api/v1/channels/{ch.id}/pins?path=report.md")
-    assert res.status_code == 200
+    first = await client.post(
+        f"/api/v1/channels/{ch.id}/pins",
+        json={"path": "report.md", "position": "right"},
+    )
+    assert first.status_code == 200, first.text
 
-    await db_session.refresh(ch)
-    panels = (ch.config or {}).get("pinned_panels", [])
-    assert len(panels) == 0
+    res = await client.delete(f"/api/v1/channels/{ch.id}/pins?path=report.md")
+    assert res.status_code == 200, res.text
+
+    instance = await _get_channel_pinned_files_instance(db_session, ch.id)
+    assert instance is not None
+    state = instance.state or {}
+    assert state["active_path"] is None
+    assert state["pinned_files"] == []
 
 
 @pytest.mark.asyncio

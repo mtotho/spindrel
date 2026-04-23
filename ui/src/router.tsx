@@ -12,6 +12,12 @@ function AdminWidgetPackageRedirect() {
   return <Navigate to={`/widgets/dev?id=${packageId}#templates`} replace />;
 }
 
+function ChannelDashboardSettingsRedirect() {
+  const { channelId } = useParams<{ channelId: string }>();
+  if (!channelId) return <Navigate to="/widgets" replace />;
+  return <Navigate to={`/channels/${channelId}/settings?from=dashboard#presentation`} replace />;
+}
+
 // ---------------------------------------------------------------------------
 // Lazy-loaded pages — keeps initial bundle small
 // ---------------------------------------------------------------------------
@@ -168,6 +174,7 @@ export const router = createBrowserRouter([
           // readable while the underlying row is the same.
           { path: "widgets", element: <WidgetsRedirect /> },
           { path: "widgets/dev", element: <WidgetsDevPanel /> },
+          { path: "widgets/channel/:channelId/settings", element: <ChannelDashboardSettingsRedirect /> },
           { path: "widgets/channel/:channelId", element: <WidgetsDashboard /> },
           { path: "widgets/:slug", element: <WidgetsDashboard /> },
 

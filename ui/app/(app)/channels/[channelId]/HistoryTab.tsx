@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
@@ -8,6 +9,7 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { InfoBanner } from "@/src/components/shared/SettingsControls";
 import { AlertTriangle } from "lucide-react";
+import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 import type { ChannelSettings } from "@/src/types/api";
 
 // Sub-components extracted from this file
@@ -34,42 +36,32 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 }) {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
+  const [guideOpen, setGuideOpen] = useState(false);
   const effectiveMode = form.history_mode || botHistoryMode || "file";
   const isFileOrStructured = effectiveMode === "file" || effectiveMode === "structured";
 
   return (
     <>
       {/* 1. History Mode cards — always visible at top */}
-      <HistoryModeSection form={form} patch={patch} botHistoryMode={botHistoryMode} />
+      <HistoryModeSection form={form} patch={patch} botHistoryMode={botHistoryMode} onOpenGuide={() => setGuideOpen(true)} />
 
       {/* 2. Compaction settings — conditional on mode */}
       {isFileOrStructured ? (
         <>
-        <Section title="Archival Settings" description="Manages long conversations by archiving old turns into titled sections.">
-          {/* Locked banner */}
-          <InfoBanner variant="warning">
-            <span style={{ fontWeight: 600 }}>
-              Auto-compaction is always on in {effectiveMode} mode — it creates the archived sections the bot navigates.
-            </span>
-          </InfoBanner>
-
-          {/* File-mode guidance */}
-          <div style={{
-            padding: "12px 14px", background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-            borderRadius: 8, fontSize: 11, color: t.textMuted, lineHeight: "1.6",
-          }}>
-            After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages are
-            archived into a titled, summarized section. The bot keeps the last <strong style={{ color: t.text }}>Keep Turns</strong> verbatim,
-            plus an executive summary and section index. It can open any section with the <code style={{ color: t.codeText }}>read_conversation_history</code> tool.
-            <div style={{ marginTop: 8, color: t.warningMuted }}>
-              Recommended: Interval 20, Keep Turns 6 — lower interval = more granular sections.
-              The bot can always read full transcripts, so aggressive archival is safe.
-            </div>
+        <Section
+          title="Archival Settings"
+          description="Interval is the normal archival cadence, Keep Turns is the recent verbatim floor, and token guards can archive earlier if live history gets too large for the prompt budget."
+          noDivider
+        >
+          <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
+            {effectiveMode === "structured"
+              ? "Structured mode archives old turns into searchable sections and auto-retrieves the relevant ones on future turns."
+              : "File mode archives old turns into titled sections the bot can browse on demand with read_conversation_history."}
           </div>
 
           <Row stack={isMobile}>
             <Col minWidth={isMobile ? 0 : 200}>
-              <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages. Lower = more frequent archival.">
+              <FormRow label="Interval (user turns)" description="Normal archival cadence. Lower values create smaller, more frequent sections.">
                 <TextInput
                   value={form.compaction_interval?.toString() ?? ""}
                   onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
@@ -79,7 +71,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
               </FormRow>
             </Col>
             <Col minWidth={isMobile ? 0 : 200}>
-              <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never archived.">
+              <FormRow label="Keep Turns" description="Recent turns kept verbatim after each compaction run. Must stay below Interval.">
                 <TextInput
                   value={form.compaction_keep_turns?.toString() ?? ""}
                   onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
@@ -98,7 +90,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             placeholder="inherit (bot model)"
           />
           <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
-            Used for section generation, executive summaries, and backfill. A cheap/fast model works well here — the prompts are straightforward summarization.
+            Used for section generation, executive summaries, and backfill. Fast, inexpensive models usually work well because this is mostly summarization and labeling.
           </div>
 
           {/* Memory Flush */}
@@ -123,7 +115,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 placeholder="inherit (bot model)"
               />
               <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
-                Model used for the memory flush pass. A capable model works best here since it needs to reason about what to save.
+                Model used for the memory flush pass. This benefits from a more capable model because it has to decide what is worth preserving before archival.
               </div>
 
               {memoryScheme === "workspace-files" ? (
@@ -190,7 +182,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         </Section>
         </>
       ) : (
-        <Section title="Compaction" description="Manages long conversations by periodically summarizing old turns.">
+        <Section title="Compaction" description="Summary mode keeps a rolling summary plus recent live turns. Interval sets the normal cadence, Keep Turns holds the recent verbatim floor, and token guards can compact earlier when prompt pressure gets high." noDivider>
           <Toggle
             value={form.context_compaction ?? true}
             onChange={(v) => patch("context_compaction", v)}
@@ -198,26 +190,9 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           />
           {form.context_compaction && (
             <>
-              <div style={{
-                padding: "14px 16px", background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-                borderRadius: 8, marginBottom: 4,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: t.accent, marginBottom: 8 }}>How Compaction Works</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6" }}>
-                  After every <strong style={{ color: t.text }}>Interval</strong> user turns, the oldest messages
-                  are archived and summarized by an LLM. The most recent <strong style={{ color: t.text }}>Keep Turns</strong> are
-                  always preserved verbatim. If memory flush is enabled below, the bot gets a "last chance" pass
-                  to save important context before summarization.
-                </div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.6", marginTop: 8 }}>
-                  <strong style={{ color: t.text }}>Example:</strong> Interval=30, Keep Turns=10 {"\u2192"} after 30 user messages,
-                  the oldest 20 are summarized. The bot always sees the last 10 turns plus the summary.
-                </div>
-              </div>
-
               <Row stack={isMobile}>
                 <Col minWidth={isMobile ? 0 : 200}>
-                  <FormRow label="Interval (user turns)" description="Compaction triggers after this many user messages accumulate. Lower = more frequent, tighter context. Default: 30.">
+                  <FormRow label="Interval (user turns)" description="Normal compaction cadence. Lower values compact sooner and keep live history smaller.">
                     <TextInput
                       value={form.compaction_interval?.toString() ?? ""}
                       onChangeText={(v) => { const n = parseInt(v); patch("compaction_interval", isNaN(n) ? undefined : n); }}
@@ -227,7 +202,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                   </FormRow>
                 </Col>
                 <Col minWidth={isMobile ? 0 : 200}>
-                  <FormRow label="Keep Turns" description="Recent turns always kept verbatim — never summarized. Higher = more immediate context but less room for RAG/tools. Default: 10.">
+                  <FormRow label="Keep Turns" description="Recent turns kept verbatim after each compaction run. Higher values preserve more raw context but consume more budget.">
                     <TextInput
                       value={form.compaction_keep_turns?.toString() ?? ""}
                       onChangeText={(v) => { const n = parseInt(v); patch("compaction_keep_turns", isNaN(n) ? undefined : n); }}
@@ -238,25 +213,6 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 </Col>
               </Row>
 
-              <div style={{
-                padding: "12px 14px", background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 8, display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Quick Guide</div>
-                <div style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5" }}>
-                  <strong style={{ color: t.contentText }}>Casual chatbot:</strong> Interval 20, Keep 6 — compacts often, keeps things lean.
-                </div>
-                <div style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5" }}>
-                  <strong style={{ color: t.contentText }}>Project assistant:</strong> Interval 30, Keep 10 — balanced, good for task tracking.
-                </div>
-                <div style={{ fontSize: 11, color: t.textDim, lineHeight: "1.5" }}>
-                  <strong style={{ color: t.contentText }}>Long-running agent:</strong> Interval 40+, Keep 12 — more raw context, fewer compaction LLM calls.
-                </div>
-                <div style={{ fontSize: 11, color: t.warningMuted, lineHeight: "1.5", marginTop: 4 }}>
-                  Keep Turns must be less than Interval — otherwise nothing gets summarized.
-                </div>
-              </div>
-
               <LlmModelDropdown
                 label="Compaction Model"
                 value={form.compaction_model ?? ""}
@@ -265,7 +221,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 placeholder="inherit (bot model)"
               />
               <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
-                Used for summarization. A cheap/fast model works well — the prompts are straightforward.
+                Used for summarization. Fast, inexpensive models usually work well because the task is mostly condensation rather than open-ended reasoning.
               </div>
 
               {/* Memory Flush */}
@@ -339,6 +295,15 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
       <Section title="Compaction Activity" description="Recent compaction events.">
         <CompactionActivity channelId={channelId} />
       </Section>
+
+      {guideOpen && (
+        <DocsMarkdownModal
+          path="guides/context-management"
+          title="Context Management"
+          errorMessage="Failed to load context-management documentation."
+          onClose={() => setGuideOpen(false)}
+        />
+      )}
     </>
   );
 }
