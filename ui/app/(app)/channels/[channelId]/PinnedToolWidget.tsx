@@ -89,6 +89,9 @@ interface PinnedToolWidgetProps {
   /** Panel surfaces use authored host chrome (`panel_title` /
    *  `show_panel_title`) instead of the generic compact title row. */
   panelSurface?: boolean;
+  /** Chat runtime rail/dock mirror: placement is dashboard-owned, so hide
+   *  edit/debug/refresh/unpin chrome and let the widget body own its title. */
+  runtimeRail?: boolean;
   /** Channel multi-canvas dashboard: the enclosing `DndContext` supplies a
    *  pre-wired draggable binding (useSortable or useDraggable) so the grip
    *  icon becomes the single drag handle — intra-canvas AND cross-canvas.
@@ -109,6 +112,7 @@ export function PinnedToolWidget({
   hoverScrollbars = DEFAULT_CHROME.hoverScrollbars,
   hideTitles = false,
   panelSurface = false,
+  runtimeRail = false,
   externalDrag,
   layout,
 }: PinnedToolWidgetProps) {
@@ -503,15 +507,17 @@ export function PinnedToolWidget({
       return (
         <div
           ref={externalDrag?.setNodeRef ?? fbSetRef}
-          className="rounded-lg border animate-pulse"
+          className={`${runtimeRail ? "animate-pulse" : "rounded-lg border animate-pulse"}`}
           style={{ borderColor: `${t.surfaceBorder}80` }}
           {...(externalDrag?.attributes ?? fbAttrs)}
         >
-          <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
-            <div className="w-3 h-3 rounded bg-skeleton/[0.04]" />
-            <div className="flex-1 h-[10px] rounded bg-skeleton/[0.04]" style={{ maxWidth: 80 }} />
-          </div>
-          <div className="px-2 pb-2 flex flex-col gap-1.5">
+          {!runtimeRail && (
+            <div className="flex items-center gap-1 px-1.5 pt-1.5 pb-0.5">
+              <div className="w-3 h-3 rounded bg-skeleton/[0.04]" />
+              <div className="flex-1 h-[10px] rounded bg-skeleton/[0.04]" style={{ maxWidth: 80 }} />
+            </div>
+          )}
+          <div className={`${runtimeRail ? "px-2 py-2" : "px-2 pb-2"} flex flex-col gap-1.5`}>
             <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "90%" }} />
             <div className="h-3 rounded bg-skeleton/[0.04]" style={{ width: "60%" }} />
           </div>
@@ -613,7 +619,8 @@ export function PinnedToolWidget({
   // regardless of whether they sit in the center grid or a side rail.
   const overlayChrome =
     ((isDashboard || railMode) && editMode && !showGenericTitle) && !showPanelTitle;
-  const showHeaderDragLane = (!isDashboard || editMode || railMode) && !!handleListeners;
+  const showHostHeader = !runtimeRail;
+  const showHeaderDragLane = showHostHeader && (!isDashboard || editMode || railMode) && !!handleListeners;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
     // `externalDrag`) exposes a grip handle on the left edge + an unpin X on
@@ -698,7 +705,7 @@ export function PinnedToolWidget({
       {/* Header — suppressed entirely when the widget is titleless in edit
           mode; chrome surfaces as a floating overlay below so the tile's
           footprint matches preview exactly. */}
-      {!overlayChrome && (
+      {showHostHeader && !overlayChrome && (
         <div
           className={
             showPanelTitle
@@ -866,7 +873,7 @@ export function PinnedToolWidget({
               ? "flex-1 min-h-0 "
               : (overlayChrome
                 ? "p-2 flex-1 min-h-0 "
-                : `${showPanelTitle ? "px-2 py-2" : "px-2 pb-2"} flex-1 min-h-0 `))
+                : `${showPanelTitle || !showHostHeader ? "px-2 py-2" : "px-2 pb-2"} flex-1 min-h-0 `))
             : (flushInteractiveHtmlBody ? "max-h-[350px] " : "px-2 pb-2 max-h-[350px] "))
           + (hoverScrollbars
             ? "overflow-y-auto scroll-subtle"

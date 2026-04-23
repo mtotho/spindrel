@@ -28,6 +28,7 @@ async def test_lists_core_widgets():
     # bundle has been deleted and must not reappear in discovery.
     assert "notes" not in names
     assert "notes_native" in names
+    assert "context_tracker" in names
     # Every entry carries the required fields.
     for widget in data["widgets"]:
         assert widget["scope"] == "core"
@@ -40,7 +41,7 @@ async def test_native_widget_entries_surface_action_schema():
     raw = await widget_library_list(q="native")
     data = _parse(raw)
     by_name = {w["name"]: w for w in data["widgets"] if w["widget_kind"] == "native_app"}
-    assert {"notes_native", "todo_native"} <= set(by_name)
+    assert {"notes_native", "todo_native", "context_tracker"} <= set(by_name)
 
     notes_actions = by_name["notes_native"].get("actions") or []
     assert {action["id"] for action in notes_actions} >= {"replace_body", "append_text", "clear"}
@@ -54,6 +55,9 @@ async def test_native_widget_entries_surface_action_schema():
         "reorder_items",
         "clear_completed",
     }
+
+    assert by_name["context_tracker"].get("actions") == []
+    assert by_name["context_tracker"].get("supported_scopes") == ["channel"]
 
 
 @pytest.mark.asyncio

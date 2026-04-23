@@ -181,7 +181,7 @@ class TestResolveDbPath:
         # the resolved bundle_dir falls inside _BUILTIN_WIDGET_DIR.
         builtin_dir = _widget_db._BUILTIN_WIDGET_DIR
         # Temporarily set ws_root to the parent of builtin_dir so
-        # "context_tracker/index.html" resolves into the builtin tree.
+        # "examples/sdk-smoke/index.html" resolves into the builtin tree.
         ws_root = builtin_dir.parent
 
         bot = BotConfig(
@@ -195,9 +195,9 @@ class TestResolveDbPath:
         pin = mock.MagicMock(spec=WidgetDashboardPin)
         # source_path must be relative to ws_root and resolve INTO _BUILTIN_WIDGET_DIR.
         # ws_root = builtin_dir.parent (= .../tools/local/), so
-        # "widgets/context_tracker/index.html" resolves to
-        # .../tools/local/widgets/context_tracker — inside _BUILTIN_WIDGET_DIR.
-        pin.envelope = {"source_path": "widgets/context_tracker/index.html"}
+        # "widgets/examples/sdk-smoke/index.html" resolves to
+        # .../tools/local/widgets/examples/sdk-smoke — inside _BUILTIN_WIDGET_DIR.
+        pin.envelope = {"source_path": "widgets/examples/sdk-smoke/index.html"}
         pin.source_channel_id = uuid.UUID("bbbb0000-0000-0000-0000-000000000001")
         pin.source_bot_id = "test-bot"
 
@@ -213,7 +213,7 @@ class TestResolveDbPath:
 
         assert "builtin" in result.parts
         assert result.name == "data.sqlite"
-        assert result.parent.name == "context_tracker"
+        assert result.parent.name == "sdk-smoke"
 
 
 # ---------------------------------------------------------------------------

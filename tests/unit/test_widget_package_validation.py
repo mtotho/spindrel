@@ -211,6 +211,34 @@ class TestComponentTree:
         )
         assert validate_package(yaml_body).ok
 
+    def test_common_priority_and_metadata_properties_are_valid(self):
+        yaml_body = self._yaml_with_components(
+            "    - type: properties\n"
+            "      priority: metadata\n"
+            "      variant: metadata\n"
+            "      layout: inline\n"
+            "      items:\n"
+            "        - label: entity\n"
+            "          value: light.office\n"
+        )
+        assert validate_package(yaml_body).ok
+
+    def test_toggle_optional_state_labels_are_valid(self):
+        yaml_body = self._yaml_with_components(
+            "    - type: toggle\n"
+            "      label: Office Light Switch\n"
+            "      value: false\n"
+            "      description: \"Off\"\n"
+            "      on_label: \"On\"\n"
+            "      off_label: \"Off\"\n"
+            "      action:\n"
+            "        dispatch: tool\n"
+            "        tool: HassTurnOn\n"
+            "        args:\n"
+            "          name: Office Light Switch\n"
+        )
+        assert validate_package(yaml_body).ok
+
     def test_state_poll_template_components_validated(self):
         yaml_body = (
             "template:\n  v: 1\n  components: []\n"

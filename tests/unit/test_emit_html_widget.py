@@ -410,23 +410,19 @@ class TestLibraryRefMode:
     """``library_ref`` mode — render a named widget from the core library."""
 
     @pytest.mark.asyncio
-    async def test_library_ref_resolves_core_widget(self):
-        # ``context_tracker`` ships in core — confirm its index.html lands in the body.
+    async def test_library_ref_old_context_tracker_html_is_gone(self):
+        # ``context_tracker`` is now a native widget, not an HTML library bundle.
         result = await emit_html_widget(library_ref="context_tracker")
         parsed = _parse(result)
-        assert "error" not in parsed, parsed.get("error")
-        env = parsed["_envelope"]
-        assert env["content_type"] == INTERACTIVE_HTML_CONTENT_TYPE
-        assert env["source_kind"] == "library"
-        assert env["source_library_ref"] == "core/context_tracker"
-        # Body is the real bundle's index.html content.
-        assert "<" in env["body"] and env["body"].strip()
+        assert "error" in parsed
+        assert "not found" in parsed["error"]
 
     @pytest.mark.asyncio
-    async def test_library_ref_accepts_explicit_core_prefix(self):
+    async def test_library_ref_explicit_core_context_tracker_is_gone(self):
         result = await emit_html_widget(library_ref="core/context_tracker")
-        env = _envelope(result)
-        assert env["source_library_ref"] == "core/context_tracker"
+        parsed = _parse(result)
+        assert "error" in parsed
+        assert "core/context_tracker" in parsed["error"]
 
     @pytest.mark.asyncio
     async def test_library_ref_picks_up_display_label_from_yaml(self, tmp_path, monkeypatch):
@@ -448,12 +444,25 @@ class TestLibraryRefMode:
         assert _envelope(result)["display_label"] == "Scratchpad"
 
     @pytest.mark.asyncio
-    async def test_library_ref_caller_display_label_wins(self):
-        result = await emit_html_widget(
-            library_ref="context_tracker", display_label="My Context"
+    async def test_library_ref_caller_display_label_wins(self, tmp_path, monkeypatch):
+        from app.tools.local import emit_html_widget as ehw
+
+        bundle = tmp_path / ".widget_library" / "scratchpad"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<p>scratch</p>")
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
         )
-        env = _envelope(result)
-        assert env["display_label"] == "My Context"
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(
+                library_ref="bot/scratchpad", display_label="My Context"
+            )
+            env = _envelope(result)
+            assert env["display_label"] == "My Context"
+        finally:
+            current_bot_id.reset(ctx)
 
     @pytest.mark.asyncio
     async def test_library_ref_bot_scope_renders_authored_widget(
@@ -539,8 +548,7 @@ class TestLibraryRefMode:
     async def test_library_ref_implicit_prefers_bot_over_core(
         self, tmp_path, monkeypatch,
     ):
-        """Implicit ref (no scope prefix) walks bot → workspace → core so a
-        bot-authored widget shadows a core widget with the same name."""
+        """Implicit ref (no scope prefix) walks bot → workspace → core."""
         from app.tools.local import emit_html_widget as ehw
 
         (tmp_path / ".widget_library" / "context_tracker").mkdir(parents=True)
@@ -553,8 +561,8 @@ class TestLibraryRefMode:
 
         ctx = current_bot_id.set("crumb")
         try:
-            # Core ships `context_tracker`, but implicit ref should land on the
-            # bot-authored shadow, not the core one.
+            # The native core context tracker has no HTML bundle, but an
+            # authored bot HTML widget with the same name still resolves.
             result = await emit_html_widget(library_ref="context_tracker")
             env = _envelope(result)
             assert env["body"] == "<p>bot context</p>"
@@ -616,12 +624,21 @@ class TestLibraryRefMode:
         assert "exactly one" in err
 
     @pytest.mark.asyncio
-    async def test_library_ref_bakes_bot_and_channel_context(self):
+    async def test_library_ref_bakes_bot_and_channel_context(self, tmp_path, monkeypatch):
+        from app.tools.local import emit_html_widget as ehw
+
+        (tmp_path / ".widget_library" / "scratchpad").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "scratchpad" / "index.html").write_text(
+            "<p>scratch</p>"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
         channel_id = uuid.uuid4()
         ctx_chan = current_channel_id.set(channel_id)
         ctx_bot = current_bot_id.set("crumb")
         try:
-            result = await emit_html_widget(library_ref="context_tracker")
+            result = await emit_html_widget(library_ref="bot/scratchpad")
             env = _envelope(result)
             assert env["source_channel_id"] == str(channel_id)
             assert env["source_bot_id"] == "crumb"

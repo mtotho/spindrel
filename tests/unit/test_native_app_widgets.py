@@ -164,3 +164,21 @@ def test_native_catalog_entries_expose_contract():
     assert todo["widget_contract"]["definition_kind"] == "native_widget"
     assert todo["widget_contract"]["auth_model"] == "host_native"
     assert todo["config_schema"]["type"] == "object"
+    context = next(entry for entry in entries if entry["name"] == "context_tracker")
+    assert context["format"] == "native_app"
+    assert context["widget_ref"] == "core/context_tracker"
+    assert context["supported_scopes"] == ["channel"]
+    assert context["actions"] == []
+    assert context["widget_contract"]["definition_kind"] == "native_widget"
+    assert context["widget_contract"]["supported_scopes"] == ["channel"]
+
+
+@pytest.mark.asyncio
+async def test_context_tracker_rejects_user_dashboard_scope(db_session):
+    with pytest.raises(HTTPException, match="does not support scope 'dashboard'"):
+        await get_or_create_native_widget_instance(
+            db_session,
+            widget_ref="core/context_tracker",
+            dashboard_key="default",
+            source_channel_id=None,
+        )

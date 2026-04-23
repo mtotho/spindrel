@@ -32,6 +32,7 @@ import {
 import type { ThemeTokens } from "../../../theme/tokens";
 import type { WidgetAction } from "../../../types/api";
 import { MarkdownContent } from "../MarkdownContent";
+import type { HostSurface, WidgetLayout } from "./InteractiveHtmlRenderer";
 
 // ── Widget action context ──
 
@@ -48,6 +49,20 @@ export const WidgetActionContext = createContext<WidgetActionDispatcher | null>(
 interface ComponentBody {
   v: number;
   components: ComponentNode[];
+}
+
+type ComponentPriority = "primary" | "secondary" | "metadata";
+type ComponentDensity = "compact" | "standard" | "expanded";
+
+interface ComponentBase {
+  priority?: ComponentPriority;
+}
+
+interface ComponentRenderContext {
+  density: ComponentDensity;
+  layout?: WidgetLayout;
+  hostSurface?: HostSurface;
+  gridDimensions?: { width: number; height: number };
 }
 
 type ComponentNode =
@@ -70,33 +85,34 @@ type ComponentNode =
   | SliderNode
   | { type: string; [key: string]: unknown }; // forward-compat catch-all
 
-interface TextNode {
+interface TextNode extends ComponentBase {
   type: "text";
   content: string;
   style?: "default" | "muted" | "bold" | "code";
   markdown?: boolean;
 }
 
-interface HeadingNode {
+interface HeadingNode extends ComponentBase {
   type: "heading";
   text: string;
   level?: 1 | 2 | 3;
 }
 
-interface PropertiesNode {
+interface PropertiesNode extends ComponentBase {
   type: "properties";
   items: { label: string; value: string; color?: SemanticSlot }[];
   layout?: "vertical" | "inline";
+  variant?: "default" | "metadata";
 }
 
-interface TableNode {
+interface TableNode extends ComponentBase {
   type: "table";
   columns: string[];
   rows: string[][];
   compact?: boolean;
 }
 
-interface LinksNode {
+interface LinksNode extends ComponentBase {
   type: "links";
   items: {
     url: string;
@@ -106,31 +122,31 @@ interface LinksNode {
   }[];
 }
 
-interface CodeNode {
+interface CodeNode extends ComponentBase {
   type: "code";
   content: string;
   language?: string;
 }
 
-interface ImageNode {
+interface ImageNode extends ComponentBase {
   type: "image";
   url: string;
   alt?: string;
   height?: number;
 }
 
-interface StatusNode {
+interface StatusNode extends ComponentBase {
   type: "status";
   text: string;
   color?: SemanticSlot;
 }
 
-interface DividerNode {
+interface DividerNode extends ComponentBase {
   type: "divider";
   label?: string;
 }
 
-interface SectionNode {
+interface SectionNode extends ComponentBase {
   type: "section";
   children: ComponentNode[];
   label?: string;
@@ -138,15 +154,18 @@ interface SectionNode {
   defaultOpen?: boolean;
 }
 
-interface ToggleNode {
+interface ToggleNode extends ComponentBase {
   type: "toggle";
   label: string;
   value: boolean;
   action: WidgetAction;
   color?: SemanticSlot;
+  description?: string;
+  on_label?: string;
+  off_label?: string;
 }
 
-interface ButtonNode {
+interface ButtonNode extends ComponentBase {
   type: "button";
   label: string;
   action: WidgetAction;
@@ -158,7 +177,7 @@ interface ButtonNode {
   subtle?: boolean;
 }
 
-interface TilesNode {
+interface TilesNode extends ComponentBase {
   type: "tiles";
   /** Array of { label, value, caption? } tiles. Typically produced via the
    *  template engine's `each:` expansion over a result array. */
@@ -169,7 +188,7 @@ interface TilesNode {
   gap?: number;
 }
 
-interface SelectNode {
+interface SelectNode extends ComponentBase {
   type: "select";
   label?: string;
   value: string;
@@ -177,7 +196,7 @@ interface SelectNode {
   action: WidgetAction;
 }
 
-interface InputNode {
+interface InputNode extends ComponentBase {
   type: "input";
   label?: string;
   value: string;
@@ -185,14 +204,14 @@ interface InputNode {
   action: WidgetAction;
 }
 
-interface FormNode {
+interface FormNode extends ComponentBase {
   type: "form";
   children: ComponentNode[];
   submit_action: WidgetAction;
   submit_label?: string;
 }
 
-interface SliderNode {
+interface SliderNode extends ComponentBase {
   type: "slider";
   label?: string;
   value: number;
@@ -270,9 +289,24 @@ const MAX_DEPTH = 2;
 interface Props {
   body: string;
   t: ThemeTokens;
+  layout?: WidgetLayout;
+  hostSurface?: HostSurface;
+  gridDimensions?: { width: number; height: number };
 }
 
-export function ComponentRenderer({ body, t }: Props) {
+function deriveDensity(
+  layout: WidgetLayout | undefined,
+  gridDimensions: { width: number; height: number } | undefined,
+): ComponentDensity {
+  const width = gridDimensions?.width ?? 0;
+  const height = gridDimensions?.height ?? 0;
+  if (layout === "rail") return "compact";
+  if ((width > 0 && width < 280) || (height > 0 && height < 150)) return "compact";
+  if (width >= 520 && height >= 360) return "expanded";
+  return "standard";
+}
+
+export function ComponentRenderer({ body, t, layout, hostSurface, gridDimensions }: Props) {
   let parsed: ComponentBody;
   try {
     // body may already be a parsed object (e.g. from JSONB metadata)
@@ -308,10 +342,17 @@ export function ComponentRenderer({ body, t }: Props) {
     );
   }
 
+  const ctx: ComponentRenderContext = {
+    density: deriveDensity(layout, gridDimensions),
+    layout,
+    hostSurface,
+    gridDimensions,
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: ctx.density === "compact" ? 5 : 7 }}>
       {parsed.components.map((node, i) => (
-        <RenderNode key={i} node={node} t={t} depth={0} />
+        <RenderNode key={i} node={node} t={t} depth={0} ctx={ctx} />
       ))}
     </div>
   );
@@ -323,20 +364,26 @@ function RenderNode({
   node,
   t,
   depth,
+  ctx,
 }: {
   node: ComponentNode;
   t: ThemeTokens;
   depth: number;
+  ctx: ComponentRenderContext;
 }) {
+  if (ctx.density === "compact" && "priority" in node && node.priority === "metadata") {
+    return null;
+  }
+
   switch (node.type) {
     case "text":
       return <TextBlock node={node as TextNode} t={t} />;
     case "heading":
       return <HeadingBlock node={node as HeadingNode} t={t} />;
     case "properties":
-      return <PropertiesBlock node={node as PropertiesNode} t={t} />;
+      return <PropertiesBlock node={node as PropertiesNode} t={t} ctx={ctx} />;
     case "table":
-      return <TableBlock node={node as TableNode} t={t} />;
+      return <TableBlock node={node as TableNode} t={t} ctx={ctx} />;
     case "links":
       return <LinksBlock node={node as LinksNode} t={t} />;
     case "code":
@@ -344,23 +391,23 @@ function RenderNode({
     case "image":
       return <ImageBlock node={node as ImageNode} t={t} />;
     case "status":
-      return <StatusBadge node={node as StatusNode} t={t} />;
+      return <StatusBadge node={node as StatusNode} t={t} ctx={ctx} />;
     case "divider":
       return <DividerBlock node={node as DividerNode} t={t} />;
     case "section":
-      return <SectionBlock node={node as SectionNode} t={t} depth={depth} />;
+      return <SectionBlock node={node as SectionNode} t={t} depth={depth} ctx={ctx} />;
     case "toggle":
-      return <ToggleBlock node={node as ToggleNode} t={t} />;
+      return <ToggleBlock node={node as ToggleNode} t={t} ctx={ctx} />;
     case "button":
       return <ButtonBlock node={node as ButtonNode} t={t} />;
     case "tiles":
-      return <TilesBlock node={node as TilesNode} t={t} />;
+      return <TilesBlock node={node as TilesNode} t={t} ctx={ctx} />;
     case "select":
       return <SelectBlock node={node as SelectNode} t={t} />;
     case "input":
       return <InputBlock node={node as InputNode} t={t} />;
     case "form":
-      return <FormBlock node={node as FormNode} t={t} depth={depth} />;
+      return <FormBlock node={node as FormNode} t={t} depth={depth} ctx={ctx} />;
     case "slider":
       return <SliderBlock node={node as SliderNode} t={t} />;
     default:
@@ -425,13 +472,21 @@ function HeadingBlock({ node, t }: { node: HeadingNode; t: ThemeTokens }) {
 function PropertiesBlock({
   node,
   t,
+  ctx,
 }: {
   node: PropertiesNode;
   t: ThemeTokens;
+  ctx: ComponentRenderContext;
 }) {
   const isInline = node.layout === "inline";
+  const isMetadata = node.variant === "metadata" || node.priority === "metadata";
   const items = Array.isArray(node.items) ? node.items : [];
   if (items.length === 0) return null;
+  if (isMetadata && ctx.density === "compact") return null;
+
+  const fontSize = isMetadata ? 10 : ctx.density === "compact" ? 11 : 12;
+  const labelColor = isMetadata ? t.textDim : t.textMuted;
+  const valueOpacity = isMetadata ? 0.72 : 1;
 
   if (isInline) {
     return (
@@ -439,14 +494,16 @@ function PropertiesBlock({
         style={{
           display: "flex", flexDirection: "row",
           flexWrap: "wrap",
-          gap: "4px 12px",
-          fontSize: 12,
+          gap: isMetadata ? "2px 10px" : "4px 12px",
+          fontSize,
+          lineHeight: 1.35,
+          opacity: isMetadata ? 0.8 : 1,
         }}
       >
         {items.map((item, i) => (
           <span key={i}>
-            <span style={{ color: t.textMuted }}>{item.label}: </span>
-            <span style={{ color: slotColor(item.color, t) }}>
+            <span style={{ color: labelColor }}>{item.label}: </span>
+            <span style={{ color: slotColor(item.color, t), opacity: valueOpacity }}>
               {item.value}
             </span>
           </span>
@@ -460,32 +517,35 @@ function PropertiesBlock({
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr",
-        gap: "3px 12px",
-        fontSize: 12,
+        gap: isMetadata ? "2px 10px" : "3px 12px",
+        fontSize,
+        lineHeight: 1.35,
+        opacity: isMetadata ? 0.8 : 1,
       }}
     >
       {items.map((item, i) => (
         <div key={i} style={{ display: "contents" }}>
-          <span style={{ color: t.textMuted, whiteSpace: "nowrap" }}>
+          <span style={{ color: labelColor, whiteSpace: "nowrap" }}>
             {item.label}
           </span>
-          <span style={{ color: slotColor(item.color, t) }}>{item.value}</span>
+          <span style={{ color: slotColor(item.color, t), opacity: valueOpacity }}>{item.value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
+function TableBlock({ node, t, ctx }: { node: TableNode; t: ThemeTokens; ctx: ComponentRenderContext }) {
   const columns = Array.isArray(node.columns) ? node.columns : [];
   const rows = Array.isArray(node.rows) ? node.rows : [];
   if (columns.length === 0 && rows.length === 0) return null;
+  const compact = node.compact || ctx.density === "compact";
   return (
     <div
       style={{
         border: `1px solid ${t.surfaceBorder}`,
         borderRadius: 6,
-        maxHeight: 360,
+        maxHeight: ctx.density === "expanded" ? 460 : ctx.density === "compact" ? 220 : 360,
         overflow: "auto",
       }}
     >
@@ -498,7 +558,7 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
           width: "max-content",
           minWidth: "100%",
           borderCollapse: "collapse",
-          fontSize: node.compact ? 11 : 12,
+          fontSize: compact ? 11 : 12,
           fontFamily: "'Menlo', monospace",
         }}
       >
@@ -508,7 +568,7 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
               <th
                 key={i}
                 style={{
-                  padding: node.compact ? "4px 8px" : "6px 10px",
+                  padding: compact ? "4px 8px" : "6px 10px",
                   textAlign: "left",
                   color: t.textMuted,
                   fontWeight: 600,
@@ -537,7 +597,7 @@ function TableBlock({ node, t }: { node: TableNode; t: ThemeTokens }) {
                 <td
                   key={ci}
                   style={{
-                    padding: node.compact ? "3px 8px" : "5px 10px",
+                    padding: compact ? "3px 8px" : "5px 10px",
                     color: t.contentText,
                     // Wrap at word boundaries only — no mid-word breaks that
                     // shatter ISO dates / IDs into vertical column mess.
@@ -712,7 +772,7 @@ function ImageBlock({ node, t }: { node: ImageNode; t: ThemeTokens }) {
   );
 }
 
-function StatusBadge({ node, t }: { node: StatusNode; t: ThemeTokens }) {
+function StatusBadge({ node, t, ctx }: { node: StatusNode; t: ThemeTokens; ctx: ComponentRenderContext }) {
   const color = slotColor(node.color, t);
   const bg = slotBg(node.color, t);
   return (
@@ -720,13 +780,14 @@ function StatusBadge({ node, t }: { node: StatusNode; t: ThemeTokens }) {
       style={{
         display: "inline-flex", flexDirection: "row",
         alignItems: "center",
-        gap: 4,
-        padding: "2px 8px",
+        gap: 5,
+        padding: ctx.density === "compact" ? "1px 6px" : "2px 7px",
         borderRadius: 10,
-        fontSize: 11,
+        fontSize: ctx.density === "compact" ? 10 : 11,
         fontWeight: 600,
         color,
         background: bg,
+        border: `1px solid ${color}22`,
         alignSelf: "flex-start",
       }}
     >
@@ -774,12 +835,15 @@ function SectionBlock({
   node,
   t,
   depth,
+  ctx,
 }: {
   node: SectionNode;
   t: ThemeTokens;
   depth: number;
+  ctx: ComponentRenderContext;
 }) {
-  const [open, setOpen] = useState(node.defaultOpen !== false);
+  const defaultOpen = ctx.density === "compact" ? false : node.defaultOpen !== false;
+  const [open, setOpen] = useState(defaultOpen);
 
   // Depth guard — render children as flat text beyond MAX_DEPTH
   if (depth >= MAX_DEPTH) {
@@ -815,7 +879,7 @@ function SectionBlock({
           </div>
         )}
         {node.children?.map((child, i) => (
-          <RenderNode key={i} node={child} t={t} depth={depth + 1} />
+          <RenderNode key={i} node={child} t={t} depth={depth + 1} ctx={ctx} />
         ))}
       </div>
     );
@@ -862,7 +926,7 @@ function SectionBlock({
           }}
         >
           {node.children?.map((child, i) => (
-            <RenderNode key={i} node={child} t={t} depth={depth + 1} />
+            <RenderNode key={i} node={child} t={t} depth={depth + 1} ctx={ctx} />
           ))}
         </div>
       )}
@@ -877,7 +941,7 @@ function useAction() {
   return ctx?.dispatchAction ?? null;
 }
 
-function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
+function ToggleBlock({ node, t, ctx }: { node: ToggleNode; t: ThemeTokens; ctx: ComponentRenderContext }) {
   const dispatch = useAction();
   const [checked, setChecked] = useState(node.value);
   const [busy, setBusy] = useState(false);
@@ -910,30 +974,68 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
 
   const accentColor = slotColor(node.color ?? "success", t);
   const trackColor = checked ? accentColor : t.surfaceBorder;
+  const stateText = node.description || (checked ? node.on_label ?? "On" : node.off_label ?? "Off");
+  const isCompact = ctx.density === "compact";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       <div
         style={{
           display: "flex", flexDirection: "row",
           alignItems: "center",
-          gap: 12,
-          padding: "6px 0",
+          gap: 10,
+          padding: isCompact ? "6px 7px" : "8px 9px",
+          border: `1px solid ${t.surfaceBorder}80`,
+          borderRadius: 6,
+          background: t.overlayLight,
+          minHeight: isCompact ? 38 : 44,
         }}
       >
-        {/* 44px touch target wrapping the visual toggle */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: isCompact ? 12 : 13,
+              color: t.contentText,
+              fontWeight: 550,
+              lineHeight: 1.25,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+            }}
+          >
+            {node.label}
+          </div>
+          {stateText && (
+            <div
+              style={{
+                fontSize: isCompact ? 10 : 11,
+                color: checked ? accentColor : t.textMuted,
+                lineHeight: 1.25,
+                marginTop: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {stateText}
+            </div>
+          )}
+        </div>
+        {busy && <Loader2 size={14} color={t.textMuted} className="animate-spin" />}
+        {/* 44px touch target wrapping the visual switch */}
         <button
           type="button"
           onClick={handleToggle}
           disabled={busy}
-          aria-label={`${node.label}: ${checked ? "on" : "off"}`}
+          aria-label={`${node.label}: ${stateText || (checked ? "on" : "off")}`}
           aria-checked={checked}
           role="switch"
           style={{
             position: "relative",
-            width: 44,
-            height: 26,
-            borderRadius: 13,
+            width: isCompact ? 38 : 42,
+            height: isCompact ? 22 : 24,
+            borderRadius: 12,
             border: `1.5px solid ${checked ? "transparent" : t.surfaceBorder}`,
             background: trackColor,
             cursor: busy ? "wait" : "pointer",
@@ -950,9 +1052,9 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
             style={{
               position: "absolute",
               top: 2,
-              left: checked ? 20 : 2,
-              width: 20,
-              height: 20,
+              left: checked ? (isCompact ? 18 : 20) : 2,
+              width: isCompact ? 16 : 18,
+              height: isCompact ? 16 : 18,
               borderRadius: "50%",
               background: "#fff",
               transition: "left 0.2s ease-out, box-shadow 0.2s ease-out",
@@ -962,13 +1064,9 @@ function ToggleBlock({ node, t }: { node: ToggleNode; t: ThemeTokens }) {
             }}
           />
         </button>
-        <span style={{ fontSize: 13, color: t.contentText, fontWeight: 500, userSelect: "none" }}>
-          {node.label}
-        </span>
-        {busy && <Loader2 size={14} color={t.textMuted} className="animate-spin" />}
       </div>
       {error && (
-        <span style={{ fontSize: 11, color: t.danger, paddingLeft: 56 }}>{error}</span>
+        <span style={{ fontSize: 11, color: t.danger, paddingLeft: 2 }}>{error}</span>
       )}
     </div>
   );
@@ -1044,12 +1142,15 @@ function ButtonBlock({ node, t }: { node: ButtonNode; t: ThemeTokens }) {
   );
 }
 
-function TilesBlock({ node, t }: { node: TilesNode; t: ThemeTokens }) {
+function TilesBlock({ node, t, ctx }: { node: TilesNode; t: ThemeTokens; ctx: ComponentRenderContext }) {
   const items = Array.isArray(node.items) ? node.items : [];
   if (items.length === 0) return null;
 
-  const minWidth = node.min_width ?? 84;
-  const gap = node.gap ?? 6;
+  const minWidth = ctx.density === "compact"
+    ? Math.min(node.min_width ?? 84, 120)
+    : node.min_width ?? 84;
+  const gap = node.gap ?? (ctx.density === "compact" ? 5 : 6);
+  const showCaption = ctx.density !== "compact";
 
   return (
     <div
@@ -1066,7 +1167,7 @@ function TilesBlock({ node, t }: { node: TilesNode; t: ThemeTokens }) {
           style={{
             borderColor: `${t.surfaceBorder}80`,
             background: t.overlayLight,
-            padding: "6px 8px",
+            padding: ctx.density === "compact" ? "5px 7px" : "6px 8px",
             display: "flex",
             flexDirection: "column",
             gap: 1,
@@ -1102,7 +1203,7 @@ function TilesBlock({ node, t }: { node: TilesNode; t: ThemeTokens }) {
               {item.value}
             </span>
           )}
-          {item.caption && (
+          {showCaption && item.caption && (
             <span
               style={{
                 fontSize: 10,
@@ -1224,10 +1325,12 @@ function FormBlock({
   node,
   t,
   depth,
+  ctx,
 }: {
   node: FormNode;
   t: ThemeTokens;
   depth: number;
+  ctx: ComponentRenderContext;
 }) {
   const dispatch = useAction();
   const [busy, setBusy] = useState(false);
@@ -1245,7 +1348,7 @@ function FormBlock({
       }}
     >
       {node.children?.map((child, i) => (
-        <RenderNode key={i} node={child} t={t} depth={depth + 1} />
+        <RenderNode key={i} node={child} t={t} depth={depth + 1} ctx={ctx} />
       ))}
       <button
         type="button"

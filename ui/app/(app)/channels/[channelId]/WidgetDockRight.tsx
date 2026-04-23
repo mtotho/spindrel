@@ -98,7 +98,7 @@ export function WidgetDockRight({
         />
       )}
       <div
-        className="group relative flex h-full flex-row overflow-visible"
+        className="group relative flex h-full flex-col overflow-visible"
         style={{
           width: targetWidth,
           flexShrink: 0,
@@ -107,32 +107,32 @@ export function WidgetDockRight({
         aria-hidden={!hasPins}
       >
         {hasPins && <>
-        <div className="absolute -left-5 top-2 z-20">
-          <button
-            type="button"
-            onClick={() => {
-              if (onCollapse) onCollapse();
-              else setRightDockHidden(true);
-            }}
-            aria-label="Collapse right dock"
-            title="Collapse dock"
-            className="flex h-6 w-6 items-center justify-center rounded-md text-text-dim/60 transition-colors hover:bg-surface-overlay hover:text-text focus-visible:bg-surface-overlay focus-visible:text-text focus-visible:outline-none"
-          >
-            <ChevronRight size={14} />
-          </button>
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto scroll-subtle py-2 pl-0 pr-1">
-          <WidgetRailSection
-            channelId={channelId}
-            pins={pins}
-            preset={preset}
-            chrome={chrome}
-            onUnpin={handleUnpin}
-            onEnvelopeUpdate={handleEnvelopeUpdate}
-            applyLayout={applyLayout}
-            widgetLayout="dock"
-          />
-        </div>
+          <div className="flex h-8 shrink-0 items-center pl-0 pr-1">
+            <button
+              type="button"
+              onClick={() => {
+                if (onCollapse) onCollapse();
+                else setRightDockHidden(true);
+              }}
+              aria-label="Collapse right dock"
+              title="Collapse dock"
+              className="flex h-7 w-7 items-center justify-center bg-transparent text-text-dim/70 transition-colors hover:bg-surface-overlay/60 hover:text-text focus-visible:bg-surface-overlay/60 focus-visible:text-text focus-visible:outline-none"
+            >
+              <ChevronRight size={15} />
+            </button>
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto scroll-subtle pb-2 pl-0 pr-1">
+            <WidgetRailSection
+              channelId={channelId}
+              pins={pins}
+              preset={preset}
+              chrome={chrome}
+              onUnpin={handleUnpin}
+              onEnvelopeUpdate={handleEnvelopeUpdate}
+              applyLayout={applyLayout}
+              widgetLayout="dock"
+            />
+          </div>
         </>}
       </div>
     </>

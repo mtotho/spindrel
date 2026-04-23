@@ -180,6 +180,7 @@ export function WidgetRailSection({
               hideTitles={chrome.hideTitles}
               panelSurface
               railMode
+              runtimeRail
               layout={widgetLayout}
             />
           </div>

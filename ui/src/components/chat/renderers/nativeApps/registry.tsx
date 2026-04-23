@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ContextTrackerWidget } from "./ContextTrackerWidget";
 import { NotesWidget } from "./NotesWidget";
 import { PlanQuestionsWidget } from "./PlanQuestionsWidget";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
@@ -8,6 +9,7 @@ type NativeWidgetComponent = (props: NativeAppRendererProps) => ReactNode;
 
 const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/plan_questions": PlanQuestionsWidget,
+  "core/context_tracker": ContextTrackerWidget,
   "core/notes_native": NotesWidget,
   "core/todo_native": TodoWidget,
 };

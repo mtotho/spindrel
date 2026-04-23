@@ -52,6 +52,7 @@ Bot control rule:
 - Interact with pinned widgets through `invoke_widget_action`.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 - For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
+- For component/YAML widgets, follow the low-chrome component design language in `docs/widget-templates.md`: labels name the object, metadata is not default content, cards resize across compact/standard/expanded sizes, and chips are explicit chip variants.
 
 ## The unified operator loop
 

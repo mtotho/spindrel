@@ -1,36 +1,45 @@
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
+import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2, X } from "lucide-react";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import type { ThemeTokens } from "@/src/theme/tokens";
 import { PreviewCard, type NativeTodoItem, useNativeEnvelopeState } from "./shared";
 
-function TodoRowButton({
+function IconButton({
   label,
   onClick,
   t,
   disabled = false,
+  children,
 }: {
   label: string;
   onClick: () => void;
   t: ThemeTokens;
   disabled?: boolean;
+  children: ReactNode;
 }) {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
+      aria-label={label}
+      title={label}
       style={{
-        border: `1px solid ${t.surfaceBorder}`,
-        background: disabled ? t.surface : "transparent",
+        width: 24,
+        height: 24,
+        border: "none",
+        borderRadius: 0,
+        background: "transparent",
         color: disabled ? t.textDim : t.textMuted,
-        borderRadius: 999,
-        padding: "3px 8px",
-        fontSize: 11,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.35 : 1,
       }}
     >
-      {label}
+      {children}
     </button>
   );
 }
@@ -110,21 +119,48 @@ export function TodoWidget({
     );
   }
 
+  function moveOpenItem(index: number, direction: -1 | 1) {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= openItems.length) return;
+    const reordered = [...openItems];
+    [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+    void reorder(reordered);
+  }
+
+  const updatedAt = String(currentPayload.state?.updated_at ?? "");
+  const status = error
+    ? error
+    : busy
+      ? "Updating"
+      : updatedAt
+        ? `Updated ${new Date(updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+        : "Saved with this widget";
+
+  const rowBorder = `1px solid ${t.surfaceBorder}`;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: "100%" }}>
-      <form onSubmit={submitNewItem} style={{ display: "flex", gap: 8 }}>
+    <div className="group/todo" style={{ display: "flex", flexDirection: "column", minHeight: "100%", color: t.text }}>
+      <form
+        onSubmit={submitNewItem}
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) 34px",
+          borderBottom: rowBorder,
+          marginBottom: 4,
+        }}
+      >
         <input
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Add a task"
           maxLength={500}
           style={{
-            flex: 1,
-            borderRadius: 12,
-            border: `1px solid ${t.surfaceBorder}`,
-            background: t.surface,
+            minWidth: 0,
+            border: "none",
+            borderRadius: 0,
+            background: "transparent",
             color: t.text,
-            padding: "10px 12px",
+            padding: "8px 0",
             fontSize: 13,
             outline: "none",
           }}
@@ -132,58 +168,51 @@ export function TodoWidget({
         <button
           type="submit"
           disabled={busy === "add" || !newTitle.trim()}
+          aria-label="Add task"
+          title="Add task"
           style={{
             border: "none",
-            borderRadius: 12,
-            background: t.accent,
-            color: "#ffffff",
-            padding: "0 14px",
-            fontSize: 13,
-            fontWeight: 600,
+            borderRadius: 0,
+            background: "transparent",
+            color: busy === "add" || !newTitle.trim() ? t.textDim : t.accent,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             cursor: busy === "add" || !newTitle.trim() ? "default" : "pointer",
-            opacity: busy === "add" || !newTitle.trim() ? 0.6 : 1,
           }}
         >
-          Add
+          <Plus size={16} />
         </button>
       </form>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ fontSize: 12, color: t.textDim }}>
-          {openItems.length} open
-          {completedItems.length ? `, ${completedItems.length} done` : ""}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", minHeight: 24, gap: 8 }}>
+        <div style={{ fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+          {openItems.length} open{completedItems.length ? ` / ${completedItems.length} done` : ""}
         </div>
-        <button
-          type="button"
-          disabled={!completedItems.length || busy === "clear_completed"}
-          onClick={() => void runAction("clear_completed", {}, "clear_completed")}
-          style={{
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 999,
-            background: "transparent",
-            color: completedItems.length ? t.textMuted : t.textDim,
-            padding: "4px 10px",
-            fontSize: 11,
-            cursor: !completedItems.length || busy === "clear_completed" ? "default" : "pointer",
-          }}
-        >
-          Clear completed
-        </button>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-        {!items.length ? (
-          <div
+        {completedItems.length ? (
+          <button
+            type="button"
+            disabled={busy === "clear_completed"}
+            onClick={() => void runAction("clear_completed", {}, "clear_completed")}
             style={{
-              border: `1px dashed ${t.surfaceBorder}`,
-              borderRadius: 14,
-              padding: 18,
+              border: "none",
+              borderRadius: 0,
+              background: "transparent",
               color: t.textMuted,
-              fontSize: 13,
-              background: t.surface,
+              padding: 0,
+              fontSize: 11,
+              cursor: busy === "clear_completed" ? "default" : "pointer",
             }}
           >
-            No tasks yet. Add the first one above, or let a bot drop tasks into this list.
+            Clear done
+          </button>
+        ) : null}
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0 }}>
+        {!items.length ? (
+          <div style={{ padding: "24px 0", color: t.textMuted, fontSize: 13, lineHeight: 1.5 }}>
+            No tasks yet. Add one here, or let a bot drop tasks into this list.
           </div>
         ) : null}
 
@@ -210,21 +239,24 @@ export function TodoWidget({
             }}
             onDragEnd={() => setDraggingId(null)}
             style={{
-              display: "flex",
+              display: "grid",
+              gridTemplateColumns: "14px 18px minmax(0, 1fr) auto",
               alignItems: "center",
-              gap: 10,
-              padding: "10px 12px",
-              borderRadius: 14,
-              border: `1px solid ${draggingId === item.id ? t.accent : t.surfaceBorder}`,
-              background: t.surface,
+              gap: 8,
+              minHeight: 36,
+              borderTop: rowBorder,
+              borderColor: draggingId === item.id ? t.accentBorder : t.surfaceBorder,
+              background: draggingId === item.id ? t.accentSubtle : "transparent",
             }}
           >
+            <GripVertical size={12} style={{ color: t.textDim }} />
             <input
               type="checkbox"
               checked={item.done}
               onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
+              style={{ width: 13, height: 13, margin: 0 }}
             />
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ minWidth: 0 }}>
               {editingId === item.id ? (
                 <input
                   autoFocus
@@ -244,6 +276,7 @@ export function TodoWidget({
                   style={{
                     width: "100%",
                     border: "none",
+                    borderRadius: 0,
                     outline: "none",
                     background: "transparent",
                     color: t.text,
@@ -257,12 +290,16 @@ export function TodoWidget({
                   onClick={() => beginRename(item)}
                   style={{
                     border: "none",
+                    borderRadius: 0,
                     background: "transparent",
                     color: t.text,
                     fontSize: 13,
                     padding: 0,
                     textAlign: "left",
                     width: "100%",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
                     cursor: "text",
                   }}
                 >
@@ -270,57 +307,59 @@ export function TodoWidget({
                 </button>
               )}
             </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <TodoRowButton label="Up" onClick={() => {
-                if (index === 0) return;
-                const reordered = [...openItems];
-                [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
-                void reorder(reordered);
-              }} t={t} disabled={index === 0 || busy === "reorder"} />
-              <TodoRowButton label="Down" onClick={() => {
-                if (index === openItems.length - 1) return;
-                const reordered = [...openItems];
-                [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
-                void reorder(reordered);
-              }} t={t} disabled={index === openItems.length - 1 || busy === "reorder"} />
-              <TodoRowButton label="Delete" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t} />
+            <div className="opacity-0 group-hover/todo:opacity-100 focus-within:opacity-100 transition-opacity" style={{ display: "flex", alignItems: "center" }}>
+              <IconButton label="Move up" onClick={() => moveOpenItem(index, -1)} t={t} disabled={index === 0 || busy === "reorder"}>
+                <ChevronUp size={14} />
+              </IconButton>
+              <IconButton label="Move down" onClick={() => moveOpenItem(index, 1)} t={t} disabled={index === openItems.length - 1 || busy === "reorder"}>
+                <ChevronDown size={14} />
+              </IconButton>
+              <IconButton label="Delete task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
+                <Trash2 size={13} />
+              </IconButton>
             </div>
           </div>
         ))}
 
         {completedItems.length ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-            <div style={{ fontSize: 12, color: t.textDim }}>Completed</div>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: t.textDim, marginBottom: 2 }}>
+              Completed
+            </div>
             {completedItems.map((item) => (
               <div
                 key={item.id}
                 style={{
-                  display: "flex",
+                  display: "grid",
+                  gridTemplateColumns: "18px minmax(0, 1fr) auto",
                   alignItems: "center",
-                  gap: 10,
-                  padding: "10px 12px",
-                  borderRadius: 14,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  background: t.surface,
-                  opacity: 0.78,
+                  gap: 8,
+                  minHeight: 34,
+                  borderTop: rowBorder,
+                  opacity: 0.72,
                 }}
               >
                 <input
                   type="checkbox"
                   checked={item.done}
                   onChange={() => void runAction("toggle_item", { id: item.id, done: false }, `toggle:${item.id}`)}
+                  style={{ width: 13, height: 13, margin: 0 }}
                 />
-                <div style={{ flex: 1, color: t.textDim, textDecoration: "line-through", fontSize: 13 }}>{item.title}</div>
-                <TodoRowButton label="Delete" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t} />
+                <div style={{ color: t.textDim, textDecoration: "line-through", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {item.title}
+                </div>
+                <IconButton label="Delete completed task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
+                  <X size={13} />
+                </IconButton>
               </div>
             ))}
           </div>
         ) : null}
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: error ? t.danger : t.textDim }}>
-        <span>{error ? error : busy ? "Updating..." : "Click a task to rename. Drag or use Up/Down to reorder open items."}</span>
-        <span>{items.length ? `Last change ${new Date(String(currentPayload.state?.updated_at ?? "")).toLocaleString()}` : "State persists with the widget instance."}</span>
+      <div style={{ borderTop: rowBorder, paddingTop: 6, marginTop: 8, fontSize: 11, color: error ? t.danger : t.textDim, display: "flex", justifyContent: "space-between", gap: 8 }}>
+        <span>{status}</span>
+        <span style={{ color: t.textDim }}>Drag rows</span>
       </div>
     </div>
   );

@@ -99,11 +99,16 @@ A tool widget may render through:
 - an HTML-backed renderer via `html_template:`
 - a core semantic renderer via `view_key` plus renderer-neutral `data`
 
-Both are still `tool_widget`.
+All three are still `tool_widget`.
 
 `html_template` does not turn the definition into a standalone HTML widget. It only changes how that tool-bound widget renders.
 
 `view_key` is different: it lets a tool widget opt into a first-party semantic renderer when the payload shape is generic enough for core to own. For example, Web Search uses `view_key: core.search_results` with `{query, count, results[]}` data. The integration still owns the tool and fallback component template; core owns the reusable search-results presentation for default and terminal chat modes.
+
+Component-template widgets follow the shared low-chrome component design
+language in [Widget Templates](../widget-templates.md#component-design-language).
+Cards adapt across compact/standard/expanded dashboard sizes; chip widgets
+remain explicit chip presets/templates rather than automatic card collapse.
 
 That means a YAML-defined Home Assistant card can feel visually native or custom, but it is still fundamentally:
 

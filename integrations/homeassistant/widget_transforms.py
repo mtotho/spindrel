@@ -262,8 +262,6 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
             or widget_variant == "light_card"
             or allow_action
         ),
-        "show_light_status_on": widget_variant == "light_card" and is_on,
-        "show_light_status_off": widget_variant == "light_card" and not is_on,
         "show_brightness_button_show": supports_brightness and is_on and not show_brightness,
         "show_brightness_button_hide": supports_brightness and is_on and show_brightness,
         "toggle_target_name": friendly,
@@ -296,14 +294,10 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
             "color": "accent",
         })
 
-    if view.get("is_light_card"):
-        components.append({
-            "type": "status",
-            "text": "On" if view.get("is_on") else "Off",
-            "color": "success" if view.get("is_on") else "muted",
-        })
-
-    if view.get("is_toggle_chip") or view.get("is_entity_chip"):
+    if view.get("is_entity_chip") or (
+        view.get("is_toggle_chip")
+        and not (view.get("show_toggle_on") or view.get("show_toggle_off"))
+    ):
         components.append({
             "type": "status",
             "text": view.get("chip_text", ""),
@@ -313,7 +307,10 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
     if view.get("show_toggle_off"):
         components.append({
             "type": "toggle",
-            "label": "Power",
+            "label": view.get("friendly_name", "") or view.get("primary_text", "") or "Power",
+            "description": "On",
+            "on_label": "On",
+            "off_label": "Off",
             "value": True,
             "color": "success",
             "action": {
@@ -327,7 +324,10 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
     if view.get("show_toggle_on"):
         components.append({
             "type": "toggle",
-            "label": "Power",
+            "label": view.get("friendly_name", "") or view.get("primary_text", "") or "Power",
+            "description": "Off",
+            "on_label": "On",
+            "off_label": "Off",
             "value": False,
             "action": {
                 "dispatch": "tool",
@@ -375,15 +375,6 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
                 "value_key": "brightness",
             },
         })
-
-    props = [{"label": "entity", "value": view.get("entity_id", "")}]
-    if view.get("is_sensor_card") or view.get("is_light_card"):
-        props.append({"label": "updated", "value": view.get("last_changed", "")})
-    components.append({
-        "type": "properties",
-        "layout": "inline",
-        "items": props,
-    })
 
     return copy.deepcopy(components)
 

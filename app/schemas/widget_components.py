@@ -42,6 +42,8 @@ TEXT_STYLES = ("default", "muted", "bold", "code")
 LAYOUTS = ("vertical", "inline")
 DISPATCH_TYPES = ("tool", "api", "widget_config")
 HTTP_METHODS = ("POST", "PUT", "PATCH", "DELETE")
+PRIORITIES = ("primary", "secondary", "metadata")
+PROPERTY_VARIANTS = ("default", "metadata")
 
 
 def _is_templated(v: Any) -> bool:
@@ -66,6 +68,8 @@ LinkIcon = Annotated[Optional[str], BeforeValidator(_enum_or_template(LINK_ICONS
 ButtonVariant = Annotated[Optional[str], BeforeValidator(_enum_or_template(BUTTON_VARIANTS))]
 TextStyle = Annotated[Optional[str], BeforeValidator(_enum_or_template(TEXT_STYLES))]
 Layout = Annotated[Optional[str], BeforeValidator(_enum_or_template(LAYOUTS))]
+Priority = Annotated[Optional[str], BeforeValidator(_enum_or_template(PRIORITIES))]
+PropertyVariant = Annotated[Optional[str], BeforeValidator(_enum_or_template(PROPERTY_VARIANTS))]
 
 
 # ── Supporting types ──
@@ -119,6 +123,7 @@ TemplatedStr = Annotated[str, BeforeValidator(_must_be_templated_str)]
 class _Base(BaseModel):
     model_config = ConfigDict(extra="forbid")
     when: Optional[str] = None
+    priority: Priority = None
 
 
 # ── Display primitives ──
@@ -174,6 +179,7 @@ class PropertiesNode(_Base):
     type: Literal["properties"]
     items: Union[list[_PropertyItem], EachBlock, TemplatedStr]
     layout: Layout = None
+    variant: PropertyVariant = None
 
 
 class TableNode(_Base):
@@ -237,6 +243,9 @@ class ToggleNode(_Base):
     value: Union[bool, str]
     action: WidgetAction
     color: SemanticColor = None
+    description: Optional[str] = None
+    on_label: Optional[str] = None
+    off_label: Optional[str] = None
 
 
 class _SelectOption(BaseModel):

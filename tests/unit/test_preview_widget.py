@@ -98,11 +98,33 @@ class TestInlineMode:
 
 class TestLibraryRefMode:
     @pytest.mark.asyncio
-    async def test_library_ref_resolves_core_widget(self):
+    async def test_library_ref_old_context_tracker_html_is_gone(self):
         out = _parse(await preview_widget(library_ref="context_tracker"))
+        assert out["ok"] is False
+        assert out["envelope"] is None
+        assert out["errors"][0]["phase"] == "library_ref"
+        assert "not found" in out["errors"][0]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_library_ref_resolves_bot_widget(self, tmp_path, monkeypatch):
+        from app.tools.local import emit_html_widget as ehw
+
+        (tmp_path / ".widget_library" / "scratchpad").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "scratchpad" / "index.html").write_text(
+            "<p>scratch</p>"
+        )
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            out = _parse(await preview_widget(library_ref="bot/scratchpad"))
+        finally:
+            current_bot_id.reset(ctx)
         assert out["ok"] is True, out
         env = out["envelope"]
-        assert env["source_library_ref"] == "core/context_tracker"
+        assert env["source_library_ref"] == "bot/scratchpad"
         assert env["body"].strip()
 
     @pytest.mark.asyncio

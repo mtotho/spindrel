@@ -319,6 +319,21 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Todo",
         show_panel_title=True,
     ),
+    "core/context_tracker": NativeWidgetSpec(
+        widget_ref="core/context_tracker",
+        name="context_tracker",
+        display_label="Context tracker",
+        description="First-party native channel context tracker with live budget and compaction status.",
+        icon="gauge",
+        supported_scopes=("channel",),
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        panel_title="Context tracker",
+        show_panel_title=True,
+    ),
 }
 
 

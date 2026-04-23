@@ -2393,10 +2393,12 @@ function wrapHtml(
   gridDimensions: { width: number; height: number } | null,
   layout: WidgetLayout,
   hostSurface: HostSurface,
+  hoverScrollbars: boolean,
 ): string {
   const hostKind = dashboardPinId ? "pinned" : "inline";
+  const hoverScrollbarAttr = hoverScrollbars ? ' data-hover-scrollbars="1"' : "";
   return `<!doctype html>
-<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}" data-spindrel-host-surface="${hostSurface}">
+<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}" data-spindrel-host-surface="${hostSurface}"${hoverScrollbarAttr}>
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
@@ -3009,6 +3011,7 @@ export function InteractiveHtmlRenderer({
       frozenGridDimensionsRef.current,
       layout ?? "grid",
       hostSurface,
+      !!hoverScrollbars,
     )}\n<!-- reload:${reloadNonce} -->`,
     [
       bodyWithoutPreamble,
@@ -3025,6 +3028,7 @@ export function InteractiveHtmlRenderer({
       cspString,
       layout,
       hostSurface,
+      hoverScrollbars,
       reloadNonce,
     ],
   );

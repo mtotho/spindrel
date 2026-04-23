@@ -15,7 +15,6 @@ import type { ThemeTokens } from "../../theme/tokens";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
 import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
 import { ComponentRenderer, WidgetActionContext } from "./renderers/ComponentRenderer";
-import { JsonTreeRenderer } from "./renderers/JsonTreeRenderer";
 import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 import { useDashboardPinsStore } from "../../stores/dashboardPins";
@@ -66,7 +65,6 @@ export function WidgetCard({
   onPin,
 }: WidgetCardProps) {
   const [currentEnvelope, setCurrentEnvelope] = useState(envelope);
-  const [showJson, setShowJson] = useState(false);
   const [manualExpand, setManualExpand] = useState<boolean | null>(null);
 
   // Check if this exact widget is already pinned on the channel's implicit
@@ -235,10 +233,13 @@ export function WidgetCard({
       hostSurface={isTerminalMode ? "plain" : "surface"}
       t={t}
     />
-  ) : showJson ? (
-    <JsonTreeRenderer body={body ?? ""} t={t} />
   ) : (
-    <ComponentRenderer body={body ?? ""} t={t} />
+    <ComponentRenderer
+      body={body ?? ""}
+      layout={undefined}
+      hostSurface={isTerminalMode ? "plain" : "surface"}
+      t={t}
+    />
   );
 
   const wrapped = actionCtx ? (
@@ -321,18 +322,6 @@ export function WidgetCard({
           </span>
         )}
         <span className="flex-1" />
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowJson(!showJson);
-          }}
-          className="text-[10px] px-1 py-0.5 transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100"
-          style={{ color: t.textDim }}
-          title={showJson ? "Show widget" : "Show JSON"}
-        >
-          {showJson ? "widget" : "json"}
-        </button>
         {channelId && onPin && !isPinned && (
           <button
             type="button"

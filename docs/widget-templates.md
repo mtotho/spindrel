@@ -124,6 +124,35 @@ Pipes chain left-to-right with `" | "` (with spaces): `{{items | pluck: name | j
 | `when: "{{expr}}"` | Gate a component on a boolean expression. |
 | `each: "{{array}}"` + `template: [...]` | Expand an array into multiple components. Current item is `{{_}}` / `{{_.field}}`. |
 
+### Component design language
+
+Component templates render as native low-chrome dashboard controls. Treat
+the component tree as user-facing UI, not as a visualized YAML/debug dump:
+
+- Prefer card-sized templates for normal dashboard, rail/dock, builder,
+  and chat placement. Chips are explicit chip presets/templates, not an
+  automatic collapse target for every card.
+- Use object labels, not action labels. A toggle label should be
+  `Office Light Switch` with `on_label` / `off_label`, not a generic
+  `Power` row.
+- Keep internal identifiers (`entity_id`, database ids, raw tool ids) out
+  of normal content. If they are useful, mark them as
+  `properties.variant: metadata` / `priority: metadata` so compact cards
+  can hide them first.
+- The host passes layout and measured grid size to the renderer. Cards
+  adapt across `compact`, `standard`, and `expanded` density by collapsing
+  metadata/details first; a card placed too small should be resized or
+  expanded, not squeezed into a chip.
+
+Useful optional fields:
+
+| Component | Field | Notes |
+|---|---|---|
+| any | `priority: primary \| secondary \| metadata` | Collapse ordering hint. Compact cards hide metadata first. |
+| `properties` | `variant: default \| metadata` | Metadata rows are quieter and hidden in compact density. |
+| `toggle` | `description` | Secondary text under the subject label. |
+| `toggle` | `on_label` / `off_label` | State text when `description` is not provided. |
+
 ### State polling
 
 Add a `state_poll` block to refresh a pinned widget's state by calling

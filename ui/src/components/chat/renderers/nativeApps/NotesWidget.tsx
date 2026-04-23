@@ -96,7 +96,7 @@ export function NotesWidget({
           lineHeight: 1.7,
         }}
       />
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 12, color: error ? t.danger : t.textDim }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 6, fontSize: 11, color: error ? t.danger : t.textDim }}>
         <span>
           {error
             ? error
@@ -106,9 +106,7 @@ export function NotesWidget({
                 ? `Updated ${new Date(updatedAt).toLocaleString()}`
                 : "Autosaves after you stop typing."}
         </span>
-        <span style={{ color: t.textDim }}>
-          Plain text or markdown
-        </span>
+        <span style={{ color: t.textDim }}>Markdown ok</span>
       </div>
     </div>
   );

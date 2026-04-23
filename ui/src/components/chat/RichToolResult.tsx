@@ -202,11 +202,28 @@ function renderFileListingView({ body, rendererVariant, chromeMode, t }: RichRes
   return <FileListingRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
 }
 
-function renderComponentsView({ body, showJson, rendererVariant, chromeMode, t }: RichResultViewProps) {
+function renderComponentsView({
+  body,
+  showJson,
+  rendererVariant,
+  chromeMode,
+  layout,
+  hostSurface,
+  gridDimensions,
+  t,
+}: RichResultViewProps) {
   if (showJson) {
     return <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
   }
-  return <ComponentRenderer body={body} t={t} />;
+  return (
+    <ComponentRenderer
+      body={body}
+      layout={layout}
+      hostSurface={hostSurface}
+      gridDimensions={gridDimensions}
+      t={t}
+    />
+  );
 }
 
 function renderNativeAppView({
@@ -344,7 +361,7 @@ export function RichToolResult({
   const [fetched, setFetched] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [showJson, setShowJson] = useState(false);
+  const showJson = false;
   const rendererTokens = useMemo(
     () => resolveRendererTokens(t, rendererVariant),
     [rendererVariant, t],
@@ -442,8 +459,6 @@ export function RichToolResult({
 
   if (body == null) return null;
 
-  // Components content type supports a JSON toggle for debugging
-  const isComponents = envelope.content_type === "application/vnd.spindrel.components+json" && !isTerminalRenderer;
   const viewKey = envelopeViewKey(envelope);
   const data = parseStructuredData(envelope, body);
   const viewProps: RichResultViewProps = {
@@ -476,31 +491,6 @@ export function RichToolResult({
       {content}
     </WidgetActionContext.Provider>
   ) : content;
-
-  // For components content type, add a subtle JSON toggle
-  if (isComponents) {
-    return (
-      <div>
-        {wrapped}
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
-          <button
-            type="button"
-            onClick={() => setShowJson(!showJson)}
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              fontSize: 10, color: rendererTokens.textDim, opacity: 0.6,
-              padding: "2px 4px",
-              transition: "opacity 0.15s",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.6"; }}
-          >
-            {showJson ? "widget" : "json"}
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return <>{wrapped}</>;
 }

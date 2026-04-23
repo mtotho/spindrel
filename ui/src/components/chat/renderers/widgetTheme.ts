@@ -192,6 +192,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   html[data-hover-scrollbars="1"]::-webkit-scrollbar,
   html[data-hover-scrollbars="1"] body::-webkit-scrollbar,
   html[data-hover-scrollbars="1"] *::-webkit-scrollbar {
+    display: none;
     width: 0;
     height: 0;
   }
@@ -207,6 +208,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   html[data-hover-scrollbars="1"]:focus-within body::-webkit-scrollbar,
   html[data-hover-scrollbars="1"]:hover *::-webkit-scrollbar,
   html[data-hover-scrollbars="1"]:focus-within *::-webkit-scrollbar {
+    display: initial;
     width: 6px;
     height: 6px;
   }

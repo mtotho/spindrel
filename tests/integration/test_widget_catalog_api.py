@@ -208,17 +208,14 @@ class TestIntegrationContentEndpoint:
 
 class TestLibraryContentEndpoint:
     @pytest.mark.asyncio
-    async def test_read_core_library_widget(self, client):
-        """Core scope resolves without a bot_id — it's in-repo content."""
+    async def test_native_context_tracker_is_not_html_library_content(self, client):
+        """Context tracker is native now; the old HTML library ref is gone."""
         r = await client.get(
             "/api/v1/widgets/html-widget-content/library",
             params={"ref": "core/context_tracker"},
             headers=AUTH_HEADERS,
         )
-        assert r.status_code == 200, r.text
-        body = r.json()
-        assert body["path"] == "core/context_tracker/index.html"
-        assert "<" in body["content"] and body["content"].strip()
+        assert r.status_code == 404
 
     @pytest.mark.asyncio
     async def test_read_bot_library_widget(self, client, tmp_path, monkeypatch):
@@ -287,10 +284,11 @@ class TestLibraryWidgetsEndpoint:
         assert body["bot"] == []
         assert body["workspace"] == []
         assert body["channel"] == []
-        # At minimum the first-party native notes/todo widgets ship with the server.
+        # At minimum the first-party native notes/todo/context widgets ship with the server.
         names = {e["name"] for e in body["core"]}
         assert "todo_native" in names
         assert "notes_native" in names
+        assert "context_tracker" in names
         assert "notes" not in names
         for e in body["core"]:
             assert e["scope"] == "core"
@@ -302,8 +300,8 @@ class TestLibraryWidgetsEndpoint:
     async def test_core_excludes_template_renderer_entries(self, client):
         """Tool-renderer ``template.yaml`` bundles (get_task_result,
         manage_bot_skill, schedule_task, list_tasks, get_system_status,
-        context_tracker) are NOT pinnable — they need tool args. Confirm
-        they're filtered out of the catalog."""
+        etc.) are NOT pinnable — they need tool args. Confirm they're
+        filtered out of the catalog."""
         r = await client.get(
             "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
         )
@@ -321,6 +319,7 @@ class TestLibraryWidgetsEndpoint:
                 f"{junk!r} is a tool-renderer template — must not appear "
                 f"in the pinnable Library (belongs in dev panel instead)"
             )
+        assert "context_tracker" in core_names
 
     @pytest.mark.asyncio
     async def test_integration_scope_is_populated(self, client):

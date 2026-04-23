@@ -18,18 +18,18 @@ AUTH_HEADERS = {"Authorization": "Bearer test-key"}
 HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive"
 
 
-def _builtin_envelope(path: str = "context_tracker/index.html") -> dict:
+def _builtin_envelope(path: str = "examples/sdk-smoke/index.html") -> dict:
     """Envelope shape ``HtmlWidgetsTab.envelopeForEntry`` produces for a
     ``source="builtin"`` catalog entry."""
     return {
         "content_type": HTML_INTERACTIVE_CT,
         "body": "",
-        "plain_body": "Context Tracker",
+        "plain_body": "SDK Smoke",
         "display": "inline",
         "truncated": False,
         "record_id": None,
         "byte_size": 0,
-        "display_label": "Context Tracker",
+        "display_label": "SDK Smoke",
         "source_path": path,
         "source_kind": "builtin",
         "source_bot_id": None,
@@ -108,9 +108,9 @@ class TestPinFromCatalog_UserDashboard:
                 "source_channel_id": None,
                 "source_bot_id": None,
                 "tool_name": "emit_html_widget",
-                "tool_args": {"source": "builtin", "path": "context_tracker/index.html"},
+                "tool_args": {"source": "builtin", "path": "examples/sdk-smoke/index.html"},
                 "envelope": _builtin_envelope(),
-                "display_label": "Context Tracker",
+                "display_label": "SDK Smoke",
                 "dashboard_key": "default",
             },
             headers=AUTH_HEADERS,
@@ -164,9 +164,9 @@ class TestPinFromCatalog_ChannelDashboard:
                 "source_channel_id": None,
                 "source_bot_id": None,
                 "tool_name": "emit_html_widget",
-                "tool_args": {"source": "builtin", "path": "context_tracker/index.html"},
+                "tool_args": {"source": "builtin", "path": "examples/sdk-smoke/index.html"},
                 "envelope": _builtin_envelope(),
-                "display_label": "Context Tracker",
+                "display_label": "SDK Smoke",
                 "dashboard_key": f"channel:{channel_id}",
             },
             headers=AUTH_HEADERS,
@@ -183,9 +183,9 @@ class TestPinFromCatalog_ChannelDashboard:
                 "source_channel_id": channel_id,
                 "source_bot_id": None,
                 "tool_name": "emit_html_widget",
-                "tool_args": {"source": "builtin", "path": "context_tracker/index.html"},
+                "tool_args": {"source": "builtin", "path": "examples/sdk-smoke/index.html"},
                 "envelope": _builtin_envelope(),
-                "display_label": "Context Tracker",
+                "display_label": "SDK Smoke",
                 "dashboard_key": f"channel:{channel_id}",
             },
             headers=AUTH_HEADERS,

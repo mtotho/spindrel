@@ -22,7 +22,7 @@ from app.services.widget_paths import (
 
 class TestIsWidgetUri:
     def test_recognizes_core(self):
-        assert is_widget_uri("widget://core/context_tracker/index.html")
+        assert is_widget_uri("widget://core/examples/sdk-smoke/index.html")
 
     def test_recognizes_bot(self):
         assert is_widget_uri("widget://bot/foo")
@@ -62,29 +62,29 @@ class TestScopeRoot:
 class TestResolveCore:
     def test_resolves_index_html(self):
         path, scope, name, ro = resolve_widget_uri(
-            "widget://core/context_tracker/index.html", ws_root=None, shared_root=None,
+            "widget://core/examples/sdk-smoke/index.html", ws_root=None, shared_root=None,
         )
         assert scope == "core"
-        assert name == "context_tracker"
+        assert name == "examples"
         assert ro is True
-        assert path.endswith("/widgets/context_tracker/index.html")
+        assert path.endswith("/widgets/examples/sdk-smoke/index.html")
 
     def test_resolves_bare_bundle_dir(self):
         path, _scope, _name, _ro = resolve_widget_uri(
-            "widget://core/context_tracker", ws_root=None, shared_root=None,
+            "widget://core/examples", ws_root=None, shared_root=None,
         )
-        assert path.endswith("/widgets/context_tracker")
+        assert path.endswith("/widgets/examples")
 
     def test_traversal_to_sibling_bundle_blocked(self):
         with pytest.raises(ValueError, match="escapes bundle"):
             resolve_widget_uri(
-                "widget://core/context_tracker/../other", ws_root=None, shared_root=None,
+                "widget://core/examples/../other", ws_root=None, shared_root=None,
             )
 
     def test_traversal_via_slashdot_blocked(self):
         with pytest.raises(ValueError, match="escapes bundle"):
             resolve_widget_uri(
-                "widget://core/context_tracker/../../etc/passwd",
+                "widget://core/examples/../../etc/passwd",
                 ws_root=None, shared_root=None,
             )
 

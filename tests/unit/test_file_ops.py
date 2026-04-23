@@ -306,8 +306,8 @@ class TestResolvePathWidgetUri:
         )
 
     def test_widget_core_uri_resolves_to_in_repo_dir(self, ws):
-        result = _resolve_path("widget://core/context_tracker/index.html", str(ws))
-        assert result.endswith("/widgets/context_tracker/index.html")
+        result = _resolve_path("widget://core/examples/sdk-smoke/index.html", str(ws))
+        assert result.endswith("/widgets/examples/sdk-smoke/index.html")
         # Lives under the in-repo tree, not the bot workspace.
         assert "/app/tools/local/widgets/" in result
 
@@ -376,7 +376,7 @@ class TestFileToolWidgetUri:
         # Uses a real in-repo core widget.
         result = await file_tool(
             operation="read",
-            path="widget://core/context_tracker/index.html",
+            path="widget://core/examples/sdk-smoke/index.html",
         )
         parsed = json.loads(result)
         # Either returned the envelope (wrapped) or the raw numbered text —

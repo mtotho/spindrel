@@ -30,6 +30,7 @@ Use this checklist when adding or modernizing a widget.
 
 - Lives under `tool_widgets:` or a local `widgets/<tool>/template.yaml`.
 - Uses `template:`, `html_template:`, or a core semantic `view_key` with a renderer-neutral `data` payload. A tool widget using `html_template` is still a tool widget.
+- Component templates follow the low-chrome component design language: object labels over generic action labels, metadata marked as metadata, and chip-vs-card chosen explicitly.
 - Has `sample_payload` unless there is a strong reason it cannot.
 - Uses `state_poll` when pinned state should refresh.
 - Provides `config_schema` whenever it exposes editable `default_config` / `widget_config` keys.

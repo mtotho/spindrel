@@ -25,19 +25,13 @@ _ha_state_poll: &ha_state_poll
   template:
     v: 1
     components:
-      # Status badge — show "On" or "Off" based on current state
-      - type: status
-        when: "{{is_on}}"
-        text: "On"
-        color: success
-      - type: status
-        when: "{{is_off}}"
-        text: "Off"
-        color: muted
       # Toggle — action flips to the opposite state
       - type: toggle
         when: "{{is_on}}"
-        label: Power
+        label: "{{entity_name}}"
+        description: "On"
+        on_label: "On"
+        off_label: "Off"
         value: true
         color: success
         action:
@@ -48,7 +42,10 @@ _ha_state_poll: &ha_state_poll
           optimistic: true
       - type: toggle
         when: "{{is_off}}"
-        label: Power
+        label: "{{entity_name}}"
+        description: "Off"
+        on_label: "On"
+        off_label: "Off"
         value: false
         action:
           dispatch: tool
@@ -73,11 +70,6 @@ _ha_state_poll: &ha_state_poll
           args:
             name: "{{entity_name}}"
           value_key: brightness
-      - type: properties
-        layout: inline
-        items:
-          - label: entity
-            value: "{{entity_name}}"
 
 widget_presets:
   homeassistant-entity-toggle-chip:
@@ -258,11 +250,11 @@ tool_widgets:
     template:
       v: 1
       components:
-        - type: status
-          text: "On"
-          color: success
         - type: toggle
-          label: Power
+          label: "{{data.success | where: type=entity | pluck: name | first}}"
+          description: "On"
+          on_label: "On"
+          off_label: "Off"
           value: true
           color: success
           action:
@@ -271,9 +263,6 @@ tool_widgets:
             args:
               name: "{{data.success | where: type=entity | pluck: name | first}}"
             optimistic: true
-        - type: properties
-          layout: inline
-          items: "{{data.success | map: {label: type, value: name}}}"
 
   HassTurnOff:
     content_type: application/vnd.spindrel.components+json
@@ -291,11 +280,11 @@ tool_widgets:
     template:
       v: 1
       components:
-        - type: status
-          text: "Off"
-          color: muted
         - type: toggle
-          label: Power
+          label: "{{data.success | where: type=entity | pluck: name | first}}"
+          description: "Off"
+          on_label: "On"
+          off_label: "Off"
           value: false
           action:
             dispatch: tool
@@ -303,9 +292,6 @@ tool_widgets:
             args:
               name: "{{data.success | where: type=entity | pluck: name | first}}"
             optimistic: true
-        - type: properties
-          layout: inline
-          items: "{{data.success | map: {label: type, value: name}}}"
 
   HassLightSet:
     content_type: application/vnd.spindrel.components+json
@@ -330,9 +316,6 @@ tool_widgets:
         - type: status
           text: "Light adjusted"
           color: accent
-        - type: properties
-          layout: inline
-          items: "{{data.success | map: {label: type, value: name}}}"
 
   # Community ha-mcp: single entity lookup — e.g. a temperature sensor.
   # One adaptive entity widget:
@@ -416,24 +399,15 @@ tool_widgets:
             text: "{{display_value}}"
             color: accent
           - type: status
-            when: "{{show_light_status_on}}"
-            text: "On"
-            color: success
-          - type: status
-            when: "{{show_light_status_off}}"
-            text: "Off"
-            color: muted
-          - type: status
-            when: "{{is_toggle_chip}}"
-            text: "{{chip_text}}"
-            color: "{{chip_color}}"
-          - type: status
             when: "{{is_entity_chip}}"
             text: "{{chip_text}}"
             color: "{{chip_color}}"
           - type: toggle
             when: "{{show_toggle_off}}"
-            label: Power
+            label: "{{friendly_name}}"
+            description: "On"
+            on_label: "On"
+            off_label: "Off"
             value: true
             color: success
             action:
@@ -444,7 +418,10 @@ tool_widgets:
               optimistic: true
           - type: toggle
             when: "{{show_toggle_on}}"
-            label: Power
+            label: "{{friendly_name}}"
+            description: "Off"
+            on_label: "On"
+            off_label: "Off"
             value: false
             action:
               dispatch: tool
@@ -483,34 +460,6 @@ tool_widgets:
               args:
                 name: "{{toggle_target_entity_id}}"
               value_key: brightness
-          - type: properties
-            when: "{{is_sensor_card}}"
-            layout: inline
-            items:
-              - label: entity
-                value: "{{entity_id}}"
-              - label: updated
-                value: "{{last_changed | date_relative}}"
-          - type: properties
-            when: "{{is_light_card}}"
-            layout: inline
-            items:
-              - label: entity
-                value: "{{entity_id}}"
-              - label: updated
-                value: "{{last_changed | date_relative}}"
-          - type: properties
-            when: "{{is_toggle_chip}}"
-            layout: inline
-            items:
-              - label: entity
-                value: "{{entity_id}}"
-          - type: properties
-            when: "{{is_entity_chip}}"
-            layout: inline
-            items:
-              - label: entity
-                value: "{{entity_id}}"
     template:
       v: 1
       components:
@@ -639,24 +588,15 @@ tool_widgets:
             text: "{{display_value}}"
             color: accent
           - type: status
-            when: "{{show_light_status_on}}"
-            text: "On"
-            color: success
-          - type: status
-            when: "{{show_light_status_off}}"
-            text: "Off"
-            color: muted
-          - type: status
-            when: "{{is_toggle_chip}}"
-            text: "{{chip_text}}"
-            color: "{{chip_color}}"
-          - type: status
             when: "{{is_entity_chip}}"
             text: "{{chip_text}}"
             color: "{{chip_color}}"
           - type: toggle
             when: "{{show_toggle_off}}"
-            label: Power
+            label: "{{friendly_name}}"
+            description: "On"
+            on_label: "On"
+            off_label: "Off"
             value: true
             color: success
             action:
@@ -667,7 +607,10 @@ tool_widgets:
               optimistic: true
           - type: toggle
             when: "{{show_toggle_on}}"
-            label: Power
+            label: "{{friendly_name}}"
+            description: "Off"
+            on_label: "On"
+            off_label: "Off"
             value: false
             action:
               dispatch: tool
@@ -706,12 +649,6 @@ tool_widgets:
               args:
                 name: "{{toggle_target_entity_id}}"
               value_key: brightness
-          - type: properties
-            when: "{{is_entity_preset}}"
-            layout: inline
-            items:
-              - label: entity
-                value: "{{entity_id}}"
           - type: status
             when: "{{is_live_summary}}"
             text: "{{status_text}}"

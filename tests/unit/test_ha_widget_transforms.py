@@ -157,8 +157,11 @@ def test_render_single_entity_widget_toggle_actions_target_entity_id():
 
     components = render_single_entity_widget(payload, [])
     toggle = next(c for c in components if c["type"] == "toggle")
+    assert toggle["label"] == "Office Desk LED Strip"
+    assert toggle["description"] == "On"
     assert toggle["action"]["tool"] == "HassTurnOff"
     assert toggle["action"]["args"] == {"name": "light.office_desk_led_strip"}
+    assert not any(c["type"] == "properties" for c in components)
 
 
 def test_single_entity_state_invalid_json():
@@ -458,8 +461,11 @@ def test_get_live_context_entity_preset_renders_single_light_card():
         [],
     )
     toggle = next(c for c in components if c.get("type") == "toggle")
+    assert toggle["label"] == "Office Desk LED Strip"
+    assert toggle["description"] == "On"
     assert toggle["action"]["tool"] == "HassTurnOff"
     assert toggle["action"]["args"] == {"name": "Office Desk LED Strip"}
+    assert not any(c.get("type") == "properties" for c in components)
 
 
 def test_single_entity_state_via_state_poll_contract():
@@ -472,7 +478,8 @@ def test_single_entity_state_via_state_poll_contract():
         "tool_name": "ha_get_state",
         "config": {},
     })
-    # Every field the state_poll template references must be non-empty
-    # for the rendered properties/status/heading to display.
+    # Keep these fields populated for preset binding/property options and
+    # backwards-compatible widget_config refreshes even though entity ids are
+    # no longer rendered as default user-facing metadata.
     for key in ("entity_id", "friendly_name", "display_value", "last_changed"):
         assert out.get(key), f"{key} must be populated for state_poll render"
