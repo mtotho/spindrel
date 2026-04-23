@@ -67,6 +67,19 @@ class TestHappyPath:
         assert m.panel_title == "Home Command Center"
         assert m.show_panel_title is True
 
+    def test_presentation_family_is_parsed(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Quick toggle
+            version: 1.0.0
+            description: Compact control
+            presentation_family: chip
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.presentation_family == "chip"
+
     def test_config_schema_is_parsed(self, tmp_path):
         p = write_yaml(
             tmp_path,

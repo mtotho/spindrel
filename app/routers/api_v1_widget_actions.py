@@ -569,8 +569,9 @@ def _build_result_envelope(
     """Build a ToolResultEnvelope from a raw tool result string.
 
     Tries in order: _envelope opt-in → widget template → default envelope.
-    ``widget_config`` is threaded into the widget template so ``{{config.*}}``
-    resolves against the caller's per-pin config.
+    ``widget_config`` is threaded into the widget template so ``{{widget_config.*}}``
+    resolves against the caller's per-pin runtime config. ``{{config.*}}``
+    remains as a deprecated compatibility alias.
 
     ``cap_body=False`` skips the 4KB body truncation for callers that need the
     full payload (e.g. widget-actions tool dispatch, where the envelope is
@@ -637,10 +638,11 @@ async def _do_state_poll(
     Used by both the /refresh endpoint and the post-action envelope swap in
     _dispatch_tool. Returns None on error.
 
-    ``widget_config`` — per-pin user config. Exposed as ``{{config.*}}`` in
-    state_poll args so a toggled flag can change the tool arguments (e.g.
-    ``include_daily: "{{config.show_forecast}}"``). Also passed to the
-    template engine so the rendered envelope can gate components on it.
+    ``widget_config`` — per-pin runtime config. Exposed as
+    ``{{widget_config.*}}`` in state_poll args so a toggled flag can change
+    the tool arguments. ``{{config.*}}`` remains as a deprecated
+    compatibility alias. The same config is also passed to the template
+    engine so the rendered envelope can gate components on it.
 
     ``bot_id`` / ``channel_id`` — set as ContextVars during the tool call so
     poll tools that read ``current_bot_id`` / ``current_channel_id`` (e.g.
@@ -655,13 +657,15 @@ async def _do_state_poll(
 
     resolved_poll_tool = _resolve_tool_name(poll_tool)
 
-    # Substitute widget_meta ({{display_label}}, {{tool_name}}, {{config.*}})
+    # Substitute widget_meta ({{display_label}}, {{tool_name}},
+    # {{widget_config.*}})
     # into args so each pinned widget can re-poll with its own identifying
     # value. Static configs pass through unchanged.
     raw_args = poll_cfg.get("args", {}) or {}
     widget_meta = {
         "display_label": display_label,
         "tool_name": tool_name,
+        "widget_config": widget_config or {},
         "config": widget_config or {},
         # HTML-template widgets read these off widget_meta so apply_state_poll
         # can re-emit them on the refreshed envelope — preserving iframe auth

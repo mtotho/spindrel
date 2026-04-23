@@ -57,6 +57,56 @@ def _safe_sim(value: float) -> float | None:
     return round(value, 4)
 
 
+def _build_context_profile_note(
+    *,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
+) -> str | None:
+    """Return a small runtime note for restricted profiles.
+
+    Chat already carries the full generic memory/context instructions in the
+    shared memory prompt. Restricted profiles get an extra per-request note so
+    the model knows what is missing on this run without duplicating the whole
+    prompt family.
+    """
+    if context_profile.name == "chat":
+        return None
+
+    lines = [f"Current context profile: {context_profile.name}."]
+
+    if context_profile.live_history_turns == 0:
+        lines.append("Live replay is disabled for this run.")
+    elif context_profile.live_history_turns is not None:
+        lines.append(
+            f"Live replay is limited to the last {context_profile.live_history_turns} user-started turn(s)."
+        )
+
+    if not context_profile.allow_memory_recent_logs:
+        lines.append("Recent daily logs and memory reference listings are not preloaded in this run.")
+
+    workspace_keys = (
+        "channel_workspace",
+        "channel_index_segments",
+        "workspace_rag",
+        "bot_knowledge_base",
+    )
+    workspace_decisions = [inject_decisions.get(key) for key in workspace_keys]
+    workspace_admitted = any(decision == "admitted" for decision in workspace_decisions)
+    workspace_budget_skipped = any(decision == "skipped_by_budget" for decision in workspace_decisions)
+
+    if not (context_profile.allow_channel_workspace or context_profile.allow_workspace_rag):
+        lines.append("Workspace files, knowledge excerpts, and workspace search context are not preloaded in this profile.")
+    elif workspace_admitted:
+        lines.append("Some workspace and knowledge context is already present in this run.")
+    elif workspace_budget_skipped:
+        lines.append("Workspace and knowledge context was eligible but skipped on budget for this run.")
+    else:
+        lines.append("Workspace and knowledge context was not preloaded for this run.")
+
+    lines.append("If exact detail matters, fetch or search it explicitly instead of assuming it is already in context.")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Bot-authored skill auto-discovery cache (avoids DB hit on every message)
 # ---------------------------------------------------------------------------
@@ -902,6 +952,7 @@ async def _inject_workspace_rag(
     budget_can_afford: Any,
     budget: Any,
     memory_scheme_injected_paths: set[str],
+    excluded_chunk_prefixes: set[str],
     context_profile: ContextProfile,
     inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -931,6 +982,8 @@ async def _inject_workspace_rag(
         )
         if memory_scheme_injected_paths:
             fs_chunks = [c for c in fs_chunks if not any(p in c for p in memory_scheme_injected_paths)]
+        if excluded_chunk_prefixes:
+            fs_chunks = [c for c in fs_chunks if not any(prefix in c for prefix in excluded_chunk_prefixes)]
         if fs_chunks:
             body = (
                 "Relevant workspace file excerpts (partial segments — "
@@ -984,6 +1037,71 @@ async def _inject_workspace_rag(
             _mark_injection_decision(inject_decisions, "workspace_rag", "admitted")
         else:
             _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_empty")
+
+
+async def _inject_bot_knowledge_base(
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: str,
+    inject_chars: dict[str, int],
+    budget_consume: Any,
+    budget_can_afford: Any,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Inject semantic excerpts from the bot's own knowledge-base/ folder."""
+    if not context_profile.allow_workspace_rag:
+        _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_by_profile")
+        return
+    if not bot.workspace.enabled or not bot.workspace.indexing.enabled:
+        _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_missing")
+        return
+    if not getattr(bot.workspace, "bot_knowledge_auto_retrieval", True):
+        _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_disabled")
+        return
+
+    try:
+        from app.agent.fs_indexer import retrieve_filesystem_context
+        from app.services.workspace import workspace_service
+        from app.services.workspace_indexing import get_all_roots, resolve_indexing
+
+        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+        kb_prefix = workspace_service.get_bot_knowledge_base_index_prefix(bot)
+        kb_segments: list[dict[str, Any]] = [{
+            "path_prefix": kb_prefix,
+            "embedding_model": resolved["embedding_model"],
+        }]
+        chunks, sim = await retrieve_filesystem_context(
+            user_message,
+            bot.id,
+            roots=get_all_roots(bot, workspace_service),
+            threshold=resolved["similarity_threshold"],
+            top_k=resolved["top_k"],
+            embedding_model=resolved["embedding_model"],
+            segments=kb_segments,
+        )
+        if not chunks:
+            _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_empty")
+            return
+
+        kb_body = "\n\n".join(chunks)
+        kb_header = "Relevant excerpts from this bot's knowledge base:\n\n"
+        if "search_bot_knowledge" in bot.local_tools:
+            kb_header += "(Call search_bot_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
+        elif "search_workspace" in bot.local_tools:
+            kb_header += "(Use search_workspace for targeted searches beyond these auto-retrieved excerpts.)\n\n"
+        kb_content = kb_header + kb_body
+        if budget_can_afford(kb_content):
+            messages.append({"role": "system", "content": kb_content})
+            budget_consume("bot_knowledge_base", kb_content)
+            inject_chars["bot_knowledge_base"] = len(kb_body)
+            _mark_injection_decision(inject_decisions, "bot_knowledge_base", "admitted")
+            yield {"type": "bot_knowledge_base", "count": len(chunks), "similarity": sim}
+        else:
+            _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_by_budget")
+    except Exception:
+        logger.warning("Failed to retrieve bot knowledge-base for bot %s", bot.id, exc_info=True)
+        _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_error")
 
 
 async def assemble_context(
@@ -1799,12 +1917,36 @@ async def assemble_context(
         ):
             yield evt
 
+    _workspace_rag_excluded_prefixes: set[str] = set()
+
+    # --- bot knowledge-base retrieval ---
+    if (
+        bot.workspace.enabled
+        and bot.workspace.indexing.enabled
+        and getattr(bot.workspace, "bot_knowledge_auto_retrieval", True)
+    ):
+        _workspace_rag_excluded_prefixes.add(
+            "bots/" + bot.id + "/knowledge-base" if bot.shared_workspace_id else "knowledge-base"
+        )
+    async for evt in _inject_bot_knowledge_base(
+        messages,
+        bot,
+        user_message,
+        _inject_chars,
+        _budget_consume,
+        _budget_can_afford,
+        context_profile,
+        _inject_decisions,
+    ):
+        yield evt
+
     # --- workspace filesystem context ---
     async for evt in _inject_workspace_rag(
         messages, bot, _ch_row, channel_id, user_message,
         correlation_id, session_id, client_id,
         _inject_chars, _budget_consume, _budget_can_afford, budget,
-        _memory_scheme_injected_paths, context_profile, _inject_decisions,
+        _memory_scheme_injected_paths, _workspace_rag_excluded_prefixes,
+        context_profile, _inject_decisions,
     ):
         yield evt
 
@@ -2238,6 +2380,19 @@ async def assemble_context(
         logger.debug("tool_refusal_guard: injection failed", exc_info=True)
     if not context_profile.allow_tool_refusal_guard:
         _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_by_profile")
+
+    _context_profile_note = _build_context_profile_note(
+        context_profile=context_profile,
+        inject_decisions=_inject_decisions,
+    )
+    if _context_profile_note:
+        if _budget_can_afford(_context_profile_note):
+            messages.append({"role": "system", "content": _context_profile_note})
+            _budget_consume("context_profile_note", _context_profile_note)
+            _inject_chars["context_profile_note"] = len(_context_profile_note)
+            _mark_injection_decision(_inject_decisions, "context_profile_note", "admitted")
+        else:
+            _mark_injection_decision(_inject_decisions, "context_profile_note", "skipped_by_budget")
 
     # --- channel prompt (injected just before user message) ---
     if channel_id is not None and _ch_row is not None:

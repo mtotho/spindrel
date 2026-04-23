@@ -43,6 +43,8 @@ async def test_native_widget_entries_surface_action_schema():
     data = _parse(raw)
     by_name = {w["name"]: w for w in data["widgets"] if w["widget_kind"] == "native_app"}
     assert {"notes_native", "todo_native", "context_tracker"} <= set(by_name)
+    assert by_name["todo_native"]["widget_presentation"]["presentation_family"] == "card"
+    assert by_name["context_tracker"]["widget_presentation"]["layout_hints"]["preferred_zone"] == "header"
 
     notes_actions = by_name["notes_native"].get("actions") or []
     assert {action["id"] for action in notes_actions} >= {"replace_body", "append_text", "clear"}
@@ -122,6 +124,7 @@ async def test_bot_scope_lists_authored_widgets(tmp_path, monkeypatch):
     (ws / ".widget_library" / "my_toggle" / "widget.yaml").write_text(
         "display_label: My Toggle\n"
         "description: flip the thing\n"
+        "presentation_family: panel\n"
     )
 
     monkeypatch.setattr(
@@ -136,6 +139,11 @@ async def test_bot_scope_lists_authored_widgets(tmp_path, monkeypatch):
     assert widget["format"] == "html"
     assert widget["display_label"] == "My Toggle"
     assert widget["description"] == "flip the thing"
+    assert widget["presentation_family"] == "panel"
+    assert widget["widget_presentation"] == {
+        "presentation_family": "panel",
+        "layout_hints": None,
+    }
 
 
 @pytest.mark.asyncio

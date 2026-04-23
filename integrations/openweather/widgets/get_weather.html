@@ -44,6 +44,34 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
+  function getWidgetConfig() {
+    var sp = window.spindrel || {};
+    return sp.widgetConfig || (sp.toolResult && sp.toolResult.config) || {};
+  }
+
+  function setWidgetState(nextResult, nextWidgetConfig) {
+    window.spindrel = window.spindrel || {};
+    if (nextResult && typeof nextResult === "object") {
+      window.spindrel.result = nextResult;
+    }
+    if (nextWidgetConfig && typeof nextWidgetConfig === "object") {
+      window.spindrel.widgetConfig = nextWidgetConfig;
+    }
+    window.spindrel.widgetContext = {
+      result: window.spindrel.result || {},
+      widgetConfig: window.spindrel.widgetConfig || {},
+    };
+    if (window.spindrel.toolResult && typeof window.spindrel.toolResult === "object") {
+      window.spindrel.toolResult = Object.assign({}, window.spindrel.toolResult, {
+        config: window.spindrel.widgetConfig || {},
+      });
+    }
+  }
+
   var locationEl = document.getElementById("location");
   var metaEl = document.getElementById("meta");
   var tempEl = document.getElementById("temp");
@@ -253,12 +281,12 @@
     }).join("");
   }
 
-  function render(data) {
+  function render(data, cfg) {
     if (!data) { setError("No weather data"); return; }
     if (data.error) { setError(data.error); return; }
     setError("");
 
-    var cfg = (data.config || {});
+    cfg = cfg || getWidgetConfig();
     var showFeels = !!cfg.show_feels_like;
     feelsToggle.setAttribute("aria-pressed", showFeels ? "true" : "false");
     unitToggle.textContent = cfg.units === "metric" ? "°C" : "°F";
@@ -305,9 +333,9 @@
     // baked-in config).
     // Dashboard pin id is embedded nowhere in the iframe — rely on host
     // widget_config refetching on next load if backend persistence is needed.
-    window.spindrel.toolResult = Object.assign({}, window.spindrel.toolResult,
-      { config: Object.assign({}, window.spindrel.toolResult && window.spindrel.toolResult.config, patch) });
-    render(window.spindrel.toolResult);
+    var nextConfig = Object.assign({}, getWidgetConfig(), patch);
+    setWidgetState(getResult(), nextConfig);
+    render(getResult(), nextConfig);
   }
 
   feelsToggle.addEventListener("click", function () {
@@ -315,11 +343,11 @@
     dispatchConfig({ show_feels_like: next });
   });
   unitToggle.addEventListener("click", function () {
-    var cur = (window.spindrel.toolResult && window.spindrel.toolResult.config && window.spindrel.toolResult.config.units) || "imperial";
+    var cur = getWidgetConfig().units || "imperial";
     dispatchConfig({ units: cur === "metric" ? "imperial" : "metric" });
   });
 
-  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
-  render(window.spindrel && window.spindrel.toolResult);
+  window.addEventListener("spindrel:toolresult", function () { render(getResult(), getWidgetConfig()); });
+  render(getResult(), getWidgetConfig());
 })();
 </script>

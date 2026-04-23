@@ -140,9 +140,43 @@ class TestApplyWidgetTemplate:
         env = apply_widget_template("TestTool", json.dumps({"message": "ok"}))
         assert env is not None
         assert env.view_key == "test.result"
-        assert env.data == {"message": "ok", "config": {}}
+        assert env.data == {
+            "message": "ok",
+            "result": {"message": "ok"},
+            "widget_config": {},
+            "config": {},
+            "binding": {},
+            "pin": {},
+        }
         assert env.compact_dict()["view_key"] == "test.result"
-        assert env.compact_dict()["data"] == {"message": "ok", "config": {}}
+        assert env.compact_dict()["data"] == {
+            "message": "ok",
+            "result": {"message": "ok"},
+            "widget_config": {},
+            "config": {},
+            "binding": {},
+            "pin": {},
+        }
+
+    def test_widget_config_namespace_is_available(self):
+        _widget_templates["TestTool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "default_config": {"units": "imperial"},
+            "template": {
+                "v": 1,
+                "components": [
+                    {"type": "status", "text": "{{widget_config.units}}", "color": "info"},
+                ],
+            },
+            "source": "test",
+        }
+
+        env = apply_widget_template("TestTool", json.dumps({"message": "ok"}))
+        assert env is not None
+        body = json.loads(env.body)
+        assert body["components"][0]["text"] == "imperial"
+        assert env.data["widget_config"] == {"units": "imperial"}
 
     def test_html_template_sets_byte_size(self):
         _widget_templates["TestTool"] = {
@@ -471,7 +505,8 @@ class TestDateRelativeTransform:
 
 class TestWidgetConfigThreading:
     """`apply_widget_template(tool, raw, widget_config=...)` merges per-pin
-    config over the template's default_config and exposes it as {{config.*}}."""
+    config over the template's default_config and exposes it as
+    {{widget_config.*}} (`{{config.*}}` remains a compatibility alias)."""
 
     def setup_method(self):
         _widget_templates.clear()
@@ -484,9 +519,9 @@ class TestWidgetConfigThreading:
                 "v": 1,
                 "components": [
                     {"type": "status", "text": "on",
-                     "when": "{{config.enabled | not_empty}}"},
+                     "when": "{{widget_config.enabled | not_empty}}"},
                     {"type": "status", "text": "off",
-                     "when": "{{config.enabled | not}}"},
+                     "when": "{{widget_config.enabled | not}}"},
                 ],
             },
             "default_config": default_config or {},
@@ -509,7 +544,7 @@ class TestWidgetConfigThreading:
     def test_widget_config_shallow_merged(self):
         self._register(default_config={"enabled": False, "units": "imperial"})
         _widget_templates["TestTool"]["template"]["components"].append(
-            {"type": "heading", "text": "units={{config.units}}", "level": 3},
+            {"type": "heading", "text": "units={{widget_config.units}}", "level": 3},
         )
         env = apply_widget_template("TestTool", "{}", widget_config={"enabled": True})
         body = json.loads(env.body)
@@ -527,7 +562,7 @@ class TestWidgetConfigThreading:
                 "args": {},
                 "template": {
                     "v": 1,
-                    "components": [{"type": "status", "text": "{{config.units}}"}],
+                    "components": [{"type": "status", "text": "{{widget_config.units}}"}],
                 },
             },
             "source": "test",
@@ -551,7 +586,7 @@ class TestWidgetConfigThreading:
                 "args": {},
                 "template": {
                     "v": 1,
-                    "components": [{"type": "status", "text": "{{config.units}}"}],
+                    "components": [{"type": "status", "text": "{{widget_config.units}}"}],
                 },
             },
             "source": "test",

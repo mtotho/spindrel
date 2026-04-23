@@ -4,7 +4,7 @@
  */
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, PencilLine } from "lucide-react";
 import { useThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ export function ActionButton({
 
   const minHeight = size === "small" ? 36 : 44;
   const fontSize = size === "small" ? 12 : 13;
-  const px = size === "small" ? 12 : 20;
+  const px = size === "small" ? 12 : 16;
 
   const variantStyles: Record<
     ButtonVariant,
@@ -86,12 +86,12 @@ export function ActionButton({
   > = {
     primary: { bg: t.accent, color: "#fff" },
     secondary: {
-      bg: "transparent",
-      color: t.textMuted,
+      bg: t.surfaceOverlay,
+      color: t.text,
       border: `1px solid ${t.surfaceBorder}`,
     },
     danger: {
-      bg: "transparent",
+      bg: t.dangerSubtle,
       color: t.danger,
       border: `1px solid ${t.dangerBorder}`,
     },
@@ -112,7 +112,7 @@ export function ActionButton({
         paddingLeft: px,
         paddingRight: px,
         minHeight,
-        borderRadius: 8,
+        borderRadius: 7,
         fontSize,
         fontWeight: 600,
         cursor: disabled ? "default" : "pointer",
@@ -120,8 +120,9 @@ export function ActionButton({
         color: v.color,
         border: v.border ?? "none",
         opacity: disabled ? 0.5 : 1,
-        transition: "opacity 0.12s",
+        transition: "opacity 0.12s, background-color 0.12s, border-color 0.12s",
         flexShrink: 0,
+        boxShadow: variant === "primary" ? "0 6px 18px rgba(56, 114, 255, 0.18)" : "none",
       }}
     >
       {icon}
@@ -179,7 +180,7 @@ export function StatusBadge({
         fontSize: 10,
         fontWeight: 600,
         padding: "2px 8px",
-        borderRadius: 4,
+        borderRadius: 999,
         background: colors.bg,
         color: colors.fg,
         whiteSpace: "nowrap",
@@ -231,7 +232,7 @@ export function InfoBanner({
     <div
       style={{
         padding: "10px 14px",
-        borderRadius: 8,
+        borderRadius: 7,
         background: v.bg,
         border: `1px solid ${v.border}`,
         fontSize: 11,
@@ -246,6 +247,73 @@ export function InfoBanner({
         <span style={{ flexShrink: 0, marginTop: 1 }}>{icon}</span>
       )}
       <div style={{ flex: 1 }}>{children}</div>
+    </div>
+  );
+}
+
+export type SaveStatusTone = "idle" | "dirty" | "pending" | "saved" | "error";
+
+export function SaveStatusPill({
+  tone,
+  label,
+}: {
+  tone: SaveStatusTone;
+  label: string;
+}) {
+  const t = useThemeTokens();
+
+  const config: Record<
+    Exclude<SaveStatusTone, "idle">,
+    { icon: React.ReactNode; bg: string; border: string; color: string }
+  > = {
+    dirty: {
+      icon: <PencilLine size={12} />,
+      bg: t.surfaceOverlay,
+      border: t.surfaceBorder,
+      color: t.textMuted,
+    },
+    pending: {
+      icon: <Loader2 size={12} className="animate-spin" />,
+      bg: t.accentSubtle,
+      border: t.accentBorder,
+      color: t.accent,
+    },
+    saved: {
+      icon: <Check size={12} />,
+      bg: t.successSubtle,
+      border: t.successBorder,
+      color: t.success,
+    },
+    error: {
+      icon: <AlertCircle size={12} />,
+      bg: t.dangerSubtle,
+      border: t.dangerBorder,
+      color: t.danger,
+    },
+  };
+
+  if (tone === "idle") return null;
+  const pill = config[tone];
+
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        minHeight: 28,
+        padding: "0 10px",
+        borderRadius: 999,
+        background: pill.bg,
+        border: `1px solid ${pill.border}`,
+        color: pill.color,
+        fontSize: 11,
+        fontWeight: 600,
+        flexShrink: 0,
+      }}
+    >
+      <span style={{ display: "flex", alignItems: "center" }}>{pill.icon}</span>
+      <span>{label}</span>
     </div>
   );
 }

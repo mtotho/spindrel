@@ -21,7 +21,7 @@ interface WidgetActionRequest {
   /** When the dispatching widget has a state_poll, include display_label so the
    * backend can fetch fresh polled state after the action and return it. */
   display_label?: string;
-  /** Current per-pin config — substituted into tool/state_poll args as {{config.*}}. */
+  /** Current per-pin config — substituted into tool/state_poll args as {{widget_config.*}}. {{config.*}} remains a compatibility alias. */
   widget_config?: Record<string, unknown>;
 }
 
@@ -44,7 +44,7 @@ export function useWidgetAction(
   /** Channel-pin ID of the enclosing PinnedToolWidget, if any — required for dispatch:"widget_config". */
   pinId?: string | null,
   /** Current widget config from the pin store, sent on tool/state_poll calls so
-   *  {{config.*}} substitutes to live values. */
+   *  {{widget_config.*}} substitutes to live values. */
   widgetConfig?: Record<string, unknown> | null,
   /** Dashboard-pin ID — routes widget_config dispatch to the dashboard table.
    *  Mutually exclusive with `pinId`. */

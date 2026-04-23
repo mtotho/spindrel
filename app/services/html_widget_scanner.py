@@ -150,6 +150,12 @@ def _entry_from_metadata(
     raw_panel_title = meta.get("panel_title")
     panel_title = str(raw_panel_title).strip() if isinstance(raw_panel_title, str) else ""
     raw_show_panel_title = meta.get("show_panel_title")
+    raw_presentation_family = meta.get("presentation_family")
+    presentation_family = (
+        str(raw_presentation_family).strip().lower()
+        if isinstance(raw_presentation_family, str)
+        else "card"
+    )
     tags = meta.get("tags") or []
     if not isinstance(tags, list):
         tags = [str(tags)]
@@ -171,6 +177,7 @@ def _entry_from_metadata(
         "name": str(name),
         "description": str(meta.get("description") or ""),
         "display_label": str(display_label),
+        "presentation_family": presentation_family if presentation_family in {"card", "chip", "panel"} else "card",
         "panel_title": panel_title or None,
         "show_panel_title": raw_show_panel_title if isinstance(raw_show_panel_title, bool) else None,
         "version": str(meta.get("version") or "0.0.0"),
@@ -269,6 +276,7 @@ def _scan_metadata_for(
             meta["name"] = manifest.name
             meta["description"] = manifest.description
             meta["version"] = manifest.version
+            meta["presentation_family"] = manifest.presentation_family
             if manifest.suite:
                 meta["suite"] = manifest.suite
                 meta.pop("package", None)

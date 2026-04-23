@@ -32,6 +32,66 @@ The same placed thing can appear as:
 
 That shared placement surface is real. The authoring model underneath is not one single thing.
 
+## The four-layer model
+
+Keep these layers separate:
+
+1. `widget_contract` — the semantic/runtime kind
+2. `widget_origin` — how this concrete instance or pin was created
+3. `widget_presentation` — authored presentation intent
+4. `resolved_host_policy` — the host's final rendering decision for one placement
+
+The system is much easier to reason about if those are not collapsed together.
+
+### `widget_contract`
+
+This answers: "What is this widget, semantically?"
+
+It covers things like:
+
+- definition kind
+- binding kind
+- instantiation kind
+- auth model
+- state model
+- refresh model
+- theme model
+- declared actions
+
+### `widget_origin`
+
+This answers: "Where did this pin come from?"
+
+Examples:
+
+- direct tool result pin
+- preset-backed tool widget
+- library HTML widget
+- runtime-emitted HTML widget
+- native catalog widget
+
+### `widget_presentation`
+
+This answers: "What kind of host surface was this authored for?"
+
+Current fields include:
+
+- `presentation_family` — `card`, `chip`, or `panel`
+- `panel_title`
+- `show_panel_title`
+- `layout_hints`
+
+### `resolved_host_policy`
+
+This answers: "How should this specific placement render right now?"
+
+It is derived from:
+
+- placement zone
+- authored `widget_presentation`
+- dashboard chrome
+- per-pin runtime overrides
+
 ## The two distinctions that matter
 
 Most confusion comes from collapsing these questions together:
@@ -254,6 +314,44 @@ This is now surfaced in:
 - pinned widget serialization
 - native catalog entries
 
+`widget_contract` should stay semantic. Presentation-family concerns belong in `widget_presentation`, even if some compatibility fields still overlap today.
+
+## Presentation families versus placement zones
+
+This distinction is now load-bearing.
+
+### Placement zones
+
+Zones are host surfaces:
+
+- `rail`
+- `header`
+- `dock`
+- `grid`
+
+They answer: "Where is this pin placed?"
+
+### Presentation families
+
+Presentation families are rendering intent:
+
+- `card`
+- `chip`
+- `panel`
+
+They answer: "What kind of host surface was this widget authored for?"
+
+Important rules:
+
+- `header` is a zone, not a synonym for chip
+- `chip` is a presentation family, not a persisted dashboard zone
+- any widget may be placed in any zone
+- only a matching family is guaranteed to fit cleanly
+
+Compatibility note:
+
+- `preferred_zone: chip` remains a compatibility alias that resolves to header placement defaults for compact widgets
+
 ## Config surfaces
 
 There are three different config-shaped things in the system. They should not be conflated.
@@ -274,6 +372,14 @@ This is the widget's default runtime config.
 
 It seeds per-instance `widget_config` values for a tool widget or preset-backed tool widget.
 
+Namespace rule:
+
+- `result.*` = raw tool result
+- `widget_config.*` = runtime widget config
+- `binding.*` = preset setup inputs when present
+- `pin.*` = pin/runtime metadata when present
+- `config.*` = deprecated compatibility alias to `widget_config.*`
+
 ### `config_schema`
 
 This is the editable runtime config contract.
@@ -287,6 +393,45 @@ It describes which config keys are valid for the placed widget instance. It now 
 - pins
 
 The dashboard editor uses it to render schema-backed fields where possible instead of forcing raw JSON for everything.
+
+## Pin provenance
+
+Pins now persist canonical origin metadata instead of depending only on envelope heuristics.
+
+Each pin may carry:
+
+- `widget_origin`
+- `provenance_confidence`
+- `widget_contract_snapshot`
+- `config_schema_snapshot`
+- `widget_presentation_snapshot`
+
+Read-path rule:
+
+- resolve fresh metadata from `widget_origin` when possible
+- fall back to snapshots when the live source is missing or ambiguous
+
+Pins created with an explicit caller-supplied `widget_origin` are written as `authoritative`. Inferred rows remain `inferred`, and legacy rows self-heal the same way on read.
+
+## Host rendering policy
+
+The host should render from one resolved policy, not from scattered booleans.
+
+The current resolver combines:
+
+- placement zone
+- authored `widget_presentation`
+- dashboard chrome
+- per-pin runtime config overrides such as title visibility and wrapper surface
+
+The resulting host policy decides things like:
+
+- wrapper surface (`surface` vs `plain`)
+- title mode (`hidden`, generic host title, or panel title)
+- hover-scrollbar behavior
+- whether the tile should fill host height
+
+This matters because the same pin can appear in chat, the channel dashboard editor, the runtime header rail, the OmniPanel rail, and a named dashboard. Host policy is what keeps those placements coherent without mutating the underlying authored definition.
 
 ## Auth and trust boundaries
 
@@ -331,33 +476,7 @@ The addition of `widget_contract` and `config_schema` is the right direction for
 
 These are current limitations, not theoretical ones.
 
-### 1. Persisted instantiation provenance is still incomplete
-
-New preset-created pins now stamp `source_instantiation_kind = "preset"`, but older pins and some non-preset paths are still inferred best-effort on read.
-
-Implication:
-
-- the contract can be slightly lossy for existing rows
-- debugging provenance is weaker than it should be
-
-Recommended fix:
-
-- persist instantiation provenance explicitly for every pin creation path, not just presets
-
-### 2. HTML pin manifest/schema recovery is context-sensitive
-
-For some HTML pins, especially when bot/channel provenance is incomplete, manifest-backed `config_schema` recovery can fail because the source bundle path cannot always be resolved later.
-
-Implication:
-
-- edit surfaces may fall back to raw JSON even when the bundle had schema
-- reloaded pins can lose some inspectability
-
-Recommended fix:
-
-- stamp canonical bundle identity or resolved manifest metadata into the persisted pin source record
-
-### 3. Preset dependency validation is structural, not capability discovery
+### 1. Preset dependency validation is structural, not capability discovery
 
 Preset manifests now fail fast when a `tool_family` preset declares dependencies outside that family.
 
@@ -372,7 +491,7 @@ Recommended fix:
 - add preset availability checks against the selected bot's enabled tools/MCP servers
 - only introduce explicit multi-family presets with a first-class manifest shape and UI explanation
 
-### 4. Tool widget terminology still has historical drag
+### 2. Tool widget terminology still has historical drag
 
 The code is now converging on `tool_widget`, but older docs and some UI still use:
 
@@ -386,6 +505,7 @@ Recommended fix:
 
 - use "Tool widget" as the canonical public term
 - keep legacy terms only as parenthetical implementation notes
+- keep `widget_config` as the canonical runtime config name and treat bare `config` as compatibility language only
 
 ## How to choose the right lane
 

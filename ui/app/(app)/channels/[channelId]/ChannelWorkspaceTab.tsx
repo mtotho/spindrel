@@ -1,7 +1,7 @@
 import { Spinner } from "@/src/components/shared/Spinner";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  ExternalLink, Plus, X, RefreshCw, FolderSearch, BookOpen,
+  ChevronRight, ExternalLink, FileText, FolderClosed, Plus, X, RefreshCw, FolderSearch, BookOpen,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
@@ -9,27 +9,72 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, EmptyState, TextInput, FormRow, SelectInput,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection } from "@/src/components/shared/SettingsControls";
+import { ActionButton, AdvancedSection } from "@/src/components/shared/SettingsControls";
 import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
-  useChannelWorkspaceFileContent,
-} from "@/src/api/hooks/useChannels";
-import { useFileBrowserStore } from "@/src/stores/fileBrowser";
+  useWorkspaceFileContent,
+  useWorkspaceFiles,
+} from "@/src/api/hooks/useWorkspaces";
 import { apiFetch } from "@/src/api/client";
-import { ChannelFileBrowser } from "./ChannelFileBrowser";
-import type { ChannelSettings } from "@/src/types/api";
+import type { ChannelSettings, WorkspaceFileEntry } from "@/src/types/api";
 
 type IndexSegment = NonNullable<ChannelSettings["index_segments"]>[number];
 type SegmentDefaults = NonNullable<ChannelSettings["index_segment_defaults"]>;
+const KB_FOLDER_NAME = "knowledge-base";
+
+function ensureLeadingSlash(path: string): string {
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function dirForApi(path: string): string {
+  if (!path || path === "/") return "/";
+  return ensureLeadingSlash(path);
+}
+
+function stripLeadingSlash(path: string): string {
+  return path.replace(/^\/+/, "");
+}
+
+function formatBytes(size?: number | null): string {
+  if (!size || size <= 0) return "0 B";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function relativeToRoot(path: string, rootPath: string): string {
+  const normalizedRoot = stripLeadingSlash(rootPath).replace(/\/+$/, "");
+  const normalizedPath = stripLeadingSlash(path).replace(/\/+$/, "");
+  if (normalizedPath === normalizedRoot) return "/";
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return normalizedPath.slice(normalizedRoot.length + 1);
+  }
+  return normalizedPath;
+}
+
+function buildBreadcrumbs(path: string, rootPath: string): Array<{ label: string; path: string }> {
+  const relative = relativeToRoot(path, rootPath);
+  if (relative === "/") {
+    return [{ label: KB_FOLDER_NAME, path: rootPath }];
+  }
+  const parts = relative.split("/").filter(Boolean);
+  const crumbs = [{ label: KB_FOLDER_NAME, path: rootPath }];
+  let current = stripLeadingSlash(rootPath);
+  for (const part of parts) {
+    current = `${current}/${part}`;
+    crumbs.push({ label: part, path: ensureLeadingSlash(current) });
+  }
+  return crumbs;
+}
 
 
 // ---------------------------------------------------------------------------
 // File content viewer
 // ---------------------------------------------------------------------------
-function FileViewer({ channelId, path }: { channelId: string; path: string }) {
+function FileViewer({ workspaceId, path }: { workspaceId: string; path: string }) {
   const t = useThemeTokens();
-  const { data, isLoading } = useChannelWorkspaceFileContent(channelId, path);
+  const { data, isLoading } = useWorkspaceFileContent(workspaceId, path);
 
   if (isLoading) return <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}><Spinner color={t.accent} /></div>;
   if (!data) return <span style={{ color: t.textDim, padding: 16, fontSize: 12 }}>File not found</span>;
@@ -53,117 +98,379 @@ function FileViewer({ channelId, path }: { channelId: string; path: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace links bar
-// ---------------------------------------------------------------------------
-function WorkspaceLinks({ workspaceId, channelId }: { workspaceId: string; channelId: string }) {
-  const t = useThemeTokens();
-  const expandDir = useFileBrowserStore((s) => s.expandDir);
-
-  const handleBrowse = () => {
-    const segments = ["channels", `channels/${channelId}`, `channels/${channelId}/workspace`];
-    for (const seg of segments) {
-      expandDir(seg);
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8}}>
-      <Link
-        to={`/admin/workspaces/${workspaceId}/files`}
-        onClick={handleBrowse}
-        style={{
-          display: "inline-flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          padding: "8px 12px",
-          borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-          backgroundColor: t.surfaceOverlay,
-          textDecoration: "none",
-        }}
-      >
-        <ExternalLink size={13} color={t.accent} />
-        <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse in Workspace</span>
-      </Link>
-    </div>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
 // Knowledge Base — convention-based auto-indexed folder (primary surface)
 // ---------------------------------------------------------------------------
 function KnowledgeBaseSection({
   workspaceId,
   channelId,
+  botId,
+  sharedWorkspaceId,
+  botKnowledgeAutoRetrieval,
+  selectedPath,
+  onSelectPath,
 }: {
   workspaceId?: string;
   channelId: string;
+  botId?: string | null;
+  sharedWorkspaceId?: string | null;
+  botKnowledgeAutoRetrieval?: boolean;
+  selectedPath: string | null;
+  onSelectPath: (path: string | null) => void;
 }) {
   const t = useThemeTokens();
-  const expandDir = useFileBrowserStore((s) => s.expandDir);
+  const rootPath = `/channels/${channelId}/${KB_FOLDER_NAME}`;
+  const [currentPath, setCurrentPath] = useState(rootPath);
+  const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId, dirForApi(currentPath));
 
-  const handleBrowse = () => {
-    const segments = [
-      "channels",
-      `channels/${channelId}`,
-      `channels/${channelId}/knowledge-base`,
-    ];
-    for (const seg of segments) {
-      expandDir(seg);
-    }
-  };
+  const entries = useMemo(() => {
+    const rawEntries = data?.entries ?? [];
+    return [...rawEntries].sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+  }, [data?.entries]);
+  const folderCount = entries.filter((entry) => entry.is_dir).length;
+  const fileCount = entries.length - folderCount;
+  const breadcrumbs = useMemo(() => buildBreadcrumbs(currentPath, rootPath), [currentPath, rootPath]);
+  const parentPath = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].path : null;
+  const guideRows = [
+    {
+      label: "Channel knowledge",
+      body: "Files in this folder are auto-indexed and relevant excerpts are auto-retrieved into channel turns. The model sees only matching chunks, not the whole folder.",
+    },
+    {
+      label: "Bot knowledge",
+      body: botKnowledgeAutoRetrieval === false
+        ? "Bot-wide reference docs live in the bot's own `knowledge-base/` folder and travel across channels. This bot is currently in search-only mode, so those files stay available through `search_bot_knowledge` but are not auto-retrieved."
+        : "Bot-wide reference docs live in the bot's own `knowledge-base/` folder and travel across channels. Matching excerpts are auto-retrieved before broad workspace search, and deeper follow-ups should use `search_bot_knowledge`.",
+    },
+    {
+      label: "Use these tools",
+      body: "`search_channel_knowledge` is the narrow lookup for this folder. `search_bot_knowledge` is for facts that should follow the bot everywhere. `search_channel_workspace` is broader and better for 'where did we put X?' questions.",
+    },
+    {
+      label: "What belongs here",
+      body: "Put stable reference material here: decisions, runbooks, specs, glossaries, operating notes, and curated lists the bot may need again. Subfolders are organizational only; indexing is recursive.",
+    },
+    {
+      label: "What belongs elsewhere",
+      body: "Keep short behavioral notes in `memory.md`. Keep transient notes, working files, and one-off outputs in the normal workspace/files surface.",
+    },
+  ] as const;
+  const openWorkspaceButton = workspaceId ? (
+    <Link
+      to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}
+      style={{
+        display: "inline-flex",
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        minHeight: 36,
+        paddingLeft: 12,
+        paddingRight: 12,
+        borderRadius: 7,
+        border: `1px solid ${t.surfaceBorder}`,
+        backgroundColor: t.surfaceOverlay,
+        color: t.text,
+        fontSize: 12,
+        fontWeight: 600,
+        textDecoration: "none",
+      }}
+    >
+      <ExternalLink size={13} color={t.accent} />
+      Open KB In Workspace
+    </Link>
+  ) : null;
+  const botKnowledgePath = botId
+    ? (sharedWorkspaceId ? `bots/${botId}/${KB_FOLDER_NAME}/` : `${KB_FOLDER_NAME}/`)
+    : null;
 
   return (
     <Section
       title="Knowledge Base"
       description={
-        "Drop files into this channel's knowledge-base/ folder. They are auto-indexed " +
-        "and surfaced to the bot via auto-retrieval and the search_channel_knowledge tool. " +
-        "No configuration required."
+        "This channel's `knowledge-base/` is the durable reference layer for room-specific facts. It is auto-indexed, channel-scoped, and used by semantic retrieval plus the narrow knowledge search tools."
       }
+      action={openWorkspaceButton}
     >
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-          padding: 12,
-          borderRadius: 8,
-          backgroundColor: t.surfaceOverlay,
-        }}
-      >
-        <BookOpen size={18} color={t.accent} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}>
-            channels/{channelId}/knowledge-base/
-          </span>
-          <span style={{ color: t.textDim, fontSize: 11 }}>
-            Subfolders inside are organizational — everything is indexed recursively.
-          </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 10,
+            padding: 12,
+            borderRadius: 8,
+            backgroundColor: t.surfaceOverlay,
+          }}
+        >
+          <BookOpen size={18} color={t.accent} />
+          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+            <span style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}>
+              channels/{channelId}/{KB_FOLDER_NAME}/
+            </span>
+            <span style={{ color: t.textDim, fontSize: 11 }}>
+              Indexed recursively. Relevant excerpts are pulled into channel context automatically; deeper lookups use `search_channel_knowledge`.
+            </span>
+          </div>
         </div>
-        {workspaceId && (
-          <Link
-            to={`/admin/workspaces/${workspaceId}/files`}
-            onClick={handleBrowse}
+
+        {botId && botKnowledgePath ? (
+          <div
             style={{
-              display: "inline-flex",
+              display: "flex",
               flexDirection: "row",
+              gap: 12,
               alignItems: "center",
-              gap: 6,
-              padding: "6px 10px",
-              borderRadius: 6,
+              padding: "10px 12px",
+              borderRadius: 8,
+              backgroundColor: t.surfaceOverlay,
               border: `1px solid ${t.surfaceBorder}`,
-              backgroundColor: t.surfaceRaised,
-              textDecoration: "none",
+              flexWrap: "wrap",
             }}
           >
-            <ExternalLink size={12} color={t.accent} />
-            <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Browse</span>
-          </Link>
-        )}
+            <div style={{ flex: 1, minWidth: 280, display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>
+                Bot knowledge layer
+              </span>
+              <span style={{ color: t.textDim, fontSize: 11 }}>
+                <span style={{ fontFamily: "monospace", color: t.textMuted }}>{botKnowledgePath}</span>
+                {" "}· {botKnowledgeAutoRetrieval === false ? "Search only" : "Auto-retrieved + searchable"}
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <Link
+                to={`/admin/bots/${botId}`}
+                style={{
+                  display: "inline-flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  minHeight: 32,
+                  paddingLeft: 10,
+                  paddingRight: 10,
+                  borderRadius: 7,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  backgroundColor: t.surfaceRaised,
+                  color: t.text,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                <ExternalLink size={12} color={t.accent} />
+                Bot Workspace
+              </Link>
+              {workspaceId ? (
+                <Link
+                  to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(`/${botKnowledgePath.replace(/\/$/, "")}`)}`}
+                  style={{
+                    display: "inline-flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    minHeight: 32,
+                    paddingLeft: 10,
+                    paddingRight: 10,
+                    borderRadius: 7,
+                    border: `1px solid ${t.surfaceBorder}`,
+                    backgroundColor: t.surfaceRaised,
+                    color: t.text,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                  }}
+                >
+                  <ExternalLink size={12} color={t.accent} />
+                  Open Bot KB
+                </Link>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            borderRadius: 7,
+            overflow: "hidden",
+            backgroundColor: t.surfaceOverlay,
+            border: `1px solid ${t.surfaceBorder}`,
+          }}
+        >
+          {guideRows.map((row, index) => (
+            <div
+              key={row.label}
+              style={{
+                padding: "10px 12px",
+                display: "flex",
+                flexDirection: "row",
+                gap: 12,
+                alignItems: "flex-start",
+                borderTop: index === 0 ? "none" : `1px solid ${t.surfaceBorder}`,
+              }}
+            >
+              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600, width: 120, flexShrink: 0 }}>
+                {row.label}
+              </span>
+              <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
+                {row.body}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            padding: 12,
+            borderRadius: 8,
+            backgroundColor: t.surfaceOverlay,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ minWidth: 0 }}>
+              <span style={{ color: t.text, fontSize: 13, fontWeight: 600, display: "block" }}>
+                Contents
+              </span>
+              <span style={{ color: t.textDim, fontSize: 11 }}>
+                {folderCount} folder{folderCount === 1 ? "" : "s"} · {fileCount} file{fileCount === 1 ? "" : "s"} in {breadcrumbs[breadcrumbs.length - 1]?.label ?? KB_FOLDER_NAME}
+              </span>
+            </div>
+            {workspaceId ? (
+              <ActionButton
+                label="Refresh"
+                variant="secondary"
+                size="small"
+                onPress={() => { void refetch(); }}
+                icon={<RefreshCw size={13} />}
+              />
+            ) : null}
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {breadcrumbs.map((crumb, index) => {
+              const isActive = index === breadcrumbs.length - 1;
+              return (
+                <div key={crumb.path} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentPath(crumb.path);
+                      onSelectPath(null);
+                    }}
+                    disabled={isActive}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      padding: 0,
+                      color: isActive ? t.text : t.textDim,
+                      fontSize: 12,
+                      fontWeight: isActive ? 600 : 500,
+                      cursor: isActive ? "default" : "pointer",
+                    }}
+                  >
+                    {crumb.label}
+                  </button>
+                  {index < breadcrumbs.length - 1 ? <ChevronRight size={12} color={t.textDim} /> : null}
+                </div>
+              );
+            })}
+          </div>
+
+          {parentPath ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentPath(parentPath);
+                onSelectPath(null);
+              }}
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                color: t.textDim,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              <ChevronRight size={12} color={t.textDim} style={{ transform: "rotate(180deg)" }} />
+              Up one level
+            </button>
+          ) : null}
+
+          {!workspaceId ? (
+            <EmptyState message="This channel does not currently have a workspace attached, so the knowledge base contents cannot be browsed here." />
+          ) : isLoading ? (
+            <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+              <Spinner color={t.accent} />
+            </div>
+          ) : entries.length === 0 ? (
+            <EmptyState message="No knowledge-base files yet. Drop reference docs here and they will start indexing automatically." />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {entries.map((entry: WorkspaceFileEntry) => {
+                const fullPath = ensureLeadingSlash(entry.path);
+                const isSelected = !entry.is_dir && selectedPath === fullPath;
+                const metaLabel = entry.is_dir
+                  ? `${relativeToRoot(entry.path, rootPath)}`
+                  : `${relativeToRoot(entry.path, rootPath)} · ${formatBytes(entry.size)}`;
+                return (
+                  <button
+                    key={fullPath}
+                    type="button"
+                    onClick={() => {
+                      if (entry.is_dir) {
+                        setCurrentPath(fullPath);
+                        onSelectPath(null);
+                      } else {
+                        onSelectPath(fullPath);
+                      }
+                    }}
+                    style={{
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 10,
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 7,
+                      border: `1px solid ${isSelected ? t.accentBorder : "transparent"}`,
+                      backgroundColor: isSelected ? t.accentSubtle : t.surfaceRaised,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {entry.is_dir ? (
+                      <FolderClosed size={16} color={t.accent} />
+                    ) : (
+                      <FileText size={16} color={t.textDim} />
+                    )}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span style={{ color: t.text, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {entry.display_name || entry.name}
+                      </span>
+                      <span style={{ color: t.textDim, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {metaLabel}
+                      </span>
+                    </div>
+                    <span style={{ color: t.textMuted, fontSize: 11, flexShrink: 0 }}>
+                      {entry.is_dir ? "Open" : formatBytes(entry.size)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     </Section>
   );
@@ -439,6 +746,9 @@ export function ChannelWorkspaceTab({
   patch,
   channelId,
   workspaceId,
+  botId,
+  sharedWorkspaceId,
+  botKnowledgeAutoRetrieval,
   indexSegmentDefaults,
   hasSharedWorkspace,
 }: {
@@ -446,31 +756,29 @@ export function ChannelWorkspaceTab({
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
   workspaceId?: string;
+  botId?: string | null;
   indexSegmentDefaults?: SegmentDefaults | null;
   hasSharedWorkspace?: boolean;
   sharedWorkspaceId?: string | null;
+  botKnowledgeAutoRetrieval?: boolean;
 }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   return (
     <>
-      <KnowledgeBaseSection workspaceId={workspaceId} channelId={channelId} />
-
-      {workspaceId && (
-        <Section title="Workspace Access" description="Open the channel workspace folder in the file browser or VS Code editor.">
-          <WorkspaceLinks workspaceId={workspaceId} channelId={channelId} />
-        </Section>
-      )}
-
-      <ChannelFileBrowser
+      <KnowledgeBaseSection
+        workspaceId={workspaceId}
         channelId={channelId}
+        botId={botId}
+        sharedWorkspaceId={sharedWorkspaceId}
+        botKnowledgeAutoRetrieval={botKnowledgeAutoRetrieval}
         selectedPath={selectedPath}
-        onSelect={setSelectedPath}
+        onSelectPath={setSelectedPath}
       />
 
-      {selectedPath && (
-        <Section title="File Content">
-          <FileViewer channelId={channelId} path={selectedPath} />
+      {selectedPath && workspaceId && (
+        <Section title="File Preview" description="Preview the selected knowledge-base file without leaving settings.">
+          <FileViewer workspaceId={workspaceId} path={selectedPath} />
         </Section>
       )}
 

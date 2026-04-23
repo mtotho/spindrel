@@ -113,6 +113,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Integration Status](guides/integration-status.md) | Honest snapshot of which integrations are working, partial, untested, or experimental. |
 | [LLM Providers](guides/providers.md) | All seven provider types, feature matrix, ChatGPT Subscription OAuth walkthrough. |
 | [Programmatic Tool Calling](guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and compact multi-tool orchestration inside one turn. |
+| [Knowledge Bases](guides/knowledge-bases.md) | Channel KB vs bot KB vs `memory.md`, retrieval behavior, and write-where guidance. |
 | [Workspace Templates & Activation](guides/templates-and-activation.md) | Optional workspace templates and per-channel integration activation when you want them. |
 | [Slack Integration](guides/slack.md) | Connect Spindrel to Slack via Socket Mode. |
 | [Discord Integration](guides/discord.md) | Connect Spindrel to Discord. |
@@ -126,7 +127,8 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Usage & Billing](guides/usage-and-billing.md) | Cost tracking, budget limits, spend forecasting, and provider pricing. |
 | [Pipelines](guides/pipelines.md) | Multi-step task automation — exec, tool, agent, user_prompt, and foreach steps with conditions, params, and approval gates. |
 | [Task Sub-Sessions](guides/task-sub-sessions.md) | Pipeline-run-as-chat — anchor cards, run-view modal, `sub_session_bus` routing, ephemeral skill scope. |
-| [Context Management](guides/context-management.md) | Canonical guide for replay policy, compaction, live-history budgeting, and how Spindrel keeps context useful without replaying everything. |
+| [Context Management](guides/context-management.md) | Canonical guide for replay policy, compaction, live-history budgeting, context profiles, and prompt admission. |
+| [Discovery and Enrollment](guides/discovery-and-enrollment.md) | Canonical guide for tool/skill discovery, working-set enrollment, `get_skill` / `get_tool_info`, and runtime residency semantics. |
 | [Sub-Agents](guides/subagents.md) | Five presets, parallel execution, depth and rate limits. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and pipeline triggers. |
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair them with skills and normal tool enrollment. |

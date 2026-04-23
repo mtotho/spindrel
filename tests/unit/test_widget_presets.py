@@ -100,6 +100,17 @@ def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
                 "theme_model": "component_host",
                 "supported_scopes": [],
                 "actions": [],
+                "layout_hints": {
+                    "preferred_zone": "grid",
+                    "min_cells": {"w": 4, "h": 4},
+                },
+            },
+            "widget_presentation": {
+                "presentation_family": "card",
+                "layout_hints": {
+                    "preferred_zone": "grid",
+                    "min_cells": {"w": 4, "h": 4},
+                },
             },
         },
     )
@@ -107,6 +118,13 @@ def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
     assert preset["config_schema"]["properties"]["entity_id"]["type"] == "string"
     assert preset["widget_contract"]["definition_kind"] == "tool_widget"
     assert preset["widget_contract"]["instantiation_kind"] == "preset"
+    assert preset["widget_presentation"] == {
+        "presentation_family": "card",
+        "layout_hints": {
+            "preferred_zone": "grid",
+            "min_cells": {"w": 4, "h": 4},
+        },
+    }
     assert preset["layout_hints"] == {
         "preferred_zone": "grid",
         "min_cells": {"w": 4, "h": 4},

@@ -45,6 +45,8 @@ nav:
     - Workspace Templates & Activation: guides/templates-and-activation.md
     - Pipelines: guides/pipelines.md
     - Task Sub-Sessions: guides/task-sub-sessions.md
+    - Context Management: guides/context-management.md
+    - Discovery and Enrollment: guides/discovery-and-enrollment.md
     - Sub-Agents: guides/subagents.md
     - Delegation: guides/delegation.md
     - Heartbeats: guides/heartbeats.md

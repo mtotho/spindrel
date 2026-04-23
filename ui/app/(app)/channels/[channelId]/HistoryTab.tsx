@@ -55,7 +55,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         >
           <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
             {effectiveMode === "structured"
-              ? "Structured mode archives old turns into searchable sections and auto-retrieves the relevant ones on future turns."
+              ? "Structured mode is a legacy compatibility path that archives old turns into searchable sections and tries to retrieve relevant history automatically."
               : "File mode archives old turns into titled sections the bot can browse on demand with read_conversation_history."}
           </div>
 
@@ -101,7 +101,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           />
           <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
             {memoryScheme === "workspace-files"
-              ? "Before archiving, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via exec_command."
+              ? "Before archiving, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via the file tool."
               : "Before archiving, the bot gets one pass to save important context using its configured memory tools."
             }
           </div>

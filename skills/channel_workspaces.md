@@ -31,8 +31,9 @@ should always know.
 
 ## Active Workspace Files
 
-All files in the workspace root are injected into your context automatically. You do not need
-to load them — they are already present.
+Workspace root files are often surfaced automatically in normal chat and execution, but that is
+not guaranteed in every origin. Planning, heartbeat, and other restricted profiles may suppress
+them, so explicitly read/search when exact file content matters.
 
 **When to create a new file:**
 - A new ongoing concern has enough distinct state to warrant its own file (e.g. `open_items.md`, `current_orders.md`)
@@ -45,7 +46,7 @@ to load them — they are already present.
 **File writing rules:**
 - Use the `file` tool for all text file operations — it bypasses shell quoting issues entirely
 - Use relative paths — they resolve to the channel workspace automatically
-- Write clean, structured markdown — these files will be re-injected on every future message
+- Write clean, structured markdown — these files are candidates for future admission into context
 - Keep files focused. One concern per file. Do not create catch-all files.
 - After writing, do not summarize what you wrote back to the user unless they asked — just confirm the action briefly.
 

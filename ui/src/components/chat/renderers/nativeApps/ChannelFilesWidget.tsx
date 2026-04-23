@@ -11,9 +11,9 @@ import {
   defaultChannelBrowsePath,
   directoryForWorkspaceFile,
 } from "@/src/lib/channelFileNavigation";
-import type { ToolResultEnvelope, WorkspaceFileEntry } from "@/src/types/api";
-import type { ThemeTokens } from "@/src/theme/tokens";
-import { PreviewCard, parsePayload } from "./shared";
+import type { WorkspaceFileEntry } from "@/src/types/api";
+import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 type FilesMode = "recent" | "browse";
 
@@ -93,14 +93,17 @@ export function ChannelFilesWidget({
   envelope,
   sessionId,
   channelId,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  sessionId?: string;
-  dashboardPinId?: string;
-  channelId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 420,
+    compactMaxHeight: 220,
+    wideMinWidth: 760,
+    wideMinHeight: 240,
+    tallMinHeight: 340,
+  });
   const payload = parsePayload(envelope);
   if (!payload.widget_instance_id) {
     return (
@@ -244,6 +247,363 @@ export function ChannelFilesWidget({
     void refetchRecent();
   }, [currentPath, refetchRecent, refetchTree, uploadWorkspace, workspaceId]);
 
+  if (profile.compact) {
+    return (
+      <div
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          minHeight: "100%",
+          position: "relative",
+        }}
+      >
+        <div
+          style={{
+            border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 12,
+            background: t.surface,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: t.textDim,
+            }}
+          >
+            Files
+          </div>
+          <div style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>
+            {mode === "browse" ? displayPath(currentPath) : `${recent.length} recent files`}
+          </div>
+          <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+            {recent.length ? `Latest: ${recent[0]?.name}` : "No recent file updates yet."}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {recent.slice(0, 3).map((file) => (
+            <button
+              key={file.fullPath}
+              type="button"
+              onClick={() => openTarget(file.directoryPath, file.fullPath)}
+              style={{
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 10,
+                background: t.surface,
+                padding: "8px 10px",
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) auto",
+                gap: 8,
+                alignItems: "center",
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ minWidth: 0 }}>
+                <span style={{ display: "block", color: t.text, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {file.name}
+                </span>
+                <span style={{ display: "block", color: t.textDim, fontSize: 10, marginTop: 2 }}>
+                  {displayPath(file.path)}
+                </span>
+              </span>
+              <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+                {fmtModifiedAt(file.modified_at)}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: t.textDim }}>
+            {workspaceId ? "Drop files here to upload." : "Channel workspace unavailable."}
+          </span>
+          <button
+            type="button"
+            onClick={() => openTarget(trimSlashes(currentPath) || defaultChannelBrowsePath(channelId))}
+            style={{
+              borderRadius: 999,
+              border: `1px solid ${t.accentBorder}`,
+              background: t.accentSubtle,
+              color: t.accent,
+              padding: "6px 10px",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Open files
+          </button>
+        </div>
+
+        {(osDragging || uploadingCount) ? (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              border: `1px solid ${t.accent}`,
+              background: `${t.accent}12`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              pointerEvents: "none",
+              color: t.accent,
+              fontSize: 12,
+            }}
+          >
+            <Upload size={14} />
+            <span>
+              {uploadingCount ? `Uploading ${uploadingCount} file${uploadingCount === 1 ? "" : "s"}` : `Drop to upload to ${displayPath(currentPath)}`}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const recentList = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      {recentLoading ? (
+        <div style={{ color: t.textDim, fontSize: 12 }}>Loading recent files…</div>
+      ) : null}
+      {!recentLoading && !recent.length ? (
+        <div style={{ color: t.textMuted, fontSize: 12 }}>No recent file updates yet.</div>
+      ) : null}
+      {recent.map((file) => (
+        <button
+          key={file.fullPath}
+          type="button"
+          onClick={() => openTarget(file.directoryPath, file.fullPath)}
+          style={{
+            border: "none",
+            borderTop: `1px solid ${t.surfaceBorder}`,
+            background: "transparent",
+            padding: "10px 0",
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 10,
+            alignItems: "center",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: t.textDim,
+                  flexShrink: 0,
+                }}
+              >
+                {sectionLabel(file.section)}
+              </span>
+              <span
+                style={{
+                  color: t.text,
+                  fontSize: 12,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {file.name}
+              </span>
+            </div>
+            <div style={{ marginTop: 3, color: t.textMuted, fontSize: 10 }}>
+              {displayPath(file.path)}
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+            <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+              {fmtModifiedAt(file.modified_at)}
+            </span>
+            <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+              {formatBytes(file.size ?? 0)}
+            </span>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+
+  const browseList = (
+    <>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", minHeight: 20 }}>
+        {breadcrumbs.map((crumb, index) => (
+          <div key={crumb.value} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {index > 0 ? <ChevronRight size={11} color={t.textDim} /> : null}
+            <button
+              type="button"
+              onClick={() => setCurrentPath(crumb.value)}
+              style={{
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                cursor: "pointer",
+                color: index === breadcrumbs.length - 1 ? t.text : t.textMuted,
+                fontSize: 11,
+              }}
+            >
+              {crumb.label}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        {currentPath !== "/" ? (
+          <button
+            type="button"
+            onClick={() => setCurrentPath(parentPath)}
+            style={{
+              border: "none",
+              borderTop: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              padding: "10px 0",
+              display: "grid",
+              gridTemplateColumns: "18px minmax(0, 1fr) auto",
+              gap: 10,
+              alignItems: "center",
+              cursor: "pointer",
+              textAlign: "left",
+              color: t.textMuted,
+            }}
+          >
+            <FolderUp size={13} />
+            <span style={{ fontSize: 12 }}>Up one level</span>
+            <span style={{ fontSize: 10, color: t.textDim }}>{displayPath(parentPath)}</span>
+          </button>
+        ) : null}
+
+        {treeLoading ? (
+          <div style={{ color: t.textDim, fontSize: 12, padding: "12px 0" }}>Loading files…</div>
+        ) : null}
+
+        {!treeLoading && !entries.length ? (
+          <div style={{ color: t.textMuted, fontSize: 12, padding: "12px 0" }}>Empty directory.</div>
+        ) : null}
+
+        {entries.map((entry) => (
+          <button
+            key={entry.path}
+            type="button"
+            onClick={() => (
+              entry.is_dir
+                ? setCurrentPath(entry.path)
+                : openTarget(directoryForWorkspaceFile(entry.path) || trimSlashes(currentPath), entry.path)
+            )}
+            style={{
+              border: "none",
+              borderTop: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              padding: "10px 0",
+              display: "grid",
+              gridTemplateColumns: "14px minmax(0, 1fr) auto",
+              gap: 10,
+              alignItems: "center",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+          >
+            <span style={{ color: entry.is_dir ? t.accentMuted : t.textDim, fontSize: 11 }}>
+              {entry.is_dir ? "dir" : "file"}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span
+                style={{
+                  display: "block",
+                  color: t.text,
+                  fontSize: 12,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {entry.display_name || entry.name}
+              </span>
+              <span
+                style={{
+                  display: "block",
+                  color: t.textDim,
+                  fontSize: 10,
+                  marginTop: 2,
+                }}
+              >
+                {displayPath(entry.path)}
+              </span>
+            </span>
+            <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+              {entry.is_dir ? "open" : formatBytes(entry.size ?? 0)}
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  const recentSidebar = profile.wide && mode === "browse" && recent.length ? (
+    <div
+      style={{
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 12,
+        background: t.surface,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 8,
+        minHeight: 0,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: t.textDim,
+        }}
+      >
+        Recent
+      </div>
+      <div style={{ minHeight: 0, overflow: "auto" }}>
+        {recent.slice(0, 5).map((file) => (
+          <button
+            key={file.fullPath}
+            type="button"
+            onClick={() => openTarget(file.directoryPath, file.fullPath)}
+            style={{
+              width: "100%",
+              border: "none",
+              borderTop: `1px solid ${t.surfaceBorder}`,
+              background: "transparent",
+              padding: "10px 0",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <div style={{ color: t.text, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {file.name}
+            </div>
+            <div style={{ color: t.textDim, fontSize: 10, marginTop: 2 }}>
+              {fmtModifiedAt(file.modified_at)} · {formatBytes(file.size ?? 0)}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div
       onDragEnter={handleDragEnter}
@@ -314,184 +674,22 @@ export function ChannelFilesWidget({
       </div>
 
       {mode === "browse" ? (
-        <>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", minHeight: 20 }}>
-            {breadcrumbs.map((crumb, index) => (
-              <div key={crumb.value} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                {index > 0 ? <ChevronRight size={11} color={t.textDim} /> : null}
-                <button
-                  type="button"
-                  onClick={() => setCurrentPath(crumb.value)}
-                  style={{
-                    border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    cursor: "pointer",
-                    color: index === breadcrumbs.length - 1 ? t.text : t.textMuted,
-                    fontSize: 11,
-                  }}
-                >
-                  {crumb.label}
-                </button>
-              </div>
-            ))}
+        <div
+          style={{
+            display: profile.wide ? "grid" : "flex",
+            gridTemplateColumns: profile.wide && recentSidebar ? "minmax(0, 1fr) 240px" : undefined,
+            flexDirection: profile.wide ? undefined : "column",
+            gap: 12,
+            minHeight: 0,
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+            {browseList}
           </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {currentPath !== "/" ? (
-              <button
-                type="button"
-                onClick={() => setCurrentPath(parentPath)}
-                style={{
-                  border: "none",
-                  borderTop: `1px solid ${t.surfaceBorder}`,
-                  background: "transparent",
-                  padding: "10px 0",
-                  display: "grid",
-                  gridTemplateColumns: "18px minmax(0, 1fr) auto",
-                  gap: 10,
-                  alignItems: "center",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  color: t.textMuted,
-                }}
-              >
-                <FolderUp size={13} />
-                <span style={{ fontSize: 12 }}>Up one level</span>
-                <span style={{ fontSize: 10, color: t.textDim }}>{displayPath(parentPath)}</span>
-              </button>
-            ) : null}
-
-            {treeLoading ? (
-              <div style={{ color: t.textDim, fontSize: 12, padding: "12px 0" }}>Loading files…</div>
-            ) : null}
-
-            {!treeLoading && !entries.length ? (
-              <div style={{ color: t.textMuted, fontSize: 12, padding: "12px 0" }}>Empty directory.</div>
-            ) : null}
-
-            {entries.map((entry) => (
-              <button
-                key={entry.path}
-                type="button"
-                onClick={() => (
-                  entry.is_dir
-                    ? setCurrentPath(entry.path)
-                    : openTarget(directoryForWorkspaceFile(entry.path) || trimSlashes(currentPath), entry.path)
-                )}
-                style={{
-                  border: "none",
-                  borderTop: `1px solid ${t.surfaceBorder}`,
-                  background: "transparent",
-                  padding: "10px 0",
-                  display: "grid",
-                  gridTemplateColumns: "14px minmax(0, 1fr) auto",
-                  gap: 10,
-                  alignItems: "center",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <span style={{ color: entry.is_dir ? t.accentMuted : t.textDim, fontSize: 11 }}>
-                  {entry.is_dir ? "dir" : "file"}
-                </span>
-                <span style={{ minWidth: 0 }}>
-                  <span
-                    style={{
-                      display: "block",
-                      color: t.text,
-                      fontSize: 12,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {entry.display_name || entry.name}
-                  </span>
-                  <span
-                    style={{
-                      display: "block",
-                      color: t.textDim,
-                      fontSize: 10,
-                      marginTop: 2,
-                    }}
-                  >
-                    {displayPath(entry.path)}
-                  </span>
-                </span>
-                <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-                  {entry.is_dir ? "open" : formatBytes(entry.size ?? 0)}
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {recentLoading ? (
-            <div style={{ color: t.textDim, fontSize: 12 }}>Loading recent files…</div>
-          ) : null}
-          {!recentLoading && !recent.length ? (
-            <div style={{ color: t.textMuted, fontSize: 12 }}>No recent file updates yet.</div>
-          ) : null}
-          {recent.map((file) => (
-            <button
-              key={file.fullPath}
-              type="button"
-              onClick={() => openTarget(file.directoryPath, file.fullPath)}
-              style={{
-                border: "none",
-                borderTop: `1px solid ${t.surfaceBorder}`,
-                background: "transparent",
-                padding: "10px 0",
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) auto",
-                gap: 10,
-                alignItems: "center",
-                cursor: "pointer",
-                textAlign: "left",
-              }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "baseline", minWidth: 0 }}>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
-                      color: t.textDim,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {sectionLabel(file.section)}
-                  </span>
-                  <span
-                    style={{
-                      color: t.text,
-                      fontSize: 12,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {file.name}
-                  </span>
-                </div>
-                <div style={{ marginTop: 3, color: t.textMuted, fontSize: 10 }}>
-                  {displayPath(file.path)}
-                </div>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
-                <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-                  {fmtModifiedAt(file.modified_at)}
-                </span>
-                <span style={{ fontSize: 10, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-                  {formatBytes(file.size ?? 0)}
-                </span>
-              </div>
-            </button>
-          ))}
+          {recentSidebar}
         </div>
+      ) : (
+        recentList
       )}
 
       <div

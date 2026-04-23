@@ -11,6 +11,10 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
   var metaEl = document.getElementById("meta");
   var frameEl = document.getElementById("frame");
   var overlayEl = document.getElementById("overlay");
@@ -94,14 +98,14 @@
         method: "POST",
         body: JSON.stringify({
           tool_name: "frigate_snapshot",
-          display_label: (window.spindrel.toolResult && window.spindrel.toolResult.filename) || "",
+          display_label: (getResult() && getResult().filename) || "",
           bot_id: window.spindrel.botId,
           channel_id: window.spindrel.channelId,
           widget_config: { show_bbox: bboxBtn.getAttribute("aria-pressed") === "true" },
         }),
       })
       .then(function () {
-        // Host extracts the fresh window.spindrel.toolResult from the returned
+        // Host extracts the fresh widget data from the returned
         // envelope and pushes it in via __setToolResult. Nothing else to do.
       })
       .catch(function (e) {
@@ -125,10 +129,10 @@
   // Re-render whenever the host pushes a new tool result via
   // __setToolResult.
   window.addEventListener("spindrel:toolresult", function (ev) {
-    render(ev.detail);
+    render(getResult());
   });
 
   // Initial paint from the baked-in preamble.
-  render(window.spindrel && window.spindrel.toolResult);
+  render(getResult());
 })();
 </script>

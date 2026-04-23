@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "react-router-dom";
+import { writeHashTabHistory } from "./useHashTabHistory";
 
 /**
  * Drop-in replacement for `useState` that syncs active tab with `window.location.hash`.
@@ -42,10 +43,7 @@ export function useHashTab<T extends string>(
 
   const setTab = useCallback((next: T) => {
     setTabState(next);
-    const encoded = encodeURIComponent(next);
-    // Preserve current pathname + search so we don't clobber query params.
-    const { pathname, search } = window.location;
-    window.history.pushState(null, "", `${pathname}${search}#${encoded}`);
+    writeHashTabHistory(window.history, window.location.pathname, window.location.search, next, "replace");
   }, []);
 
   return [tab, setTab];

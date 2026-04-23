@@ -94,9 +94,11 @@ provides:
   - skills
 
 # Tool-specific HTML widget. See docs/widget-templates.md § HTML template mode.
-# The tool's raw JSON result rides into the iframe as window.spindrel.toolResult;
-# the HTML file handles rendering (image, bbox toggle, refresh). State_poll re-
-# invokes frigate_snapshot so the viewer always sees a recent frame.
+# The tool's raw JSON result rides into the iframe as window.spindrel.result
+# (with window.spindrel.widgetConfig alongside it, and toolResult as a
+# compatibility object). The HTML file handles rendering (image, bbox toggle,
+# refresh). State_poll re-invokes frigate_snapshot so the viewer always sees a
+# recent frame.
 tool_widgets:
   frigate_snapshot:
     content_type: application/vnd.spindrel.html+interactive
@@ -121,7 +123,7 @@ tool_widgets:
       tool: frigate_snapshot
       args:
         camera: "{{display_label}}"
-        bounding_box: "{{config.show_bbox}}"
+        bounding_box: "{{widget_config.show_bbox}}"
       refresh_interval_seconds: 60
     sample_payload:
       attachment_id: "00000000-0000-0000-0000-000000000000"

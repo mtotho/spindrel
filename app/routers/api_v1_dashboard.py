@@ -1134,6 +1134,7 @@ class CreatePinRequest(BaseModel):
     source_bot_id: str | None = None
     tool_args: dict | None = None
     widget_config: dict | None = None
+    widget_origin: dict | None = None
     display_label: str | None = None
     dashboard_key: str | None = None
     zone: str | None = None
@@ -1487,6 +1488,18 @@ async def pin_dashboard_widget_preset(
     if isinstance(envelope, dict):
         envelope["source_instantiation_kind"] = "preset"
         envelope["source_preset_id"] = preset_id
+    widget_origin = {
+        "definition_kind": "tool_widget",
+        "instantiation_kind": "preset",
+        "tool_name": tool_name,
+        "preset_id": preset_id,
+    }
+    tool_family = preset.get("tool_family")
+    if isinstance(tool_family, str) and tool_family.strip():
+        widget_origin["tool_family"] = tool_family.strip()
+    template_id = envelope.get("template_id") if isinstance(envelope, dict) else None
+    if isinstance(template_id, str) and template_id.strip():
+        widget_origin["template_id"] = template_id.strip()
 
     pin = await create_pin(
         db,
@@ -1497,6 +1510,7 @@ async def pin_dashboard_widget_preset(
         source_bot_id=body.source_bot_id,
         tool_args=tool_args,
         widget_config=resolved_config,
+        widget_origin=widget_origin,
         display_label=body.display_label,
         dashboard_key=body.dashboard_key or DEFAULT_DASHBOARD_KEY,
         zone=preferred_zone,
@@ -1523,6 +1537,7 @@ async def create_dashboard_pin(
         source_bot_id=body.source_bot_id,
         tool_args=body.tool_args,
         widget_config=body.widget_config,
+        widget_origin=body.widget_origin,
         display_label=body.display_label,
         dashboard_key=body.dashboard_key or DEFAULT_DASHBOARD_KEY,
         zone=body.zone,

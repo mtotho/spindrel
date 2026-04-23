@@ -8,13 +8,22 @@ category: workspace
 # Knowledge Bases — Bot Operating Guide
 
 Every channel has an auto-indexed `knowledge-base/` folder, and every bot has its own
-`knowledge-base/` folder that travels across every channel. Content you or the user drops
-there is automatically surfaced to you in two ways:
+`knowledge-base/` folder that travels across every channel.
 
-1. **Auto-retrieval.** Relevant excerpts are injected into your context on every turn,
-   scored by relevance to the user's message. You do not need to request them.
-2. **Narrow search tools.** When you know what you're looking for, call one of the two
-   tools below for a targeted lookup instead of relying only on auto-retrieval.
+Current runtime behavior is:
+
+1. **Channel knowledge auto-retrieval.** Relevant excerpts from
+   `channels/<channel_id>/knowledge-base/` are surfaced automatically in normal
+   channel chat/execution when they match the user's message.
+2. **Bot knowledge auto-retrieval.** Relevant excerpts from the bot-wide
+   `knowledge-base/` are also surfaced automatically by default, unless the bot's
+   workspace settings have switched that layer to search-only mode.
+3. **Narrow search tools.** Both the channel and bot knowledge bases can always be
+   searched directly with the tools below.
+
+Do not assume any knowledge base is guaranteed to already be in the prompt. Planning
+and background profiles may suppress both. The safe model is: use the narrow KB tools
+whenever the answer matters.
 
 ---
 
@@ -81,7 +90,9 @@ browsable reference material.
 
 - Do **not** invent a `knowledge-base/` folder with a different name. The convention is
   exactly `knowledge-base/` (with a hyphen).
-- If you see stale entries in a KB file, rewrite or delete the file. Stale auto-injected
-  facts are worse than no auto-injected facts.
+- If you see stale entries in a KB file, rewrite or delete the file. Stale auto-surfaced
+  facts are worse than no auto-surfaced facts.
 - You do not need to configure anything. Segments, embedding models, similarity
   thresholds — all inherited defaults. The KB convention is zero-config by design.
+- The one advanced exception is bot KB retrieval mode: operators can switch the bot-wide
+  KB to search-only if they want the files indexed but never auto-injected.

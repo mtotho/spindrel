@@ -52,8 +52,10 @@ class NativeWidgetSpec:
     supported_scopes: tuple[str, ...] = ("channel", "dashboard")
     default_config: dict[str, Any] = field(default_factory=dict)
     config_schema: dict[str, Any] | None = None
+    layout_hints: dict[str, Any] | None = None
     default_state: dict[str, Any] = field(default_factory=dict)
     actions: tuple[NativeWidgetActionSpec, ...] = ()
+    presentation_family: str = "card"
     panel_title: str | None = None
     show_panel_title: bool | None = None
     catalog_visible: bool = True
@@ -69,6 +71,7 @@ class NativeWidgetSpec:
             "display_label": self.display_label,
             "description": self.description,
             "icon": self.icon,
+            "presentation_family": self.presentation_family,
             "panel_title": self.panel_title,
             "show_panel_title": self.show_panel_title,
             "widget_ref": self.widget_ref,
@@ -79,9 +82,11 @@ class NativeWidgetSpec:
                 if self.config_schema is not None
                 else {"type": "object", "properties": {}}
             ),
+            "layout_hints": copy.deepcopy(self.layout_hints),
             "widget_contract": build_native_widget_contract(
                 actions=[action.as_dict() for action in self.actions],
                 supported_scopes=self.supported_scopes,
+                layout_hints=self.layout_hints,
                 instantiation_kind="native_catalog",
             ),
         }
@@ -353,6 +358,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native notes widget with persistent state and bot-callable actions.",
         icon="notebook-pen",
         supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 6, "h": 4}, "max_cells": {"w": 12, "h": 10}},
         default_state={
             "body": "",
             "created_at": "",
@@ -369,6 +375,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native todo widget with persistent task state and bot-callable actions.",
         icon="check-square",
         supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}, "max_cells": {"w": 12, "h": 8}},
         default_state={
             "items": [],
             "created_at": "",
@@ -385,6 +392,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native channel context tracker with live budget and compaction status.",
         icon="gauge",
         supported_scopes=("channel",),
+        layout_hints={"preferred_zone": "header", "min_cells": {"w": 6, "h": 2}, "max_cells": {"w": 12, "h": 2}},
         default_state={
             "created_at": "",
             "updated_at": "",
@@ -400,6 +408,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native global usage forecast with compact activity charting.",
         icon="chart-column",
         supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 4, "h": 2}, "max_cells": {"w": 12, "h": 6}},
         default_state={
             "created_at": "",
             "updated_at": "",
@@ -415,6 +424,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native channel file browser with recent activity and drag-drop upload.",
         icon="folder-tree",
         supported_scopes=("channel",),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 6, "h": 4}, "max_cells": {"w": 12, "h": 10}},
         default_state={
             "created_at": "",
             "updated_at": "",
@@ -430,6 +440,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native channel widget for channel-scoped pinned file previews.",
         icon="panel-right-dashed",
         supported_scopes=("channel",),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 6, "h": 4}, "max_cells": {"w": 12, "h": 10}},
         default_state={
             "pinned_files": [],
             "active_path": None,
@@ -448,6 +459,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         description="First-party native schedule window for upcoming heartbeats, tasks, and dreaming runs.",
         icon="calendar-range",
         supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 4, "h": 2}, "max_cells": {"w": 12, "h": 6}},
         default_state={
             "created_at": "",
             "updated_at": "",
@@ -522,6 +534,7 @@ def build_native_widget_preview_envelope(
         "display": "inline",
         "display_label": display_label or spec.display_label,
         "source_bot_id": source_bot_id,
+        "presentation_family": spec.presentation_family,
         "panel_title": spec.panel_title,
         "show_panel_title": spec.show_panel_title,
     }

@@ -202,8 +202,63 @@ async def test_serialize_pin_shape(db_session):
     }
     assert data["tool_args"] == {"id": "abc"}
     assert data["widget_config"] == {"x": 1}
+    assert data["widget_origin"] is not None
+    assert data["provenance_confidence"] == "inferred"
     assert data["display_label"] == "L"
     assert data["grid_layout"] == {"x": 0, "y": 0, "w": 6, "h": 10}
+
+
+@pytest.mark.asyncio
+async def test_serialize_pin_with_explicit_origin_is_authoritative(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="html_widget",
+        envelope={
+            **_env("Panel"),
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "source_library_ref": "core/generate_image",
+        },
+        widget_origin={
+            "definition_kind": "html_widget",
+            "instantiation_kind": "library_pin",
+            "source_library_ref": "core/generate_image",
+        },
+    )
+    data = serialize_pin(pin)
+    assert data["widget_origin"] == {
+        "definition_kind": "html_widget",
+        "instantiation_kind": "library_pin",
+        "source_library_ref": "core/generate_image",
+    }
+    assert data["provenance_confidence"] == "authoritative"
+    assert data["widget_presentation"] == {
+        "presentation_family": "card",
+        "layout_hints": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_serialize_pin_backfills_missing_provenance(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="t",
+        envelope=_env("L"),
+    )
+    pin.widget_origin = None
+    pin.provenance_confidence = "inferred"
+    pin.widget_contract_snapshot = None
+    pin.config_schema_snapshot = None
+    await db_session.commit()
+    await db_session.refresh(pin)
+
+    fetched = await get_pin(db_session, pin.id)
+    assert fetched.widget_origin == {
+        "definition_kind": "tool_widget",
+        "instantiation_kind": "direct_tool_call",
+        "tool_name": "t",
+    }
 
 
 @pytest.mark.asyncio

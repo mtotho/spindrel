@@ -47,6 +47,7 @@ _SKIP_NAMES = frozenset({"examples"})
 
 _METADATA_KEYS = (
     "display_label",
+    "presentation_family",
     "panel_title",
     "show_panel_title",
     "description",

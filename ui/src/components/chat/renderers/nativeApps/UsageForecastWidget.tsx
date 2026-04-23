@@ -1,9 +1,8 @@
 import { useMemo } from "react";
 import { useUsageTimeSeries } from "@/src/api/hooks/useUsage";
 import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
-import type { ToolResultEnvelope } from "@/src/types/api";
-import type { ThemeTokens } from "@/src/theme/tokens";
-import { PreviewCard, parsePayload } from "./shared";
+import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 function fmtCost(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "--";
@@ -31,7 +30,10 @@ interface ActivityBar {
   isToday: boolean;
 }
 
-function buildActivityBars(points: { bucket: string; calls: number }[] | undefined): ActivityBar[] {
+function buildActivityBars(
+  points: { bucket: string; calls: number }[] | undefined,
+  days: number,
+): ActivityBar[] {
   const today = startOfDay(new Date());
   const pointMap = new Map<string, number>();
   for (const point of points ?? []) {
@@ -41,7 +43,7 @@ function buildActivityBars(points: { bucket: string; calls: number }[] | undefin
   }
 
   const bars: ActivityBar[] = [];
-  for (let offset = 6; offset >= 0; offset -= 1) {
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
     const day = new Date(today);
     day.setDate(today.getDate() - offset);
     const key = dayKey(day);
@@ -58,19 +60,25 @@ function StatBlock({
   label,
   value,
   sublabel,
+  emphasized = false,
   t,
 }: {
   label: string;
   value: string;
-  sublabel: string;
-  t: ThemeTokens;
+  sublabel?: string;
+  emphasized?: boolean;
+  t: NativeAppRendererProps["t"];
 }) {
   return (
     <div
       style={{
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 12,
+        background: emphasized ? t.surfaceRaised : t.surface,
+        padding: "10px 11px",
         display: "flex",
         flexDirection: "column",
-        gap: 2,
+        gap: 4,
         minWidth: 0,
       }}
     >
@@ -86,7 +94,7 @@ function StatBlock({
       </div>
       <div
         style={{
-          fontSize: 24,
+          fontSize: emphasized ? 26 : 22,
           lineHeight: 1,
           fontWeight: 650,
           color: t.text,
@@ -95,7 +103,7 @@ function StatBlock({
       >
         {value}
       </div>
-      <div style={{ fontSize: 11, color: t.textMuted }}>{sublabel}</div>
+      {sublabel ? <div style={{ fontSize: 11, color: t.textMuted }}>{sublabel}</div> : null}
     </div>
   );
 }
@@ -105,7 +113,7 @@ function ActivityChart({
   t,
 }: {
   bars: ActivityBar[];
-  t: ThemeTokens;
+  t: NativeAppRendererProps["t"];
 }) {
   const maxValue = Math.max(...bars.map((bar) => bar.value), 1);
   return (
@@ -115,12 +123,12 @@ function ActivityChart({
         gridTemplateColumns: `repeat(${bars.length}, minmax(0, 1fr))`,
         gap: 8,
         alignItems: "end",
-        minHeight: 112,
-        paddingTop: 10,
+        minHeight: 106,
+        paddingTop: 4,
       }}
     >
       {bars.map((bar) => {
-        const height = Math.max((bar.value / maxValue) * 78, bar.value > 0 ? 8 : 2);
+        const height = Math.max((bar.value / maxValue) * 76, bar.value > 0 ? 8 : 2);
         return (
           <div
             key={bar.label}
@@ -135,7 +143,7 @@ function ActivityChart({
             <div
               title={`${bar.label}: ${bar.value} calls`}
               style={{
-                height: 82,
+                height: 80,
                 display: "flex",
                 alignItems: "flex-end",
               }}
@@ -174,15 +182,19 @@ function ActivityChart({
 
 export function UsageForecastWidget({
   envelope,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  sessionId?: string;
-  dashboardPinId?: string;
-  channelId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
   const payload = parsePayload(envelope);
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 360,
+    compactMaxHeight: 180,
+    wideMinWidth: 600,
+    wideMinHeight: 180,
+    tallMinHeight: 280,
+  });
+
   if (!payload.widget_instance_id) {
     return (
       <PreviewCard
@@ -220,35 +232,88 @@ export function UsageForecastWidget({
     );
   }
 
-  const bars = buildActivityBars(timeseries?.points);
+  const chartDays = profile.compact ? 0 : profile.standard ? 5 : 7;
+  const bars = buildActivityBars(timeseries?.points, chartDays || 7).slice(-(chartDays || 7));
   const worstLimit = forecast.limits.reduce((max, limit) => (
     Math.max(max, limit.projected_percentage, limit.percentage)
   ), 0);
-  const activityTotal = bars.reduce((sum, bar) => sum + bar.value, 0);
+  const activityTotal = buildActivityBars(timeseries?.points, 7).reduce((sum, bar) => sum + bar.value, 0);
+  const limitRiskLabel = worstLimit > 0 ? `${Math.round(worstLimit)}%` : "Clear";
+  const stats = [
+    {
+      label: "Today",
+      value: fmtCost(forecast.projected_daily),
+      sublabel: `${fmtCost(forecast.daily_spend)} spent so far`,
+      emphasized: true,
+    },
+    {
+      label: "Month",
+      value: fmtCost(forecast.projected_monthly),
+      sublabel: `${fmtCost(forecast.monthly_spend)} booked`,
+      emphasized: !profile.compact,
+    },
+    ...(profile.compact
+      ? []
+      : [
+          {
+            label: "Limit risk",
+            value: limitRiskLabel,
+            sublabel: `${forecast.components.length} forecast inputs`,
+            emphasized: false,
+          },
+        ]),
+  ];
+
+  if (profile.compact) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 }}>
+          {stats.slice(0, 2).map((stat) => (
+            <StatBlock key={stat.label} {...stat} t={t} />
+          ))}
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+            gap: 8,
+            borderTop: `1px solid ${t.surfaceBorder}`,
+            paddingTop: 8,
+            fontSize: 11,
+            color: t.textDim,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: t.textMuted }}>Risk</div>
+            <div style={{ color: t.text, fontVariantNumeric: "tabular-nums" }}>{limitRiskLabel}</div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: t.textMuted }}>7d calls</div>
+            <div style={{ color: t.text, fontVariantNumeric: "tabular-nums" }}>{activityTotal}</div>
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ color: t.textMuted }}>Inputs</div>
+            <div style={{ color: t.text, fontVariantNumeric: "tabular-nums" }}>{forecast.components.length}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: "100%" }}>
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          gridTemplateColumns: `repeat(${stats.length}, minmax(0, 1fr))`,
           gap: 12,
           paddingBottom: 10,
           borderBottom: `1px solid ${t.surfaceBorder}`,
         }}
       >
-        <StatBlock
-          label="Today"
-          value={fmtCost(forecast.projected_daily)}
-          sublabel={`${fmtCost(forecast.daily_spend)} spent so far`}
-          t={t}
-        />
-        <StatBlock
-          label="Month"
-          value={fmtCost(forecast.projected_monthly)}
-          sublabel={`${fmtCost(forecast.monthly_spend)} booked`}
-          t={t}
-        />
+        {stats.map((stat) => (
+          <StatBlock key={stat.label} {...stat} t={t} />
+        ))}
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
@@ -260,10 +325,10 @@ export function UsageForecastWidget({
             color: t.textDim,
           }}
         >
-          Last 7 Days
+          Last {chartDays} Days
         </div>
         <div style={{ fontSize: 11, color: t.textMuted, fontVariantNumeric: "tabular-nums" }}>
-          {activityTotal} calls
+          {activityTotal} calls this week
         </div>
       </div>
 
@@ -281,9 +346,7 @@ export function UsageForecastWidget({
         }}
       >
         <span>{forecast.components.length} forecast inputs</span>
-        <span>
-          limit risk {worstLimit > 0 ? `${Math.round(worstLimit)}%` : "clear"}
-        </span>
+        <span>limit risk {limitRiskLabel.toLowerCase()}</span>
       </div>
     </div>
   );

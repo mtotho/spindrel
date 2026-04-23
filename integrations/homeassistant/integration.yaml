@@ -392,7 +392,7 @@ tool_widgets:
     state_poll:
       tool: ha_get_state
       args:
-        entity_id: "{{config.entity_id}}"
+        entity_id: "{{widget_config.entity_id}}"
       transform: "integrations.homeassistant.widget_transforms:single_entity_state"
       refresh_interval_seconds: 30
       template:

@@ -2,7 +2,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useState, useEffect, useMemo } from "react";
 
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useWorkspace, useWorkspaceIndexStatus } from "@/src/api/hooks/useWorkspaces";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
@@ -18,11 +18,13 @@ export default function WorkspaceFileBrowser() {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const { workspaceId } = useParams<{ workspaceId: string }>();
+  const [searchParams] = useSearchParams();
   const { data: workspace, isLoading } = useWorkspace(workspaceId);
   const reset = useFileBrowserStore((s) => s.reset);
   const leftActive = useFileBrowserStore((s) => s.leftPane.activeFile);
   const treeVisible = useFileBrowserStore((s) => s.treeVisible);
   const hideTree = useFileBrowserStore((s) => s.hideTree);
+  const expandDir = useFileBrowserStore((s) => s.expandDir);
 
   const { width: windowWidth } = useWindowSize();
   const isMobile = windowWidth < MOBILE_BREAKPOINT;
@@ -50,6 +52,17 @@ export default function WorkspaceFileBrowser() {
     reset();
     return () => reset();
   }, [workspaceId]);
+
+  useEffect(() => {
+    const requestedPath = searchParams.get("path");
+    if (!requestedPath) return;
+    const normalized = requestedPath.replace(/^\/+|\/+$/g, "");
+    if (!normalized) return;
+    const parts = normalized.split("/");
+    for (let i = 1; i <= parts.length; i += 1) {
+      expandDir(parts.slice(0, i).join("/"));
+    }
+  }, [expandDir, searchParams]);
 
   // On mobile, auto-hide tree when a file is opened
   useEffect(() => {

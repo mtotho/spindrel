@@ -53,7 +53,7 @@ tool_widgets:
       tool: get_weather
       args:
         location: "{{display_label}}"
-        units: "{{config.units}}"
+        units: "{{widget_config.units}}"
         include_daily: true
         include_hourly: true
       refresh_interval_seconds: 3600

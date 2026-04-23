@@ -1,6 +1,7 @@
 # Architecture
 
 For the canonical document covering runtime context policy, replay/compaction behavior, history modes, context profiles, and prompt-budget reporting, see [Context Management](../guides/context-management.md).
+For the canonical document covering tool/skill discovery, enrollment, and residency semantics, see [Discovery and Enrollment](../guides/discovery-and-enrollment.md).
 For the canonical document covering leased local-machine access, paired companions, machine targets, and execution-policy gating, see [Local Machine Control](../guides/local-machine-control.md).
 
 ## System Overview
@@ -32,12 +33,12 @@ For the exact runtime admission/replay policy, treat [Context Management](../gui
 3. **Channel-level overrides** (tool availability, enrolled skills, model overrides)
 4. **Integration activation injection** (channel-activated integrations contribute declared tools)
 5. **Memory scheme setup** (MEMORY.md, daily logs, reference index)
-6. **Channel workspace files** (inject active `.md` files + schema)
+6. **Channel workspace files** (profile/budget-gated active `.md` files + schema)
 7. **Active plan artifact** (planning/execution profiles inject compact canonical plan state)
 8. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
 9. **Skills injection** (per-bot working set + on-demand `get_skill` tool)
 10. **Conversation history** (sections index + `read_conversation_history` tool)
-11. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
+11. **Workspace filesystem RAG** (profile/budget-gated semantic retrieval from indexed workspace files)
 12. **Tool retrieval** (cosine similarity matching against tool schema embeddings)
 13. **Channel prompt + system preamble**
 14. **User message** (text or native audio)
@@ -55,6 +56,8 @@ Routes tool calls to the correct executor:
 Retry/backoff, fallback model support, and the LLM-call plumbing that consumes the context assembled upstream. Context-management policy itself is documented canonically in [Context Management](../guides/context-management.md).
 
 ## Skills + Tool Enrollment
+
+For the precise discovery/enrollment contract, treat [Discovery and Enrollment](../guides/discovery-and-enrollment.md) as the source of truth; this page stays at the system-overview level.
 
 Spindrel now relies on the existing skill and tool systems directly rather than a separate
 capability layer.
@@ -90,7 +93,7 @@ templates. Templates are optional and remain available for more structured works
 Per-channel file stores with schema-guided organization.
 
 - **Storage:** `~/.spindrel-workspaces/{bot_id_or_shared}/channels/{channel_id}/`
-- **Active files** (`.md` at root): auto-injected into context every request
+- **Active files** (`.md` at root): eligible for context injection in normal chat/execution, but still profile- and budget-gated
 - **Archive files** (`archive/`): searchable via tool, not auto-injected
 - **Data files** (`data/`): listed but not injected; referenced via search tool
 

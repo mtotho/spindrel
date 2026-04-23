@@ -31,9 +31,8 @@ import {
 } from "@/src/lib/widgetEnvelopeSync";
 import {
   DEFAULT_CHROME,
-  resolveShowTitle,
-  resolveWrapperSurface,
 } from "@/src/lib/dashboardGrid";
+import { resolveWidgetHostPolicy } from "@/src/lib/widgetHostPolicy";
 
 const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
 // Session-local freshness cache so dashboard <-> chat route switches don't
@@ -135,7 +134,6 @@ export function PinnedToolWidget({
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.
   const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
-  const fillsHostHeight = isDashboard || effectiveLayout === "header";
   // InteractiveHtmlRenderer pools iframes by dashboard pin id for every
   // pinned widget surface, including channel-scope chip rendering inside the
   // channel-dashboard editor. Keep the readiness gate keyed the same way so
@@ -382,7 +380,7 @@ export function PinnedToolWidget({
   // Pass the current display_label so the backend can fetch fresh polled state
   // after the action and return that envelope (instead of the action template's
   // often-stateless output). pin_id + widgetConfig let dispatch:"widget_config"
-  // patch the enclosing pin and let tool args reference {{config.*}}.
+  // patch the enclosing pin and let tool args reference {{widget_config.*}}.
   const currentDisplayLabel = resolveDisplayLabel(currentEnvelope);
   // All pins (dashboard + channel) are dashboard pins server-side; pass the
   // pin id as `dashboardPinId` in both scopes. `pinId` (the legacy channel
@@ -520,6 +518,21 @@ export function PinnedToolWidget({
     hasEverLoadedRef.current = true;
   }
 
+  const authoredPresentation = widget.widget_presentation ?? {
+    presentation_family: panelSurface ? "panel" : (isChip ? "chip" : "card"),
+    panel_title: currentEnvelope?.panel_title ?? null,
+    show_panel_title: panelSurface ? currentEnvelope?.show_panel_title ?? null : null,
+  };
+  const hostPolicy = resolveWidgetHostPolicy({
+    layout: effectiveLayout,
+    chrome: { ...DEFAULT_CHROME, borderless, hoverScrollbars, hideTitles },
+    widgetConfig: (widgetConfig ?? null) as Record<string, unknown> | null,
+    widgetPresentation: authoredPresentation,
+    runtimeRail,
+    forceChip: isChip,
+  });
+  const fillsHostHeight = hostPolicy.fillHeight;
+
   // Show skeleton while awaiting first poll for refreshable pins. The saved
   // envelope in the store is frozen from whenever the pin was last persisted,
   // so rendering it before the state_poll lands shows stale state (then flips
@@ -555,10 +568,7 @@ export function PinnedToolWidget({
 
   // Wrapper surface is host-owned chrome: inherit follows dashboard chrome,
   // but per-pin config can force a surfaced shell or a plain transparent one.
-  const wrapperSurface = resolveWrapperSurface(
-    { ...DEFAULT_CHROME, borderless, hoverScrollbars, hideTitles },
-    (widgetConfig ?? null) as Record<string, unknown> | null,
-  );
+  const wrapperSurface = hostPolicy.wrapperSurface;
   const isInteractiveHtml =
     currentEnvelope?.content_type === "application/vnd.spindrel.html+interactive";
   const flushInteractiveHtmlBody = isInteractiveHtml && wrapperSurface === "plain";
@@ -631,15 +641,8 @@ export function PinnedToolWidget({
   // snap / ghost targets line up with real content. When titles are hidden in
   // edit mode the drag handle + pencil/unpin move to a floating hover overlay
   // so the chrome is still reachable.
-  const showTitle = resolveShowTitle(
-    { ...DEFAULT_CHROME, hideTitles },
-    (widgetConfig ?? null) as Record<string, unknown> | null,
-  );
-  const showPanelTitle =
-    panelSurface
-    && currentEnvelope?.show_panel_title === true
-    && !!resolvedPanelTitle;
-  const showGenericTitle = showTitle && !showPanelTitle;
+  const showPanelTitle = hostPolicy.titleMode === "panel" && !!resolvedPanelTitle;
+  const showGenericTitle = hostPolicy.titleMode === "generic";
   const suppressHostHeaderForTitlelessHeader =
     effectiveLayout === "header" && !showPanelTitle && !showGenericTitle;
   // Overlay chrome floats the grip + controls on hover instead of reserving
@@ -705,8 +708,9 @@ export function PinnedToolWidget({
             dashboardPinId={widget.id}
             gridDimensions={measuredSize ?? undefined}
             onIframeReady={handleIframeReady}
-            layout={effectiveLayout}
-            hostSurface={wrapperSurface}
+            layout={hostPolicy.zone}
+            hostSurface={hostPolicy.wrapperSurface}
+            presentationFamily={hostPolicy.presentationFamily}
             t={t}
           />
         </div>
@@ -914,13 +918,14 @@ export function PinnedToolWidget({
           sessionId={viewedSessionId ?? undefined}
           channelId={channelId ?? undefined}
           dispatcher={dispatcher}
-          fillHeight={fillsHostHeight}
+          fillHeight={hostPolicy.fillHeight}
           dashboardPinId={widget.id}
           gridDimensions={measuredSize ?? undefined}
           onIframeReady={handleIframeReady}
-          hoverScrollbars={hoverScrollbars}
-          layout={effectiveLayout}
-          hostSurface={wrapperSurface}
+          hoverScrollbars={hostPolicy.hoverScrollbars}
+          layout={hostPolicy.zone}
+          hostSurface={hostPolicy.wrapperSurface}
+          presentationFamily={hostPolicy.presentationFamily}
           t={t}
         />
         {showIframeSkeleton && (

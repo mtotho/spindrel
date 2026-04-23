@@ -10,6 +10,41 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Widget pins persist canonical origin metadata, and runtime config is `widget_config`
+**Decided 2026-04-23.** Dashboard/widget pins are no longer treated as envelopes that the runtime re-interprets later. They now persist canonical origin metadata plus contract/schema snapshots, and the runtime config namespace is explicitly `widget_config`.
+
+**What changed.**
+- `widget_dashboard_pins` now carries:
+  - `widget_origin`
+  - `provenance_confidence`
+  - `widget_contract_snapshot`
+  - `config_schema_snapshot`
+- New pins write `provenance_confidence = "authoritative"`.
+- Legacy rows self-heal to inferred origin/snapshots on read.
+- Pin serialization resolves metadata from `widget_origin` first and falls back to snapshots if the live source cannot be re-resolved.
+- Tool-widget substitution/runtime namespaces are now:
+  - `result.*`
+  - `widget_config.*`
+  - `binding.*`
+  - `pin.*`
+- `config.*` is retained only as a compatibility alias.
+- HTML-backed tool widgets now expose:
+  - `window.spindrel.result`
+  - `window.spindrel.widgetConfig`
+  - `window.spindrel.widgetContext`
+  - `window.spindrel.toolResult` as a compatibility object
+
+**Why.**
+- Pin reads were reconstructing too much from envelope/source heuristics, which made provenance and schema recovery fragile.
+- The old `config` overlay silently collided with real payload fields named `config`, which is a bad DX contract and an unsafe reserved-name precedent.
+- The canonical widget docs had already outpaced the actual runtime language. Persisted origin + explicit config namespaces close that gap.
+
+**Load-bearing invariants.**
+- `widget_origin` is the durable source-of-truth record for a pin's definition kind and instantiation path.
+- Snapshots are the fallback contract when the live source is unavailable or ambiguous.
+- `widget_config` is the public runtime-config namespace. New docs/templates should not introduce fresh `config.*` usage.
+- HTML-backed tool widgets should read `window.spindrel.result` / `widgetConfig`; `toolResult` exists for compatibility, not as the preferred API.
+
 ### Channel-dashboard `header` is a floating top rail, and `chip` is an authoring alias rather than a persisted zone
 **Decided 2026-04-23.** The top-of-chat widget area is now modeled as a real floating `header` rail, not a singleton chip slot and not a separate persisted `chip` zone.
 

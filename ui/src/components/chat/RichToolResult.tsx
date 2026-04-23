@@ -61,6 +61,7 @@ import {
   envelopeViewKey,
   type ResultViewRendererProps,
 } from "./resultViewRegistry";
+import type { PresentationFamily } from "@/src/lib/widgetHostPolicy";
 
 type CompactionRunPayload = {
   origin?: string;
@@ -118,6 +119,7 @@ interface Props {
    *  attribute so widget CSS can decide whether to draw its own inner card
    *  or rely on the host's surfaced shell. */
   hostSurface?: HostSurface;
+  presentationFamily?: PresentationFamily;
   rendererVariant?: RichRendererVariant;
   chromeMode?: RichRendererChromeMode;
   summary?: ToolCallSummary | null;
@@ -153,6 +155,7 @@ export interface RichResultViewProps extends ResultViewRendererProps {
   hoverScrollbars?: boolean;
   layout?: WidgetLayout;
   hostSurface?: HostSurface;
+  presentationFamily?: PresentationFamily;
   rendererVariant: RichRendererVariant;
   chromeMode: RichRendererChromeMode;
   showJson: boolean;
@@ -190,6 +193,7 @@ function renderInteractiveHtmlView({
   hoverScrollbars,
   layout,
   hostSurface,
+  presentationFamily,
   t,
 }: RichResultViewProps) {
   return (
@@ -204,6 +208,7 @@ function renderInteractiveHtmlView({
       hoverScrollbars={hoverScrollbars}
       layout={layout}
       hostSurface={hostSurface}
+      presentationFamily={presentationFamily}
       t={t}
     />
   );
@@ -224,6 +229,7 @@ function renderComponentsView({
   chromeMode,
   layout,
   hostSurface,
+  presentationFamily,
   gridDimensions,
   t,
 }: RichResultViewProps) {
@@ -235,6 +241,7 @@ function renderComponentsView({
       body={body}
       layout={layout}
       hostSurface={hostSurface}
+      presentationFamily={presentationFamily}
       gridDimensions={gridDimensions}
       t={t}
     />
@@ -524,6 +531,7 @@ export function RichToolResult({
   hoverScrollbars,
   layout,
   hostSurface,
+  presentationFamily,
   rendererVariant = "default-chat",
   chromeMode = "standalone",
   summary,
@@ -648,6 +656,7 @@ export function RichToolResult({
     hoverScrollbars,
     layout,
     hostSurface,
+    presentationFamily,
     rendererVariant,
     chromeMode,
     showJson,

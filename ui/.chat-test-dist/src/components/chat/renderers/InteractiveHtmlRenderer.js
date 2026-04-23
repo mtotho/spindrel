@@ -267,11 +267,13 @@ function escapeInlineJsonForScript(jsonText) {
  *  long-lived widgets keep a fresh bearer without reloading.
  *
  *  For declarative HTML widgets the tool's raw JSON result is baked into
- *  the body preamble as ``window.spindrel.toolResult``. The host can push
- *  fresh data after a state_poll refresh via ``__setToolResult`` without
- *  reassigning srcDoc (which would destroy the widget's in-iframe state).
- *  Widget JS observes refreshes via the ``spindrel:toolresult`` CustomEvent
- *  or by re-reading ``window.spindrel.toolResult`` on demand.
+ *  the body preamble as ``window.spindrel.result`` with
+ *  ``window.spindrel.widgetConfig`` alongside it. ``toolResult`` remains a
+ *  compatibility object. The host can push fresh data after a state_poll
+ *  refresh via ``__setToolResult`` without reassigning srcDoc (which would
+ *  destroy the widget's in-iframe state). Widget JS observes refreshes via
+ *  the ``spindrel:toolresult`` CustomEvent or by re-reading
+ *  ``window.spindrel.result`` / ``window.spindrel.widgetConfig`` on demand.
  */
 function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout, hostSurface) {
     const gridDimensionsJson = gridDimensions
@@ -364,6 +366,19 @@ function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widg
   // Token mutated in-place by the host on re-mint — read fresh per call.
   const state = { token: ${jsonForScript(widgetToken)} };
   const initialToolResult = ${initialToolResultJson ? escapeInlineJsonForScript(initialToolResultJson) : "null"};
+  function __deriveResult(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    if (Object.prototype.hasOwnProperty.call(obj, "result")) return obj.result;
+    return obj;
+  }
+  function __deriveWidgetConfig(obj) {
+    if (!obj || typeof obj !== "object") return null;
+    if (Object.prototype.hasOwnProperty.call(obj, "widget_config")) return obj.widget_config || {};
+    if (Object.prototype.hasOwnProperty.call(obj, "config")) return obj.config || {};
+    return null;
+  }
+  const initialResult = __deriveResult(initialToolResult);
+  const initialWidgetConfig = __deriveWidgetConfig(initialToolResult);
   const initialTheme = ${escapeInlineJsonForScript(themeJson)};
   // Token-ready promise — resolves as soon as a non-null token lands in
   // state.token (either baked into srcDoc or pushed later via __setToken).
@@ -628,15 +643,15 @@ function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widg
   }
   function onToolResult(cb) { return subscribe("spindrel:toolresult", cb); }
   function onTheme(cb) { return subscribe("spindrel:theme", cb); }
-  // onConfig is sugar: widget_config now rides in toolResult.config, so we
-  // subscribe to toolresult and only fire when config actually changes.
+  // onConfig is sugar over the canonical widgetConfig channel. We still fall
+  // back to toolResult.config for older preambles.
   function onConfig(cb) {
     if (typeof cb !== "function") throw new Error("onConfig: callback required");
-    let last = (window.spindrel && window.spindrel.toolResult && window.spindrel.toolResult.config) || null;
+    let last = (window.spindrel && (window.spindrel.widgetConfig || (window.spindrel.toolResult && window.spindrel.toolResult.config))) || null;
     let lastJson;
     try { lastJson = JSON.stringify(last); } catch (_) { lastJson = null; }
     const handler = function (e) {
-      const cfg = (e.detail && e.detail.config) || null;
+      const cfg = (window.spindrel && (window.spindrel.widgetConfig || (e.detail && e.detail.config))) || null;
       let cfgJson;
       try { cfgJson = JSON.stringify(cfg); } catch (_) { cfgJson = null; }
       if (cfgJson !== lastJson) {
@@ -2186,6 +2201,12 @@ function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widg
     onConfig: onConfig,
     onTheme: onTheme,
     toolResult: initialToolResult,
+    result: initialResult,
+    widgetConfig: initialWidgetConfig,
+    widgetContext: {
+      result: initialResult,
+      widgetConfig: initialWidgetConfig,
+    },
     theme: initialTheme,
     __setToken: function (t) {
       state.token = t || null;
@@ -2197,6 +2218,12 @@ function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widg
     },
     __setToolResult: function (obj) {
       window.spindrel.toolResult = obj;
+      window.spindrel.result = __deriveResult(obj);
+      window.spindrel.widgetConfig = __deriveWidgetConfig(obj);
+      window.spindrel.widgetContext = {
+        result: window.spindrel.result,
+        widgetConfig: window.spindrel.widgetConfig,
+      };
       try {
         window.dispatchEvent(new CustomEvent("spindrel:toolresult", { detail: obj }));
       } catch (_) { /* CustomEvent unavailable — ignore */ }
@@ -2240,7 +2267,7 @@ function spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widg
 </script>`;
 }
 // Widgets that never call the app's API (pure data render off
-// `window.spindrel.toolResult`) don't need a bot-scoped bearer. Skipping
+// `window.spindrel.result`) don't need a bot-scoped bearer. Skipping
 // the mint for them avoids a pointless 400 when the emitting bot has no
 // API key configured — and, more importantly, avoids surfacing a red
 // "no API permissions" banner on a widget that wouldn't have used the
@@ -2264,7 +2291,7 @@ function bodyNeedsAuth(body) {
 // `<script>window.spindrel = window.spindrel || {};` in the body — the
 // browser saw an unclosed script and parsed the following HTML as JS,
 // blowing up with "Unexpected token '<'" at line 2:1.
-const TOOL_RESULT_PREAMBLE_RE = /<script>\s*window\.spindrel\s*=\s*window\.spindrel\s*\|\|\s*\{\};\s*window\.spindrel\.toolResult\s*=\s*([\s\S]+?);\s*<\/script>/;
+const TOOL_RESULT_PREAMBLE_RE = /<script>\s*window\.spindrel\s*=\s*window\.spindrel\s*\|\|\s*\{\};\s*window\.spindrel\.toolResult\s*=\s*([\s\S]+?);\s*(?:window\.spindrel\.[\s\S]*?)?<\/script>/;
 function extractToolResultFromBody(body) {
     const match = TOOL_RESULT_PREAMBLE_RE.exec(body);
     if (!match)

@@ -43,7 +43,7 @@ document.getElementById("run").addEventListener("click", async () => {
 });
 ```
 
-Returns the fresh envelope (same shape as `window.spindrel.toolResult`) on success, or `null` if the tool produced no envelope. Throws with the server's error message on non-ok response.
+Returns the fresh envelope on success, or `null` if the tool produced no envelope. Throws with the server's error message on non-ok response.
 
 ## Important: `callTool` does NOT auto-rerender the widget
 
@@ -54,7 +54,7 @@ This is the behavior people get wrong when building HA-style control panels.
 - dispatches the tool
 - returns the fresh envelope to the caller
 - emits debug events for the Inspector
-- does **not** overwrite `window.spindrel.toolResult`
+- does **not** overwrite `window.spindrel.result` / `window.spindrel.widgetConfig`
 - does **not** fire a magic re-render for your widget
 
 If the widget should visually update after a click, your JS must do it deliberately.
@@ -167,7 +167,7 @@ If the mutation tool's envelope is just an ack and not the next live state, use 
 
 ## The envelope shape
 
-Every envelope — whether returned from `callTool`, pushed into `window.spindrel.toolResult`, or received via `onToolResult` — has the same fields:
+Every envelope returned from `callTool(...)` has the same fields:
 
 | Field | Type | What it carries |
 |---|---|---|
@@ -199,7 +199,7 @@ The only content type that was already exempt from the cap — `application/vnd.
 await window.spindrel.callTool("web_search", { query: "docs" }, {
   extra: {
     display_label: "Docs search",        // lets state_poll fetch fresh state after
-    widget_config: { units: "metric" },  // current pin config for {{config.*}} substitution
+    widget_config: { units: "metric" },  // current pin config for {{widget_config.*}} substitution
     dashboard_pin_id: window.spindrel.dashboardPinId,
     source_record_id: someRecordId,
   }

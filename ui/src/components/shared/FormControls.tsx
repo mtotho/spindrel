@@ -3,6 +3,7 @@
  * All use raw HTML elements for web compat (no RN TextInput issues).
  */
 
+import { ChevronDown } from "lucide-react";
 import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
@@ -20,15 +21,15 @@ export function Section({ title, description, action, children, noDivider = fals
     <div style={{
       display: "flex",
       flexDirection: "column",
-      gap: 16,
-      borderTop: noDivider ? "none" : `1px solid ${t.surfaceBorder}`,
-      paddingTop: noDivider ? 0 : 16,
+      gap: 14,
+      borderTop: "none",
+      paddingTop: noDivider ? 0 : 4,
     }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
           <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block" }}>{title}</span>
           {description && (
-            <span style={{ color: t.textDim, fontSize: 12, marginTop: 2, display: "block" }}>{description}</span>
+            <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5, marginTop: 3, display: "block", maxWidth: 860 }}>{description}</span>
           )}
         </div>
         {action}
@@ -65,13 +66,13 @@ function makeInputStyle(t: ThemeTokens): React.CSSProperties {
   return {
     background: t.inputBg,
     border: `1px solid ${t.inputBorder}`,
-    borderRadius: 8,
-    padding: "8px 12px",
+    borderRadius: 7,
+    padding: "9px 12px",
     color: t.inputText,
-    fontSize: 16,
+    fontSize: 14,
     width: "100%",
     outline: "none",
-    transition: "border-color 0.15s",
+    transition: "border-color 0.15s, background-color 0.15s",
   };
 }
 
@@ -108,18 +109,53 @@ export function SelectInput({ value, onChange, options, style }: {
 }) {
   const t = useThemeTokens();
   const inputStyle = makeInputStyle(t);
+  const containerStyle: React.CSSProperties = {
+    position: "relative",
+    width: style?.width ?? "100%",
+    minWidth: style?.minWidth,
+    maxWidth: style?.maxWidth,
+    flex: style?.flex,
+  };
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    ...style,
+    width: "100%",
+    minWidth: undefined,
+    maxWidth: undefined,
+    flex: undefined,
+    cursor: "pointer",
+    appearance: "none",
+    WebkitAppearance: "none",
+    paddingRight: 34,
+  };
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{ ...inputStyle, cursor: "pointer", ...style }}
-      onFocus={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus; }}
-      onBlur={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorder; }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>{o.label}</option>
-      ))}
-    </select>
+    <div style={containerStyle}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={selectStyle}
+        onFocus={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus; }}
+        onBlur={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorder; }}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      <span
+        aria-hidden
+        style={{
+          position: "absolute",
+          right: 11,
+          top: "50%",
+          transform: "translateY(-50%)",
+          pointerEvents: "none",
+          color: t.textDim,
+          display: "flex",
+        }}
+      >
+        <ChevronDown size={14} />
+      </span>
+    </div>
   );
 }
 

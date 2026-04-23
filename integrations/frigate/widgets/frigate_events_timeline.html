@@ -35,6 +35,10 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
   var countChip = document.getElementById("count-chip");
   var rangeMeta = document.getElementById("range-meta");
   var labelFilters = document.getElementById("label-filters");
@@ -57,7 +61,7 @@
   var PAD_X = 8;
 
   // Local UI state — persists across state_poll refreshes because
-  // srcDoc doesn't reload; only toolResult is swapped.
+  // srcDoc doesn't reload; only the widget data state is swapped.
   var activeLabels = Object.create(null);  // label -> true/false (false = hidden)
   var selectedEventId = null;
 
@@ -360,7 +364,7 @@
   // Re-render on state_poll pushes — selection + filters persist because
   // srcDoc is not rebuilt.
   window.addEventListener("spindrel:toolresult", function (ev) {
-    renderAll(ev.detail);
+    renderAll(getResult());
   });
 
   // Rescale SVG on iframe resize (dashboard pin size changes).
@@ -369,6 +373,6 @@
   });
 
   // Initial paint from preamble.
-  renderAll(window.spindrel && window.spindrel.toolResult);
+  renderAll(getResult());
 })();
 </script>

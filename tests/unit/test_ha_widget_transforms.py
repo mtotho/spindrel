@@ -372,7 +372,7 @@ def test_live_context_summary_bad_input_passthrough(payload):
 # ── Regression: ha_get_state pin wiring ──
 
 def test_ha_get_state_widget_shape_matches_transform_contract():
-    """ha_get_state pins now seed config.entity_id at create time, and the
+    """ha_get_state pins now seed widget_config.entity_id at create time, and the
     poll path must read that explicit binding instead of depending on
     display_label hacks forever.
     """
@@ -383,7 +383,7 @@ def test_ha_get_state_widget_shape_matches_transform_contract():
 
     spec = doc["tool_widgets"]["ha_get_state"]
     assert spec["display_label"] == "{{data.entity_id}}"
-    assert spec["state_poll"]["args"]["entity_id"] == "{{config.entity_id}}"
+    assert spec["state_poll"]["args"]["entity_id"] == "{{widget_config.entity_id}}"
     assert spec["default_config"]["show_brightness"] is True
 
 

@@ -7,6 +7,11 @@ import { Check, ChevronDown } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { SelectInput, FormRow } from "@/src/components/shared/FormControls";
 import type { BotConfig } from "@/src/types/api";
+import {
+  HISTORY_MODE_META,
+  getHistoryModeMeta,
+  historyModeOptionLabel,
+} from "@/src/lib/historyModeMeta";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -45,22 +50,37 @@ export function HistoryModeSection({ draft, update }: {
   update: (p: Partial<BotConfig>) => void;
 }) {
   const t = useThemeTokens();
-  const isFileMode = draft.history_mode === "file";
-  const isStructured = draft.history_mode === "structured";
-  const showPresets = isFileMode || isStructured;
+  const mode = getHistoryModeMeta(draft.history_mode || "file");
+  const showPresets = !!mode.showFileArtifacts;
   const [showPrompt, setShowPrompt] = useState(false);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <FormRow label="History Mode">
-        <SelectInput value={draft.history_mode || "summary"} onChange={(v) => update({ history_mode: v })}
-          options={[
-            { label: "Summary — flat rolling summary (default)", value: "summary" },
-            { label: "Structured — semantic retrieval of sections", value: "structured" },
-            { label: "File — LLM navigates sections via tool", value: "file" },
-          ]}
+        <SelectInput value={draft.history_mode || "file"} onChange={(v) => update({ history_mode: v })}
+          options={HISTORY_MODE_META.map((entry) => ({
+            label: historyModeOptionLabel(entry),
+            value: entry.value,
+          }))}
         />
       </FormRow>
+
+      <div style={{
+        background: mode.recommended ? t.successSubtle : t.surface,
+        border: `1px solid ${mode.recommended ? `${t.success}22` : t.surfaceRaised}`,
+        borderRadius: 8,
+        padding: "12px 14px",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: mode.accentColor }}>
+            {mode.label}
+          </span>
+          <span style={{ fontSize: 12, color: t.text }}>{mode.summary}</span>
+        </div>
+        <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
+          {mode.detail}
+        </div>
+      </div>
 
       {showPresets && (
         <>
@@ -70,7 +90,7 @@ export function HistoryModeSection({ draft, update }: {
             borderRadius: 8, padding: "14px 16px",
           }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: t.success, marginBottom: 10 }}>
-              {isFileMode ? "File mode — applying presets" : "Structured mode — applying presets"}
+              File mode — applying presets
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {FILE_MODE_PRESETS.map((p, i) => (

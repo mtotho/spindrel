@@ -33,6 +33,7 @@ import type { ThemeTokens } from "../../../theme/tokens";
 import type { WidgetAction } from "../../../types/api";
 import { MarkdownContent } from "../MarkdownContent";
 import type { HostSurface, WidgetLayout } from "./InteractiveHtmlRenderer";
+import type { PresentationFamily } from "@/src/lib/widgetHostPolicy";
 
 // ── Widget action context ──
 
@@ -62,6 +63,7 @@ interface ComponentRenderContext {
   density: ComponentDensity;
   layout?: WidgetLayout;
   hostSurface?: HostSurface;
+  presentationFamily?: PresentationFamily;
   gridDimensions?: { width: number; height: number };
 }
 
@@ -291,22 +293,25 @@ interface Props {
   t: ThemeTokens;
   layout?: WidgetLayout;
   hostSurface?: HostSurface;
+  presentationFamily?: PresentationFamily;
   gridDimensions?: { width: number; height: number };
 }
 
 function deriveDensity(
   layout: WidgetLayout | undefined,
+  presentationFamily: PresentationFamily | undefined,
   gridDimensions: { width: number; height: number } | undefined,
 ): ComponentDensity {
   const width = gridDimensions?.width ?? 0;
   const height = gridDimensions?.height ?? 0;
+  if (presentationFamily === "chip") return "compact";
   if (layout === "rail" || layout === "header") return "compact";
   if ((width > 0 && width < 280) || (height > 0 && height < 150)) return "compact";
   if (width >= 520 && height >= 360) return "expanded";
   return "standard";
 }
 
-export function ComponentRenderer({ body, t, layout, hostSurface, gridDimensions }: Props) {
+export function ComponentRenderer({ body, t, layout, hostSurface, presentationFamily, gridDimensions }: Props) {
   let parsed: ComponentBody;
   try {
     // body may already be a parsed object (e.g. from JSONB metadata)
@@ -343,9 +348,10 @@ export function ComponentRenderer({ body, t, layout, hostSurface, gridDimensions
   }
 
   const ctx: ComponentRenderContext = {
-    density: deriveDensity(layout, gridDimensions),
+    density: deriveDensity(layout, presentationFamily, gridDimensions),
     layout,
     hostSurface,
+    presentationFamily,
     gridDimensions,
   };
 

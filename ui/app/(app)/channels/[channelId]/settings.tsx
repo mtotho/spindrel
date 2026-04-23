@@ -6,7 +6,7 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
-import { ArrowLeft, Check, ExternalLink, Zap } from "lucide-react";
+import { ArrowLeft, ExternalLink, Zap } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
@@ -18,6 +18,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
+import { SaveStatusPill, type SaveStatusTone } from "@/src/components/shared/SettingsControls";
 
 // Tab components
 import { HistoryTab } from "./HistoryTab";
@@ -45,6 +46,12 @@ import {
 // is filtered out for non-admins below.
 // ---------------------------------------------------------------------------
 type TabDef = { key: string; label: string; separator?: boolean; adminOnly?: boolean };
+type ChildSaveState = {
+  dirty: boolean;
+  isPending: boolean;
+  isError: boolean;
+  lastSavedAt: number | null;
+};
 const ALL_TABS: TabDef[] = [
   { key: "channel", label: "Channel" },
   { key: "agent", label: "Agent" },
@@ -84,7 +91,14 @@ export default function ChannelSettingsScreen() {
   const tabKeys = visibleTabs.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("channel", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
-  const [saved, setSaved] = useState(false);
+  const [channelDirty, setChannelDirty] = useState(false);
+  const [channelLastSavedAt, setChannelLastSavedAt] = useState<number | null>(null);
+  const [heartbeatSaveState, setHeartbeatSaveState] = useState<ChildSaveState>({
+    dirty: false,
+    isPending: false,
+    isError: false,
+    lastSavedAt: null,
+  });
 
   // Tab bar horizontal scroll: translate vertical wheel → horizontal,
   // track edge overflow for fade indicators, and keep the active tab visible.
@@ -204,8 +218,8 @@ export default function ChannelSettingsScreen() {
       saveTimeoutRef.current = null;
       try {
         await mutationRef.current.mutateAsync(formRef.current);
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2500);
+        setChannelDirty(false);
+        setChannelLastSavedAt(Date.now());
       } catch {
         // Error state handled by updateMutation.isError
       }
@@ -226,11 +240,32 @@ export default function ChannelSettingsScreen() {
   const patch = useCallback(
     <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => {
       setForm((f) => ({ ...f, [key]: value }));
-      setSaved(false);
+      setChannelDirty(true);
       debouncedSave();
     },
     [debouncedSave]
   );
+
+  const overallSaveTone: SaveStatusTone =
+    updateMutation.isPending || heartbeatSaveState.isPending
+      ? "pending"
+      : updateMutation.isError || heartbeatSaveState.isError
+        ? "error"
+        : channelDirty || heartbeatSaveState.dirty
+          ? "dirty"
+          : channelLastSavedAt != null || heartbeatSaveState.lastSavedAt != null
+            ? "saved"
+            : "idle";
+  const overallSaveLabel =
+    overallSaveTone === "pending"
+      ? "Saving changes"
+      : overallSaveTone === "error"
+        ? "Save failed"
+        : overallSaveTone === "dirty"
+          ? "Changes pending"
+          : overallSaveTone === "saved"
+            ? "Saved"
+            : "";
 
   if (isLoading || !settings) {
     return (
@@ -288,22 +323,7 @@ export default function ChannelSettingsScreen() {
               ))}
             </div>
           </div>
-          {/* Auto-save status indicator */}
-          {updateMutation.isPending && (
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
-              <Spinner size={10} color={t.textDim} />
-              <span style={{ fontSize: 11, color: t.textDim }}>Saving</span>
-            </div>
-          )}
-          {saved && !updateMutation.isPending && (
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 }}>
-              <Check size={12} color={t.success} />
-              <span style={{ fontSize: 11, color: t.success }}>Saved</span>
-            </div>
-          )}
-          {updateMutation.isError && !updateMutation.isPending && !saved && (
-            <span style={{ fontSize: 11, color: "#ef4444", flexShrink: 0 }}>Save failed</span>
-          )}
+          <SaveStatusPill tone={overallSaveTone} label={overallSaveLabel} />
         </div>
       </div>
 
@@ -454,9 +474,11 @@ export default function ChannelSettingsScreen() {
             patch={patch}
             channelId={channelId!}
             workspaceId={resolvedWorkspaceId ?? undefined}
+            botId={currentBot?.id}
             indexSegmentDefaults={settings?.index_segment_defaults}
             hasSharedWorkspace={hasWorkspace}
             sharedWorkspaceId={currentBot?.shared_workspace_id}
+            botKnowledgeAutoRetrieval={currentBot?.workspace?.bot_knowledge_auto_retrieval !== false}
           />
             <AttachmentsTab channelId={channelId!} />
           </>
@@ -467,7 +489,12 @@ export default function ChannelSettingsScreen() {
         {tab === "automation" && (
           <>
             <AutomationTabSections form={form} patch={patch} />
-            <HeartbeatTab channelId={channelId!} workspaceId={currentBot?.shared_workspace_id} botModel={currentBot?.model} />
+            <HeartbeatTab
+              channelId={channelId!}
+              workspaceId={currentBot?.shared_workspace_id}
+              botModel={currentBot?.model}
+              onSaveStateChange={setHeartbeatSaveState}
+            />
             <PipelinesTab channelId={channelId!} />
             <TasksTab channelId={channelId!} botId={channel?.bot_id} />
           </>

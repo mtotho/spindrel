@@ -15,7 +15,7 @@ You operate against a platform with **four distinct persistence layers**. Knowin
 
 | Tier | Where | Cost | Discovery | Scope |
 |---|---|---|---|---|
-| **1. Auto-injected** | `MEMORY.md`, today's log, channel workspace `*.md` | Tokens every turn | Always present | Per-bot, per-channel |
+| **1. Baseline + ambient context** | `MEMORY.md`, recent logs, channel workspace `*.md` | Tokens when admitted | Profile- and budget-gated | Per-bot, per-channel |
 | **2. Reference files** | `memory/reference/*.md` | Free until fetched | Directory listing visible; you fetch by name | Bot-private |
 | **3. Bot-authored skills** | `bots/{your_id}/...` via `manage_bot_skill` | Free until surfaced | RAG-indexed, semantic discovery | Visible to all bots (you own the namespace) |
 | **4. Core skills** | `skills/*.md` (operator-curated) | Free until enrolled | Working set (always-injected) + discovery layer (semantic) | Shared across all bots |
@@ -38,9 +38,9 @@ If your question is about conversational history structure, scratch sessions, or
 
 ## How Discovery Works
 
-The skill system has TWO injection paths working together:
+The skill system has TWO discovery paths working together:
 
-1. **Working set** — your persistent enrolled skills (the starter pack plus anything you've fetched, authored, or been manually assigned). Always present in your context as a flat list. Bounded — the hygiene loop prunes stale ones.
+1. **Working set** — your persistent enrolled skills (the starter pack plus anything you've fetched, authored, or been manually assigned). These remain visible/available as the bot's current working set, and the hygiene loop prunes stale ones.
 
 2. **Discovery layer** — semantic retrieval over the *unenrolled* catalog. Each turn, the user's message is matched against skill triggers and the top candidates surface as suggestions. If you `get_skill()` one of them, it gets promoted into your working set automatically.
 
@@ -48,22 +48,22 @@ This is why `manage_bot_skill` matters so much. Every skill you author enters th
 
 ---
 
-## Tier 1 — Auto-Injected (Always Costs Tokens)
+## Tier 1 — Baseline + Ambient Context
 
-These are present in your context every turn. Treat them as expensive real estate.
+Treat these as expensive real estate. Some pieces are baseline, others are only admitted when the current profile and budget allow them.
 
 | Source | What |
 |---|---|
-| `memory/MEMORY.md` | Persistent cross-session memory |
-| `memory/logs/{today}.md` | Today's activity log |
-| `memory/logs/{yesterday}.md` | Yesterday's log |
-| Channel workspace root `*.md` | Active operational state for this channel |
-| Working set skills | Flat list of enrolled skills |
+| `memory/MEMORY.md` | Persistent cross-session memory baseline |
+| `memory/logs/{today}.md` | Often hot in normal chat; not guaranteed in every origin |
+| `memory/logs/{yesterday}.md` | Often hot in normal chat; not guaranteed in every origin |
+| Channel workspace root `*.md` | Often admitted in normal chat/execution; may be suppressed in planning/background runs |
+| Working set skills | Current enrolled skill surface; use `get_skill()` when exact content matters |
 
 **Budget tips:**
 - One concern per workspace file — small focused files compress better
 - Split at ~100 lines or archive
-- Channel workspace files cost the most — every root `.md` is injected every turn
+- Channel workspace files cost the most when admitted — keep them focused and archive resolved material
 
 ## Tier 2 — Reference Files (Bot-Private)
 

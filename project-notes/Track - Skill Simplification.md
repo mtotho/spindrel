@@ -107,7 +107,7 @@ Dropped `skills_disabled` and `skills_extra` columns (migration 195). Remaining 
 - [[Architecture Decisions#Per-Bot Persistent Skill Working Set]] — the design and the reasoning
 - [[Architecture Decisions#Conditional Auto-Enrollment on Workspace Join]] — workspace bot pattern
 - [[Architecture Decisions#Self-Improvement Awareness in Base Prompt]] — why bots author skills
-- [[How Discovery Works]] — runtime discovery pipeline
+- `agent-server/docs/guides/discovery-and-enrollment.md` — canonical runtime discovery, enrollment, and residency model
 - `app/services/skill_enrollment.py` — service layer
 - `app/db/models.py` — `BotSkillEnrollment` ORM
 - `migrations/versions/184_add_bot_skill_enrollment.py` — schema + backfill

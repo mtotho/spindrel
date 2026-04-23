@@ -319,6 +319,16 @@ class TestBotCreate:
         assert row.memory_scheme == "workspace-files"
         _TEST_REGISTRY.pop("fresh-bot", None)
 
+    async def test_when_created_then_bot_kb_auto_retrieval_defaults_true(self, client):
+        payload = {"id": "kb-bot", "name": "KB Bot", "model": "test/m"}
+
+        with patch("app.agent.bots.reload_bots", _register_new_bot_on_reload("kb-bot", "KB Bot")):
+            resp = await client.post("/api/v1/admin/bots", json=payload, headers=AUTH_HEADERS)
+
+        assert resp.status_code == 201
+        assert resp.json()["workspace"]["bot_knowledge_auto_retrieval"] is True
+        _TEST_REGISTRY.pop("kb-bot", None)
+
     async def test_when_created_then_bot_gets_widget_friendly_default_api_permissions(self, client, db_session):
         payload = {"id": "widget-bot", "name": "Widget Bot", "model": "test/m"}
 
@@ -458,6 +468,37 @@ class TestMemoryScheme:
         _TEST_REGISTRY.pop("idx-fail-bot", None)
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+
+
+class TestBotWorkspaceConfig:
+    async def test_when_workspace_toggle_updated_then_bot_kb_auto_retrieval_round_trips(self, client, db_session):
+        from tests.factories import build_bot
+
+        db_session.add(build_bot(id="kb-config-bot", workspace={"enabled": True, "indexing": {"enabled": True}}))
+        await db_session.commit()
+        _register_bot_in_test_registry("kb-config-bot", workspace={"enabled": True, "indexing": {"enabled": True}})
+
+        with patch("app.agent.bots.reload_bots", new_callable=AsyncMock):
+            resp = await client.put(
+                "/api/v1/admin/bots/kb-config-bot",
+                headers=AUTH_HEADERS,
+                json={
+                    "workspace": {
+                        "enabled": True,
+                        "bot_knowledge_auto_retrieval": False,
+                        "indexing": {"enabled": True},
+                    },
+                },
+            )
+
+        from app.db.models import Bot as BotRow
+        row = await db_session.get(BotRow, "kb-config-bot")
+        await db_session.refresh(row)
+        _TEST_REGISTRY.pop("kb-config-bot", None)
+
+        assert resp.status_code == 200
+        assert resp.json()["workspace"]["bot_knowledge_auto_retrieval"] is False
+        assert row.workspace["bot_knowledge_auto_retrieval"] is False
 
 
 # ---------------------------------------------------------------------------

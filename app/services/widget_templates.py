@@ -462,6 +462,24 @@ def substitute_vars(obj: Any, data: dict) -> Any:
     return _substitute(copy.deepcopy(obj), data)
 
 
+def _build_template_context(
+    result: dict,
+    *,
+    widget_config: dict | None = None,
+    binding: dict | None = None,
+    pin: dict | None = None,
+) -> dict:
+    resolved_widget_config = copy.deepcopy(widget_config or {})
+    context = copy.deepcopy(result)
+    context["result"] = copy.deepcopy(result)
+    context["widget_config"] = resolved_widget_config
+    # Back-compat alias while shipped templates migrate to widget_config.*
+    context["config"] = resolved_widget_config
+    context["binding"] = copy.deepcopy(binding or {})
+    context["pin"] = copy.deepcopy(pin or {})
+    return context
+
+
 def _build_widget_template_envelope(
     *,
     content_type: str,
@@ -510,9 +528,9 @@ def apply_widget_template(
     MCP tool names are often prefixed with the server name (e.g., "homeassistant-HassTurnOn"),
     so we try both the full name and the bare name (after stripping the server prefix).
 
-    ``widget_config`` — per-pin config dict. Merged over the template's
-    ``default_config`` and exposed as ``{{config.*}}`` during substitution so
-    templates can gate components on user-toggled options (e.g. show_forecast).
+    ``widget_config`` — per-pin runtime config dict. Merged over the template's
+    ``default_config`` and exposed as ``{{widget_config.*}}`` during substitution.
+    ``{{config.*}}`` remains as a deprecated compatibility alias.
     """
     tmpl = _widget_templates.get(tool_name)
     # Try stripping MCP server prefix: "server-ToolName" → "ToolName"
@@ -533,15 +551,16 @@ def apply_widget_template(
         logger.debug("Widget template for %s: result is not a dict, skipping", tool_name)
         return None
 
-    # Shallow-merge default_config < widget_config → data["config"]
+    # Shallow-merge default_config < widget_config into the explicit runtime
+    # widget_config namespace. We keep ``config`` as a compatibility alias.
     merged_config = {**(tmpl.get("default_config") or {}), **(widget_config or {})}
-    data_with_config = {**data, "config": merged_config}
+    data_with_context = _build_template_context(data, widget_config=merged_config)
 
     # Resolve display_label if declared in the template (shared across modes)
     display_label = None
     raw_label = tmpl.get("display_label")
     if raw_label and isinstance(raw_label, str):
-        resolved = _substitute_string(raw_label, data_with_config)
+        resolved = _substitute_string(raw_label, data_with_context)
         if resolved and isinstance(resolved, str) and resolved.strip():
             display_label = resolved.strip()
 
@@ -550,7 +569,7 @@ def apply_widget_template(
     plain_body = f"Widget: {tool_name}"
 
     # HTML template mode: bake the tool's JSON result into a
-    # `window.spindrel.toolResult` preamble, then concatenate the shipped
+    # compatibility preamble, then concatenate the shipped
     # HTML body. The iframe renderer wraps in a `<!doctype>` + CSP shell.
     # Refreshes go through apply_state_poll (which reuses the preamble
     # pipeline with fresh data).
@@ -563,7 +582,11 @@ def apply_widget_template(
         channel_val = current_channel_id.get()
         channel_str = str(channel_val) if channel_val else None
 
-        body = _build_html_widget_body(tmpl["html_template_body"], data_with_config)
+        body = _build_html_widget_body(
+            tmpl["html_template_body"],
+            result_json=data,
+            widget_config=merged_config,
+        )
         return _build_widget_template_envelope(
             content_type=tmpl.get(
                 "content_type", "application/vnd.spindrel.html+interactive",
@@ -577,19 +600,19 @@ def apply_widget_template(
             source_bot_id=bot_id if bot_id else None,
             source_channel_id=channel_str,
             view_key=tmpl.get("view_key"),
-            data=data_with_config,
+            data=data_with_context,
             template_id=f"{tmpl.get('source', 'template')}:{tool_name}",
         )
 
     # Component template mode (legacy/default)
-    filled = _substitute(copy.deepcopy(tmpl["template"]), data_with_config)
+    filled = _substitute(copy.deepcopy(tmpl["template"]), data_with_context)
 
     # Apply code extension if declared
     transform_ref = tmpl.get("transform")
     if transform_ref and isinstance(filled, dict):
         components = filled.get("components")
         if isinstance(components, list):
-            filled["components"] = _apply_code_transform(transform_ref, data_with_config, components)
+            filled["components"] = _apply_code_transform(transform_ref, data_with_context, components)
 
     body = json.dumps(filled)
 
@@ -602,23 +625,31 @@ def apply_widget_template(
         refreshable=bool(tmpl.get("state_poll")),
         refresh_interval_seconds=int(interval) if interval else None,
         view_key=tmpl.get("view_key"),
-        data=data_with_config,
+        data=data_with_context,
         template_id=f"{tmpl.get('source', 'template')}:{tool_name}",
     )
 
 
-def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> str:
-    """Prepend a `window.spindrel.toolResult = {...}` preamble to the HTML body.
+def _build_html_widget_body(
+    html_template_body: str,
+    *,
+    result_json: dict,
+    widget_config: dict | None = None,
+) -> str:
+    """Prepend result/widgetConfig bootstrap data to the HTML body.
 
-    The preamble runs before any user script in the body, so widget JS can
-    synchronously read `window.spindrel.toolResult` at load time. Refresh
-    pushes new values via `window.spindrel.__setToolResult(...)` (see the
-    iframe renderer) without reloading srcDoc.
+    ``window.spindrel.result`` is the canonical raw tool result,
+    ``window.spindrel.widgetConfig`` is the canonical runtime config, and
+    ``window.spindrel.toolResult`` remains as a compatibility alias that
+    preserves the legacy combined shape used by older HTML widgets.
 
     Escapes `</script>` occurrences in the JSON to keep the preamble from
-    closing early if a string literal in the tool result includes it.
+    closing early if a string literal in the payload includes it.
     """
-    json_payload = json.dumps(tool_result_json, ensure_ascii=False)
+    compat_payload = _build_template_context(result_json, widget_config=widget_config)
+    json_payload = json.dumps(compat_payload, ensure_ascii=False)
+    result_payload = json.dumps(result_json, ensure_ascii=False)
+    widget_config_payload = json.dumps(widget_config or {}, ensure_ascii=False)
     # Break any `</script>` literal so the host <script> tag isn't terminated
     # mid-JSON. Browsers treat this as a pure escape on the JS side.
     # Also escape U+2028 / U+2029 — valid JSON, but JS treats them as line
@@ -626,6 +657,18 @@ def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> 
     # `Invalid or unexpected token`. Common in scraped article/RSS content.
     safe_json = (
         json_payload
+        .replace("</", "<\\/")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+    safe_result_json = (
+        result_payload
+        .replace("</", "<\\/")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+    safe_widget_config_json = (
+        widget_config_payload
         .replace("</", "<\\/")
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
@@ -690,6 +733,12 @@ def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> 
         "<script>"
         "window.spindrel = window.spindrel || {};"
         f"window.spindrel.toolResult = {safe_json};"
+        f"window.spindrel.result = {safe_result_json};"
+        f"window.spindrel.widgetConfig = {safe_widget_config_json};"
+        "window.spindrel.widgetContext = {"
+        "result: window.spindrel.result,"
+        "widgetConfig: window.spindrel.widgetConfig"
+        "};"
         "</script>\n"
     )
     return scrollbar_style + preamble + html_template_body
@@ -752,20 +801,28 @@ def apply_state_poll(
 
     merged_config = {
         **(owner_tmpl.get("default_config") or {}),
-        **(widget_meta.get("config") or {}),
+        **(widget_meta.get("widget_config") or widget_meta.get("config") or {}),
     }
-    data_with_config = {**data, "config": merged_config}
+    data_with_context = _build_template_context(
+        data,
+        widget_config=merged_config,
+        pin=widget_meta,
+    )
 
     display_label = widget_meta.get("display_label")
     interval = poll_cfg.get("refresh_interval_seconds")
 
-    # HTML mode: rebuild body with fresh toolResult preamble. The iframe
+    # HTML mode: rebuild body with fresh bootstrap data. The iframe
     # renderer extracts the new JSON and pushes it in via
     # window.spindrel.__setToolResult without reloading srcDoc. The merged
-    # pin config rides along under ``toolResult.config`` so widgets can
-    # gate rendering on user-toggled state (e.g. starred URLs, units).
+    # pin config rides along under both ``widgetConfig`` and the legacy
+    # ``toolResult.config`` compatibility alias.
     if is_html_mode:
-        body = _build_html_widget_body(owner_tmpl["html_template_body"], data_with_config)
+        body = _build_html_widget_body(
+            owner_tmpl["html_template_body"],
+            result_json=data,
+            widget_config=merged_config,
+        )
         return _build_widget_template_envelope(
             content_type="application/vnd.spindrel.html+interactive",
             body=body,
@@ -777,12 +834,12 @@ def apply_state_poll(
             source_bot_id=widget_meta.get("source_bot_id"),
             source_channel_id=widget_meta.get("source_channel_id"),
             view_key=owner_tmpl.get("view_key"),
-            data=data_with_config,
+            data=data_with_context,
             template_id=f"{owner_tmpl.get('source', 'template')}:{tool_name}",
         )
 
     # Component-template mode
-    filled = _substitute(copy.deepcopy(poll_cfg["template"]), data_with_config)
+    filled = _substitute(copy.deepcopy(poll_cfg["template"]), data_with_context)
     body = json.dumps(filled)
 
     return _build_widget_template_envelope(
@@ -794,7 +851,7 @@ def apply_state_poll(
         refreshable=True,
         refresh_interval_seconds=int(interval) if interval else None,
         view_key=owner_tmpl.get("view_key"),
-        data=data_with_config,
+        data=data_with_context,
         template_id=f"{owner_tmpl.get('source', 'template')}:{tool_name}",
     )
 

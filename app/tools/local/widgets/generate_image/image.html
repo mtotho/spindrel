@@ -17,6 +17,10 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
   var titleEl = document.getElementById("title");
   var metaEl = document.getElementById("meta");
   var gridEl = document.getElementById("grid");
@@ -154,7 +158,7 @@
   }
 
   function regen(variant) {
-    var data = window.spindrel && window.spindrel.toolResult;
+    var data = getResult();
     var basePrompt = data && data.prompt;
     if (!basePrompt) { setError("No prompt to regenerate from."); return; }
     var mutator = VARIANT_MUTATORS[variant] || null;
@@ -195,7 +199,7 @@
     regen(btn.getAttribute("data-variant"));
   });
 
-  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
-  render(window.spindrel && window.spindrel.toolResult);
+  window.addEventListener("spindrel:toolresult", function () { render(getResult()); });
+  render(getResult());
 })();
 </script>

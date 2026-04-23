@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from app.agent.context_profiles import resolve_context_profile, trim_messages_to_recent_turns
+from app.agent.context_profiles import get_context_profile, resolve_context_profile, trim_messages_to_recent_turns
 
 
 def _session(mode: str) -> SimpleNamespace:
@@ -54,3 +54,12 @@ def test_trim_messages_to_recent_turns_zero_keeps_only_system():
     assert trim_messages_to_recent_turns(messages, 0) == [
         {"role": "system", "content": "system"},
     ]
+
+
+def test_restricted_profiles_expose_context_profile_note_as_optional_injection():
+    assert "context_profile_note" not in get_context_profile("chat").optional_static_injections
+    assert "context_profile_note" in get_context_profile("planning").optional_static_injections
+    assert "context_profile_note" in get_context_profile("executing").optional_static_injections
+    assert "context_profile_note" in get_context_profile("task_recent").optional_static_injections
+    assert "context_profile_note" in get_context_profile("task_none").optional_static_injections
+    assert "context_profile_note" in get_context_profile("heartbeat").optional_static_injections

@@ -9,7 +9,7 @@ import {
   useUploadAttachment,
   useDeleteAttachment,
 } from "@/src/api/hooks/useAttachments";
-import { SelectInput } from "@/src/components/shared/FormControls";
+import { EmptyState, Section, SelectInput } from "@/src/components/shared/FormControls";
 import { ActionButton } from "@/src/components/shared/SettingsControls";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { formatBytes } from "@/src/utils/format";
@@ -57,40 +57,12 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
   };
 
   return (
-    <div style={{ display: "flex", gap: 16 }}>
-      {/* Stats bar */}
-      {stats && (
-        <div style={{
-          display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 16, fontSize: 12, color: t.textDim,
-          padding: "10px 14px", background: t.inputBg, borderRadius: 8,
-          border: `1px solid ${t.surfaceRaised}`,
-        }}>
-          <span>Count: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{stats.total_count}</span></span>
-          <span>With data: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{stats.with_file_data_count}</span></span>
-          <span>Size: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{formatBytes(stats.total_size_bytes)}</span></span>
-          {stats.effective_config.retention_days != null && (
-            <span>Retention: <span style={{ color: t.text, fontWeight: 600, fontFamily: "monospace" }}>{stats.effective_config.retention_days}d</span></span>
-          )}
-        </div>
-      )}
-
-      {/* Upload + filter */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", flexDirection: isMobile ? "column" as any : "row" as any }}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 10, alignItems: "center" }}>
-          <ActionButton
-            label={upload.isPending ? "Uploading..." : "Upload"}
-            onPress={() => fileRef.current?.click()}
-            disabled={upload.isPending}
-            size="small"
-            icon={<Upload size={13} color="#fff" />}
-          />
-          <input
-            ref={fileRef}
-            type="file"
-            onChange={handleUpload}
-            style={{ display: "none" }}
-          />
-          <div style={{ minWidth: 120 }}>
+    <Section
+      title="Attachments"
+      description="Files uploaded directly to this channel. They remain available to the channel and can be filtered by type."
+      action={
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
+          <div style={{ minWidth: 136 }}>
             <SelectInput
               value={filterType}
               onChange={setFilterType}
@@ -104,59 +76,138 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
               ]}
             />
           </div>
+          <ActionButton
+            label={upload.isPending ? "Uploading..." : "Upload"}
+            onPress={() => fileRef.current?.click()}
+            disabled={upload.isPending}
+            size="small"
+            icon={<Upload size={13} color="#fff" />}
+          />
+          <input
+            ref={fileRef}
+            type="file"
+            onChange={handleUpload}
+            style={{ display: "none" }}
+          />
         </div>
-        {upload.isError && (
-          <span style={{ fontSize: 11, color: t.danger }}>{(upload.error as Error).message}</span>
-        )}
-      </div>
+      }
+    >
+      {stats && (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
+            gap: 10,
+          }}
+        >
+          {[
+            { label: "Count", value: String(stats.total_count) },
+            { label: "With data", value: String(stats.with_file_data_count) },
+            { label: "Size", value: formatBytes(stats.total_size_bytes) },
+            ...(stats.effective_config.retention_days != null
+              ? [{ label: "Retention", value: `${stats.effective_config.retention_days}d` }]
+              : []),
+          ].map((item) => (
+            <div
+              key={item.label}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 7,
+                border: `1px solid ${t.surfaceBorder}`,
+                background: t.surfaceRaised,
+              }}
+            >
+              <div style={{ fontSize: 11, color: t.textDim }}>{item.label}</div>
+              <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: "monospace" }}>
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* Attachment list */}
+      {upload.isError && (
+        <span style={{ fontSize: 11, color: t.danger }}>{(upload.error as Error).message}</span>
+      )}
+
       {isLoading ? (
         <div style={{ display: "flex", padding: 24, alignItems: "center" }}>
           <Spinner color={t.accent} />
         </div>
       ) : !filtered?.length ? (
-        <div style={{ padding: 24, textAlign: "center", color: t.textDim, fontSize: 13 }}>
-          No attachments in this channel.
-        </div>
+        <EmptyState message={filterType ? "No attachments match this filter." : "No attachments in this channel."} />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {filtered.map((att) => {
             const Icon = TYPE_ICONS[att.type] || Paperclip;
             return (
               <div
                 key={att.id}
                 style={{
-                  padding: "10px 12px", background: t.inputBg, borderRadius: 8,
-                  border: `1px solid ${t.surfaceRaised}`,
-                  display: "flex", flexDirection: "row", gap: 10, alignItems: "center",
+                  padding: "10px 12px",
+                  background: t.surfaceRaised,
+                  borderRadius: 7,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  display: "flex",
+                  flexDirection: "row",
+                  gap: 10,
+                  alignItems: "center",
                 }}
               >
-                <Icon size={16} color={t.textMuted} />
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: 7,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: t.surfaceOverlay,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon size={15} color={t.textMuted} />
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <span style={{
-                      fontSize: 12, fontWeight: 600, color: t.text,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: t.text,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
                     }}>
                       {att.filename}
                     </span>
                     <span style={{
-                      padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 600,
-                      background: t.accentSubtle, color: t.accent,
+                      padding: "2px 7px",
+                      borderRadius: 999,
+                      fontSize: 9,
+                      fontWeight: 600,
+                      background: t.accentSubtle,
+                      color: t.accent,
                     }}>
                       {att.type}
                     </span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "row", gap: 10, fontSize: 10, color: t.textDim, marginTop: 2 }}>
+                  <div style={{ display: "flex", flexDirection: "row", gap: 10, fontSize: 10, color: t.textDim, marginTop: 3, flexWrap: "wrap" }}>
                     <span>{formatBytes(att.size_bytes)}</span>
                     <span>{new Date(att.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <button type="button"
+                <button
+                  type="button"
                   onClick={() => handleDelete(att.id, att.filename)}
                   disabled={deletingId === att.id}
-                  style={{ padding: 10, borderRadius: 6, opacity: deletingId === att.id ? 0.4 : 0.7 }}
+                  style={{
+                    padding: 8,
+                    borderRadius: 7,
+                    opacity: deletingId === att.id ? 0.4 : 0.8,
+                    border: `1px solid ${t.surfaceBorder}`,
+                    background: "transparent",
+                  }}
                   className="hover:bg-surface-overlay"
                 >
                   <Trash2 size={13} color={t.danger} />
@@ -167,6 +218,6 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
         </div>
       )}
       <ConfirmDialogSlot />
-    </div>
+    </Section>
   );
 }

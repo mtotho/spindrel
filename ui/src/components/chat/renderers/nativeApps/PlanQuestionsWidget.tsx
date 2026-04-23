@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
 import { apiFetch } from "@/src/api/client";
-import type { ToolResultEnvelope } from "@/src/types/api";
-import type { ThemeTokens } from "@/src/theme/tokens";
-import { parsePayload, PreviewCard } from "./shared";
+import { parsePayload, PreviewCard, type NativeAppRendererProps } from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 interface PlanQuestionField {
   id: string;
@@ -17,12 +16,17 @@ interface PlanQuestionField {
 export function PlanQuestionsWidget({
   envelope,
   sessionId,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  sessionId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 400,
+    compactMaxHeight: 220,
+    wideMinWidth: 700,
+    wideMinHeight: 240,
+    tallMinHeight: 340,
+  });
   const payload = useMemo(() => parsePayload(envelope), [envelope]);
   const state = (payload.state ?? {}) as Record<string, unknown>;
   const title = typeof state.title === "string" && state.title.trim() ? state.title : "Plan questions";
@@ -35,6 +39,7 @@ export function PlanQuestionsWidget({
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showCompactForm, setShowCompactForm] = useState(false);
 
   if (!questions.length) {
     return <PreviewCard title={title} description="No questions were provided." t={t} />;
@@ -106,6 +111,9 @@ export function PlanQuestionsWidget({
       });
       setSubmitted(true);
       setValues({});
+      if (profile.compact) {
+        setShowCompactForm(false);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to save your answers.";
       setError(message);
@@ -114,12 +122,78 @@ export function PlanQuestionsWidget({
     }
   };
 
+  if (profile.compact && !showCompactForm) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
+        <div
+          style={{
+            border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 12,
+            background: t.surface,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: t.textDim,
+            }}
+          >
+            {questions.length} question{questions.length === 1 ? "" : "s"} pending
+          </div>
+          <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
+            {title}
+          </div>
+          {intro ? <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>{intro}</div> : null}
+          <div style={{ color: t.textMuted, fontSize: 12 }}>
+            First prompt: {questions[0]?.label}
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 11, color: error ? t.danger : t.textDim }}>
+            {error ?? (submitted ? "Saved to chat history." : "Answers become a real user message.")}
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowCompactForm(true)}
+            style={{
+              borderRadius: 999,
+              border: `1px solid ${t.accentBorder}`,
+              background: t.accentSubtle,
+              color: t.accent,
+              padding: "6px 10px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Answer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: t.text }}>{title}</div>
-        {intro ? <div style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.55 }}>{intro}</div> : null}
-      </div>
+      {intro ? <div style={{ fontSize: 13, color: t.textMuted, lineHeight: 1.55 }}>{intro}</div> : null}
+      {!intro ? (
+        <div
+          style={{
+            fontSize: 10,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: t.textDim,
+          }}
+        >
+          {questions.length} question{questions.length === 1 ? "" : "s"}
+        </div>
+      ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {questions.map((question) => {
           const value = values[question.id] ?? "";
@@ -173,7 +247,7 @@ export function PlanQuestionsWidget({
                   onChange={(e) => updateValue(question.id, e.target.value)}
                   placeholder={question.placeholder}
                   style={{
-                    minHeight: 92,
+                    minHeight: profile.compact ? 72 : 92,
                     width: "100%",
                     resize: "vertical",
                     borderRadius: 8,
@@ -211,24 +285,42 @@ export function PlanQuestionsWidget({
         <div style={{ fontSize: 12, color: error ? t.danger : t.textDim }}>
           {error ?? (submitted ? "Saved to chat history and sent to the agent." : "Submitting saves these answers as a real user message in the chat history.")}
         </div>
-        <button
-          type="button"
-          onClick={() => void submitAnswers()}
-          disabled={busy}
-          style={{
-            borderRadius: 999,
-            border: `1px solid ${t.accentBorder}`,
-            background: t.accentSubtle,
-            color: t.accent,
-            padding: "8px 14px",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: busy ? "wait" : "pointer",
-            opacity: busy ? 0.7 : 1,
-          }}
-        >
-          {busy ? "Saving..." : submitLabel}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {profile.compact ? (
+            <button
+              type="button"
+              onClick={() => setShowCompactForm(false)}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: t.textDim,
+                padding: 0,
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Close
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void submitAnswers()}
+            disabled={busy}
+            style={{
+              borderRadius: 999,
+              border: `1px solid ${t.accentBorder}`,
+              background: t.accentSubtle,
+              color: t.accent,
+              padding: "8px 14px",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: busy ? "wait" : "pointer",
+              opacity: busy ? 0.7 : 1,
+            }}
+          >
+            {busy ? "Saving..." : submitLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -154,6 +154,11 @@ async def ensure_pinned_files_widget_pin(
         tool_name=PINNED_FILES_WIDGET_REF,
         envelope=build_native_widget_preview_envelope(PINNED_FILES_WIDGET_REF),
         source_channel_id=channel_id,
+        widget_origin={
+            "definition_kind": "native_widget",
+            "instantiation_kind": "native_catalog",
+            "widget_ref": PINNED_FILES_WIDGET_REF,
+        },
         display_label=PINNED_FILES_DISPLAY_LABEL,
         dashboard_key=dashboard_key,
         zone="dock",

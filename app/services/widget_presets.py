@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.services.integration_manifests import get_all_manifests
 from app.services.widget_contracts import (
     build_public_fields_for_tool_widget,
+    build_widget_presentation,
     normalize_layout_hints,
     normalize_config_schema,
 )
@@ -153,6 +154,24 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
     preset_layout_hints = normalize_layout_hints(preset.get("layout_hints"))
     if preset_layout_hints and isinstance(public_fields.get("widget_contract"), dict):
         public_fields["widget_contract"]["layout_hints"] = preset_layout_hints
+    preset_presentation = build_widget_presentation(
+        presentation_family=preset.get("presentation_family"),
+        panel_title=preset.get("panel_title"),
+        show_panel_title=preset.get("show_panel_title"),
+        layout_hints=preset.get("layout_hints"),
+    )
+    if public_fields.get("widget_presentation") is None:
+        public_fields["widget_presentation"] = preset_presentation
+    else:
+        merged_presentation = copy.deepcopy(public_fields["widget_presentation"])
+        merged_presentation.update(
+            {
+                key: value
+                for key, value in preset_presentation.items()
+                if value is not None
+            }
+        )
+        public_fields["widget_presentation"] = merged_presentation
     family_id = preset.get("tool_family")
     tool_family = None
     if isinstance(family_id, str) and family_id.strip():
@@ -176,6 +195,7 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
         "default_config": copy.deepcopy(preset.get("default_config") or {}),
         "config_schema": _preset_config_schema(preset),
         "widget_contract": public_fields.get("widget_contract"),
+        "widget_presentation": public_fields.get("widget_presentation"),
         "layout_hints": preset_layout_hints,
         "dependency_contract": {
             "tool_family": tool_family,

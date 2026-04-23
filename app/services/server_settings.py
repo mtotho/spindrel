@@ -52,7 +52,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "LLM_RATE_LIMIT_RETRIES": {"group": "Agent", "label": "Rate Limit Retries", "description": "Additional attempts after rate limit failure", "type": "int", "min": 0, "max": 10},
     "LLM_RATE_LIMIT_INITIAL_WAIT": {"group": "Agent", "label": "Rate Limit Initial Wait", "description": "Seconds before first rate limit retry", "type": "int", "min": 10, "max": 300},
     # --- Chat History ---
-    "DEFAULT_HISTORY_MODE": {"group": "Chat History", "label": "Default History Mode", "description": "How conversation history is stored and retrieved", "type": "string", "options": ["summary", "structured", "file"]},
+    "DEFAULT_HISTORY_MODE": {"group": "Chat History", "label": "Default History Mode", "description": "How conversation history is stored and retrieved. 'file' is the active/default path; 'summary' and 'structured' remain supported as legacy-compatible modes.", "type": "string", "options": ["file", "summary", "structured"]},
     "COMPACTION_MODEL": {"group": "Chat History", "label": "Compaction Model", "description": "LiteLLM model alias for context compaction", "type": "string", "widget": "model"},
     "COMPACTION_MODEL_PROVIDER_ID": {"group": "Chat History", "label": "Compaction Model Provider", "type": "string", "description": "Provider for compaction model", "ui_hidden": True},
     "COMPACTION_INTERVAL": {"group": "Chat History", "label": "Compaction Interval", "description": "Turns between compaction runs", "type": "int", "min": 5, "max": 200},

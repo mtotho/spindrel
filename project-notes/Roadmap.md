@@ -5,7 +5,7 @@ updated: 2026-04-23 (Local machine control phase 6 — core provider architectur
 ---
 # Agent Server — Roadmap
 
-The canonical view of where the project stands. For *why* → [[Architecture Decisions]]. For *how* → [[Architecture]] and [[How Discovery Works]]. For bugs → [[Loose Ends]].
+The canonical view of where the project stands. For *why* → [[Architecture Decisions]]. For *how* → [[Architecture]], `agent-server/docs/guides/context-management.md`, and `agent-server/docs/guides/discovery-and-enrollment.md`. For bugs → [[Loose Ends]].
 
 ## Product Identity
 **"Best self-hosted personal AI agent."** Target: runs Ollama/local models, wants more than chat, values self-hosting. Auto-discovery is the killer feature — bots need only `model` + `system_prompt`.
@@ -185,6 +185,7 @@ Discord audit next (following the playbook), then BlueBubbles, then GitHub's dis
 ## See Also
 - [[Architecture]] — subsystem map and request flow
 - [[Architecture Decisions]] — load-bearing decisions
-- [[How Discovery Works]] — runtime discovery pipeline
+- `agent-server/docs/guides/context-management.md` — canonical context admission + history profiles
+- `agent-server/docs/guides/discovery-and-enrollment.md` — canonical discovery, enrollment, and residency model
 - [[Loose Ends]] — bugs, gotchas, things to verify
 - [[Ideas & Investigations]] — parking lot

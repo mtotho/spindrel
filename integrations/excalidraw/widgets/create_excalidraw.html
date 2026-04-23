@@ -19,6 +19,10 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
   var titleEl = document.getElementById("title");
   var metaEl = document.getElementById("meta");
   var frameEl = document.getElementById("frame");
@@ -123,7 +127,7 @@
     document.body.removeChild(a);
   });
 
-  window.addEventListener("spindrel:toolresult", function (ev) { render(ev.detail); });
-  render(window.spindrel && window.spindrel.toolResult);
+  window.addEventListener("spindrel:toolresult", function () { render(getResult()); });
+  render(getResult());
 })();
 </script>

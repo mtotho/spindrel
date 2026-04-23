@@ -23,7 +23,7 @@ from app.services.native_app_widgets import (
     extract_native_widget_ref_from_envelope,
     get_or_create_native_widget_instance,
 )
-from app.services.widget_contracts import build_public_fields_for_pin
+from app.services.widget_contracts import build_pin_contract_metadata, build_public_fields_for_pin
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +107,16 @@ def _default_layout_for_zone(
 
 def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
     """Serialize a pin row to a JSON-safe dict for API responses."""
+    contract_meta = build_pin_contract_metadata(
+        tool_name=pin.tool_name,
+        envelope=pin.envelope or {},
+        source_bot_id=pin.source_bot_id,
+        widget_origin=pin.widget_origin,
+        provenance_confidence=pin.provenance_confidence,
+        widget_contract_snapshot=pin.widget_contract_snapshot,
+        config_schema_snapshot=pin.config_schema_snapshot,
+        widget_presentation_snapshot=pin.widget_presentation_snapshot,
+    )
     data = {
         "id": str(pin.id),
         "dashboard_key": pin.dashboard_key,
@@ -118,6 +128,8 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "tool_name": pin.tool_name,
         "tool_args": pin.tool_args or {},
         "widget_config": pin.widget_config or {},
+        "widget_origin": contract_meta["widget_origin"],
+        "provenance_confidence": contract_meta["provenance_confidence"],
         "envelope": pin.envelope or {},
         "display_label": pin.display_label,
         "grid_layout": pin.grid_layout or {},
@@ -131,9 +143,52 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
             tool_name=pin.tool_name,
             envelope=pin.envelope or {},
             source_bot_id=pin.source_bot_id,
+            widget_origin=contract_meta["widget_origin"],
+            widget_contract_snapshot=contract_meta["widget_contract_snapshot"],
+            config_schema_snapshot=contract_meta["config_schema_snapshot"],
+            widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
         )
     )
+    widget_presentation = contract_meta.get("widget_presentation")
+    if isinstance(widget_presentation, dict):
+        data["panel_title"] = widget_presentation.get("panel_title")
+        data["show_panel_title"] = widget_presentation.get("show_panel_title")
+        data["layout_hints"] = widget_presentation.get("layout_hints")
     return data
+
+
+def _refresh_pin_contract_metadata(pin: WidgetDashboardPin) -> bool:
+    metadata = build_pin_contract_metadata(
+        tool_name=pin.tool_name,
+        envelope=pin.envelope or {},
+        source_bot_id=pin.source_bot_id,
+        widget_origin=pin.widget_origin,
+        provenance_confidence=pin.provenance_confidence,
+        widget_contract_snapshot=pin.widget_contract_snapshot,
+        config_schema_snapshot=pin.config_schema_snapshot,
+        widget_presentation_snapshot=pin.widget_presentation_snapshot,
+    )
+    changed = False
+    if pin.widget_origin != metadata["widget_origin"]:
+        pin.widget_origin = metadata["widget_origin"]
+        flag_modified(pin, "widget_origin")
+        changed = True
+    if pin.provenance_confidence != metadata["provenance_confidence"]:
+        pin.provenance_confidence = metadata["provenance_confidence"]
+        changed = True
+    if pin.widget_contract_snapshot != metadata["widget_contract_snapshot"]:
+        pin.widget_contract_snapshot = metadata["widget_contract_snapshot"]
+        flag_modified(pin, "widget_contract_snapshot")
+        changed = True
+    if pin.config_schema_snapshot != metadata["config_schema_snapshot"]:
+        pin.config_schema_snapshot = metadata["config_schema_snapshot"]
+        flag_modified(pin, "config_schema_snapshot")
+        changed = True
+    if pin.widget_presentation_snapshot != metadata["widget_presentation_snapshot"]:
+        pin.widget_presentation_snapshot = metadata["widget_presentation_snapshot"]
+        flag_modified(pin, "widget_presentation_snapshot")
+        changed = True
+    return changed
 
 
 async def _sync_native_pin_envelopes(
@@ -205,15 +260,16 @@ async def list_pins(
     dirty = False
     for row in rows:
         gl = row.grid_layout
-        if not isinstance(gl, dict) or not gl:
-            continue
-        if (row.zone or "grid") == "header" and gl == {"x": 0, "y": 0, "w": 1, "h": 1}:
-            normalized = dict(_HEADER_CHIP_LAYOUT)
-        else:
-            normalized = _normalize_coords_for_zone(gl, row.zone or "grid", preset_name=preset_name)
-        if normalized != gl:
-            row.grid_layout = normalized
-            flag_modified(row, "grid_layout")
+        if isinstance(gl, dict) and gl:
+            if (row.zone or "grid") == "header" and gl == {"x": 0, "y": 0, "w": 1, "h": 1}:
+                normalized = dict(_HEADER_CHIP_LAYOUT)
+            else:
+                normalized = _normalize_coords_for_zone(gl, row.zone or "grid", preset_name=preset_name)
+            if normalized != gl:
+                row.grid_layout = normalized
+                flag_modified(row, "grid_layout")
+                dirty = True
+        if _refresh_pin_contract_metadata(row):
             dirty = True
     if await _sync_native_pin_envelopes(db, rows):
         dirty = True
@@ -242,6 +298,7 @@ async def create_pin(
     source_bot_id: str | None = None,
     tool_args: dict | None = None,
     widget_config: dict | None = None,
+    widget_origin: dict | None = None,
     display_label: str | None = None,
     dashboard_key: str = DEFAULT_DASHBOARD_KEY,
     zone: str | None = None,
@@ -340,16 +397,28 @@ async def create_pin(
             display_label=display_label or envelope.get("display_label"),
             source_bot_id=source_bot_id,
         )
+    contract_meta = build_pin_contract_metadata(
+        tool_name=tool_name,
+        envelope=envelope,
+        source_bot_id=resolved_bot_id,
+        widget_origin=widget_origin,
+        provenance_confidence="authoritative" if widget_origin else None,
+    )
     pin = WidgetDashboardPin(
         dashboard_key=dashboard_key,
         position=position,
         source_kind=source_kind,
         source_channel_id=source_channel_id,
         widget_instance_id=widget_instance_id,
-        source_bot_id=source_bot_id,
+        source_bot_id=resolved_bot_id,
         tool_name=tool_name,
         tool_args=tool_args or {},
         widget_config=widget_config or {},
+        widget_origin=contract_meta["widget_origin"],
+        provenance_confidence=contract_meta["provenance_confidence"],
+        widget_contract_snapshot=contract_meta["widget_contract_snapshot"],
+        config_schema_snapshot=contract_meta["config_schema_snapshot"],
+        widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
         grid_layout=_normalize_coords_for_zone(
@@ -491,6 +560,9 @@ async def get_pin(
     )).scalar_one_or_none()
     if pin is None:
         raise HTTPException(404, "Dashboard pin not found")
+    if _refresh_pin_contract_metadata(pin):
+        await db.commit()
+        await db.refresh(pin)
     return pin
 
 
@@ -626,6 +698,7 @@ async def update_pin_envelope(
     pin.envelope = envelope
     pin.display_label = envelope.get("display_label") or pin.display_label
     flag_modified(pin, "envelope")
+    _refresh_pin_contract_metadata(pin)
     await db.commit()
     await db.refresh(pin)
 
@@ -705,6 +778,7 @@ async def update_pin_scope(
         envelope["source_bot_id"] = source_bot_id
     pin.envelope = envelope
     flag_modified(pin, "envelope")
+    _refresh_pin_contract_metadata(pin)
 
     await db.commit()
     await db.refresh(pin)

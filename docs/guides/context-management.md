@@ -10,6 +10,7 @@ This guide covers two things:
 - the policy we are steering toward when tuning defaults and guardrails
 
 It is intentionally broader than [Chat History](chat-history.md), which focuses on archival/history modes.
+For the canonical guide covering tool/skill discovery, enrollment, and residency semantics, see [Discovery and Enrollment](discovery-and-enrollment.md).
 
 ---
 
@@ -122,11 +123,42 @@ Context assembly is now also **profile-aware**:
 - optional static injections are admitted only if the profile allows them and the budget can afford them
 - trace/reporting now records per-source admit/skip reasons so "skipped by profile" and "skipped by budget" are visible separately
 
+### Knowledge-base retrieval
+
+Knowledge-base behavior is opinionated and convention-based rather than driven only by custom segments. The full storage model and write-where guidance live in [Knowledge Bases](knowledge-bases.md).
+
+Current behavior:
+
+- every channel has `channels/<channel_id>/knowledge-base/`
+- every bot has a bot-wide `knowledge-base/` folder
+  - standalone bots: `knowledge-base/`
+  - shared-workspace bots: `bots/<bot_id>/knowledge-base/`
+- both are indexed recursively under the normal filesystem indexer
+
+Important scope distinction:
+
+- **channel knowledge base**
+  - room-specific reference material
+  - implicitly retrieved in channel context via an always-present `channels/<id>/knowledge-base/` segment
+  - when excerpts are injected, the prompt explicitly tells the model to call `search_channel_knowledge` for more targeted lookups
+- **bot knowledge base**
+  - bot-wide reference material that should travel across channels
+  - auto-retrieved by default before broader workspace search
+  - searchable with `search_bot_knowledge`
+  - can be switched to search-only mode in bot Workspace settings
+
+Practical write-where guidance:
+
+- use channel KB for room/project facts, decisions, glossaries, runbooks, and curated reference docs
+- use bot KB for bot-wide reference docs, reusable templates, and facts that should follow the bot between channels
+- use `memory.md` for short high-signal behavioral notes and preferences
+- use normal workspace files for transient working material rather than curated knowledge
+
 ---
 
 ## History Modes
 
-Spindrel currently supports three history modes.
+Spindrel currently supports three history modes, but `file` is the active/default path.
 
 ### File
 
@@ -142,6 +174,8 @@ This is the most scalable mode because it avoids forcing old transcript detail i
 
 ### Structured
 
+Legacy but still supported.
+
 Behavior:
 
 - older conversation is summarized into section-like chunks
@@ -151,6 +185,8 @@ Behavior:
 This is simpler than file mode for some channels, but less explicit than a section index + retrieval model.
 
 ### Summary
+
+Legacy but still supported.
 
 Behavior:
 
@@ -471,6 +507,171 @@ Shipped profiles:
 - `task_recent`: task history only, narrow optional admissions
 - `task_none`: no live replay beyond system/base layers, no optional ambient injections
 - `heartbeat`: same restrictive admission posture as `task_none`
+
+### Profile admission matrix
+
+Profile gating happens before budget gating.
+
+- `allowed` means the profile permits that source class
+- `admitted` still depends on budget for optional sources
+- `mandatory` means the runtime always includes that source when it exists
+
+| Source | chat | planning | executing | task_recent | task_none | heartbeat |
+|---|---|---|---|---|---|---|
+| `MEMORY.md` bootstrap | mandatory | mandatory | mandatory | mandatory | mandatory | mandatory |
+| today log | allowed + budget | off | off | off | off | off |
+| yesterday log | allowed + budget | off | off | off | off | off |
+| memory reference index | allowed + budget | off | off | off | off | off |
+| memory housekeeping / nudges | allowed + budget | off | off | off | off | off |
+| channel workspace root `.md` | allowed + budget | off | allowed + budget | off | off | off |
+| channel knowledge-base / indexed-dir excerpts | allowed + budget | off | allowed + budget | off | off | off |
+| workspace RAG | allowed + budget | off | allowed + budget | off | off | off |
+| conversation sections / section index | allowed + budget | mandatory | mandatory | mandatory when history exists | off | off |
+| active plan artifact / planning capsules | off | mandatory | mandatory | off | off | off |
+| tool index / discovery hints | allowed + budget | allowed + budget | allowed + budget | allowed + budget | off | off |
+| temporal context | allowed + budget | off | off | off | off | off |
+| pinned widgets prose | allowed + budget | off | off | off | off | off |
+| tool-refusal guard | allowed + budget | off | allowed + budget | off | off | off |
+| live history | full chat continuity | last 2 user-started turns | last 4 user-started turns | task-selected history posture | 0 | 0 |
+
+Concrete runtime notes:
+
+- `MEMORY.md` is the only workspace-files memory source that is currently unconditional across all shipped profiles.
+- "Allowed" for optional sources still means "subject to budget."
+- `task_recent` keeps the additive policy narrow even when it carries some conversation history.
+- `task_none` and `heartbeat` deliberately suppress ambient prompt growth.
+
+### Restricted-profile runtime note
+
+Spindrel now keeps one shared generic memory prompt for normal chat, then adds a small extra runtime note for restricted profiles only:
+
+- `planning`
+- `executing`
+- `task_recent`
+- `task_none`
+- `heartbeat`
+
+That note is:
+
+- ephemeral per request
+- injected as a system message during context assembly
+- not shown as a chat message
+- not persisted as normal conversation content
+- budget-gated like other optional static injections
+
+The purpose is to tell the model what is actually missing on this run without maintaining separate full prompt templates for every profile.
+
+Example `planning` note:
+
+```text
+Current context profile: planning.
+Live replay is limited to the last 2 user-started turn(s).
+Recent daily logs and memory reference listings are not preloaded in this run.
+Workspace files, knowledge excerpts, and workspace search context are not preloaded in this profile.
+If exact detail matters, fetch or search it explicitly instead of assuming it is already in context.
+```
+
+Example `executing` note when workspace context was admitted:
+
+```text
+Current context profile: executing.
+Live replay is limited to the last 4 user-started turn(s).
+Recent daily logs and memory reference listings are not preloaded in this run.
+Some workspace and knowledge context is already present in this run.
+If exact detail matters, fetch or search it explicitly instead of assuming it is already in context.
+```
+
+Example `heartbeat` note:
+
+```text
+Current context profile: heartbeat.
+Live replay is disabled for this run.
+Recent daily logs and memory reference listings are not preloaded in this run.
+Workspace files, knowledge excerpts, and workspace search context are not preloaded in this profile.
+If exact detail matters, fetch or search it explicitly instead of assuming it is already in context.
+```
+
+### Worked examples
+
+#### Planning turn
+
+What the model reliably gets:
+
+- base/system prompt
+- `MEMORY.md`
+- plan-mode runtime instructions
+- active plan artifact / planning-state / runtime capsule
+- conversation sections or section index
+- short live history (`2` user-started turns)
+- tool-index hints when budget allows
+
+What it does **not** get:
+
+- channel workspace root files
+- channel knowledge-base excerpts
+- workspace RAG
+- today/yesterday logs
+- temporal prose
+- pinned-widget prose
+
+Implication: if a planning turn needs `tasks.md`, a KB note, or a recent log detail, the bot must fetch it deliberately instead of assuming it was preloaded.
+
+#### Executing turn
+
+What the model reliably gets:
+
+- base/system prompt
+- `MEMORY.md`
+- plan execution capsules
+- conversation sections or section index
+- medium live history (`4` user-started turns)
+
+What may be admitted if budget allows:
+
+- channel workspace root files
+- channel knowledge-base excerpts
+- workspace RAG
+- tool-index hints
+- tool-refusal guard
+
+What stays off:
+
+- today/yesterday logs
+- temporal prose
+- pinned-widget prose
+
+Implication: execution has access to project/workspace context again, but it still does not get recent daily logs for free.
+
+#### Heartbeat or restrictive task turn
+
+What the model gets:
+
+- base/system prompt
+- `MEMORY.md`
+- the run-specific prompt
+
+What stays off:
+
+- live chat replay
+- conversation sections / section index
+- workspace prose
+- knowledge-base excerpts
+- workspace RAG
+- recent logs
+- most ambient optional injections
+
+Implication: these origins are intentionally narrow. If they need external state, they should fetch it explicitly.
+
+### Prompt-writing rule
+
+Generic prompts and skills should only claim what is true across profiles.
+
+That means:
+
+- safe to say `MEMORY.md` is part of the durable memory baseline when the bot uses `workspace-files`
+- not safe to say recent logs, workspace files, KB excerpts, or workspace RAG are always already present
+- safe fallback instruction: if a needed detail is missing, fetch/search it explicitly
+- restricted profiles now get a small runtime note that states the current profile and the missing preloads for that request
 
 ---
 

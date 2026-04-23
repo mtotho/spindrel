@@ -180,7 +180,7 @@ class TestFrigateSnapshotWidgetCarriesCamera:
         # envelope's {{camera}}-substituted display_label).
         widget_meta = {
             "display_label": "driveway",
-            "config": {"show_bbox": True},
+            "widget_config": {"show_bbox": True},
         }
         args = substitute_vars(poll["args"], widget_meta)
         assert args["camera"] == "driveway"
@@ -210,7 +210,8 @@ class TestExcalidrawWidget:
 
 
 class TestConfigRidesIntoHtmlToolResult:
-    """Slice 0: merged config must land in toolResult.config for widgets."""
+    """Slice 0: merged config must land in the canonical HTML runtime
+    widgetConfig channel, with toolResult.config preserved for compatibility."""
 
     def test_generate_image_gets_empty_default_config(self):
         raw, base = _load_core_widgets("generate_image")
@@ -219,11 +220,8 @@ class TestConfigRidesIntoHtmlToolResult:
             "generate_image",
             json.dumps({"prompt": "x", "images": []}),
         )
-        preamble = env.body.split("</script>")[0]
-        payload = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
-        # Config is present (possibly empty {}) — widgets rely on its presence.
-        data = json.loads(payload)
-        assert "config" in data
+        assert "window.spindrel.widgetConfig = {};" in env.body
+        assert "window.spindrel.toolResult = " in env.body
 
     def test_web_search_structured_data_feeds_core_renderer(self):
         raw, base = _load_integration_manifest("web_search")

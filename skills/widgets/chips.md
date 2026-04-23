@@ -1,13 +1,13 @@
 ---
 name: Chip Widgets
-description: Authoring widgets for the 180×32 channel-header chip band — size constraints, `window.spindrel.layout` branching, `layout_hints` manifest field, and the three reference chips shipped in-repo
+description: Authoring compact chip-family widgets for the floating channel header rail — size constraints, `window.spindrel.layout` branching, and `layout_hints` / `presentation_family` guidance
 triggers: chip widget, chip, channel header, header chip, 180x32, 180×32, compact widget, header band, chip zone, layout hints, preferred_zone, chip toggle, chip status, chip metric
 category: core
 ---
 
 # Chip widgets
 
-A **chip** is the compact 180×32 widget surface that renders inline in the channel header, to the left of the pins popover. Chips exist alongside the rail, dock, and grid zones on the same channel dashboard — the zone is stored on each pin, so any widget *can* land as a chip, but only chip-sized widgets render well there. This doc covers how to author a widget that fits that band.
+A **chip** is a compact presentation family for the floating header rail. The persisted placement zone is `header`; `chip` is the authored compact variant that fits that band cleanly. Any widget may be placed in the header rail, but only chip-family widgets are expected to feel native there. This doc covers how to author one.
 
 ## Size constraints
 
@@ -16,7 +16,7 @@ A **chip** is the compact 180×32 widget surface that renders inline in the chan
 - **No titles, no chrome.** Chips are chromeless — there is no header row, no edit button, no drag handle at rest. Author the body only; the host manages the outer chip shell.
 - **Single line.** A label + value + optional small affordance (dot / delta / switch) is the grammar.
 
-## Branching on zone — `window.spindrel.layout`
+## Branching on host layout — `window.spindrel.layout`
 
 Every interactive HTML widget sees one of four strings on `window.spindrel.layout`:
 
@@ -47,14 +47,15 @@ Reflecting `spindrel.layout` into a `data-layout` attribute lets the stylesheet 
 
 ## `layout_hints` in `widget.yaml`
 
-Bundles declare advisory placement hints so the dashboard editor can suggest the right zone and clamp resize:
+Bundles declare authored intent plus advisory placement hints so the dashboard editor can suggest the right surface and clamp resize:
 
 ```yaml
 name: My Chip
 version: 1.0.0
 description: …
+presentation_family: chip
 layout_hints:
-  preferred_zone: chip         # chip | rail | dock | grid
+  preferred_zone: chip         # compatibility alias; resolves to header defaults
   min_cells:
     w: 2
     h: 1
@@ -65,7 +66,8 @@ layout_hints:
 
 Field notes:
 
-- `preferred_zone` is advisory — the editor can suggest "this belongs in the chip row" but won't refuse a drop elsewhere.
+- `presentation_family: chip` is the authored compact-family contract.
+- `preferred_zone` is advisory — the editor can suggest "this belongs in the header rail" but won't refuse a drop elsewhere.
 - `min_cells` / `max_cells` clamp the resize handles. Chips always want `h: 1`.
 - Omit `layout_hints` entirely for widgets that belong in the grid — that's the default mental model.
 

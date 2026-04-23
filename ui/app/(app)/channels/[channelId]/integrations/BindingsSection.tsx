@@ -70,7 +70,19 @@ export function BindingsSection({ channelId }: { channelId: string }) {
 
   return (
     <>
-      <Section title="Dispatcher Bindings" description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service (e.g. a Slack channel or iMessage chat).">
+      <Section
+        title="Dispatcher Bindings"
+        description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service."
+        action={!showAdd ? (
+          <ActionButton
+            label="Add Binding"
+            onPress={() => setShowAdd(true)}
+            variant="secondary"
+            size="small"
+            icon={<Plus size={12} />}
+          />
+        ) : undefined}
+      >
         {(!bindings || bindings.filter((b) => !b.client_id.startsWith("mc-activated:")).length === 0) ? (
           <EmptyState message="No integrations bound to this channel" />
         ) : (
@@ -84,7 +96,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                   style={{
                     background: t.surfaceRaised,
                     border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 8,
+                    borderRadius: 7,
                     padding: 12,
                   }}
                 >
@@ -113,7 +125,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                     alignItems: "center",
                     gap: 10,
                     padding: "10px 14px",
-                    borderRadius: 8,
+                    borderRadius: 7,
                     border: `1px solid ${t.surfaceBorder}`,
                     background: t.surfaceRaised,
                   }}
@@ -173,32 +185,32 @@ export function BindingsSection({ channelId }: { channelId: string }) {
             })}
           </div>
         )}
+        {showAdd && (
+          <div
+            style={{
+              marginTop: 4,
+              padding: 12,
+              borderRadius: 7,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: t.surfaceRaised,
+            }}
+          >
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 10 }}>Add Binding</div>
+            <BindingForm
+              availableIntegrations={available}
+              initialType={available[0]?.type ?? ""}
+              initialClientId=""
+              initialDisplayName=""
+              onSubmit={handleAdd}
+              onCancel={() => setShowAdd(false)}
+              isPending={bindMutation.isPending}
+              isError={bindMutation.isError}
+              errorMessage={bindMutation.error instanceof Error ? bindMutation.error.message : undefined}
+              submitLabel="Bind"
+            />
+          </div>
+        )}
       </Section>
-
-      {!showAdd ? (
-        <ActionButton
-          label="Add Binding"
-          onPress={() => setShowAdd(true)}
-          variant="secondary"
-          size="small"
-          icon={<Plus size={12} />}
-        />
-      ) : (
-        <Section title="Add Binding">
-          <BindingForm
-            availableIntegrations={available}
-            initialType={available[0]?.type ?? ""}
-            initialClientId=""
-            initialDisplayName=""
-            onSubmit={handleAdd}
-            onCancel={() => setShowAdd(false)}
-            isPending={bindMutation.isPending}
-            isError={bindMutation.isError}
-            errorMessage={bindMutation.error instanceof Error ? bindMutation.error.message : undefined}
-            submitLabel="Bind"
-          />
-        </Section>
-      )}
 
       <ConfirmDialog
         open={unbindTarget !== null}

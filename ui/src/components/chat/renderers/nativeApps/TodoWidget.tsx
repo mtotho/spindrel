@@ -1,9 +1,13 @@
 import { useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2, X } from "lucide-react";
-import type { ToolResultEnvelope } from "@/src/types/api";
-import type { ThemeTokens } from "@/src/theme/tokens";
-import { PreviewCard, type NativeTodoItem, useNativeEnvelopeState } from "./shared";
+import {
+  PreviewCard,
+  type NativeAppRendererProps,
+  type NativeTodoItem,
+  useNativeEnvelopeState,
+} from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 function IconButton({
   label,
@@ -14,7 +18,7 @@ function IconButton({
 }: {
   label: string;
   onClick: () => void;
-  t: ThemeTokens;
+  t: NativeAppRendererProps["t"];
   disabled?: boolean;
   children: ReactNode;
 }) {
@@ -48,13 +52,17 @@ export function TodoWidget({
   envelope,
   dashboardPinId,
   channelId,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  dashboardPinId?: string;
-  channelId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 380,
+    compactMaxHeight: 190,
+    wideMinWidth: 680,
+    wideMinHeight: 220,
+    tallMinHeight: 300,
+  });
   const { currentPayload, dispatchNativeAction } = useNativeEnvelopeState(
     envelope,
     "core/todo_native",
@@ -137,6 +145,276 @@ export function TodoWidget({
         : "Saved with this widget";
 
   const rowBorder = `1px solid ${t.surfaceBorder}`;
+  const actionAlwaysVisible = profile.wide || profile.tall;
+
+  if (profile.compact) {
+    const visibleOpen = openItems.slice(0, 2);
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%", color: t.text }}>
+        <form
+          onSubmit={submitNewItem}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) 34px",
+            borderBottom: rowBorder,
+            paddingBottom: 4,
+          }}
+        >
+          <input
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            placeholder="Add a task"
+            maxLength={500}
+            style={{
+              minWidth: 0,
+              border: "none",
+              borderRadius: 0,
+              background: "transparent",
+              color: t.text,
+              padding: "8px 0",
+              fontSize: 13,
+              outline: "none",
+            }}
+          />
+          <button
+            type="submit"
+            disabled={busy === "add" || !newTitle.trim()}
+            aria-label="Add task"
+            title="Add task"
+            style={{
+              border: "none",
+              borderRadius: 0,
+              background: "transparent",
+              color: busy === "add" || !newTitle.trim() ? t.textDim : t.accent,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: busy === "add" || !newTitle.trim() ? "default" : "pointer",
+            }}
+          >
+            <Plus size={16} />
+          </button>
+        </form>
+
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, color: t.textDim }}>
+          <span>{openItems.length} open{completedItems.length ? ` / ${completedItems.length} done` : ""}</span>
+          {completedItems.length ? (
+            <button
+              type="button"
+              disabled={busy === "clear_completed"}
+              onClick={() => void runAction("clear_completed", {}, "clear_completed")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: t.textMuted,
+                padding: 0,
+                fontSize: 11,
+                cursor: busy === "clear_completed" ? "default" : "pointer",
+              }}
+            >
+              Clear done
+            </button>
+          ) : null}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {!items.length ? (
+            <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+              No tasks yet.
+            </div>
+          ) : null}
+          {visibleOpen.map((item) => (
+            <label
+              key={item.id}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "18px minmax(0, 1fr)",
+                gap: 8,
+                alignItems: "center",
+                minHeight: 32,
+                border: `1px solid ${t.surfaceBorder}`,
+                borderRadius: 10,
+                padding: "6px 8px",
+                background: t.surface,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={item.done}
+                onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
+                style={{ width: 13, height: 13, margin: 0 }}
+              />
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
+                {item.title}
+              </span>
+            </label>
+          ))}
+          {openItems.length > visibleOpen.length ? (
+            <div style={{ fontSize: 11, color: t.textDim }}>
+              {openItems.length - visibleOpen.length} more open task{openItems.length - visibleOpen.length === 1 ? "" : "s"}.
+            </div>
+          ) : null}
+        </div>
+
+        <div style={{ borderTop: rowBorder, paddingTop: 6, fontSize: 11, color: error ? t.danger : t.textDim }}>
+          {status}
+        </div>
+      </div>
+    );
+  }
+
+  const openList = (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      {!items.length ? (
+        <div style={{ padding: "24px 0", color: t.textMuted, fontSize: 13, lineHeight: 1.5 }}>
+          No tasks yet. Add one here, or let a bot drop tasks into this list.
+        </div>
+      ) : null}
+
+      {openItems.map((item, index) => (
+        <div
+          key={item.id}
+          draggable={busy !== "reorder"}
+          onDragStart={() => setDraggingId(item.id)}
+          onDragOver={(e) => {
+            if (!draggingId || draggingId === item.id) return;
+            e.preventDefault();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (!draggingId || draggingId === item.id) return;
+            const reordered = [...openItems];
+            const from = reordered.findIndex((entry) => entry.id === draggingId);
+            const to = reordered.findIndex((entry) => entry.id === item.id);
+            if (from < 0 || to < 0) return;
+            const [moved] = reordered.splice(from, 1);
+            reordered.splice(to, 0, moved);
+            setDraggingId(null);
+            void reorder(reordered);
+          }}
+          onDragEnd={() => setDraggingId(null)}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "14px 18px minmax(0, 1fr) auto",
+            alignItems: "center",
+            gap: 8,
+            minHeight: 36,
+            borderTop: rowBorder,
+            borderColor: draggingId === item.id ? t.accentBorder : t.surfaceBorder,
+            background: draggingId === item.id ? t.accentSubtle : "transparent",
+          }}
+        >
+          <GripVertical size={12} style={{ color: t.textDim }} />
+          <input
+            type="checkbox"
+            checked={item.done}
+            onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
+            style={{ width: 13, height: 13, margin: 0 }}
+          />
+          <div style={{ minWidth: 0 }}>
+            {editingId === item.id ? (
+              <input
+                autoFocus
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onBlur={() => void saveRename(item.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void saveRename(item.id);
+                  }
+                  if (e.key === "Escape") {
+                    setEditingId(null);
+                    setEditingTitle("");
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  border: "none",
+                  borderRadius: 0,
+                  outline: "none",
+                  background: "transparent",
+                  color: t.text,
+                  fontSize: 13,
+                  padding: 0,
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => beginRename(item)}
+                style={{
+                  border: "none",
+                  borderRadius: 0,
+                  background: "transparent",
+                  color: t.text,
+                  fontSize: 13,
+                  padding: 0,
+                  textAlign: "left",
+                  width: "100%",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  cursor: "text",
+                }}
+              >
+                {item.title}
+              </button>
+            )}
+          </div>
+          <div
+            className={actionAlwaysVisible ? undefined : "opacity-0 group-hover/todo:opacity-100 focus-within:opacity-100 transition-opacity"}
+            style={{ display: "flex", alignItems: "center", opacity: actionAlwaysVisible ? 1 : undefined }}
+          >
+            <IconButton label="Move up" onClick={() => moveOpenItem(index, -1)} t={t} disabled={index === 0 || busy === "reorder"}>
+              <ChevronUp size={14} />
+            </IconButton>
+            <IconButton label="Move down" onClick={() => moveOpenItem(index, 1)} t={t} disabled={index === openItems.length - 1 || busy === "reorder"}>
+              <ChevronDown size={14} />
+            </IconButton>
+            <IconButton label="Delete task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
+              <Trash2 size={13} />
+            </IconButton>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const completedList = completedItems.length ? (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: t.textDim, marginBottom: 2 }}>
+        Completed
+      </div>
+      {completedItems.map((item) => (
+        <div
+          key={item.id}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "18px minmax(0, 1fr) auto",
+            alignItems: "center",
+            gap: 8,
+            minHeight: 34,
+            borderTop: rowBorder,
+            opacity: 0.72,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={item.done}
+            onChange={() => void runAction("toggle_item", { id: item.id, done: false }, `toggle:${item.id}`)}
+            style={{ width: 13, height: 13, margin: 0 }}
+          />
+          <div style={{ color: t.textDim, textDecoration: "line-through", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {item.title}
+          </div>
+          <IconButton label="Delete completed task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
+            <X size={13} />
+          </IconButton>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
   return (
     <div className="group/todo" style={{ display: "flex", flexDirection: "column", minHeight: "100%", color: t.text }}>
@@ -209,157 +487,24 @@ export function TodoWidget({
         ) : null}
       </div>
 
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {!items.length ? (
-          <div style={{ padding: "24px 0", color: t.textMuted, fontSize: 13, lineHeight: 1.5 }}>
-            No tasks yet. Add one here, or let a bot drop tasks into this list.
-          </div>
-        ) : null}
-
-        {openItems.map((item, index) => (
-          <div
-            key={item.id}
-            draggable={busy !== "reorder"}
-            onDragStart={() => setDraggingId(item.id)}
-            onDragOver={(e) => {
-              if (!draggingId || draggingId === item.id) return;
-              e.preventDefault();
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (!draggingId || draggingId === item.id) return;
-              const reordered = [...openItems];
-              const from = reordered.findIndex((entry) => entry.id === draggingId);
-              const to = reordered.findIndex((entry) => entry.id === item.id);
-              if (from < 0 || to < 0) return;
-              const [moved] = reordered.splice(from, 1);
-              reordered.splice(to, 0, moved);
-              setDraggingId(null);
-              void reorder(reordered);
-            }}
-            onDragEnd={() => setDraggingId(null)}
-            style={{
-              display: "grid",
-              gridTemplateColumns: "14px 18px minmax(0, 1fr) auto",
-              alignItems: "center",
-              gap: 8,
-              minHeight: 36,
-              borderTop: rowBorder,
-              borderColor: draggingId === item.id ? t.accentBorder : t.surfaceBorder,
-              background: draggingId === item.id ? t.accentSubtle : "transparent",
-            }}
-          >
-            <GripVertical size={12} style={{ color: t.textDim }} />
-            <input
-              type="checkbox"
-              checked={item.done}
-              onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
-              style={{ width: 13, height: 13, margin: 0 }}
-            />
-            <div style={{ minWidth: 0 }}>
-              {editingId === item.id ? (
-                <input
-                  autoFocus
-                  value={editingTitle}
-                  onChange={(e) => setEditingTitle(e.target.value)}
-                  onBlur={() => void saveRename(item.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      void saveRename(item.id);
-                    }
-                    if (e.key === "Escape") {
-                      setEditingId(null);
-                      setEditingTitle("");
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    border: "none",
-                    borderRadius: 0,
-                    outline: "none",
-                    background: "transparent",
-                    color: t.text,
-                    fontSize: 13,
-                    padding: 0,
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => beginRename(item)}
-                  style={{
-                    border: "none",
-                    borderRadius: 0,
-                    background: "transparent",
-                    color: t.text,
-                    fontSize: 13,
-                    padding: 0,
-                    textAlign: "left",
-                    width: "100%",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    cursor: "text",
-                  }}
-                >
-                  {item.title}
-                </button>
-              )}
-            </div>
-            <div className="opacity-0 group-hover/todo:opacity-100 focus-within:opacity-100 transition-opacity" style={{ display: "flex", alignItems: "center" }}>
-              <IconButton label="Move up" onClick={() => moveOpenItem(index, -1)} t={t} disabled={index === 0 || busy === "reorder"}>
-                <ChevronUp size={14} />
-              </IconButton>
-              <IconButton label="Move down" onClick={() => moveOpenItem(index, 1)} t={t} disabled={index === openItems.length - 1 || busy === "reorder"}>
-                <ChevronDown size={14} />
-              </IconButton>
-              <IconButton label="Delete task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
-                <Trash2 size={13} />
-              </IconButton>
-            </div>
-          </div>
-        ))}
-
-        {completedItems.length ? (
-          <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: t.textDim, marginBottom: 2 }}>
-              Completed
-            </div>
-            {completedItems.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "18px minmax(0, 1fr) auto",
-                  alignItems: "center",
-                  gap: 8,
-                  minHeight: 34,
-                  borderTop: rowBorder,
-                  opacity: 0.72,
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={item.done}
-                  onChange={() => void runAction("toggle_item", { id: item.id, done: false }, `toggle:${item.id}`)}
-                  style={{ width: 13, height: 13, margin: 0 }}
-                />
-                <div style={{ color: t.textDim, textDecoration: "line-through", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {item.title}
-                </div>
-                <IconButton label="Delete completed task" onClick={() => void runAction("delete_item", { id: item.id }, `delete:${item.id}`)} t={t}>
-                  <X size={13} />
-                </IconButton>
-              </div>
-            ))}
-          </div>
-        ) : null}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: profile.wide && completedList ? "grid" : "flex",
+          gridTemplateColumns: profile.wide && completedList ? "minmax(0, 1.7fr) minmax(0, 1fr)" : undefined,
+          gap: profile.wide && completedList ? 16 : undefined,
+          flexDirection: profile.wide && completedList ? undefined : "column",
+        }}
+      >
+        {openList}
+        {!profile.wide && completedList ? <div style={{ marginTop: 10 }}>{completedList}</div> : null}
+        {profile.wide && completedList ? completedList : null}
       </div>
 
       <div style={{ borderTop: rowBorder, paddingTop: 6, marginTop: 8, fontSize: 11, color: error ? t.danger : t.textDim, display: "flex", justifyContent: "space-between", gap: 8 }}>
         <span>{status}</span>
-        <span style={{ color: t.textDim }}>Drag rows</span>
+        <span style={{ color: t.textDim }}>{profile.compact ? "Quick list" : "Drag rows"}</span>
       </div>
     </div>
   );

@@ -186,7 +186,7 @@ class TestInvalidatePollCache:
 
 
 def _register_weather_widget_with_config():
-    """Weather widget whose state_poll args reference config.show_forecast.
+    """Weather widget whose state_poll args reference widget_config.show_forecast.
     Mirrors the OpenWeather integration YAML."""
     _widget_templates["get_weather"] = {
         "content_type": "application/vnd.spindrel.components+json",
@@ -197,7 +197,7 @@ def _register_weather_widget_with_config():
             "tool": "get_weather",
             "args": {
                 "location": "{{display_label}}",
-                "include_daily": "{{config.show_forecast}}",
+                "include_daily": "{{widget_config.show_forecast}}",
             },
             "refresh_interval_seconds": 3600,
             "template": {
@@ -233,7 +233,7 @@ class TestStatePollConfigInArgs:
 
     @pytest.mark.asyncio
     async def test_missing_widget_config_yields_empty_config_dict(self):
-        """{{config.show_forecast}} with no widget_config and no default_config
+        """{{widget_config.show_forecast}} with no widget_config and no default_config
         passthrough on the poll_cfg should resolve to None → JSON null in args."""
         _widget_templates["get_weather"] = {
             "content_type": "application/vnd.spindrel.components+json",
@@ -241,7 +241,7 @@ class TestStatePollConfigInArgs:
             "template": {"v": 1, "components": []},
             "state_poll": {
                 "tool": "get_weather",
-                "args": {"flag": "{{config.missing}}"},
+                "args": {"flag": "{{widget_config.missing}}"},
                 "template": {"v": 1, "components": []},
             },
             "source": "test",

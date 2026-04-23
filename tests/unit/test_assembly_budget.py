@@ -58,7 +58,7 @@ def _assembly_patches():
     ]
 
 
-def _call_assembly(messages, bot, user_message, result, budget=None, correlation_id=None):
+def _call_assembly(messages, bot, user_message, result, budget=None, correlation_id=None, **overrides):
     """Build assemble_context() call with common defaults."""
     return assemble_context(
         messages=messages,
@@ -74,6 +74,7 @@ def _call_assembly(messages, bot, user_message, result, budget=None, correlation
         native_audio=False,
         result=result,
         budget=budget,
+        **overrides,
     )
 
 
@@ -218,6 +219,33 @@ class TestAssemblyBudgetTight:
         # With generous budget, same content should fit
         big_budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
         assert big_budget.can_afford(estimate_tokens(fs_content))
+
+    @pytest.mark.asyncio
+    async def test_restricted_profile_note_is_skipped_when_budget_exhausted(self):
+        bot = _minimal_bot()
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=10_000, reserve_tokens=0)
+        budget.consume("pre_fill", 9_995)
+        result = AssemblyResult()
+
+        patches = _assembly_patches()
+        for p in patches:
+            p.start()
+        try:
+            await _drain(_call_assembly(
+                messages,
+                bot,
+                "Plan this.",
+                result,
+                budget=budget,
+                context_profile_name="planning",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert result.inject_decisions["context_profile_note"] == "skipped_by_budget"
+        assert all("Current context profile:" not in msg.get("content", "") for msg in messages)
 
     @pytest.mark.asyncio
     async def test_p4_tool_index_included_with_generous_budget(self):

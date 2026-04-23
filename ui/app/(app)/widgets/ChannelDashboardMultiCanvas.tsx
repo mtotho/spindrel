@@ -189,6 +189,8 @@ export function ChannelDashboardMultiCanvas({
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const [error, setError] = useState<string | null>(null);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const [activeDragSize, setActiveDragSize] = useState<{ width: number; height: number } | null>(null);
+  const [activeDragOffset, setActiveDragOffset] = useState<{ x: number; y: number } | null>(null);
   const [overZone, setOverZone] = useState<ChatZone | null>(null);
   /** Live pointer position during a drag. Updated by `onDragMove` and used
    *  by the ghost target overlay in each canvas to show where the active
@@ -333,9 +335,39 @@ export function ChannelDashboardMultiCanvas({
   const onDragStart = useCallback((e: DragStartEvent) => {
     setActiveDragId(String(e.active.id));
     setError(null);
+    setActiveDragOffset(null);
+    const rect = e.active.rect.current.initial;
+    if (rect?.width && rect?.height) {
+      setActiveDragSize({ width: rect.width, height: rect.height });
+    } else {
+      const node = document.querySelector<HTMLElement>(`[data-pin-id="${String(e.active.id)}"]`);
+      const fallbackRect = node?.getBoundingClientRect();
+      setActiveDragSize(
+        fallbackRect?.width && fallbackRect?.height
+          ? { width: fallbackRect.width, height: fallbackRect.height }
+          : null,
+      );
+    }
     const pe = e.activatorEvent as PointerEvent | null;
     if (pe && typeof pe.clientX === "number") {
       setDragPointer({ x: pe.clientX, y: pe.clientY });
+      if (rect) {
+        setActiveDragOffset({
+          x: Math.max(0, Math.min(rect.width, pe.clientX - rect.left)),
+          y: Math.max(0, Math.min(rect.height, pe.clientY - rect.top)),
+        });
+      } else {
+        const node = document.querySelector<HTMLElement>(`[data-pin-id="${String(e.active.id)}"]`);
+        const fallbackRect = node?.getBoundingClientRect();
+        setActiveDragOffset(
+          fallbackRect
+            ? {
+                x: Math.max(0, Math.min(fallbackRect.width, pe.clientX - fallbackRect.left)),
+                y: Math.max(0, Math.min(fallbackRect.height, pe.clientY - fallbackRect.top)),
+              }
+            : null,
+        );
+      }
     }
   }, []);
 
@@ -384,8 +416,8 @@ export function ChannelDashboardMultiCanvas({
         const metrics = bodyMetrics;
         if (!rect || !metrics) return;
         const { x, y } = pointerToCell(
-          clientX - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
-          clientY - rect.top - CANVAS_INNER_PADDING,
+          clientX - (activeDragOffset?.x ?? 0) - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+          clientY - (activeDragOffset?.y ?? 0) - rect.top - CANVAS_INNER_PADDING,
           {
             cols: preset.cols.lg,
             rowHeight: preset.rowHeight,
@@ -408,8 +440,8 @@ export function ChannelDashboardMultiCanvas({
         const rect = headerMeasure.rect;
         if (!rect) return;
         const { x, y } = pointerToCell(
-          clientX - rect.left,
-          clientY - rect.top,
+          clientX - (activeDragOffset?.x ?? 0) - rect.left,
+          clientY - (activeDragOffset?.y ?? 0) - rect.top,
           {
             cols: preset.cols.lg,
             rowHeight: HEADER_ROW_HEIGHT_PX,
@@ -443,7 +475,7 @@ export function ChannelDashboardMultiCanvas({
       const nextHeight = pin.zone === targetZone ? sourceLayout.h : size.h;
       const { y: targetY } = pointerToCell(
         0,
-        clientY - rect.top - CANVAS_INNER_PADDING,
+        clientY - (activeDragOffset?.y ?? 0) - rect.top - CANVAS_INNER_PADDING,
         {
           cols: 1,
           rowHeight: preset.rowHeight,
@@ -490,6 +522,7 @@ export function ChannelDashboardMultiCanvas({
       bodyMetrics,
       preset.cols.lg,
       preset.rowHeight,
+      activeDragOffset,
     ],
   );
 
@@ -540,8 +573,8 @@ export function ChannelDashboardMultiCanvas({
         canvasWidth: metrics.centerTrackWidth,
       };
       const { x, y } = pointerToCell(
-        clientX - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
-        clientY - rect.top - CANVAS_INNER_PADDING,
+        clientX - (activeDragOffset?.x ?? 0) - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+        clientY - (activeDragOffset?.y ?? 0) - rect.top - CANVAS_INNER_PADDING,
         cfg,
       );
       const placement = clampPlacement(x, y, existing.w, existing.h, cfg.cols);
@@ -564,7 +597,7 @@ export function ChannelDashboardMultiCanvas({
         setError(err instanceof Error ? err.message : "Failed to place widget");
       }
     },
-    [pins, applyLayout, preset.cols.lg, preset.rowHeight, bodyMeasure, bodyMetrics, pulseMoved],
+    [pins, applyLayout, preset.cols.lg, preset.rowHeight, bodyMeasure, bodyMetrics, pulseMoved, activeDragOffset],
   );
 
   const commitHeaderMove = useCallback(
@@ -574,8 +607,8 @@ export function ChannelDashboardMultiCanvas({
       if (!rect || !pin) return;
       const existing = toGridLayout(pin);
       const { x, y } = pointerToCell(
-        clientX - rect.left,
-        clientY - rect.top,
+        clientX - (activeDragOffset?.x ?? 0) - rect.left,
+        clientY - (activeDragOffset?.y ?? 0) - rect.top,
         {
           cols: preset.cols.lg,
           rowHeight: HEADER_ROW_HEIGHT_PX,
@@ -596,7 +629,7 @@ export function ChannelDashboardMultiCanvas({
         setError(err instanceof Error ? err.message : "Failed to place widget");
       }
     },
-    [pins, applyLayout, preset.cols.lg, headerMeasure.rect, pulseMoved],
+    [pins, applyLayout, preset.cols.lg, headerMeasure.rect, pulseMoved, activeDragOffset],
   );
 
   const onDragEnd = useCallback(
@@ -604,6 +637,8 @@ export function ChannelDashboardMultiCanvas({
       const activeId = String(e.active.id);
       const overId = e.over?.id != null ? String(e.over.id) : null;
       setActiveDragId(null);
+      setActiveDragSize(null);
+      setActiveDragOffset(null);
       setOverZone(null);
       setDragPointer(null);
       const active = pins.find((p) => p.id === activeId);
@@ -676,8 +711,8 @@ export function ChannelDashboardMultiCanvas({
     if (overZone !== "header" || !dragPointer || !activePin || !headerMeasure.rect) return null;
     const existing = toGridLayout(activePin);
     const { x, y } = pointerToCell(
-      dragPointer.x - headerMeasure.rect.left,
-      dragPointer.y - headerMeasure.rect.top,
+      dragPointer.x - (activeDragOffset?.x ?? 0) - headerMeasure.rect.left,
+      dragPointer.y - (activeDragOffset?.y ?? 0) - headerMeasure.rect.top,
       {
         cols: preset.cols.lg,
         rowHeight: HEADER_ROW_HEIGHT_PX,
@@ -691,7 +726,7 @@ export function ChannelDashboardMultiCanvas({
       y: Math.min(HEADER_MAX_ROWS - Math.min(existing.h, HEADER_MAX_ROWS), placement.y),
       h: Math.min(existing.h, HEADER_MAX_ROWS),
     };
-  }, [overZone, dragPointer, activePin, headerMeasure.rect, preset.cols.lg]);
+  }, [overZone, dragPointer, activePin, headerMeasure.rect, preset.cols.lg, activeDragOffset]);
 
   /** Ghost target box for the grid canvas — the snapped cell where the
    *  active drag will land on release. Null unless dragging over the grid.
@@ -703,8 +738,8 @@ export function ChannelDashboardMultiCanvas({
     if (!rect || !metrics) return null;
     const existing = toGridLayout(activePin);
     const { x, y } = pointerToCell(
-      dragPointer.x - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
-      dragPointer.y - rect.top - CANVAS_INNER_PADDING,
+      dragPointer.x - (activeDragOffset?.x ?? 0) - rect.left - CANVAS_INNER_PADDING - metrics.centerStartX,
+      dragPointer.y - (activeDragOffset?.y ?? 0) - rect.top - CANVAS_INNER_PADDING,
       {
         cols: preset.cols.lg,
         rowHeight: preset.rowHeight,
@@ -713,7 +748,7 @@ export function ChannelDashboardMultiCanvas({
       },
     );
     return clampPlacement(x, y, existing.w, existing.h, preset.cols.lg);
-  }, [overZone, bodyOverZone, dragPointer, activePin, bodyMeasure.rect, bodyMetrics, preset.cols.lg, preset.rowHeight]);
+  }, [overZone, bodyOverZone, dragPointer, activePin, bodyMeasure.rect, bodyMetrics, preset.cols.lg, preset.rowHeight, activeDragOffset]);
 
   return (
     <DndContext
@@ -760,27 +795,37 @@ export function ChannelDashboardMultiCanvas({
 
       <DragOverlay dropAnimation={null}>
         {activePin && (
-          <DragOverlayPreview pin={activePin} />
+          <DragOverlayPreview pin={activePin} size={activeDragSize} />
         )}
       </DragOverlay>
     </DndContext>
   );
 }
 
-function DragOverlayPreview({ pin }: { pin: WidgetDashboardPin }) {
+function DragOverlayPreview({
+  pin,
+  size,
+}: {
+  pin: WidgetDashboardPin;
+  size: { width: number; height: number } | null;
+}) {
   const t = useThemeTokens();
   const title =
     pin.envelope?.display_label
     || pin.envelope?.panel_title
     || pin.tool_name;
   const isChip = pin.zone === "header" && isChipLikeHeaderLayout(toGridLayout(pin));
+  const width = size?.width ?? (isChip ? 180 : 320);
+  const height = size?.height ?? (isChip ? 32 : Math.max(96, Math.min(240, toGridLayout(pin).h * 18)));
   return (
     <div
       className={
         "pointer-events-none opacity-85 rounded-lg border shadow-2xl backdrop-blur-sm "
-        + (isChip ? "w-[180px] h-8 px-3 flex items-center" : "w-full min-w-[220px] px-4 py-3")
+        + (isChip ? "px-3 flex items-center" : "px-4 py-3 overflow-hidden")
       }
       style={{
+        width,
+        height,
         borderColor: `${t.accent}55`,
         background: `${t.surface}ee`,
         boxShadow: "0 18px 40px rgba(0, 0, 0, 0.35)",
@@ -791,14 +836,13 @@ function DragOverlayPreview({ pin }: { pin: WidgetDashboardPin }) {
           {title}
         </div>
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="flex h-full flex-col gap-3">
           <div className="truncate text-[12px] font-medium uppercase tracking-[0.14em]" style={{ color: t.textDim }}>
             {title}
           </div>
           <div
-            className="rounded-md"
+            className="min-h-0 flex-1 rounded-md"
             style={{
-              height: Math.max(72, Math.min(180, toGridLayout(pin).h * 18)),
               background: `linear-gradient(180deg, ${t.surfaceRaised} 0%, ${t.surface} 100%)`,
               border: `1px solid ${t.surfaceBorder}55`,
             }}

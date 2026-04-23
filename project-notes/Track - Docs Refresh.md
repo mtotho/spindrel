@@ -1,13 +1,20 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-23 (entry-point positioning pass — docs index + feature-status fit framing; website top-level pages linked to status guides)
+updated: 2026-04-23 (context/discovery canonicalization pass — profile matrix + discovery guide + vault pointer cleanup)
 ---
 
 # Track - Docs Refresh
 
 ## North Star
 `docs/` reflects the post-polish product: fresh screenshots of the web-native UI, complete coverage of the April 12–19 feature wave, no references to deprecated features (workflows, per-bot workspaces, old HUD), and a clear showcase of widgets, pipelines, providers, and integrations.
+
+## 2026-04-23 context/discovery truth pass
+- Added canonical guides `docs/guides/context-management.md` and `docs/guides/discovery-and-enrollment.md` as the owned references for prompt admission, replay profiles, tool/skill discovery, enrollment, and residency semantics.
+- Expanded `context-management.md` with the concrete profile admission matrix and worked examples for `chat`, `planning`, `executing`, `task_recent`, `task_none`, and `heartbeat`.
+- Demoted `vault/Projects/agent-server/How Discovery Works.md` from maintained explainer to pointer page so the vault no longer competes with the canonical docs on runtime behavior.
+- Follow-up expectation: adjacent docs should summarize and link, not restate profile-by-profile policy text.
+- Follow-up shipped later the same day: restricted profiles now get a small per-request runtime note, and the canonical context guide now documents that note with concrete `planning` / `executing` / `heartbeat` examples.
 
 ## Why this track exists
 `docs/` hasn't had a meaningful update since **2026-04-07**. Since then the product shipped: Widget Dashboards + Interactive HTML Widgets + Dev Panel, Task Sub-Sessions, Task Pipelines (all 5 phases; Workflows deprecated), Chat State Rehydration, ChatGPT Subscription OAuth provider, PWA + Push, the full Web-Native UI conversion (Metro→Vite, RN→HTML, Tailwind), unified PageHeader, OmniPanel rail redesign, Home Assistant integration, Excalidraw integration, Slack Depth, capability gating, `search_tools`, temporal context.

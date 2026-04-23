@@ -45,8 +45,8 @@ class WorkspaceService:
             shared_workspace_service.ensure_host_dirs(bot.shared_workspace_id)
         root = self.get_workspace_root(bot_id, bot)
         os.makedirs(root, exist_ok=True)
-        # Convention: every bot gets a knowledge-base/ folder that is auto-indexed
-        # and retrievable via auto-RAG + search_bot_knowledge.
+        # Convention: every bot gets a knowledge-base/ folder that is auto-indexed,
+        # searchable via search_bot_knowledge, and eligible for implicit retrieval.
         os.makedirs(os.path.join(root, "knowledge-base"), exist_ok=True)
         return root
 

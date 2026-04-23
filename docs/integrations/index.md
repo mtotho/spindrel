@@ -1187,7 +1187,7 @@ tool_widgets:
       tool: MyToolName
       args:
         entity: "{{display_label}}"       # {{widget_meta.*}} substitution
-        verbose: "{{config.show_details}}"# {{config.*}} substitution from pin
+        verbose: "{{widget_config.show_details}}"# {{widget_config.*}} substitution from pin
       refresh_interval_seconds: 3600      # Auto-refresh interval (UI timer)
       template: *shared                   # Re-use the main template via YAML anchor
     template:
@@ -1210,7 +1210,7 @@ tool_widgets:
         - type: button
           label: "Show details"
           subtle: true
-          when: "{{config.show_details | not}}"
+          when: "{{widget_config.show_details | not}}"
           action:
             dispatch: widget_config        # Patches the pin's config + refreshes
             config: { show_details: true }
@@ -1229,7 +1229,7 @@ tool_widgets:
 | `content_type` | `str` | Output MIME type. Use `application/vnd.spindrel.components+json` for interactive widgets. |
 | `display` | `"inline" \| "badge" \| "panel"` | `"inline"` standalone card under the message. `"badge"` inside ToolBadges. |
 | `display_label` | `str` | Template expression resolved against the tool result. Carried on the envelope, used as the pinned widget's header text and passed back to `state_poll.args` as `{{display_label}}` on refresh. |
-| `default_config` | `object` | Default per-pin config. Shallow-merged under the pin's stored `config` at render time and exposed as `{{config.*}}`. |
+| `default_config` | `object` | Default per-pin config. Shallow-merged under the pin's stored `widget_config` at render time and exposed as `{{widget_config.*}}` (`{{config.*}}` remains a compatibility alias). |
 | `state_poll` | `object` | Declares a tool to re-call on refresh / timer tick. See below. |
 | `transform` | `str` | `"module.path:function"` post-substitution Python hook that rewrites the components list. |
 | `template` | `object` | Component body with `v: 1` schema version and `components` array. |
@@ -1260,7 +1260,7 @@ button → widget_config patch → state_poll re-call → envelope with new data
 | Field | Type | Description |
 |-------|------|-------------|
 | `tool` | `str` | Tool to re-call on refresh. Usually the widget's own tool, or a "get current state" read-only tool. |
-| `args` | `object` | Args for the poll tool. Supports `{{display_label}}`, `{{tool_name}}`, `{{config.*}}` substitution from the widget_meta + pin config at call time. |
+| `args` | `object` | Args for the poll tool. Supports `{{display_label}}`, `{{tool_name}}`, `{{widget_config.*}}` substitution from the widget_meta + pin config at call time (`{{config.*}}` remains a compatibility alias). |
 | `refresh_interval_seconds` | `int` | Auto-refresh cadence for pinned widgets. Propagates onto the envelope so the UI sets a `setInterval`. |
 | `transform` | `str` | Optional `"module:func"` hook called with `(raw_result, widget_meta) → data_dict` when the poll tool returns a shape that differs from the main template's input (e.g. HA `GetLiveContext` filtering to one entity). |
 | `template` | `object` | Component body rendered from the (possibly transformed) poll result. Often shared with the main template via a YAML anchor. |
@@ -1313,7 +1313,7 @@ keys are: the tool result JSON + `config` (merged default + pin config) +
 2. UI POSTs to `/api/v1/widget-actions` with `pin_id` auto-filled.
 3. Server shallow-merges the patch into `channel.config.pinned_widgets[*].config` via the shared `apply_widget_config_patch` helper (also exposed as `PATCH /api/v1/channels/{channel_id}/widget-pins/{pin_id}/config`).
 4. Server invalidates the state_poll cache for the tool, calls `_do_state_poll` with the new `widget_config`, and returns the refreshed envelope.
-5. UI swaps the envelope body. `{{config.*}}` in both the main template and `state_poll.args` now sees the new value — so the toggle's visible state, gated components, and the underlying tool call all update in one round-trip.
+5. UI swaps the envelope body. `{{widget_config.*}}` in both the main template and `state_poll.args` now sees the new value — so the toggle's visible state, gated components, and the underlying tool call all update in one round-trip.
 
 **Envelope replacement:** When a widget action returns a component envelope,
 WidgetCard / PinnedToolWidget replaces its body and re-renders. Pinned

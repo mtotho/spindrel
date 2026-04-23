@@ -1134,6 +1134,39 @@ async def pin_widget(
             final_x, final_y = x, y
 
         try:
+            widget_origin: dict[str, Any] | None = None
+            if template_tool_name:
+                widget_origin = {
+                    "definition_kind": "tool_widget",
+                    "instantiation_kind": "library_pin",
+                    "tool_name": template_tool_name,
+                }
+                template_id = envelope.get("template_id")
+                if isinstance(template_id, str) and template_id.strip():
+                    widget_origin["template_id"] = template_id.strip()
+            elif envelope.get("content_type") == "application/vnd.spindrel.native-app+json" and native_widget_ref:
+                widget_origin = {
+                    "definition_kind": "native_widget",
+                    "instantiation_kind": "native_catalog",
+                    "widget_ref": str(native_widget_ref),
+                }
+            else:
+                widget_origin = {
+                    "definition_kind": "html_widget",
+                    "instantiation_kind": "library_pin",
+                }
+                for key_name in (
+                    "source_library_ref",
+                    "source_path",
+                    "source_kind",
+                    "source_channel_id",
+                    "source_integration_id",
+                ):
+                    value = envelope.get(key_name)
+                    if isinstance(value, str) and value.strip():
+                        widget_origin[key_name] = value.strip()
+                if effective_bot_id:
+                    widget_origin["source_bot_id"] = effective_bot_id
             pin = await create_pin(
                 db,
                 source_kind="adhoc",
@@ -1143,6 +1176,7 @@ async def pin_widget(
                 source_bot_id=effective_bot_id,
                 tool_args=tool_args if template_tool_name else None,
                 widget_config=widget_config if template_tool_name else None,
+                widget_origin=widget_origin,
                 display_label=display_label or envelope.get("display_label"),
                 dashboard_key=key,
             )

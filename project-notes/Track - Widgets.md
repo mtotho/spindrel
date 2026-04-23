@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-23 (preset family validation + widget inventory modernization)
+updated: 2026-04-23 (pin provenance + widget_config cleanup follow-through)
 ---
 # Track — Widget System DX + Robustness
 
@@ -32,6 +32,9 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
 
 - **Widget contract model is now explicit and canonical** (2026-04-22) — `app/services/widget_contracts.py` now normalizes the public widget model into `definition_kind`, `binding_kind`, `instantiation_kind`, `auth_model`, `state_model`, `refresh_model`, `theme_model`, `supported_scopes`, and `actions`, with optional `config_schema` alongside it. This contract now ships on tool previews, widget presets, library/catalog entries, native widgets, and persisted pins so the UI/docs no longer need to infer behavior from source paths or runtime heuristics.
+- **Dashboard pins now persist canonical widget provenance** (2026-04-23) — `widget_dashboard_pins` now carries `widget_origin`, `provenance_confidence`, `widget_contract_snapshot`, and `config_schema_snapshot`. New pins are written as `authoritative`; legacy rows self-heal as `inferred` on read. Load-bearing invariant: pin reads should resolve metadata from `widget_origin` first and fall back to snapshots, not reconstruct everything from envelope heuristics.
+- **Runtime config vocabulary is now `widget_config` first** (2026-04-23) — the widget template engine now exposes `result.*`, `widget_config.*`, `binding.*`, and `pin.*`, while keeping `config.*` only as a compatibility alias. HTML-backed tool widgets now expose `window.spindrel.result`, `window.spindrel.widgetConfig`, and `window.spindrel.widgetContext`; `window.spindrel.toolResult` remains the compatibility object for older widgets.
+- **Canonical runtime vocabulary cleanup follow-through shipped** (2026-04-23) — the remaining public docs, UI comments, and shipped HTML widgets were updated to use `{{widget_config.*}}` and `window.spindrel.result` / `window.spindrel.widgetConfig` as the primary language. Frigate/OpenWeather/Excalidraw/core HTML widgets still tolerate `toolResult` where compatibility matters, but the primary exemplars and tests are now canonical-first.
 - **Canonical taxonomy is now definition-kind first** (2026-04-22) — the product language is locked around `tool_widget`, `html_widget`, and `native_widget`, with presets treated as an instantiation path rather than a fourth widget kind. Load-bearing invariant: a YAML tool widget using `html_template` is still a tool widget, not a standalone HTML widget.
 - **Component-widget design language is now part of the contract** (2026-04-23) — component/YAML widgets should render as low-chrome native controls, not debug visualizations. Cards adapt across compact/standard/expanded density from host layout/size; chip widgets remain explicit chip variants. New component hints: common `priority`, `properties.variant=metadata`, and toggle `description` / `on_label` / `off_label`.
 - **Shared widget-sync protocol is now source-aware** (2026-04-23) — cross-surface envelope broadcasts now carry a source signature (`tool_name + widget_config`) plus update kind (`state_poll` vs `tool_result`). `PinnedToolWidget` uses that to adopt same-signature poll updates, ignore different-config sibling polls, and only locally re-poll on foreign tool-result invalidations. Load-bearing invariant: duplicate refreshable widgets for the same entity must not trigger recursive `/widget-actions/refresh` storms.

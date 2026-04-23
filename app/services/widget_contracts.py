@@ -10,6 +10,8 @@ from app.services.widget_manifest import ManifestError, parse_manifest
 
 WidgetContract = dict[str, Any]
 JsonSchema = dict[str, Any]
+WidgetOrigin = dict[str, Any]
+WidgetPresentation = dict[str, Any]
 
 
 def normalize_config_schema(schema: object) -> JsonSchema | None:
@@ -76,6 +78,49 @@ def normalize_layout_hints(hints: object) -> dict[str, Any] | None:
     return out or None
 
 
+def normalize_presentation_family(value: object) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"card", "chip", "panel"}:
+            return normalized
+    return "card"
+
+
+def build_widget_presentation(
+    *,
+    presentation_family: object = None,
+    panel_title: object = None,
+    show_panel_title: object = None,
+    layout_hints: object = None,
+) -> WidgetPresentation:
+    presentation: WidgetPresentation = {
+        "presentation_family": normalize_presentation_family(presentation_family),
+        "layout_hints": normalize_layout_hints(layout_hints),
+    }
+    if isinstance(panel_title, str):
+        cleaned = panel_title.strip()
+        if cleaned:
+            presentation["panel_title"] = cleaned
+    if isinstance(show_panel_title, bool):
+        presentation["show_panel_title"] = show_panel_title
+    return presentation
+
+
+def _merge_presentation_with_defaults(
+    presentation: WidgetPresentation | None,
+    *,
+    fallback_layout_hints: object = None,
+) -> WidgetPresentation | None:
+    if not isinstance(presentation, dict):
+        base = build_widget_presentation(layout_hints=fallback_layout_hints)
+    else:
+        base = copy.deepcopy(presentation)
+        base.setdefault("presentation_family", "card")
+        if base.get("layout_hints") is None:
+            base["layout_hints"] = normalize_layout_hints(fallback_layout_hints)
+    return base
+
+
 def _html_theme_model(theme_support: str | None) -> str:
     if theme_support == "none":
         return "none"
@@ -130,6 +175,7 @@ def build_native_widget_contract(
     *,
     actions: object = None,
     supported_scopes: object = None,
+    layout_hints: object = None,
     instantiation_kind: str = "native_catalog",
 ) -> WidgetContract:
     action_list = _copy_actions(actions)
@@ -143,6 +189,7 @@ def build_native_widget_contract(
         "theme_model": "native_host",
         "supported_scopes": _copy_supported_scopes(supported_scopes),
         "actions": action_list,
+        "layout_hints": normalize_layout_hints(layout_hints),
     }
 
 
@@ -153,18 +200,27 @@ def build_public_contract_fields_for_catalog_entry(
 ) -> dict[str, Any]:
     widget_kind = entry.get("widget_kind")
     config_schema = normalize_config_schema(entry.get("config_schema"))
+    widget_presentation = build_widget_presentation(
+        presentation_family=entry.get("presentation_family"),
+        panel_title=entry.get("panel_title"),
+        show_panel_title=entry.get("show_panel_title"),
+        layout_hints=entry.get("layout_hints"),
+    )
     if widget_kind == "native_app":
         return {
             "config_schema": config_schema,
+            "widget_presentation": widget_presentation,
             "widget_contract": build_native_widget_contract(
                 actions=entry.get("actions"),
                 supported_scopes=entry.get("supported_scopes"),
+                layout_hints=entry.get("layout_hints"),
                 instantiation_kind="native_catalog",
             ),
         }
     if widget_kind == "template":
         return {
             "config_schema": config_schema,
+            "widget_presentation": widget_presentation,
             "widget_contract": build_tool_widget_contract(
                 widget_def=entry,
                 actions=entry.get("actions"),
@@ -174,6 +230,7 @@ def build_public_contract_fields_for_catalog_entry(
         }
     return {
         "config_schema": config_schema,
+        "widget_presentation": widget_presentation,
         "widget_contract": build_html_widget_contract(
             auth_model=preferred_auth_model or "viewer",
             actions=entry.get("actions"),
@@ -195,10 +252,16 @@ def build_public_fields_for_tool_widget(
     if entry is None and "-" in tool_name:
         entry = get_widget_template(tool_name.split("-", 1)[1])
     if entry is None:
-        return {"config_schema": None, "widget_contract": None}
+        return {"config_schema": None, "widget_contract": None, "widget_presentation": None}
     config_schema = normalize_config_schema(entry.get("config_schema"))
     return {
         "config_schema": config_schema,
+        "widget_presentation": build_widget_presentation(
+            presentation_family=entry.get("presentation_family"),
+            panel_title=entry.get("panel_title"),
+            show_panel_title=entry.get("show_panel_title"),
+            layout_hints=entry.get("layout_hints"),
+        ),
         "widget_contract": build_tool_widget_contract(
             widget_def=entry,
             supported_scopes=entry.get("supported_scopes"),
@@ -217,13 +280,20 @@ def build_public_fields_for_native_widget(
 
     spec = get_native_widget_spec(widget_ref)
     if spec is None:
-        return {"config_schema": None, "widget_contract": None}
+        return {"config_schema": None, "widget_contract": None, "widget_presentation": None}
     config_schema = normalize_config_schema(spec.config_schema)
     return {
         "config_schema": config_schema,
+        "widget_presentation": build_widget_presentation(
+            presentation_family=spec.presentation_family,
+            panel_title=spec.panel_title,
+            show_panel_title=spec.show_panel_title,
+            layout_hints=spec.layout_hints,
+        ),
         "widget_contract": build_native_widget_contract(
             actions=[action.as_dict() for action in spec.actions],
             supported_scopes=spec.supported_scopes,
+            layout_hints=spec.layout_hints,
             instantiation_kind=instantiation_kind,
         ),
     }
@@ -246,6 +316,12 @@ def resolve_html_widget_manifest_for_pin(
         "actions": [spec.as_dict() for spec in manifest.handlers if spec.bot_callable],
         "supported_scopes": [],
         "theme_support": "html",
+        "widget_presentation": build_widget_presentation(
+            presentation_family=manifest.presentation_family,
+            panel_title=manifest.panel_title,
+            show_panel_title=manifest.show_panel_title,
+            layout_hints=manifest.layout_hints.__dict__ if manifest.layout_hints else None,
+        ),
     }
 
 
@@ -254,61 +330,93 @@ def build_public_fields_for_pin(
     tool_name: str,
     envelope: dict[str, Any],
     source_bot_id: str | None,
+    widget_origin: dict[str, Any] | None = None,
+    widget_contract_snapshot: dict[str, Any] | None = None,
+    config_schema_snapshot: dict[str, Any] | None = None,
+    widget_presentation_snapshot: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    content_type = envelope.get("content_type")
-    if content_type == "application/vnd.spindrel.native-app+json":
-        body = envelope.get("body")
-        widget_ref = None
-        if isinstance(body, dict):
-            raw_ref = body.get("widget_ref")
-            if isinstance(raw_ref, str) and raw_ref.strip():
-                widget_ref = raw_ref.strip()
-        if widget_ref:
-            return build_public_fields_for_native_widget(
-                widget_ref,
-                instantiation_kind="native_catalog",
-            )
-        return {"config_schema": None, "widget_contract": None}
-
-    source_preset_id = envelope.get("source_preset_id")
-    if isinstance(source_preset_id, str) and source_preset_id.strip():
-        try:
-            from app.services.widget_presets import get_widget_preset
-
-            preset = get_widget_preset(source_preset_id.strip())
-            fields = build_public_fields_for_tool_widget(
-                str(preset.get("tool_name") or tool_name),
-                instantiation_kind="preset",
-            )
-            fields["config_schema"] = normalize_config_schema(
-                preset.get("binding_schema")
-            )
-            return fields
-        except Exception:
-            # Fall through to the normal tool/html detection path. Pin reads
-            # should degrade to best-effort metadata instead of failing.
-            pass
-
-    tool_fields = build_public_fields_for_tool_widget(
-        tool_name,
-        instantiation_kind=_pin_instantiation_kind(envelope, tool_name),
-    )
-    if tool_fields["widget_contract"] is not None:
-        return tool_fields
-
-    html_meta = resolve_html_widget_manifest_for_pin(
-        envelope,
+    metadata = build_pin_contract_metadata(
+        tool_name=tool_name,
+        envelope=envelope,
         source_bot_id=source_bot_id,
-    ) or {}
+        widget_origin=widget_origin,
+        widget_contract_snapshot=widget_contract_snapshot,
+        config_schema_snapshot=config_schema_snapshot,
+        widget_presentation_snapshot=widget_presentation_snapshot,
+    )
     return {
-        "config_schema": html_meta.get("config_schema"),
-        "widget_contract": build_html_widget_contract(
-            auth_model="source_bot" if source_bot_id else "viewer",
-            actions=html_meta.get("actions"),
-            supported_scopes=html_meta.get("supported_scopes"),
-            theme_support=html_meta.get("theme_support") or "html",
-            instantiation_kind=_pin_instantiation_kind(envelope, tool_name),
-        ),
+        "config_schema": metadata["config_schema"],
+        "widget_contract": metadata["widget_contract"],
+        "widget_presentation": metadata["widget_presentation"],
+    }
+
+
+def build_pin_contract_metadata(
+    *,
+    tool_name: str,
+    envelope: dict[str, Any],
+    source_bot_id: str | None,
+    widget_origin: dict[str, Any] | None = None,
+    provenance_confidence: str | None = None,
+    widget_contract_snapshot: dict[str, Any] | None = None,
+    config_schema_snapshot: dict[str, Any] | None = None,
+    widget_presentation_snapshot: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    origin = (
+        copy.deepcopy(widget_origin)
+        if isinstance(widget_origin, dict) and widget_origin
+        else infer_pin_origin(
+            tool_name=tool_name,
+            envelope=envelope,
+            source_bot_id=source_bot_id,
+        )
+    )
+    confidence = (
+        provenance_confidence
+        if isinstance(provenance_confidence, str) and provenance_confidence.strip()
+        else ("authoritative" if widget_origin else "inferred")
+    )
+    live_fields = build_public_fields_from_origin(
+        origin,
+        tool_name=tool_name,
+        envelope=envelope,
+        source_bot_id=source_bot_id,
+    )
+    config_schema = (
+        live_fields.get("config_schema")
+        if live_fields.get("config_schema") is not None
+        else normalize_config_schema(config_schema_snapshot)
+    )
+    widget_presentation = (
+        live_fields.get("widget_presentation")
+        if live_fields.get("widget_presentation") is not None
+        else _merge_presentation_with_defaults(
+            copy.deepcopy(widget_presentation_snapshot)
+            if isinstance(widget_presentation_snapshot, dict)
+            else None,
+            fallback_layout_hints=(
+                widget_contract_snapshot.get("layout_hints")
+                if isinstance(widget_contract_snapshot, dict)
+                else None
+            ),
+        )
+    )
+    widget_contract = (
+        live_fields.get("widget_contract")
+        if live_fields.get("widget_contract") is not None
+        else copy.deepcopy(widget_contract_snapshot)
+        if isinstance(widget_contract_snapshot, dict)
+        else None
+    )
+    return {
+        "widget_origin": origin,
+        "provenance_confidence": confidence,
+        "config_schema": config_schema,
+        "widget_presentation": widget_presentation,
+        "widget_contract": widget_contract,
+        "config_schema_snapshot": copy.deepcopy(config_schema) if config_schema is not None else None,
+        "widget_presentation_snapshot": copy.deepcopy(widget_presentation) if widget_presentation is not None else None,
+        "widget_contract_snapshot": copy.deepcopy(widget_contract) if widget_contract is not None else None,
     }
 
 
@@ -321,6 +429,201 @@ def _pin_instantiation_kind(envelope: dict[str, Any], tool_name: str) -> str:
     if tool_name == "html_widget":
         return "runtime_emit"
     return "direct_tool_call"
+
+
+def infer_pin_origin(
+    *,
+    tool_name: str,
+    envelope: dict[str, Any],
+    source_bot_id: str | None,
+) -> WidgetOrigin:
+    content_type = envelope.get("content_type")
+    if content_type == "application/vnd.spindrel.native-app+json":
+        body = envelope.get("body")
+        widget_ref = None
+        if isinstance(body, dict):
+            raw_ref = body.get("widget_ref")
+            if isinstance(raw_ref, str) and raw_ref.strip():
+                widget_ref = raw_ref.strip()
+        if widget_ref:
+            return {
+                "definition_kind": "native_widget",
+                "instantiation_kind": "native_catalog",
+                "widget_ref": widget_ref,
+            }
+
+    instantiation_kind = _pin_instantiation_kind(envelope, tool_name)
+    source_preset_id = envelope.get("source_preset_id")
+    if isinstance(source_preset_id, str) and source_preset_id.strip():
+        origin: WidgetOrigin = {
+            "definition_kind": "tool_widget",
+            "instantiation_kind": "preset",
+            "tool_name": tool_name,
+            "preset_id": source_preset_id.strip(),
+        }
+        template_id = envelope.get("template_id")
+        if isinstance(template_id, str) and template_id.strip():
+            origin["template_id"] = template_id.strip()
+        try:
+            from app.services.widget_presets import get_widget_preset
+
+            preset = get_widget_preset(source_preset_id.strip())
+            tool_family = preset.get("tool_family")
+            if isinstance(tool_family, str) and tool_family.strip():
+                origin["tool_family"] = tool_family.strip()
+        except Exception:
+            pass
+        return origin
+
+    tool_fields = build_public_fields_for_tool_widget(
+        tool_name,
+        instantiation_kind=instantiation_kind,
+    )
+    if tool_fields["widget_contract"] is not None:
+        origin = {
+            "definition_kind": "tool_widget",
+            "instantiation_kind": instantiation_kind,
+            "tool_name": tool_name,
+        }
+        template_id = envelope.get("template_id")
+        if isinstance(template_id, str) and template_id.strip():
+            origin["template_id"] = template_id.strip()
+        return origin
+
+    origin = {
+        "definition_kind": "html_widget",
+        "instantiation_kind": instantiation_kind,
+    }
+    source_library_ref = envelope.get("source_library_ref")
+    if isinstance(source_library_ref, str) and source_library_ref.strip():
+        origin["source_library_ref"] = source_library_ref.strip()
+    source_path = envelope.get("source_path")
+    if isinstance(source_path, str) and source_path.strip():
+        origin["source_path"] = source_path.strip()
+    source_kind = envelope.get("source_kind")
+    if isinstance(source_kind, str) and source_kind.strip():
+        origin["source_kind"] = source_kind.strip()
+    source_channel_id = envelope.get("source_channel_id")
+    if isinstance(source_channel_id, str) and source_channel_id.strip():
+        origin["source_channel_id"] = source_channel_id.strip()
+    source_integration_id = envelope.get("source_integration_id")
+    if isinstance(source_integration_id, str) and source_integration_id.strip():
+        origin["source_integration_id"] = source_integration_id.strip()
+    resolved_bot_id = (
+        origin.get("source_bot_id")
+        if isinstance(origin.get("source_bot_id"), str)
+        else source_bot_id
+    )
+    if isinstance(resolved_bot_id, str) and resolved_bot_id.strip():
+        origin["source_bot_id"] = resolved_bot_id.strip()
+    return origin
+
+
+def build_public_fields_from_origin(
+    origin: WidgetOrigin,
+    *,
+    tool_name: str,
+    envelope: dict[str, Any],
+    source_bot_id: str | None,
+) -> dict[str, Any]:
+    definition_kind = origin.get("definition_kind")
+    instantiation_kind = str(origin.get("instantiation_kind") or _pin_instantiation_kind(envelope, tool_name))
+    if definition_kind == "native_widget":
+        widget_ref = origin.get("widget_ref")
+        if isinstance(widget_ref, str) and widget_ref.strip():
+            return build_public_fields_for_native_widget(
+                widget_ref.strip(),
+                instantiation_kind=instantiation_kind,
+            )
+        return {"config_schema": None, "widget_contract": None, "widget_presentation": None}
+
+    if definition_kind == "tool_widget":
+        origin_tool_name = str(origin.get("tool_name") or tool_name)
+        if instantiation_kind == "preset":
+            preset_id = origin.get("preset_id")
+            if isinstance(preset_id, str) and preset_id.strip():
+                try:
+                    from app.services.widget_presets import get_widget_preset
+
+                    preset = get_widget_preset(preset_id.strip())
+                    fields = build_public_fields_for_tool_widget(
+                        str(preset.get("tool_name") or origin_tool_name),
+                        instantiation_kind="preset",
+                    )
+                    fields["config_schema"] = normalize_config_schema(
+                        preset.get("binding_schema")
+                    )
+                    preset_presentation = build_widget_presentation(
+                        presentation_family=preset.get("presentation_family"),
+                        panel_title=preset.get("panel_title"),
+                        show_panel_title=preset.get("show_panel_title"),
+                        layout_hints=preset.get("layout_hints"),
+                    )
+                    if fields.get("widget_presentation") is None:
+                        fields["widget_presentation"] = preset_presentation
+                    else:
+                        presentation = copy.deepcopy(fields["widget_presentation"])
+                        presentation.update(
+                            {
+                                key: value
+                                for key, value in preset_presentation.items()
+                                if value is not None
+                            }
+                        )
+                        fields["widget_presentation"] = _merge_presentation_with_defaults(
+                            presentation,
+                            fallback_layout_hints=preset.get("layout_hints"),
+                        )
+                    return fields
+                except Exception:
+                    pass
+        return build_public_fields_for_tool_widget(
+            origin_tool_name,
+            instantiation_kind=instantiation_kind,
+        )
+
+    html_source_bot_id = origin.get("source_bot_id")
+    merged_source_bot_id = (
+        html_source_bot_id.strip()
+        if isinstance(html_source_bot_id, str) and html_source_bot_id.strip()
+        else source_bot_id
+    )
+    html_meta = resolve_html_widget_manifest_for_pin(
+        _merge_origin_into_envelope(envelope, origin),
+        source_bot_id=merged_source_bot_id,
+    ) or {}
+    return {
+        "config_schema": html_meta.get("config_schema"),
+        "widget_presentation": _merge_presentation_with_defaults(
+            html_meta.get("widget_presentation"),
+        ),
+        "widget_contract": build_html_widget_contract(
+            auth_model="source_bot" if merged_source_bot_id else "viewer",
+            actions=html_meta.get("actions"),
+            supported_scopes=html_meta.get("supported_scopes"),
+            theme_support=html_meta.get("theme_support") or "html",
+            instantiation_kind=instantiation_kind,
+        ),
+    }
+
+
+def _merge_origin_into_envelope(
+    envelope: dict[str, Any],
+    origin: WidgetOrigin,
+) -> dict[str, Any]:
+    merged = copy.deepcopy(envelope)
+    for key in (
+        "source_library_ref",
+        "source_path",
+        "source_kind",
+        "source_channel_id",
+        "source_integration_id",
+        "source_bot_id",
+    ):
+        value = origin.get(key)
+        if isinstance(value, str) and value.strip():
+            merged[key] = value.strip()
+    return merged
 
 
 def _resolve_html_widget_manifest_path(

@@ -9,7 +9,13 @@ import {
   directoryForWorkspaceFile,
 } from "@/src/lib/channelFileNavigation";
 import type { ToolResultEnvelope } from "@/src/types/api";
-import { PreviewCard, parsePayload, useNativeEnvelopeState, type NativeAppRendererProps } from "./shared";
+import {
+  PreviewCard,
+  parsePayload,
+  useNativeEnvelopeState,
+  type NativeAppRendererProps,
+} from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 type PinnedFileEntry = {
   path: string;
@@ -53,8 +59,17 @@ export function PinnedFilesWidget({
   sessionId,
   dashboardPinId,
   channelId,
+  gridDimensions,
+  layout,
   t,
 }: NativeAppRendererProps) {
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 420,
+    compactMaxHeight: 220,
+    wideMinWidth: 760,
+    wideMinHeight: 240,
+    tallMinHeight: 320,
+  });
   const payload = parsePayload(envelope);
   const { currentPayload, dispatchNativeAction } = useNativeEnvelopeState(
     envelope,
@@ -91,7 +106,7 @@ export function PinnedFilesWidget({
       apiFetch<{ path: string; content: string }>(
         `/api/v1/channels/${channelId}/workspace/files/content?path=${encodeURIComponent(activePath!)}`,
       ),
-    enabled: !!channelId && !!activePath && !!previewContentType,
+    enabled: !!channelId && !!activePath && !!previewContentType && !profile.compact,
   });
   const handleOpenFile = useCallback((path: string) => {
     if (!channelId) return;
@@ -136,155 +151,244 @@ export function PinnedFilesWidget({
     );
   }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {pinnedFiles.length === 0 ? (
-          <div
-            style={{
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surface,
-              borderRadius: 12,
-              padding: 14,
-              color: t.textMuted,
-              fontSize: 12,
-              lineHeight: 1.6,
-            }}
-          >
-            No files pinned yet. Use the Files tab to pin a channel file into this widget.
-          </div>
-        ) : (
-          pinnedFiles.map((item) => {
-            const isActive = item.path === activePath;
-            return (
-              <div
-                key={item.path}
-                style={{
-                  border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
-                  background: isActive ? t.surfaceRaised : t.surface,
-                  borderRadius: 12,
-                  padding: 10,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => void dispatchNativeAction("set_active_path", { path: item.path })}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    border: "none",
-                    background: "transparent",
-                    padding: 0,
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                >
-                  <FileText size={14} color={isActive ? t.accent : t.textDim} />
-                  <span style={{ color: t.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {fileName(item.path)}
-                  </span>
-                </button>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <div
-                    style={{
-                      color: t.textDim,
-                      fontSize: 11,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={item.path}
-                  >
-                    {item.path}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenFile(item.path)}
-                      title="Open file"
-                      aria-label={`Open ${fileName(item.path)}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        border: `1px solid ${t.surfaceBorder}`,
-                        background: t.surfaceRaised,
-                        color: t.text,
-                        width: 30,
-                        height: 30,
-                        borderRadius: 8,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <ExternalLink size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void dispatchNativeAction("unpin_path", { path: item.path })}
-                      title="Unpin file"
-                      aria-label={`Unpin ${fileName(item.path)}`}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        border: `1px solid ${t.surfaceBorder}`,
-                        background: t.surfaceRaised,
-                        color: t.textDim,
-                        width: 30,
-                        height: 30,
-                        borderRadius: 8,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <PinOff size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {activePath ? (
+  const fileList = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {pinnedFiles.length === 0 ? (
         <div
           style={{
-            flex: 1,
-            minHeight: 180,
             border: `1px solid ${t.surfaceBorder}`,
             background: t.surface,
             borderRadius: 12,
-            padding: 12,
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
+            padding: 14,
+            color: t.textMuted,
+            fontSize: 12,
+            lineHeight: 1.6,
           }}
         >
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
-            <div style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{fileName(activePath)}</div>
-            <div style={{ color: t.textDim, fontSize: 11 }} title={activePath}>{activePath}</div>
-          </div>
-          {previewContentType == null ? (
-            <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.6 }}>
-              Preview isn’t available for this file type here. Use Open file for the full viewer.
-            </div>
-          ) : previewQuery.isLoading && !previewEnvelope ? (
-            <div style={{ color: t.textMuted, fontSize: 12 }}>Loading preview…</div>
-          ) : previewQuery.isError ? (
-            <div style={{ color: t.danger, fontSize: 12 }}>Failed to load preview.</div>
-          ) : previewEnvelope ? (
-            <div style={{ minHeight: 0, flex: 1, overflow: "auto" }}>
-              <RichToolResult envelope={previewEnvelope} t={t} />
-            </div>
-          ) : (
-            <div style={{ color: t.textMuted, fontSize: 12 }}>Empty file.</div>
-          )}
+          No files pinned yet. Use the Files tab to pin a channel file into this widget.
         </div>
-      ) : null}
+      ) : (
+        pinnedFiles.map((item) => {
+          const isActive = item.path === activePath;
+          return (
+            <div
+              key={item.path}
+              style={{
+                border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
+                background: isActive ? t.surfaceRaised : t.surface,
+                borderRadius: 12,
+                padding: 10,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => void dispatchNativeAction("set_active_path", { path: item.path })}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <FileText size={14} color={isActive ? t.accent : t.textDim} />
+                <span style={{ color: t.text, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {fileName(item.path)}
+                </span>
+              </button>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <div
+                  style={{
+                    color: t.textDim,
+                    fontSize: 11,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={item.path}
+                >
+                  {item.path}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFile(item.path)}
+                    title="Open file"
+                    aria-label={`Open ${fileName(item.path)}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: `1px solid ${t.surfaceBorder}`,
+                      background: t.surfaceRaised,
+                      color: t.text,
+                      width: 30,
+                      height: 30,
+                      borderRadius: 8,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void dispatchNativeAction("unpin_path", { path: item.path })}
+                    title="Unpin file"
+                    aria-label={`Unpin ${fileName(item.path)}`}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      border: `1px solid ${t.surfaceBorder}`,
+                      background: t.surfaceRaised,
+                      color: t.textDim,
+                      width: 30,
+                      height: 30,
+                      borderRadius: 8,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <PinOff size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+
+  if (profile.compact) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
+        {activePath ? (
+          <div
+            style={{
+              border: `1px solid ${t.surfaceBorder}`,
+              borderRadius: 12,
+              background: t.surface,
+              padding: 12,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: t.textDim,
+              }}
+            >
+              Active file
+            </div>
+            <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
+              {fileName(activePath)}
+            </div>
+            <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+              {activePath}
+            </div>
+            <div style={{ color: t.textDim, fontSize: 11 }}>
+              {pinnedFiles.length} pinned file{pinnedFiles.length === 1 ? "" : "s"}
+            </div>
+          </div>
+        ) : (
+          fileList
+        )}
+        {activePath ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => handleOpenFile(activePath)}
+              style={{
+                borderRadius: 999,
+                border: `1px solid ${t.accentBorder}`,
+                background: t.accentSubtle,
+                color: t.accent,
+                padding: "6px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Open file
+            </button>
+            <button
+              type="button"
+              onClick={() => void dispatchNativeAction("unpin_path", { path: activePath })}
+              style={{
+                borderRadius: 999,
+                border: `1px solid ${t.surfaceBorder}`,
+                background: t.surface,
+                color: t.textMuted,
+                padding: "6px 10px",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Unpin
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const previewPane = activePath ? (
+    <div
+      style={{
+        flex: 1,
+        minHeight: profile.tall || profile.wide ? 220 : 180,
+        border: `1px solid ${t.surfaceBorder}`,
+        background: t.surface,
+        borderRadius: 12,
+        padding: 12,
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ color: t.text, fontSize: 13, fontWeight: 600 }}>{fileName(activePath)}</div>
+        <div style={{ color: t.textDim, fontSize: 11 }} title={activePath}>{activePath}</div>
+      </div>
+      {previewContentType == null ? (
+        <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.6 }}>
+          Preview isn’t available for this file type here. Use Open file for the full viewer.
+        </div>
+      ) : previewQuery.isLoading && !previewEnvelope ? (
+        <div style={{ color: t.textMuted, fontSize: 12 }}>Loading preview…</div>
+      ) : previewQuery.isError ? (
+        <div style={{ color: t.danger, fontSize: 12 }}>Failed to load preview.</div>
+      ) : previewEnvelope ? (
+        <div style={{ minHeight: 0, flex: 1, overflow: "auto" }}>
+          <RichToolResult envelope={previewEnvelope} t={t} />
+        </div>
+      ) : (
+        <div style={{ color: t.textMuted, fontSize: 12 }}>Empty file.</div>
+      )}
+    </div>
+  ) : null;
+
+  return (
+    <div
+      style={{
+        display: profile.wide ? "grid" : "flex",
+        gridTemplateColumns: profile.wide ? "minmax(220px, 280px) minmax(0, 1fr)" : undefined,
+        flexDirection: profile.wide ? undefined : "column",
+        gap: 10,
+        minHeight: "100%",
+      }}
+    >
+      {fileList}
+      {previewPane}
     </div>
   );
 }

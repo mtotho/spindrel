@@ -17,6 +17,21 @@
 </div>
 <script>
 (function () {
+  function getResult() {
+    return (window.spindrel && (window.spindrel.result || window.spindrel.toolResult)) || null;
+  }
+
+  function extractSnapshotDataFromEnvelope(env) {
+    var body = (env && env.body) || "";
+    var match = body.match(/window\.spindrel\.(?:result|toolResult)\s*=\s*(\{[\s\S]*?\});/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[1].replace(/<\\\//g, "</"));
+    } catch (_) {
+      return null;
+    }
+  }
+
   var titleEl = document.getElementById("title");
   var summaryEl = document.getElementById("summary");
   var gridEl = document.getElementById("grid");
@@ -154,12 +169,9 @@
         var env = resp && resp.envelope;
         if (!env) return;
         // frigate_snapshot's envelope body is HTML (it has its own widget),
-        // but the attachment_id lives in the tool_result JSON inside a
-        // `window.spindrel.toolResult = {...}` preamble. Parse it out.
-        var body = env.body || "";
-        var m = body.match(/window\.spindrel\.toolResult\s*=\s*(\{[\s\S]*?\});/);
-        if (!m) return;
-        var data = JSON.parse(m[1].replace(/<\\\//g, "</"));
+        // but the attachment_id still rides in the injected widget-data
+        // preamble. Parse it out from the returned HTML body.
+        var data = extractSnapshotDataFromEnvelope(env);
         if (!data || !data.attachment_id) return;
         var url = "/api/v1/attachments/" + encodeURIComponent(data.attachment_id) + "/file";
         if (url === entry.lastAttachmentUrl) return;
@@ -223,8 +235,8 @@
     if (paused) stopPolling(); else startPolling();
   });
 
-  window.addEventListener("spindrel:toolresult", function (ev) { renderCameras(ev.detail); });
-  renderCameras(window.spindrel && window.spindrel.toolResult);
+  window.addEventListener("spindrel:toolresult", function () { renderCameras(getResult()); });
+  renderCameras(getResult());
   startPolling();
 })();
 </script>

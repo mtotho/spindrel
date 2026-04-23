@@ -53,6 +53,7 @@ Bot control rule:
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 - For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
 - For component/YAML widgets, follow the low-chrome component design language in `docs/widget-templates.md`: labels name the object, metadata is not default content, cards resize across compact/standard/expanded sizes, and chips are explicit chip variants.
+- Keep placement zones and presentation families separate: `rail | header | dock | grid` are host zones; `card | chip | panel` are authored presentation families.
 
 ## The unified operator loop
 
@@ -108,7 +109,7 @@ Start: what do you want to render?
 ├─ Need multiple related widgets sharing one DB or grouped in the catalog
 │     → widgets/suites
 │
-├─ Chip — compact 180×32 widget for the channel header band
+├─ Chip-family widget — compact widget for the floating header rail
 │     → widgets/chips
 │
 ├─ Styling / theme / dark mode / sd-* question
@@ -145,7 +146,7 @@ It only:
 
 - runs the backend tool
 - returns the fresh envelope to your JS
-- leaves `window.spindrel.toolResult` alone unless the host later pushes a separate refresh
+- leaves `window.spindrel.result` / `window.spindrel.widgetConfig` alone unless the host later pushes a separate refresh
 
 So after a click, the widget author must do one of these on purpose:
 

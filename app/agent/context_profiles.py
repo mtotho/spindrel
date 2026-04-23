@@ -90,7 +90,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
         mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
-        optional_static_injections=("tool_index",),
+        optional_static_injections=("context_profile_note", "tool_index"),
     ),
     "executing": ContextProfile(
         name="executing",
@@ -108,6 +108,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_tool_index=True,
         mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
         optional_static_injections=(
+            "context_profile_note",
             "channel_workspace",
             "channel_index_segments",
             "workspace_rag",
@@ -130,7 +131,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
         mandatory_static_injections=("conversation_sections", "section_index"),
-        optional_static_injections=("tool_index",),
+        optional_static_injections=("context_profile_note", "tool_index"),
     ),
     "task_none": ContextProfile(
         name="task_none",
@@ -146,6 +147,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=False,
+        optional_static_injections=("context_profile_note",),
     ),
     "heartbeat": ContextProfile(
         name="heartbeat",
@@ -161,6 +163,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=False,
+        optional_static_injections=("context_profile_note",),
     ),
 }
 

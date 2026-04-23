@@ -111,6 +111,7 @@ class WidgetManifest:
     name: str
     version: str
     description: str
+    presentation_family: str
     panel_title: str | None
     show_panel_title: bool | None
     permissions: Permissions
@@ -495,6 +496,15 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
 
     version = str(raw.get("version", "0.0.0"))
     description = str(raw.get("description", ""))
+    raw_presentation_family = raw.get("presentation_family")
+    if raw_presentation_family is not None:
+        if not isinstance(raw_presentation_family, str):
+            raise ManifestError("presentation_family must be a string when provided")
+        raw_presentation_family = raw_presentation_family.strip().lower()
+        if raw_presentation_family not in {"card", "chip", "panel"}:
+            raise ManifestError("presentation_family must be one of: card, chip, panel")
+    else:
+        raw_presentation_family = "card"
     raw_panel_title = raw.get("panel_title")
     if raw_panel_title is not None and not isinstance(raw_panel_title, str):
         raise ManifestError("panel_title must be a string when provided")
@@ -558,6 +568,7 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         name=name.strip(),
         version=version,
         description=description,
+        presentation_family=raw_presentation_family,
         panel_title=panel_title,
         show_panel_title=raw_show_panel_title,
         suite=raw_suite,

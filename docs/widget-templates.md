@@ -83,18 +83,26 @@ Common top-level keys:
 |---|---|---|
 | `content_type` | string | Defaults to `application/vnd.spindrel.components+json`. |
 | `display` | `inline` \| `panel` \| `modal` | How the UI positions the widget. |
+| `presentation_family` | `card` \| `chip` \| `panel` | Authored host-surface intent. Defaults to `card`. |
 | `template.v` | literal `1` | Schema version. |
 | `template.components` | list | Component tree (see below). |
 | `transform` | `"module:func"` or `"self:func"` | Optional post-substitution hook. |
 | `display_label` | string | Templated label used by pinned widgets. |
 | `state_poll` | object | Optional live-refresh config (see below). |
-| `default_config` | object | Merged under user `widget_config` as `{{config.*}}`. |
+| `default_config` | object | Merged under user `widget_config` as `{{widget_config.*}}` (`{{config.*}}` is a temporary compatibility alias). |
 | `config_schema` | object | Optional JSON Schema for editing runtime widget config. Must be an object schema. |
 
 ### Substitution syntax
 
 Anywhere inside the template, `{{...}}` expressions are substituted from
-the parsed tool result JSON plus any `config` overlay:
+the parsed tool result JSON plus explicit namespaces:
+
+- `result.*` for the raw tool result
+- `widget_config.*` for per-instance runtime config
+- `binding.*` for preset binding inputs when present
+- `pin.*` for pin/runtime metadata when present
+
+For backward compatibility, `config.*` still aliases `widget_config.*`.
 
 | Expression | Meaning |
 |---|---|
@@ -129,6 +137,10 @@ Pipes chain left-to-right with `" | "` (with spaces): `{{items | pluck: name | j
 Component templates render as native low-chrome dashboard controls. Treat
 the component tree as user-facing UI, not as a visualized YAML/debug dump:
 
+- `presentation_family` expresses authored intent, not placement. A chip
+  preset/template should declare `presentation_family: chip`; a normal
+  dashboard tile stays `card`; a large host-owned panel surface uses
+  `panel`.
 - Prefer card-sized templates for normal dashboard, rail/dock, builder,
   and chat placement. Chips are explicit chip presets/templates, not an
   automatic collapse target for every card.
@@ -143,6 +155,12 @@ the component tree as user-facing UI, not as a visualized YAML/debug dump:
   adapt across `compact`, `standard`, and `expanded` density by collapsing
   metadata/details first; a card placed too small should be resized or
   expanded, not squeezed into a chip.
+
+Zone reminder:
+
+- `header` is the top-rail placement zone
+- `chip` is a presentation family / compact authored variant
+- `preferred_zone: chip` is a compatibility alias that resolves to header placement defaults
 
 Useful optional fields:
 
@@ -172,15 +190,17 @@ state_poll:
 ```
 
 `args` values are templated from the pin's `widget_meta` (`display_label`,
-`config`), allowing per-pin args like `{{display_label}}`.
+`widget_config`), allowing per-pin args like `{{display_label}}`.
 
 ## HTML template mode
 
 For tools whose result needs rendering beyond the component grammar (live
 camera snapshots, canvas overlays, custom timelines), an integration can
 ship a bundled HTML file instead of a component tree. The tool's JSON
-result flows into the iframe as `window.spindrel.toolResult` and the
-widget's own JS owns the render.
+result flows into the iframe as `window.spindrel.result`, merged runtime
+config flows in as `window.spindrel.widgetConfig`, and the widget's own
+JS owns the render. `window.spindrel.toolResult` remains as a
+compatibility object for older widgets.
 
 ```yaml
 tool_widgets:
@@ -196,7 +216,7 @@ tool_widgets:
       tool: frigate_snapshot
       args:
         camera: "{{display_label}}"
-        bounding_box: "{{config.show_bbox}}"
+        bounding_box: "{{widget_config.show_bbox}}"
       refresh_interval_seconds: 60
 ```
 
@@ -204,8 +224,8 @@ Two key rules:
 
 - `template:` and `html_template:` are mutually exclusive. Pick one.
 - `state_poll.template` is **not** used in HTML mode. The poll re-invokes
-  the tool and the new `toolResult` is pushed into the iframe — the HTML
-  file itself re-renders. No sub-template to author.
+  the tool and the new `result` / `widgetConfig` state is pushed into the
+  iframe — the HTML file itself re-renders. No sub-template to author.
 
 ### `html_template` shape
 
@@ -224,14 +244,19 @@ Before the HTML body runs, the renderer prepends:
 ```html
 <script>
   window.spindrel = window.spindrel || {};
-  window.spindrel.toolResult = {/* tool JSON result, including merged config under toolResult.config */};
+  window.spindrel.toolResult = {/* compatibility object: result + widget_config */};
+  window.spindrel.result = {/* raw tool JSON result */};
+  window.spindrel.widgetConfig = {/* merged runtime config */};
+  window.spindrel.widgetContext = { result: window.spindrel.result, widgetConfig: window.spindrel.widgetConfig };
 </script>
 ```
 
-Widget JS reads `window.spindrel.toolResult` synchronously at load:
+Widget JS reads `window.spindrel.result` and `window.spindrel.widgetConfig`
+synchronously at load:
 
 ```js
-const { attachment_id, filename, config } = window.spindrel.toolResult;
+const { attachment_id, filename } = window.spindrel.result;
+const config = window.spindrel.widgetConfig;
 document.querySelector("h3").textContent = filename;
 if (config.show_bbox) {
   document.body.dataset.showBbox = "true";
@@ -246,10 +271,10 @@ form fields, running animations, and any other in-iframe state survive
 the refresh. Subscribe with a custom event:
 
 ```js
-window.addEventListener("spindrel:toolresult", (ev) => {
-  render(ev.detail);  // ev.detail === window.spindrel.toolResult
+window.addEventListener("spindrel:toolresult", () => {
+  render(window.spindrel.result, window.spindrel.widgetConfig);
 });
-render(window.spindrel.toolResult);  // initial paint
+render(window.spindrel.result, window.spindrel.widgetConfig);  // initial paint
 ```
 
 ### Auth, scopes, CSP
@@ -296,7 +321,7 @@ bot-authored HTML widgets get the same exemption.
 - `integration.yaml` declares `tool_widgets.<tool>.html_template.path` as a relative path.
 - HTML is a fragment — no `<!doctype>` or outer `<html>`/`<body>`. The renderer wraps.
 - `<style>` and `<script>` tags inside the fragment are fine.
-- Widget JS reads `window.spindrel.toolResult` for initial state and subscribes to `spindrel:toolresult` for refreshes.
+- Widget JS reads `window.spindrel.result` / `window.spindrel.widgetConfig` for initial state and subscribes to `spindrel:toolresult` for refreshes.
 - API calls go through `window.spindrel.api()` (JSON) or `window.spindrel.apiFetch()` (binary / raw Response).
 - Images/media use same-origin URLs (the app's attachment or file-content endpoints).
 
@@ -311,7 +336,7 @@ Conventions:
 def transform(data: dict, components: list[dict]) -> list[dict]:
     """Post-substitution hook for the main template.
 
-    data       — the parsed tool result JSON plus {"config": {...}}
+    data       — the parsed tool result JSON plus {"result": ..., "widget_config": ..., "config": ...}
     components — the list of components after {{...}} substitution
     Returns    — the new components list
     """

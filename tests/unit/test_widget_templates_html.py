@@ -1,13 +1,15 @@
 """Tests for the HTML template mode in the widget template engine.
 
 Covers the declarative path where a tool ships a bundled HTML file that
-receives the tool's JSON result as `window.spindrel.toolResult`. See
+receives the tool's JSON result as `window.spindrel.result` plus the
+compatibility `window.spindrel.toolResult`. See
 `app/services/widget_templates.py::apply_widget_template` (html_template
 branch) and `_build_html_widget_body`.
 """
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -20,6 +22,12 @@ from app.services.widget_templates import (
     apply_state_poll,
     apply_widget_template,
 )
+
+
+def _extract_tool_result_preamble(body: str) -> dict:
+    match = re.search(r"window\.spindrel\.toolResult = (.*?);window\.spindrel\.result =", body)
+    assert match is not None
+    return json.loads(match.group(1))
 
 
 @pytest.fixture(autouse=True)
@@ -37,13 +45,13 @@ def _register_snapshot_widget(tmp_path: Path, html_body: str = "<div id='root'><
     widgets = {
         "frigate_snapshot": {
             "content_type": "application/vnd.spindrel.html+interactive",
-            "display": "inline",
-            "display_label": "{{filename}}",
-            "html_template": {"path": "widgets/snapshot.html"},
-            "default_config": {"show_bbox": True},
-            "state_poll": {
+                "display": "inline",
+                "display_label": "{{filename}}",
+                "html_template": {"path": "widgets/snapshot.html"},
+                "default_config": {"show_bbox": True},
+                "state_poll": {
                 "tool": "frigate_snapshot",
-                "args": {"camera": "{{display_label}}", "bounding_box": "{{config.show_bbox}}"},
+                "args": {"camera": "{{display_label}}", "bounding_box": "{{widget_config.show_bbox}}"},
                 "refresh_interval_seconds": 60,
             },
         },
@@ -150,13 +158,13 @@ class TestApplyWidgetTemplateHtmlMode:
         raw = json.dumps({"attachment_id": "abc", "filename": "x.jpg", "size_bytes": 123})
         env = apply_widget_template("frigate_snapshot", raw)
         # Extract the JSON object from the preamble literally.
-        preamble = env.body.split("</script>")[0]
-        json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
-        parsed = json.loads(json_text)
-        # Tool result fields ride into the iframe verbatim; ``config`` is
-        # added alongside (merged default_config + pin widget_config).
+        parsed = _extract_tool_result_preamble(env.body)
+        # Tool result fields ride into the iframe verbatim; widget_config is
+        # exposed canonically and config is retained as a compatibility alias.
         for key, value in {"attachment_id": "abc", "filename": "x.jpg", "size_bytes": 123}.items():
             assert parsed[key] == value
+        assert parsed["result"] == {"attachment_id": "abc", "filename": "x.jpg", "size_bytes": 123}
+        assert parsed["widget_config"] == {"show_bbox": True}
         assert "config" in parsed
 
     def test_preamble_includes_merged_widget_config(self, tmp_path):
@@ -166,20 +174,19 @@ class TestApplyWidgetTemplateHtmlMode:
             "frigate_snapshot", raw, widget_config={"show_bbox": False},
         )
         # The merged config (default_config < widget_config) rides into the
-        # iframe under `toolResult.config` so widget JS can gate rendering
-        # on user-selected state (e.g. starred URLs, toggles, unit prefs).
-        preamble = env.body.split("</script>")[0]
-        json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
-        parsed = json.loads(json_text)
+        # iframe under the canonical widget_config channel and the legacy
+        # toolResult.config alias so widget JS can gate rendering on
+        # user-selected state.
+        parsed = _extract_tool_result_preamble(env.body)
         assert parsed.get("config") == {"show_bbox": False}
+        assert parsed.get("widget_config") == {"show_bbox": False}
 
     def test_preamble_uses_default_config_when_no_pin_overrides(self, tmp_path):
         _register_snapshot_widget(tmp_path)
         env = apply_widget_template("frigate_snapshot", json.dumps({"filename": "x"}))
-        preamble = env.body.split("</script>")[0]
-        json_text = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
-        parsed = json.loads(json_text)
+        parsed = _extract_tool_result_preamble(env.body)
         assert parsed.get("config") == {"show_bbox": True}
+        assert parsed.get("widget_config") == {"show_bbox": True}
 
     def test_display_label_substituted(self, tmp_path):
         _register_snapshot_widget(tmp_path)
@@ -203,7 +210,7 @@ class TestApplyWidgetTemplateHtmlMode:
 class TestBuildHtmlWidgetBody:
     def test_preamble_escapes_closing_script_tag(self):
         data = {"note": "before </script> after"}
-        body = _build_html_widget_body("<div/>", data)
+        body = _build_html_widget_body("<div/>", result_json=data)
         # The literal `</script>` from user data must not terminate the
         # preamble script tag early. `</` gets escaped to `<\/`.
         # Exactly ONE `</script>` may appear — the preamble's own closing tag.
@@ -211,8 +218,10 @@ class TestBuildHtmlWidgetBody:
         assert "<\\/script>" in body
 
     def test_empty_data_still_produces_valid_preamble(self):
-        body = _build_html_widget_body("<p/>", {})
-        assert "window.spindrel.toolResult = {};" in body
+        body = _build_html_widget_body("<p/>", result_json={})
+        assert "window.spindrel.toolResult = " in body
+        assert "window.spindrel.result = {};" in body
+        assert "window.spindrel.widgetConfig = {};" in body
         assert body.endswith("<p/>")
 
     def test_preamble_escapes_js_line_terminators(self):
@@ -223,7 +232,7 @@ class TestBuildHtmlWidgetBody:
         # the page because the bootstrap script also failed, leaving
         # `window.spindrel` undefined.
         data = {"summary": "first line\u2028second line\u2029third"}
-        body = _build_html_widget_body("<div/>", data)
+        body = _build_html_widget_body("<div/>", result_json=data)
         # The raw line terminators must NOT appear in the inlined JS source.
         assert "\u2028" not in body
         assert "\u2029" not in body

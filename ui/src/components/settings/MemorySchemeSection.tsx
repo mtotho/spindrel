@@ -18,13 +18,13 @@ const ARCHITECTURE_DIAGRAM = `
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
 │  memory/                                                         │
-│  ├── MEMORY.md           ← always in context (curated facts)    │
+│  ├── MEMORY.md           ← durable baseline in context          │
 │  ├── logs/                                                       │
-│  │   ├── 2026-03-28.md   ← auto-loaded (today)                 │
-│  │   ├── 2026-03-27.md   ← auto-loaded (yesterday)             │
+│  │   ├── 2026-03-28.md   ← often hot in normal chat            │
+│  │   ├── 2026-03-27.md   ← often hot in normal chat            │
 │  │   └── *.md            ← searchable only                      │
 │  └── reference/                                                  │
-│      └── *.md            ← searchable only                      │
+│      └── *.md            ← listed/readable via tools            │
 │                                                                  │
 │  ┌─────────────────┐  ┌──────────────────────────────┐          │
 │  │  search_memory   │  │  get_memory_file              │          │
@@ -43,7 +43,7 @@ const ARCHITECTURE_DIAGRAM = `
 │          merge_memories, upsert_knowledge, edit_knowledge,        │
 │          search_knowledge, + 8 more DB tools                      │
 │                                                                    │
-│  WRITING: bot uses exec_command (sed, echo, heredoc)              │
+│  WRITING: bot uses the file tool (edit, append, create, overwrite)│
 │                                                                    │
 │  COMPACTION FLUSH: redirected to file writes                      │
 │  SYSTEM PROMPT: built-in memory prompt auto-injected              │
@@ -51,12 +51,12 @@ const ARCHITECTURE_DIAGRAM = `
 
 HOW IT WORKS
 
-  Context injection (every turn):
-    1. Read MEMORY.md from disk → inject as system message
-    2. Read today's log (logs/YYYY-MM-DD.md) → inject as system message
-    3. Read yesterday's log → inject as system message
-    4. List reference/ files → inject filenames so bot knows what's available
-    5. Exclude already-injected files from filesystem RAG (no duplication)
+  Context admission (profile first, budget second):
+    1. Read MEMORY.md from disk → inject as a durable baseline
+    2. Optionally inject today's log → profile/budget gated
+    3. Optionally inject yesterday's log → profile/budget gated
+    4. Optionally list reference/ files so bot knows what's available
+    5. Exclude already-admitted files from filesystem RAG (no duplication)
 
   Search (search_memory tool):
     Hybrid retrieval over all memory files:
@@ -73,8 +73,7 @@ HOW IT WORKS
               Top-K results
 
   Writing:
-    Bot uses exec_command to write/edit files directly.
-    No custom write tools — LLMs handle shell file ops well.
+    Bot uses the file tool to write/edit files directly.
     File watcher detects changes → auto-reindex for search.
 
   Compaction flush:

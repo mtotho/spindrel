@@ -463,7 +463,7 @@ export function FilesTabPanel({
             separator: true,
             action: async () => {
               const ok = await confirm(
-                `Move "${basename}" to Active?\n\nActive files are injected into context every turn.`,
+                `Move "${basename}" to Active?\n\nActive files are eligible for automatic context admission in normal chat and execution, but planning/background runs may still fetch them on demand.`,
                 { title: "Move to Active", confirmLabel: "Move", variant: "warning" },
               );
               if (ok) {

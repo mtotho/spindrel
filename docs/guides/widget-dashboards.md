@@ -7,13 +7,13 @@ Dashboards are Spindrel's answer to "I want my agent's output *on a wall*, not b
 There are two shapes of dashboard, and both are used by the same pins, grid, and editing tools:
 
 - **Named user dashboards** at `/widgets/<slug>` — your personal pinboards (`default`, plus any you create: `home`, `monitoring`, etc.). Cross-channel; mix tools from any bot on any channel.
-- **Channel dashboards** at `/widgets/channel/:channelId` — one per channel, lazy-created. Unlike user dashboards, these map onto the actual chat layout zones: left rail, center dashboard, right rail, and the top-center chip/header zone.
+- **Channel dashboards** at `/widgets/channel/:channelId` — one per channel, lazy-created. Unlike user dashboards, these map onto the actual chat layout zones: left rail, center dashboard, right rail, and the floating top-center header rail.
 
 You reach the `/widgets` page from the left sidebar rail ("Widgets" tab). Channel dashboards are reachable from the channel header's `LayoutDashboard` icon and the command palette ("Channel dashboard" under THIS CHANNEL).
 
 ## Three definition kinds, one dashboard
 
-Any widget fits anywhere. The dashboard doesn't care what drew the pixels, only that the pin has an envelope.
+Any widget may be placed in any dashboard zone, but not every widget is authored for every host surface. The dashboard accepts all definition kinds; clean fit still depends on the widget's presentation family and the available space.
 
 | Kind | Authored by | How it renders | Example |
 |---|---|---|---|
@@ -59,7 +59,7 @@ Channel dashboards are not just "a grid plus a left rail." They map onto four di
 - **Left rail** — supporting widgets to the left of the conversation
 - **Center dashboard** — the main dashboard canvas in the middle
 - **Right rail** — supporting widgets to the right of the conversation
-- **Top-center chip/header zone** — compact chip-style widgets above the channel content
+- **Floating header rail** — a top-center overlay rail above the channel content
 
 The edit surface reflects those zones so you can place pins where they will actually live in chat, not in an abstract dashboard-only layout.
 
@@ -67,9 +67,14 @@ The edit surface reflects those zones so you can place pins where they will actu
 
 - **Rail zones** are for persistent side widgets that flank the conversation
 - **Center dashboard** is for the main, larger widget canvas
-- **Top-center chip/header zone** is for compact status/control chips that sit above the main channel content
+- **Floating header rail** is best for compact status/control widgets and short utility cards that sit above the main channel content
 
-This matters because the same pin can feel completely different depending on zone: a large HTML widget belongs in the center dashboard; a tiny control or status widget may belong in the header chip zone instead.
+This matters because zone and presentation family are different:
+
+- `header` is the top-rail placement zone
+- `chip` is a presentation family, not a persisted zone
+- chip-family widgets are authored for that compact rail
+- card-family widgets can still be placed there, but they render as constrained short cards rather than automatically becoming chips
 
 **Mobile note:** the channel side surfaces collapse into mobile-friendly sheets/drawers, but the underlying pin zones are still the same.
 
@@ -80,7 +85,7 @@ Under the hood the grid is `react-grid-layout` — drag to move, corner-handle t
 **Per-pin editing** (edit mode → pencil icon on a tile):
 
 - **Display label** — what the card header says. Defaults to the envelope's `display_label` or the tool name.
-- **Widget config** — free-form JSON. For widgets whose YAML template substitutes `{{ config.* }}`, this is where "Show Fahrenheit", "Hide forecast", "Compact mode", etc. live.
+- **Widget config** — free-form JSON. For widgets whose YAML template substitutes `{{widget_config.*}}`, this is where "Show Fahrenheit", "Hide forecast", "Compact mode", etc. live. `{{config.*}}` remains a compatibility alias only.
 
 **Grid presets:**
 
@@ -133,7 +138,7 @@ Keep grid mode when the dashboard is more of a status wall than a focused worksp
 
 | Symptom | Usual cause |
 |---|---|
-| Widget is showing in the wrong part of the channel UI | It was pinned into the wrong channel zone. Open the full channel dashboard and move it between left rail, center dashboard, right rail, or header/chip zone. |
+| Widget is showing in the wrong part of the channel UI | It was pinned into the wrong channel zone. Open the full channel dashboard and move it between left rail, center dashboard, right rail, or the floating header rail. |
 | "No widgets pinned" on the channel dashboard even though you see widgets in chat | You're probably on a user dashboard, not the channel one. The channel dashboard URL is `/widgets/channel/:channelId`; the page shows a breadcrumb instead of the tab strip when you're on it. |
 | A library widget previews but won't load when pinned | Bot/workspace library widgets need a bot context for auth and workspace resolution. Pick the correct bot before pinning from the Library tab. |
 | The "Promote to panel" action is missing | Panel mode is only offered on eligible interactive HTML pins, not every component tile. |

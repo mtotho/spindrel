@@ -1921,6 +1921,16 @@ class WidgetDashboardPin(Base):
     widget_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb"),
     )
+    widget_origin: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    provenance_confidence: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text("'inferred'"),
+        default="inferred",
+    )
+    widget_contract_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    config_schema_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    widget_presentation_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     envelope: Mapped[dict] = mapped_column(JSONB, nullable=False)
     display_label: Mapped[str | None] = mapped_column(Text, nullable=True)
     grid_layout: Mapped[dict] = mapped_column(

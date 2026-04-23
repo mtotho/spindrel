@@ -163,7 +163,21 @@ def test_native_catalog_entries_expose_contract():
     todo = next(entry for entry in entries if entry["name"] == "todo_native")
     assert todo["widget_contract"]["definition_kind"] == "native_widget"
     assert todo["widget_contract"]["auth_model"] == "host_native"
+    assert todo["widget_presentation"] == {
+        "presentation_family": "card",
+        "layout_hints": {
+            "preferred_zone": "grid",
+            "min_cells": {"w": 4, "h": 3},
+            "max_cells": {"w": 12, "h": 8},
+        },
+    }
     assert todo["config_schema"]["type"] == "object"
+    assert todo["layout_hints"] == {
+        "preferred_zone": "grid",
+        "min_cells": {"w": 4, "h": 3},
+        "max_cells": {"w": 12, "h": 8},
+    }
+    assert todo["widget_contract"]["layout_hints"] == todo["layout_hints"]
     context = next(entry for entry in entries if entry["name"] == "context_tracker")
     assert context["format"] == "native_app"
     assert context["widget_ref"] == "core/context_tracker"
@@ -171,8 +185,22 @@ def test_native_catalog_entries_expose_contract():
     assert context["actions"] == []
     assert context["widget_contract"]["definition_kind"] == "native_widget"
     assert context["widget_contract"]["supported_scopes"] == ["channel"]
+    assert context["widget_presentation"] == {
+        "presentation_family": "card",
+        "layout_hints": {
+            "preferred_zone": "header",
+            "min_cells": {"w": 6, "h": 2},
+            "max_cells": {"w": 12, "h": 2},
+        },
+    }
+    assert context["layout_hints"] == {
+        "preferred_zone": "header",
+        "min_cells": {"w": 6, "h": 2},
+        "max_cells": {"w": 12, "h": 2},
+    }
     usage = next(entry for entry in entries if entry["name"] == "usage_forecast_native")
     assert usage["supported_scopes"] == ["channel", "dashboard"]
+    assert usage["widget_contract"]["layout_hints"] == usage["layout_hints"]
     upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
     assert upcoming["supported_scopes"] == ["channel", "dashboard"]
     names = {entry["name"] for entry in entries}

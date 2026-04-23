@@ -281,6 +281,16 @@ class TestEffectiveSystemPrompt:
                 "Found bare 'MEMORY.md' reference without memory/ prefix in prompt"
             )
 
+    def test_memory_scheme_prompt_is_profile_safe(self):
+        from app.services.sessions import _effective_system_prompt
+
+        bot = _bot(memory_scheme="workspace-files")
+        prompt = _effective_system_prompt(bot)
+        assert "recent daily logs are already in your context" not in prompt
+        assert "Today's and yesterday's logs are in your context" not in prompt
+        assert "current context profile and budget" in prompt
+        assert "fetch/search them explicitly when exact detail matters" in prompt
+
     def test_no_memory_scheme_prompt_without_scheme(self):
         from app.services.sessions import _effective_system_prompt
         bot = _bot(memory_scheme=None)

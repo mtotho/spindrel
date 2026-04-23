@@ -157,7 +157,7 @@ export function IndexingSection({ workspaceId }: { workspaceId: string }) {
         <span style={{ color: t.text, fontWeight: 600 }}>Knowledge base convention.</span>{" "}
         Every channel has an auto-indexed <code>knowledge-base/</code> folder and every bot has its own at{" "}
         <code>bots/&lt;id&gt;/knowledge-base/</code>. Drop files there — the defaults below apply.
-        The custom-segments editor on each bot is for external repos or per-prefix embedding models.
+        Channel KB is the room-specific layer. Bot KB is the cross-channel layer and auto-retrieves by default unless the bot switches it to search-only. The custom-segments editor on each bot is for external repos or per-prefix embedding models.
       </div>
 
       {/* Summary bar */}

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { Play, RotateCcw, Pencil, FileText, Workflow as WorkflowIcon } from "lucide-react";
@@ -7,7 +7,7 @@ import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection, ActionButton } from "@/src/components/shared/SettingsControls";
+import { AdvancedSection, ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -62,7 +62,24 @@ function buildIntervalOptions(current: number | null | undefined) {
 // ---------------------------------------------------------------------------
 // Heartbeat Tab
 // ---------------------------------------------------------------------------
-export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: string; workspaceId?: string | null; botModel?: string }) {
+type HeartbeatSaveState = {
+  dirty: boolean;
+  isPending: boolean;
+  isError: boolean;
+  lastSavedAt: number | null;
+};
+
+export function HeartbeatTab({
+  channelId,
+  workspaceId,
+  botModel,
+  onSaveStateChange,
+}: {
+  channelId: string;
+  workspaceId?: string | null;
+  botModel?: string;
+  onSaveStateChange?: (state: HeartbeatSaveState) => void;
+}) {
   const t = useThemeTokens();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
@@ -72,9 +89,13 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
   });
 
   const [hbForm, setHbForm] = useState<any>(null);
-  const [hbSaved, setHbSaved] = useState(false);
+  const [hbDirty, setHbDirty] = useState(false);
+  const [hbLastSavedAt, setHbLastSavedAt] = useState<number | null>(null);
   const [customizedFromTemplateId, setCustomizedFromTemplateId] = useState<string | null>(null);
   const [templatePreviewExpanded, setTemplatePreviewExpanded] = useState(false);
+  const hbFormRef = useRef<any>(null);
+  const hbDirtyRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch templates to render linked template content
   const { data: allTemplates } = usePromptTemplates();
@@ -85,7 +106,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
 
   useEffect(() => {
     if (data?.config) {
-      setHbForm({
+      const nextForm = {
         interval_minutes: data.config.interval_minutes ?? 60,
         model: data.config.model ?? "",
         model_provider_id: data.config.model_provider_id ?? "",
@@ -106,9 +127,13 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         workflow_id: data.config.workflow_id ?? null,
         workflow_session_mode: data.config.workflow_session_mode ?? null,
         skip_tool_approval: data.config.skip_tool_approval ?? false,
-      });
+      };
+      setHbForm(nextForm);
+      hbFormRef.current = nextForm;
+      hbDirtyRef.current = false;
+      setHbDirty(false);
     } else if (data && !data.config) {
-      setHbForm({
+      const nextForm = {
         interval_minutes: 60,
         model: "",
         model_provider_id: "",
@@ -129,7 +154,11 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
         workflow_id: null,
         workflow_session_mode: null,
         skip_tool_approval: false,
-      });
+      };
+      setHbForm(nextForm);
+      hbFormRef.current = nextForm;
+      hbDirtyRef.current = false;
+      setHbDirty(false);
     }
   }, [data]);
 
@@ -138,6 +167,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+      setHbLastSavedAt(Date.now());
     },
   });
 
@@ -149,10 +179,71 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
-      setHbSaved(true);
-      setTimeout(() => setHbSaved(false), 2500);
+      hbDirtyRef.current = false;
+      setHbDirty(false);
+      setHbLastSavedAt(Date.now());
     },
   });
+
+  const saveMutationRef = useRef(saveMutation);
+  saveMutationRef.current = saveMutation;
+
+  const scheduleSave = useCallback(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = null;
+      if (!hbFormRef.current) return;
+      try {
+        await saveMutationRef.current.mutateAsync(hbFormRef.current);
+      } catch {
+        // Error state is surfaced via saveMutation.isError / header pill.
+      }
+    }, 800);
+  }, []);
+
+  const updateHbForm = useCallback((updater: (prev: any) => any) => {
+    let nextForm: any = null;
+    setHbForm((prev: any) => {
+      nextForm = updater(prev);
+      return nextForm;
+    });
+    if (!nextForm) return;
+    hbFormRef.current = nextForm;
+    hbDirtyRef.current = true;
+    setHbDirty(true);
+    setHbLastSavedAt(null);
+    saveMutationRef.current.reset();
+    scheduleSave();
+  }, [scheduleSave]);
+
+  useEffect(() => {
+    onSaveStateChange?.({
+      dirty: hbDirty,
+      isPending: saveMutation.isPending || toggleMutation.isPending,
+      isError: saveMutation.isError || toggleMutation.isError,
+      lastSavedAt: hbLastSavedAt,
+    });
+  }, [
+    hbDirty,
+    hbLastSavedAt,
+    onSaveStateChange,
+    saveMutation.isError,
+    saveMutation.isPending,
+    toggleMutation.isError,
+    toggleMutation.isPending,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+        if (hbDirtyRef.current && hbFormRef.current) {
+          saveMutationRef.current.mutate(hbFormRef.current);
+        }
+      }
+    };
+  }, []);
 
   const [hbFired, setHbFired] = useState(false);
   const fireMutation = useMutation({
@@ -174,31 +265,30 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
 
   return (
     <>
-      {/* Enable toggle + save */}
-      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-        <Section title="Heartbeat">
-          <div />
-        </Section>
-        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={() => toggleMutation.mutate()}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-              padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 500, border: "none", cursor: "pointer",
-              background: enabled ? t.successSubtle : t.surfaceBorder,
-              color: enabled ? t.success : t.textMuted,
-            }}
-          >
-            <span style={{
-              width: 8, height: 8, borderRadius: 4,
-              background: enabled ? t.success : t.textDim,
-            }} />
-            {enabled ? "Enabled" : "Disabled"}
-          </button>
-        </div>
-      </div>
+      <Section
+        title={
+          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span>Heartbeat</span>
+            <StatusBadge label={enabled ? "Enabled" : "Disabled"} variant={enabled ? "success" : "neutral"} />
+          </div>
+        }
+        description={enabled
+          ? "Heartbeat schedules background runs for this channel. Configuration saves automatically."
+          : "Heartbeat is disabled. You can still configure it here, then enable it when the schedule is ready."}
+        action={
+          <ActionButton
+            label={toggleMutation.isPending ? "Updating..." : enabled ? "Disable" : "Enable"}
+            onPress={() => toggleMutation.mutate()}
+            variant="secondary"
+            size="small"
+            disabled={toggleMutation.isPending}
+          />
+        }
+      >
+        {null}
+      </Section>
 
-      <div style={{ opacity: enabled ? 1 : 0.5 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
         {/* ---- Schedule Section ---- */}
         <Section title="Schedule">
           <Row stack={isMobile}>
@@ -206,7 +296,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               <FormRow label="Interval">
                 <SelectInput
                   value={hbForm.interval_minutes?.toString() ?? "60"}
-                  onChange={(v) => setHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v) }))}
+                  onChange={(v) => updateHbForm((f: any) => ({ ...f, interval_minutes: parseInt(v, 10) }))}
                   options={buildIntervalOptions(hbForm.interval_minutes)}
                 />
               </FormRow>
@@ -229,9 +319,9 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                   onClick={() => {
                     if (tab.key === "workflow" && !isWorkflowMode) {
                       const firstWf = workflows?.[0];
-                      setHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
+                      updateHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
                     } else if (tab.key === "prompt" && isWorkflowMode) {
-                      setHbForm((f: any) => ({ ...f, workflow_id: null, workflow_session_mode: null }));
+                      updateHbForm((f: any) => ({ ...f, workflow_id: null, workflow_session_mode: null }));
                     }
                   }}
                   style={{
@@ -257,7 +347,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
                 <WorkflowSelector
                   value={hbForm.workflow_id}
-                  onChange={(id) => setHbForm((f: any) => ({ ...f, workflow_id: id }))}
+                  onChange={(id) => updateHbForm((f: any) => ({ ...f, workflow_id: id }))}
                 />
               </FormRow>
               {hbForm.workflow_id && (() => {
@@ -281,7 +371,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <FormRow label="Session Mode" description="Override the workflow's session mode for heartbeat triggers.">
                   <SelectInput
                     value={hbForm.workflow_session_mode ?? ""}
-                    onChange={(v) => setHbForm((f: any) => ({ ...f, workflow_session_mode: v || null }))}
+                    onChange={(v) => updateHbForm((f: any) => ({ ...f, workflow_session_mode: v || null }))}
                     options={[
                       { label: "Use workflow default", value: "" },
                       { label: "Isolated (no chat messages)", value: "isolated" },
@@ -297,22 +387,22 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               <WorkspaceFilePrompt
                 workspaceId={hbForm.workspace_id ?? workspaceId}
                 filePath={hbForm.workspace_file_path}
-                onLink={(path, wsId) => setHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: wsId, prompt_template_id: null }))}
-                onUnlink={() => setHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
+                onLink={(path, wsId) => updateHbForm((f: any) => ({ ...f, workspace_file_path: path, workspace_id: wsId, prompt_template_id: null }))}
+                onUnlink={() => updateHbForm((f: any) => ({ ...f, workspace_file_path: null, workspace_id: null }))}
               />
               {!hbForm.workspace_file_path && (
                 <>
-                  <PromptTemplateLink
-                    templateId={hbForm.prompt_template_id ?? null}
-                    onLink={(id) => {
-                      setHbForm((f: any) => ({ ...f, prompt_template_id: id, prompt: "" }));
-                      setCustomizedFromTemplateId(null);
-                      setTemplatePreviewExpanded(false);
-                    }}
-                    onUnlink={() => {
-                      setHbForm((f: any) => ({ ...f, prompt_template_id: null }));
-                    }}
-                  />
+                    <PromptTemplateLink
+                      templateId={hbForm.prompt_template_id ?? null}
+                      onLink={(id) => {
+                        updateHbForm((f: any) => ({ ...f, prompt_template_id: id, prompt: "" }));
+                        setCustomizedFromTemplateId(null);
+                        setTemplatePreviewExpanded(false);
+                      }}
+                      onUnlink={() => {
+                        updateHbForm((f: any) => ({ ...f, prompt_template_id: null }));
+                      }}
+                    />
 
                   {/* Template linked — read-only preview with customize option */}
                   {hbForm.prompt_template_id && linkedTemplate ? (
@@ -323,7 +413,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                       onToggleExpand={() => setTemplatePreviewExpanded((v) => !v)}
                       onCustomize={() => {
                         setCustomizedFromTemplateId(hbForm.prompt_template_id);
-                        setHbForm((f: any) => ({
+                        updateHbForm((f: any) => ({
                           ...f,
                           prompt: linkedTemplate.content,
                           prompt_template_id: null,
@@ -344,7 +434,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                           </div>
                           <button
                             onClick={() => {
-                              setHbForm((f: any) => ({
+                              updateHbForm((f: any) => ({
                                 ...f,
                                 prompt_template_id: customizedFromTemplateId,
                                 prompt: "",
@@ -367,7 +457,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                       )}
                       <LlmPrompt
                         value={hbForm.prompt ?? ""}
-                        onChange={(v) => setHbForm((f: any) => ({ ...f, prompt: v }))}
+                        onChange={(v) => updateHbForm((f: any) => ({ ...f, prompt: v }))}
                         label="Heartbeat Prompt"
                         placeholder="Enter the heartbeat prompt..."
                         helpText="This prompt runs on the configured interval. Use @-tags to reference skills or tools."
@@ -389,14 +479,14 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <Toggle
                 value={hbForm.dispatch_results ?? true}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_results: v }))}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, dispatch_results: v }))}
                 label="Post results to channel"
               />
               {hbForm.dispatch_results && (
                 <FormRow label="Dispatch mode" description="How heartbeat results are posted.">
                   <SelectInput
                     value={hbForm.dispatch_mode ?? "always"}
-                    onChange={(v) => setHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
+                    onChange={(v) => updateHbForm((f: any) => ({ ...f, dispatch_mode: v }))}
                     options={[
                       { label: "Always post", value: "always" },
                       { label: "LLM decides (via tool)", value: "optional" },
@@ -406,7 +496,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               )}
               <Toggle
                 value={hbForm.trigger_response ?? false}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, trigger_response: v }))}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, trigger_response: v }))}
                 label="Trigger agent response after posting"
                 description="After posting the heartbeat result, the bot will process it and respond again."
               />
@@ -414,17 +504,12 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
           </Section>
         )}
 
-        {/* Save + Fire */}
+        {/* Run controls */}
         <div style={{ marginTop: 20, display: "flex", flexDirection: "row", gap: 8 }}>
-          <ActionButton
-            label={hbSaved ? "Saved!" : saveMutation.isPending ? "Saving..." : "Save Heartbeat"}
-            onPress={() => saveMutation.mutate(hbForm)}
-            variant={hbSaved ? "secondary" : "primary"}
-          />
           <ActionButton
             label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
             onPress={() => fireMutation.mutate()}
-            variant="secondary"
+            variant="primary"
             disabled={!hasAction}
             icon={<Play size={12} />}
           />
@@ -438,9 +523,9 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 start={hbForm.quiet_start ?? ""}
                 end={hbForm.quiet_end ?? ""}
                 timezone={hbForm.timezone ?? ""}
-                onChangeStart={(v) => setHbForm((f: any) => ({ ...f, quiet_start: v }))}
-                onChangeEnd={(v) => setHbForm((f: any) => ({ ...f, quiet_end: v }))}
-                onChangeTimezone={(v) => setHbForm((f: any) => ({ ...f, timezone: v }))}
+                onChangeStart={(v) => updateHbForm((f: any) => ({ ...f, quiet_start: v }))}
+                onChangeEnd={(v) => updateHbForm((f: any) => ({ ...f, quiet_end: v }))}
+                onChangeTimezone={(v) => updateHbForm((f: any) => ({ ...f, timezone: v }))}
                 inheritedRange={data?.default_quiet_hours}
                 defaultTimezone={data?.default_timezone}
               />
@@ -450,7 +535,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 value={hbForm.repetition_detection ?? data?.default_repetition_detection ?? true}
                 onChange={(v) => {
                   const globalDefault = data?.default_repetition_detection ?? true;
-                  setHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
+                  updateHbForm((f: any) => ({ ...f, repetition_detection: v === globalDefault ? null : v }));
                 }}
                 label="Repetition detection"
                 description={`Warn when consecutive heartbeat outputs are too similar.${hbForm.repetition_detection === null ? " (using global default)" : ""}`}
@@ -459,7 +544,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
             <Section title="Tool Policies">
               <Toggle
                 value={hbForm.skip_tool_approval ?? false}
-                onChange={(v) => setHbForm((f: any) => ({ ...f, skip_tool_approval: v }))}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, skip_tool_approval: v }))}
                 label="Auto-approve tool calls"
                 description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
@@ -470,7 +555,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                   <LlmModelDropdown
                     label="Model"
                     value={hbForm.model ?? ""}
-                    onChange={(v) => setHbForm((f: any) => ({ ...f, model: v }))}
+                    onChange={(v) => updateHbForm((f: any) => ({ ...f, model: v }))}
                     placeholder={`inherit (${botModel ?? "bot default"})`}
                     allowClear
                   />
@@ -479,7 +564,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
               <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
                 <FallbackModelList
                   value={hbForm.fallback_models ?? []}
-                  onChange={(v) => setHbForm((f: any) => ({ ...f, fallback_models: v }))}
+                  onChange={(v) => updateHbForm((f: any) => ({ ...f, fallback_models: v }))}
                 />
               </FormRow>
             </Section>
@@ -488,7 +573,10 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <FormRow label="Max run time (seconds)">
                   <TextInput
                     value={hbForm.max_run_seconds?.toString() ?? ""}
-                    onChangeText={(v) => { const n = parseInt(v); setHbForm((f: any) => ({ ...f, max_run_seconds: isNaN(n) ? null : n })); }}
+                    onChangeText={(v) => {
+                      const n = parseInt(v, 10);
+                      updateHbForm((f: any) => ({ ...f, max_run_seconds: Number.isNaN(n) ? null : n }));
+                    }}
                     placeholder={`${data?.default_max_run_seconds ?? 1200} (default)`}
                     type="number"
                   />
@@ -496,7 +584,10 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
                 <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
                   <TextInput
                     value={hbForm.previous_result_max_chars?.toString() ?? ""}
-                    onChangeText={(v) => { const n = parseInt(v); setHbForm((f: any) => ({ ...f, previous_result_max_chars: isNaN(n) ? null : n })); }}
+                    onChangeText={(v) => {
+                      const n = parseInt(v, 10);
+                      updateHbForm((f: any) => ({ ...f, previous_result_max_chars: Number.isNaN(n) ? null : n }));
+                    }}
                     placeholder={`${data?.default_previous_result_chars ?? 500} (global default)`}
                     type="number"
                   />
@@ -510,7 +601,7 @@ export function HeartbeatTab({ channelId, workspaceId, botModel }: { channelId: 
 
       {/* Status + History */}
       {data?.config && (
-        <div style={{ marginTop: 24, borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 16 }}>
+        <div style={{ marginTop: 12, paddingTop: 4 }}>
           <div style={{ fontSize: 12, color: t.textDim, display: "flex", flexDirection: "row", gap: 16, marginBottom: 12 }}>
             {data.config.last_run_at && (
               <span>Last run: <span style={{ color: t.textMuted }}>{new Date(data.config.last_run_at).toLocaleString()}</span></span>

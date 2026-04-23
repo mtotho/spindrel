@@ -127,7 +127,7 @@ The result shape of `HassLightSet` itself doesn't echo the new brightness, so th
 
 ### `ha_get_state` — single-entity sensor read
 
-Community `ha-mcp` path. Renders an adaptive single-entity card: sensor card, light card, toggle chip, or generic entity chip depending on domain and config. Pins use `state_poll.args.entity_id = {{config.entity_id}}` with `refresh_interval_seconds: 30` so the card stays live without re-parsing the display label after creation.
+Community `ha-mcp` path. Renders an adaptive single-entity card: sensor card, light card, toggle chip, or generic entity chip depending on domain and config. Pins use `state_poll.args.entity_id = {{widget_config.entity_id}}` with `refresh_interval_seconds: 30` so the card stays live without re-parsing the display label after creation.
 
 ### `ha_search_entities` — collapsible result grid
 
@@ -155,7 +155,7 @@ state_poll:
 
 `GetLiveContext` is the official-lane shared poll target: it returns every entity's state in one call, the Python transform filters to the specific entity on official action/preset pins, and the resulting `is_on` / `is_off` / `brightness` drives the toggle + slider components. One cached poll can feed official-lane HA pins on the dashboard.
 
-Community `ha_get_state` pins instead re-call `ha_get_state` with `{{config.entity_id}}`. Preset-created official pins render through `GetLiveContext` with empty tool args and keep their selected entity in `widget_config`.
+Community `ha_get_state` pins instead re-call `ha_get_state` with `{{widget_config.entity_id}}`. Preset-created official pins render through `GetLiveContext` with empty tool args and keep their selected entity in `widget_config`.
 
 See [Widget Templates → State polling](widget-templates.md#state-polling) for the underlying mechanism.
 

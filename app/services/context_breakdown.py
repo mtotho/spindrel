@@ -429,7 +429,7 @@ async def compute_context_breakdown(
                 description="Bot persona layer injected as system message",
             ))
 
-    # Workspace-files memory scheme: MEMORY.md + daily logs (injected every turn from disk)
+    # Workspace-files memory scheme: MEMORY.md baseline + profile-gated daily logs
     if bot.memory_scheme == "workspace-files":
         import os as _bd_os
         from datetime import date as _bd_date
@@ -448,7 +448,7 @@ async def compute_context_breakdown(
                     categories.append(ContextCategory(
                         key="memory_md", label="MEMORY.md", chars=_bd_md_chars,
                         tokens_approx=0, percentage=0, category="static",
-                        description=f"Curated stable facts ({_bd_mem_rel}/MEMORY.md) — injected every turn",
+                        description=f"Curated stable facts ({_bd_mem_rel}/MEMORY.md) — durable baseline",
                     ))
 
             # Today's daily log
@@ -460,7 +460,7 @@ async def compute_context_breakdown(
                     categories.append(ContextCategory(
                         key="memory_today_log", label="Today's Log", chars=_bd_today_chars,
                         tokens_approx=0, percentage=0, category="static",
-                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_today}.md) — injected every turn",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_today}.md) — often admitted in normal chat; profile/budget-gated elsewhere",
                     ))
 
             # Yesterday's daily log
@@ -472,7 +472,7 @@ async def compute_context_breakdown(
                     categories.append(ContextCategory(
                         key="memory_yesterday_log", label="Yesterday's Log", chars=_bd_yest_chars,
                         tokens_approx=0, percentage=0, category="static",
-                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_yest}.md) — injected every turn",
+                        description=f"Daily log ({_bd_mem_rel}/logs/{_bd_yest}.md) — often admitted in normal chat; profile/budget-gated elsewhere",
                     ))
 
             # Reference file count
@@ -551,7 +551,7 @@ async def compute_context_breakdown(
             description=f"{len(bot.delegate_bots)} delegatable bot(s)",
         ))
 
-    # Channel workspace active files (injected every turn as static context)
+    # Channel workspace active files (eligible for static admission when profile allows)
     if channel is not None:
         try:
             import os as _cw_os
@@ -577,7 +577,7 @@ async def compute_context_breakdown(
                     key="channel_workspace_files", label="Channel Workspace Files",
                     chars=_cw_injected,
                     tokens_approx=0, percentage=0, category="static",
-                    description=f"{_cw_active_count} active .md file(s) injected every turn ({_cw_active_chars:,} chars total"
+                    description=f"{_cw_active_count} active .md file(s) eligible for automatic admission in normal chat/execution ({_cw_active_chars:,} chars total"
                                 + (f", capped to {_CW_BUDGET:,})" if _cw_active_chars > _CW_BUDGET else ")"),
                 ))
         except Exception:
@@ -585,11 +585,18 @@ async def compute_context_breakdown(
 
     # Workspace / filesystem RAG context
     if bot.workspace.enabled and bot.workspace.indexing.enabled:
+        if getattr(bot.workspace, "bot_knowledge_auto_retrieval", True):
+            categories.append(ContextCategory(
+                key="bot_knowledge_base", label="Bot Knowledge Base",
+                chars=int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.22),
+                tokens_approx=0, percentage=0, category="rag",
+                description="Bot-wide knowledge-base excerpts auto-retrieved before broader workspace search",
+            ))
         est_ws = int(settings.FS_INDEX_TOP_K * settings.FS_INDEX_CHUNK_WINDOW * 0.3)
         categories.append(ContextCategory(
             key="workspace_context", label="Workspace Files (RAG)", chars=est_ws,
             tokens_approx=0, percentage=0, category="rag",
-            description="Workspace file chunks retrieved by semantic search; varies by query",
+            description="Broader workspace file chunks retrieved by semantic search after bot/channel knowledge layers",
         ))
 
     # Section index (file mode)

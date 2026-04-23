@@ -420,9 +420,10 @@ export interface PinnedWidget {
   envelope: ToolResultEnvelope;
   position: number;
   pinned_at: string;
-  /** Per-pin user config — shallow-merged over the template's default_config
-   *  and exposed as `{{config.*}}` in widget + state_poll templates. Flipped
-   *  via `{dispatch: "widget_config"}` actions. */
+  widget_presentation?: WidgetPresentation | null;
+  /** Legacy pinned-widget config shape. New widget work should use
+   *  `widget_config` on dashboard pins and `{{widget_config.*}}` in templates;
+   *  `{{config.*}}` remains as a compatibility alias. */
   config?: Record<string, unknown>;
 }
 
@@ -510,6 +511,34 @@ export interface WidgetContract {
   }>;
 }
 
+export interface WidgetPresentation {
+  presentation_family: "card" | "chip" | "panel";
+  panel_title?: string | null;
+  show_panel_title?: boolean | null;
+  layout_hints?: WidgetLayoutHints | null;
+}
+
+export interface WidgetOrigin {
+  definition_kind: "tool_widget" | "html_widget" | "native_widget";
+  instantiation_kind:
+    | "direct_tool_call"
+    | "preset"
+    | "library_pin"
+    | "runtime_emit"
+    | "native_catalog";
+  tool_name?: string;
+  template_id?: string | null;
+  preset_id?: string | null;
+  tool_family?: string | null;
+  widget_ref?: string | null;
+  source_library_ref?: string | null;
+  source_path?: string | null;
+  source_kind?: ToolResultEnvelope["source_kind"];
+  source_channel_id?: string | null;
+  source_integration_id?: string | null;
+  source_bot_id?: string | null;
+}
+
 export interface WidgetLayoutHints {
   preferred_zone?: "chip" | "rail" | "header" | "dock" | "grid" | string | null;
   min_cells?: { w?: number; h?: number } | null;
@@ -557,6 +586,7 @@ export interface WidgetLibraryEntry {
   supported_scopes?: string[];
   config_schema?: WidgetConfigSchema | null;
   widget_contract?: WidgetContract | null;
+  widget_presentation?: WidgetPresentation | null;
   layout_hints?: WidgetLayoutHints | null;
   actions?: Array<{
     id: string;
@@ -615,6 +645,9 @@ export interface WidgetDashboardPin {
   tool_name: string;
   tool_args: Record<string, unknown>;
   widget_config: Record<string, unknown>;
+  widget_origin?: WidgetOrigin | null;
+  provenance_confidence?: "authoritative" | "inferred" | string | null;
+  widget_presentation?: WidgetPresentation | null;
   envelope: ToolResultEnvelope;
   display_label: string | null;
   grid_layout: GridLayoutItem | Record<string, never>;

@@ -1,8 +1,7 @@
 import { Link } from "react-router-dom";
 import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
-import type { ToolResultEnvelope } from "@/src/types/api";
-import type { ThemeTokens } from "@/src/theme/tokens";
-import { PreviewCard, parsePayload } from "./shared";
+import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
+import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 
 function fmtFuture(iso: string): string {
   const target = Date.parse(iso);
@@ -33,19 +32,22 @@ function typeLabel(item: UpcomingItem): string {
 
 function UpcomingRow({
   item,
+  stackedMeta = false,
   t,
 }: {
   item: UpcomingItem;
-  t: ThemeTokens;
+  stackedMeta?: boolean;
+  t: NativeAppRendererProps["t"];
 }) {
   const href = itemHref(item);
   const body = (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(0, 1fr) auto",
+        display: stackedMeta ? "flex" : "grid",
+        flexDirection: stackedMeta ? "column" : undefined,
+        gridTemplateColumns: stackedMeta ? undefined : "minmax(0, 1fr) auto",
         gap: 10,
-        alignItems: "center",
+        alignItems: stackedMeta ? undefined : "center",
         minHeight: 42,
         padding: "8px 0",
         borderTop: `1px solid ${t.surfaceBorder}`,
@@ -70,7 +72,7 @@ function UpcomingRow({
               color: t.text,
               overflow: "hidden",
               textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              whiteSpace: stackedMeta ? "normal" : "nowrap",
             }}
           >
             {item.title}
@@ -85,9 +87,10 @@ function UpcomingRow({
             fontSize: 11,
             color: t.textMuted,
             minWidth: 0,
+            flexWrap: stackedMeta ? "wrap" : "nowrap",
           }}
         >
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: stackedMeta ? "normal" : "nowrap" }}>
             {item.channel_name ?? item.bot_name}
           </span>
           <span style={{ color: t.textDim, flexShrink: 0 }}>
@@ -95,7 +98,14 @@ function UpcomingRow({
           </span>
         </div>
       </div>
-      <div style={{ fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+      <div
+        style={{
+          fontSize: 11,
+          color: t.textDim,
+          fontVariantNumeric: "tabular-nums",
+          alignSelf: stackedMeta ? "flex-start" : undefined,
+        }}
+      >
         {fmtFuture(item.scheduled_at)}
       </div>
     </div>
@@ -111,15 +121,19 @@ function UpcomingRow({
 
 export function UpcomingActivityWidget({
   envelope,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  sessionId?: string;
-  dashboardPinId?: string;
-  channelId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
   const payload = parsePayload(envelope);
+  const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
+    compactMaxWidth: 360,
+    compactMaxHeight: 180,
+    wideMinWidth: 580,
+    wideMinHeight: 180,
+    tallMinHeight: 280,
+  });
+
   if (!payload.widget_instance_id) {
     return (
       <PreviewCard
@@ -130,7 +144,8 @@ export function UpcomingActivityWidget({
     );
   }
 
-  const { data: items, isLoading, isError } = useUpcomingActivity(6);
+  const itemLimit = profile.compact ? 3 : profile.wide || profile.tall ? 6 : 4;
+  const { data: items, isLoading, isError } = useUpcomingActivity(itemLimit);
 
   if (isLoading) {
     return <div style={{ color: t.textDim, fontSize: 12 }}>Loading upcoming activity…</div>;
@@ -144,6 +159,50 @@ export function UpcomingActivityWidget({
   }
   if (!items?.length) {
     return <div style={{ color: t.textMuted, fontSize: 12 }}>Nothing scheduled.</div>;
+  }
+
+  if (profile.compact) {
+    const next = items[0];
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%" }}>
+        <div
+          style={{
+            border: `1px solid ${t.surfaceBorder}`,
+            borderRadius: 12,
+            background: t.surface,
+            padding: 12,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+            <span
+              style={{
+                fontSize: 10,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: t.textDim,
+              }}
+            >
+              Up next
+            </span>
+            <span style={{ fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+              {fmtFuture(next.scheduled_at)}
+            </span>
+          </div>
+          <div style={{ color: t.text, fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>
+            {next.title}
+          </div>
+          <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+            {typeLabel(next)} · {next.channel_name ?? next.bot_name} · {new Date(next.scheduled_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: t.textDim }}>
+          {items.length > 1 ? `${items.length - 1} more item${items.length === 2 ? "" : "s"} queued.` : "Only one item scheduled."}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -164,7 +223,12 @@ export function UpcomingActivityWidget({
         </div>
       </div>
       {items.map((item) => (
-        <UpcomingRow key={`${item.type}:${item.task_id ?? item.scheduled_at}`} item={item} t={t} />
+        <UpcomingRow
+          key={`${item.type}:${item.task_id ?? item.scheduled_at}`}
+          item={item}
+          stackedMeta={profile.tall}
+          t={t}
+        />
       ))}
     </div>
   );

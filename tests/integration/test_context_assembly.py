@@ -154,6 +154,82 @@ class TestBasicPipeline:
         assert "Run all 9 phases now." in user_msgs[0]["content"]
 
     @pytest.mark.asyncio
+    async def test_restricted_profile_note_is_inserted_before_current_turn_marker(self, engine):
+        bot = _make_bot()
+        messages = [
+            {"role": "system", "content": bot.system_prompt},
+            {"role": "system", "content": "Plan mode runtime context: stick to the active plan."},
+        ]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+        ):
+            await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="Plan the next three steps.",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                context_profile_name="planning",
+            ))
+
+        note_idx = next(
+            idx for idx, msg in enumerate(messages)
+            if "Current context profile: planning." in msg.get("content", "")
+        )
+        marker_idx = next(
+            idx for idx, msg in enumerate(messages)
+            if "CURRENT message follows" in msg.get("content", "")
+        )
+        assert note_idx < marker_idx
+        assert any("Plan mode runtime context" in msg.get("content", "") for msg in messages)
+        assert result.inject_decisions["context_profile_note"] == "admitted"
+
+    @pytest.mark.asyncio
+    async def test_chat_profile_does_not_add_runtime_context_note(self, engine):
+        bot = _make_bot()
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+        ):
+            await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="hello",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                context_profile_name="chat",
+            ))
+
+        assert all("Current context profile:" not in msg.get("content", "") for msg in messages)
+        assert "context_profile_note" not in (result.inject_decisions or {})
+
+    @pytest.mark.asyncio
     async def test_attachments_included_in_user_message(self, engine):
         """Attachments should be included in the user message content."""
         bot = _make_bot()

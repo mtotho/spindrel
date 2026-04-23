@@ -1,13 +1,230 @@
 import React, { useState } from "react";
 import { Container, Package, RefreshCw } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
   TextInput, SelectInput, Toggle, FormRow, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { useBotSandboxStatus, useRecreateBotSandbox } from "@/src/api/hooks/useBots";
+import { Spinner } from "@/src/components/shared/Spinner";
+import {
+  useWorkspaceFileContent,
+  useWorkspaceFiles,
+} from "@/src/api/hooks/useWorkspaces";
 import { formatDateTime } from "@/src/utils/time";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
+
+function ensureLeadingSlash(path: string): string {
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
+function formatBytes(size?: number | null): string {
+  if (!size || size <= 0) return "0 B";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function BotKnowledgeBaseSection({
+  botId,
+  workspaceId,
+  autoRetrieval,
+  onToggle,
+}: {
+  botId: string;
+  workspaceId?: string | null;
+  autoRetrieval: boolean;
+  onToggle: (value: boolean) => void;
+}) {
+  const t = useThemeTokens();
+  const rootPath = ensureLeadingSlash(workspaceId ? `bots/${botId}/knowledge-base` : "knowledge-base");
+  const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId ?? undefined, rootPath);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const preview = useWorkspaceFileContent(workspaceId ?? undefined, selectedPath);
+  const entries = [...(data?.entries ?? [])]
+    .sort((a, b) => {
+      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .slice(0, 8);
+
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      padding: "12px 14px",
+      background: t.surfaceOverlay,
+      border: `1px solid ${t.surfaceBorder}`,
+      borderRadius: 8,
+    }}>
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 260 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Bot Knowledge Base</span>
+          <span style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
+            Curated reference docs that travel with this bot across every channel. Matching excerpts are
+            {autoRetrieval ? " auto-retrieved before broad workspace search and " : " kept search-only and "}
+            always available through <span style={{ fontFamily: "monospace" }}>search_bot_knowledge</span>.
+          </span>
+          <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>{rootPath.replace(/^\//, "")}/</span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span style={{
+            padding: "3px 8px",
+            borderRadius: 999,
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            background: autoRetrieval ? t.accentSubtle : t.surfaceRaised,
+            color: autoRetrieval ? t.accent : t.textMuted,
+          }}>
+            {autoRetrieval ? "Auto Retrieve" : "Search Only"}
+          </span>
+          {workspaceId ? (
+            <>
+              <button
+                type="button"
+                onClick={() => { void refetch(); }}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 7,
+                  background: t.surfaceRaised,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  color: t.text,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Refresh
+              </button>
+              <Link
+                to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "6px 10px",
+                  borderRadius: 7,
+                  background: t.surfaceRaised,
+                  border: `1px solid ${t.surfaceBorder}`,
+                  color: t.text,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  textDecoration: "none",
+                }}
+              >
+                Open In Workspace
+              </Link>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <Toggle
+        value={autoRetrieval}
+        onChange={onToggle}
+        label="Auto-retrieve bot knowledge"
+        description="Turn this off to keep the bot knowledge base search-only. The files stay indexed either way."
+      />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>What belongs here</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {[
+            "Cross-channel runbooks, glossaries, stable reference docs, and reusable templates.",
+            "Not short behavior notes; those still belong in memory.md.",
+            "Not transient project outputs; keep those in normal workspace files.",
+          ].map((line) => (
+            <span key={line} style={{ fontSize: 11, color: t.textDim, lineHeight: 1.45 }}>{line}</span>
+          ))}
+        </div>
+      </div>
+
+      {workspaceId ? (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 280px) minmax(0, 1fr)", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Contents</span>
+            {isLoading ? (
+              <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+                <Spinner color={t.accent} />
+              </div>
+            ) : entries.length === 0 ? (
+              <span style={{ fontSize: 11, color: t.textDim }}>
+                No bot knowledge files yet. Drop markdown files into this folder and they will start indexing automatically.
+              </span>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {entries.map((entry) => {
+                  const fullPath = ensureLeadingSlash(entry.path);
+                  const isSelected = !entry.is_dir && selectedPath === fullPath;
+                  return (
+                    <button
+                      key={fullPath}
+                      type="button"
+                      disabled={entry.is_dir}
+                      onClick={() => setSelectedPath(entry.is_dir ? null : fullPath)}
+                      style={{
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        borderRadius: 7,
+                        border: `1px solid ${isSelected ? t.accentBorder : t.surfaceBorder}`,
+                        background: isSelected ? t.accentSubtle : t.surfaceRaised,
+                        color: entry.is_dir ? t.textDim : t.text,
+                        cursor: entry.is_dir ? "default" : "pointer",
+                        opacity: entry.is_dir ? 0.7 : 1,
+                      }}
+                    >
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500 }}>{entry.display_name || entry.name}</span>
+                        <span style={{ fontSize: 10, color: t.textDim }}>
+                          {entry.is_dir ? "Folder" : formatBytes(entry.size)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Preview</span>
+            {!selectedPath ? (
+              <span style={{ fontSize: 11, color: t.textDim }}>Select a knowledge-base file to preview it here.</span>
+            ) : preview.isLoading ? (
+              <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
+                <Spinner color={t.accent} />
+              </div>
+            ) : !preview.data ? (
+              <span style={{ fontSize: 11, color: t.textDim }}>File not found.</span>
+            ) : (
+              <div style={{
+                padding: 12,
+                borderRadius: 8,
+                background: t.surfaceRaised,
+                border: `1px solid ${t.surfaceBorder}`,
+                maxHeight: 320,
+                overflow: "auto",
+              }}>
+                <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8, fontFamily: "monospace" }}>
+                  {selectedPath.replace(/^\//, "")}
+                </div>
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: t.text, fontSize: 12, fontFamily: "monospace" }}>
+                  {preview.data.content}
+                </pre>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <span style={{ fontSize: 11, color: t.textDim }}>
+          This bot is not currently attached to a shared workspace in this environment, so the inline KB browser is unavailable here.
+        </span>
+      )}
+    </div>
+  );
+}
 
 export function WorkspaceSection({
   editorData, draft, update,
@@ -323,17 +540,22 @@ export function WorkspaceSection({
             </div>
           )}
 
-          {/* Knowledge-base convention banner */}
-          <div style={{
-            padding: "10px 14px", background: t.accentSubtle,
-            border: `1px solid ${t.accentBorder}`, borderRadius: 8,
-            fontSize: 11, color: t.textMuted, lineHeight: 1.5,
-          }}>
-            <span style={{ fontWeight: 600, color: t.accent }}>Knowledge-base is automatic</span>
-            {" "}— this bot has a <span style={{ fontFamily: "monospace" }}>
-              {inSharedWorkspace ? `bots/${draft.id}/knowledge-base/` : "knowledge-base/"}
-            </span> folder that is auto-indexed and searchable via search_bot_knowledge. Drop curated facts in there; the settings below are only needed for external repos or per-prefix embedding models.
-          </div>
+          {draft.id ? (
+            <BotKnowledgeBaseSection
+              botId={draft.id}
+              workspaceId={draft.shared_workspace_id}
+              autoRetrieval={ws.bot_knowledge_auto_retrieval !== false}
+              onToggle={(value) => setWs({ bot_knowledge_auto_retrieval: value })}
+            />
+          ) : (
+            <div style={{
+              padding: "10px 14px", background: t.surfaceOverlay,
+              border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+              fontSize: 11, color: t.textMuted, lineHeight: 1.5,
+            }}>
+              Save the bot once to create its <span style={{ fontFamily: "monospace" }}>knowledge-base/</span> folder and retrieval settings.
+            </div>
+          )}
 
           {/* Indexing panel */}
           <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>

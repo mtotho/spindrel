@@ -92,7 +92,9 @@ window.spindrel.state.patch(path, patch, spec)     // RMW deep-merge with migrat
 window.spindrel.form(el, {fields, onSubmit, initial?, submitLabel?, submittingLabel?, resetOnSubmit?})
 
 // Tool result / config
-window.spindrel.toolResult                 // current envelope payload (see declarative widgets)
+window.spindrel.result                     // current tool-result data object
+window.spindrel.widgetConfig               // current merged runtime config
+window.spindrel.toolResult                 // compatibility object for older widgets
 window.spindrel.theme                      // resolved design tokens (see widgets/styling.md)
 
 // Server-side SQLite (requires widget.yaml + path mode) — see widgets/db.md
@@ -170,7 +172,7 @@ window.spindrel.onTheme((theme) => {
 off();
 ```
 
-Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DOM events on `window`. `onConfig` is sugar over `toolresult` that debounces — your callback only fires when `toolResult.config` actually changed, not on every envelope refresh.
+Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DOM events on `window`. `onConfig` is sugar over `toolresult` that debounces — your callback only fires when `window.spindrel.widgetConfig` actually changed (with `toolResult.config` kept as a compatibility alias), not on every envelope refresh.
 
 For control surfaces, don't treat `onToolResult` or `autoReload` as the primary click-response path. Keep local per-surface state and rerender only the touched row/card first; use subscriptions for later reconciliation. The concrete pattern lives in `widgets/tool-dispatch.md` under "Control dashboards — split state by surface, not by 'one big refresh'".
 

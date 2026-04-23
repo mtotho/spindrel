@@ -36,10 +36,13 @@ In-loop tool pruning (`prune_in_loop_tool_results`) runs at the start of each it
 - **Client**: Actions handled client-side (shell_exec runs in workspace container, TTS)
 - **Workspace tools** (`exec_command`, `file.*`): Run inside the agent's workspace container. Isolated from the server host.
 
-## Auto-Discovery Pipeline
-Channel overrides → Carapace resolution → Skill injection (pinned + on-demand) → Tool RAG (vector + BM25) → Capability RAG + activation
+## Context + Discovery Reference
+For the current canonical runtime contract, use:
 
-See [[How Discovery Works]] for the full reference (tool/skill/capability discovery flow, approval system, configuration knobs).
+- `agent-server/docs/guides/context-management.md` — what enters prompt context, under which profile, and how history replay works
+- `agent-server/docs/guides/discovery-and-enrollment.md` — how tools and skills are discovered, enrolled, loaded, and kept resident
+
+This vault page is an overview only; it should not be maintained as a second narrative source of truth for detailed discovery behavior.
 
 ## For detailed progress and decisions, see:
 - [[Roadmap]] — what's done, what's next

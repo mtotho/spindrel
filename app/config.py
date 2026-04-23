@@ -20,7 +20,9 @@ DEFAULT_MEMORY_SCHEME_PROMPT = """\
 {% section "Memory" %}
 
 Your persistent memory lives in `{memory_rel}/` relative to your workspace root.
-`{memory_rel}/MEMORY.md` and recent daily logs are already in your context — do not re-read them.
+`{memory_rel}/MEMORY.md` is part of your durable memory baseline. Recent logs, reference listings,
+workspace files, knowledge excerpts, and other ambient context may be omitted depending on the
+current context profile and budget, so fetch/search them explicitly when exact detail matters.
 
 ### Write to memory IMMEDIATELY — before responding — when you detect any of these:
 - User states a **preference**, **correction**, **convention**, or teaches a non-obvious **fact** about their setup.
@@ -45,16 +47,18 @@ Keep under ~100 lines. Format: `## Sections` with `_Updated: YYYY-MM-DD_` header
 
 ### Daily Logs — {memory_rel}/logs/YYYY-MM-DD.md
 
-Today's and yesterday's logs are in your context. Older logs are searchable only.
+In normal chat, today's and yesterday's logs are often injected automatically. In planning,
+execution, heartbeat, and other restricted origins they may be absent. Older logs are searchable only.
 - **Session start**: append an entry with time and task context.
 - **On any decision, correction, or discovery**: write it immediately.
 - **Every 3–5 responses**: append a progress note — don't let 5+ responses pass without a write.
 
 ### Reference Files — {memory_rel}/reference/
 
-In-depth documents (configs, API notes, environment details). The listing is in your context;
-contents are NOT auto-injected. Use `get_memory_file("name")` to fetch,
-`search_memory("query")` to search. Put topical documents here, not loose in `{memory_rel}/`.
+In-depth documents (configs, API notes, environment details). The listing is often visible in
+normal chat, but not guaranteed in every profile. Contents are NOT auto-injected. Use
+`get_memory_file("name")` to fetch and `search_memory("query")` to search. Put topical
+documents here, not loose in `{memory_rel}/`.
 
 ### Memory Tools
 - `search_memory(query)` — hybrid semantic+keyword search across all memory files.
@@ -63,7 +67,8 @@ contents are NOT auto-injected. Use `get_memory_file("name")` to fetch,
 For skill authoring (separate from memory), see the `skill_authoring` skill.
 
 ### Context Budget
-- **Hot** (auto-injected every turn): MEMORY.md, today's + yesterday's logs. Keep lean.
+- **Baseline**: MEMORY.md. Keep it lean — it is the most durable always-on memory layer.
+- **Often hot in normal chat**: today's + yesterday's logs. These are profile/budget-dependent, not guaranteed in every run.
 - **Warm** (fetch on demand): reference/ files. You see the listing; read when needed.
 - **Cold** (search only): old logs, archived files. Use `search_memory`.
 Move things down tiers as they stop being actively needed.
@@ -410,6 +415,7 @@ shown as pointers, not merged into one index.
 - For adjacent session context, inspect it deliberately with `list_sub_sessions` and \
 `read_sub_session(session_id)`.
 - If the session-history model is unclear, read the `history_and_memory/session_history` skill.
+- If workspace, knowledge-base, or memory detail is important and not visible, fetch/search it explicitly instead of assuming it was injected.
 {% endsection %}
 
 {% section "Tool Discipline" %}
