@@ -1,6 +1,6 @@
 # Home Assistant
 
-The `homeassistant` integration turns Home Assistant into a first-class target for Spindrel bots: entity control, area queries, live state polling, and rich inline widgets with toggles and sliders. It ships as an in-tree Spindrel integration, carrying carapaces, skills, and widget templates — but talks to HA over the **Model Context Protocol (MCP)**, not over the HA REST API.
+The `homeassistant` integration turns Home Assistant into a first-class target for Spindrel bots: entity control, area queries, live state polling, and rich inline widgets with toggles and sliders. It ships as an in-tree Spindrel integration, carrying tools, skills, and widget templates — but talks to HA over the **Model Context Protocol (MCP)**, not over the HA REST API.
 
 This guide covers the MCP server options, how to connect, how the bot targets entities, and how the widget templates render HA state live in chat.
 
@@ -27,7 +27,7 @@ What the integration ships:
 
 - **Widget templates** for every HA tool — status badges, toggles, brightness sliders, live state polls, domain-filtered live-state dashboards.
 - **A skill pack** teaching bots the HA entity-targeting grammar and when to reach for each tool.
-- **A carapace** bundling the tools + skill so you can activate HA on a channel with one click.
+- **Activation metadata** so the integration can expose its HA toolset on a channel without per-bot tool wiring.
 - **No settings**. The integration itself is zero-config; the MCP server is where you point at HA.
 
 ---
@@ -65,7 +65,7 @@ Either list them explicitly under `mcp_servers:` in the bot YAML:
 mcp_servers: [homeassistant]
 ```
 
-…or, more commonly, activate the `homeassistant` **carapace** on the channel — the bot picks up the HA toolkit *and* the targeting skill *and* the behavioral instructions that explain how to call HA without thrashing on ambiguous entity names.
+…or activate the `homeassistant` integration on the channel so the bot picks up the HA toolkit there. Related skills still flow through the normal skill system.
 
 ---
 
@@ -92,7 +92,7 @@ display_label: "{{data.success | where: type=entity | pluck: name | first}}"
 
 This is the canonical pattern — it targets **the entity that actually changed**, not the area you asked about. If a bot calls `HassTurnOn(name="Living Room")` (an area), HA resolves it into concrete entities (the bulbs), and the widget labels the card with the first entity that succeeded.
 
-Use the same pattern in your own prompts, skills, and carapace instructions — "call HA with the human name; the widget will label itself."
+Use the same pattern in your own prompts and skills — "call HA with the human name; the widget will label itself."
 
 ---
 
@@ -155,9 +155,9 @@ See [Widget Templates → State polling](widget-templates.md#state-polling) for 
 
 ---
 
-## Carapace + skill
+## Tools + skill
 
-The `homeassistant` carapace (`integrations/homeassistant/carapaces/`) packages:
+The `homeassistant` integration packages:
 
 - The full MCP toolkit (via MCP server enrollment).
 - A **skill** teaching the bot:
@@ -166,13 +166,13 @@ The `homeassistant` carapace (`integrations/homeassistant/carapaces/`) packages:
   - The `where: type=entity | pluck: name | first` targeting pattern.
   - Canonical request patterns — "turn on the living room lights" → area-scoped `HassTurnOn`, not per-entity enumeration.
 
-Activating the carapace on a channel (Channel → Integrations tab → Activate) pulls all of this into the bot's context without per-bot config churn.
+Activating the integration on a channel (Channel → Integrations tab → Activate) exposes the tools there without per-bot config churn. The skill remains a normal skill.
 
 ---
 
 ## Comparison with `guides/mcp-servers.md`
 
-The [MCP Servers guide](mcp-servers.md) is the general walkthrough for any MCP server. This guide is specific to **the HA integration** — the widget packages, the carapace, the skill pack, the entity-targeting grammar. They're complementary:
+The [MCP Servers guide](mcp-servers.md) is the general walkthrough for any MCP server. This guide is specific to **the HA integration** — the widget packages, the skill pack, and the entity-targeting grammar. They're complementary:
 
 - New to MCP entirely? Start with `mcp-servers.md`, which has a Home Assistant worked example.
 - Already have MCP working and want to know what the HA integration adds on top? This is the right page.
@@ -186,7 +186,6 @@ The [MCP Servers guide](mcp-servers.md) is the general walkthrough for any MCP s
 | Integration YAML (widget templates) | `integrations/homeassistant/integration.yaml` |
 | Python transforms | `integrations/homeassistant/widget_transforms.py` |
 | Skill pack | `integrations/homeassistant/skills/` |
-| Carapace | `integrations/homeassistant/carapaces/` |
 | Official HA MCP docs | HA project — `Settings → Voice Assistants → Expose` |
 | Community `ha-mcp` | `github.com/...` (third-party, user-installed) |
 

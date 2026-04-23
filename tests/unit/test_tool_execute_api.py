@@ -369,7 +369,7 @@ async def test_execute_invalid_channel_uuid_400(auth_headers):
 
 
 @pytest.mark.asyncio
-async def test_bot_key_with_carapace_tools():
+async def test_bot_key_with_resolved_tools():
     """Bot-scoped key can access tools resolved into its allowed tool set."""
     auth = ApiKeyAuth(key_id=uuid4(), scopes=["tools:execute"], name="bot:test-bot")
     _scoped_auth_overrides(auth)

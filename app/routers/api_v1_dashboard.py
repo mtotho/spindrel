@@ -408,17 +408,26 @@ async def read_library_widget_content(
     return {"path": f"{meta['scope']}/{meta['name']}/index.html", "content": body}
 
 
-def _scanner_entry_to_library(entry: dict) -> dict:
+def _scanner_entry_to_library(
+    entry: dict,
+    *,
+    preferred_auth_model: str = "viewer",
+) -> dict:
     """Normalize an ``html_widget_scanner`` entry into ``WidgetLibraryEntry``
     shape so the Library endpoint can return a single union-typed list
     across scopes. The scanner carries a richer payload (``path``,
     ``integration_id``, ``is_loose``, ...); we keep those fields alongside
     the common ``name/scope/format/display_label/description/...`` ones.
     """
+    from app.services.widget_contracts import (
+        build_public_contract_fields_for_catalog_entry,
+        normalize_config_schema,
+    )
+
     source = entry.get("source") or "channel"
     # Map scanner source → library scope verbatim.
     scope = "integration" if source == "integration" else source
-    return {
+    normalized = {
         "name": entry.get("name") or entry.get("slug") or "",
         "scope": scope,
         "format": "html",
@@ -445,7 +454,15 @@ def _scanner_entry_to_library(entry: dict) -> dict:
         "actions": entry.get("actions") or [],
         "widget_ref": entry.get("widget_ref"),
         "supported_scopes": entry.get("supported_scopes") or [],
+        "config_schema": normalize_config_schema(entry.get("config_schema")),
     }
+    normalized.update(
+        build_public_contract_fields_for_catalog_entry(
+            normalized,
+            preferred_auth_model=preferred_auth_model,
+        )
+    )
+    return normalized
 
 
 @router.get(
@@ -505,6 +522,7 @@ async def list_library_widgets(
         scan_channel,
     )
     from app.services.native_app_widgets import list_native_widget_catalog_entries
+    from app.services.widget_contracts import build_public_contract_fields_for_catalog_entry
     from app.services.widget_paths import scope_root
     from app.tools.local.widget_library import (
         _iter_core_widgets,
@@ -528,8 +546,17 @@ async def list_library_widgets(
     # Core: widget://core/<name>. Filter out template-format entries —
     # those are tool renderers that need tool args to render and belong in
     # the dev panel, not a pinnable library.
+    preferred_auth_model = "source_bot" if bot_id else "viewer"
+
     core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
     core.extend(list_native_widget_catalog_entries())
+    for entry in core:
+        entry.update(
+            build_public_contract_fields_for_catalog_entry(
+                entry,
+                preferred_auth_model=preferred_auth_model,
+            )
+        )
 
     # Integration widgets — use the scanner (already filters tool renderers
     # referenced by integration.yaml's tool_widgets block). Flatten the
@@ -538,7 +565,12 @@ async def list_library_widgets(
     integration_entries: list[dict] = []
     for _integ_id, entries in scan_all_integrations():
         for e in entries:
-            integration_entries.append(_scanner_entry_to_library(e))
+            integration_entries.append(
+                _scanner_entry_to_library(
+                    e,
+                    preferred_auth_model=preferred_auth_model,
+                )
+            )
 
     bot_entries = _iter_scope_dir(
         scope_root("bot", ws_root=ws_root, shared_root=shared_root),
@@ -567,7 +599,10 @@ async def list_library_widgets(
             bot_for_channel = get_bot(str(row[0]))
             if bot_for_channel is not None:
                 for e in scan_channel(str(ch_uuid), bot_for_channel):
-                    normalized = _scanner_entry_to_library(e)
+                    normalized = _scanner_entry_to_library(
+                        e,
+                        preferred_auth_model=preferred_auth_model,
+                    )
                     normalized["scope"] = "channel"
                     normalized["channel_id"] = str(ch_uuid)
                     channel_entries.append(normalized)
@@ -613,6 +648,7 @@ async def list_library_widgets_all_bots(
     from app.services.html_widget_scanner import scan_all_integrations, scan_channel
     from app.services.native_app_widgets import list_native_widget_catalog_entries
     from app.services.shared_workspace import shared_workspace_service
+    from app.services.widget_contracts import build_public_contract_fields_for_catalog_entry
     from app.services.widget_paths import scope_root
     from app.services.workspace import workspace_service
     from app.tools.local.widget_library import (
@@ -622,11 +658,23 @@ async def list_library_widgets_all_bots(
 
     core = [w for w in _iter_core_widgets() if w.get("format") != "template"]
     core.extend(list_native_widget_catalog_entries())
+    for entry in core:
+        entry.update(
+            build_public_contract_fields_for_catalog_entry(
+                entry,
+                preferred_auth_model="source_bot",
+            )
+        )
 
     integration_entries: list[dict] = []
     for _integ_id, entries in scan_all_integrations():
         for e in entries:
-            integration_entries.append(_scanner_entry_to_library(e))
+            integration_entries.append(
+                _scanner_entry_to_library(
+                    e,
+                    preferred_auth_model="source_bot",
+                )
+            )
 
     bot_entries: list[dict] = []
     workspace_entries: list[dict] = []
@@ -679,7 +727,10 @@ async def list_library_widgets_all_bots(
             bot_for_channel = get_bot(str(row[0]))
             if bot_for_channel is not None:
                 for e in scan_channel(str(ch_uuid), bot_for_channel):
-                    normalized = _scanner_entry_to_library(e)
+                    normalized = _scanner_entry_to_library(
+                        e,
+                        preferred_auth_model="source_bot",
+                    )
                     normalized["scope"] = "channel"
                     normalized["channel_id"] = str(ch_uuid)
                     channel_entries.append(normalized)
@@ -1213,7 +1264,7 @@ async def preview_dashboard_widget_for_tool(
         if isinstance(parsed_result, dict)
         else {"result": parsed_result}
     )
-    return await preview_active_widget_for_tool(
+    preview = await preview_active_widget_for_tool(
         db,
         tool_name=body.tool_name,
         sample_payload=payload,
@@ -1221,6 +1272,7 @@ async def preview_dashboard_widget_for_tool(
         source_bot_id=body.source_bot_id,
         source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
     )
+    return preview.model_dump(mode="json")
 
 
 @router.get(
@@ -1348,6 +1400,8 @@ async def preview_dashboard_widget_preset(
     return {
         "ok": preview.ok,
         "envelope": preview_envelope_to_dict(preview.envelope),
+        "widget_contract": preview.widget_contract,
+        "config_schema": preview.config_schema,
         "errors": [err.model_dump(mode="json") for err in preview.errors],
         "config": resolved_config,
     }
@@ -1383,11 +1437,16 @@ async def pin_dashboard_widget_preset(
     if not isinstance(tool_name, str) or not tool_name.strip():
         raise HTTPException(400, f"Preset '{preset_id}' missing tool_name")
 
+    envelope = preview_envelope_to_dict(preview.envelope)
+    if isinstance(envelope, dict):
+        envelope["source_instantiation_kind"] = "preset"
+        envelope["source_preset_id"] = preset_id
+
     pin = await create_pin(
         db,
         source_kind="adhoc",
         tool_name=tool_name,
-        envelope=preview_envelope_to_dict(preview.envelope),
+        envelope=envelope,
         source_channel_id=body.source_channel_id,
         source_bot_id=body.source_bot_id,
         tool_args=tool_args,

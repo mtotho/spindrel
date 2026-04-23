@@ -11,6 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import WidgetTemplatePackage
+from app.services.widget_contracts import (
+    build_tool_widget_contract,
+    normalize_config_schema,
+)
 from app.services.widget_package_loader import (
     discard_preview_module,
     load_preview_module,
@@ -43,6 +47,8 @@ class PreviewEnvelope(BaseModel):
 class PreviewOut(BaseModel):
     ok: bool
     envelope: PreviewEnvelope | None = None
+    widget_contract: dict[str, Any] | None = None
+    config_schema: dict[str, Any] | None = None
     errors: list[ValidationIssueOut] = []
 
 
@@ -185,10 +191,16 @@ async def preview_active_widget_for_tool(
                     else None
                 ),
                 "default_config": entry.get("default_config"),
+                "config_schema": entry.get("config_schema"),
                 "transform": entry.get("transform"),
                 "state_poll": entry.get("state_poll"),
             }
 
+        config_schema = normalize_config_schema(widget_def.get("config_schema"))
+        widget_contract = build_tool_widget_contract(
+            widget_def=widget_def,
+            instantiation_kind="direct_tool_call",
+        )
         envelope = render_preview_envelope(
             widget_def,
             tool_name=tool_name,
@@ -206,4 +218,9 @@ async def preview_active_widget_for_tool(
     finally:
         discard_preview_module(preview_mod_name)
 
-    return PreviewOut(ok=True, envelope=envelope)
+    return PreviewOut(
+        ok=True,
+        envelope=envelope,
+        widget_contract=widget_contract,
+        config_schema=config_schema,
+    )

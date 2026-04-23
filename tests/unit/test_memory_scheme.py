@@ -435,7 +435,7 @@ class TestBasePromptContent:
         """Verify key platform concepts are mentioned in the base prompt."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
-        # Capabilities/carapace + workflows removed pre-main-release (2026-04-21);
+        # Legacy bundle/workflow model removed pre-main-release (2026-04-21);
         # replaced by task pipelines and sub-sessions as first-class concepts.
         for concept in ["integration", "pipeline", "sub-session", "orchestrator"]:
             assert concept.lower() in DEFAULT_GLOBAL_BASE_PROMPT.lower(), (

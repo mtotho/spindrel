@@ -10,7 +10,7 @@ Behaviors exercised:
 - require_approval: tier prefix injected into approval_reason
 - require_approval: result_for_llm is pending_approval JSON
 - require_approval: tool_type (local/mcp) forwarded to _create_approval_record
-- Capability activation approval (CAPABILITY_APPROVAL=required)
+- Legacy activation approval edge cases
 - MCP bare-name resolution (resolve_mcp_tool_name fallback)
 """
 from __future__ import annotations

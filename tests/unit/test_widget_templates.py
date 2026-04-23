@@ -126,6 +126,21 @@ class TestApplyWidgetTemplate:
         body = json.loads(env.body)
         assert body["v"] == 1
         assert body["components"][0]["text"] == "action_done"
+        assert env.byte_size == len(env.body.encode("utf-8"))
+
+    def test_html_template_sets_byte_size(self):
+        _widget_templates["TestTool"] = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "display": "inline",
+            "html_template_body": "<div>hello</div>",
+            "source": "test",
+        }
+
+        env = apply_widget_template("TestTool", json.dumps({"message": "ok"}))
+        assert env is not None
+        assert env.content_type == "application/vnd.spindrel.html+interactive"
+        assert env.byte_size == len(env.body.encode("utf-8"))
+        assert env.byte_size > len(b"<div>hello</div>")
 
     def test_server_prefixed_name(self):
         """MCP tools are often named 'server-ToolName' — template lookup strips the prefix."""
@@ -370,6 +385,7 @@ class TestApplyStatePoll:
         assert env.display_label == "Lambertville, NJ, US"
         assert env.refresh_interval_seconds == 3600
         assert env.refreshable is True
+        assert env.byte_size == len(env.body.encode("utf-8"))
 
     def test_returns_none_when_no_state_poll(self):
         _widget_templates["TestTool"] = {

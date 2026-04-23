@@ -18,7 +18,7 @@ services:
       # MCP servers are managed via Admin UI.
       # Uncomment to seed from mcp.yaml on first boot (file must exist on host):
       # - ./mcp.yaml:/app/mcp.yaml:ro
-      - ${HOME_HOST_DIR:-./_no_home}:/app/home:ro           # Spindrel home dir (integrations, carapaces)
+      - ${HOME_HOST_DIR:-./_no_home}:/app/home:ro           # Spindrel home dir (integrations, external assets)
       - /var/run/docker.sock:/var/run/docker.sock        # integration sidecar containers
       - ${WORKSPACE_HOST_DIR:-~/.spindrel-workspaces}:/workspace-data  # workspace files
       - fastembed-cache:/app/.fastembed-cache  # local embedding model cache

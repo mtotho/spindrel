@@ -480,11 +480,12 @@ export function buildPersistedToolEntries(toolNames, toolCalls, toolResults) {
 function isPersistedToolCall(toolCall) {
     return "arguments" in toolCall || "function" in toolCall;
 }
-function resolveOrderedTool(toolCall, result, index) {
+function resolveOrderedTool(toolCall, result, index, renderMode) {
     if (isPersistedToolCall(toolCall)) {
         const normalized = normalizeToolCall(toolCall);
         const surface = toolCall.surface ?? inferEnvelopeSurface(result);
-        if (surface === "widget" && result) {
+        const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
+        if (richSurface === "widget" && result) {
             return {
                 key: `widget:${index}:${result.record_id ?? normalized.name ?? "widget"}`,
                 widget: {
@@ -494,7 +495,7 @@ function resolveOrderedTool(toolCall, result, index) {
                 },
             };
         }
-        if (surface === "rich_result" && result) {
+        if (richSurface === "rich_result" && result) {
             return {
                 kind: "rich_result",
                 key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
@@ -508,7 +509,8 @@ function resolveOrderedTool(toolCall, result, index) {
     }
     const envelope = result ?? toolCall.envelope;
     const surface = toolCall.surface ?? inferEnvelopeSurface(envelope);
-    if (surface === "widget" && envelope) {
+    const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
+    if (richSurface === "widget" && envelope) {
         return {
             key: `widget:${index}:${envelope.record_id ?? toolCall.name ?? "widget"}`,
             widget: {
@@ -518,7 +520,7 @@ function resolveOrderedTool(toolCall, result, index) {
             },
         };
     }
-    if (surface === "rich_result" && envelope) {
+    if (richSurface === "rich_result" && envelope) {
         return {
             kind: "rich_result",
             key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
@@ -587,7 +589,7 @@ function materializeAssistantTurnBodyItems({ assistantTurnBody, orderedTools, ro
     }
     return items;
 }
-export function buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls, toolResults, rootEnvelope, missingToolBehavior = "placeholder", }) {
+export function buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls, toolResults, rootEnvelope, renderMode = "default", missingToolBehavior = "placeholder", }) {
     const toolResultById = new Map();
     const legacyToolResults = [];
     for (const toolResult of toolResults ?? []) {
@@ -606,7 +608,7 @@ export function buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls, tool
         if (!toolResultById.get(toolId) && legacyToolResultIndex < legacyToolResults.length) {
             legacyToolResultIndex += 1;
         }
-        orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResult, index));
+        orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResult, index, renderMode));
     }
     return materializeAssistantTurnBodyItems({
         assistantTurnBody,

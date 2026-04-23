@@ -229,6 +229,29 @@ def _validate_parsed_definition(
                         "state_poll.refresh_interval_seconds must be a positive integer",
                     ))
 
+    config_schema = parsed.get("config_schema")
+    if config_schema is not None:
+        if not isinstance(config_schema, dict):
+            errors.append(ValidationIssue("schema", "config_schema must be a mapping"))
+        else:
+            schema_type = config_schema.get("type")
+            if schema_type is not None and schema_type != "object":
+                errors.append(ValidationIssue("schema", "config_schema.type must be 'object'"))
+            props = config_schema.get("properties")
+            if props is not None and not isinstance(props, dict):
+                errors.append(ValidationIssue("schema", "config_schema.properties must be a mapping"))
+            required = config_schema.get("required")
+            if required is not None:
+                if not isinstance(required, list):
+                    errors.append(ValidationIssue("schema", "config_schema.required must be a list"))
+                else:
+                    for i, item in enumerate(required):
+                        if not isinstance(item, str) or not item.strip():
+                            errors.append(ValidationIssue(
+                                "schema",
+                                f"config_schema.required[{i}] must be a non-empty string",
+                            ))
+
     return errors, warnings
 
 

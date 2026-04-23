@@ -313,10 +313,6 @@ export function canonicalizePaletteHref(href) {
         return composeHref("/settings/account", search, hash);
     if (pathname === "/channels")
         return composeHref("/", search, hash);
-    if (pathname === "/admin/carapaces")
-        return composeHref("/admin/skills", search, hash);
-    if (pathname.startsWith("/admin/carapaces/"))
-        return composeHref("/admin/skills", search, hash);
     if (pathname === "/admin/widget-packages")
         return "/widgets/dev#library";
     if (pathname.startsWith("/admin/widget-packages/")) {

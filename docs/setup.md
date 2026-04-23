@@ -353,7 +353,7 @@ Integrations are discovered from `integrations/*/` directories. Each can provide
 - **Process** — background service (e.g., Slack bot, MQTT listener)
 - **Tools** — bot-callable functions
 - **Skills** — knowledge documents
-- **Capabilities** — composable expertise bundles
+- **Skills** — reusable markdown knowledge, including foldered skill packs
 - **Templates** — workspace schema templates
 
 ### Enabling an Integration
@@ -419,16 +419,13 @@ TOOL_DIRS=/path/to/more/tools
 
 ### Personal Extensions Repo
 
-Keep your own tools, capabilities, and skills in a separate repo and load everything via `INTEGRATION_DIRS`. Structure your repo with a subdirectory that contains `tools/`, `carapaces/`, and/or `skills/`:
+Keep your own tools and skills in a separate repo and load everything via `INTEGRATION_DIRS`. Structure your repo with a subdirectory that contains `tools/` and/or `skills/`:
 
 ```
 my-extensions/              # your repo
 └── personal/               # becomes a discoverable extension
     ├── tools/
     │   └── weather.py      # auto-discovered tool
-    ├── carapaces/
-    │   └── baking/
-    │       └── carapace.yaml
     └── skills/
         └── my-skill.md
 ```
@@ -440,7 +437,7 @@ INTEGRATION_DIRS=/path/to/my-extensions
 
 Colon-separated for multiple directories (e.g. `/path/one:/path/two`). Tilde (`~`) is expanded to your home directory. This also makes `TOOL_DIRS` unnecessary — tools inside any `INTEGRATION_DIRS` subdirectory are auto-discovered.
 
-No `setup.py` or boilerplate needed — the server auto-discovers tools, capabilities, and skills from any subdirectory.
+No `setup.py` or boilerplate needed — the server auto-discovers tools and skills from any subdirectory.
 
 For Docker, mount the directory into the container:
 
@@ -475,7 +472,6 @@ agent-server/
 ├── bots/                   # Bot YAML configs (gitignored, user-created)
 ├── skills/                 # Skill markdown files (gitignored, user-created)
 ├── tools/                  # Custom tool scripts (gitignored, user-created)
-├── carapaces/              # Capability YAML definitions (composable expertise bundles)
 ├── integrations/           # Integration packages
 │   ├── slack/             # Slack integration
 │   ├── github/            # GitHub webhooks

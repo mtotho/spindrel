@@ -358,6 +358,11 @@ class TestLibraryWidgetsEndpoint:
         (bundle / "widget.yaml").write_text(
             "name: Dog Dashboard\n"
             "description: Track the dog\n"
+            "config_schema:\n"
+            "  type: object\n"
+            "  properties:\n"
+            "    entity_id:\n"
+            "      type: string\n"
         )
         monkeypatch.setattr(
             _ws.workspace_service,
@@ -378,6 +383,9 @@ class TestLibraryWidgetsEndpoint:
         assert dog["scope"] == "bot"
         assert dog["format"] == "html"
         assert dog["display_label"] == "Dog Dashboard"
+        assert dog["config_schema"]["properties"]["entity_id"]["type"] == "string"
+        assert dog["widget_contract"]["definition_kind"] == "html_widget"
+        assert dog["widget_contract"]["auth_model"] == "source_bot"
 
     @pytest.mark.asyncio
     async def test_library_entries_include_panel_title_metadata(

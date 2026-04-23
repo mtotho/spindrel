@@ -16,7 +16,7 @@ description: >
 | External service wiring, hooks, router, workflows, settings | Integration | Full package for service-specific behavior |
 
 There is no separate capability layer. Group related tools and skills by folder structure
-and activation metadata, not by a parallel `carapaces/` system.
+and activation metadata rather than a parallel bundle system.
 
 ## Scaffold -> edit -> reload
 

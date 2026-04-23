@@ -88,10 +88,8 @@ integrations/
     ├── tools/
     │   ├── __init__.py
     │   └── my_tool.py   # agent tools — auto-discovered by the loader
-    ├── skills/
-    │   └── mygithub.md  # skill documents — synced at startup
-    └── carapaces/
-        └── mygithub.yaml # capability definitions
+    └── skills/
+        └── mygithub.md  # skill documents — synced at startup
 ```
 
 ### What each file does
@@ -106,7 +104,6 @@ integrations/
 | `config.py` | No (imported by your code) | Integration-specific settings with DB-backed `get_value()` accessors |
 | `tools/*.py` | Yes — auto-discovered | Agent tools (underscore-prefixed files skipped) |
 | `skills/*.md` | Yes — synced at startup | Skill documents ingested into the skill system |
-| `carapaces/*.yaml` | Yes — synced at startup | Capability definitions that can be activated on bots |
 | `setup.py` | *(legacy, deprecated)* | Old metadata format — use `integration.yaml` instead |
 
 ---
@@ -223,7 +220,7 @@ binding:
   client_id_description: "GitHub owner/repo"
 
 activation:
-  carapaces: [mygithub]
+  tools: [github_get_issue, github_create_comment]
   description: "GitHub repository management"
 ```
 
@@ -765,7 +762,7 @@ capabilities:
 
 # Activation — what gets activated when this integration is enabled on a bot
 activation:
-  carapaces: [mygithub]         # capability definitions to activate
+  tools: [github_get_issue]     # tool names exposed by activation
   requires_workspace: false
   description: "GitHub repository management"
 
@@ -777,7 +774,6 @@ provides:
   - hooks
   - tools
   - skills
-  - carapaces
 
 # Process — background process declaration (alternative to process.py)
 process:

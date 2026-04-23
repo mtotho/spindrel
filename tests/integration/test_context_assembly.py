@@ -818,7 +818,7 @@ class TestMessageOrdering:
 
     @pytest.mark.asyncio
     async def test_datetime_injected_late_for_cache_efficiency(self, engine):
-        """Datetime must come AFTER stable context (carapace fragments, pinned knowledge,
+        """Datetime must come AFTER stable context (core injected context, pinned knowledge,
         delegation index, etc.) to avoid busting the prompt cache prefix. The timestamp
         changes every request, so placing it early invalidates caching for all subsequent
         system messages."""

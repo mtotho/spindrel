@@ -1,5 +1,7 @@
 # Developer Panel
 
+For the canonical overview of the widget system itself, read [Widget System](widget-system.md) first. This guide focuses on the `/widgets/dev` workbench and how to inspect, preview, and author against the existing widget lanes.
+
 The developer panel at `/widgets/dev` is the hands-on workbench for everything tool-related: browse the tool catalog, edit widget templates with live preview, call any tool with arbitrary args and see its rendered widget, and inspect recent tool results to reverse-engineer a tool's output shape before writing a template.
 
 Think of it as Postman for Spindrel tools plus a widget authoring IDE, with one bonus trick: every rendered widget dispatches real actions against a real bot context — so the preview is exactly what users see, not a mock.

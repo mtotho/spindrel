@@ -1,6 +1,6 @@
 """Unit tests for workspace template behavior.
 
-Templates are optional — no fallback injection. Integration carapaces
+Templates are optional — no fallback injection. Integration activation
 teach file organization directly via their system_prompt_fragment.
 """
 import importlib

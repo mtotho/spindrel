@@ -83,31 +83,30 @@ A capability adds:
 
 Spindrel ships capabilities designed for popular MCP servers:
 
-| Capability | MCP Server | What it adds |
+| Skill / Tool Pattern | MCP Server | What it adds |
 |----------|-----------|--------------|
-| `home-assistant` | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) | Preference learning, routine tracking, device inventory, automation management, daily health checks |
+| Home Assistant skill + activated tools | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) | Preference learning, routine tracking, device inventory, automation management, daily health checks |
 
-These live in `integrations/mission_control/carapaces/` and are Mission Control compatible (task boards, timelines).
+These live as ordinary integration tools plus normal skills and are Mission Control compatible (task boards, timelines).
 
-### Using a shipped capability
+### Using shipped tools + skills
 
 ```yaml
 # bots/assistant.yaml
 mcp_servers: [homeassistant]       # your HA MCP server name
-carapaces: [home-assistant]         # shipped capability (`carapaces` is the config key for capabilities)
 ```
 
-The capability doesn't care what you named your MCP server — it references tool names (like `ha_call_service`) which are stable across all ha-mcp installations.
+Then activate the Home Assistant integration on the channel, or make its tools available on the bot. The shipped skills do not care what you named your MCP server — they reference stable tool names.
 
-### Building your own capability for an MCP server
+### Building your own skill/tool layer for an MCP server
 
 If you connect a new MCP server and want to add an intelligence layer:
 
-1. Create a capability YAML (in your extensions dir or `carapaces/`)
-2. Write a skill with domain knowledge
+1. Write one or more skills with domain knowledge
+2. Expose or enroll the relevant tools
 3. Optionally create a workspace schema template
 
-See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the `home-assistant` capability as a reference: `integrations/homeassistant/carapaces/home-assistant.yaml`.
+See the [Custom Tools & Extensions](custom-tools.md) guide for the full walkthrough, or use the Home Assistant integration as a reference.
 
 ## Worked Example: Home Assistant
 
@@ -196,7 +195,6 @@ name: Assistant
 model: gemini/gemini-2.5-flash
 
 mcp_servers: [homeassistant]
-carapaces: [home-assistant]
 
 workspace:
   enabled: true
@@ -205,7 +203,7 @@ memory_scheme: workspace-files
 history_mode: file
 ```
 
-The `home-assistant` capability gives the bot:
+The Home Assistant integration plus its related skills give the bot:
 
 - **Preference learning** — remembers your lighting, temperature, and comfort preferences per room and time of day
 - **Routine management** — named routines (Morning, Movie Night, Good Night) with exact service calls
@@ -278,7 +276,6 @@ Bots can connect to multiple MCP servers simultaneously:
 
 ```yaml
 mcp_servers: [homeassistant, postgres, github-mcp]
-carapaces: [home-assistant, ...]
 ```
 
 Each server's tools are indexed independently and retrieved based on relevance.

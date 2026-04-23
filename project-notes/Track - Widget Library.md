@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-22 (native widget refresh persistence repair; migration chain repair)
+updated: 2026-04-22 (canonical widget-system doc + contract inspector pass)
 ---
 
 # Track — Widget Library
@@ -226,6 +226,8 @@ Phase 18 shipped 2026-04-21 — the unified widget interface now covers a third 
 - Added a regression test at `tests/unit/test_migration_revision_chain.py` that both resolves `head` and asserts every revision ID fits Alembic's default 32-character version column, so future broken revision metadata fails fast in CI.
 - **Shared placement/catalog semantics kept intact** — `widget_library_list`, `/api/v1/widgets/library-widgets*`, `pin_widget`, dashboard pin serialization, and `describe_dashboard` now surface native widget metadata/action availability without changing the existing HTML/template mental model.
 - **Docs/skills updated** — `skills/widgets/index.md` and `skills/widgets/bot-callable-handlers.md` now teach the three-lane model (`template` / `html` / `native_app`), the unified bot tool, and the rule that bots must inspect declared action schemas before calling actions.
+- **Library/pin UI now exposes the runtime contract explicitly** — the shared library preview gained a `Contract` tab and the dashboard pin editor gained a `Pin contract` section covering runtime kind, authoring lane, auth actor, state authority, refresh model, theme path, and declared actions. This surfaces the same distinctions the API was already carrying (`widget_kind`, `actions`, `theme_support`, pin `available_actions`) instead of forcing humans to infer them from bundle source/manifests.
+- **Canonical public terminology is now normalized around product terms** — repo docs now point to `docs/guides/widget-system.md` as the single deep explanation, using `Preset`, `Tool renderer`, `HTML widget`, and `Native widget` as the user-facing taxonomy while keeping `native_app` internal/API-only.
 
 Verification:
 

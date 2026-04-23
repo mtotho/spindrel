@@ -28,18 +28,17 @@ For the exact runtime admission/replay policy, treat [Context Management](../gui
 
 1. **Current time injection** (timezone-aware)
 2. **Context pruning** (trim stale tool results from old turns)
-3. **Channel-level overrides** (tool/skill disabled lists, model overrides)
-4. **Capability resolution** (merge skills + tools + system prompt fragments from capabilities)
-5. **Integration activation injection** (auto-inject capabilities from activated integrations)
-6. **Memory scheme setup** (MEMORY.md, daily logs, reference index)
-7. **Channel workspace files** (inject active `.md` files + schema)
-8. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
-9. **Skills injection** (per-bot working set + on-demand `get_skill` tool)
-10. **Conversation history** (sections index + `read_conversation_history` tool)
-11. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
-12. **Tool retrieval** (cosine similarity matching against tool schema embeddings)
-13. **Channel prompt + system preamble**
-14. **User message** (text or native audio)
+3. **Channel-level overrides** (tool availability, enrolled skills, model overrides)
+4. **Integration activation injection** (channel-activated integrations contribute declared tools)
+5. **Memory scheme setup** (MEMORY.md, daily logs, reference index)
+6. **Channel workspace files** (inject active `.md` files + schema)
+7. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
+8. **Skills injection** (per-bot working set + on-demand `get_skill` tool)
+9. **Conversation history** (sections index + `read_conversation_history` tool)
+10. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
+11. **Tool retrieval** (cosine similarity matching against tool schema embeddings)
+12. **Channel prompt + system preamble**
+13. **User message** (text or native audio)
 
 ### Tool Dispatch (`app/agent/tool_dispatch.py`)
 
@@ -53,35 +52,36 @@ Routes tool calls to the correct executor:
 
 Retry/backoff, fallback model support, and the LLM-call plumbing that consumes the context assembled upstream. Context-management policy itself is documented canonically in [Context Management](../guides/context-management.md).
 
-## Capabilities
+## Skills + Tool Enrollment
 
-Composable expertise bundles that give bots instant capabilities in specific domains. A capability bundles:
+Spindrel now relies on the existing skill and tool systems directly rather than a separate
+capability layer.
 
-- **Tools** — function schemas added to the LLM's tool list
-- **Skills** — knowledge documents injected into context (pinned, RAG, or on-demand)
-- **System prompt fragment** — behavioral instructions always injected into the system prompt
+- **Skills** are markdown documents loaded from `skills/`, `bots/*/skills/`, and integration skill folders.
+- **Tools** are registered call surfaces from local tools, integrations, MCP servers, and client tools.
+- **Enrollment** controls which skills are persistently available to a bot or channel.
 
-Capabilities compose via `includes` — a capability can reference others, resolved depth-first with cycle detection (max 5 levels). Source types: `file` (YAML, read-only), `manual` (API/UI), `integration`, `tool`.
-
-**Fragment-as-index pattern:** The system prompt fragment acts as an index to on-demand skills. It must contain concrete trigger phrases ("when the user asks to X, fetch skill Y") — not just topic descriptions. Without clear triggers, the bot won't know when to load deeper skills.
-
-Core logic: `app/agent/carapaces.py`. Bot config: `carapaces: [qa, code-review]` (*`carapaces` is the config key for capabilities*). Channel overrides: `carapaces_extra` (add) and `carapaces_disabled` (remove) (*channel-level capability overrides*).
+Foldered skills are still just skills. A folder such as `skills/shared/orchestrator/` can
+provide a root skill (`index.md`) plus child skills addressable by path ID.
 
 ## Integration Activation
 
-Integrations can declare an **activation manifest** in their `setup.py` that specifies which capabilities to inject when the integration is activated on a channel.
+Integrations can declare an **activation manifest** in their `setup.py` that specifies which tools to expose when the integration is activated on a channel.
 
 ```python
 # integrations/mission_control/setup.py
 "activation": {
-    "carapaces": ["mission-control"],
+    "tools": ["create_task_card", "move_task_card"],
     "requires_workspace": True,
 }
 ```
 
-During context assembly, the system checks each channel's active integrations and auto-injects their declared capabilities. This gives the bot integration-specific tools and skills without any manual bot configuration.
+During context assembly, the system checks each channel's active integrations and makes their
+declared tools available on that channel. Integration-shipped skills remain normal skills and
+can be enrolled or fetched through the regular skill system.
 
-**Workspace file organization:** Integration capabilities teach file organization directly via their `system_prompt_fragment`. Templates are optional — available in advanced settings for power users who want a specific structure.
+**Workspace file organization:** integration guidance should live in normal skills and prompt
+templates. Templates are optional and remain available for more structured workspace layouts.
 
 ## Channel Workspaces
 
@@ -117,7 +117,6 @@ separate workflow system. Pipelines support `exec`, `tool`, `agent`, `user_promp
 |-------|--------|-------|
 | Environment | `.env` → `app/config.py` | Runtime config |
 | Bot Config | `bots/*.yaml` → DB (seed-once) | Per-bot behavior |
-| Capabilities | `carapaces/*.yaml` + `integrations/*/carapaces/` | Composable expertise |
 | Skills | `skills/*.md` → DB (re-embed on change) | Knowledge injection |
 | Tasks / Pipelines | DB `tasks` rows + `app/data/system_pipelines/` | Multi-step automations, scheduled runs, pipeline definitions |
 | MCP Servers | Admin UI (or `mcp.yaml` seed) → DB | Tool endpoints |
@@ -131,7 +130,6 @@ PostgreSQL with pgvector for embedding storage. Key tables:
 - `channel_integrations` — per-channel integration bindings with `activated` flag
 - `sessions` / `messages` — conversation history
 - `bots` — bot configuration (seeded from YAML)
-- `carapaces` — composable expertise bundles (*`carapaces` is the DB table name for capabilities*)
 - `prompt_templates` — workspace schema templates
 - `tasks` — scheduled work, deferred work, and pipeline definitions/runs
 - `channel_heartbeats` / `heartbeat_runs` — periodic automated prompts

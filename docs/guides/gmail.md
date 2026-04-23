@@ -213,15 +213,12 @@ query_feed_store(action="quarantine", store="gmail")
 query_feed_store(action="sources")
 ```
 
-## Capability Composition
+## Tool + Skill Composition
 
-The `gmail-feeds` capability includes `mission-control`, so bots get both Gmail tools and MC tools (kanban, timeline, plans):
-
-```yaml
-# In your bot YAML:
-carapaces:
-  - gmail-feeds    # Includes: gmail tools + MC tools + all skills
-```
+The Gmail integration can expose its tools directly on an activated channel, while related
+skills are enrolled or fetched through the normal skill system. If you want both Gmail and
+Mission Control behaviors in the same context, activate the Gmail integration and make sure
+the relevant Mission Control tools and skills are also available on that bot/channel.
 
 ## API Endpoints
 

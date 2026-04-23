@@ -77,6 +77,7 @@ export type OrderedLiveToolCall = {
 };
 
 type CanonicalToolCall = OrderedLiveToolCall | ToolCall;
+export type TranscriptRenderMode = "default" | "terminal";
 
 export type DetailRow = {
   text: string;
@@ -602,12 +603,14 @@ function resolveOrderedTool(
   toolCall: CanonicalToolCall,
   result: ToolResultEnvelope | undefined,
   index: number,
+  renderMode: TranscriptRenderMode,
 ): OrderedToolResolution {
   if (isPersistedToolCall(toolCall)) {
     const normalized = normalizeToolCall(toolCall);
     const surface = toolCall.surface ?? inferEnvelopeSurface(result);
+    const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
 
-    if (surface === "widget" && result) {
+    if (richSurface === "widget" && result) {
       return {
         key: `widget:${index}:${result.record_id ?? normalized.name ?? "widget"}`,
         widget: {
@@ -618,7 +621,7 @@ function resolveOrderedTool(
       };
     }
 
-    if (surface === "rich_result" && result) {
+    if (richSurface === "rich_result" && result) {
       return {
         kind: "rich_result",
         key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
@@ -634,8 +637,9 @@ function resolveOrderedTool(
 
   const envelope = result ?? toolCall.envelope;
   const surface = toolCall.surface ?? inferEnvelopeSurface(envelope);
+  const richSurface = renderMode === "terminal" && surface === "widget" ? "rich_result" : surface;
 
-  if (surface === "widget" && envelope) {
+  if (richSurface === "widget" && envelope) {
     return {
       key: `widget:${index}:${envelope.record_id ?? toolCall.name ?? "widget"}`,
       widget: {
@@ -646,7 +650,7 @@ function resolveOrderedTool(
     };
   }
 
-  if (surface === "rich_result" && envelope) {
+  if (richSurface === "rich_result" && envelope) {
     return {
       kind: "rich_result",
       key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
@@ -739,12 +743,14 @@ export function buildAssistantTurnBodyItems({
   toolCalls,
   toolResults,
   rootEnvelope,
+  renderMode = "default",
   missingToolBehavior = "placeholder",
 }: {
   assistantTurnBody: AssistantTurnBody;
   toolCalls: CanonicalToolCall[];
   toolResults?: (ToolResultEnvelope | undefined)[];
   rootEnvelope?: ToolResultEnvelope;
+  renderMode?: TranscriptRenderMode;
   missingToolBehavior?: "throw" | "placeholder";
 }): OrderedTurnBodyItem[] {
   const toolResultById = new Map<string, ToolResultEnvelope>();
@@ -766,7 +772,7 @@ export function buildAssistantTurnBodyItems({
     if (!toolResultById.get(toolId) && legacyToolResultIndex < legacyToolResults.length) {
       legacyToolResultIndex += 1;
     }
-    orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResult, index));
+    orderedTools.set(toolId, resolveOrderedTool(toolCall, toolResult, index, renderMode));
   }
   return materializeAssistantTurnBodyItems({
     assistantTurnBody,

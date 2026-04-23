@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.services.integration_manifests import get_all_manifests
+from app.services.widget_contracts import build_public_fields_for_tool_widget
 from app.services.widget_preview import PreviewEnvelope, preview_active_widget_for_tool
 from app.services.widget_templates import _substitute
 
@@ -43,6 +44,10 @@ def get_widget_preset(preset_id: str) -> dict[str, Any]:
 
 
 def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
+    public_fields = build_public_fields_for_tool_widget(
+        str(preset.get("tool_name") or ""),
+        instantiation_kind="preset",
+    )
     return {
         "id": preset["id"],
         "integration_id": preset.get("integration_id"),
@@ -53,6 +58,8 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
         "binding_schema": copy.deepcopy(preset.get("binding_schema") or {}),
         "binding_sources": copy.deepcopy(preset.get("binding_sources") or {}),
         "default_config": copy.deepcopy(preset.get("default_config") or {}),
+        "config_schema": public_fields.get("config_schema"),
+        "widget_contract": public_fields.get("widget_contract"),
     }
 
 

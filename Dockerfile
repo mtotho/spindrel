@@ -53,7 +53,6 @@ COPY spindrel/ spindrel/
 COPY integrations/ integrations/
 COPY packages/ packages/
 COPY prompts/ prompts/
-COPY carapaces/ carapaces/
 COPY docs/ docs/
 COPY alembic.ini .
 COPY migrations/ migrations/

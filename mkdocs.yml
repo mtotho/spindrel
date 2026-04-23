@@ -53,6 +53,7 @@ nav:
     - MCP Servers: guides/mcp-servers.md
     - Tool Policies: guides/tool-policies.md
     - Command Execution: guides/command-execution.md
+    - Widget System: guides/widget-system.md
     - Widget Dashboards: guides/widget-dashboards.md
     - HTML Widgets: guides/html-widgets.md
     - Widget Templates: widget-templates.md

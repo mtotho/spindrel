@@ -13,8 +13,8 @@ export function LibraryTab({ originChannelId }: { originChannelId?: string | nul
           <p className="mt-1 text-[12px] text-text-muted">
             Every widget bundle in the system. <span className="font-medium text-text">Pinnable</span> widgets
             (core, integrations, bot libraries, workspace library, channel workspaces) sit under the first tab —
-            click any row to preview the live render, source HTML, or manifest inline. <span className="font-medium text-text">Tool renderers</span>
-            {" "}live under the second tab — they shape a specific tool's output and render automatically when that tool is called.
+            click any row to preview the live render, contract, source HTML, or manifest inline. <span className="font-medium text-text">Tool renderers</span>
+            {" "}live under the second tab — they shape a specific tool's output and are instantiated from tool calls or presets rather than pinned as standalone bundles.
           </p>
         </div>
       </div>

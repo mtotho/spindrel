@@ -46,6 +46,10 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { ToolRenderersPane } from "./ToolRenderersPane";
+import {
+  describeLibraryContract,
+  WidgetContractCard,
+} from "./WidgetContractCard";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 const NATIVE_APP_CT = "application/vnd.spindrel.native-app+json";
@@ -863,7 +867,7 @@ function LibraryRow({
   );
 }
 
-type PreviewTab = "live" | "source" | "manifest";
+type PreviewTab = "live" | "contract" | "source" | "manifest";
 
 function PreviewPanel({
   entry, pinBotId, resolutionBotId, allowPin, onPin, onClose,
@@ -886,6 +890,10 @@ function PreviewPanel({
   );
   const needsBot = entry.scope === "bot" || entry.scope === "workspace";
   const canPreview = !needsBot || !!effectiveBotId;
+  const contractFields = useMemo(
+    () => describeLibraryContract(entry, effectiveBotId),
+    [entry, effectiveBotId],
+  );
 
   const handlePin = async () => {
     if (!onPin) return;
@@ -907,6 +915,12 @@ function PreviewPanel({
           onClick={() => setTab("live")}
           icon={<Eye size={10} />}
           label="Live"
+        />
+        <PreviewTabButton
+          active={tab === "contract"}
+          onClick={() => setTab("contract")}
+          icon={<ScrollText size={10} />}
+          label="Contract"
         />
         <PreviewTabButton
           active={tab === "source"}
@@ -939,6 +953,9 @@ function PreviewPanel({
               </p>
             )}
           </div>
+        )}
+        {tab === "contract" && (
+          <WidgetContractCard fields={contractFields} />
         )}
         {tab === "source" && <SourceView entry={entry} botId={effectiveBotId} />}
         {tab === "manifest" && <ManifestView entry={entry} botId={effectiveBotId} />}

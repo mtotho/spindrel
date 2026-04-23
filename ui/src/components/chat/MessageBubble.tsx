@@ -290,9 +290,10 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             toolCalls: msgToolCalls ?? [],
             toolResults,
             rootEnvelope: richEnvelope,
+            renderMode: chatMode,
           })
         : [],
-    [assistantTurnBody, msgToolCalls, richEnvelope, toolResults],
+    [assistantTurnBody, chatMode, msgToolCalls, richEnvelope, toolResults],
   );
   const orderedWidgetItems = useMemo(
     () => orderedTurnBodyItems.filter((item): item is Extract<OrderedTurnBodyItem, { kind: "widget" }> => item.kind === "widget"),

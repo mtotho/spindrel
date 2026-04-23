@@ -85,8 +85,9 @@ export function ToolRenderersPane({
       <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
         <Wrench size={12} className="mt-0.5 shrink-0 text-accent/70" />
         <span>
-          Tool renderers shape the output of a specific tool. In this surface you can run the
-          tool with real arguments, preview the active renderer, and
+          Tool renderers are the template/native rendering lane for a specific tool result, not a
+          separate widget kind. In this surface you can run the tool with real arguments, preview
+          the active renderer, and
           {mode === "pin" ? " pin the configured instance to the dashboard." : " inspect the configured instance before pinning elsewhere."}
         </span>
       </div>

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-22 (command palette reachability + recent labeling overhaul)
+updated: 2026-04-22 (terminal widget parity + widget-envelope normalization)
 ---
 # Track — UI Polish
 
@@ -216,8 +216,16 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Persisted tool envelopes now have explicit ownership instead of positional pairing** — `ToolResultEnvelope` carries `tool_call_id`, tool dispatch/finalization stamp each envelope with its owning call id, `tool_presentation.normalize_persisted_tool_calls(...)` resolves by id first with legacy index fallback, and the chat transcript model mirrors that same rule so widget/rich-result ownership survives stream → persist → refetch without array-order hacks.
 - [x] **Final assistant collapse is now current-turn scoped instead of whole-history scavenging** — `_collapse_final_assistant_tool_turn(...)` only inspects assistant tool rows created during the active turn, orders the visible turn’s `tool_calls` from `assistant_turn_body.items[].toolCallId`, and stops leaking older assistant tool rows into the newest persisted message.
 - [x] **Chat message hover actions now expose raw grouped response JSON** — `getTurnMessages(...)` is the shared assistant-group boundary for both `Copy full response` text extraction and the new `Copy JSON` action, so copied JSON matches the exact grouped assistant bundle shown in the transcript instead of a separate ad hoc selection path.
+- [x] **Terminal chat now demotes widget-owned tool rows into terminal-friendly rich results instead of mounting iframe/widget chrome** — the shared `buildAssistantTurnBodyItems(...)` model now accepts the chat render mode, and terminal mode rewrites `surface="widget"` rows to `rich_result` while `RichToolResult` renders widget envelopes as generic JSON/plain terminal output instead of interactive cards/iframes.
+- [x] **Widget-template/state-poll envelopes now use a normalized builder instead of zero-default `ToolResultEnvelope(...)` calls** — `app/services/widget_templates.py` now routes both initial template renders and state-poll refresh renders through `_build_widget_template_envelope(...)`, which consistently serializes the body and populates `byte_size` for persisted/live widget envelopes.
 - [x] `cd /home/mtoth/personal/agent-server/ui && node_modules/.bin/tsc -p tsconfig.chat-tests.json` after explicit `tool_call_id` envelope ownership + `Copy JSON`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/src/components/chat/toolTranscriptModel.test.js .chat-test-dist/src/components/chat/renderArchitecture.test.js .chat-test-dist/app/(app)/channels/[channelId]/chatUtils.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node_modules/.bin/tsc -p tsconfig.chat-tests.json` after terminal widget demotion + terminal rich-result fallback
+- [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/components/chat/toolTranscriptModel.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && timeout 60s npx tsc --noEmit`
+- [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_widget_templates.py -q -k 'html_template_sets_byte_size or renders_template_and_carries_display_label'`
+- [x] `python -m py_compile /home/mtoth/personal/agent-server/app/services/widget_templates.py`
+- [ ] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_persisted_tool_call_presentation.py -q -k matches_tool_envelopes_by_tool_call_id_before_position` remained wrapper-limited again in this sandbox; rerun in a normal repo shell for the clean summary line.
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_loop_helpers.py -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 60s npx tsc --noEmit`
 - [ ] `cd /home/mtoth/personal/agent-server && timeout 30s pytest tests/unit/test_persisted_tool_call_presentation.py -q` remained wrapper-limited in this sandbox shell without surfacing a pytest summary line; rerun once in a normal repo shell to capture the clean pass/fail output for the new `tool_call_id` ownership regression.

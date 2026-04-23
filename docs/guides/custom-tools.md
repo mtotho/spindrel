@@ -142,7 +142,7 @@ Colon-separated, absolute or relative paths. Tilde (`~`) is expanded to your hom
 
 ## Personal Extensions Repo
 
-The recommended way to manage your own tools, capabilities, and skills: create a separate repo and point `INTEGRATION_DIRS` at it. Everything below is a complete, copy-paste-ready example.
+The recommended way to manage your own tools and skills is to create a separate repo and point `INTEGRATION_DIRS` at it. Everything below is a complete, copy-paste-ready example.
 
 ### 1. Create the directory structure
 
@@ -153,13 +153,9 @@ my-spindrel-extensions/
     ├── setup.py                 ← declares settings (shows up in Admin > Integrations)
     ├── tools/
     │   └── weather.py           ← auto-discovered tool
-    ├── carapaces/
-    │   └── home-assistant/
-    │       ├── carapace.yaml    ← expertise bundle
-    │       └── skills/
-    │           └── smart-home.md
     └── skills/
-        └── cooking-tips.md      ← standalone skill
+        ├── cooking-tips.md      ← standalone skill
+        └── smart-home.md        ← integration-shipped domain skill
 ```
 
 `INTEGRATION_DIRS` points to the **parent** directory (`my-spindrel-extensions/`). Each subdirectory inside it becomes a discoverable integration.
@@ -258,27 +254,14 @@ async def get_weather(city: str, units: str = "imperial") -> str:
     })
 ```
 
-**`my-tools/carapaces/home-assistant/carapace.yaml`** — A capability bundle that gives any bot smart-home knowledge.
-
-```yaml
-name: Home Assistant
-description: Smart home monitoring and control via Home Assistant
-system_prompt_fragment: |
-  You have expertise in smart home automation. When the user asks about
-  lights, thermostats, sensors, or home automation routines, follow the
-  Deep Knowledge table.
-
-  ### Deep Knowledge
-  | When you need... | Fetch this skill |
-  |---|---|
-  | Smart-home device control patterns, routines, troubleshooting | `get_skill('smart-home')` |
-```
-
-The carapace has no `skills:` field. Skills live in the catalog; bots fetch them via `get_skill('id')`, the first successful fetch auto-enrolls the skill into the bot's working set, and from there it's persistent. Point at skills from the system_prompt_fragment's Deep Knowledge table.
-
-**`my-tools/carapaces/home-assistant/skills/smart-home.md`** — The catalog skill the fragment points at.
+**`my-tools/skills/smart-home.md`** — A domain skill that gives any bot smart-home knowledge.
 
 ```markdown
+---
+name: Smart Home
+description: Smart-home device control patterns, routines, and troubleshooting.
+---
+
 # Smart Home Automation
 
 ## Common Tasks
@@ -304,7 +287,7 @@ The carapace has no `skills:` field. Skills live in the catalog; bots fetch them
 ```
 
 !!! tip "Shipped Home Assistant capability"
-    Spindrel ships a comprehensive `home-assistant` capability with preference learning, routine tracking, device inventory, and daily health checks. Use `carapaces: [home-assistant]` (*`carapaces` is the config key for capabilities*) in your bot YAML — no need to build your own. See the [MCP Servers guide](mcp-servers.md#worked-example-home-assistant) for the full walkthrough.
+    Spindrel ships Home Assistant tooling plus related skills already. Enable the Home Assistant integration on the channel and make sure the relevant tools or MCP servers are available before building your own version.
 
 **`my-tools/skills/cooking-tips.md`** — A standalone skill (not part of a capability).
 
@@ -332,7 +315,7 @@ Add one line to your `.env`:
 INTEGRATION_DIRS=/home/you/my-spindrel-extensions
 ```
 
-Restart the server. Your extension appears in **Admin > Integrations** as an **EXTERNAL** integration with tools and capabilities badges.
+Restart the server. Your extension appears in **Admin > Integrations** as an **EXTERNAL** integration with tools and skills.
 
 ### 4. Configure API keys
 
@@ -389,13 +372,6 @@ async def my_tool() -> str:
 
 ### 5. Use it
 
-Assign the capability to a bot:
-
-```yaml
-# bots/assistant.yaml
-carapaces: [home-assistant]
-```
-
 Pin the weather tool if you want it always available:
 
 ```yaml
@@ -441,13 +417,13 @@ The `SETUP` dict controls what appears in the Admin UI for your extension.
 
 **Other optional `SETUP` fields:** `icon`, `webhook`, `binding`, `sidebar_section`, `dashboard_modules`, `activation`. See [Creating Integrations](../integrations/index.md) for the full manifest reference.
 
-> **Tip:** Check **Admin > Integrations** to see your extension, **Admin > Capabilities** to see discovered capabilities and their IDs.
+> **Tip:** Check **Admin > Integrations** to see your extension and **Admin > Skills** to see discovered skills and folder groupings.
 
 ---
 
 ## Full Integration (Advanced)
 
-If your extension needs more than tools, capabilities, and settings — webhooks, background processes, dispatchers, or custom UI pages — create a full integration. See the [Creating Integrations](../integrations/index.md) guide.
+If your extension needs more than tools, skills, and settings — webhooks, background processes, dispatchers, or custom UI pages — create a full integration. See the [Creating Integrations](../integrations/index.md) guide.
 
 The short version: add any of these optional files to your extension directory:
 

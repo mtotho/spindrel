@@ -983,7 +983,7 @@ function AddWidgetSplitButton({
             <div className="flex-1 min-w-0">
               <div className="font-medium">Developer tools</div>
               <div className="text-[11px] text-text-dim">
-                Call tools, author templates, pin to this dashboard
+                Inspect library widgets, presets, and tool renderers for this dashboard
               </div>
             </div>
           </Link>

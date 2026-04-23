@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import WidgetDashboardPin, WidgetInstance
+from app.services.widget_contracts import build_native_widget_contract
 
 
 NATIVE_APP_CONTENT_TYPE = "application/vnd.spindrel.native-app+json"
@@ -50,6 +51,7 @@ class NativeWidgetSpec:
     icon: str | None = None
     supported_scopes: tuple[str, ...] = ("channel", "dashboard")
     default_config: dict[str, Any] = field(default_factory=dict)
+    config_schema: dict[str, Any] | None = None
     default_state: dict[str, Any] = field(default_factory=dict)
     actions: tuple[NativeWidgetActionSpec, ...] = ()
     panel_title: str | None = None
@@ -71,6 +73,16 @@ class NativeWidgetSpec:
             "widget_ref": self.widget_ref,
             "actions": [action.as_dict() for action in self.actions],
             "supported_scopes": list(self.supported_scopes),
+            "config_schema": copy.deepcopy(
+                self.config_schema
+                if self.config_schema is not None
+                else {"type": "object", "properties": {}}
+            ),
+            "widget_contract": build_native_widget_contract(
+                actions=[action.as_dict() for action in self.actions],
+                supported_scopes=self.supported_scopes,
+                instantiation_kind="native_catalog",
+            ),
         }
 
 

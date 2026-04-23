@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from app.services.native_app_widgets import (
     dispatch_native_widget_action,
     get_or_create_native_widget_instance,
+    list_native_widget_catalog_entries,
 )
 
 
@@ -155,3 +156,11 @@ async def test_todo_native_rejects_bad_payloads(db_session):
             action="reorder_items",
             args={"ordered_ids": []},
         )
+
+
+def test_native_catalog_entries_expose_contract():
+    entries = list_native_widget_catalog_entries()
+    todo = next(entry for entry in entries if entry["name"] == "todo_native")
+    assert todo["widget_contract"]["definition_kind"] == "native_widget"
+    assert todo["widget_contract"]["auth_model"] == "host_native"
+    assert todo["config_schema"]["type"] == "object"

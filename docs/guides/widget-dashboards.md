@@ -1,5 +1,7 @@
 # Widget Dashboards
 
+For the canonical widget taxonomy and how presets, tool renderers, HTML widgets, and native widgets converge on the same placement model, read [Widget System](widget-system.md) first. This guide focuses on placement, dashboards, and pin behavior.
+
 Dashboards are Spindrel's answer to "I want my agent's output *on a wall*, not buried in chat." Pin any tool result — a Home Assistant light toggle, a weather card, a task-status chip, a bot-authored HTML chart — to a dashboard and it keeps working: polling for fresh state, honoring clicks, updating when the underlying data moves.
 
 There are two shapes of dashboard, and both are used by the same pins, grid, and editing tools:

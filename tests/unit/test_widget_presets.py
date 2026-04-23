@@ -8,6 +8,7 @@ from app.services.widget_presets import (
     list_widget_presets,
     list_binding_options,
     preview_widget_preset,
+    serialize_widget_preset,
     resolve_runtime_args,
 )
 from app.services.widget_preview import PreviewEnvelope, PreviewOut
@@ -58,6 +59,36 @@ def test_list_widget_presets_reads_manifest(monkeypatch):
     presets = list_widget_presets()
     assert [preset["id"] for preset in presets] == ["homeassistant-light-card"]
     assert presets[0]["integration_id"] == "homeassistant"
+
+
+def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
+    monkeypatch.setattr(
+        "app.services.widget_presets.build_public_fields_for_tool_widget",
+        lambda tool_name, instantiation_kind: {
+            "config_schema": {
+                "type": "object",
+                "properties": {
+                    "entity_id": {"type": "string"},
+                },
+            },
+            "widget_contract": {
+                "definition_kind": "tool_widget",
+                "binding_kind": "tool_bound",
+                "instantiation_kind": instantiation_kind,
+                "auth_model": "server_context",
+                "state_model": "tool_result",
+                "refresh_model": "state_poll",
+                "theme_model": "component_host",
+                "supported_scopes": [],
+                "actions": [],
+            },
+        },
+    )
+    preset = serialize_widget_preset(list_widget_presets()[0])
+    assert preset["config_schema"]["properties"]["entity_id"]["type"] == "string"
+    assert preset["widget_contract"]["definition_kind"] == "tool_widget"
+    assert preset["widget_contract"]["instantiation_kind"] == "preset"
 
 
 @pytest.mark.asyncio
@@ -261,3 +292,4 @@ async def test_preview_widget_preset_executes_underlying_tool(monkeypatch):
         "entity_id": "light.office_desk_led_strip",
     }
     assert tool_args == {"entity_id": "light.office_desk_led_strip"}
+    assert preview.widget_contract is None or preview.widget_contract["definition_kind"] == "tool_widget"

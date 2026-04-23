@@ -1,5 +1,7 @@
 # HTML Widgets — Bot-Built Live Dashboards
 
+For the canonical overview of how HTML widgets relate to presets, tool renderers, native widgets, and shared placement, start with [Widget System](widget-system.md). This guide goes deep on the HTML lane only.
+
 Any bot with tool access can author a **live, interactive widget** that renders in your chat and (optionally) pins to your dashboard. Ask for "a little panel that shows X" or "a chart of Y over time" and you'll get back an HTML card that runs in a sandboxed iframe, reads from Spindrel's own API, and updates in real time.
 
 These widgets can:

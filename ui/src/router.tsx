@@ -185,8 +185,6 @@ export const router = createBrowserRouter([
               { path: "attachments", element: <AdminAttachments /> },
               { path: "bots", element: <AdminBotsIndex /> },
               { path: "bots/:botId", element: <AdminBotDetail /> },
-              { path: "carapaces", element: <Navigate to="/admin/skills" replace /> },
-              { path: "carapaces/:carapaceId", element: <Navigate to="/admin/skills" replace /> },
               { path: "config-state", element: <AdminConfigState /> },
               { path: "delegations", element: <AdminDelegations /> },
               { path: "diagnostics", element: <AdminDiagnostics /> },

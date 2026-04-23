@@ -68,7 +68,6 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Settings** | `settings:read`, `settings:write` | Server-wide settings |
 | **Operations** | `operations:read`, `operations:write` | Backups, git pull, restart |
 | **Usage** | `usage:read` | Cost analytics and usage limits |
-| **Capabilities** | `carapaces:read`, `carapaces:write` | Skill+tool bundle management |
 | **Workflows** | `workflows:read`, `workflows:write` | Deprecated workflow routes (see [Pipelines](pipelines.md)). Scope retained for historical API compatibility. |
 | **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
 | **Mission Control** | `mission_control:read`, `mission_control:write` | Dashboard data (kanban, journal, etc.) |
@@ -86,9 +85,9 @@ The admin UI offers one-click presets for common use cases:
 |--------|----------|------------|
 | **Messaging Integration** | Slack, Discord, etc. | `chat`, `bots:read`, `channels:read/write`, `channels.config:read/write`, `sessions:read/write`, `todos:read`, `llm:completions` |
 | **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
-| **Container Bot** | Bots in their container environment | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `carapaces:read/write`, `tools:read/execute` |
+| **Container Bot** | Bots in their container environment | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `tools:read/execute` |
 | **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
-| **Mission Control** | MC dashboard | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write`, `carapaces:read` |
+| **Mission Control** | MC dashboard | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write` |
 
 ### JWT (User Authentication)
 

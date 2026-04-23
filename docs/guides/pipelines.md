@@ -56,7 +56,7 @@ steps:
 |------|-------------|----------|
 | `exec` | Shell command in the workspace | No |
 | `tool` | Direct tool invocation with fixed args | No |
-| `agent` | Spawns a child task — full LLM loop with tools, skills, carapaces | Yes |
+| `agent` | Spawns a child task — full LLM loop with tools and skills | Yes |
 | `user_prompt` | Pauses pipeline; resumes when a human resolves a widget | No |
 | `foreach` | Iterates `do` sub-steps over a list from a prior step or param | Per sub-step |
 
@@ -95,12 +95,11 @@ No LLM. Template substitution runs on `tool_args` before dispatch.
     Analyze disk usage ({{steps.check.result}}%) and recommend action.
   model: gpt-4o-mini
   tools: [exec_command]              # add to bot's base tools (additive, not whitelist)
-  carapaces: [sysadmin]              # activate capability for this step
   skills: [pipeline_authoring]       # ephemerally inject a skill into this step only
   timeout: 120
 ```
 
-Prior step results are auto-prepended to the system preamble. `tools`, `carapaces`, and `skills` are **per-step** — they apply only to this step's child task, not the rest of the pipeline. The pipeline has no global `defaults:` block (intentional — keeps step definitions self-contained).
+Prior step results are auto-prepended to the system preamble. `tools` and `skills` are **per-step** — they apply only to this step's child task, not the rest of the pipeline. The pipeline has no global `defaults:` block (intentional — keeps step definitions self-contained).
 
 ### `user_prompt` — Human Gate
 

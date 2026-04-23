@@ -77,7 +77,7 @@ export default function WidgetDevPanelPage() {
         backTo={backTo}
         parentLabel={parentLabel}
         title="Developer panel"
-        subtitle="Browse the library, pin presets, author tool renderers, manage themes, call tools, inspect recent results"
+        subtitle="Browse standalone widgets, pin presets, author tool renderers, manage themes, call tools, inspect recent results"
       />
 
       {/* Tab bar — tabs left, docs affordance right. */}

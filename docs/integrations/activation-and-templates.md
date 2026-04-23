@@ -1,6 +1,6 @@
 # Activation & Workspace Templates
 
-This guide explains how integrations interact with channel workspaces — capability injection and optional templates.
+This guide explains how integrations interact with channel workspaces — integration-provided tools and optional templates.
 
 ---
 
@@ -8,11 +8,10 @@ This guide explains how integrations interact with channel workspaces — capabi
 
 When an integration is **activated** on a channel:
 
-1. **Capability injection** (automatic): Tools, skills, and a system prompt fragment are injected into every agent call. The bot gains new capabilities without any manual configuration. The capability's `system_prompt_fragment` also teaches the bot how to organize workspace files for this integration.
+1. **Tool activation** (automatic): The integration's declared tools become available on that channel.
+2. **Workspace templates** (optional): Pre-defined file organization schemas remain available in advanced channel settings.
 
-2. **Workspace templates** (optional, power-user): Pre-defined file organization schemas available in advanced channel settings. Not required — integration capabilities teach file organization directly.
-
-**Key principle:** Integration capabilities are self-contained. They provide tools, skills, behavioral instructions, AND workspace file organization guidance in their `system_prompt_fragment`. Templates exist as an optional override mechanism for power users who want a specific structure.
+**Key principle:** there is no separate capability bundle. Integrations expose tools through activation metadata, and any related knowledge lives in normal skills or prompt templates.
 
 ---
 
@@ -52,20 +51,20 @@ Created via the admin UI template editor.
 SETUP = {
     "version": "1.0",
     "activation": {
-        "carapaces": ["mission-control"],
+        "tools": ["create_task_card", "move_task_card"],
         "requires_workspace": True,
     },
 }
 ```
 
-### 2. Capability
+### 2. Integration assets
 
-`integrations/mission_control/carapaces/mission-control.yaml` declares tools (`create_task_card`, `move_task_card`, etc.), skills, and a system prompt fragment that teaches the bot both the MC protocol AND workspace file organization (which files to create, their format, which are tool-managed vs manually edited).
+Mission Control ships its tools directly, plus normal skills and prompt/template content that teach the bot both the MC protocol and the workspace file organization.
 
 ### 3. User flow
 
 1. User activates Mission Control on a channel
-2. Capability injection adds MC tools, skills, AND file organization guidance automatically
+2. Tool activation adds MC tools automatically
 3. Bot knows how to create task boards, manage plans, and organize workspace files — no template selection needed
 4. Power users can optionally link a template in advanced settings to override the default file organization
 
@@ -107,6 +106,6 @@ SETUP = {
 
 When building an integration that needs workspace file organization:
 
-1. **Put file org guidance in your carapace's `system_prompt_fragment`** — describe which files the bot should create, their format, which are tool-managed (read-only) vs manually edited
-2. **Don't create a separate template** unless the file structure is complex enough to warrant a full schema document
-3. The `system_prompt_fragment` is injected into every conversation where your integration is activated — it's the right place for "how to organize files" instructions
+1. Put the file-organization guidance in shipped skills or prompt templates.
+2. Don't create a separate template unless the file structure is complex enough to warrant a full schema document.
+3. Activation should expose tools; documentation and file conventions should live in the normal skills/prompts surfaces.

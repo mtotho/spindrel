@@ -282,6 +282,8 @@ def _scan_metadata_for(
             meta["__has_manifest"] = True
             if manifest.extra_csp:
                 meta["extra_csp"] = manifest.extra_csp
+            if manifest.config_schema:
+                meta["config_schema"] = manifest.config_schema
         except (ManifestError, Exception) as exc:
             logger.warning("widget.yaml at %s failed validation: %s", yaml_path, exc)
 

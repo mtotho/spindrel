@@ -23,6 +23,7 @@ from app.services.native_app_widgets import (
     extract_native_widget_ref_from_envelope,
     get_or_create_native_widget_instance,
 )
+from app.services.widget_contracts import build_public_fields_for_pin
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def _default_grid_layout(position: int, *, channel: bool = False) -> dict[str, i
 
 def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
     """Serialize a pin row to a JSON-safe dict for API responses."""
-    return {
+    data = {
         "id": str(pin.id),
         "dashboard_key": pin.dashboard_key,
         "position": pin.position,
@@ -95,6 +96,14 @@ def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
         "pinned_at": pin.pinned_at.isoformat() if pin.pinned_at else None,
         "updated_at": pin.updated_at.isoformat() if pin.updated_at else None,
     }
+    data.update(
+        build_public_fields_for_pin(
+            tool_name=pin.tool_name,
+            envelope=pin.envelope or {},
+            source_bot_id=pin.source_bot_id,
+        )
+    )
+    return data
 
 
 async def _sync_native_pin_envelopes(

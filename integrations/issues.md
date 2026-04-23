@@ -36,7 +36,7 @@ Responding to assistant (discussion about arr integration mission control compat
   format), so it's effectively a superset. That's the right design — an ARR channel uses the ARR schema, which includes MC structures. No conflict if the user
   picks the right template.
 
-  But this is implicit right now. The ARR carapace and setup.py don't declare requires_workspace: true or signal that it expects a specific schema. When someone
+  But this is implicit right now. The ARR activation metadata and setup.py don't declare requires_workspace: true or signal that it expects a specific schema. When someone
    activates ARR on a channel, nothing tells them "you should also set the workspace schema to the ARR template."
 
   2. Where learnings go — it's two different things
@@ -49,9 +49,9 @@ Responding to assistant (discussion about arr integration mission control compat
   - Cross-channel patterns (if one bot serves multiple ARR channels, unlikely but possible)
   - User preference profiles
 
-  The gap: neither the ARR carapace nor the skills give the bot any guidance on what to put in bot memory vs channel workspace data. The bot needs to know:
-  structured media tracking → data/*.json, soft learnings/preferences → memory/reference/arr-learnings.md or similar. I'd add a brief note to the carapace
-  system prompt fragment about this.
+  The gap: neither the ARR activation guidance nor the skills give the bot any guidance on what to put in bot memory vs channel workspace data. The bot needs to know:
+  structured media tracking → data/*.json, soft learnings/preferences → memory/reference/arr-learnings.md or similar. I'd add a brief note to the shipped skill/prompt
+  guidance about this.
 
   3. Heartbeat template vs download-monitoring skill — significant overlap
 
@@ -70,7 +70,7 @@ Responding to assistant (discussion about arr integration mission control compat
 
   1. Add activation metadata to ARR so the channel activation surface declares the ARR tools directly and marks `requires_workspace: true`
   2. Slim down download-monitoring.md to be an interactive reference, not a heartbeat protocol duplicate
-  3. Add a learnings note to the carapace — brief guidance on what goes where (workspace data vs bot memory)
+  3. Add a learnings note to the shipped skill/prompt guidance — brief guidance on what goes where (workspace data vs bot memory)
   4. Consider whether the heartbeat template is too long — 250 lines is a lot of prompt. At ~13 tokens/line that's ~3.2k tokens just for heartbeat instructions.
    Might be fine for a dedicated heartbeat run, but worth being aware of.
 

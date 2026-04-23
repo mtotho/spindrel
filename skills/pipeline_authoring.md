@@ -126,7 +126,6 @@ Spawns a child task that runs as an LLM conversation. Prior step results are aut
 | `prompt` | string | The prompt sent to the LLM. Prior results are auto-prepended |
 | `model` | string \| null | Model override (e.g. `"gpt-4o"`, `"claude-sonnet-4-20250514"`). Null = inherit from task. See Model Tiers below for guidance |
 | `tools` | string[] \| null | Extra tool names to **add** to what the bot already has. Additive, not a whitelist — the step still sees the bot's base tools + auto-discovered tools |
-| `carapaces` | string[] \| null | Capability IDs to activate for this step (adds their tools + system prompt fragments) |
 | `skills` | string[] \| null | Skill IDs to ephemerally inject for this step only. Use for just-in-time expertise (e.g. load `pipeline_authoring` for a step that writes pipelines) without enrolling them on the bot permanently |
 | `timeout` | number \| null | Max seconds for the child task |
 

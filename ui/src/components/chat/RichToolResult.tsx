@@ -97,6 +97,16 @@ interface Props {
   t: ThemeTokens;
 }
 
+function extractInteractiveToolResultJson(body: string): string | null {
+  const match = body.match(/window\.spindrel\.toolResult\s*=\s*([\s\S]*?);<\/script>/i);
+  if (!match?.[1]) return null;
+  try {
+    return JSON.stringify(JSON.parse(match[1]));
+  } catch {
+    return null;
+  }
+}
+
 function resolveRendererTokens(base: ThemeTokens, rendererVariant: RichRendererVariant): ThemeTokens {
   if (rendererVariant !== "terminal-chat") return base;
   return {
@@ -153,9 +163,30 @@ export function RichToolResult({
   // body may be a pre-parsed object from JSONB metadata — normalize to string
   const rawBody = fetched ?? envelope.body;
   const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
+  const isTerminalRenderer = rendererVariant === "terminal-chat";
+  const terminalWidgetJson = isTerminalRenderer && body != null && envelope.content_type === "application/vnd.spindrel.html+interactive"
+    ? extractInteractiveToolResultJson(body)
+    : null;
+  const terminalBody = (() => {
+    if (!isTerminalRenderer || body == null) return body;
+    if (envelope.content_type === "application/vnd.spindrel.html+interactive") {
+      return terminalWidgetJson ?? envelope.plain_body ?? body;
+    }
+    return body;
+  })();
+  const effectiveContentType = (() => {
+    if (!isTerminalRenderer) return envelope.content_type;
+    if (envelope.content_type === "application/vnd.spindrel.components+json") {
+      return "application/json";
+    }
+    if (envelope.content_type === "application/vnd.spindrel.html+interactive") {
+      return terminalWidgetJson ? "application/json" : "text/plain";
+    }
+    return envelope.content_type;
+  })();
 
   // Truncated and not yet fetched — show the lazy-load affordance.
-  if (envelope.truncated && body == null) {
+  if (envelope.truncated && terminalBody == null) {
     const canFetch = sessionId && envelope.record_id;
     const isEmbedded = chromeMode === "embedded";
     const isTerminal = rendererVariant === "terminal-chat";
@@ -216,22 +247,22 @@ export function RichToolResult({
     );
   }
 
-  if (body == null) return null;
+  if (terminalBody == null) return null;
 
   // Components content type supports a JSON toggle for debugging
-  const isComponents = envelope.content_type === "application/vnd.spindrel.components+json";
+  const isComponents = envelope.content_type === "application/vnd.spindrel.components+json" && !isTerminalRenderer;
 
   let content: React.ReactNode;
   if (isComponents && showJson) {
     // Force JSON view of the component body
-    content = <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
+    content = <JsonTreeRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
   } else {
-    switch (envelope.content_type) {
+    switch (effectiveContentType) {
       case "text/markdown":
         content = (
           <div style={{ padding: "4px 0" }}>
             <MarkdownContent
-              text={body}
+              text={terminalBody}
               t={rendererTokens}
               chatMode={rendererVariant === "terminal-chat" ? "terminal" : "default"}
             />
@@ -239,10 +270,10 @@ export function RichToolResult({
         );
         break;
       case "application/json":
-        content = <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
+        content = <JsonTreeRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "text/html":
-        content = <SandboxedHtmlRenderer body={body} chromeMode={chromeMode} t={rendererTokens} />;
+        content = <SandboxedHtmlRenderer body={terminalBody} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.html+interactive":
         content = (
@@ -262,13 +293,13 @@ export function RichToolResult({
         );
         break;
       case "application/vnd.spindrel.diff+text":
-        content = <DiffRenderer body={body} rendererVariant={rendererVariant} t={rendererTokens} />;
+        content = <DiffRenderer body={terminalBody} rendererVariant={rendererVariant} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.file-listing+json":
-        content = <FileListingRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
+        content = <FileListingRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.components+json":
-        content = <ComponentRenderer body={body} t={rendererTokens} />;
+        content = <ComponentRenderer body={terminalBody} t={rendererTokens} />;
         break;
       case "application/vnd.spindrel.native-app+json":
         content = (
@@ -286,7 +317,7 @@ export function RichToolResult({
         break;
       case "text/plain":
       default:
-        content = <TextRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
+        content = <TextRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
         break;
     }
   }

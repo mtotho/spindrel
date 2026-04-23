@@ -167,6 +167,7 @@ def _register_widgets(
             "display_label": expanded.get("display_label"),
             "state_poll": expanded.get("state_poll"),
             "default_config": expanded.get("default_config") or {},
+            "config_schema": expanded.get("config_schema"),
             "source": source,
         }
         count += 1
@@ -343,6 +344,7 @@ def _build_entry_from_package(row) -> dict | None:
         "display_label": widget_def.get("display_label"),
         "state_poll": state_poll,
         "default_config": widget_def.get("default_config") or {},
+        "config_schema": widget_def.get("config_schema"),
         "source": f"package:{row.id}",
         "package_id": str(row.id),
         "package_version": row.version,
@@ -458,6 +460,37 @@ def substitute_vars(obj: Any, data: dict) -> Any:
     return _substitute(copy.deepcopy(obj), data)
 
 
+def _build_widget_template_envelope(
+    *,
+    content_type: str,
+    body: Any,
+    plain_body: str,
+    display: str,
+    display_label: str | None = None,
+    refreshable: bool = False,
+    refresh_interval_seconds: int | None = None,
+    source_bot_id: str | None = None,
+    source_channel_id: str | None = None,
+) -> ToolResultEnvelope:
+    if isinstance(body, str):
+        body_text = body
+    else:
+        body_text = json.dumps(body, ensure_ascii=False)
+
+    return ToolResultEnvelope(
+        content_type=content_type,
+        body=body_text,
+        plain_body=plain_body,
+        display=display,  # type: ignore[arg-type]
+        byte_size=len(body_text.encode("utf-8")),
+        display_label=display_label,
+        refreshable=refreshable,
+        refresh_interval_seconds=refresh_interval_seconds,
+        source_bot_id=source_bot_id,
+        source_channel_id=source_channel_id,
+    )
+
+
 def apply_widget_template(
     tool_name: str,
     raw_result: str,
@@ -523,7 +556,7 @@ def apply_widget_template(
         channel_str = str(channel_val) if channel_val else None
 
         body = _build_html_widget_body(tmpl["html_template_body"], data_with_config)
-        return ToolResultEnvelope(
+        return _build_widget_template_envelope(
             content_type=tmpl.get(
                 "content_type", "application/vnd.spindrel.html+interactive",
             ),
@@ -549,7 +582,7 @@ def apply_widget_template(
 
     body = json.dumps(filled)
 
-    return ToolResultEnvelope(
+    return _build_widget_template_envelope(
         content_type=tmpl["content_type"],
         body=body,
         plain_body=plain_body,
@@ -696,7 +729,7 @@ def apply_state_poll(
     # gate rendering on user-toggled state (e.g. starred URLs, units).
     if is_html_mode:
         body = _build_html_widget_body(owner_tmpl["html_template_body"], data_with_config)
-        return ToolResultEnvelope(
+        return _build_widget_template_envelope(
             content_type="application/vnd.spindrel.html+interactive",
             body=body,
             plain_body=f"Widget: {tool_name}",
@@ -712,7 +745,7 @@ def apply_state_poll(
     filled = _substitute(copy.deepcopy(poll_cfg["template"]), data_with_config)
     body = json.dumps(filled)
 
-    return ToolResultEnvelope(
+    return _build_widget_template_envelope(
         content_type="application/vnd.spindrel.components+json",
         body=body,
         plain_body=f"Widget: {tool_name}",

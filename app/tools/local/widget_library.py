@@ -24,6 +24,10 @@ from pathlib import Path
 
 from app.agent.context import current_bot_id
 from app.services.native_app_widgets import list_native_widget_catalog_entries
+from app.services.widget_contracts import (
+    build_public_contract_fields_for_catalog_entry,
+    normalize_config_schema,
+)
 from app.services.widget_manifest import parse_manifest
 from app.services.widget_paths import scope_root
 from app.services.widget_versioning import get_widget_head_revision, rollback_widget_to_revision, widget_version_history
@@ -135,6 +139,9 @@ def _read_widget_meta(
                     value = parsed.get(key)
                     if value is not None:
                         meta[key] = value
+                config_schema = normalize_config_schema(parsed.get("config_schema"))
+                if config_schema is not None:
+                    meta["config_schema"] = config_schema
         except Exception:  # noqa: BLE001 — YAML parse errors shouldn't block listing
             logger.debug("Failed parsing %s", yaml_path, exc_info=True)
 
@@ -169,6 +176,16 @@ def _read_widget_meta(
     elif fmt == "suite":
         meta["group_kind"] = "suite"
         meta["group_ref"] = name
+
+    auth_model = "viewer"
+    if scope in {"bot", "workspace"}:
+        auth_model = "source_bot"
+    meta.update(
+        build_public_contract_fields_for_catalog_entry(
+            meta,
+            preferred_auth_model=auth_model,
+        )
+    )
 
     return meta
 

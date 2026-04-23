@@ -365,7 +365,7 @@ export function WidgetPresetsPane({
         <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
           <Home size={12} className="mt-0.5 shrink-0 text-accent/70" />
           <span>
-            Presets are ready-made widgets with a guided binding flow. Pick a preset, bind it, preview it, then pin it without touching raw tool args or YAML.
+            Presets are guided binding flows over the same widget engine used by tool renderers. Pick a preset, bind it, preview it, then pin it without touching raw tool args or YAML.
           </span>
         </div>
       )}
@@ -382,7 +382,7 @@ export function WidgetPresetsPane({
             </div>
             {builder && (
               <div className="mt-1 text-[11px] text-text-muted">
-                Ready-made widget flows with guided inputs.
+                Guided binding flows over the same widget runtime and pin model.
               </div>
             )}
           </div>

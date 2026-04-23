@@ -1,5 +1,7 @@
 # Widget Templates
 
+For the overall taxonomy and how tool renderers fit alongside presets, HTML widgets, native widgets, and dashboard pins, read [Widget System](guides/widget-system.md) first. This document is the detailed reference for the tool-renderer/template lane only.
+
 Tool results in Spindrel can render as rich, interactive widgets — status
 chips, toggles, sliders, tables, charts — instead of plain JSON. Each tool
 has a *widget template package* that pairs a YAML template with optional
@@ -11,7 +13,7 @@ Packages are editable in the admin UI at **Tools → Widget Library**.
 
 ## Product terms
 
-The UI now separates four related concepts:
+The UI now separates four related concepts. The deeper system-level explanation lives in [Widget System](guides/widget-system.md); this section is just the local vocabulary needed for the template lane.
 
 | Term | Meaning |
 |---|---|

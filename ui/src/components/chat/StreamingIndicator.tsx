@@ -329,7 +329,7 @@ export function StreamingIndicator({
   const displayThinking = thinkingContent?.trim() ?? "";
   const hasAssistantTurnBody = assistantTurnBody.items.length > 0;
   const orderedTurnBodyItems = hasAssistantTurnBody
-    ? buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls })
+    ? buildAssistantTurnBodyItems({ assistantTurnBody, toolCalls, renderMode: chatMode })
     : [];
   const hasVisibleActivity =
     !!displayThinking ||

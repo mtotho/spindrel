@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-22 (Preset binding-source tool-name normalization fix)
+updated: 2026-04-22 (widget-system canonical doc + contract surfacing)
 ---
 # Track — Widget System DX + Robustness
 
@@ -57,6 +57,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
   - builder preview owns its local interactive state again: widget-config actions patch local config + rerun preview, tool actions dispatch then rerun preview
   - stacked builder flow now allows vertical overflow, with `overflow-hidden` reserved for the wider split layouts only
   New invariant: transform-driven widgets must preview correctly even with no static top-level template, and stacked builder mode should behave like a scrollable document, not a prematurely split pane.
+- **Canonical widget-system docs + in-product contract surfacing** (2026-04-22) — added `agent-server/docs/guides/widget-system.md` as the single system-level explanation and changed the surrounding widget docs to point back to it instead of each re-explaining taxonomy in slightly different terms. The library preview and pin editor now surface an explicit runtime contract view covering runtime kind, auth actor, state authority, refresh model, theme path, and declared actions. New invariant: the human UI should expose the same widget-lane distinctions that were already present in the runtime/API contract, especially the difference between presets, tool renderers, HTML widgets, and native widgets.
 - **Preset binding-option requests no longer depend on dotted path segments** (2026-04-22) — `POST /api/v1/widgets/presets/{preset_id}/binding-options` now accepts `source_id` in the JSON body, with the old `.../binding-options/{source_id}` path kept for compatibility. Frontend calls the body-based route first and falls back to the legacy path on 404 so `homeassistant.entities`-style ids stop depending on proxy/path behavior.
 - **Widget Builder chrome should match the chat dock shell, not modal cards** (2026-04-22) — use one strong outer container with square edges and sparse separators, then keep catalog / configure / preview panes visually adjacent instead of wrapping each region in its own rounded bordered card.
 - **Expression grammar still constrains widget authoring** — this HA pass had to push the variant branching into `widget_transforms.py` because the template engine still lacks `and` / `or` / ternary / prefix tests. That keeps P1-2 (`and` / `or` / `not` / ternary) relevant for lowering authoring friction on bindable integration widgets.

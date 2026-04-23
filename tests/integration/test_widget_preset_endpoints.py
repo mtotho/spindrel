@@ -164,3 +164,4 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
     assert body["source_channel_id"] == str(channel_id)
     assert body["tool_args"] == {"entity_id": "light.kitchen_ceiling_lights"}
     assert body["widget_config"]["entity_id"] == "light.kitchen_ceiling_lights"
+    assert body["envelope"]["source_instantiation_kind"] == "preset"

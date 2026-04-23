@@ -136,6 +136,8 @@ class WidgetManifest:
     # the pin in scope. Absent list = no bot-callable handlers on this
     # bundle, which is the safe default.
     handlers: list[HandlerSpec] = field(default_factory=list)
+    # Optional JSON-Schema for the widget_config editor path.
+    config_schema: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +419,27 @@ def _validate_handlers(raw: object) -> list[HandlerSpec]:
     return out
 
 
+def _validate_config_schema(raw: object) -> dict | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ManifestError("config_schema must be a mapping")
+    schema_type = raw.get("type")
+    if schema_type is not None and schema_type != "object":
+        raise ManifestError("config_schema.type must be 'object'")
+    props = raw.get("properties")
+    if props is not None and not isinstance(props, dict):
+        raise ManifestError("config_schema.properties must be a mapping")
+    required = raw.get("required")
+    if required is not None:
+        if not isinstance(required, list):
+            raise ManifestError("config_schema.required must be a list")
+        for i, item in enumerate(required):
+            if not isinstance(item, str) or not item.strip():
+                raise ManifestError(f"config_schema.required[{i}] must be a non-empty string")
+    return raw
+
+
 def _validate_permissions(raw: dict) -> Permissions:
     if not isinstance(raw, dict):
         raise ManifestError("permissions must be a mapping")
@@ -529,6 +552,7 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
 
     raw_handlers = raw.get("handlers", [])
     handlers = _validate_handlers(raw_handlers) if raw_handlers else []
+    config_schema = _validate_config_schema(raw.get("config_schema"))
 
     return WidgetManifest(
         name=name.strip(),
@@ -546,4 +570,5 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         extra_csp=extra_csp,
         layout_hints=layout_hints,
         handlers=handlers,
+        config_schema=config_schema,
     )

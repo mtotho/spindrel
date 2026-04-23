@@ -67,6 +67,34 @@ class TestHappyPath:
         assert m.panel_title == "Home Command Center"
         assert m.show_panel_title is True
 
+    def test_config_schema_is_parsed(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Home control
+            version: 1.0.0
+            description: A test
+            config_schema:
+              type: object
+              required: [entity_id]
+              properties:
+                entity_id:
+                  type: string
+                  title: Entity
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.config_schema == {
+            "type": "object",
+            "required": ["entity_id"],
+            "properties": {
+                "entity_id": {
+                    "type": "string",
+                    "title": "Entity",
+                },
+            },
+        }
+
     def test_full_manifest(self, tmp_path):
         p = write_yaml(
             tmp_path,
@@ -249,6 +277,19 @@ class TestExtraCspValidation:
         assert m.version == "0.0.0"
         assert m.panel_title is None
         assert m.show_panel_title is None
+
+    def test_config_schema_rejects_non_object_type(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: W
+            description: ""
+            config_schema:
+              type: array
+            """,
+        )
+        with pytest.raises(ManifestError, match="config_schema.type"):
+            parse_manifest(p)
 
 
 # ---------------------------------------------------------------------------

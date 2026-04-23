@@ -407,6 +407,81 @@ test("persisted tool results resolve by tool_call_id before index position", () 
   assert.equal(items[0].widget.recordId, "widget-search");
 });
 
+test("terminal mode demotes widget-owned rows into the generic rich-result path", () => {
+  const assistantTurnBody = {
+    version: 1 as const,
+    items: [{ id: "tool-search", kind: "tool_call" as const, toolCallId: "call-search" }],
+  };
+
+  const defaultItems = buildAssistantTurnBodyItems({
+    assistantTurnBody,
+    toolCalls: [
+      {
+        id: "call-search",
+        name: "web_search",
+        arguments: '{"query":"latest OpenAI news","num_results":5}',
+        surface: "widget",
+        summary: {
+          kind: "result",
+          subject_type: "widget",
+          label: "Widget available",
+          target_label: "Web search",
+        },
+      },
+    ],
+    toolResults: [
+      {
+        tool_call_id: "call-search",
+        content_type: "application/vnd.spindrel.html+interactive",
+        body: "<html><body>widget</body></html>",
+        plain_body: "Widget: web_search",
+        display: "inline",
+        truncated: false,
+        record_id: "widget-search",
+        byte_size: 32,
+        display_label: "Web search",
+      },
+    ],
+  });
+  const terminalItems = buildAssistantTurnBodyItems({
+    assistantTurnBody,
+    toolCalls: [
+      {
+        id: "call-search",
+        name: "web_search",
+        arguments: '{"query":"latest OpenAI news","num_results":5}',
+        surface: "widget",
+        summary: {
+          kind: "result",
+          subject_type: "widget",
+          label: "Widget available",
+          target_label: "Web search",
+        },
+      },
+    ],
+    toolResults: [
+      {
+        tool_call_id: "call-search",
+        content_type: "application/vnd.spindrel.html+interactive",
+        body: "<html><body>widget</body></html>",
+        plain_body: "Widget: web_search",
+        display: "inline",
+        truncated: false,
+        record_id: "widget-search",
+        byte_size: 32,
+        display_label: "Web search",
+      },
+    ],
+    renderMode: "terminal",
+  });
+
+  assert.equal(defaultItems[0]?.kind, "widget");
+  assert.equal(terminalItems[0]?.kind, "rich_result");
+  if (terminalItems[0]?.kind !== "rich_result") throw new Error("expected rich_result item");
+  assert.equal(terminalItems[0].envelope.record_id, "widget-search");
+  assert.equal(terminalItems[0].envelope.content_type, "application/vnd.spindrel.html+interactive");
+});
+
 test("canonical tool surfaces are not re-inferred from envelopes", () => {
   const items = buildAssistantTurnBodyItems({
     assistantTurnBody: {

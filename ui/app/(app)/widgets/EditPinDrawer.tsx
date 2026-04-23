@@ -20,6 +20,10 @@ import {
   pinScopeToBotId,
   type PinScope,
 } from "./PinScopePicker";
+import {
+  describePinContract,
+  WidgetContractCard,
+} from "./WidgetContractCard";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -52,6 +56,10 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const setPinScope = useDashboardPinsStore((s) => s.setPinScope);
   const { data: allBots } = useBots();
+  const botNameById = useMemo(
+    () => new Map((allBots ?? []).map((bot) => [bot.id, bot.name])),
+    [allBots],
+  );
 
   const [label, setLabel] = useState("");
   const [jsonText, setJsonText] = useState("{}");
@@ -202,6 +210,10 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
+  const contractFields = useMemo(
+    () => (pin ? describePinContract(pin, botNameById) : []),
+    [botNameById, pin],
+  );
 
   const isFullWidth =
     !!currentLayout
@@ -481,6 +493,13 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
                 {isFullWidth ? "Full width · on" : "Make full width"}
               </button>
             </div>
+          )}
+
+          {pin && (
+            <WidgetContractCard
+              fields={contractFields}
+              title="Pin contract"
+            />
           )}
 
           <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
