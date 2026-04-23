@@ -33,6 +33,7 @@ import {
   DEFAULT_CHROME,
 } from "@/src/lib/dashboardGrid";
 import { resolveWidgetHostPolicy } from "@/src/lib/widgetHostPolicy";
+import type { HeaderBackdropMode } from "@/src/lib/widgetHostPolicy";
 
 const INITIAL_REFRESH_GRACE_MS = 2 * 60 * 1000;
 // Session-local freshness cache so dashboard <-> chat route switches don't
@@ -89,6 +90,7 @@ interface PinnedToolWidgetProps {
   borderless?: boolean;
   hoverScrollbars?: boolean;
   hideTitles?: boolean;
+  headerBackdropMode?: HeaderBackdropMode;
   /** Panel surfaces use authored host chrome (`panel_title` /
    *  `show_panel_title`) instead of the generic compact title row. */
   panelSurface?: boolean;
@@ -114,6 +116,7 @@ export function PinnedToolWidget({
   borderless = false,
   hoverScrollbars = DEFAULT_CHROME.hoverScrollbars,
   hideTitles = false,
+  headerBackdropMode = "default",
   panelSurface = false,
   runtimeRail = false,
   externalDrag,
@@ -530,6 +533,7 @@ export function PinnedToolWidget({
     widgetPresentation: authoredPresentation,
     runtimeRail,
     forceChip: isChip,
+    headerBackdropMode,
   });
   const fillsHostHeight = hostPolicy.fillHeight;
 
@@ -569,12 +573,22 @@ export function PinnedToolWidget({
   // Wrapper surface is host-owned chrome: inherit follows dashboard chrome,
   // but per-pin config can force a surfaced shell or a plain transparent one.
   const wrapperSurface = hostPolicy.wrapperSurface;
+  const translucentWrapper = wrapperSurface === "translucent";
   const isInteractiveHtml =
     currentEnvelope?.content_type === "application/vnd.spindrel.html+interactive";
   const flushInteractiveHtmlBody = isInteractiveHtml && wrapperSurface === "plain";
-  const showBorder = wrapperSurface === "surface";
-  const showWrapperBackground = wrapperSurface === "surface";
-  const borderColorStyle = showBorder ? { borderColor: `${t.surfaceBorder}80` } : {};
+  const showBorder = wrapperSurface !== "plain";
+  const showWrapperBackground = wrapperSurface !== "plain";
+  const borderColorStyle = translucentWrapper
+    ? {
+        borderColor: `color-mix(in srgb, ${t.surfaceBorder} 44%, transparent)`,
+        background: `color-mix(in srgb, ${t.surface} 56%, transparent)`,
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
+      }
+    : showBorder
+      ? { borderColor: `${t.surfaceBorder}80` }
+      : {};
   // Edit-mode dashboard pins get their drag transform/transition from the
   // external DndContext; view-mode dashboard pins skip all drag styling;
   // channel-scope falls back to the internal sortable. Keep opacity
@@ -729,12 +743,12 @@ export function PinnedToolWidget({
     );
   }
   return (
-    <div
-      ref={rootRef}
-      className={`group relative rounded-lg ${cardBorderClass} ${editFrameClass} ${showWrapperBackground ? "bg-surface-raised/40 hover:bg-white/[0.02]" : ""} transition-colors duration-150 ${cardSizeClass}`}
-      style={sortableStyle}
-      {...rootAttrs}
-    >
+      <div
+        ref={rootRef}
+        className={`group relative rounded-lg ${cardBorderClass} ${editFrameClass} ${showWrapperBackground && !translucentWrapper ? "bg-surface-raised/40 hover:bg-white/[0.02]" : ""} transition-colors duration-150 ${cardSizeClass}`}
+        style={sortableStyle}
+        {...rootAttrs}
+      >
       {/* Header — suppressed entirely when the widget is titleless in edit
           mode; chrome surfaces as a floating overlay below so the tile's
           footprint matches preview exactly. */}

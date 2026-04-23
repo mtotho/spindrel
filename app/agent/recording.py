@@ -211,7 +211,8 @@ async def _start_tool_call(
     arguments: dict,
     correlation_id: uuid.UUID | None = None,
     status: str = "running",
-) -> None:
+    strict: bool = False,
+) -> bool:
     """Fire-and-forget: insert a ToolCall row at dispatch entry.
 
     Status defaults to 'running' for normal dispatch, or 'awaiting_approval'
@@ -241,8 +242,12 @@ async def _start_tool_call(
                 completed_at=None,
             ))
             await db.commit()
+        return True
     except Exception:
         logger.exception("Failed to insert in-flight tool call for %s", tool_name)
+        if strict:
+            raise
+        return False
 
 
 async def _complete_tool_call(
@@ -256,7 +261,8 @@ async def _complete_tool_call(
     status: str = "done",
     store_full_result: bool = False,
     envelope: dict | None = None,
-) -> None:
+    strict: bool = False,
+) -> bool:
     """Fire-and-forget: UPDATE an existing ToolCall row on completion.
 
     Pairs with ``_start_tool_call`` — the row was inserted in 'running'
@@ -273,7 +279,7 @@ async def _complete_tool_call(
             error=error,
         )
         async with async_session() as db:
-            await db.execute(
+            result = await db.execute(
                 update(ToolCall)
                 .where(ToolCall.id == row_id)
                 .values(
@@ -286,12 +292,18 @@ async def _complete_tool_call(
                     completed_at=datetime.now(timezone.utc),
                 )
             )
+            if result.rowcount == 0:
+                raise RuntimeError(f"ToolCall {row_id} missing during completion")
             await db.commit()
+        return True
     except Exception:
         logger.exception("Failed to complete tool call row %s", row_id)
+        if strict:
+            raise
+        return False
 
 
-async def _set_tool_call_status(row_id: uuid.UUID, status: str) -> None:
+async def _set_tool_call_status(row_id: uuid.UUID, status: str, *, strict: bool = False) -> bool:
     """Fire-and-forget: flip a ToolCall row's status (e.g. on approve/deny).
 
     Used by the approval decide endpoint to transition an
@@ -301,14 +313,20 @@ async def _set_tool_call_status(row_id: uuid.UUID, status: str) -> None:
     """
     try:
         async with async_session() as db:
-            await db.execute(
+            result = await db.execute(
                 update(ToolCall)
                 .where(ToolCall.id == row_id)
                 .values(status=status)
             )
+            if result.rowcount == 0:
+                raise RuntimeError(f"ToolCall {row_id} missing during status update")
             await db.commit()
+        return True
     except Exception:
         logger.exception("Failed to set tool call %s status to %s", row_id, status)
+        if strict:
+            raise
+        return False
 
 
 async def _record_trace_event(

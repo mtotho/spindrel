@@ -402,10 +402,6 @@ tool_widgets:
             when: "{{is_sensor_card}}"
             text: "{{friendly_name}}"
             level: 3
-          - type: heading
-            when: "{{is_light_card}}"
-            text: "{{friendly_name}}"
-            level: 3
           - type: status
             when: "{{is_sensor_card}}"
             text: "{{display_value}}"
@@ -573,10 +569,6 @@ tool_widgets:
         components:
           - type: heading
             when: "{{is_sensor_card}}"
-            text: "{{friendly_name}}"
-            level: 3
-          - type: heading
-            when: "{{is_light_card}}"
             text: "{{friendly_name}}"
             level: 3
           - type: status

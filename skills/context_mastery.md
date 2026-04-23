@@ -15,7 +15,7 @@ You operate against a platform with **four distinct persistence layers**. Knowin
 
 | Tier | Where | Cost | Discovery | Scope |
 |---|---|---|---|---|
-| **1. Baseline + ambient context** | `MEMORY.md`, recent logs, channel workspace `*.md` | Tokens when admitted | Profile- and budget-gated | Per-bot, per-channel |
+| **1. Baseline + ambient context** | `MEMORY.md`, recent logs, channel workspace `*.md`, channel/bot knowledge-base excerpts | Tokens when admitted | Profile- and budget-gated | Per-bot, per-channel |
 | **2. Reference files** | `memory/reference/*.md` | Free until fetched | Directory listing visible; you fetch by name | Bot-private |
 | **3. Bot-authored skills** | `bots/{your_id}/...` via `manage_bot_skill` | Free until surfaced | RAG-indexed, semantic discovery | Visible to all bots (you own the namespace) |
 | **4. Core skills** | `skills/*.md` (operator-curated) | Free until enrolled | Working set (always-injected) + discovery layer (semantic) | Shared across all bots |
@@ -58,12 +58,15 @@ Treat these as expensive real estate. Some pieces are baseline, others are only 
 | `memory/logs/{today}.md` | Often hot in normal chat; not guaranteed in every origin |
 | `memory/logs/{yesterday}.md` | Often hot in normal chat; not guaranteed in every origin |
 | Channel workspace root `*.md` | Often admitted in normal chat/execution; may be suppressed in planning/background runs |
+| Channel knowledge base | Auto-retrieved in chat/execution when relevant; suppressed in restricted profiles |
+| Bot knowledge base | Auto-retrieved in chat/execution when relevant unless the bot is set to search-only mode |
 | Working set skills | Current enrolled skill surface; use `get_skill()` when exact content matters |
 
 **Budget tips:**
 - One concern per workspace file — small focused files compress better
 - Split at ~100 lines or archive
 - Channel workspace files cost the most when admitted — keep them focused and archive resolved material
+- Knowledge-base excerpts are also ambient/profile-gated context, not a guaranteed preload. Use `search_channel_knowledge` or `search_bot_knowledge` when exact KB detail matters.
 
 ## Tier 2 — Reference Files (Bot-Private)
 

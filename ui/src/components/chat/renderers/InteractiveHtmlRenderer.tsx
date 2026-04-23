@@ -215,7 +215,7 @@ interface Props {
 }
 
 export type WidgetLayout = "chip" | "header" | "rail" | "dock" | "grid";
-export type HostSurface = "surface" | "plain";
+export type HostSurface = "surface" | "plain" | "translucent";
 
 // Default CSP directive → baseline source list. Kept as structured data
 // (not a flat string) so envelope-declared `extra_csp` can append origins

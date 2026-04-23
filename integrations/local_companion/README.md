@@ -25,7 +25,7 @@ chat / plan session
 
 ## Operator flow
 
-1. Enroll a target:
+1. Enroll a target from `Admin > Machines` or from the quick-setup helper on `Admin > Integrations > Local Companion`:
 
    ```bash
    curl -X POST \
@@ -78,4 +78,4 @@ Run it in the foreground first so you can verify pairing, then wrap it in your o
 - Bridge state is in-memory in this build; multi-worker deployments need an external broker before this becomes horizontally safe.
 - `driver="companion"` is the only shipped machine-target driver right now. SSH is a future sibling driver, not part of this integration.
 - This integration is shell-first. File and desktop capabilities should reuse the same target + lease model rather than bypassing it.
-- Machine enrollment/removal now lives under `Admin > Machines`, not the integration detail page.
+- Machine enrollment/removal still live under `Admin > Machines`; the integration detail page now offers a provider-specific helper that calls the same core enroll flow and can generate a ready launch command or remote-enroll curl.

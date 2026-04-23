@@ -147,3 +147,14 @@ class TestDiscoverSetupStatus:
         assert slack is not None
         assert slack["readme"] is not None
         assert "Slack" in slack["readme"]
+
+    def test_local_companion_exposes_machine_control_metadata(self):
+        from integrations import discover_setup_status
+
+        results = discover_setup_status()
+        companion = next((r for r in results if r["id"] == "local_companion"), None)
+
+        assert companion is not None
+        assert "machine_control" in companion.get("provides", [])
+        assert companion["machine_control"]["provider_id"] == "local_companion"
+        assert companion["machine_control"]["driver"] == "companion"

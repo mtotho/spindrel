@@ -63,3 +63,14 @@ def test_restricted_profiles_expose_context_profile_note_as_optional_injection()
     assert "context_profile_note" in get_context_profile("task_recent").optional_static_injections
     assert "context_profile_note" in get_context_profile("task_none").optional_static_injections
     assert "context_profile_note" in get_context_profile("heartbeat").optional_static_injections
+
+
+def test_bot_knowledge_base_profile_admission_is_explicit():
+    assert get_context_profile("chat").allow_bot_knowledge_base is True
+    assert get_context_profile("executing").allow_bot_knowledge_base is True
+    assert get_context_profile("planning").allow_bot_knowledge_base is False
+    assert get_context_profile("task_recent").allow_bot_knowledge_base is False
+    assert get_context_profile("task_none").allow_bot_knowledge_base is False
+    assert get_context_profile("heartbeat").allow_bot_knowledge_base is False
+    assert "bot_knowledge_base" in get_context_profile("chat").optional_static_injections
+    assert "bot_knowledge_base" in get_context_profile("executing").optional_static_injections

@@ -194,7 +194,7 @@ export function BindingForm({
           onChange={handleConfigChange}
         />
       )}
-      <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
+      <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <ActionButton
           label={isPending ? "Saving..." : submitLabel}
           onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), collectConfigValues(configFields, configValues))}
@@ -204,7 +204,7 @@ export function BindingForm({
         <ActionButton
           label="Cancel"
           onPress={onCancel}
-          variant="ghost"
+          variant="secondary"
           size="small"
         />
       </div>

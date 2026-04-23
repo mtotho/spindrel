@@ -58,6 +58,13 @@ export interface DebugAction {
   style?: "default" | "warning" | "danger";
 }
 
+export interface IntegrationMachineControlInfo {
+  provider_id: string;
+  label: string;
+  driver: string;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface IntegrationItem {
   id: string;
   name: string;
@@ -87,6 +94,8 @@ export interface IntegrationItem {
   oauth?: OAuthConfig;
   webhook: IntegrationWebhook | null;
   api_permissions: string | string[] | null;
+  provides?: string[];
+  machine_control?: IntegrationMachineControlInfo | null;
   icon?: string;
   lifecycle_status: "available" | "enabled";
   status: "ready" | "partial" | "not_configured";

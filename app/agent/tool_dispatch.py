@@ -734,37 +734,33 @@ async def dispatch_tool_call(
                     _approval_reason = decision.reason
                     if decision.tier:
                         _approval_reason = f"[{decision.tier}] {decision.reason}"
-                    # Pre-allocate the ToolCall row id so the approval row
-                    # links to it (the re-dispatch path in loop.py reuses
-                    # the row via ``existing_record_id``).
-                    _tc_pending_id = uuid.uuid4()
-                    safe_create_task(_start_tool_call(
-                        id=_tc_pending_id,
-                        session_id=session_id,
-                        client_id=client_id,
-                        bot_id=bot_id,
-                        tool_name=name,
-                        tool_type=_ap_type,
-                        server_name=None,
-                        iteration=iteration,
-                        arguments=_tc_args_for_policy,
-                        correlation_id=correlation_id,
-                        status="awaiting_approval",
-                    ))
-                    approval_id = await _create_approval_record(
-                        session_id=session_id,
-                        channel_id=channel_id,
-                        bot_id=bot_id,
-                        client_id=client_id,
-                        correlation_id=correlation_id,
-                        tool_name=name,
-                        tool_type=_ap_type,
-                        arguments=_tc_args_for_policy,
-                        policy_rule_id=decision.rule_id,
-                        reason=_approval_reason,
-                        timeout=decision.timeout,
-                        tool_call_id=_tc_pending_id,
-                    )
+                    try:
+                        _tc_pending_id, approval_id = await _create_approval_state(
+                            session_id=session_id,
+                            channel_id=channel_id,
+                            bot_id=bot_id,
+                            client_id=client_id,
+                            correlation_id=correlation_id,
+                            tool_name=name,
+                            tool_type=_ap_type,
+                            arguments=_tc_args_for_policy,
+                            iteration=iteration,
+                            policy_rule_id=decision.rule_id,
+                            reason=_approval_reason,
+                            timeout=decision.timeout,
+                        )
+                    except Exception:
+                        logger.exception("Failed to create approval state for %s", name)
+                        _approval_err = "Tool call denied: approval state could not be created. Please retry."
+                        result_obj.result = json.dumps({"error": _approval_err})
+                        result_obj.result_for_llm = result_obj.result
+                        result_obj.tool_event = {
+                            "type": "tool_result",
+                            "tool": name,
+                            "tool_call_id": tool_call_id,
+                            "error": _approval_err,
+                        }
+                        return result_obj
                     result_obj.needs_approval = True
                     result_obj.approval_id = approval_id
                     result_obj.approval_timeout = decision.timeout
@@ -850,7 +846,7 @@ async def dispatch_tool_call(
         _tc_record_id = existing_record_id
     else:
         _tc_record_id = uuid.uuid4()
-        safe_create_task(_start_tool_call(
+        await _start_tool_call(
             id=_tc_record_id,
             session_id=session_id,
             client_id=client_id,
@@ -862,7 +858,8 @@ async def dispatch_tool_call(
             arguments=_tc_args_pre,
             correlation_id=correlation_id,
             status="running",
-        ))
+            strict=True,
+        )
 
     # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
     from app.agent.hooks import fire_hook, HookContext
@@ -1091,7 +1088,7 @@ async def dispatch_tool_call(
     if result_obj.envelope.truncated:
         result_obj.envelope.record_id = _tc_record_id
 
-    safe_create_task(_complete_tool_call(
+    await _complete_tool_call(
         _tc_record_id,
         tool_name=name,
         arguments=_tc_args_pre,
@@ -1101,7 +1098,8 @@ async def dispatch_tool_call(
         status="error" if _tc_error else "done",
         store_full_result=_store_full,
         envelope=result_obj.envelope.compact_dict(),
-    ))
+        strict=True,
+    )
 
     if _will_summarize:
         _was_summarized = True
@@ -1353,6 +1351,89 @@ async def _create_approval_record(
         ))
 
     return approval_id
+
+
+async def _create_approval_state(
+    *,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    bot_id: str,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    tool_name: str,
+    tool_type: str,
+    arguments: dict,
+    iteration: int,
+    policy_rule_id: str | None,
+    reason: str | None,
+    timeout: int,
+    extra_metadata: dict | None = None,
+) -> tuple[uuid.UUID, str]:
+    """Atomically create the awaiting-approval ToolCall and ToolApproval rows."""
+    from app.agent.context import current_dispatch_config, current_dispatch_type
+    from app.db.models import ToolApproval
+
+    dispatch_type = current_dispatch_type.get(None)
+    dispatch_config = current_dispatch_config.get(None)
+    tool_call_id = uuid.uuid4()
+    approval_id = uuid.uuid4()
+    now = time.time()
+
+    async with async_session() as db:
+        db.add(ToolCall(
+            id=tool_call_id,
+            session_id=session_id,
+            client_id=client_id,
+            bot_id=bot_id,
+            tool_name=tool_name,
+            tool_type=tool_type,
+            server_name=None,
+            iteration=iteration,
+            arguments=arguments,
+            surface=None,
+            summary=None,
+            result=None,
+            error=None,
+            duration_ms=None,
+            correlation_id=correlation_id,
+            created_at=datetime.fromtimestamp(now, timezone.utc),
+            status="awaiting_approval",
+            completed_at=None,
+        ))
+        db.add(ToolApproval(
+            id=approval_id,
+            session_id=session_id,
+            channel_id=channel_id,
+            bot_id=bot_id,
+            client_id=client_id,
+            correlation_id=correlation_id,
+            tool_name=tool_name,
+            tool_type=tool_type,
+            arguments=arguments,
+            policy_rule_id=uuid.UUID(policy_rule_id) if policy_rule_id else None,
+            reason=reason,
+            status="pending",
+            dispatch_type=dispatch_type,
+            dispatch_metadata=dispatch_config,
+            approval_metadata=extra_metadata or None,
+            tool_call_id=tool_call_id,
+            timeout_seconds=timeout,
+            created_at=datetime.fromtimestamp(now, timezone.utc),
+        ))
+        await db.commit()
+
+    if channel_id is not None:
+        safe_create_task(_notify_approval_request(
+            approval_id=str(approval_id),
+            bot_id=bot_id,
+            tool_name=tool_name,
+            arguments=arguments,
+            reason=reason,
+            extra_metadata=extra_metadata,
+            channel_id=channel_id,
+        ))
+
+    return tool_call_id, str(approval_id)
 
 
 async def _notify_approval_request(

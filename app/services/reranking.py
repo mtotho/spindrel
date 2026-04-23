@@ -17,6 +17,7 @@ import math
 import re
 from dataclasses import dataclass, field
 
+from app.agent.rag_formatting import CHUNK_SEPARATOR, RERANKABLE_RAG_PREFIXES
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -25,28 +26,19 @@ logger = logging.getLogger(__name__)
 # Chunk identification: RAG prefixes we recognise and re-rank
 # ---------------------------------------------------------------------------
 
-_RAG_PREFIXES: list[tuple[str, str]] = [
-    ("Relevant memories from past conversations", "memory"),
-    ("Relevant files from workspace", "filesystem"),
-    ("Relevant code/files", "filesystem"),
-    ("Relevant conversation history sections:\n\n", "conversation_sections"),
-    # Note: pinned skills and memory bootstrap/log messages are in
-    # _EXCLUDED_PREFIXES — they're always-present content that should never be
-    # reranked or filtered out.
-]
+_RAG_PREFIXES: list[tuple[str, str]] = list(RERANKABLE_RAG_PREFIXES)
 
 # Prefixes that are NEVER re-ranked (pinned content, user explicitly requested, or structural)
 _EXCLUDED_PREFIXES: list[str] = [
     "Pinned skill context",
+    "Pinned knowledge",
     "Tagged skill context",
+    "Tagged knowledge",
     "Your persistent memory (memory/MEMORY.md",
     "Today's daily log (memory/logs/",
     "Yesterday's daily log (memory/logs/",
     "Reference documents in memory/reference/",
 ]
-
-CHUNK_SEPARATOR = "\n\n---\n\n"
-
 
 @dataclass
 class RerankResult:

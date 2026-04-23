@@ -38,6 +38,7 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
+import { getWidgetLayoutBounds } from "@/src/lib/widgetLayoutHints";
 import { applyBuilderPinSuccessParams } from "@/src/lib/widgetDashboardBuilderState";
 import { ChatSession, type ChatSource } from "@/src/components/chat/ChatSession";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
@@ -314,15 +315,21 @@ export default function WidgetsDashboardPage() {
   const layouts = useMemo(() => {
     const lg: LayoutItem[] = pins.map((p, idx) => {
       const base = hasLayout(p) ? p.grid_layout : defaultLayoutForIndex(idx, preset);
+      const bounds = getWidgetLayoutBounds(
+        p.widget_presentation,
+        p.zone ?? "grid",
+        preset.cols.lg,
+      );
       return {
         i: p.id,
         x: base.x,
         y: base.y,
         w: base.w,
         h: base.h,
-        minW: preset.minTile.w,
-        minH: preset.minTile.h,
-        maxW: preset.cols.lg,
+        minW: Math.max(preset.minTile.w, bounds.minW),
+        minH: Math.max(preset.minTile.h, bounds.minH),
+        maxW: Math.min(preset.cols.lg, bounds.maxW),
+        ...(bounds.maxH != null ? { maxH: bounds.maxH } : {}),
       };
     });
 
@@ -340,13 +347,19 @@ export default function WidgetsDashboardPage() {
     const stackFor = (cols: number): LayoutItem[] => {
       let y = 0;
       return sortedForStack.map(({ p, base }) => {
+        const bounds = getWidgetLayoutBounds(
+          p.widget_presentation,
+          p.zone ?? "grid",
+          cols,
+        );
         const item: LayoutItem = {
           i: p.id,
           x: 0,
           y,
           w: cols,
           h: base.h,
-          minH: preset.minTile.h,
+          minH: Math.max(preset.minTile.h, bounds.minH),
+          ...(bounds.maxH != null ? { maxH: bounds.maxH } : {}),
         };
         y += base.h;
         return item;

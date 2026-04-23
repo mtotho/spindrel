@@ -128,6 +128,7 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
   const jsonError = parsedConfig === null;
   const isOpen = !!pinId;
+  const isHeaderZone = pin?.zone === "header";
 
   const currentLayout = (pin?.grid_layout as GridLayoutItem | undefined) ?? null;
   /** Match the current pin's {w,h} against a preset. Used to highlight the
@@ -139,8 +140,6 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     );
     return hit?.id ?? null;
   }, [currentLayout, preset]);
-
-  if (!isOpen) return null;
 
   const currentLabel = pin?.display_label ?? "";
   const currentConfig = prettyJson(pin?.widget_config ?? {});
@@ -237,6 +236,8 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     () => Object.keys(configSchemaProperties).length - schemaFields.length,
     [configSchemaProperties, schemaFields.length],
   );
+
+  if (!isOpen) return null;
 
   const isFullWidth =
     !!currentLayout
@@ -619,73 +620,86 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
             </div>
           )}
 
-          <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-              Title bar
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {(["inherit", "show", "hide"] as const).map((opt) => {
-                const active = currentTitleOverride === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    disabled={jsonError}
-                    onClick={() => setTitleOverride(opt)}
-                    className={
-                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium capitalize transition-colors "
-                      + (active
-                        ? "border-accent/60 bg-accent/10 text-accent"
-                        : "border-surface-border text-text-muted hover:bg-surface-overlay")
-                      + " disabled:opacity-50 disabled:cursor-not-allowed"
-                    }
-                    aria-pressed={active}
-                  >
-                    {opt === "inherit" ? "Inherit dashboard" : opt}
-                  </button>
-                );
-              })}
+          {isHeaderZone ? (
+            <div className="rounded-md border border-surface-border bg-surface px-3 py-2.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                Header zone host chrome
+              </span>
+              <p className="mt-1 text-[11px] leading-snug text-text-muted">
+                Header-zone pins are always titleless at the host level. Wrapper shell treatment is controlled by the channel&apos;s <strong>Header strip shell</strong> setting, not per-pin overrides.
+              </p>
             </div>
-            <p className="text-[11px] text-text-muted leading-snug">
-              Override the dashboard&apos;s &quot;Hide widget titles&quot; setting for this one pin.
-            </p>
-          </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Title bar
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {(["inherit", "show", "hide"] as const).map((opt) => {
+                    const active = currentTitleOverride === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        disabled={jsonError}
+                        onClick={() => setTitleOverride(opt)}
+                        className={
+                          "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium capitalize transition-colors "
+                          + (active
+                            ? "border-accent/60 bg-accent/10 text-accent"
+                            : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                          + " disabled:opacity-50 disabled:cursor-not-allowed"
+                        }
+                        aria-pressed={active}
+                      >
+                        {opt === "inherit" ? "Inherit dashboard" : opt}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-text-muted leading-snug">
+                  Override the dashboard&apos;s &quot;Hide widget titles&quot; setting for this one pin.
+                </p>
+              </div>
 
-          <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
-              Appearance
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {([
-                ["inherit", "Inherit"],
-                ["surface", "Surface"],
-                ["plain", "Plain"],
-              ] as const).map(([opt, label]) => {
-                const active = currentWrapperSurface === opt;
-                return (
-                  <button
-                    key={opt}
-                    type="button"
-                    disabled={jsonError}
-                    onClick={() => setWrapperSurface(opt)}
-                    className={
-                      "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors "
-                      + (active
-                        ? "border-accent/60 bg-accent/10 text-accent"
-                        : "border-surface-border text-text-muted hover:bg-surface-overlay")
-                      + " disabled:opacity-50 disabled:cursor-not-allowed"
-                    }
-                    aria-pressed={active}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-            <p className="text-[11px] text-text-muted leading-snug">
-              Control whether the host wrapper draws the outer widget surface. Plain leaves the wrapper transparent so the widget can provide its own interior treatment.
-            </p>
-          </div>
+              <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Appearance
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    ["inherit", "Inherit"],
+                    ["surface", "Surface"],
+                    ["plain", "Plain"],
+                  ] as const).map(([opt, label]) => {
+                    const active = currentWrapperSurface === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        disabled={jsonError}
+                        onClick={() => setWrapperSurface(opt)}
+                        className={
+                          "inline-flex items-center rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors "
+                          + (active
+                            ? "border-accent/60 bg-accent/10 text-accent"
+                            : "border-surface-border text-text-muted hover:bg-surface-overlay")
+                          + " disabled:opacity-50 disabled:cursor-not-allowed"
+                        }
+                        aria-pressed={active}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-text-muted leading-snug">
+                  Control whether the host wrapper draws the outer widget surface. Plain leaves the wrapper transparent so the widget can provide its own interior treatment.
+                </p>
+              </div>
+            </>
+          )}
 
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between">

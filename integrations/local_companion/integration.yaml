@@ -8,6 +8,11 @@ provides:
   - router
   - machine_control
 
+api_permissions:
+  - integrations:read
+  - integrations:write
+
 machine_control:
+  provider_id: local_companion
   label: Local Companion
   driver: companion

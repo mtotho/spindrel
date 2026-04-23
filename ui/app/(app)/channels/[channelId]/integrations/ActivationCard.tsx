@@ -1,7 +1,7 @@
 import { Puzzle, Plus, X as XIcon } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { prettyIntegrationName } from "@/src/utils/format";
-import { StatusBadge } from "@/src/components/shared/SettingsControls";
+import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { ActivatableIntegration } from "@/src/types/api";
 import { ActivationConfigFields } from "./ActivationConfigFields";
 import { HudPresetPicker } from "./HudPresetPicker";
@@ -50,7 +50,7 @@ export function ActivationCard({
   return (
     <div
       style={{
-        borderRadius: 8,
+        borderRadius: 6,
         border: `1px solid ${ig.activated ? t.accentBorder : t.surfaceBorder}`,
         background: ig.activated ? t.accentSubtle : t.surfaceRaised,
         transition: "all 0.15s ease",
@@ -96,8 +96,8 @@ export function ActivationCard({
                 fontSize: 10,
                 fontWeight: 500,
                 color: t.textMuted,
-                padding: "2px 8px",
-                borderRadius: 4,
+            padding: "2px 8px",
+                borderRadius: 6,
                 background: t.surfaceOverlay,
                 letterSpacing: 0.2,
               }}>
@@ -117,45 +117,14 @@ export function ActivationCard({
           )}
         </div>
 
-        <button
-          onClick={() => !disabled && !toggling && onToggle()}
+        <ActionButton
+          label={toggling ? (ig.activated ? "Removing..." : "Adding...") : ig.activated ? "Remove" : "Add"}
+          onPress={onToggle}
           disabled={disabled || toggling}
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            padding: "6px 14px",
-            borderRadius: 8,
-            border: `1px solid ${ig.activated ? t.surfaceBorder : t.accentBorder}`,
-            background: ig.activated ? "transparent" : t.accent,
-            color: ig.activated ? t.textDim : "#fff",
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: disabled || toggling ? "not-allowed" : "pointer",
-            opacity: disabled ? 0.4 : 1,
-            flexShrink: 0,
-            transition: "all 0.12s",
-          }}
-        >
-          {toggling ? (
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                border: `2px solid ${ig.activated ? t.textDim : "#fff"}`,
-                borderTopColor: "transparent",
-                borderRadius: "50%",
-                display: "inline-block",
-                animation: "spin 0.6s linear infinite",
-              }}
-            />
-          ) : ig.activated ? (
-            <XIcon size={12} />
-          ) : (
-            <Plus size={12} />
-          )}
-          {ig.activated ? "Remove" : "Add"}
-        </button>
+          variant={ig.activated ? "secondary" : "primary"}
+          size="small"
+          icon={toggling ? undefined : ig.activated ? <XIcon size={12} /> : <Plus size={12} />}
+        />
       </div>
 
       {/* Expanded content for active cards */}

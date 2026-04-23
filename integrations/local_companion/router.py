@@ -42,7 +42,7 @@ async def companion_ws(
         await websocket.close(code=4400, reason="first frame must be hello")
         return
 
-    target = get_target_by_id(target_id) or {}
+    target = get_target_by_id("local_companion", target_id) or {}
     label = str(hello.get("label") or target.get("label") or target_id)
     hostname = str(hello.get("hostname") or "")
     platform = str(hello.get("platform") or "")

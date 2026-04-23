@@ -79,7 +79,11 @@ Current fields include:
 - `presentation_family` — `card`, `chip`, or `panel`
 - `panel_title`
 - `show_panel_title`
-- `layout_hints`
+- `layout_hints` — authored placement defaults and host-size bounds:
+  - `preferred_zone` seeds initial placement when the pin call does not pass an explicit zone
+  - `min_cells` / `max_cells` clamp default tile size and editor resize bounds
+  - these do not forbid moving a widget to another zone
+  - they do not replace renderer-native responsiveness, which still depends on measured host size
 
 ### `resolved_host_policy`
 
@@ -226,6 +230,51 @@ They are used for core widgets such as Notes and Todo where the app wants:
 - deep shell integration
 
 Native widgets are not a public authoring lane.
+
+### Native widget storage model
+
+For catalog-backed native widgets, the authoritative state lives in
+`widget_instances`, not only in dashboard pins.
+
+- identity is keyed by `(widget_kind, widget_ref, scope_kind, scope_ref)`
+- pins cache render envelopes for fast reads, but native pin envelopes are
+  rebuilt from the widget instance when the cache drifts
+- durable user-edited data belongs in `widget_instances.state`
+- `widget_instances.config` exists for widget-local config, though the current
+  shipped native set uses little or none of it
+
+One important exception exists:
+
+- `core/plan_questions` is a transcript-native card emitted by
+  `ask_plan_questions`; it is not a catalog-backed `widget_instances` object
+
+### Shipped native widgets (current)
+
+This is the canonical answer to "which native widgets do we ship and where
+does their real data live?"
+
+| Widget ref | Primary scope | Authoritative data | Key stored state / behavior |
+|---|---|---|---|
+| `core/notes_native` | `channel`, `dashboard` | `widget_instances.state` | Persistent scratchpad body plus `created_at` / `updated_at`; bot/UI actions mutate the stored note body. |
+| `core/todo_native` | `channel`, `dashboard` | `widget_instances.state` | Persistent todo item list plus timestamps; items are stored as explicit open/completed records with add/toggle/rename/delete/reorder/clear actions. |
+| `core/context_tracker` | `channel` | native widget instance + host-rendered payload | Channel-scoped first-party context surface. Instance identity is durable; the meaningful displayed payload is host-provided context budget / compaction state rather than user-authored content. |
+| `core/usage_forecast_native` | `channel`, `dashboard` | native widget instance + host-rendered payload | Usage/forecast surface with minimal durable instance state; the meaningful visible data is host-provided forecast/activity data. |
+| `core/channel_files_native` | `channel` | native widget instance + shared channel file/navigation state | Channel file browser surface. It intentionally reuses the main channel file/navigation model instead of inventing a separate widget-local file database. |
+| `core/pinned_files_native` | `channel` | `widget_instances.state` | Stores `pinned_files[]`, `active_path`, and timestamps in the channel-scoped widget instance. This hidden native widget is the source of truth for pinned channel files. |
+| `core/upcoming_activity_native` | `channel`, `dashboard` | native widget instance + host-rendered payload | First-party schedule/activity view with little durable user-edited state; the meaningful payload is derived by the host. |
+| `core/plan_questions` | transcript / session flow | tool envelope + transcript / `planning_state` | Not catalog-backed. Emitted by `ask_plan_questions`; answers are persisted as a normal user message and as structured planning state, not in `widget_instances`. |
+
+### Native widget invariants that matter in practice
+
+- `core/pinned_files_native` is special: it is usually created/managed
+  indirectly and hidden from the normal widget catalog
+- deleting a native pin is not the same thing as deleting the authoritative
+  native widget state unless the underlying widget instance is also removed
+- "native widget" does not automatically mean "instance-backed persistence" for
+  every case; `core/plan_questions` is the deliberate transcript-native
+  exception
+- renderer responsiveness is a UI concern; storage authority still comes from
+  the widget instance or transcript path above
 
 ## Presets
 

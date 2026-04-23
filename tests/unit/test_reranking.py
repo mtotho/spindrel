@@ -5,6 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.agent.rag_formatting import (
+    BOT_KNOWLEDGE_BASE_RAG_PREFIX,
+    CHANNEL_INDEX_SEGMENTS_RAG_PREFIX,
+    WORKSPACE_RAG_PREFIX,
+)
 from app.services.reranking import (
     CHUNK_SEPARATOR,
     RerankResult,
@@ -98,6 +103,37 @@ class TestIdentifyRagMessages:
         assert len(result) == 1
         assert result[0].source == "knowledge"
         assert len(result[0].chunks) == 3
+
+    def test_bot_knowledge_base_header_is_rerankable(self):
+        messages = [
+            {"role": "system", "content": f"{BOT_KNOWLEDGE_BASE_RAG_PREFIX}:\n\ndoc1\n\n---\n\ndoc2"},
+        ]
+        result = _identify_rag_messages(messages)
+        assert len(result) == 1
+        assert result[0].source == "knowledge"
+        assert len(result[0].chunks) == 2
+
+    def test_channel_index_header_is_rerankable(self):
+        messages = [
+            {"role": "system", "content": f"{CHANNEL_INDEX_SEGMENTS_RAG_PREFIX}:\n\nchunk1\n\n---\n\nchunk2"},
+        ]
+        result = _identify_rag_messages(messages)
+        assert len(result) == 1
+        assert result[0].source == "knowledge"
+
+    def test_workspace_excerpt_header_is_rerankable(self):
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"{WORKSPACE_RAG_PREFIX} (partial segments — use file tool):\n\n"
+                    "file1\n\n---\n\nfile2"
+                ),
+            },
+        ]
+        result = _identify_rag_messages(messages)
+        assert len(result) == 1
+        assert result[0].source == "filesystem"
 
     def test_filesystem(self):
         messages = [

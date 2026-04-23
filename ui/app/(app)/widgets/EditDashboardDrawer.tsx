@@ -15,6 +15,7 @@ import {
   type GridPresetId,
 } from "@/src/lib/dashboardGrid";
 import { useIsAdmin } from "@/src/hooks/useScope";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
 import { RailScopePicker, type RailChoice, resolveRailChoice } from "./RailScopePicker";
 import { DashboardShareWarning } from "./DashboardShareWarning";
 
@@ -261,20 +262,21 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
           {isChannel ? (
-            <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-3">
+            <div className="flex flex-col gap-2 rounded-[6px] border border-surface-border bg-surface px-3 py-3">
               <div className="text-[12.5px] font-medium text-text">
                 Channel-owned settings live in channel settings
               </div>
               <div className="text-[11px] leading-snug text-text-dim">
                 Name, prompt, history, and presentation defaults are configured once for the channel. This drawer only keeps quick dashboard layout controls.
               </div>
-              <button
-                type="button"
-                onClick={() => navigate(`/channels/${slug.replace(/^channel:/, "")}/settings?from=dashboard#presentation`)}
-                className="inline-flex w-fit items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
-              >
-                Presentation settings
-              </button>
+              <div className="pt-1">
+                <ActionButton
+                  label="Presentation settings"
+                  onPress={() => navigate(`/channels/${slug.replace(/^channel:/, "")}/settings?from=dashboard#presentation`)}
+                  variant="secondary"
+                  size="small"
+                />
+              </div>
             </div>
           ) : (
             <>
@@ -311,7 +313,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
                   <label
                     key={p.id}
                     className={
-                      "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors " +
+                  "flex cursor-pointer items-start gap-2.5 rounded-[6px] border px-3 py-2 text-left transition-colors " +
                       (checked
                         ? "border-accent/60 bg-accent/[0.08]"
                         : "border-surface-border hover:bg-surface-overlay")
@@ -346,7 +348,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
 
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-medium text-text-muted">Tile chrome</span>
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-[6px] border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
               <input
                 type="checkbox"
                 checked={borderless}
@@ -360,7 +362,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
                 </div>
               </div>
             </label>
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-[6px] border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
               <input
                 type="checkbox"
                 checked={hoverScrollbars}
@@ -374,7 +376,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
                 </div>
               </div>
             </label>
-            <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-[6px] border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
               <input
                 type="checkbox"
                 checked={hideTitles}
@@ -397,7 +399,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
                 type="button"
                 onClick={handleResetLayout}
                 className={
-                  "flex items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors "
+                  "flex items-start gap-2.5 rounded-[6px] border px-3 py-2 text-left transition-colors "
                   + (resetArmed
                     ? "border-danger/60 bg-danger/10 text-danger"
                     : "border-surface-border hover:bg-surface-overlay")
@@ -424,7 +426,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
           )}
 
           {error && (
-            <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+            <div className="rounded-[6px] border border-danger/40 bg-danger/10 px-3 py-2 text-[12px] text-danger">
               {error}
             </div>
           )}
@@ -451,7 +453,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
                   type="button"
                   onClick={handleDelete}
                   disabled={!canDelete}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-[6px] bg-danger px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {deleting && <Loader2 size={13} className="animate-spin" />}
                   Delete
@@ -462,22 +464,19 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
         </div>
 
         <footer className="flex items-center justify-end gap-2 border-t border-surface-border px-4 py-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-surface-border px-3 py-1.5 text-[12px] font-medium text-text-muted hover:bg-surface-overlay"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
+          <ActionButton
+            label="Cancel"
+            onPress={onClose}
+            variant="secondary"
+            size="small"
+          />
+          <ActionButton
+            label={saving ? "Saving..." : "Save"}
+            onPress={handleSave}
             disabled={!canSave}
-            className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {saving && <Loader2 size={13} className="animate-spin" />}
-            Save
-          </button>
+            size="small"
+            icon={saving ? <Loader2 size={13} className="animate-spin" /> : undefined}
+          />
         </footer>
       </div>
     </>

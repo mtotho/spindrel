@@ -15,6 +15,7 @@ updated: 2026-04-23 (context/discovery canonicalization pass — profile matrix 
 - Demoted `vault/Projects/agent-server/How Discovery Works.md` from maintained explainer to pointer page so the vault no longer competes with the canonical docs on runtime behavior.
 - Follow-up expectation: adjacent docs should summarize and link, not restate profile-by-profile policy text.
 - Follow-up shipped later the same day: restricted profiles now get a small per-request runtime note, and the canonical context guide now documents that note with concrete `planning` / `executing` / `heartbeat` examples.
+- Late follow-up truth fix: bot knowledge-base admission is now called out explicitly in the profile matrix, the runtime no longer couples bot-KB admission to the generic `workspace_rag` flag, generic workspace RAG excludes both channel and bot KB prefixes, and `skills/context_mastery.md` now teaches KB as part of the ambient/profile-gated persistence tier instead of omitting it.
 
 ## Why this track exists
 `docs/` hasn't had a meaningful update since **2026-04-07**. Since then the product shipped: Widget Dashboards + Interactive HTML Widgets + Dev Panel, Task Sub-Sessions, Task Pipelines (all 5 phases; Workflows deprecated), Chat State Rehydration, ChatGPT Subscription OAuth provider, PWA + Push, the full Web-Native UI conversion (Metro→Vite, RN→HTML, Tailwind), unified PageHeader, OmniPanel rail redesign, Home Assistant integration, Excalidraw integration, Slack Depth, capability gating, `search_tools`, temporal context.

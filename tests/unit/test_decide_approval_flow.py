@@ -241,15 +241,7 @@ class TestGuardBranches:
 
 
 class TestToolCallStatusGuard:
-    async def test_tool_call_already_running_leaves_status_untouched_on_deny(self, db_session):
-        """Silent-drift case: deny while the row is no longer awaiting_approval.
-
-        Pins current behavior: ToolApproval flips to 'denied' but ToolCall stays
-        'running'. This leaves a denied approval pointing at a running tool call —
-        the snapshot endpoint will keep showing the call as in-flight until the
-        10-minute window expires. Documents a real DB inconsistency; the guard
-        clause at ``api_v1_approvals.py:181`` is the single source of truth.
-        """
+    async def test_tool_call_already_running_is_reconciled_on_deny(self, db_session):
         appr, tc = await _seed_pending_approval(
             db_session, tc_status="running",  # already re-dispatched somehow
         )
@@ -262,8 +254,25 @@ class TestToolCallStatusGuard:
 
         await db_session.refresh(tc)
         assert out.status == "denied"
-        assert tc.status == "running"  # drift — intentional or bug, pinned here
-        assert tc.completed_at is None
+        assert tc.status == "denied"
+        assert tc.completed_at is not None
+
+    async def test_terminal_tool_call_is_left_untouched_on_approve(self, db_session):
+        appr, tc = await _seed_pending_approval(db_session, tc_status="done")
+        completed_at = datetime.now(timezone.utc)
+        tc.completed_at = completed_at
+        await db_session.commit()
+
+        out = await decide_approval(
+            approval_id=appr.id,
+            body=DecideRequest(approved=True, decided_by="api:admin"),
+            _auth=None, db=db_session,
+        )
+
+        await db_session.refresh(tc)
+        assert out.status == "approved"
+        assert tc.status == "done"
+        assert tc.completed_at == completed_at
 
     async def test_tool_call_orphan_pointer_decides_without_error(self, db_session):
         """tool_call_id points at a deleted row — endpoint must not crash."""

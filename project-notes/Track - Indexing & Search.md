@@ -24,6 +24,10 @@ Resolution: `resolve_indexing()` in `app/services/workspace_indexing.py` cascade
    - **Semantic** (embeddings): `search_workspace`, `search_memory`, `search_bot_memory`, `search_channel_workspace`, `search_channel_archive`, `search_history`, `get_memory_file`, `get_skill`
    - **Literal** (regex / fnmatch, no embeddings): `file(operation="grep", …)` and `file(operation="glob", …)` in `app/tools/local/file_ops.py`. Use when the bot knows the exact string or filename pattern — function names, error messages, config keys, `**/*.py`. Replaces the need to shell out to `exec_command "grep -r …"` (which defeats file_ops' shell-quoting guarantees).
 
+**Rerank / exclusion invariant (2026-04-23):**
+- Channel KB auto-retrieval, bot KB auto-retrieval, workspace RAG, and conversation-section injections now share one header contract with the reranker. If a new retrieval block is added, its header prefix must be added to `app/agent/rag_formatting.py` instead of inventing an ad-hoc string in `context_assembly.py`.
+- Workspace-RAG exclusions now happen at retrieval time (`retrieve_filesystem_context(..., exclude_path_prefixes=/exclude_paths=...)`), not by substring-filtering already-formatted `[File: ...]` chunks. This prevents false positives where an unrelated file merely mentions `knowledge-base` in its content.
+
 **DB tables**:
 - `filesystem_chunks` — workspace files, memory files, channel workspace files (`bot_id` or `"channel:{id}"` sentinel)
 - `documents` — skill content chunks

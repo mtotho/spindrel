@@ -812,6 +812,7 @@ async def _fs_bm25_search(
     abs_roots: list[str] | None,
     top_k: int,
     excluded_prefixes: list[str] | None = None,
+    excluded_paths: list[str] | None = None,
 ) -> list[tuple[str, str, str | None, int | None, int | None, float]]:
     """BM25 full-text search on filesystem_chunks. Returns [] on SQLite or error."""
     try:
@@ -849,6 +850,11 @@ async def _fs_bm25_search(
                     wheres.append(f"NOT (file_path LIKE :{param_name} OR file_path = :{param_name}_exact)")
                     params[param_name] = normalized + "%"
                     params[f"{param_name}_exact"] = prefix.rstrip("/")
+            if excluded_paths:
+                for i, path in enumerate(excluded_paths):
+                    param_name = f"expath_{i}"
+                    wheres.append(f"file_path != :{param_name}")
+                    params[param_name] = path
 
             sql = _sa_text(f"""
                 SELECT content, file_path, symbol, start_line, end_line,
@@ -879,6 +885,8 @@ async def retrieve_filesystem_context(
     embedding_model: str | None = None,
     segments: list[dict] | None = None,
     channel_id: str | None = None,
+    exclude_path_prefixes: list[str] | None = None,
+    exclude_paths: list[str] | None = None,
 ) -> tuple[list[str], float]:
     """Embed query, cosine-search filesystem_chunks, return (formatted_chunks, best_similarity).
 
@@ -889,6 +897,7 @@ async def retrieve_filesystem_context(
     - bot_id: returns chunks where chunk.bot_id == bot_id OR chunk.bot_id IS NULL
     - client_id: returns chunks where chunk.client_id == client_id OR chunk.client_id IS NULL
     - channel_id: segments with a channel_id are skipped unless the active channel matches
+    - exclude_path_prefixes / exclude_paths: retrieval-time path filters applied before formatting
     """
     top_k = top_k or settings.FS_INDEX_TOP_K
     threshold = threshold if threshold is not None else settings.FS_INDEX_SIMILARITY_THRESHOLD
@@ -896,6 +905,8 @@ async def retrieve_filesystem_context(
 
     # Build list of path prefixes to exclude (channel-gated segments that don't match)
     _excl = _excluded_prefixes(segments, channel_id)
+    if exclude_path_prefixes:
+        _excl = list(dict.fromkeys([*_excl, *exclude_path_prefixes]))
 
     # Collect unique embedding models: base + any segment-specific models (only from included segments)
     unique_models: set[str] = {base_model}
@@ -925,6 +936,9 @@ async def retrieve_filesystem_context(
         _path_excl_filters.append(~FilesystemChunk.file_path.startswith(normalized))
         # Also exclude exact match (e.g. file_path == prefix without trailing slash)
         _path_excl_filters.append(FilesystemChunk.file_path != prefix.rstrip("/"))
+    if exclude_paths:
+        for path in exclude_paths:
+            _path_excl_filters.append(FilesystemChunk.file_path != path)
 
     # Fetch more results when hybrid search will fuse them
     vector_limit = top_k * 2 if settings.HYBRID_SEARCH_ENABLED else top_k
@@ -969,7 +983,15 @@ async def retrieve_filesystem_context(
             return [], 0.0
 
         if settings.HYBRID_SEARCH_ENABLED:
-            bm25_rows = await _fs_bm25_search(query, bot_id, client_id, abs_roots, top_k, excluded_prefixes=_excl or None)
+            bm25_rows = await _fs_bm25_search(
+                query,
+                bot_id,
+                client_id,
+                abs_roots,
+                top_k,
+                excluded_prefixes=_excl or None,
+                excluded_paths=exclude_paths,
+            )
             if bm25_rows:
                 return _format_hybrid_fs_results(rows, bm25_rows, threshold, top_k, query)
 
@@ -1019,7 +1041,15 @@ async def retrieve_filesystem_context(
     all_rows = all_rows[:vector_limit]
 
     if settings.HYBRID_SEARCH_ENABLED:
-        bm25_rows = await _fs_bm25_search(query, bot_id, client_id, abs_roots, top_k, excluded_prefixes=_excl or None)
+        bm25_rows = await _fs_bm25_search(
+            query,
+            bot_id,
+            client_id,
+            abs_roots,
+            top_k,
+            excluded_prefixes=_excl or None,
+            excluded_paths=exclude_paths,
+        )
         if bm25_rows:
             return _format_hybrid_fs_results(all_rows, bm25_rows, threshold, top_k, query)
 

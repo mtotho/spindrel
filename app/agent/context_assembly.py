@@ -35,8 +35,18 @@ from app.agent.message_utils import (
     _merge_tool_schemas,
 )
 from app.agent.rag import fetch_skill_chunks_by_id
+from app.agent.rag_formatting import (
+    BOT_KNOWLEDGE_BASE_RAG_PREFIX,
+    CHANNEL_INDEX_SEGMENTS_RAG_PREFIX,
+    CHANNEL_KNOWLEDGE_BASE_RAG_PREFIX,
+    CHUNK_SEPARATOR,
+    CONVERSATION_SECTIONS_RAG_PREFIX,
+    LEGACY_INDEXED_DIRECTORIES_RAG_PREFIX,
+    WORKSPACE_RAG_PREFIX,
+)
 from app.agent.recording import _record_trace_event
 from app.agent.tags import resolve_tags
+from app.agent.tokenization import estimate_content_tokens
 from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas
@@ -94,7 +104,12 @@ def _build_context_profile_note(
     workspace_admitted = any(decision == "admitted" for decision in workspace_decisions)
     workspace_budget_skipped = any(decision == "skipped_by_budget" for decision in workspace_decisions)
 
-    if not (context_profile.allow_channel_workspace or context_profile.allow_workspace_rag):
+    if not (
+        context_profile.allow_channel_workspace
+        or context_profile.allow_channel_index_segments
+        or context_profile.allow_bot_knowledge_base
+        or context_profile.allow_workspace_rag
+    ):
         lines.append("Workspace files, knowledge excerpts, and workspace search context are not preloaded in this profile.")
     elif workspace_admitted:
         lines.append("Some workspace and knowledge context is already present in this run.")
@@ -811,8 +826,9 @@ async def _inject_channel_workspace(
             )
             if chunks:
                 seg_body = "\n\n".join(chunks)
-                header_label = "channel knowledge base" if not cw_segments else "channel knowledge base and indexed directories"
-                seg_header = f"Relevant excerpts from the {header_label}:\n\n"
+                seg_header = (
+                    f"{CHANNEL_INDEX_SEGMENTS_RAG_PREFIX if cw_segments else CHANNEL_KNOWLEDGE_BASE_RAG_PREFIX}:\n\n"
+                )
                 if "search_channel_knowledge" in bot.local_tools:
                     seg_header += "(Call search_channel_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
                 elif "search_workspace" in bot.local_tools:
@@ -881,7 +897,7 @@ async def _inject_conversation_sections(
         if rows:
             texts = [r.transcript if r.transcript else f"## {r.title}\n{r.summary}" for r in rows]
             chars = sum(len(t) for t in texts)
-            content = "Relevant conversation history sections:\n\n" + "\n\n---\n\n".join(texts)
+            content = CONVERSATION_SECTIONS_RAG_PREFIX + CHUNK_SEPARATOR.join(texts)
             if budget_can_afford(content):
                 inject_chars["conversation_sections"] = chars
                 messages.append({"role": "system", "content": content})
@@ -952,7 +968,7 @@ async def _inject_workspace_rag(
     budget_can_afford: Any,
     budget: Any,
     memory_scheme_injected_paths: set[str],
-    excluded_chunk_prefixes: set[str],
+    excluded_path_prefixes: set[str],
     context_profile: ContextProfile,
     inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
@@ -979,16 +995,14 @@ async def _inject_workspace_rag(
             embedding_model=resolved["embedding_model"],
             segments=resolved.get("segments"),
             channel_id=str(channel_id) if channel_id else None,
+            exclude_paths=sorted(memory_scheme_injected_paths) if memory_scheme_injected_paths else None,
+            exclude_path_prefixes=sorted(excluded_path_prefixes) if excluded_path_prefixes else None,
         )
-        if memory_scheme_injected_paths:
-            fs_chunks = [c for c in fs_chunks if not any(p in c for p in memory_scheme_injected_paths)]
-        if excluded_chunk_prefixes:
-            fs_chunks = [c for c in fs_chunks if not any(prefix in c for prefix in excluded_chunk_prefixes)]
         if fs_chunks:
             body = (
-                "Relevant workspace file excerpts (partial segments — "
+                f"{WORKSPACE_RAG_PREFIX} (partial segments — "
                 "use the file tool with operation=\"read\" to read full file contents):\n\n"
-                + "\n\n---\n\n".join(fs_chunks)
+                + CHUNK_SEPARATOR.join(fs_chunks)
             )
             if budget_can_afford(body):
                 yield {"type": "fs_context", "count": len(fs_chunks)}
@@ -1014,12 +1028,17 @@ async def _inject_workspace_rag(
             (cfg.similarity_threshold for cfg in bot.filesystem_indexes if cfg.similarity_threshold is not None),
             default=None,
         )
-        fs_chunks, fs_sim = await retrieve_filesystem_context(user_message, bot.id, threshold=fs_threshold)
+        fs_chunks, fs_sim = await retrieve_filesystem_context(
+            user_message,
+            bot.id,
+            threshold=fs_threshold,
+            exclude_path_prefixes=sorted(excluded_path_prefixes) if excluded_path_prefixes else None,
+        )
         if fs_chunks:
             body = (
-                "Relevant file excerpts from indexed directories (partial segments — "
+                f"{LEGACY_INDEXED_DIRECTORIES_RAG_PREFIX} (partial segments — "
                 "use the file tool with operation=\"read\" to read full file contents):\n\n"
-                + "\n\n---\n\n".join(fs_chunks)
+                + CHUNK_SEPARATOR.join(fs_chunks)
             )
             if not budget_can_afford(body):
                 _mark_injection_decision(inject_decisions, "workspace_rag", "skipped_by_budget")
@@ -1050,7 +1069,7 @@ async def _inject_bot_knowledge_base(
     inject_decisions: dict[str, str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject semantic excerpts from the bot's own knowledge-base/ folder."""
-    if not context_profile.allow_workspace_rag:
+    if not context_profile.allow_bot_knowledge_base:
         _mark_injection_decision(inject_decisions, "bot_knowledge_base", "skipped_by_profile")
         return
     if not bot.workspace.enabled or not bot.workspace.indexing.enabled:
@@ -1085,7 +1104,7 @@ async def _inject_bot_knowledge_base(
             return
 
         kb_body = "\n\n".join(chunks)
-        kb_header = "Relevant excerpts from this bot's knowledge base:\n\n"
+        kb_header = f"{BOT_KNOWLEDGE_BASE_RAG_PREFIX}:\n\n"
         if "search_bot_knowledge" in bot.local_tools:
             kb_header += "(Call search_bot_knowledge for targeted lookups beyond these auto-retrieved excerpts.)\n\n"
         elif "search_workspace" in bot.local_tools:
@@ -1143,18 +1162,16 @@ async def assemble_context(
     result.context_policy = context_profile.to_policy_dict()
     current_skills_in_context.set([])
 
-    def _budget_consume(category: str, text: str) -> None:
+    def _budget_consume(category: str, content: Any) -> None:
         """Record consumption in the budget if one is active."""
         if budget is not None:
-            from app.agent.context_budget import estimate_tokens
-            budget.consume(category, estimate_tokens(text))
+            budget.consume(category, estimate_content_tokens(content))
 
-    def _budget_can_afford(text: str) -> bool:
+    def _budget_can_afford(content: Any) -> bool:
         """Check if the budget can accommodate this content."""
         if budget is None:
             return True
-        from app.agent.context_budget import estimate_tokens
-        return budget.can_afford(estimate_tokens(text))
+        return budget.can_afford(estimate_content_tokens(content))
 
     # --- account for pre-existing messages (base context + replayed live history) ---
     if budget is not None:
@@ -1163,7 +1180,7 @@ async def assemble_context(
         _history_tokens = 0
         for m in messages:
             _content = m.get("content", "")
-            _tokens = estimate_tokens(_content if isinstance(_content, str) else str(_content))
+            _tokens = estimate_content_tokens(_content)
             if m.get("role") == "system":
                 _base_tokens += _tokens
             else:
@@ -1919,15 +1936,15 @@ async def assemble_context(
 
     _workspace_rag_excluded_prefixes: set[str] = set()
 
-    # --- bot knowledge-base retrieval ---
-    if (
-        bot.workspace.enabled
-        and bot.workspace.indexing.enabled
-        and getattr(bot.workspace, "bot_knowledge_auto_retrieval", True)
-    ):
+    if channel_id is not None:
+        _workspace_rag_excluded_prefixes.add(f"channels/{channel_id}/knowledge-base")
+
+    if bot.workspace.enabled and bot.workspace.indexing.enabled:
         _workspace_rag_excluded_prefixes.add(
             "bots/" + bot.id + "/knowledge-base" if bot.shared_workspace_id else "knowledge-base"
         )
+
+    # --- bot knowledge-base retrieval ---
     async for evt in _inject_bot_knowledge_base(
         messages,
         bot,

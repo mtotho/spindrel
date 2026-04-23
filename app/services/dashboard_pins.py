@@ -105,6 +105,81 @@ def _default_layout_for_zone(
     return _default_grid_layout(position, channel=channel)
 
 
+def _cell_hint_value(source: object, key: str) -> int | None:
+    if not isinstance(source, dict):
+        return None
+    value = source.get(key)
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def _resolve_zone_from_layout_hints(layout_hints: object) -> str | None:
+    if not isinstance(layout_hints, dict):
+        return None
+    preferred_zone = layout_hints.get("preferred_zone")
+    if not isinstance(preferred_zone, str):
+        return None
+    normalized = preferred_zone.strip()
+    if normalized == "chip":
+        return "header"
+    if normalized in _VALID_ZONES:
+        return normalized
+    return None
+
+
+def _clamp_layout_size_to_hints(
+    layout: dict[str, int],
+    *,
+    layout_hints: object,
+) -> dict[str, int]:
+    if not isinstance(layout_hints, dict):
+        return dict(layout)
+    width = layout.get("w", 1)
+    height = layout.get("h", 1)
+    min_cells = layout_hints.get("min_cells")
+    max_cells = layout_hints.get("max_cells")
+    min_w = _cell_hint_value(min_cells, "w")
+    min_h = _cell_hint_value(min_cells, "h")
+    max_w = _cell_hint_value(max_cells, "w")
+    max_h = _cell_hint_value(max_cells, "h")
+    if min_w is not None:
+        width = max(width, min_w)
+    if min_h is not None:
+        height = max(height, min_h)
+    if max_w is not None:
+        width = min(width, max_w)
+    if max_h is not None:
+        height = min(height, max_h)
+    next_layout = dict(layout)
+    next_layout["w"] = width
+    next_layout["h"] = height
+    return next_layout
+
+
+def _seed_layout_from_hints(
+    position: int,
+    *,
+    resolved_zone: str,
+    layout_hints: object,
+    channel: bool = False,
+    preset_name: str = _DASHBOARD_PRESET_DEFAULT,
+) -> dict[str, int]:
+    preferred_zone = (
+        layout_hints.get("preferred_zone").strip()
+        if isinstance(layout_hints, dict)
+        and isinstance(layout_hints.get("preferred_zone"), str)
+        and layout_hints.get("preferred_zone").strip()
+        else None
+    )
+    if preferred_zone == "chip" and resolved_zone == "header":
+        base = dict(_HEADER_CHIP_LAYOUT)
+    else:
+        base = _default_layout_for_zone(position, resolved_zone, channel=channel)
+    clamped = _clamp_layout_size_to_hints(base, layout_hints=layout_hints)
+    return _normalize_coords_for_zone(clamped, resolved_zone, preset_name=preset_name)
+
+
 def serialize_pin(pin: WidgetDashboardPin) -> dict[str, Any]:
     """Serialize a pin row to a JSON-safe dict for API responses."""
     contract_meta = build_pin_contract_metadata(
@@ -376,9 +451,8 @@ async def create_pin(
 
     position = await _next_position(db, dashboard_key=dashboard_key)
     widget_config = _seed_widget_config(tool_name, envelope, widget_config)
-    resolved_zone = zone or "grid"
-    if resolved_zone not in _VALID_ZONES:
-        raise HTTPException(400, f"Invalid zone: {resolved_zone}")
+    if zone is not None and zone not in _VALID_ZONES:
+        raise HTTPException(400, f"Invalid zone: {zone}")
     widget_instance_id: uuid.UUID | None = None
     if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
         widget_ref = extract_native_widget_ref_from_envelope(envelope)
@@ -404,6 +478,15 @@ async def create_pin(
         widget_origin=widget_origin,
         provenance_confidence="authoritative" if widget_origin else None,
     )
+    widget_presentation = contract_meta.get("widget_presentation")
+    layout_hints = (
+        widget_presentation.get("layout_hints")
+        if isinstance(widget_presentation, dict)
+        else None
+    )
+    resolved_zone = zone or _resolve_zone_from_layout_hints(layout_hints) or "grid"
+    if resolved_zone not in _VALID_ZONES:
+        raise HTTPException(400, f"Invalid zone: {resolved_zone}")
     pin = WidgetDashboardPin(
         dashboard_key=dashboard_key,
         position=position,
@@ -421,14 +504,20 @@ async def create_pin(
         widget_presentation_snapshot=contract_meta["widget_presentation_snapshot"],
         envelope=envelope,
         display_label=display_label or envelope.get("display_label"),
-        grid_layout=_normalize_coords_for_zone(
-            (
-                grid_layout
-                if isinstance(grid_layout, dict)
-                else _default_layout_for_zone(position, resolved_zone, channel=is_channel)
-            ),
-            resolved_zone,
-            preset_name=preset_name,
+        grid_layout=(
+            _normalize_coords_for_zone(
+                grid_layout,
+                resolved_zone,
+                preset_name=preset_name,
+            )
+            if isinstance(grid_layout, dict)
+            else _seed_layout_from_hints(
+                position,
+                resolved_zone=resolved_zone,
+                layout_hints=layout_hints,
+                channel=is_channel,
+                preset_name=preset_name,
+            )
         ),
         zone=resolved_zone,
     )

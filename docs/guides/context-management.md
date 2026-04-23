@@ -525,6 +525,7 @@ Profile gating happens before budget gating.
 | memory housekeeping / nudges | allowed + budget | off | off | off | off | off |
 | channel workspace root `.md` | allowed + budget | off | allowed + budget | off | off | off |
 | channel knowledge-base / indexed-dir excerpts | allowed + budget | off | allowed + budget | off | off | off |
+| bot knowledge-base excerpts | allowed + budget | off | allowed + budget | off | off | off |
 | workspace RAG | allowed + budget | off | allowed + budget | off | off | off |
 | conversation sections / section index | allowed + budget | mandatory | mandatory | mandatory when history exists | off | off |
 | active plan artifact / planning capsules | off | mandatory | mandatory | off | off | off |
@@ -537,6 +538,7 @@ Profile gating happens before budget gating.
 Concrete runtime notes:
 
 - `MEMORY.md` is the only workspace-files memory source that is currently unconditional across all shipped profiles.
+- Bot knowledge-base admission is profile-gated separately from broad workspace RAG, even though the currently shipped restricted profiles disable both together.
 - "Allowed" for optional sources still means "subject to budget."
 - `task_recent` keeps the additive policy narrow even when it carries some conversation history.
 - `task_none` and `heartbeat` deliberately suppress ambient prompt growth.

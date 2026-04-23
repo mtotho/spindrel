@@ -19,7 +19,7 @@ import {
   Row,
   Col,
 } from "@/src/components/shared/FormControls";
-import { InfoBanner } from "@/src/components/shared/SettingsControls";
+import { ActionButton, InfoBanner } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -54,7 +54,7 @@ function TagEditor({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", minHeight: 40 }}>
       {tags.map((tag) => (
         <div
           key={tag}
@@ -63,14 +63,29 @@ function TagEditor({
             flexDirection: "row",
             alignItems: "center",
             gap: 4,
-            padding: "3px 8px",
-            borderRadius: 4,
-            backgroundColor: t.surfaceOverlay,
+            padding: "4px 9px",
+            borderRadius: 6,
+            backgroundColor: t.surfaceRaised,
             border: `1px solid ${t.surfaceBorder}`,
           }}
         >
           <span style={{ fontSize: 11, color: t.textMuted }}>{tag}</span>
-          <button type="button" onClick={() => onChange(tags.filter((x) => x !== tag))}>
+          <button
+            type="button"
+            onClick={() => onChange(tags.filter((x) => x !== tag))}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 16,
+              height: 16,
+              borderRadius: 6,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
             <X size={11} color={t.textDim} />
           </button>
         </div>
@@ -124,53 +139,26 @@ function DangerZoneSection({
   if (!canMutateOwnership) return null;
 
   return (
-    <div
-      style={{
-        marginTop: 32,
-        border: `1px solid ${t.dangerBorder}`,
-        borderRadius: 8,
-        overflow: "hidden",
-      }}
+    <Section
+      title="Danger Zone"
+      description="Destructive channel actions live here."
     >
-      <div
-        style={{
-          padding: "10px 14px",
-          background: t.dangerSubtle,
-          borderBottom: `1px solid ${t.dangerBorder}`,
-        }}
-      >
-        <span style={{ fontSize: 13, fontWeight: "700", color: t.danger }}>Danger Zone</span>
-      </div>
-      <div style={{ padding: 16 }}>
+      <div style={{ border: `1px solid ${t.dangerBorder}`, borderRadius: 6, background: t.dangerSubtle, padding: 14 }}>
         {!showDeleteConfirm ? (
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
             <div style={{ flex: 1, minWidth: 180 }}>
-              <span style={{ fontSize: 13, color: t.text, fontWeight: "600" }}>Delete this channel</span>
-              <span style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
+              <span style={{ display: "block", fontSize: 13, color: t.text, fontWeight: "600" }}>Delete this channel</span>
+              <span style={{ display: "block", fontSize: 11, color: t.textMuted, marginTop: 3, lineHeight: 1.5 }}>
                 Permanently removes the channel, its integrations, and heartbeat config. Sessions and tasks will be unlinked.
               </span>
             </div>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                padding: "8px 16px",
-                fontSize: 12,
-                fontWeight: 600,
-                border: `1px solid ${t.dangerBorder}`,
-                borderRadius: 6,
-                background: "transparent",
-                color: t.danger,
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              <Trash2 size={13} color={t.danger} />
-              Delete Channel
-            </button>
+            <ActionButton
+              label="Delete Channel"
+              onPress={() => setShowDeleteConfirm(true)}
+              variant="danger"
+              size="small"
+              icon={<Trash2 size={13} />}
+            />
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -183,6 +171,7 @@ function DangerZoneSection({
                 padding: "10px 14px",
                 background: t.dangerSubtle,
                 borderRadius: 6,
+                border: `1px solid ${t.dangerBorder}`,
               }}
             >
               <AlertTriangle size={16} color={t.danger} />
@@ -202,53 +191,30 @@ function DangerZoneSection({
                 padding: "8px 12px",
                 fontSize: 13,
                 background: t.inputBg,
-                border: `1px solid ${t.surfaceBorder}`,
+                border: `1px solid ${deleteConfirmText === "delete" ? t.dangerBorder : t.surfaceBorder}`,
                 borderRadius: 6,
                 color: t.text,
                 outline: "none",
               }}
             />
-            <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
-              <button
-                onClick={handleDelete}
+            <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+              <ActionButton
+                label={deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
+                onPress={handleDelete}
                 disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
-                style={{
-                  display: "flex",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "8px 20px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  border: "none",
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
-                  color: deleteConfirmText === "delete" ? "#fff" : t.textDim,
-                  opacity: deleteMutation.isPending ? 0.6 : 1,
-                }}
-              >
-                <Trash2 size={13} />
-                {deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
-              </button>
-              <button
-                onClick={() => {
+                variant="danger"
+                size="small"
+                icon={<Trash2 size={13} />}
+              />
+              <ActionButton
+                label="Cancel"
+                onPress={() => {
                   setShowDeleteConfirm(false);
                   setDeleteConfirmText("");
                 }}
-                style={{
-                  padding: "8px 16px",
-                  fontSize: 12,
-                  fontWeight: 500,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 6,
-                  background: "transparent",
-                  color: t.textMuted,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
+                variant="secondary"
+                size="small"
+              />
             </div>
             {deleteMutation.isError && (
               <span style={{ fontSize: 11, color: t.danger }}>
@@ -258,7 +224,7 @@ function DangerZoneSection({
           </div>
         )}
       </div>
-    </div>
+    </Section>
   );
 }
 
@@ -305,9 +271,9 @@ export function ChannelIdentitySection({
                     key={cat}
                     onClick={() => patch("category", cat as ChannelSettings["category"])}
                     style={{
-                      backgroundColor: t.surfaceOverlay,
-                      padding: "2px 6px",
-                      borderRadius: 4,
+                      backgroundColor: t.surfaceRaised,
+                      padding: "3px 8px",
+                      borderRadius: 6,
                       border: `1px solid ${t.surfaceBorder}`,
                       cursor: "pointer",
                     }}
@@ -626,6 +592,20 @@ export function PresentationSection({
             ]}
           />
         </FormRow>
+        <FormRow
+          label="Header strip shell"
+          description="Controls the host shell behind top-center header widgets. Default keeps the current surfaced look, Glass adds translucency, and Clear removes the shell fill."
+        >
+          <SelectInput
+            value={(form.header_backdrop_mode ?? "default") as string}
+            onChange={(v) => patch("header_backdrop_mode", v as ChannelSettings["header_backdrop_mode"])}
+            options={[
+              { label: "Default", value: "default" },
+              { label: "Glass", value: "glass" },
+              { label: "Clear", value: "clear" },
+            ]}
+          />
+        </FormRow>
       </Section>
 
       <Section title="Dashboard Presentation">
@@ -786,7 +766,7 @@ export function DashboardSettingsLink({
   return (
     <Link
       to={`/channels/${channelId}/settings?from=dashboard#presentation`}
-      className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+      className="inline-flex items-center gap-1.5 rounded-[6px] border border-surface-border px-2.5 py-1.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
       style={{ color: t.textMuted, textDecoration: "none" }}
     >
       {label}

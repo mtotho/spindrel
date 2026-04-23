@@ -87,6 +87,13 @@ Under the hood the grid is `react-grid-layout` — drag to move, corner-handle t
 - **Display label** — what the card header says. Defaults to the envelope's `display_label` or the tool name.
 - **Widget config** — free-form JSON. For widgets whose YAML template substitutes `{{widget_config.*}}`, this is where "Show Fahrenheit", "Hide forecast", "Compact mode", etc. live. `{{config.*}}` remains a compatibility alias only.
 
+**Authored layout defaults:**
+
+- `widget_presentation.layout_hints.preferred_zone` seeds the initial zone when a pin is created without an explicit placement.
+- `min_cells` / `max_cells` clamp the initial tile size and later resize bounds in the dashboard editors.
+- These are defaults, not locks: users can still drag any widget into another zone. The host then constrains the tile by that zone's own invariants.
+- Native/component responsiveness still comes from measured host geometry; `layout_hints` tells the host how large the tile should start and how far it may be stretched.
+
 **Grid presets:**
 
 | Preset | Columns | Row height | Main use | Best for |

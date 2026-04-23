@@ -38,6 +38,10 @@ _TIKTOKEN_KINDS = {
 _CACHE_TTL_SECONDS = 60.0
 _CACHE_MAX_ENTRIES = 1024
 _FALLBACK_CHARS_PER_TOKEN = 3.5
+_NON_TEXT_PART_TOKEN_ESTIMATES: dict[str, int] = {
+    "image_url": 256,
+    "input_audio": 256,
+}
 
 # Cache: key → (expires_at_monotonic, value)
 _cache: dict[tuple, tuple[float, int]] = {}
@@ -129,6 +133,30 @@ def count_text_tokens_sync(text: str, model: str) -> int:
     if enc is None:
         return max(1, int(len(text) / _FALLBACK_CHARS_PER_TOKEN))
     return len(enc.encode(text))
+
+
+def estimate_content_tokens(content: Any) -> int:
+    """Estimate tokens for message content that may include multimodal parts."""
+    if content is None:
+        return 0
+    if isinstance(content, str):
+        return estimate_tokens(content)
+    if isinstance(content, list):
+        total = 0
+        for part in content:
+            if isinstance(part, str):
+                total += estimate_tokens(part)
+                continue
+            if not isinstance(part, dict):
+                total += estimate_tokens(str(part))
+                continue
+            part_type = str(part.get("type") or "")
+            if part_type in {"text", "input_text"}:
+                total += estimate_tokens(str(part.get("text") or ""))
+                continue
+            total += _NON_TEXT_PART_TOKEN_ESTIMATES.get(part_type, 64)
+        return total
+    return estimate_tokens(str(content))
 
 
 # ---------------------------------------------------------------------------

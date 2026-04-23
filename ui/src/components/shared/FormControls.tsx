@@ -21,15 +21,15 @@ export function Section({ title, description, action, children, noDivider = fals
     <div style={{
       display: "flex",
       flexDirection: "column",
-      gap: 14,
+      gap: 12,
       borderTop: "none",
-      paddingTop: noDivider ? 0 : 4,
+      paddingTop: noDivider ? 0 : 2,
     }}>
       <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ minWidth: 0 }}>
-          <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block" }}>{title}</span>
+          <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block", letterSpacing: "-0.01em" }}>{title}</span>
           {description && (
-            <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5, marginTop: 3, display: "block", maxWidth: 860 }}>{description}</span>
+            <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.55, marginTop: 4, display: "block", maxWidth: 860 }}>{description}</span>
           )}
         </div>
         {action}
@@ -49,11 +49,11 @@ export function FormRow({ label, description, children }: {
 }) {
   const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <label style={{ color: t.textMuted, fontSize: 12, fontWeight: 500 }}>{label}</label>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <label style={{ color: t.textMuted, fontSize: 12, fontWeight: 500, lineHeight: 1.4 }}>{label}</label>
       {children}
       {description && (
-        <div style={{ color: t.textDim, fontSize: 12 }}>{description}</div>
+        <div style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5 }}>{description}</div>
       )}
     </div>
   );
@@ -66,13 +66,15 @@ function makeInputStyle(t: ThemeTokens): React.CSSProperties {
   return {
     background: t.inputBg,
     border: `1px solid ${t.inputBorder}`,
-    borderRadius: 7,
+    borderRadius: 6,
+    minHeight: 40,
     padding: "9px 12px",
     color: t.inputText,
     fontSize: 14,
     width: "100%",
     outline: "none",
-    transition: "border-color 0.15s, background-color 0.15s",
+    transition: "border-color 0.15s, background-color 0.15s, box-shadow 0.15s",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
   };
 }
 
@@ -92,8 +94,14 @@ export function TextInput({ value, onChangeText, placeholder, type = "text", sty
       onChange={(e) => onChangeText(e.target.value)}
       placeholder={placeholder}
       style={{ ...inputStyle, ...style }}
-      onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
-      onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+      onFocus={(e) => {
+        e.target.style.borderColor = t.inputBorderFocus;
+        e.target.style.boxShadow = `0 0 0 1px ${t.inputBorderFocus}33`;
+      }}
+      onBlur={(e) => {
+        e.target.style.borderColor = t.inputBorder;
+        e.target.style.boxShadow = "inset 0 1px 0 rgba(255,255,255,0.02)";
+      }}
     />
   );
 }
@@ -127,6 +135,7 @@ export function SelectInput({ value, onChange, options, style }: {
     appearance: "none",
     WebkitAppearance: "none",
     paddingRight: 34,
+    backgroundImage: "none",
   };
   return (
     <div style={containerStyle}>
@@ -134,8 +143,14 @@ export function SelectInput({ value, onChange, options, style }: {
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={selectStyle}
-        onFocus={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus; }}
-        onBlur={(e) => { (e.target as HTMLSelectElement).style.borderColor = t.inputBorder; }}
+        onFocus={(e) => {
+          (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus;
+          (e.target as HTMLSelectElement).style.boxShadow = `0 0 0 1px ${t.inputBorderFocus}33`;
+        }}
+        onBlur={(e) => {
+          (e.target as HTMLSelectElement).style.borderColor = t.inputBorder;
+          (e.target as HTMLSelectElement).style.boxShadow = "inset 0 1px 0 rgba(255,255,255,0.02)";
+        }}
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
@@ -145,7 +160,7 @@ export function SelectInput({ value, onChange, options, style }: {
         aria-hidden
         style={{
           position: "absolute",
-          right: 11,
+          right: 12,
           top: "50%",
           transform: "translateY(-50%)",
           pointerEvents: "none",
@@ -180,16 +195,16 @@ export function Toggle({ value, onChange, label, description }: {
         display: "flex", flexDirection: "row",
         alignItems: "flex-start",
         gap: 10,
-        padding: "8px 0",
+        padding: "6px 0",
         cursor: "pointer",
         userSelect: "none",
       }}
     >
       {/* Custom toggle track */}
       <div style={{
-        width: 36,
+        width: 34,
         height: 20,
-        borderRadius: 10,
+        borderRadius: 999,
         background: value ? t.accent : t.surfaceBorder,
         position: "relative",
         flexShrink: 0,
@@ -197,21 +212,21 @@ export function Toggle({ value, onChange, label, description }: {
         transition: "background 0.15s",
       }}>
         <div style={{
-          width: 16,
-          height: 16,
-          borderRadius: 8,
+          width: 14,
+          height: 14,
+          borderRadius: 999,
           background: t.text,
           position: "absolute",
-          top: 2,
-          left: value ? 18 : 2,
+          top: 3,
+          left: value ? 17 : 3,
           transition: "left 0.15s",
         }} />
       </div>
       {(label || description) && (
         <div>
-          {label && <div style={{ fontSize: 13, color: t.text }}>{label}</div>}
+          {label && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.4 }}>{label}</div>}
           {description && (
-            <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{description}</div>
+            <div style={{ fontSize: 11, color: t.textDim, marginTop: 3, lineHeight: 1.45 }}>{description}</div>
           )}
         </div>
       )}

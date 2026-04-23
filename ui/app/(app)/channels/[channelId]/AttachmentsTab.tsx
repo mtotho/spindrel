@@ -61,8 +61,8 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
       title="Attachments"
       description="Files uploaded directly to this channel. They remain available to the channel and can be filtered by type."
       action={
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
-          <div style={{ minWidth: 136 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
+          <div style={{ minWidth: 152 }}>
             <SelectInput
               value={filterType}
               onChange={setFilterType}
@@ -97,7 +97,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
           style={{
             display: "grid",
             gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
-            gap: 10,
+            gap: 8,
           }}
         >
           {[
@@ -112,9 +112,9 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
               key={item.label}
               style={{
                 padding: "10px 12px",
-                borderRadius: 7,
+                borderRadius: 6,
                 border: `1px solid ${t.surfaceBorder}`,
-                background: t.surfaceRaised,
+                background: t.surface,
               }}
             >
               <div style={{ fontSize: 11, color: t.textDim }}>{item.label}</div>
@@ -144,10 +144,10 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
               <div
                 key={att.id}
                 style={{
-                  padding: "10px 12px",
-                  background: t.surfaceRaised,
-                  borderRadius: 7,
-                  border: `1px solid ${t.surfaceBorder}`,
+                padding: "10px 12px",
+                background: t.surfaceRaised,
+                borderRadius: 6,
+                border: `1px solid ${t.surfaceBorder}`,
                   display: "flex",
                   flexDirection: "row",
                   gap: 10,
@@ -158,7 +158,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                   style={{
                     width: 28,
                     height: 28,
-                    borderRadius: 7,
+                    borderRadius: 6,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -197,21 +197,14 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                     <span>{new Date(att.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(att.id, att.filename)}
+                <ActionButton
+                  label="Delete"
+                  onPress={() => handleDelete(att.id, att.filename)}
                   disabled={deletingId === att.id}
-                  style={{
-                    padding: 8,
-                    borderRadius: 7,
-                    opacity: deletingId === att.id ? 0.4 : 0.8,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    background: "transparent",
-                  }}
-                  className="hover:bg-surface-overlay"
-                >
-                  <Trash2 size={13} color={t.danger} />
-                </button>
+                  variant="danger"
+                  size="small"
+                  icon={<Trash2 size={12} />}
+                />
               </div>
             );
           })}

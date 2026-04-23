@@ -83,6 +83,10 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - machine CRUD admin endpoints
   - chat UX
 - `RichToolResult.tsx` no longer defines machine renderers inline; they live under `ui/src/components/chat/renderers/machineControl/`.
+- Follow-up polish on 2026-04-23:
+  - integration discovery now exposes machine-control provider metadata to the generic integration detail page
+  - `Admin > Integrations > Local Companion` now has a provider-aware quick-setup card that calls the same core enroll API and can generate a ready launch command
+  - `/admin/machines` was moved onto the normal padded admin content width instead of rendering edge-to-edge
 
 ## Current Architecture Shape
 

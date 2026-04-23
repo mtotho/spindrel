@@ -90,12 +90,14 @@ VALID_HANDLER_SAFETY_TIERS: frozenset[str] = frozenset(
 
 @dataclass
 class LayoutHints:
-    """Authoring-time hints for where a widget belongs in the dashboard editor.
+    """Authoring-time hints for default placement and host-size bounds.
 
-    Advisory only — the dashboard editor reads ``preferred_zone`` to suggest
-    placement and ``min_cells`` / ``max_cells`` to clamp resize so a 180×32
-    chip widget can't be stretched into a grid tile (or vice versa). The
-    server does not enforce these — pins can always be placed anywhere.
+    ``preferred_zone`` seeds the initial placement when a pin is created
+    without an explicit zone. ``min_cells`` / ``max_cells`` clamp the default
+    tile size and editor resize bounds. Widgets may still be moved across
+    zones; the host treats these as authored defaults, not placement locks.
+    Internal widget responsiveness remains a renderer concern driven by the
+    measured host size, not by ``layout_hints`` alone.
     """
 
     preferred_zone: str | None = None  # one of VALID_ZONES
@@ -128,9 +130,9 @@ class WidgetManifest:
     # cross-channel / cross-dashboard re-pins keep working without
     # re-invoking the original ``emit_html_widget`` call.
     extra_csp: dict[str, list[str]] | None = None
-    # Advisory placement hints for the dashboard editor. Chip-sized widgets
-    # set ``preferred_zone: chip`` + ``max_cells: {w: 4, h: 1}``; grid tiles
-    # leave this unset. Never enforced server-side.
+    # Author-time defaults for pin placement and host-size bounds. Chip-sized
+    # widgets typically set ``preferred_zone: chip`` + ``max_cells: {w: 4, h: 1}``;
+    # widgets can still be moved elsewhere after pinning.
     layout_hints: LayoutHints | None = None
     # Declarative per-handler metadata. Entries whose ``bot_callable`` is
     # true surface as dynamic tools (``widget__<slug>__<name>``) to bots with

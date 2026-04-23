@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Check } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUpdateActivationConfig } from "@/src/api/hooks/useChannels";
 import { FormRow, TextInput, SelectInput, Toggle } from "@/src/components/shared/FormControls";
@@ -18,22 +17,31 @@ export function ActivationConfigFields({
   channelId: string;
 }) {
   const t = useThemeTokens();
+  const configMut = useUpdateActivationConfig(channelId);
   const fields = ig.config_fields;
   if (!fields || fields.length === 0) return null;
 
   const config = ig.activation_config ?? {};
 
   return (
-    <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${t.surfaceBorder}` }}>
-      <div style={{
-        fontSize: 10,
-        fontWeight: 600,
-        color: t.textDim,
-        marginBottom: 10,
-        textTransform: "uppercase",
-        letterSpacing: 1,
-      }}>
-        Configuration
+    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${t.surfaceBorder}` }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10, flexWrap: "wrap" }}>
+        <div style={{
+          fontSize: 10,
+          fontWeight: 600,
+          color: t.textDim,
+          textTransform: "uppercase",
+          letterSpacing: 1,
+        }}>
+          Configuration
+        </div>
+        <div style={{ fontSize: 11, color: configMut.isError ? t.danger : t.textDim }}>
+          {configMut.isPending
+            ? "Saving changes..."
+            : configMut.isError
+              ? (configMut.error instanceof Error ? configMut.error.message : "Save failed")
+              : "Saves automatically"}
+        </div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {fields.map((field) => (
@@ -41,8 +49,9 @@ export function ActivationConfigFields({
             key={field.key}
             field={field}
             value={config[field.key] ?? field.default}
-            channelId={channelId}
-            integrationType={field.source_integration ?? ig.integration_type}
+            save={(newValue) =>
+              configMut.mutate({ integrationType: field.source_integration ?? ig.integration_type, config: { [field.key]: newValue } })
+            }
           />
         ))}
       </div>
@@ -50,62 +59,16 @@ export function ActivationConfigFields({
   );
 }
 
-function SaveIndicator({ visible }: { visible: boolean }) {
-  const t = useThemeTokens();
-  return (
-    <span style={{
-      display: "inline-flex", flexDirection: "row",
-      alignItems: "center",
-      gap: 3,
-      fontSize: 10,
-      color: t.accent,
-      fontWeight: 600,
-      opacity: visible ? 1 : 0,
-      transform: visible ? "translateX(0)" : "translateX(-4px)",
-      transition: "opacity 0.2s, transform 0.2s",
-      pointerEvents: "none",
-    }}>
-      <Check size={10} strokeWidth={3} /> Saved
-    </span>
-  );
-}
-
 function ConfigFieldRow({
   field,
   value,
-  channelId,
-  integrationType,
+  save,
 }: {
   field: ConfigField;
   value: any;
-  channelId: string;
-  integrationType: string;
+  save: (newValue: any) => void;
 }) {
-  const configMut = useUpdateActivationConfig(channelId);
-  const [showSaved, setShowSaved] = useState(false);
-  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const save = useCallback(
-    (newValue: any) => {
-      configMut.mutate(
-        { integrationType, config: { [field.key]: newValue } },
-        {
-          onSuccess: () => {
-            setShowSaved(true);
-            if (savedTimer.current) clearTimeout(savedTimer.current);
-            savedTimer.current = setTimeout(() => setShowSaved(false), 1500);
-          },
-        },
-      );
-    },
-    [configMut, integrationType, field.key],
-  );
-
-  useEffect(() => {
-    return () => { if (savedTimer.current) clearTimeout(savedTimer.current); };
-  }, []);
-
-  const labelSuffix = <SaveIndicator visible={showSaved} />;
+  const saveField = useCallback((newValue: any) => save(newValue), [save]);
 
   switch (field.type) {
     case "string":
@@ -113,49 +76,44 @@ function ConfigFieldRow({
         <DebouncedTextField
           field={field}
           value={value ?? ""}
-          onSave={save}
-          suffix={labelSuffix}
+          onSave={saveField}
         />
       );
     case "boolean":
       return (
-        <div>
-          <Toggle
-            label={field.label}
-            description={field.description}
-            value={value ?? false}
-            onChange={save}
-          />
-          {labelSuffix}
-        </div>
+        <Toggle
+          label={field.label}
+          description={field.description}
+          value={value ?? false}
+          onChange={saveField}
+        />
       );
     case "number":
       return (
         <DebouncedTextField
           field={field}
           value={value != null ? String(value) : ""}
-          onSave={(v: string) => save(v === "" ? undefined : Number(v))}
+          onSave={(v: string) => saveField(v === "" ? undefined : Number(v))}
           type="number"
-          suffix={labelSuffix}
         />
       );
     case "select":
       return (
-        <FormRow label={<>{field.label} {labelSuffix}</>} description={field.description}>
+        <FormRow label={field.label} description={field.description}>
           <SelectInput
             value={value ?? ""}
-            onChange={save}
+            onChange={saveField}
             options={field.options ?? []}
           />
         </FormRow>
       );
     case "multiselect":
       return (
-        <FormRow label={<>{field.label} {labelSuffix}</>} description={field.description}>
+        <FormRow label={field.label} description={field.description}>
           <MultiSelectPicker
             options={field.options ?? []}
             selected={Array.isArray(value) ? value : []}
-            onChange={save}
+            onChange={saveField}
           />
         </FormRow>
       );
@@ -169,13 +127,11 @@ function DebouncedTextField({
   value,
   onSave,
   type,
-  suffix,
 }: {
   field: ConfigField;
   value: string;
   onSave: (v: string) => void;
   type?: string;
-  suffix?: React.ReactNode;
 }) {
   const [local, setLocal] = useState(value);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -198,7 +154,7 @@ function DebouncedTextField({
   }, []);
 
   return (
-    <FormRow label={<>{field.label} {suffix}</>} description={field.description}>
+    <FormRow label={field.label} description={field.description}>
       <TextInput
         value={local}
         onChangeText={handleChange}

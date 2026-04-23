@@ -1,6 +1,7 @@
 """LLM call infrastructure — retry/backoff, model fallback, and tool result summarization."""
 
 import asyncio
+import contextlib
 import json
 import logging
 import random
@@ -1398,21 +1399,31 @@ async def _llm_call_stream(
 
     chain_task = asyncio.create_task(_run_chain())
 
-    # Yield retry/fallback events in real-time as they arrive
-    while True:
-        ev = await event_queue.get()
-        if ev is None:
-            break
-        yield ev
+    try:
+        # Yield retry/fallback events in real-time as they arrive
+        while True:
+            ev = await event_queue.get()
+            if ev is None:
+                break
+            yield ev
 
-    # Wait for the task to finish (should already be done)
-    await chain_task
+        # Wait for the task to finish (should already be done)
+        await chain_task
 
-    if chain_error:
-        raise chain_error[0]
+        if chain_error:
+            raise chain_error[0]
 
-    async for ev in _consume_stream(stream_result[0]):
-        yield ev
+        async for ev in _consume_stream(stream_result[0]):
+            yield ev
+    finally:
+        if not chain_task.done():
+            chain_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await chain_task
+        stream = stream_result[0] if stream_result else None
+        if stream is not None and hasattr(stream, "aclose"):
+            with contextlib.suppress(Exception):
+                await stream.aclose()
 
 
 async def _llm_call(

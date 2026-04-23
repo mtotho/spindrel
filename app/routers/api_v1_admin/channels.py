@@ -385,6 +385,9 @@ class ChannelSettingsOut(BaseModel):
     # Chat presentation mode for the main channel surface. Stored in
     # channel.config["chat_mode"]; default "default".
     chat_mode: str = "default"
+    # Header strip shell treatment for header-zone widgets. Stored in
+    # channel.config["header_backdrop_mode"]; default "default".
+    header_backdrop_mode: str = "default"
     widget_theme_ref: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -453,6 +456,9 @@ class ChannelSettingsUpdate(BaseModel):
     # Chat presentation mode. "default" (default) | "terminal". Stored
     # inside channel.config JSONB.
     chat_mode: Optional[str] = None
+    # Header strip shell treatment. "default" (default) | "glass" | "clear".
+    # Stored inside channel.config JSONB.
+    header_backdrop_mode: Optional[str] = None
     widget_theme_ref: Optional[str] = None
 
 
@@ -616,6 +622,7 @@ async def admin_channel_settings(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
+    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "default"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 
@@ -714,6 +721,23 @@ async def admin_channel_settings_update(
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(channel, "config")
 
+    if "header_backdrop_mode" in updates:
+        hbm = updates.pop("header_backdrop_mode")
+        _valid_header_backdrop = {"default", "glass", "clear"}
+        if hbm is not None and hbm not in _valid_header_backdrop:
+            raise HTTPException(
+                status_code=422,
+                detail=f"header_backdrop_mode must be one of: {sorted(_valid_header_backdrop)}",
+            )
+        cfg = dict(channel.config or {})
+        if hbm in (None, "default"):
+            cfg.pop("header_backdrop_mode", None)
+        else:
+            cfg["header_backdrop_mode"] = hbm
+        channel.config = cfg
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(channel, "config")
+
     if "widget_theme_ref" in updates:
         wtr = updates.pop("widget_theme_ref")
         if wtr is not None:
@@ -771,6 +795,7 @@ async def admin_channel_settings_update(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
+    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "default"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 

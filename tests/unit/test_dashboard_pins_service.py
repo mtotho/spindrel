@@ -69,6 +69,74 @@ async def test_create_pin_defaults_header_zone_to_top_rail_card(db_session):
 
 
 @pytest.mark.asyncio
+async def test_create_pin_seeds_zone_and_size_from_native_layout_hints(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="core/context_tracker_native",
+        envelope=build_native_widget_preview_envelope("core/context_tracker"),
+    )
+    assert pin.zone == "header"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 2}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_seeds_chip_preset_into_header_chip_layout(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="GetLiveContext",
+        envelope=_env("Office Light"),
+        widget_origin={
+            "definition_kind": "tool_widget",
+            "instantiation_kind": "preset",
+            "tool_name": "GetLiveContext",
+            "preset_id": "homeassistant-entity-toggle-chip",
+        },
+    )
+    assert pin.zone == "header"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 4, "h": 1}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_clamps_default_size_from_layout_hints(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="core/todo_native",
+        envelope=build_native_widget_preview_envelope("core/todo_native"),
+    )
+    assert pin.zone == "grid"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 8}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_explicit_zone_beats_layout_hint_zone(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="core/context_tracker_native",
+        envelope=build_native_widget_preview_envelope("core/context_tracker"),
+        zone="grid",
+    )
+    assert pin.zone == "grid"
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 2}
+
+
+@pytest.mark.asyncio
+async def test_create_pin_explicit_layout_beats_layout_hint_size(db_session):
+    pin = await create_pin(
+        db_session,
+        source_kind="adhoc",
+        tool_name="core/context_tracker_native",
+        envelope=build_native_widget_preview_envelope("core/context_tracker"),
+        grid_layout={"x": 2, "y": 0, "w": 9, "h": 1},
+    )
+    assert pin.zone == "header"
+    assert pin.grid_layout == {"x": 2, "y": 0, "w": 9, "h": 1}
+
+
+@pytest.mark.asyncio
 async def test_list_pins_orders_by_position(db_session):
     await create_pin(db_session, source_kind="adhoc", tool_name="a", envelope=_env())
     await create_pin(db_session, source_kind="adhoc", tool_name="b", envelope=_env())

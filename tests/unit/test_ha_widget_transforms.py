@@ -520,6 +520,24 @@ def test_get_live_context_light_card_does_not_render_brightness_toggle_buttons()
     assert not any(c.get("type") == "button" for c in components)
 
 
+def test_get_live_context_light_card_does_not_repeat_friendly_name_heading():
+    config = {
+        "entity_id": "light.office_desk_led_strip",
+        "preset_variant": "light_card",
+        "show_brightness": True,
+        "action_target": "name",
+    }
+    components = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": config},
+        [],
+    )
+    headings = [c for c in components if c.get("type") == "heading"]
+    toggles = [c for c in components if c.get("type") == "toggle"]
+    assert headings == []
+    assert toggles
+    assert toggles[0]["label"] == "Office Desk LED Strip"
+
+
 def test_single_entity_state_via_state_poll_contract():
     """Smoke test: a state_poll refresh call should produce a fully
     populated dict that the state_poll template can render without

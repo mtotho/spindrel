@@ -23,7 +23,7 @@ export function AdvancedSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div style={{ marginTop: 8 }}>
+    <div style={{ marginTop: 10 }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -32,8 +32,8 @@ export function AdvancedSection({
           alignItems: "center",
           gap: 6,
           minHeight: 44,
-          paddingLeft: 4,
-          paddingRight: 4,
+          paddingLeft: 2,
+          paddingRight: 2,
           background: "transparent",
           border: "none",
           cursor: "pointer",
@@ -76,9 +76,9 @@ export function ActionButton({
 }) {
   const t = useThemeTokens();
 
-  const minHeight = size === "small" ? 36 : 44;
+  const minHeight = size === "small" ? 34 : 40;
   const fontSize = size === "small" ? 12 : 13;
-  const px = size === "small" ? 12 : 16;
+  const px = size === "small" ? 11 : 14;
 
   const variantStyles: Record<
     ButtonVariant,
@@ -86,7 +86,7 @@ export function ActionButton({
   > = {
     primary: { bg: t.accent, color: "#fff" },
     secondary: {
-      bg: t.surfaceOverlay,
+      bg: t.surfaceRaised,
       color: t.text,
       border: `1px solid ${t.surfaceBorder}`,
     },
@@ -95,7 +95,7 @@ export function ActionButton({
       color: t.danger,
       border: `1px solid ${t.dangerBorder}`,
     },
-    ghost: { bg: "transparent", color: t.textMuted },
+    ghost: { bg: "transparent", color: t.textMuted, border: `1px solid ${t.surfaceBorder}` },
   };
 
   const v = variantStyles[variant];
@@ -112,7 +112,7 @@ export function ActionButton({
         paddingLeft: px,
         paddingRight: px,
         minHeight,
-        borderRadius: 7,
+        borderRadius: 6,
         fontSize,
         fontWeight: 600,
         cursor: disabled ? "default" : "pointer",
@@ -122,7 +122,7 @@ export function ActionButton({
         opacity: disabled ? 0.5 : 1,
         transition: "opacity 0.12s, background-color 0.12s, border-color 0.12s",
         flexShrink: 0,
-        boxShadow: variant === "primary" ? "0 6px 18px rgba(56, 114, 255, 0.18)" : "none",
+        boxShadow: variant === "primary" ? "0 8px 18px rgba(56, 114, 255, 0.14)" : "none",
       }}
     >
       {icon}
@@ -179,8 +179,8 @@ export function StatusBadge({
         display: "inline-block",
         fontSize: 10,
         fontWeight: 600,
-        padding: "2px 8px",
-        borderRadius: 999,
+        padding: "3px 8px",
+        borderRadius: 6,
         background: colors.bg,
         color: colors.fg,
         whiteSpace: "nowrap",
@@ -232,7 +232,7 @@ export function InfoBanner({
     <div
       style={{
         padding: "10px 14px",
-        borderRadius: 7,
+        borderRadius: 6,
         background: v.bg,
         border: `1px solid ${v.border}`,
         fontSize: 11,
@@ -301,9 +301,9 @@ export function SaveStatusPill({
         display: "inline-flex",
         alignItems: "center",
         gap: 6,
-        minHeight: 28,
-        padding: "0 10px",
-        borderRadius: 999,
+        minHeight: 30,
+        padding: "0 11px",
+        borderRadius: 6,
         background: pill.bg,
         border: `1px solid ${pill.border}`,
         color: pill.color,

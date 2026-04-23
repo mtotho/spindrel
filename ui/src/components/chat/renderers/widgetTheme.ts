@@ -133,6 +133,13 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 54%, transparent 46%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 62%, white 38%)'};
     --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 30%, transparent 70%)' : 'color-mix(in srgb, var(--sd-surface-border) 34%, white 66%)'};
   }
+  html[data-sd-host-surface="translucent"] {
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 44%, transparent 56%)' : 'color-mix(in srgb, var(--sd-surface-raised) 52%, transparent 48%)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 24%, transparent 76%)' : 'color-mix(in srgb, var(--sd-surface-border) 28%, white 72%)'};
+    --sd-card-shadow: none;
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 42%, transparent 58%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 50%, white 50%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 22%, transparent 78%)' : 'color-mix(in srgb, var(--sd-surface-border) 26%, white 74%)'};
+  }
   html[data-sd-host-surface="plain"] {
     --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 88%, transparent 12%)' : 'color-mix(in srgb, var(--sd-surface-raised) 96%, transparent 4%)'};
     --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 58%, transparent 42%)' : 'color-mix(in srgb, var(--sd-surface-border) 60%, white 40%)'};

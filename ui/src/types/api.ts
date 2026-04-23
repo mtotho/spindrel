@@ -394,6 +394,8 @@ export interface Channel {
     layout_mode?: "full" | "rail-header-chat" | "rail-chat" | "dashboard-only";
     /** Chat presentation mode for the main channel surface. */
     chat_mode?: "default" | "terminal";
+    /** Top-center header strip shell treatment for header-zone widgets. */
+    header_backdrop_mode?: "default" | "glass" | "clear";
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
   };
@@ -778,6 +780,8 @@ export interface ChannelSettings {
    *  `channel.config`. "default" keeps the current UI; "terminal" swaps in
    *  the command-first transcript treatment. */
   chat_mode?: "default" | "terminal";
+  /** Top-center chat header strip shell treatment. Stored in `channel.config`. */
+  header_backdrop_mode?: "default" | "glass" | "clear";
   /** Channel-scoped HTML widget SDK theme override. Null/absent inherits the global default. */
   widget_theme_ref?: string | null;
 }

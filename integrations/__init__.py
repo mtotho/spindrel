@@ -591,6 +591,8 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             "env_vars": [],
             "webhook": None,
             "api_permissions": None,
+            "provides": [],
+            "machine_control": None,
             "status": "not_configured",
             "readme": None,
         }
@@ -776,6 +778,19 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
             ap = setup.get("api_permissions")
             if ap:
                 entry["api_permissions"] = ap
+
+            provides = setup.get("provides")
+            if isinstance(provides, list):
+                entry["provides"] = [str(v) for v in provides if str(v).strip()]
+
+            mc = setup.get("machine_control")
+            if isinstance(mc, dict):
+                entry["machine_control"] = {
+                    "provider_id": str(mc.get("provider_id") or integration_id),
+                    "label": str(mc.get("label") or entry["name"]),
+                    "driver": str(mc.get("driver") or "unknown"),
+                    "metadata": mc.get("metadata") if isinstance(mc.get("metadata"), dict) else None,
+                }
 
             # Debug actions
             da = setup.get("debug_actions")

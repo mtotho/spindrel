@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import WidgetDashboardPin, WidgetInstance
-from app.services.widget_contracts import build_native_widget_contract
+from app.services.widget_contracts import build_native_widget_contract, build_widget_presentation
 
 
 NATIVE_APP_CONTENT_TYPE = "application/vnd.spindrel.native-app+json"
@@ -83,6 +83,12 @@ class NativeWidgetSpec:
                 else {"type": "object", "properties": {}}
             ),
             "layout_hints": copy.deepcopy(self.layout_hints),
+            "widget_presentation": build_widget_presentation(
+                presentation_family=self.presentation_family,
+                panel_title=self.panel_title,
+                show_panel_title=self.show_panel_title,
+                layout_hints=self.layout_hints,
+            ),
             "widget_contract": build_native_widget_contract(
                 actions=[action.as_dict() for action in self.actions],
                 supported_scopes=self.supported_scopes,

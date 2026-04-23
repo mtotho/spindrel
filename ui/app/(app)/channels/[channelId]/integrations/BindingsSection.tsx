@@ -96,8 +96,8 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                   style={{
                     background: t.surfaceRaised,
                     border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 7,
-                    padding: 12,
+                    borderRadius: 6,
+                    padding: 14,
                   }}
                 >
                   <BindingForm
@@ -123,9 +123,9 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                   style={{
                     display: "flex", flexDirection: "row",
                     alignItems: "center",
-                    gap: 10,
-                    padding: "10px 14px",
-                    borderRadius: 7,
+                    gap: 12,
+                    padding: "12px 14px",
+                    borderRadius: 6,
                     border: `1px solid ${t.surfaceBorder}`,
                     background: t.surfaceRaised,
                   }}
@@ -146,40 +146,22 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                       </div>
                     )}
                   </div>
-                  <button
-                    onClick={() => setEditingId(b.id)}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 6,
-                      borderRadius: 6,
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      transition: "background 0.1s",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <Pencil size={13} color={t.textDim} />
-                  </button>
-                  <button
-                    onClick={() => setUnbindTarget({ id: b.id, type: b.integration_type, clientId: b.client_id })}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 6,
-                      borderRadius: 6,
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      transition: "background 0.1s",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceOverlay; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <X size={14} color={t.danger} />
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <ActionButton
+                      label="Edit"
+                      onPress={() => setEditingId(b.id)}
+                      variant="secondary"
+                      size="small"
+                      icon={<Pencil size={12} />}
+                    />
+                    <ActionButton
+                      label="Remove"
+                      onPress={() => setUnbindTarget({ id: b.id, type: b.integration_type, clientId: b.client_id })}
+                      variant="danger"
+                      size="small"
+                      icon={<X size={12} />}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -188,14 +170,14 @@ export function BindingsSection({ channelId }: { channelId: string }) {
         {showAdd && (
           <div
             style={{
-              marginTop: 4,
-              padding: 12,
-              borderRadius: 7,
+              marginTop: 12,
+              padding: 14,
+              borderRadius: 6,
               border: `1px solid ${t.surfaceBorder}`,
               background: t.surfaceRaised,
             }}
           >
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 10 }}>Add Binding</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 10, letterSpacing: "-0.01em" }}>Add Binding</div>
             <BindingForm
               availableIntegrations={available}
               initialType={available[0]?.type ?? ""}

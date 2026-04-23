@@ -64,6 +64,9 @@ import type {
 } from "@/src/types/api";
 import type { GridPreset, DashboardChrome } from "@/src/lib/dashboardGrid";
 import { CHANNEL_PANEL_DEFAULT_WIDTH } from "@/src/lib/channelPanelLayout";
+import { resolveDashboardCanvasMinHeight } from "@/src/lib/dashboardCanvasHeight";
+import { getSuggestedWidgetSize, getWidgetLayoutBounds } from "@/src/lib/widgetLayoutHints";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { EditModeGridGuides } from "./EditModeGridGuides";
 import {
   DroppableCanvas,
@@ -264,19 +267,25 @@ export function ChannelDashboardMultiCanvas({
   // source canvas's dimensions don't translate — a chip can't stay a chip
   // after landing in the main grid). x/y are derived pointer-aware.
   const defaultSizeForZone = useCallback(
-    (zone: ChatZone): { w: number; h: number } => {
-      switch (zone) {
-        case "rail":
-        case "dock":
-          return { w: 1, h: 6 };
-        case "header":
-          return { w: 6, h: 2 };
-        case "grid":
-        default:
-          return { w: preset.defaultTile.w, h: preset.defaultTile.h };
-      }
+    (
+      zone: ChatZone,
+      presentation?: WidgetDashboardPin["widget_presentation"] | null,
+    ): { w: number; h: number } => {
+      const fallback = (() => {
+        switch (zone) {
+          case "rail":
+          case "dock":
+            return { w: 1, h: 6 };
+          case "header":
+            return { w: 6, h: 2 };
+          case "grid":
+          default:
+            return { w: preset.defaultTile.w, h: preset.defaultTile.h };
+        }
+      })();
+      return getSuggestedWidgetSize(presentation, zone, fallback, preset.cols.lg);
     },
-    [preset.defaultTile],
+    [preset.cols.lg, preset.defaultTile],
   );
 
   const nextGridPlacement = useCallback(
@@ -407,7 +416,7 @@ export function ChannelDashboardMultiCanvas({
     ) => {
       const pin = pins.find((p) => p.id === pinId);
       if (!pin) return;
-      const size = defaultSizeForZone(targetZone);
+      const size = defaultSizeForZone(targetZone, pin.widget_presentation);
 
       // Grid: pointer-snap the pin's top-left to a cell; coords are absolute
       // so no sibling rewrite is needed (grid uses CSS Grid positioning).
@@ -975,6 +984,7 @@ function HeaderCanvas({
               const effW = preview ? preview.w : gl.w;
               const effH = preview ? preview.h : gl.h;
               const chipLike = isChipLikeHeaderLayout(gl);
+              const bounds = getWidgetLayoutBounds(pin.widget_presentation, "header", cols);
               const scope: WidgetScope = chipLike
                 ? { kind: "channel", channelId, compact: "chip" }
                 : dashboardScope();
@@ -1022,8 +1032,8 @@ function HeaderCanvas({
                                     + GAP_PX,
                                   h: HEADER_ROW_HEIGHT_PX + GAP_PX,
                                 },
-                                clampW: { min: 1, max: cols },
-                                clampH: { min: 1, max: HEADER_MAX_ROWS },
+                                clampW: { min: bounds.minW, max: bounds.maxW },
+                                clampH: { min: bounds.minH, max: bounds.maxH ?? HEADER_MAX_ROWS },
                                 showRest: true,
                                 onResizing: ({ x, w, h }) =>
                                   setResizePreview({
@@ -1100,6 +1110,7 @@ function UnifiedBodyCanvas({
   ghost,
 }: UnifiedBodyCanvasProps) {
   const t = useThemeTokens();
+  const { height: viewportHeight } = useWindowSize();
   const [resizePreview, setResizePreview] = useState<{
     id: string;
     x: number;
@@ -1117,6 +1128,14 @@ function UnifiedBodyCanvas({
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
   const headerLeft = metrics ? CANVAS_INNER_PADDING + metrics.centerStartX : 0;
   const headerWidth = metrics?.centerTrackWidth ?? 0;
+  const bodyCanvasMinHeight = useMemo(
+    () =>
+      resolveDashboardCanvasMinHeight({
+        viewportHeight,
+        canvasTop: measuredRect?.top ?? null,
+      }),
+    [viewportHeight, measuredRect?.top],
+  );
   const gridStyle: CSSProperties = {
     display: "grid",
     gridTemplateColumns: `${RAIL_WIDTH_PX}px repeat(${preset.cols.lg}, minmax(0, 1fr)) ${DOCK_WIDTH_PX}px`,
@@ -1128,7 +1147,8 @@ function UnifiedBodyCanvas({
     <div
       ref={measureRef}
       data-dashboard-canvas="body"
-      className="relative min-h-[240px] p-3"
+      className="relative p-3"
+      style={{ minHeight: bodyCanvasMinHeight }}
     >
       {editMode && metrics && (
         <>
@@ -1223,6 +1243,11 @@ function UnifiedBodyCanvas({
           const effW = preview ? preview.w : gl.w;
           const effH = preview ? preview.h : gl.h;
           const railLike = p.zone === "rail" || p.zone === "dock";
+          const bounds = getWidgetLayoutBounds(
+            p.widget_presentation,
+            railLike ? p.zone : "grid",
+            preset.cols.lg,
+          );
           const gridColumn =
             p.zone === "rail"
               ? "1 / span 1"
@@ -1270,7 +1295,7 @@ function UnifiedBodyCanvas({
                               initial: { x: 0, y: gl.y, w: 1, h: gl.h },
                               cellPx: { w: RAIL_WIDTH_PX, h: preset.rowHeight + GAP_PX },
                               clampW: { min: 1, max: 1 },
-                              clampH: { min: 2 },
+                              clampH: { min: bounds.minH, max: bounds.maxH },
                               showRest: true,
                               onResizing: ({ h }) =>
                                 setResizePreview({ id: p.id, x: 0, w: 1, h }),
@@ -1288,8 +1313,8 @@ function UnifiedBodyCanvas({
                                 w: centerCellWidth + GAP_PX,
                                 h: preset.rowHeight + GAP_PX,
                               },
-                              clampW: { min: 1, max: preset.cols.lg },
-                              clampH: { min: 2 },
+                              clampW: { min: bounds.minW, max: bounds.maxW },
+                              clampH: { min: bounds.minH, max: bounds.maxH },
                               showRest: true,
                               onResizing: ({ x, w, h }) =>
                                 setResizePreview({ id: p.id, x, w, h }),
@@ -1427,6 +1452,7 @@ function ListCanvas({
                   const effH =
                     resizePreview?.id === p.id ? resizePreview.h : gl.h;
                   const tileHeightPx = effH * (rowHeight + GAP_PX) - GAP_PX;
+                  const bounds = getWidgetLayoutBounds(p.widget_presentation, zone, 1);
                   return (
                     <SortableTile key={p.id} id={p.id}>
                       {(binding) => (
@@ -1460,7 +1486,7 @@ function ListCanvas({
                                     initial: { x: 0, y: gl.y, w: 1, h: gl.h },
                                     cellPx: { w: widthPx, h: rowHeight + GAP_PX },
                                     clampW: { min: 1, max: 1 },
-                                    clampH: { min: 2 },
+                                    clampH: { min: bounds.minH, max: bounds.maxH },
                                     showRest: true,
                                     onResizing: ({ h }) =>
                                       setResizePreview({ id: p.id, h }),
@@ -1615,6 +1641,11 @@ function GridCanvas({
               const effX = isResizing ? resizePreview!.x : gl.x;
               const effW = isResizing ? resizePreview!.w : gl.w;
               const effH = isResizing ? resizePreview!.h : gl.h;
+              const bounds = getWidgetLayoutBounds(
+                p.widget_presentation,
+                "grid",
+                preset.cols.lg,
+              );
               const gridColumn = `${effX + 1} / span ${effW}`;
               const gridRow = `${gl.y + 1} / span ${effH}`;
               return (
@@ -1658,8 +1689,8 @@ function GridCanvas({
                                 // to the tile's right boundary, so growing
                                 // leftward can occupy all cols 0..rightEdge-1
                                 // without overflowing.
-                                clampW: { min: 1, max: preset.cols.lg },
-                                clampH: { min: 2 },
+                                clampW: { min: bounds.minW, max: bounds.maxW },
+                                clampH: { min: bounds.minH, max: bounds.maxH },
                                 showRest: true,
                                 onResizing: ({ x, w, h }) =>
                                   setResizePreview({ id: p.id, x, w, h }),

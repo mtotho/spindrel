@@ -156,6 +156,24 @@ class TestEstimateCompat:
         assert tokenization.estimate_tokens("") == 0
         assert tokenization.estimate_tokens("x" * 35) == 10
 
+    def test_estimate_content_tokens_counts_multimodal_parts(self):
+        content = [
+            {"type": "text", "text": "hello world"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            {"type": "input_audio", "input_audio": {"data": "abc", "format": "wav"}},
+        ]
+
+        tokens = tokenization.estimate_content_tokens(content)
+        assert tokens > tokenization.estimate_tokens("hello world")
+        assert tokens == tokenization.estimate_tokens("hello world") + 512
+
+    def test_estimate_content_tokens_avoids_base64_overcount(self):
+        content = [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + ("x" * 5000)}},
+        ]
+
+        assert tokenization.estimate_content_tokens(content) == 256
+
     def test_context_budget_re_export(self):
         # context_budget.py re-exports estimate_tokens — keep the import alive.
         from app.agent.context_budget import estimate_tokens

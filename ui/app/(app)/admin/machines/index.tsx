@@ -279,7 +279,7 @@ export default function AdminMachinesPage() {
   const providers = useMemo(() => data?.providers ?? [], [data]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
       <PageHeader
         variant="detail"
         title="Machines"
@@ -306,27 +306,47 @@ export default function AdminMachinesPage() {
         )}
       />
 
-      <div style={{ fontSize: 13, color: t.textDim, lineHeight: "20px" }}>
-        Machine enrollment and target lifecycle live here. Session-level lease grant and revoke remain chat-scoped.
-      </div>
-
-      {isLoading ? (
-        <div style={{ padding: 24 }}>
-          <Spinner />
-        </div>
-      ) : providers.length === 0 ? (
-        <SectionCard>
-          <div style={{ fontSize: 13, color: t.textDim }}>
-            No machine-control providers are available.
+      <div
+        style={{
+          flex: 1,
+          overflow: "auto",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            padding: 20,
+            maxWidth: 960,
+            margin: "0 auto",
+            width: "100%",
+            boxSizing: "border-box",
+          }}
+        >
+          <div style={{ fontSize: 13, color: t.textDim, lineHeight: "20px" }}>
+            Machine enrollment and target lifecycle live here. Session-level lease grant and revoke remain chat-scoped.
           </div>
-        </SectionCard>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          {providers.map((provider) => (
-            <ProviderSection key={provider.provider_id} provider={provider} />
-          ))}
+
+          {isLoading ? (
+            <div style={{ padding: 24 }}>
+              <Spinner />
+            </div>
+          ) : providers.length === 0 ? (
+            <SectionCard>
+              <div style={{ fontSize: 13, color: t.textDim }}>
+                No machine-control providers are available.
+              </div>
+            </SectionCard>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {providers.map((provider) => (
+                <ProviderSection key={provider.provider_id} provider={provider} />
+              ))}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

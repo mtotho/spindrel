@@ -108,7 +108,8 @@ class TestHappyPath:
             },
         }
 
-    def test_full_manifest(self, tmp_path):
+    def test_full_manifest(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("app.services.cron_utils.validate_cron", lambda _expr: None)
         p = write_yaml(
             tmp_path,
             """\
@@ -351,7 +352,11 @@ class TestPanelTitleValidation:
 
 
 class TestCronValidation:
-    def test_invalid_cron_expr_raises(self, tmp_path):
+    def test_invalid_cron_expr_raises(self, tmp_path, monkeypatch):
+        def _invalid(expr: str) -> None:
+            raise ValueError(f"invalid cron expression: {expr}")
+
+        monkeypatch.setattr("app.services.cron_utils.validate_cron", _invalid)
         p = write_yaml(
             tmp_path,
             """\
@@ -375,7 +380,8 @@ class TestCronValidation:
         with pytest.raises(ManifestError, match="cron"):
             parse_manifest(p)
 
-    def test_missing_handler_raises(self, tmp_path):
+    def test_missing_handler_raises(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("app.services.cron_utils.validate_cron", lambda _expr: None)
         p = write_yaml(
             tmp_path,
             """\
@@ -390,7 +396,8 @@ class TestCronValidation:
         with pytest.raises(ManifestError, match="handler"):
             parse_manifest(p)
 
-    def test_valid_cron_passes(self, tmp_path):
+    def test_valid_cron_passes(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("app.services.cron_utils.validate_cron", lambda _expr: None)
         p = write_yaml(
             tmp_path,
             """\

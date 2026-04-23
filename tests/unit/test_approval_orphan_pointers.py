@@ -1,26 +1,12 @@
-"""Phase E.3 drift-seam test: tool_dispatch approval-create race.
+"""Approval-state creation seam tests for ``dispatch_tool_call``.
 
-Seam class: background-task ordering + orphan pointer.
-
-Both approval-gate paths in dispatch_tool_call share the same ordering:
-
-    safe_create_task(_start_tool_call(id=pending_id, status='awaiting_approval'))
-    approval_id = await _create_approval_record(..., tool_call_id=pending_id)
-
-ToolApproval commits synchronously; ToolCall lands asynchronously. If
-_start_tool_call raises (DB error, pool exhaustion, etc.) the ToolApproval
-commits with a tool_call_id that references a non-existent ToolCall — a ghost
-pointer the snapshot endpoint and decide endpoint must handle gracefully.
-
-Phase D coverage for downstream consequences:
-  test_channel_state_snapshot.py — ToolCall awaiting_approval with no matching
-    ToolApproval (inverse direction; approval_id=None surfaced in snapshot)
-  test_decide_approval_flow.py — decide when tool_call_id=None: only the
-    ToolApproval row is flipped (test_when_tool_call_id_none_*)
+The approval gate must create the awaiting-approval ``ToolCall`` row and the
+pending ``ToolApproval`` row together. If that creation fails, the dispatcher
+must not leak a dangling approval pointer or pretend the tool is now waiting on
+human input.
 """
 from __future__ import annotations
 
-import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,17 +19,11 @@ from app.db.models import ToolApproval, ToolCall
 pytestmark = pytest.mark.asyncio
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _kw(**overrides) -> dict:
-    """Minimal kwargs for dispatch_tool_call. channel_id=None avoids
-    the _notify_approval_request fire-and-forget in the approval path."""
     base = dict(
         args="{}",
         tool_call_id="tc_1",
-        bot_id="e3-test-bot",
+        bot_id="approval-seam-bot",
         bot_memory=None,
         session_id=uuid.uuid4(),
         client_id="test-client",
@@ -63,131 +43,67 @@ def _kw(**overrides) -> dict:
 
 
 def _approval_decision(reason: str = "needs review", timeout: int = 300) -> MagicMock:
-    d = MagicMock()
-    d.action = "require_approval"
-    d.reason = reason
-    d.rule_id = None
-    d.tier = None
-    d.timeout = timeout
-    return d
+    decision = MagicMock()
+    decision.action = "require_approval"
+    decision.reason = reason
+    decision.rule_id = None
+    decision.tier = None
+    decision.timeout = timeout
+    return decision
 
 
-async def _flush(n: int = 5) -> None:
-    """Yield to the event loop n times so fire-and-forget tasks can land."""
-    for _ in range(n):
-        await asyncio.sleep(0)
-
-
-# ---------------------------------------------------------------------------
-# Policy-gate path (tool_dispatch.py:367-393)
-# ---------------------------------------------------------------------------
-
-class TestPolicyGateHappyPath:
-    async def test_when_start_completes_then_both_rows_exist_and_linked(
+class TestApprovalStateCreation:
+    async def test_when_creation_succeeds_then_both_rows_exist_and_linked(
         self, db_session, patched_async_sessions
     ):
-        """Normal ordering: ToolApproval commits synchronously, then the
-        background _start_tool_call task inserts the ToolCall. After flush
-        both rows exist and ToolApproval.tool_call_id == ToolCall.id.
-        """
         with patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch._check_tool_policy",
-                   new_callable=AsyncMock,
-                   return_value=_approval_decision()):
-            await dispatch_tool_call(name="write_file", allowed_tool_names=None, **_kw())
-
-        await _flush()
-        db_session.expire_all()
-
-        tc_rows = (await db_session.execute(select(ToolCall))).scalars().all()
-        ap_rows = (await db_session.execute(select(ToolApproval))).scalars().all()
-        assert len(tc_rows) == 1
-        assert len(ap_rows) == 1
-        assert tc_rows[0].status == "awaiting_approval"
-        assert ap_rows[0].tool_call_id == tc_rows[0].id
-
-    async def test_result_record_id_matches_toolcall_row_id(
-        self, db_session, patched_async_sessions
-    ):
-        """result.record_id is the pre-allocated UUID — loop.py uses it as
-        existing_record_id to UPDATE the same row on re-dispatch."""
-        with patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
-             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch._check_tool_policy",
-                   new_callable=AsyncMock,
-                   return_value=_approval_decision()):
-            result = await dispatch_tool_call(
-                name="exec_cmd", allowed_tool_names=None, **_kw()
-            )
-
-        await _flush()
-        db_session.expire_all()
-
-        tc_row = (await db_session.execute(select(ToolCall))).scalar_one()
-        assert result.record_id == tc_row.id
-
-
-class TestPolicyGateOrphanPointer:
-    async def test_when_start_tool_call_raises_then_approval_commits_with_ghost_id(
-        self, db_session, patched_async_sessions
-    ):
-        """Drift pin: if _start_tool_call's background task fails, ToolApproval
-        is already committed but ToolCall never lands. ToolApproval.tool_call_id
-        holds the pre-allocated UUID that points at no row.
-
-        Downstream: decide_approval sees tool_call_id=<ghost>; SELECT ToolCall
-        WHERE id=<ghost> returns None, so only the ToolApproval row gets flipped
-        (pinned in test_decide_approval_flow.py::test_when_tool_call_id_none_*).
-        """
-        with patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
-             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch._check_tool_policy",
-                   new_callable=AsyncMock,
-                   return_value=_approval_decision()), \
-             patch("app.agent.tool_dispatch._start_tool_call",
-                   new_callable=AsyncMock,
-                   side_effect=RuntimeError("DB pool exhausted")):
+             patch(
+                 "app.agent.tool_dispatch._check_tool_policy",
+                 new_callable=AsyncMock,
+                 return_value=_approval_decision(),
+             ):
             result = await dispatch_tool_call(
                 name="write_file", allowed_tool_names=None, **_kw()
             )
 
-        await _flush()
-        db_session.expire_all()
+        tc_row = (await db_session.execute(select(ToolCall))).scalar_one()
+        approval_row = (await db_session.execute(select(ToolApproval))).scalar_one()
 
-        tc_rows = (await db_session.execute(select(ToolCall))).scalars().all()
-        assert len(tc_rows) == 0
+        assert result.needs_approval is True
+        assert result.record_id == tc_row.id
+        assert result.approval_id == str(approval_row.id)
+        assert tc_row.status == "awaiting_approval"
+        assert approval_row.status == "pending"
+        assert approval_row.tool_call_id == tc_row.id
 
-        ap_rows = (await db_session.execute(select(ToolApproval))).scalars().all()
-        assert len(ap_rows) == 1
-        assert ap_rows[0].tool_call_id is not None
-        assert ap_rows[0].tool_call_id == result.record_id
-
-    async def test_caller_receives_valid_result_despite_start_failure(
+    async def test_when_atomic_create_fails_then_no_rows_are_committed(
         self, db_session, patched_async_sessions
     ):
-        """dispatch_tool_call returns needs_approval=True with valid record_id
-        and approval_id even though _start_tool_call's background task fails.
-        loop.py's approval-wait path proceeds unaware of the orphan.
-        """
         with patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
              patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch._check_tool_policy",
-                   new_callable=AsyncMock,
-                   return_value=_approval_decision("exec tier", timeout=120)), \
-             patch("app.agent.tool_dispatch._start_tool_call",
-                   new_callable=AsyncMock,
-                   side_effect=RuntimeError("DB down")):
+             patch(
+                 "app.agent.tool_dispatch._check_tool_policy",
+                 new_callable=AsyncMock,
+                 return_value=_approval_decision("exec tier", timeout=120),
+             ), \
+             patch(
+                 "app.agent.tool_dispatch._create_approval_state",
+                 new_callable=AsyncMock,
+                 side_effect=RuntimeError("DB pool exhausted"),
+             ):
             result = await dispatch_tool_call(
                 name="exec_cmd", allowed_tool_names=None, **_kw()
             )
 
-        assert result.needs_approval is True
-        assert result.record_id is not None
-        assert result.approval_id is not None
-        assert result.approval_timeout == 120
+        approval_rows = (await db_session.execute(select(ToolApproval))).scalars().all()
+        tool_call_rows = (await db_session.execute(select(ToolCall))).scalars().all()
 
+        assert approval_rows == []
+        assert tool_call_rows == []
+        assert result.needs_approval is False
+        assert result.approval_id is None
+        assert result.record_id is None
+        assert "approval state could not be created" in (result.result or "")

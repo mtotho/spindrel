@@ -19,7 +19,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
   - `provenance_confidence`
   - `widget_contract_snapshot`
   - `config_schema_snapshot`
-- New pins write `provenance_confidence = "authoritative"`.
+- Pins with caller-supplied explicit `widget_origin` write `provenance_confidence = "authoritative"`; inferred rows stay `inferred`.
 - Legacy rows self-heal to inferred origin/snapshots on read.
 - Pin serialization resolves metadata from `widget_origin` first and falls back to snapshots if the live source cannot be re-resolved.
 - Tool-widget substitution/runtime namespaces are now:
@@ -44,6 +44,51 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Snapshots are the fallback contract when the live source is unavailable or ambiguous.
 - `widget_config` is the public runtime-config namespace. New docs/templates should not introduce fresh `config.*` usage.
 - HTML-backed tool widgets should read `window.spindrel.result` / `widgetConfig`; `toolResult` exists for compatibility, not as the preferred API.
+
+### Widget semantics, authored presentation, and host policy are separate layers
+**Decided 2026-04-23.** The widget system now explicitly distinguishes semantic contract, durable provenance, authored presentation intent, and final host rendering policy.
+
+**What changed.**
+- Widget metadata now carries `widget_presentation` with:
+  - `presentation_family`
+  - `panel_title`
+  - `show_panel_title`
+  - `layout_hints`
+- Dashboard pins now persist `widget_presentation_snapshot` beside contract/schema snapshots.
+- Frontend rendering now resolves a single host policy object from:
+  - placement zone
+  - authored `widget_presentation`
+  - dashboard chrome
+  - per-pin runtime overrides
+- The canonical docs now teach:
+  - `rail | header | dock | grid` as host zones
+  - `card | chip | panel` as presentation families
+
+**Why.**
+- The previous model mixed authored intent with placement and host chrome, which made every new zone/mode add another special case.
+- `panel_title` / `show_panel_title` and compact chip behavior were already load-bearing, but they lived in partially overlapping metadata paths.
+- Extensibility requires one clean seam: authors declare intent once; the host resolves the final rendering policy per placement.
+
+### `layout_hints` mean placement defaults and host-size bounds, not renderer responsiveness
+**Decided 2026-04-23.** `layout_hints` now have one narrow meaning across docs and runtime.
+
+**What changed.**
+- `preferred_zone` seeds initial pin placement when callers do not pass an explicit zone.
+- `min_cells` / `max_cells` clamp initial tile size and later resize bounds in the dashboard editors.
+- Generic pin creation now consumes these hints, not just preset pinning.
+- Frontend editors now apply the same bounds during resize.
+
+**Why.**
+- The old story was muddy: contracts serialized `layout_hints`, docs implied broader support, but only preset pinning actually consumed them.
+- Future flexibility depends on separating host layout policy from widget-internal responsiveness. Renderers still recompose from measured host size; `layout_hints` just tell the host how large a tile should start and how far it may stretch.
+
+**Load-bearing invariants.**
+- `widget_contract` stays semantic; presentation-family concerns belong in `widget_presentation`.
+- `widget_origin` answers "where did this pin come from"; it is not a styling contract.
+- Placement zones and presentation families are different:
+  - `header` is a zone
+  - `chip` is a presentation family
+- The host should render from one resolved policy object, not by reading raw booleans from multiple layers at render time.
 
 ### Channel-dashboard `header` is a floating top rail, and `chip` is an authoring alias rather than a persisted zone
 **Decided 2026-04-23.** The top-of-chat widget area is now modeled as a real floating `header` rail, not a singleton chip slot and not a separate persisted `chip` zone.

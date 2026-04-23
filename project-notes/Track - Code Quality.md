@@ -48,6 +48,13 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 
 **Approach**: Extract each concern into a named sub-function. For `assemble_context`, each `# ---` section becomes its own async function operating on a shared pipeline state object.
 
+### 2026-04-23 stabilization pass
+
+- Approval-gated dispatch no longer relies on fire-and-forget DB writes for correctness-critical state. `tool_dispatch` now creates the `awaiting_approval` `ToolCall` row and matching `ToolApproval` row in one transaction, and normal dispatch/completion awaits strict recording helpers instead of silently dropping missing-row updates.
+- `recording.py` now reports zero-row completion/status writes as real failures (`False` by default, raise in `strict=True`) so callers can detect lifecycle drift instead of committing a quiet no-op.
+- `loop.py` now reconciles approval timeout verdicts against DB truth via a shared helper, removing the duplicated timeout branch that could locally decide `"expired"` even after another actor had already approved/denied the request.
+- The large loop split is still not finished, but the approval timeout duplication was reduced and the risky state machine is materially smaller than before this pass.
+
 ### loop.py refactor — parked plan (April 11)
 
 `app/agent/loop.py` is back to **1684 lines** despite past splits. Confirmed nothing in `app/agent/` is already-extracted-but-unused — every helper module is imported. Pure option-B split needed.
@@ -55,6 +62,7 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 **Plan:** [/home/mtoth/.claude/plans/fuzzy-growing-hamming.md](file:///home/mtoth/.claude/plans/fuzzy-growing-hamming.md)
 
 **Why parked:** Lots of pending in-flight changes (`app/domain/`, `app/integrations/`, channel renderer work) on the development branch. Re-evaluate the plan against those changes before executing — the dispatch DRY (Step 5) in particular may interact with the new domain/renderer layer.
+Update 2026-04-23: the approval-timeout sub-branch was extracted into a shared helper during the lifecycle stabilization pass, but the broader dispatch/iteration split below is still pending.
 
 **Plan summary (6 commits, behavior-preserving, target ~400 lines):**
 1. `loop_helpers.py` — pure helpers (`_sanitize_*`, `_extract_usage_extras`, `_finalize_response`, `_record_fallback_event`, etc.). Drops ~280 lines.

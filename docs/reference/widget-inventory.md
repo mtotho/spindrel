@@ -52,9 +52,9 @@ Use this checklist when adding or modernizing a widget.
 
 | Area | Count | Notes |
 |---|---:|---|
-| Native widgets | 2 | First-party, current-standard. |
+| Native widgets | 8 | First-party host-rendered widgets; most are catalog-backed and instance-backed, while `core/plan_questions` is transcript-native. |
 | Core/local tool widgets | 9 | Includes YAML-defined tool widgets plus core semantic machine-control result views. |
-| Core/local standalone HTML widgets | 2 | One active, one QA/example. Legacy HTML Notes was deleted; new Notes placements use native. |
+| Core/local standalone HTML widgets | 2 | One superseded/legacy bundle plus one QA/example. Legacy HTML Notes was deleted; current Notes/Context surfaces use native widgets. |
 | Integration tool widgets | 17 | Current-standard metadata is now present across the audited shipped set. |
 | Preset entry points | 4 | All Home Assistant; official HA MCP lane only, with preset dependency validation. |
 
@@ -64,6 +64,12 @@ Use this checklist when adding or modernizing a widget.
 |---|---|---|---|---|
 | `core/notes_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native Notes with persistent instance state and bot-callable action schemas. Replaces legacy HTML Notes for new placements. |
 | `core/todo_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native Todo with instance state and explicit add/toggle/rename/delete/reorder/clear actions. |
+| `core/context_tracker` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel context tracker. Current shipped context surface; the older standalone HTML `context_tracker` bundle is superseded. |
+| `core/usage_forecast_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native usage/forecast surface with responsive compact/wide/tall layouts. |
+| `core/channel_files_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel file browser. Reuses shared channel file/navigation state instead of a widget-local file store. |
+| `core/pinned_files_native` | `native_widget` | `app/services/native_app_widgets.py` + `app/services/pinned_panels.py` | Current | Hidden channel-scoped native widget whose instance state stores pinned file paths and active file selection. |
+| `core/upcoming_activity_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native upcoming-activity/schedule surface. |
+| `core/plan_questions` | `native_widget` | `app/tools/local/ask_plan_questions.py` | Current | Transcript-native planning Q&A card. Not catalog-backed or instance-backed; answers persist into chat history and structured `planning_state`. |
 
 ## Core/Local Tool Widgets
 
@@ -85,7 +91,7 @@ These are core tool result surfaces shipped with local tools. Most are YAML-defi
 
 | Widget | Definition kind | Source | Status | Notes |
 |---|---|---|---|---|
-| `context_tracker` | `html_widget` | `app/tools/local/widgets/context_tracker/index.html` | Current | Active standalone HTML widget with frontmatter and SDK usage. Could grow `widget.yaml` later if it needs config schema or actions. |
+| `context_tracker` | `html_widget` | `app/tools/local/widgets/context_tracker/index.html` | Legacy | Older standalone HTML context tracker bundle. Superseded in product use by the native `core/context_tracker` widget. |
 | `examples/sdk-smoke` | `html_widget` | `app/tools/local/widgets/examples/sdk-smoke/index.html` | Legacy | QA/example widget for SDK smoke testing. Useful as a reference, not a product widget. |
 
 ## Integration Tool Widgets

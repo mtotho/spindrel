@@ -56,6 +56,14 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
     assert.match(widgetCard, /chatMode\?:\s*"default"\s*\|\s*"terminal"/);
     assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
 });
+test("EditPinDrawer keeps its hooks above the open-state early return", () => {
+    const editPinDrawer = readFileSync(resolve(process.cwd(), "app/(app)/widgets/EditPinDrawer.tsx"), "utf8");
+    const schemaHooks = editPinDrawer.indexOf("const configSchemaProperties = useMemo(");
+    const earlyReturn = editPinDrawer.indexOf("if (!isOpen) return null;");
+    assert.notEqual(schemaHooks, -1);
+    assert.notEqual(earlyReturn, -1);
+    assert.ok(schemaHooks < earlyReturn);
+});
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");
     const machineStatusRenderer = readFileSync(resolve(CHAT_DIR, "renderers/machineControl/MachineTargetStatusRenderer.tsx"), "utf8");

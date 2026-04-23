@@ -239,3 +239,33 @@ class TestCategoryInSettings:
         )
         assert resp.status_code == 200
         assert resp.json()["category"] is None
+
+    async def test_header_backdrop_mode_round_trips_via_settings(self, client):
+        """Header strip shell mode persists through admin channel settings."""
+        _, data = await _create_channel(client, name="header-shell")
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{data['id']}/settings",
+            json={"header_backdrop_mode": "glass"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["header_backdrop_mode"] == "glass"
+
+        public_cfg = await client.get(
+            f"/api/v1/channels/{data['id']}/config",
+            headers=AUTH_HEADERS,
+        )
+        assert public_cfg.status_code == 200
+        assert public_cfg.json()["header_backdrop_mode"] == "glass"
+
+    async def test_header_backdrop_mode_rejects_invalid_values(self, client):
+        _, data = await _create_channel(client, name="bad-header-shell")
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{data['id']}/settings",
+            json={"header_backdrop_mode": "opaque-ish"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 422
+        assert "header_backdrop_mode" in resp.text

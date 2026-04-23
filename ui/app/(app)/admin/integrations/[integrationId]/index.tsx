@@ -42,6 +42,7 @@ import { IntegrationDebugSection } from "./IntegrationDebugSection";
 import { ManifestEditor } from "./ManifestEditor";
 import { ProcessLogsSection } from "./ProcessLogsSection";
 import { DeviceStatusSection } from "./DeviceStatusSection";
+import { MachineControlSetupSection } from "./MachineControlSetupSection";
 
 // ---------------------------------------------------------------------------
 // Section wrapper
@@ -1269,6 +1270,16 @@ export default function IntegrationDetailScreen() {
           </SectionBox>
         )}
 
+        {item.machine_control && (
+          <SectionBox title="Machine Setup">
+            <MachineControlSetupSection
+              integrationId={item.id}
+              machineControl={item.machine_control}
+              enableRemoteProvisioning={Boolean(item.api_permissions)}
+            />
+          </SectionBox>
+        )}
+
         {/* README — show early so users see setup instructions before config */}
         {item.readme && <ReadmeSection content={item.readme} />}
 
@@ -1340,7 +1351,7 @@ export default function IntegrationDetailScreen() {
         )}
 
         {/* API key */}
-        {item.api_permissions && (
+        {item.api_permissions && !item.machine_control && (
           <SectionBox title="API Key">
             <ApiKeySection integrationId={item.id} />
           </SectionBox>

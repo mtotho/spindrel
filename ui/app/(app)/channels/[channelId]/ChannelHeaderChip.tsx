@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
+import type { HeaderBackdropMode } from "@/src/lib/widgetHostPolicy";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { channelSlug, useDashboards } from "@/src/stores/dashboards";
@@ -43,9 +44,10 @@ function toGridLayout(pin: WidgetDashboardPin): GridLayoutItem {
 
 interface Props {
   channelId: string;
+  backdropMode?: HeaderBackdropMode;
 }
 
-export function ChannelHeaderChip({ channelId }: Props) {
+export function ChannelHeaderChip({ channelId, backdropMode = "default" }: Props) {
   const { header: pins } = useChannelChatZones(channelId);
   const { allDashboards } = useDashboards();
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
@@ -71,9 +73,8 @@ export function ChannelHeaderChip({ channelId }: Props) {
   const headerCols = resolvePreset(
     dashboardRow?.grid_config ?? null,
   ).cols.lg;
-  // Header rail defaults to titleless widgets even when the dashboard itself
-  // shows titles elsewhere. Pins can still explicitly opt back in via
-  // `widget_config.show_title = "show"`.
+  // Header rail is always titleless at the host level. Channel-level backdrop
+  // mode controls the shell; per-pin title/surface overrides do not apply here.
   const chrome = useMemo(
     () => ({ ...resolveChrome(dashboardRow?.grid_config ?? null), hoverScrollbars: true, hideTitles: true }),
     [dashboardRow?.grid_config],
@@ -123,6 +124,7 @@ export function ChannelHeaderChip({ channelId }: Props) {
                 borderless={chrome.borderless}
                 hoverScrollbars={chrome.hoverScrollbars}
                 hideTitles={chrome.hideTitles}
+                headerBackdropMode={backdropMode}
                 onUnpin={handleUnpin}
                 onEnvelopeUpdate={handleEnvelopeUpdate}
               />

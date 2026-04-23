@@ -283,7 +283,7 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
 def _build_entity_widget_components(view: dict) -> list[dict]:
     components: list[dict] = []
 
-    if view.get("is_sensor_card") or view.get("is_light_card"):
+    if view.get("is_sensor_card"):
         components.append({
             "type": "heading",
             "text": view.get("friendly_name", ""),

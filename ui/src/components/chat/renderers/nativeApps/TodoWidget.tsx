@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, GripVertical, Plus, Trash2, X } from "lucide-react";
 import {
   PreviewCard,
   type NativeAppRendererProps,
@@ -48,6 +48,80 @@ function IconButton({
   );
 }
 
+function TodoToggleButton({
+  checked,
+  label,
+  disabled = false,
+  onClick,
+  t,
+}: {
+  checked: boolean;
+  label: string;
+  disabled?: boolean;
+  onClick: () => void;
+  t: NativeAppRendererProps["t"];
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={checked}
+      disabled={disabled}
+      onClick={onClick}
+      title={label}
+      style={{
+        width: 16,
+        height: 16,
+        borderRadius: 3,
+        border: `1px solid ${checked ? t.accentBorder : t.surfaceBorder}`,
+        background: checked ? t.accent : "transparent",
+        color: checked ? "#fff" : t.textDim,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 0,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        boxShadow: checked ? `0 0 0 1px ${t.accentBorder} inset` : "none",
+      }}
+    >
+      {checked ? <Check size={12} strokeWidth={2.5} /> : null}
+    </button>
+  );
+}
+
+function CompactViewButton({
+  active,
+  label,
+  onClick,
+  t,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  t: NativeAppRendererProps["t"];
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: "none",
+        background: "transparent",
+        color: active ? t.textMuted : t.textDim,
+        padding: 0,
+        fontSize: 11,
+        textDecoration: active ? "underline" : "none",
+        textUnderlineOffset: 2,
+        textDecorationColor: active ? t.textMuted : "transparent",
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function TodoWidget({
   envelope,
   dashboardPinId,
@@ -57,11 +131,11 @@ export function TodoWidget({
   t,
 }: NativeAppRendererProps) {
   const profile = deriveNativeWidgetLayoutProfile(layout, gridDimensions, {
-    compactMaxWidth: 380,
-    compactMaxHeight: 190,
-    wideMinWidth: 680,
+    compactMaxWidth: 420,
+    compactMaxHeight: 260,
+    wideMinWidth: 720,
     wideMinHeight: 220,
-    tallMinHeight: 300,
+    tallMinHeight: 320,
   });
   const { currentPayload, dispatchNativeAction } = useNativeEnvelopeState(
     envelope,
@@ -81,6 +155,8 @@ export function TodoWidget({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [compactSelectedId, setCompactSelectedId] = useState<string | null>(null);
+  const [compactView, setCompactView] = useState<"open" | "done">("open");
 
   if (!widgetInstanceId) {
     return <PreviewCard title="Todo" description="Persistent task list with inline actions for planning, triage, and cleanup." t={t} />;
@@ -146,16 +222,229 @@ export function TodoWidget({
 
   const rowBorder = `1px solid ${t.surfaceBorder}`;
   const actionAlwaysVisible = profile.wide || profile.tall;
+  const compactDense = layout === "chip" || layout === "header" || profile.height < 170;
+  const stripMode = (layout === "header" || layout === "chip") && profile.height > 0 && profile.height <= 96;
+
+  useEffect(() => {
+    if (!compactSelectedId) return;
+    const visibleCompactItems = compactView === "done" ? completedItems : openItems;
+    if (!visibleCompactItems.some((item) => item.id === compactSelectedId)) {
+      setCompactSelectedId(null);
+    }
+  }, [compactSelectedId, compactView, completedItems, openItems]);
+
+  useEffect(() => {
+    if (compactView === "done" && completedItems.length === 0) {
+      setCompactView("open");
+    }
+  }, [compactView, completedItems.length]);
 
   if (profile.compact) {
-    const visibleOpen = openItems.slice(0, 2);
+    if (stripMode) {
+      const visibleCompactItems = compactView === "done" ? completedItems : openItems;
+      const focusedItem = visibleCompactItems.find((item) => item.id === compactSelectedId) ?? visibleCompactItems[0] ?? null;
+      const itemSelected = Boolean(focusedItem && compactSelectedId === focusedItem.id);
+      return (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            height: "100%",
+            minHeight: 0,
+            overflow: "hidden",
+            color: t.text,
+          }}
+        >
+          <form
+            onSubmit={submitNewItem}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) 24px",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 34,
+              borderBottom: rowBorder,
+            }}
+          >
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Add a task"
+              maxLength={500}
+              style={{
+                minWidth: 0,
+                border: "none",
+                borderRadius: 0,
+                background: "transparent",
+                color: t.text,
+                padding: 0,
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+            <button
+              type="submit"
+              disabled={busy === "add" || !newTitle.trim()}
+              aria-label="Add task"
+              title="Add task"
+              style={{
+                border: "none",
+                borderRadius: 0,
+                background: "transparent",
+                color: busy === "add" || !newTitle.trim() ? t.textDim : t.textMuted,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: busy === "add" || !newTitle.trim() ? "default" : "pointer",
+                padding: 0,
+              }}
+            >
+              <Plus size={15} />
+            </button>
+          </form>
+
+          <div
+            style={{
+              minHeight: 24,
+              display: "grid",
+              gridTemplateColumns: focusedItem ? "16px minmax(0, 1fr) auto" : "minmax(0, 1fr) auto",
+              alignItems: "center",
+              gap: 8,
+              color: t.textDim,
+              fontSize: 11,
+              lineHeight: 1.1,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {focusedItem ? (
+              <>
+                <TodoToggleButton
+                  checked={itemSelected}
+                  label={itemSelected ? "Hide task actions" : "Show task actions"}
+                  onClick={() => setCompactSelectedId(itemSelected ? null : focusedItem.id)}
+                  t={t}
+                />
+                <div
+                  style={{
+                    minWidth: 0,
+                    color: itemSelected ? t.text : t.textDim,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    fontSize: 12,
+                    lineHeight: 1.1,
+                    cursor: "pointer",
+                  }}
+                  title={focusedItem.title}
+                  onClick={() => setCompactSelectedId(itemSelected ? null : focusedItem.id)}
+                >
+                  {focusedItem.title}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifySelf: "end" }}>
+                  {itemSelected ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runAction(
+                            "toggle_item",
+                            { id: focusedItem.id, done: compactView === "open" },
+                            `toggle:${focusedItem.id}`,
+                          );
+                          setCompactSelectedId(null);
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: t.text,
+                          padding: 0,
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {compactView === "done" ? "Mark open" : "Mark done"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void runAction("delete_item", { id: focusedItem.id }, `delete:${focusedItem.id}`);
+                          setCompactSelectedId(null);
+                        }}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          color: t.textDim,
+                          padding: 0,
+                          fontSize: 11,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <CompactViewButton
+                        active={compactView === "open"}
+                        label={`${openItems.length} open`}
+                        onClick={() => setCompactView("open")}
+                        t={t}
+                      />
+                      {completedItems.length ? (
+                        <CompactViewButton
+                          active={compactView === "done"}
+                          label={`${completedItems.length} done`}
+                          onClick={() => setCompactView("done")}
+                          t={t}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {compactView === "done"
+                    ? "No completed tasks"
+                    : completedItems.length
+                      ? `${completedItems.length} done`
+                      : "No tasks yet"}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, justifySelf: "end" }}>
+                  <CompactViewButton
+                    active={compactView === "open"}
+                    label={`${openItems.length} open`}
+                    onClick={() => setCompactView("open")}
+                    t={t}
+                  />
+                  {completedItems.length ? (
+                    <CompactViewButton
+                      active={compactView === "done"}
+                      label={`${completedItems.length} done`}
+                      onClick={() => setCompactView("done")}
+                      t={t}
+                    />
+                  ) : null}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const visibleCompactItems = compactView === "done" ? completedItems : openItems;
+    const visibleOpen = visibleCompactItems.slice(0, compactDense ? 1 : 2);
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: "100%", color: t.text }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: compactDense ? 8 : 10, minHeight: "100%", color: t.text }}>
         <form
           onSubmit={submitNewItem}
           style={{
             display: "grid",
-            gridTemplateColumns: "minmax(0, 1fr) 34px",
+            gridTemplateColumns: "minmax(0, 1fr) 32px",
+            gap: 6,
             borderBottom: rowBorder,
             paddingBottom: 4,
           }}
@@ -171,7 +460,7 @@ export function TodoWidget({
               borderRadius: 0,
               background: "transparent",
               color: t.text,
-              padding: "8px 0",
+              padding: "6px 0",
               fontSize: 13,
               outline: "none",
             }}
@@ -185,7 +474,7 @@ export function TodoWidget({
               border: "none",
               borderRadius: 0,
               background: "transparent",
-              color: busy === "add" || !newTitle.trim() ? t.textDim : t.accent,
+              color: busy === "add" || !newTitle.trim() ? t.textDim : t.textMuted,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -196,9 +485,24 @@ export function TodoWidget({
           </button>
         </form>
 
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, color: t.textDim }}>
-          <span>{openItems.length} open{completedItems.length ? ` / ${completedItems.length} done` : ""}</span>
-          {completedItems.length ? (
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
+            <CompactViewButton
+              active={compactView === "open"}
+              label={`${openItems.length} open`}
+              onClick={() => setCompactView("open")}
+              t={t}
+            />
+            {completedItems.length ? (
+              <CompactViewButton
+                active={compactView === "done"}
+                label={`${completedItems.length} done`}
+                onClick={() => setCompactView("done")}
+                t={t}
+              />
+            ) : null}
+          </div>
+          {completedItems.length && compactView === "done" && !compactDense ? (
             <button
               type="button"
               disabled={busy === "clear_completed"}
@@ -217,47 +521,149 @@ export function TodoWidget({
           ) : null}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minHeight: 0 }}>
           {!items.length ? (
             <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
               No tasks yet.
             </div>
           ) : null}
+          {items.length && !visibleOpen.length ? (
+            <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
+              {compactView === "done" ? "No completed tasks." : "No open tasks."}
+            </div>
+          ) : null}
           {visibleOpen.map((item) => (
-            <label
+            <div
               key={item.id}
+              onClick={() => setCompactSelectedId(compactSelectedId === item.id ? null : item.id)}
               style={{
                 display: "grid",
-                gridTemplateColumns: "18px minmax(0, 1fr)",
-                gap: 8,
+                gridTemplateColumns: "16px minmax(0, 1fr) auto",
+                gap: compactDense ? 6 : 8,
                 alignItems: "center",
-                minHeight: 32,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 10,
-                padding: "6px 8px",
-                background: t.surface,
+                minHeight: compactDense ? 30 : 34,
+                borderTop: rowBorder,
+                padding: compactDense ? "5px 0" : "6px 0",
+                cursor: "pointer",
               }}
             >
-              <input
-                type="checkbox"
-                checked={item.done}
-                onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
-                style={{ width: 13, height: 13, margin: 0 }}
+              <TodoToggleButton
+                checked={compactSelectedId === item.id}
+                label={compactSelectedId === item.id ? "Hide task actions" : "Show task actions"}
+                onClick={() => setCompactSelectedId(compactSelectedId === item.id ? null : item.id)}
+                t={t}
               />
-              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12 }}>
+              <div
+                style={{
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  fontSize: compactDense ? 11.5 : 12,
+                  lineHeight: 1.3,
+                }}
+                title={item.title}
+              >
                 {item.title}
-              </span>
-            </label>
+              </div>
+              {compactSelectedId === item.id ? (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ display: "flex", alignItems: "center", gap: 10 }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void runAction(
+                        "toggle_item",
+                        { id: item.id, done: compactView === "open" },
+                        `toggle:${item.id}`,
+                      );
+                      setCompactSelectedId(null);
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: t.text,
+                      padding: 0,
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {compactView === "done" ? "Mark open" : "Mark done"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void runAction("delete_item", { id: item.id }, `delete:${item.id}`);
+                      setCompactSelectedId(null);
+                    }}
+                    style={{
+                      border: "none",
+                      background: "transparent",
+                      color: t.textDim,
+                      padding: 0,
+                      fontSize: 11,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : null}
+            </div>
           ))}
           {openItems.length > visibleOpen.length ? (
             <div style={{ fontSize: 11, color: t.textDim }}>
-              {openItems.length - visibleOpen.length} more open task{openItems.length - visibleOpen.length === 1 ? "" : "s"}.
+              {visibleCompactItems.length - visibleOpen.length} more {compactView} task{visibleCompactItems.length - visibleOpen.length === 1 ? "" : "s"}.
             </div>
           ) : null}
         </div>
 
-        <div style={{ borderTop: rowBorder, paddingTop: 6, fontSize: 11, color: error ? t.danger : t.textDim }}>
+        <div
+          style={{
+            marginTop: "auto",
+            paddingTop: 4,
+            fontSize: 11,
+            color: error ? t.danger : t.textDim,
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
           {status}
+          {completedItems.length && compactDense ? (
+            <button
+              type="button"
+              disabled={busy === "clear_completed"}
+              onClick={() => void runAction("clear_completed", {}, "clear_completed")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: t.textMuted,
+                padding: 0,
+                fontSize: 11,
+                cursor: busy === "clear_completed" ? "default" : "pointer",
+              }}
+            >
+              Clear done
+            </button>
+          ) : compactView === "done" && !completedItems.length ? (
+            <button
+              type="button"
+              onClick={() => setCompactView("open")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: t.textMuted,
+                padding: 0,
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Back to open
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -305,11 +711,11 @@ export function TodoWidget({
           }}
         >
           <GripVertical size={12} style={{ color: t.textDim }} />
-          <input
-            type="checkbox"
+          <TodoToggleButton
             checked={item.done}
-            onChange={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
-            style={{ width: 13, height: 13, margin: 0 }}
+            label={item.done ? "Mark task open" : "Mark task done"}
+            onClick={() => void runAction("toggle_item", { id: item.id, done: !item.done }, `toggle:${item.id}`)}
+            t={t}
           />
           <div style={{ minWidth: 0 }}>
             {editingId === item.id ? (
@@ -399,11 +805,11 @@ export function TodoWidget({
             opacity: 0.72,
           }}
         >
-          <input
-            type="checkbox"
+          <TodoToggleButton
             checked={item.done}
-            onChange={() => void runAction("toggle_item", { id: item.id, done: false }, `toggle:${item.id}`)}
-            style={{ width: 13, height: 13, margin: 0 }}
+            label="Mark task open"
+            onClick={() => void runAction("toggle_item", { id: item.id, done: false }, `toggle:${item.id}`)}
+            t={t}
           />
           <div style={{ color: t.textDim, textDecoration: "line-through", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {item.title}

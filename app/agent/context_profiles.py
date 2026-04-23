@@ -25,6 +25,7 @@ class ContextProfile:
     allow_memory_recent_logs: bool
     allow_channel_workspace: bool
     allow_channel_index_segments: bool
+    allow_bot_knowledge_base: bool
     allow_workspace_rag: bool
     allow_temporal_context: bool
     allow_pinned_widgets: bool
@@ -53,6 +54,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=True,
         allow_channel_workspace=True,
         allow_channel_index_segments=True,
+        allow_bot_knowledge_base=True,
         allow_workspace_rag=True,
         allow_temporal_context=True,
         allow_pinned_widgets=True,
@@ -66,6 +68,7 @@ _PROFILES: dict[str, ContextProfile] = {
             "memory_nudge",
             "channel_workspace",
             "channel_index_segments",
+            "bot_knowledge_base",
             "conversation_sections",
             "section_index",
             "workspace_rag",
@@ -84,6 +87,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
         allow_channel_index_segments=False,
+        allow_bot_knowledge_base=False,
         allow_workspace_rag=False,
         allow_temporal_context=False,
         allow_pinned_widgets=False,
@@ -101,6 +105,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=False,
         allow_channel_workspace=True,
         allow_channel_index_segments=True,
+        allow_bot_knowledge_base=True,
         allow_workspace_rag=True,
         allow_temporal_context=False,
         allow_pinned_widgets=False,
@@ -111,6 +116,7 @@ _PROFILES: dict[str, ContextProfile] = {
             "context_profile_note",
             "channel_workspace",
             "channel_index_segments",
+            "bot_knowledge_base",
             "workspace_rag",
             "tool_index",
             "tool_refusal_guard",
@@ -125,6 +131,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
         allow_channel_index_segments=False,
+        allow_bot_knowledge_base=False,
         allow_workspace_rag=False,
         allow_temporal_context=False,
         allow_pinned_widgets=False,
@@ -142,6 +149,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
         allow_channel_index_segments=False,
+        allow_bot_knowledge_base=False,
         allow_workspace_rag=False,
         allow_temporal_context=False,
         allow_pinned_widgets=False,
@@ -158,6 +166,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
         allow_channel_index_segments=False,
+        allow_bot_knowledge_base=False,
         allow_workspace_rag=False,
         allow_temporal_context=False,
         allow_pinned_widgets=False,

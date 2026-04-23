@@ -1448,7 +1448,10 @@ export default function ChatScreen() {
         }}
       >
         <div className="w-full">
-          <ChannelHeaderChip channelId={channelId} />
+          <ChannelHeaderChip
+            channelId={channelId}
+            backdropMode={channel?.config?.header_backdrop_mode ?? "default"}
+          />
         </div>
       </div>
     ) : null;

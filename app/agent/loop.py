@@ -440,6 +440,37 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
     return messages
 
 
+async def _resolve_approval_verdict(
+    approval_id: str,
+    *,
+    timeout_seconds: int,
+) -> str:
+    """Await approval resolution, expiring pending rows and reconciling DB truth."""
+    from app.agent.approval_pending import cancel_approval, create_approval_pending
+    from app.db.engine import async_session as _ap_session
+    from app.db.models import ToolApproval as _TA, ToolCall as _TC
+
+    future = create_approval_pending(approval_id)
+    try:
+        return await asyncio.wait_for(future, timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        cancel_approval(approval_id)
+        async with _ap_session() as _ap_db:
+            _ap_row = await _ap_db.get(_TA, uuid.UUID(approval_id))
+            if _ap_row is None:
+                return "expired"
+            if _ap_row.status == "pending":
+                _ap_row.status = "expired"
+                if _ap_row.tool_call_id:
+                    _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
+                    if _tc_row and _tc_row.status == "awaiting_approval":
+                        _tc_row.status = "expired"
+                        _tc_row.completed_at = datetime.now(timezone.utc)
+                await _ap_db.commit()
+                return "expired"
+            return str(_ap_row.status)
+
+
 @dataclass
 class RunResult:
     response: str = ""
@@ -1196,27 +1227,18 @@ async def run_agent_tool_loop(
                         if _cap_meta:
                             _approval_event["capability"] = _cap_meta
                         yield _event_with_compaction_tag(_approval_event, compaction)
-                        from app.agent.approval_pending import create_approval_pending
-                        future = create_approval_pending(tc_result.approval_id)
                         try:
-                            verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
-                        except asyncio.TimeoutError:
+                            verdict = await _resolve_approval_verdict(
+                                tc_result.approval_id,
+                                timeout_seconds=tc_result.approval_timeout,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to reconcile approval %s after timeout",
+                                tc_result.approval_id,
+                                exc_info=True,
+                            )
                             verdict = "expired"
-                            try:
-                                from app.db.engine import async_session as _ap_session
-                                from app.db.models import ToolApproval as _TA, ToolCall as _TC
-                                async with _ap_session() as _ap_db:
-                                    _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
-                                    if _ap_row and _ap_row.status == "pending":
-                                        _ap_row.status = "expired"
-                                        if _ap_row.tool_call_id:
-                                            _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
-                                            if _tc_row and _tc_row.status == "awaiting_approval":
-                                                _tc_row.status = "expired"
-                                                _tc_row.completed_at = datetime.now(timezone.utc)
-                                        await _ap_db.commit()
-                            except Exception:
-                                logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
                         if verdict == "approved":
                             tc_result = await dispatch_tool_call(
                                 name=name,
@@ -1359,28 +1381,18 @@ async def run_agent_tool_loop(
                         if _cap_meta_seq:
                             _approval_event_seq["capability"] = _cap_meta_seq
                         yield _event_with_compaction_tag(_approval_event_seq, compaction)
-                        from app.agent.approval_pending import create_approval_pending
-                        future = create_approval_pending(tc_result.approval_id)
                         try:
-                            verdict = await asyncio.wait_for(future, timeout=tc_result.approval_timeout)
-                        except asyncio.TimeoutError:
+                            verdict = await _resolve_approval_verdict(
+                                tc_result.approval_id,
+                                timeout_seconds=tc_result.approval_timeout,
+                            )
+                        except Exception:
+                            logger.warning(
+                                "Failed to reconcile approval %s after timeout",
+                                tc_result.approval_id,
+                                exc_info=True,
+                            )
                             verdict = "expired"
-                            # Mark DB records as expired
-                            try:
-                                from app.db.engine import async_session as _ap_session
-                                from app.db.models import ToolApproval as _TA, ToolCall as _TC
-                                async with _ap_session() as _ap_db:
-                                    _ap_row = await _ap_db.get(_TA, uuid.UUID(tc_result.approval_id))
-                                    if _ap_row and _ap_row.status == "pending":
-                                        _ap_row.status = "expired"
-                                        if _ap_row.tool_call_id:
-                                            _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
-                                            if _tc_row and _tc_row.status == "awaiting_approval":
-                                                _tc_row.status = "expired"
-                                                _tc_row.completed_at = datetime.now(timezone.utc)
-                                        await _ap_db.commit()
-                            except Exception:
-                                logger.warning("Failed to mark approval %s as expired", tc_result.approval_id)
                         if verdict == "approved":
                             tc_result = await dispatch_tool_call(
                                 name=name,

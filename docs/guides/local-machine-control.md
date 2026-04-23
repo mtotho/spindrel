@@ -244,7 +244,7 @@ The current provider uses `driver="companion"`.
 
 ### Operator flow
 
-1. Go to `Admin > Machines`.
+1. Go to `Admin > Machines`, or use the quick-setup helper on `Admin > Integrations > Local Companion`.
 2. Enroll a target under the `Local Companion` provider.
 3. Copy the returned launch command.
 4. Run that command on the machine you want to control.

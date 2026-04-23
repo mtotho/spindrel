@@ -307,7 +307,18 @@ export function HeartbeatTab({
         {/* ---- Action: Workflow or Prompt ---- */}
         <Section title="Action">
           {/* Mode toggle: Prompt (default) vs Workflow */}
-          <div style={{ display: "flex", flexDirection: "row", gap: 2, marginBottom: 12 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              flexDirection: "row",
+              gap: 4,
+              marginBottom: 14,
+              padding: 4,
+              borderRadius: 6,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: t.surfaceRaised,
+            }}
+          >
             {[
               { key: "prompt", label: "Prompt", icon: <FileText size={12} /> },
               { key: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
@@ -326,10 +337,10 @@ export function HeartbeatTab({
                   }}
                   style={{
                     display: "flex", flexDirection: "row", alignItems: "center", gap: 5,
-                    padding: "6px 14px", borderRadius: 6, cursor: "pointer",
-                    fontSize: 12, fontWeight: isActive ? 600 : 400,
-                    border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
-                    background: isActive ? `${t.accent}15` : "transparent",
+                    padding: "7px 12px", borderRadius: 6, cursor: "pointer",
+                    fontSize: 12, fontWeight: isActive ? 600 : 500,
+                    border: `1px solid ${isActive ? t.accentBorder : "transparent"}`,
+                    background: isActive ? t.accentSubtle : "transparent",
                     color: isActive ? t.accent : t.textMuted,
                     transition: "all 0.12s",
                   }}
@@ -355,8 +366,8 @@ export function HeartbeatTab({
                 if (!wf) return null;
                 return (
                   <div style={{
-                    padding: "8px 12px", borderRadius: 6,
-                    background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+                    padding: "10px 12px", borderRadius: 6,
+                    background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
                     fontSize: 12, color: t.textMuted, lineHeight: 1.5,
                   }}>
                     {wf.description && <div style={{ marginBottom: 4 }}>{wf.description}</div>}
@@ -444,10 +455,10 @@ export function HeartbeatTab({
                             }}
                             style={{
                               display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-                              padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                              padding: "4px 9px", borderRadius: 6, cursor: "pointer",
                               fontSize: 10, fontWeight: 600,
                               border: `1px solid ${t.surfaceBorder}`,
-                              background: "transparent", color: t.textDim,
+                              background: t.surfaceRaised, color: t.textDim,
                             }}
                           >
                             <RotateCcw size={10} />
@@ -505,7 +516,7 @@ export function HeartbeatTab({
         )}
 
         {/* Run controls */}
-        <div style={{ marginTop: 20, display: "flex", flexDirection: "row", gap: 8 }}>
+        <div style={{ marginTop: 4, display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
           <ActionButton
             label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
             onPress={() => fireMutation.mutate()}
@@ -513,6 +524,11 @@ export function HeartbeatTab({
             disabled={!hasAction}
             icon={<Play size={12} />}
           />
+          {!hasAction && (
+            <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
+              Add a prompt or workflow before running heartbeat manually.
+            </span>
+          )}
         </div>
 
         {/* ---- Advanced Section (only for prompt mode) ---- */}

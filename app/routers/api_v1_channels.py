@@ -233,6 +233,12 @@ class ChannelConfigOut(BaseModel):
     # current bubble/composer UI while ``terminal`` swaps in the Codex-like
     # transcript/composer treatment.
     chat_mode: str = "default"
+    # Top-center chat header strip shell treatment. Stored in
+    # ``Channel.config["header_backdrop_mode"]``.
+    #   ``default`` — current surfaced shell behavior
+    #   ``glass``   — translucent/blurred shell for header-zone widgets
+    #   ``clear``   — plain shell; header-zone widgets sit directly on page
+    header_backdrop_mode: str = "default"
     widget_theme_ref: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
@@ -298,6 +304,9 @@ class ChannelConfigUpdate(BaseModel):
     # Chat presentation mode (see ChannelConfigOut.chat_mode for semantics).
     # Accepted values: ``default | terminal``.
     chat_mode: Optional[str] = None
+    # Header strip shell treatment (see ChannelConfigOut.header_backdrop_mode
+    # for semantics). Accepted values: ``default | glass | clear``.
+    header_backdrop_mode: Optional[str] = None
     widget_theme_ref: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: Optional[bool] = None
@@ -662,6 +671,13 @@ async def update_channel_config(
                 status_code=422,
                 detail=f"Invalid chat_mode. Valid: {sorted(_valid_chat_mode)}",
             )
+    if "header_backdrop_mode" in ch_updates and ch_updates["header_backdrop_mode"] is not None:
+        _valid_header_backdrop = {"default", "glass", "clear"}
+        if ch_updates["header_backdrop_mode"] not in _valid_header_backdrop:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid header_backdrop_mode. Valid: {sorted(_valid_header_backdrop)}",
+            )
     if "widget_theme_ref" in ch_updates and ch_updates["widget_theme_ref"] is not None:
         try:
             await resolve_widget_theme(db, ch_updates["widget_theme_ref"])
@@ -677,6 +693,10 @@ async def update_channel_config(
     layout_mode_update = ch_updates.pop("layout_mode", None) if has_layout_mode_update else None
     has_chat_mode_update = "chat_mode" in ch_updates
     chat_mode_update = ch_updates.pop("chat_mode", None) if has_chat_mode_update else None
+    has_header_backdrop_mode_update = "header_backdrop_mode" in ch_updates
+    header_backdrop_mode_update = (
+        ch_updates.pop("header_backdrop_mode", None) if has_header_backdrop_mode_update else None
+    )
     has_widget_theme_ref_update = "widget_theme_ref" in ch_updates
     widget_theme_ref_update = ch_updates.pop("widget_theme_ref", None) if has_widget_theme_ref_update else None
 
@@ -705,6 +725,18 @@ async def update_channel_config(
             cfg.pop("chat_mode", None)
         else:
             cfg["chat_mode"] = chat_mode_update
+        channel.config = cfg
+        flag_modified(channel, "config")
+        channel.updated_at = now
+
+    if has_header_backdrop_mode_update:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        if header_backdrop_mode_update in (None, "default"):
+            cfg.pop("header_backdrop_mode", None)
+        else:
+            cfg["header_backdrop_mode"] = header_backdrop_mode_update
         channel.config = cfg
         flag_modified(channel, "config")
         channel.updated_at = now
@@ -809,6 +841,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "model_tier_overrides": channel.model_tier_overrides or {},
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
+        "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "default"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,

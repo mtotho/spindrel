@@ -499,11 +499,11 @@ agent-server/
 
 ## Local Companion
 
-`local_companion` is the first machine-control provider. Core machine control now lives under **Admin > Machines** rather than under the integration page.
+`local_companion` is the first machine-control provider. Core machine control lives under **Admin > Machines**; the integration page now also exposes a provider-specific quick-setup helper that calls the same core enroll flow.
 
 Current setup flow:
 
-1. Enroll the target from **Admin > Machines** under the `Local Companion` provider.
+1. Enroll the target from **Admin > Machines** under the `Local Companion` provider, or use the quick-setup helper on **Admin > Integrations > Local Companion**.
 2. Run the returned companion launch command on the target machine.
 3. Open the chat session you want to use.
 4. Grant that session a machine lease.

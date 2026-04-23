@@ -1,12 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { PreviewCard, useLastCommittedValue, useNativeEnvelopeState, type NativeAppRendererProps } from "./shared";
 import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
-
-function previewSnippet(body: string): string {
-  const normalized = body.replace(/\s+/g, " ").trim();
-  if (!normalized) return "No notes yet. Keep reminders, context, or handoff details here.";
-  return normalized.length > 180 ? `${normalized.slice(0, 177)}...` : normalized;
-}
 
 export function NotesWidget({
   envelope,
@@ -34,7 +28,6 @@ export function NotesWidget({
   const [draft, setDraft] = useState(body);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showCompactEditor, setShowCompactEditor] = useState(false);
   const lastCommittedBodyRef = useLastCommittedValue(body);
 
   useEffect(() => {
@@ -45,12 +38,6 @@ export function NotesWidget({
       setDraft(body);
     }
   }, [body, draft, lastCommittedBodyRef]);
-
-  useEffect(() => {
-    if (!profile.compact) {
-      setShowCompactEditor(false);
-    }
-  }, [profile.compact]);
 
   const widgetInstanceId = currentPayload.widget_instance_id;
   if (!widgetInstanceId) {
@@ -86,72 +73,16 @@ export function NotesWidget({
       : updatedAt
         ? `Updated ${new Date(updatedAt).toLocaleString()}`
         : "Autosaves after you stop typing.";
-  const editorMinHeight = profile.tall || profile.wide ? 260 : 180;
-  const summarySnippet = useMemo(() => previewSnippet(body), [body]);
-
-  if (profile.compact && !showCompactEditor) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          minHeight: "100%",
-        }}
-      >
-        <div
-          style={{
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 12,
-            background: t.surface,
-            padding: 12,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-          }}
-        >
-          <div
-            style={{
-              fontSize: 10,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              color: t.textDim,
-            }}
-          >
-            Scratchpad
-          </div>
-          <div style={{ color: t.text, fontSize: 13, lineHeight: 1.55 }}>
-            {summarySnippet}
-          </div>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: error ? t.danger : t.textDim }}>{statusLabel}</span>
-          <button
-            type="button"
-            onClick={() => setShowCompactEditor(true)}
-            style={{
-              borderRadius: 999,
-              border: `1px solid ${t.accentBorder}`,
-              background: t.accentSubtle,
-              color: t.accent,
-              padding: "6px 10px",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            Edit
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const compactBarMode = (layout === "header" || layout === "chip") && profile.height > 0 && profile.height <= 96;
+  const editorMinHeight = compactBarMode ? 0 : profile.tall || profile.wide ? 260 : 180;
+  const showFooter = !compactBarMode;
 
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
-        gap: 10,
+        gap: showFooter ? 10 : 0,
         minHeight: "100%",
       }}
     >
@@ -166,7 +97,7 @@ export function NotesWidget({
         }}
         placeholder="No notes yet. Use this pinned scratchpad for reminders, context, or handoff notes."
         style={{
-          minHeight: profile.compact ? 120 : editorMinHeight,
+          minHeight: compactBarMode ? 0 : profile.compact ? 120 : editorMinHeight,
           flex: 1,
           width: "100%",
           resize: profile.compact ? "none" : "vertical",
@@ -176,43 +107,27 @@ export function NotesWidget({
           color: t.text,
           padding: 0,
           fontSize: 13,
-          lineHeight: 1.7,
+          lineHeight: compactBarMode ? 1.45 : 1.7,
         }}
       />
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-          borderTop: `1px solid ${t.surfaceBorder}`,
-          paddingTop: 6,
-          fontSize: 11,
-          color: error ? t.danger : t.textDim,
-        }}
-      >
-        <span>{statusLabel}</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {profile.compact ? (
-            <button
-              type="button"
-              onClick={() => setShowCompactEditor(false)}
-              style={{
-                border: "none",
-                background: "transparent",
-                color: t.textDim,
-                padding: 0,
-                fontSize: 11,
-                cursor: "pointer",
-              }}
-            >
-              Done
-            </button>
-          ) : null}
+      {showFooter ? (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+            borderTop: `1px solid ${t.surfaceBorder}`,
+            paddingTop: 6,
+            fontSize: 11,
+            color: error ? t.danger : t.textDim,
+          }}
+        >
+          <span>{statusLabel}</span>
           <span style={{ color: t.textDim }}>Markdown ok</span>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
