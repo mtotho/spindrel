@@ -35,7 +35,6 @@ interface FileBrowserState {
   // Channel file explorer (chat sidebar)
   channelExplorerWidth: number;
   // Per-channel remembered last-visited path inside the channel explorer.
-  // In-memory only (intentionally not persisted) — resets on reload.
   channelExplorerPaths: Record<string, string>;
   setChannelExplorerPath: (channelId: string, path: string) => void;
 
@@ -225,6 +224,7 @@ export const useFileBrowserStore = create<FileBrowserState>()(
       name: "spindrel-file-browser",
       partialize: (s) => ({
         channelExplorerWidth: s.channelExplorerWidth,
+        channelExplorerPaths: s.channelExplorerPaths,
         splitMode: s.splitMode,
         splitRatio: s.splitRatio,
         treeWidth: s.treeWidth,

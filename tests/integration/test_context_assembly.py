@@ -718,6 +718,81 @@ class TestSkillAutoInject:
         assert "history-skill" in index_events[0]["skipped_in_history"]
         assert index_events[0]["skipped_budget"] == []
 
+    @pytest.mark.asyncio
+    async def test_skills_in_context_marks_loaded_skills_and_warns_against_duplicate_fetch(self, engine, db_session):
+        """Resident skills should be surfaced canonically and annotated in the skill index."""
+        import json
+        from app.db.models import Skill, BotSkillEnrollment
+
+        db_session.add(Skill(id="history-skill", name="History Skill", content="x", source_type="file"))
+        db_session.add(BotSkillEnrollment(bot_id="test-bot", skill_id="history-skill", source="manual"))
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="history-skill", mode="on_demand")])
+        messages = [
+            {"role": "system", "content": bot.system_prompt},
+            {"role": "user", "content": "tell me about history skill"},
+            {"role": "assistant", "content": "", "tool_calls": [{
+                "id": "call_123",
+                "type": "function",
+                "function": {
+                    "name": "get_skill",
+                    "arguments": json.dumps({"skill_id": "history-skill"}),
+                },
+            }]},
+            {"role": "tool", "tool_call_id": "call_123", "content": "# History Skill\n\nContent here."},
+            {"role": "assistant", "content": "Here's what I found about the history skill..."},
+        ]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_rank = AsyncMock(return_value=[
+            {"skill_id": "history-skill", "similarity": 0.9, "relevant": True},
+        ])
+        _mock_chunks = AsyncMock(return_value=["History content."])
+        _mock_retrieve = AsyncMock(return_value=[])
+        _mock_source_map = AsyncMock(return_value={"history-skill": "manual"})
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.rag.rank_enrolled_skills", _mock_rank),
+            patch("app.agent.rag.fetch_skill_chunks_by_id", _mock_chunks),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+            patch("app.services.skill_enrollment.get_enrolled_source_map", _mock_source_map),
+            patch("app.services.skill_enrollment.async_session", factory),
+            patch("app.config.settings.SKILL_ENROLLED_RANKING_ENABLED", True),
+            patch("app.config.settings.SKILL_ENROLLED_AUTO_INJECT_MAX", 1),
+        ):
+            await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="tell me more about history skill",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        assert result.skills_in_context == [{
+            "skill_id": "history-skill",
+            "skill_name": "History Skill",
+            "source": "loaded",
+            "messages_ago": 1,
+        }]
+
+        index_msgs = [m for m in messages if "scan your enrolled skills below" in m.get("content", "")]
+        assert len(index_msgs) == 1
+        assert "[loaded]" in index_msgs[0]["content"]
+        assert "Do not call get_skill again for skills marked [loaded]" in index_msgs[0]["content"]
+
 
 class TestDelegateIndex:
     """Tests for delegate bot index injection."""

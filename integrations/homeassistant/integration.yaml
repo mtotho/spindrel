@@ -441,22 +441,6 @@ tool_widgets:
               args:
                 name: "{{toggle_target_entity_id}}"
               optimistic: true
-          - type: button
-            when: "{{show_brightness_button_hide}}"
-            label: Hide brightness
-            subtle: true
-            action:
-              dispatch: widget_config
-              config:
-                show_brightness: false
-          - type: button
-            when: "{{show_brightness_button_show}}"
-            label: Show brightness
-            subtle: true
-            action:
-              dispatch: widget_config
-              config:
-                show_brightness: true
           - type: slider
             when: "{{show_brightness}}"
             label: Brightness

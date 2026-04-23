@@ -38,6 +38,7 @@ import {
   useDashboards,
 } from "@/src/stores/dashboards";
 import { resolveChrome, resolvePreset, type DashboardChrome, type GridPreset } from "@/src/lib/dashboardGrid";
+import { applyBuilderPinSuccessParams } from "@/src/lib/widgetDashboardBuilderState";
 import { ChatSession, type ChatSource } from "@/src/components/chat/ChatSession";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 import { useWidgetStreamBroker } from "@/src/api/hooks/useWidgetStreamBroker";
@@ -431,6 +432,11 @@ export default function WidgetsDashboardPage() {
     });
   }, [patchBuilderSearch]);
 
+  const handleBuilderPinCreated = useCallback((pinId: string) => {
+    highlightPin(pinId);
+    setSearchParams((prev) => applyBuilderPinSuccessParams(prev), { replace: true });
+  }, [highlightPin, setSearchParams]);
+
   const actions = (
     <>
       {/* Edit layout — hidden on mobile where the grid is read-only anyway
@@ -669,7 +675,7 @@ export default function WidgetsDashboardPage() {
           }, true);
         }}
         dashboardName={currentDashboard?.name ?? "dashboard"}
-        onPinned={highlightPin}
+        onPinned={handleBuilderPinCreated}
         scopeChannelId={channelScopedId}
         selectedPresetId={builderPresetId}
         onSelectedPresetIdChange={(presetId) => {

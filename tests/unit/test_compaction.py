@@ -160,3 +160,20 @@ class TestCompactionRunMetadata:
         assert metadata["envelope"]["view_key"] == "compaction_run"
         assert "hidden" not in metadata
         assert "pipeline_step" not in metadata
+
+    def test_metadata_carries_summary_text_for_ui_expansion(self):
+        bot = SimpleNamespace(id="test-bot", name="Test Bot")
+        metadata = _compaction_metadata(
+            bot=bot,
+            origin="auto",
+            status="completed",
+            title="Context compacted",
+            detail="Older conversation history was summarized automatically.",
+            summary_text="User debugged the slash command path and the UI now renders compaction rows.",
+            summary_len=78,
+            result_kind="compacted",
+        )
+
+        assert metadata["compaction_summary_text"].startswith("User debugged")
+        assert metadata["envelope"]["data"]["summary_text"].startswith("User debugged")
+        assert "Summary:" in metadata["envelope"]["body"]

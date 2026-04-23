@@ -2,7 +2,8 @@ import uuid
 
 import pytest
 
-from app.db.models import Message, Session
+from app.db.models import Session
+from app.routers import sessions as sessions_router
 from app.services import session_plan_mode as spm
 from tests.integration.conftest import AUTH_HEADERS
 
@@ -233,3 +234,74 @@ class TestSessionMessagesRouter:
         assert replan_body["accepted_revision"] == 2
         assert replan_body["runtime"]["replan"]["from_revision"] == 2
         assert replan_body["validation"]["ok"] is False
+
+    async def test_plan_review_adherence_persists_semantic_review(
+        self,
+        client,
+        db_session,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setattr(spm, "get_bot", lambda _bot_id: type("Bot", (), {"id": "test-bot"})())
+        monkeypatch.setattr(spm, "ensure_channel_workspace", lambda _channel_id, _bot: str(tmp_path))
+
+        correlation_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        session = Session(
+            id=session_id,
+            client_id=f"router-client-{uuid.uuid4().hex[:8]}",
+            bot_id="test-bot",
+            channel_id=uuid.uuid4(),
+            metadata_={},
+        )
+        db_session.add(session)
+        await db_session.flush()
+
+        spm.create_session_plan(
+            session,
+            title="Review Adherence",
+            summary="Check that outcomes are evidence-backed.",
+            scope="Plan execution review.",
+            acceptance_criteria=["The review is persisted on the plan."],
+            steps=[{"id": "verify", "label": "Verify the change"}],
+        )
+        spm.approve_session_plan(session)
+        spm.record_plan_progress_outcome(
+            session,
+            outcome="verification",
+            summary="Ran the focused regression check.",
+            step_id="verify",
+            evidence="pytest tests/unit/test_session_plan_mode.py -q",
+            correlation_id=str(correlation_id),
+            turn_id="turn-1",
+        )
+
+        async def _fake_review(_db, target_session, *, correlation_id=None):
+            return spm.record_plan_semantic_review(
+                target_session,
+                {
+                    "correlation_id": correlation_id,
+                    "step_id": "verify",
+                    "outcome": "verification",
+                    "verdict": spm.PLAN_SEMANTIC_REVIEW_SUPPORTED,
+                    "confidence": 0.84,
+                    "reason": "The turn includes a passing verification command and matching outcome.",
+                    "recommended_action": "continue",
+                },
+            )
+
+        monkeypatch.setattr(sessions_router, "review_plan_adherence", _fake_review)
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/sessions/{session_id}/plan/review-adherence",
+            headers=AUTH_HEADERS,
+            json={},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["runtime"]["semantic_status"] == "ok"
+        assert body["runtime"]["latest_semantic_review"]["verdict"] == "supported"
+        assert body["adherence"]["latest_semantic_review"]["correlation_id"] == str(correlation_id)
+        assert body["adherence"]["semantic_reviews"][-1]["recommended_action"] == "continue"

@@ -334,6 +334,51 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Context tracker",
         show_panel_title=True,
     ),
+    "core/usage_forecast_native": NativeWidgetSpec(
+        widget_ref="core/usage_forecast_native",
+        name="usage_forecast_native",
+        display_label="Usage forecast",
+        description="First-party native global usage forecast with compact activity charting.",
+        icon="chart-column",
+        supported_scopes=("dashboard",),
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        panel_title="Usage forecast",
+        show_panel_title=True,
+    ),
+    "core/channel_files_native": NativeWidgetSpec(
+        widget_ref="core/channel_files_native",
+        name="channel_files_native",
+        display_label="Channel files",
+        description="First-party native channel file browser with recent activity and drag-drop upload.",
+        icon="folder-tree",
+        supported_scopes=("channel",),
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        panel_title="Channel files",
+        show_panel_title=True,
+    ),
+    "core/upcoming_activity_native": NativeWidgetSpec(
+        widget_ref="core/upcoming_activity_native",
+        name="upcoming_activity_native",
+        display_label="Upcoming activity",
+        description="First-party native schedule window for upcoming heartbeats, tasks, and dreaming runs.",
+        icon="calendar-range",
+        supported_scopes=("dashboard",),
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        panel_title="Upcoming activity",
+        show_panel_title=True,
+    ),
 }
 
 

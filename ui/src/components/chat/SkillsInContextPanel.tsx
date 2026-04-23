@@ -11,7 +11,7 @@ import { useChatStore } from "../../stores/chat";
 import { parseSkillTags } from "../../lib/skillTags";
 import { useSkills, type SkillItem } from "../../api/hooks/useSkills";
 import { useEnrolledSkills } from "../../api/hooks/useEnrolledSkills";
-import { normalizeToolCall, type ToolCall } from "../../types/api";
+import type { ToolCall } from "../../types/api";
 import { tokenize } from "../shared/ToolSelector";
 
 const SOURCE_BADGE: Record<string, { label: string; bg: string; fg: string }> = {
@@ -351,84 +351,22 @@ function deriveEntries(
   messages: AnyMessage[],
   composerText: string,
 ): { entries: LoadedEntry[]; count: number } {
-  let active: Array<{ id: string; name: string }> = [];
+  let active: Array<{ id: string; name: string; origin: "loaded" | "auto"; msgsAgo?: number }> = [];
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m.role !== "assistant" && m.role !== "bot") continue;
     const meta = (m.metadata ?? {}) as Record<string, unknown>;
+    const canonical = normalize(meta.skills_in_context as unknown[] | undefined);
+    if (canonical.length > 0) {
+      active = canonical;
+      break;
+    }
     const a = (meta.active_skills as unknown[]) ?? [];
     const aux = (meta.auto_injected_skills as unknown[]) ?? [];
     const merged = [...a, ...aux];
     if (merged.length > 0) {
       active = normalize(merged);
       break;
-    }
-  }
-
-  // Track how fresh each skill is, counting assistant turns back from HEAD.
-  // Primary: the most recent explicit `get_skill` call. Fallback: the most
-  // recent assistant message with this skill in active_skills/auto_injected_skills
-  // metadata (covers auto-injected skills that never went through get_skill).
-  const msgsAgo = new Map<string, number>();
-  const fromGetSkill = new Set<string>();
-  for (const sk of active) {
-    let dist = 0;
-    let found = false;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== "assistant" && m.role !== "bot") continue;
-      const calls = m.tool_calls ?? [];
-      for (const tc of calls) {
-        const summary = tc.summary;
-        if (
-          summary?.subject_type === "skill" &&
-          summary.target_id === sk.id &&
-          (summary.kind === "read" || summary.kind === "result")
-        ) {
-          msgsAgo.set(sk.id, dist);
-          fromGetSkill.add(sk.id);
-          found = true;
-          break;
-        }
-        const norm = normalizeToolCall(tc);
-        if (norm.name !== "get_skill" && norm.name !== "load_skill") continue;
-        try {
-          const args = JSON.parse(norm.arguments ?? "{}") as { skill_id?: string };
-          if (args.skill_id === sk.id) {
-            msgsAgo.set(sk.id, dist);
-            fromGetSkill.add(sk.id);
-            found = true;
-            break;
-          }
-        } catch {
-          // ignore
-        }
-      }
-      if (found) break;
-      dist++;
-    }
-
-    if (found) continue;
-
-    // Fallback: distance to most recent metadata mention.
-    dist = 0;
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== "assistant" && m.role !== "bot") continue;
-      const meta = (m.metadata ?? {}) as Record<string, unknown>;
-      const ids = [
-        ...((meta.active_skills as unknown[]) ?? []),
-        ...((meta.auto_injected_skills as unknown[]) ?? []),
-      ].map((r) => {
-        if (!r || typeof r !== "object") return "";
-        const o = r as Record<string, unknown>;
-        return (o.skill_id ?? o.skillId ?? "") as string;
-      });
-      if (ids.includes(sk.id)) {
-        msgsAgo.set(sk.id, dist);
-        break;
-      }
-      dist++;
     }
   }
 
@@ -439,8 +377,8 @@ function deriveEntries(
     ...active.map((s) => ({
       id: s.id,
       name: s.name,
-      origin: (fromGetSkill.has(s.id) ? "loaded" : "auto") as "loaded" | "auto",
-      msgsAgo: msgsAgo.get(s.id),
+      origin: s.origin,
+      msgsAgo: s.msgsAgo,
     })),
     ...queuedIds
       .filter((id) => !loadedIds.has(id))
@@ -454,17 +392,26 @@ function deriveEntries(
   return { entries, count: entries.length };
 }
 
-function normalize(raw: unknown[]): Array<{ id: string; name: string }> {
+function normalize(raw: unknown[] | undefined): Array<{ id: string; name: string; origin: "loaded" | "auto"; msgsAgo?: number }> {
   const seen = new Set<string>();
-  const out: Array<{ id: string; name: string }> = [];
-  for (const r of raw) {
+  const out: Array<{ id: string; name: string; origin: "loaded" | "auto"; msgsAgo?: number }> = [];
+  for (const r of raw ?? []) {
     if (!r || typeof r !== "object") continue;
     const o = r as Record<string, unknown>;
     const id = (o.skill_id ?? o.skillId ?? "") as string;
     const name = ((o.skill_name ?? o.skillName ?? id) as string) || id || "skill";
+    const source = (o.source as string | undefined) ?? "";
+    const messagesAgo = typeof (o.messages_ago ?? o.messagesAgo) === "number"
+      ? Number(o.messages_ago ?? o.messagesAgo)
+      : undefined;
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    out.push({ id, name });
+    out.push({
+      id,
+      name,
+      origin: source === "loaded" ? "loaded" : "auto",
+      msgsAgo: messagesAgo,
+    });
   }
   return out;
 }

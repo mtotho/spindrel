@@ -17,6 +17,7 @@ from app.db.models import Attachment, Channel, Message, Session, TraceEvent
 from app.dependencies import get_db, require_scopes
 from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
+from app.services.plan_semantic_review import review_plan_adherence
 from app.services.session_plan_mode import (
     STEP_STATUS_BLOCKED,
     STEP_STATUS_DONE,
@@ -172,6 +173,10 @@ class PlanReplanRequest(BaseModel):
     affected_step_ids: Optional[list[str]] = None
     evidence: Optional[str] = None
     revision: Optional[int] = None
+
+
+class PlanSemanticReviewRequest(BaseModel):
+    correlation_id: Optional[str] = None
 
 
 class PlanningStateUpdateRequest(BaseModel):
@@ -499,6 +504,23 @@ async def replan(
     await db.commit()
     await db.refresh(session)
     publish_session_plan_event(session, "replan")
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plan/review-adherence", response_model=SessionPlanOut)
+async def review_adherence(
+    session_id: uuid.UUID,
+    body: PlanSemanticReviewRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await review_plan_adherence(db, session, correlation_id=body.correlation_id)
+    await db.commit()
+    await db.refresh(session)
+    publish_session_plan_event(session, "semantic_review")
     return _serialize_plan(session)
 
 

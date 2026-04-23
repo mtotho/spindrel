@@ -137,10 +137,13 @@ async def fetch_latest_context_budget(
        — this carries the API-reported ``prompt_tokens`` (Anthropic
        ``input_tokens``). When present this is the canonical answer; the
        header and dev-panel "last turn" view both source it.
-    2. Fall back to the most recent ``context_injection_summary``'s
+    2. If a newer ``compaction_done`` trace exists, treat any older API
+       usage snapshot as stale and recompute a fresh live estimate from the
+       compacted state.
+    3. Fall back to the most recent ``context_injection_summary``'s
        ``context_budget`` dict (pre-call estimate) when no turn has been
        sent yet, or when the model's response didn't include usage.
-    3. Sentinel with null fields when no turn has been recorded.
+    4. Sentinel with null fields when no turn has been recorded.
 
     Shared by ``GET /admin/channels/{id}/context-budget`` and
     ``GET /channels/{id}/context-budget`` so the two cannot drift.
@@ -181,9 +184,8 @@ async def fetch_latest_context_budget(
     )
     if session_id is not None:
         usage_query = usage_query.where(TraceEvent.session_id == session_id)
-    usage_row = await db.execute(
-        usage_query.order_by(TraceEvent.created_at.desc()).limit(1)
-    )
+    usage_ordered = usage_query.order_by(TraceEvent.created_at.desc()).limit(1)
+    usage_row = await db.execute(usage_ordered)
     usage_data = usage_row.scalar_one_or_none() or {}
     api_prompt_tokens = usage_data.get("gross_prompt_tokens")
     if api_prompt_tokens is None:
@@ -198,6 +200,89 @@ async def fetch_latest_context_budget(
         else:
             current_prompt_tokens = max(0, api_prompt_tokens - cached_prompt_tokens)
     completion_tokens = usage_data.get("completion_tokens")
+
+    compaction_query = (
+        select(TraceEvent.created_at)
+        .join(Session, TraceEvent.session_id == Session.id)
+        .where(
+            Session.channel_id == channel_id,
+            TraceEvent.event_type == "compaction_done",
+        )
+    )
+    if session_id is not None:
+        compaction_query = compaction_query.where(TraceEvent.session_id == session_id)
+    compaction_row = await db.execute(
+        compaction_query.order_by(TraceEvent.created_at.desc()).limit(1)
+    )
+    latest_compaction_at = compaction_row.scalar_one_or_none()
+
+    if api_prompt_tokens is not None and latest_compaction_at is not None:
+        usage_time_query = (
+            select(TraceEvent.created_at)
+            .join(Session, TraceEvent.session_id == Session.id)
+            .where(
+                Session.channel_id == channel_id,
+                TraceEvent.event_type == "token_usage",
+            )
+        )
+        if session_id is not None:
+            usage_time_query = usage_time_query.where(TraceEvent.session_id == session_id)
+        usage_time_row = await db.execute(
+            usage_time_query.order_by(TraceEvent.created_at.desc()).limit(1)
+        )
+        latest_usage_at = usage_time_row.scalar_one_or_none()
+    else:
+        latest_usage_at = None
+
+    if (
+        api_prompt_tokens is not None
+        and latest_compaction_at is not None
+        and latest_usage_at is not None
+        and latest_usage_at <= latest_compaction_at
+    ):
+        fresh_estimate = await compute_context_breakdown(
+            str(channel_id),
+            db,
+            mode="next_turn",
+            session_id=str(session_id) if session_id is not None else None,
+            include_budget=False,
+        )
+        if total_tokens is None:
+            from app.agent.bots import get_bot
+            from app.agent.context_budget import get_model_context_window
+            from app.agent.loop import _resolve_effective_provider
+
+            import uuid as _uuid
+            channel_pk = _uuid.UUID(str(channel_id)) if not isinstance(channel_id, _uuid.UUID) else channel_id
+            channel = await db.get(Channel, channel_pk)
+            if channel is not None:
+                bot = get_bot(channel.bot_id)
+                model = channel.model_override or bot.model
+                provider = _resolve_effective_provider(
+                    channel.model_override,
+                    getattr(channel, "model_provider_id_override", None),
+                    bot.model_provider_id,
+                )
+                total_tokens = get_model_context_window(model, provider)
+        consumed = fresh_estimate.total_tokens_approx
+        utilization = None
+        if total_tokens and consumed is not None and total_tokens > 0:
+            utilization = round(consumed / total_tokens, 3)
+        return {
+            "utilization": utilization,
+            "consumed_tokens": consumed,
+            "total_tokens": total_tokens,
+            "gross_prompt_tokens": consumed,
+            "current_prompt_tokens": consumed,
+            "cached_prompt_tokens": None,
+            "completion_tokens": None,
+            "context_profile": context_profile,
+            "context_origin": context_origin,
+            "live_history_turns": live_history_turns,
+            "mandatory_static_injections": mandatory_static_injections,
+            "optional_static_injections": optional_static_injections,
+            "source": "estimate",
+        }
 
     if api_prompt_tokens is None and est_consumed is None:
         return {
@@ -256,6 +341,7 @@ async def compute_context_breakdown(
     *,
     mode: str = "last_turn",
     session_id: str | Any | None = None,
+    include_budget: bool = True,
 ) -> ContextBreakdownResult:
     """Compute the dev-panel context breakdown for a channel.
 
@@ -271,7 +357,7 @@ async def compute_context_breakdown(
       count). May differ from the chat header by design.
     """
     session_id_str = str(session_id) if session_id is not None else None
-    cache_key = (str(channel_id), mode, session_id_str)
+    cache_key = (str(channel_id), mode, session_id_str, "budget" if include_budget else "nobudget")
     cached = _breakdown_cache.get(cache_key)
     if cached is not None:
         expiry, payload = cached
@@ -811,7 +897,7 @@ async def compute_context_breakdown(
     live_history_turns: int | None = None
     mandatory_static_injections: list[str] = []
     optional_static_injections: list[str] = []
-    if settings.CONTEXT_BUDGET_ENABLED:
+    if settings.CONTEXT_BUDGET_ENABLED and include_budget:
         try:
             from app.agent.context_budget import get_model_context_window
             _window = get_model_context_window(_model, _provider)

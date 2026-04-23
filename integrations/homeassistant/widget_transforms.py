@@ -218,7 +218,12 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
 
     brightness_raw = attrs.get("brightness")
     brightness = _parse_brightness(brightness_raw) if brightness_raw is not None else (100 if is_on else 0)
-    show_brightness = supports_brightness and is_on and bool(config.get("show_brightness", True))
+    show_brightness = (
+        supports_brightness
+        and widget_variant == "light_card"
+        and is_on
+        and bool(config.get("show_brightness", True))
+    )
     primary_info = str(config.get("primary_info") or "").strip().lower() or "name"
     secondary_info = str(config.get("secondary_info") or "").strip().lower() or "none"
     primary_text = _entity_property_value(entity, primary_info, friendly_name=friendly, display_value=_format_display_value(state, unit))
@@ -262,8 +267,6 @@ def _single_entity_view(entity: dict, config: dict) -> dict:
             or widget_variant == "light_card"
             or allow_action
         ),
-        "show_brightness_button_show": supports_brightness and is_on and not show_brightness,
-        "show_brightness_button_hide": supports_brightness and is_on and show_brightness,
         "toggle_target_name": friendly,
         "toggle_target_entity_id": entity_id,
         "toggle_on_tool": "HassTurnOn" if supports_toggle else "",
@@ -334,27 +337,6 @@ def _build_entity_widget_components(view: dict) -> list[dict]:
                 "tool": view.get("toggle_on_tool", ""),
                 "args": {"name": view.get("toggle_target_entity_id", "")},
                 "optimistic": True,
-            },
-        })
-
-    if view.get("show_brightness_button_hide"):
-        components.append({
-            "type": "button",
-            "label": "Hide brightness",
-            "subtle": True,
-            "action": {
-                "dispatch": "widget_config",
-                "config": {"show_brightness": False},
-            },
-        })
-    elif view.get("show_brightness_button_show"):
-        components.append({
-            "type": "button",
-            "label": "Show brightness",
-            "subtle": True,
-            "action": {
-                "dispatch": "widget_config",
-                "config": {"show_brightness": True},
             },
         })
 

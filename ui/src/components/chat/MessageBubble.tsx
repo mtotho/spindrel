@@ -312,7 +312,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
     if (broadcastRef.current === key) return;
     broadcastRef.current = key;
     for (const item of orderedWidgetItems) {
-      broadcastEnvelope(channelId, item.widget.toolName, item.widget.envelope);
+      broadcastEnvelope(channelId, item.widget.toolName, item.widget.envelope, {
+        kind: "tool_result",
+      });
     }
   }, [broadcastEnvelope, channelId, message.id, orderedWidgetItems]);
 

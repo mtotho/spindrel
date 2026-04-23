@@ -55,6 +55,7 @@ PLAN_GUIDED_SUBAGENT_TOOL = "spawn_subagents"
 _PLANNING_STATE_LIST_LIMIT = 12
 _ADHERENCE_EVIDENCE_LIMIT = 20
 _ADHERENCE_OUTCOME_LIMIT = 20
+_ADHERENCE_SEMANTIC_REVIEW_LIMIT = 12
 
 PLAN_PROGRESS_OUTCOME_PROGRESS = "progress"
 PLAN_PROGRESS_OUTCOME_VERIFICATION = "verification"
@@ -67,6 +68,28 @@ _VALID_PLAN_PROGRESS_OUTCOMES = {
     PLAN_PROGRESS_OUTCOME_STEP_DONE,
     PLAN_PROGRESS_OUTCOME_BLOCKED,
     PLAN_PROGRESS_OUTCOME_NO_PROGRESS,
+}
+
+PLAN_SEMANTIC_REVIEW_SUPPORTED = "supported"
+PLAN_SEMANTIC_REVIEW_WEAK_SUPPORT = "weak_support"
+PLAN_SEMANTIC_REVIEW_UNSUPPORTED = "unsupported"
+PLAN_SEMANTIC_REVIEW_NEEDS_REPLAN = "needs_replan"
+_VALID_PLAN_SEMANTIC_VERDICTS = {
+    PLAN_SEMANTIC_REVIEW_SUPPORTED,
+    PLAN_SEMANTIC_REVIEW_WEAK_SUPPORT,
+    PLAN_SEMANTIC_REVIEW_UNSUPPORTED,
+    PLAN_SEMANTIC_REVIEW_NEEDS_REPLAN,
+}
+
+PLAN_SEMANTIC_STATUS_OK = "ok"
+PLAN_SEMANTIC_STATUS_WARNING = "warning"
+PLAN_SEMANTIC_STATUS_NEEDS_REPLAN = "needs_replan"
+PLAN_SEMANTIC_STATUS_UNKNOWN = "unknown"
+_VALID_PLAN_SEMANTIC_STATUSES = {
+    PLAN_SEMANTIC_STATUS_OK,
+    PLAN_SEMANTIC_STATUS_WARNING,
+    PLAN_SEMANTIC_STATUS_NEEDS_REPLAN,
+    PLAN_SEMANTIC_STATUS_UNKNOWN,
 }
 
 _VALID_PLAN_MODES = {
@@ -591,6 +614,22 @@ def _runtime_next_action(mode: str, plan: SessionPlan | None, validation: dict[s
     return "chat"
 
 
+def _semantic_status_from_review(review: dict[str, Any] | None) -> str:
+    if not isinstance(review, dict):
+        return PLAN_SEMANTIC_STATUS_UNKNOWN
+    semantic_status = str(review.get("semantic_status") or "").strip()
+    if semantic_status in _VALID_PLAN_SEMANTIC_STATUSES:
+        return semantic_status
+    verdict = str(review.get("verdict") or "").strip()
+    if verdict == PLAN_SEMANTIC_REVIEW_SUPPORTED:
+        return PLAN_SEMANTIC_STATUS_OK
+    if verdict == PLAN_SEMANTIC_REVIEW_NEEDS_REPLAN:
+        return PLAN_SEMANTIC_STATUS_NEEDS_REPLAN
+    if verdict in {PLAN_SEMANTIC_REVIEW_WEAK_SUPPORT, PLAN_SEMANTIC_REVIEW_UNSUPPORTED}:
+        return PLAN_SEMANTIC_STATUS_WARNING
+    return PLAN_SEMANTIC_STATUS_UNKNOWN
+
+
 def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None) -> dict[str, Any]:
     """Build the compact durable execution state separate from plan prose."""
     meta = session.metadata_ or {}
@@ -627,6 +666,8 @@ def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None
         "pending_turn_outcome": copy.deepcopy(existing.get("pending_turn_outcome")),
         "latest_outcome": adherence.get("latest_outcome"),
         "adherence_status": adherence.get("status"),
+        "semantic_status": _semantic_status_from_review(adherence.get("latest_semantic_review")),
+        "latest_semantic_review": copy.deepcopy(adherence.get("latest_semantic_review")),
         "latest_evidence": adherence.get("latest_evidence"),
         "compaction_watermark_message_id": (
             str(session.summary_message_id) if getattr(session, "summary_message_id", None) else None
@@ -643,8 +684,10 @@ def _adherence_default() -> dict[str, Any]:
         "status": "unknown",
         "evidence": [],
         "outcomes": [],
+        "semantic_reviews": [],
         "latest_evidence": None,
         "latest_outcome": None,
+        "latest_semantic_review": None,
         "last_transition": None,
         "last_updated_at": None,
     }
@@ -660,6 +703,8 @@ def _normalize_adherence(raw: Any) -> dict[str, Any]:
     state["evidence"] = evidence if isinstance(evidence, list) else []
     outcomes = state.get("outcomes")
     state["outcomes"] = outcomes if isinstance(outcomes, list) else []
+    semantic_reviews = state.get("semantic_reviews")
+    state["semantic_reviews"] = semantic_reviews if isinstance(semantic_reviews, list) else []
     return state
 
 
@@ -711,6 +756,8 @@ def record_plan_execution_evidence(
     record_id: str | None = None,
     arguments: dict[str, Any] | None = None,
     result_summary: str | None = None,
+    turn_id: str | None = None,
+    correlation_id: str | None = None,
 ) -> dict[str, Any] | None:
     plan = load_session_plan(session, required=False)
     mode = get_session_plan_mode(session)
@@ -723,6 +770,8 @@ def record_plan_execution_evidence(
         "plan_revision": plan.revision,
         "accepted_revision": _accepted_plan_revision(session) or None,
         "step_id": runtime.get("current_step_id") or runtime.get("next_step_id"),
+        "turn_id": turn_id,
+        "correlation_id": correlation_id,
         "tool_name": tool_name,
         "tool_kind": tool_kind,
         "status": status,
@@ -751,6 +800,43 @@ def record_plan_execution_evidence(
     session.metadata_ = meta
     flag_modified(session, "metadata_")
     return adherence
+
+
+def record_plan_semantic_review(
+    session: Session,
+    review: dict[str, Any],
+    *,
+    plan: SessionPlan | None = None,
+) -> dict[str, Any]:
+    review_copy = copy.deepcopy(review if isinstance(review, dict) else {})
+    verdict = str(review_copy.get("verdict") or "").strip()
+    if verdict not in _VALID_PLAN_SEMANTIC_VERDICTS:
+        raise HTTPException(status_code=422, detail=f"Invalid semantic review verdict: {verdict or 'missing'}")
+
+    review_copy["semantic_status"] = _semantic_status_from_review(review_copy)
+    review_copy["created_at"] = str(review_copy.get("created_at") or _utc_now_iso())
+
+    meta = _session_plan_meta(session)
+    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
+    adherence["semantic_reviews"].append(review_copy)
+    adherence["semantic_reviews"] = adherence["semantic_reviews"][-_ADHERENCE_SEMANTIC_REVIEW_LIMIT:]
+    adherence["latest_semantic_review"] = review_copy
+    adherence["last_transition"] = "semantic_review"
+    adherence["last_updated_at"] = review_copy["created_at"]
+    meta[PLAN_ADHERENCE_METADATA_KEY] = adherence
+
+    runtime_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
+    runtime = copy.deepcopy(runtime_raw if isinstance(runtime_raw, dict) else {})
+    runtime["semantic_status"] = review_copy["semantic_status"]
+    runtime["latest_semantic_review"] = review_copy
+    runtime["last_updated_at"] = review_copy["created_at"]
+    runtime["last_update_reason"] = "semantic_review"
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    sync_plan_runtime_capsule(session, plan, reason="semantic_review")
+    return review_copy
 
 
 def _current_or_next_step_id(plan: SessionPlan | None) -> str | None:
@@ -1813,6 +1899,8 @@ def build_plan_artifact_context(session: Session) -> str | None:
         )
     if runtime.get("adherence_status"):
         runtime_lines.append(f"Adherence status: {runtime.get('adherence_status')}")
+    if runtime.get("semantic_status"):
+        runtime_lines.append(f"Semantic review status: {runtime.get('semantic_status')}")
     if runtime.get("latest_evidence"):
         latest = runtime.get("latest_evidence") or {}
         runtime_lines.append(
@@ -1828,6 +1916,15 @@ def build_plan_artifact_context(session: Session) -> str | None:
             "Latest plan outcome: "
             + _clip_plan_context(
                 f"{latest_outcome.get('outcome')}: {latest_outcome.get('summary') or 'recorded'}",
+                240,
+            )
+        )
+    if runtime.get("latest_semantic_review"):
+        latest_review = runtime.get("latest_semantic_review") or {}
+        runtime_lines.append(
+            "Latest semantic review: "
+            + _clip_plan_context(
+                f"{latest_review.get('verdict')}: {latest_review.get('reason') or latest_review.get('recommended_action') or 'reviewed'}",
                 240,
             )
         )

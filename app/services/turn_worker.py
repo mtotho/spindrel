@@ -246,6 +246,7 @@ async def run_turn(
         )
         _auto_injected_skills: list[dict] = []
         _active_skills: list[dict] = []
+        _skills_in_context: list[dict] = []
         _llm_retries: int = 0
         _llm_fallback_model: str | None = None
         _vision_fallback: bool = False
@@ -268,7 +269,11 @@ async def run_turn(
                 continue
 
             if etype == "active_skills":
-                _active_skills = list(event.get("skills", []))
+                _skills_in_context = list(event.get("skills", []))
+                _active_skills = [
+                    s for s in _skills_in_context
+                    if isinstance(s, dict) and s.get("source") == "loaded"
+                ]
                 continue
 
             if etype == "cancelled":
@@ -359,6 +364,15 @@ async def run_turn(
             # context_pruning, rate_limit_wait) — forwarded but no caller-side
             # action needed.
 
+        from app.agent.context import current_skills_in_context as _current_skills_in_context
+        _runtime_skills_in_context = list(_current_skills_in_context.get() or [])
+        if _runtime_skills_in_context:
+            _skills_in_context = _runtime_skills_in_context
+            _active_skills = [
+                s for s in _skills_in_context
+                if isinstance(s, dict) and s.get("source") == "loaded"
+            ]
+
         # 4b. Tag the last assistant message with auto-injected skill info
         #     so persist_turn can carry it into the DB row's metadata.
         if _auto_injected_skills:
@@ -369,10 +383,11 @@ async def run_turn(
 
         # 4b.2. Tag the last assistant message with active skills (still in
         #       context from prior get_skill calls) for the UI skill orb.
-        if _active_skills:
+        if _skills_in_context or _active_skills:
             for _m in reversed(messages[from_index:]):
                 if _m.get("role") == "assistant":
                     _m["_active_skills"] = _active_skills
+                    _m["_skills_in_context"] = _skills_in_context or _active_skills
                     break
 
         # 4c. Tag the last assistant message with LLM retry/fallback info

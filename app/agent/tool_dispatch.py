@@ -62,6 +62,8 @@ async def _record_plan_tool_evidence(
     record_id: uuid.UUID | None,
     arguments: dict[str, Any],
     result_summary: str | None,
+    turn_id: str | None,
+    correlation_id: str | None,
 ) -> None:
     if session_id is None:
         return
@@ -82,6 +84,8 @@ async def _record_plan_tool_evidence(
                 record_id=str(record_id) if record_id else None,
                 arguments=arguments,
                 result_summary=result_summary,
+                turn_id=turn_id,
+                correlation_id=correlation_id,
             )
             if changed is not None:
                 await db.commit()
@@ -1073,6 +1077,7 @@ async def dispatch_tool_call(
     tool_event["surface"] = _surface
     tool_event["summary"] = _summary
     result_obj.tool_event = tool_event
+    from app.agent.context import current_turn_id
     safe_create_task(_record_plan_tool_evidence(
         session_id=session_id,
         tool_name=name,
@@ -1083,6 +1088,8 @@ async def dispatch_tool_call(
         record_id=_tc_record_id,
         arguments=_tc_args_pre,
         result_summary=_summary or result_preview,
+        turn_id=current_turn_id.get(),
+        correlation_id=str(correlation_id) if correlation_id else None,
     ))
 
     return result_obj

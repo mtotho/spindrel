@@ -12,13 +12,13 @@ drift apart again.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Session, TraceEvent
+from app.db.models import Channel, Message, Session, TraceEvent
 
 
 AUTH_HEADERS = {"Authorization": "Bearer test-key"}
@@ -85,6 +85,92 @@ async def _seed_channel_with_token_usage(
             "total_tokens": api_prompt_tokens + 42,
         },
         created_at=now,
+    ))
+    await db_session.commit()
+    return str(channel_id)
+
+
+async def _seed_compacted_channel_with_stale_usage(
+    db_session: AsyncSession,
+    *,
+    stale_prompt_tokens: int,
+    estimate_total: int = 200_000,
+) -> str:
+    """Create a channel whose latest token_usage predates a completed compaction.
+
+    The session summary/watermark reflect the current compacted state, so any
+    older API usage snapshot is no longer representative of the live context.
+    """
+    channel_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    trace_at = now - timedelta(minutes=2)
+    watermark_at = now - timedelta(minutes=1)
+    compaction_at = now
+
+    db_session.add(Channel(
+        id=channel_id, name="ctx-compact-stale", bot_id="test-bot",
+        active_session_id=session_id,
+    ))
+    session = Session(
+        id=session_id,
+        bot_id="test-bot",
+        client_id=f"c-{channel_id.hex[:8]}",
+        channel_id=channel_id,
+        summary="Compacted summary of earlier work.",
+    )
+    db_session.add(session)
+
+    watermark = Message(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        role="assistant",
+        content="Older assistant reply before compaction",
+        created_at=watermark_at,
+    )
+    db_session.add(watermark)
+    await db_session.flush()
+    session.summary_message_id = watermark.id
+
+    db_session.add(TraceEvent(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        bot_id="test-bot",
+        event_type="context_injection_summary",
+        data={
+            "context_profile": "chat",
+            "context_origin": "chat",
+            "context_policy": {"live_history_turns": 6},
+            "context_budget": {
+                "consumed_tokens": stale_prompt_tokens,
+                "total_tokens": estimate_total,
+                "utilization": round(stale_prompt_tokens / estimate_total, 3),
+            },
+        },
+        created_at=trace_at,
+    ))
+    db_session.add(TraceEvent(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        bot_id="test-bot",
+        event_type="token_usage",
+        data={
+            "prompt_tokens": stale_prompt_tokens,
+            "gross_prompt_tokens": stale_prompt_tokens,
+            "current_prompt_tokens": stale_prompt_tokens - 100,
+            "cached_prompt_tokens": 100,
+            "completion_tokens": 42,
+            "total_tokens": stale_prompt_tokens + 42,
+        },
+        created_at=trace_at,
+    ))
+    db_session.add(TraceEvent(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        bot_id="test-bot",
+        event_type="compaction_done",
+        data={"title": "Context compacted", "summary_len": len(session.summary or "")},
+        created_at=compaction_at,
     ))
     await db_session.commit()
     return str(channel_id)
@@ -219,6 +305,29 @@ class TestBreakdownModes:
         assert data["source"] == "estimate"
 
     @pytest.mark.asyncio
+    async def test_context_budget_ignores_stale_api_usage_after_compaction(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """A compaction invalidates older token_usage snapshots until a newer turn lands."""
+        cid = await _seed_compacted_channel_with_stale_usage(
+            db_session, stale_prompt_tokens=54_321,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-budget",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["source"] == "estimate"
+        assert data["consumed_tokens"] != 54_321
+        assert data["gross_prompt_tokens"] == data["consumed_tokens"]
+        assert data["current_prompt_tokens"] == data["consumed_tokens"]
+        assert data["cached_prompt_tokens"] is None
+        assert data["completion_tokens"] is None
+        assert data["context_profile"] == "chat"
+
+    @pytest.mark.asyncio
     async def test_context_budget_can_scope_to_specific_session(
         self, client: AsyncClient, db_session: AsyncSession,
     ):
@@ -282,3 +391,23 @@ class TestBreakdownModes:
         assert scoped_resp.status_code == 200
         assert default_resp.json()["consumed_tokens"] == 999
         assert scoped_resp.json()["consumed_tokens"] == 111
+
+    @pytest.mark.asyncio
+    async def test_last_turn_total_falls_back_to_forecast_after_compaction(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """last_turn mode should stop advertising pre-compaction API usage."""
+        cid = await _seed_compacted_channel_with_stale_usage(
+            db_session, stale_prompt_tokens=54_321,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-breakdown?mode=last_turn",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["mode"] == "last_turn"
+        assert data["total_tokens_approx"] != 54_321
+        assert data["context_budget"]["usage"]["source"] == "estimate"
+        assert data["context_budget"]["usage"]["gross_prompt_tokens"] == data["total_tokens_approx"]

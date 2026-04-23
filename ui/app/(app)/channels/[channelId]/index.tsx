@@ -74,6 +74,11 @@ import {
   parseChannelRecentRoute,
 } from "@/src/lib/recentPages";
 import {
+  CHANNEL_FILES_PATH_PARAM,
+  CHANNEL_OPEN_FILE_PARAM,
+  readChannelFileIntent,
+} from "@/src/lib/channelFileNavigation";
+import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
@@ -669,6 +674,7 @@ export default function ChatScreen() {
   // ---- Workspace / file explorer state ----
   const workspaceId = channel?.resolved_workspace_id;
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
+  const setRememberedChannelPath = useFileBrowserStore((s) => s.setChannelExplorerPath);
   const legacyExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
   const legacyOmniPanelTab = useUIStore((s) => s.omniPanelTab);
   const ensureChannelPanelPrefs = useUIStore((s) => s.ensureChannelPanelPrefs);
@@ -961,6 +967,32 @@ export default function ChatScreen() {
     if (!fileDirtyRef.current) { executeDirtyAction(action); return; }
     setPendingDirtyAction(action);
   }, [activeFile, executeDirtyAction]);
+
+  useEffect(() => {
+    if (!channelId) return;
+    const intent = readChannelFileIntent(searchParams, channelId);
+    if (!intent) return;
+    patchChannelPanelPrefs(channelId, {
+      leftOpen: true,
+      mobileDrawerOpen: true,
+      leftTab: "files",
+    });
+    setRememberedChannelPath(channelId, `/${intent.directoryPath}`);
+    if (intent.openFile) {
+      handleSelectFile(intent.openFile);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete(CHANNEL_FILES_PATH_PARAM);
+    next.delete(CHANNEL_OPEN_FILE_PARAM);
+    setSearchParams(next, { replace: true });
+  }, [
+    channelId,
+    handleSelectFile,
+    patchChannelPanelPrefs,
+    searchParams,
+    setRememberedChannelPath,
+    setSearchParams,
+  ]);
 
   const handleCloseFile = useCallback(() => {
     const action: DirtyAction = { type: "close" };

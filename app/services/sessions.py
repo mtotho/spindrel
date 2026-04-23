@@ -625,6 +625,8 @@ async def persist_turn(
         # for the UI skill orb on persisted messages.
         if msg.get("_active_skills"):
             meta = {**meta, "active_skills": msg["_active_skills"]}
+        if msg.get("_skills_in_context"):
+            meta = {**meta, "skills_in_context": msg["_skills_in_context"]}
         # Carry forward LLM retry/fallback info for UI display on persisted messages
         if msg.get("_llm_status"):
             meta = {**meta, "llm_status": msg["_llm_status"]}

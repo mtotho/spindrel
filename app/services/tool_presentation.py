@@ -267,15 +267,18 @@ def derive_tool_presentation(
             result_json.get("id") if isinstance(result_json, dict) else None,
             result_json.get("name") if isinstance(result_json, dict) else None,
         )
+        already_loaded = bool(result_json.get("already_loaded")) if isinstance(result_json, dict) else False
         summary: ToolSummary = {
-            "kind": "read",
+            "kind": "result" if already_loaded else "read",
             "subject_type": "skill",
-            "label": "Loaded skill",
+            "label": "Skill already loaded" if already_loaded else "Loaded skill",
         }
         if skill_id:
             summary["target_id"] = skill_id
             summary["target_label"] = _format_skill_ref(skill_id)
-        preview_text = _preview_text(envelope=envelope, result=result)
+        preview_text = _normalize_label(
+            result_json.get("message") if already_loaded and isinstance(result_json, dict) else None,
+        ) or _preview_text(envelope=envelope, result=result)
         if preview_text:
             summary["preview_text"] = preview_text
         return "transcript", summary

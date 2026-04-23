@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-22 (widget contract/catalog lock-in)
+updated: 2026-04-23 (native widget expansion)
 ---
 
 # Track — Widget Library
@@ -267,6 +267,13 @@ Contract/DX follow-up 2026-04-22:
   - `./node_modules/.bin/tsc --noEmit --pretty false` returned exit code 0 in `ui/`
 
 ## MVP decision — FS-backed, not DB-backed
+
+Phase 18 follow-up shipped 2026-04-23 — the native widget lane now has three more first-party widgets and a reusable file-navigation contract instead of Notes/Todo being the only meaningful proof points.
+
+- **New native catalog entries** — `core/usage_forecast_native`, `core/channel_files_native`, and `core/upcoming_activity_native` now register through the same `native_app` catalog/runtime path as Notes, Todo, and Context tracker. Usage + Upcoming stay dashboard-scoped; Channel Files is channel-scoped.
+- **Cross-app monitoring widgets** — Usage Forecast reuses the existing admin usage forecast + daily timeseries APIs for projected spend and a compact 7-day activity chart. Upcoming Activity reuses the existing merged scheduler feed (`/api/v1/admin/upcoming-activity`) for heartbeats, tasks, and dreaming runs.
+- **Channel Files native widget** — low-chrome mini browser with `Recent | Browse`, channel-workspace recent updates, compact folder browsing against the shared workspace tree, and drag/drop upload. It intentionally reuses the same remembered folder state as the main channel Files tab instead of inventing widget-local file state.
+- **New invariant** — native widgets are no longer only "persistent scratchpads". They can also be fetch-driven operational surfaces, but they should still reuse existing backend APIs and host-owned navigation contracts instead of embedding bespoke transport or duplicated editor state.
 
 Per-bot and workspace-scoped widgets will live under `<ws_root>/.widget_library/<name>/` on the host FS (not a `bot_widgets` DB table as originally sketched in the plan). Trade-off: file-backed reuses all existing file-op machinery for free, survives workspace persistence exactly like any other bot file, and listing is a directory walk. DB-backed can come later if we need cross-workspace reuse, but the FS approach unblocks authoring without a migration.
 

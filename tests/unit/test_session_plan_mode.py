@@ -651,3 +651,38 @@ def test_build_plan_revision_diff_uses_snapshot_content(monkeypatch, tmp_path):
     assert "steps" in diff["changed_sections"]
     assert "Execution started." not in diff["diff"]
     assert "Updated scope" in diff["diff"]
+
+
+def test_record_plan_semantic_review_updates_runtime_and_adherence(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Semantic Review",
+        summary="Track semantic adherence separately from protocol adherence.",
+        scope="Plan runtime metadata and review surfaces.",
+        acceptance_criteria=["Semantic review is visible in runtime and adherence state."],
+        steps=[{"id": "ship", "label": "Implement the runtime review"}],
+    )
+    spm.approve_session_plan(session)
+
+    review = spm.record_plan_semantic_review(
+        session,
+        {
+            "correlation_id": str(uuid.uuid4()),
+            "step_id": "ship",
+            "outcome": "verification",
+            "verdict": spm.PLAN_SEMANTIC_REVIEW_SUPPORTED,
+            "confidence": 0.88,
+            "reason": "The turn included the expected verification command and outcome.",
+            "recommended_action": "continue",
+        },
+    )
+
+    assert review["semantic_status"] == spm.PLAN_SEMANTIC_STATUS_OK
+    runtime = spm.build_plan_runtime_capsule(session, spm.load_session_plan(session, required=True))
+    adherence = spm.build_plan_adherence_state(session, spm.load_session_plan(session, required=True))
+    assert runtime["semantic_status"] == spm.PLAN_SEMANTIC_STATUS_OK
+    assert runtime["latest_semantic_review"]["verdict"] == spm.PLAN_SEMANTIC_REVIEW_SUPPORTED
+    assert adherence["latest_semantic_review"]["reason"].startswith("The turn included")
+    assert adherence["semantic_reviews"][-1]["recommended_action"] == "continue"

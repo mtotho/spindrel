@@ -15,7 +15,12 @@ from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import EffectiveTools, apply_auto_injections, resolve_effective_tools
-from app.agent.context import current_run_origin, set_ephemeral_delegates, set_ephemeral_skills
+from app.agent.context import (
+    current_run_origin,
+    current_skills_in_context,
+    set_ephemeral_delegates,
+    set_ephemeral_skills,
+)
 from app.agent.context_profiles import ContextProfile, get_context_profile
 from typing import TYPE_CHECKING
 
@@ -320,6 +325,7 @@ class AssemblyResult:
     effective_local_tools: list[str] | None = None
     auto_inject_skills: list[dict[str, Any]] = field(default_factory=list)
     active_skills: list[dict[str, Any]] = field(default_factory=list)
+    skills_in_context: list[dict[str, Any]] = field(default_factory=list)
     # Per-category injection chars — populated by assemble_context for callers
     # that want the breakdown without scraping trace events (e.g. dev-panel
     # next-turn forecast). Mirrors the dict written into the
@@ -1017,6 +1023,7 @@ async def assemble_context(
     result.context_profile = context_profile.name
     result.context_origin = current_run_origin.get(None)
     result.context_policy = context_profile.to_policy_dict()
+    current_skills_in_context.set([])
 
     def _budget_consume(category: str, text: str) -> None:
         """Record consumption in the budget if one is active."""
@@ -1336,6 +1343,7 @@ async def assemble_context(
     _auto_injected: list[str] = []
     _auto_injected_similarities: dict[str, float] = {}
     _history_fetched_skills: set[str] = set()
+    _history_skill_records: dict[str, dict[str, Any]] = {}
     _skipped_in_history: list[str] = []
     _tool_discovery_info: dict[str, Any] = {"tool_retrieval_enabled": False}
     _skipped_budget: list[str] = []
@@ -1350,25 +1358,41 @@ async def assemble_context(
         from app.db.engine import async_session as _async_session
         from app.db.models import Skill as _SkillRow
 
-        # Scan conversation history for skills already fetched via get_skill().
-        # Unconditional — the set drives auto-inject dedup below AND the UI
-        # "skills still in context" orb via result.active_skills. Runs even for
-        # bots with no enrolled skills (catalog skills can still be fetched).
-        for _hmsg in messages:
-            if _hmsg.get("role") == "assistant" and _hmsg.get("tool_calls"):
-                for _htc in _hmsg["tool_calls"]:
-                    _hfn = _htc.get("function") or {}
-                    if _hfn.get("name") == "get_skill":
-                        try:
-                            _hargs = json.loads(_hfn.get("arguments", "{}"))
-                            if _hargs.get("skill_id"):
-                                _history_fetched_skills.add(_hargs["skill_id"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+        # Scan the active prompt history for skills already fetched via get_skill().
+        # The reverse walk captures only the most recent resident copy for each
+        # skill, which lets us expose both source and recency to the prompt/UI.
+        _assistant_msgs_ago = 0
+        for _hmsg in reversed(messages):
+            if _hmsg.get("role") not in ("assistant", "bot"):
+                continue
+            for _htc in reversed(_hmsg.get("tool_calls") or []):
+                _hfn = _htc.get("function") or {}
+                if _hfn.get("name") != "get_skill":
+                    continue
+                try:
+                    _hargs = json.loads(_hfn.get("arguments", "{}"))
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                _skill_id = _hargs.get("skill_id")
+                if not _skill_id or _skill_id in _history_skill_records:
+                    continue
+                _tcid = str(_htc.get("id") or "")
+                _history_skill_records[_skill_id] = {
+                    "skill_id": _skill_id,
+                    "source": "auto_injected" if _tcid.startswith("auto_inject_") else "loaded",
+                    "messages_ago": _assistant_msgs_ago,
+                }
+                _history_fetched_skills.add(_skill_id)
+            _assistant_msgs_ago += 1
 
-        def _fmt_skill_line(r, *, relevant: bool = False) -> str:
+        _resident_skill_ids = set(_history_skill_records.keys())
+
+        def _fmt_skill_line(r, *, relevant: bool = False, resident: bool = False) -> str:
             prefix = "↑" if relevant else "-"
-            parts = [f"{prefix} {r.id}: {r.name}"]
+            parts = [prefix]
+            if resident:
+                parts.append(" [loaded]")
+            parts.append(f" {r.id}: {r.name}")
             if r.description:
                 parts.append(f" — {r.description}")
             if r.triggers:
@@ -1383,7 +1407,7 @@ async def assemble_context(
                 return r.id.split("/", 1)[0]
             return "misc"
 
-        def _render_grouped_skill_lines(rows_in_order: list, relevant_ids: set) -> str:
+        def _render_grouped_skill_lines(rows_in_order: list, relevant_ids: set, resident_ids: set[str]) -> str:
             categories: dict[str, list[str]] = {}
             cat_order: list[str] = []
             for _r in rows_in_order:
@@ -1391,10 +1415,20 @@ async def assemble_context(
                 if _c not in categories:
                     categories[_c] = []
                     cat_order.append(_c)
-                categories[_c].append(_fmt_skill_line(_r, relevant=_r.id in relevant_ids))
+                categories[_c].append(
+                    _fmt_skill_line(
+                        _r,
+                        relevant=_r.id in relevant_ids,
+                        resident=_r.id in resident_ids,
+                    )
+                )
             if len(rows_in_order) < 5 or len(cat_order) < 2:
                 return "\n".join(
-                    _fmt_skill_line(_r, relevant=_r.id in relevant_ids)
+                    _fmt_skill_line(
+                        _r,
+                        relevant=_r.id in relevant_ids,
+                        resident=_r.id in resident_ids,
+                    )
                     for _r in rows_in_order
                 )
             if "core" in cat_order:
@@ -1457,22 +1491,32 @@ async def assemble_context(
 
                     _has_relevant = bool(_ranked_relevant)
                     _ordered_rows = [_row_map[sid] for sid in _sorted_ids if sid in _row_map]
-                    _working_lines = _render_grouped_skill_lines(_ordered_rows, set(_ranked_relevant))
+                    _working_lines = _render_grouped_skill_lines(
+                        _ordered_rows, set(_ranked_relevant), _resident_skill_ids,
+                    )
                     _header = (
                         "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
                         "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content. "
                         "Answering from the description alone is the primary source of bad replies.\n"
+                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
                         "Skills marked ↑ are semantically relevant to this message — load them before responding.\n"
                         if _has_relevant else
                         "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
-                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
+                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
+                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
                     )
                 else:
                     # No ranking (disabled, no user_message, or failure) — grouped flat list
-                    _working_lines = _render_grouped_skill_lines(list(_enrolled_rows), set())
+                    _working_lines = _render_grouped_skill_lines(
+                        list(_enrolled_rows), set(), _resident_skill_ids,
+                    )
                     _header = (
                         "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
-                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content:\n"
+                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
+                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
                     )
 
                 messages.append({
@@ -2330,11 +2374,26 @@ async def assemble_context(
                         _skill_name_map[_nr.id] = _nr.name
             except Exception:
                 logger.warning("active_skills name lookup failed", exc_info=True)
-        for _sid in sorted(_history_fetched_skills):
-            result.active_skills.append({
+        for _sid, _rec in sorted(
+            _history_skill_records.items(),
+            key=lambda item: (
+                int(item[1].get("messages_ago", 0)),
+                str(_skill_name_map.get(item[0], item[0])).lower(),
+            ),
+        ):
+            _entry = {
                 "skill_id": _sid,
                 "skill_name": _skill_name_map.get(_sid, _sid),
-            })
+                "source": _rec.get("source", "loaded"),
+                "messages_ago": int(_rec.get("messages_ago", 0)),
+            }
+            result.skills_in_context.append(_entry)
+            if _entry["source"] == "loaded":
+                result.active_skills.append({
+                    "skill_id": _sid,
+                    "skill_name": _entry["skill_name"],
+                })
+        current_skills_in_context.set(list(result.skills_in_context))
 
     # --- discovery summary trace (skills + tools, consolidated for at-a-glance) ---
     # Emitted unconditionally so the UI can render a single "what did discovery do

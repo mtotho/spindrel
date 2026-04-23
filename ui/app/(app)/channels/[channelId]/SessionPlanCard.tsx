@@ -17,6 +17,7 @@ export function SessionPlanCard({
   onExit,
   onStepStatus,
   onReplan,
+  onReviewLatestOutcome,
 }: {
   plan: SessionPlan;
   sessionId?: string;
@@ -29,6 +30,7 @@ export function SessionPlanCard({
   onExit: () => void;
   onStepStatus: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
   onReplan?: () => void;
+  onReviewLatestOutcome?: (correlationId?: string) => void;
 }) {
   const t = useThemeTokens();
   const historical = currentRevision != null && plan.revision !== currentRevision;
@@ -50,6 +52,9 @@ export function SessionPlanCard({
   const adherence = plan.adherence;
   const pendingOutcome = runtime?.pending_turn_outcome;
   const latestOutcome = adherence?.latest_outcome ?? runtime?.latest_outcome;
+  const latestSemanticReview = adherence?.latest_semantic_review ?? runtime?.latest_semantic_review;
+  const latestOutcomeNeedsReview = !!latestOutcome?.correlation_id
+    && latestSemanticReview?.correlation_id !== latestOutcome.correlation_id;
   const planningStateItems = [
     { label: "Decisions", items: planningState?.decisions ?? [] },
     { label: "Open questions", items: planningState?.open_questions ?? [] },
@@ -176,6 +181,21 @@ export function SessionPlanCard({
               Request Replan
             </button>
           ) : null}
+          {(plan.mode === "executing" || plan.mode === "blocked" || plan.mode === "done") && !historical && latestOutcome && onReviewLatestOutcome ? (
+            <button
+              type="button"
+              onClick={() => onReviewLatestOutcome(latestOutcome.correlation_id ?? undefined)}
+              disabled={busy}
+              className="inline-flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] font-medium transition-colors"
+              style={{
+                borderColor: latestOutcomeNeedsReview ? t.accent : t.surfaceBorder,
+                color: latestOutcomeNeedsReview ? t.text : t.textMuted,
+                background: latestOutcomeNeedsReview ? t.surfaceOverlay : t.surface,
+              }}
+            >
+              Review Last Outcome
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onExit}
@@ -235,6 +255,27 @@ export function SessionPlanCard({
           {latestOutcome ? (
             <div style={{ fontSize: 12, color: t.textDim }}>
               Latest outcome: {latestOutcome.outcome ?? "recorded"}{latestOutcome.summary ? ` - ${latestOutcome.summary}` : ""}
+            </div>
+          ) : null}
+          {latestOutcomeNeedsReview ? (
+            <div style={{ fontSize: 12, color: t.warningMuted }}>
+              Latest outcome has not been semantically reviewed yet.
+            </div>
+          ) : null}
+          {latestSemanticReview ? (
+            <div
+              style={{
+                fontSize: 12,
+                color: latestSemanticReview.semantic_status === "ok"
+                  ? t.success
+                  : latestSemanticReview.semantic_status === "needs_replan"
+                    ? t.warningMuted
+                    : t.textDim,
+              }}
+            >
+              Semantic review: {latestSemanticReview.verdict ?? "recorded"}
+              {latestSemanticReview.reason ? ` - ${latestSemanticReview.reason}` : ""}
+              {typeof latestSemanticReview.confidence === "number" ? ` (${Math.round(latestSemanticReview.confidence * 100)}%)` : ""}
             </div>
           ) : null}
           {adherence?.latest_evidence ? (

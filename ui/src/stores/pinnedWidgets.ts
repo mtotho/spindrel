@@ -15,6 +15,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { ToolResultEnvelope } from "../types/api";
+import type { SharedEnvelopeUpdate, SharedEnvelopeUpdateKind } from "../lib/widgetEnvelopeSync";
+import { buildWidgetSyncSignature } from "../lib/widgetEnvelopeSync";
 
 /**
  * Build a stable identity key for an envelope based on its integration prefix
@@ -49,7 +51,7 @@ interface PinnedWidgetsState {
    * Both chat WidgetCards and OmniPanel rail widgets read/write here so
    * toggling in either location propagates immediately to the other.
    */
-  widgetEnvelopes: Record<string, ToolResultEnvelope>;
+  widgetEnvelopes: Record<string, SharedEnvelopeUpdate>;
 
   toggleFilesSectionCollapsed: () => void;
   toggleWidgetsSectionCollapsed: () => void;
@@ -65,6 +67,10 @@ interface PinnedWidgetsState {
     channelId: string,
     toolName: string,
     envelope: ToolResultEnvelope,
+    opts?: {
+      kind?: SharedEnvelopeUpdateKind;
+      widgetConfig?: Record<string, unknown> | null;
+    },
   ) => void;
 
   /**
@@ -75,6 +81,9 @@ interface PinnedWidgetsState {
     channelId: string,
     toolName: string,
     envelope: ToolResultEnvelope,
+    opts?: {
+      widgetConfig?: Record<string, unknown> | null;
+    },
   ) => void;
 }
 
@@ -118,23 +127,32 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
       toggleWidgetsSectionCollapsed: () =>
         set((s) => ({ widgetsSectionCollapsed: !s.widgetsSectionCollapsed })),
 
-      broadcastEnvelope: (channelId, toolName, envelope) => {
+      broadcastEnvelope: (channelId, toolName, envelope, opts) => {
         const key = `${channelId}::${envelopeIdentityKey(toolName, envelope)}`;
+        const update: SharedEnvelopeUpdate = {
+          kind: opts?.kind ?? "tool_result",
+          sourceToolName: toolName,
+          sourceSignature: buildWidgetSyncSignature(toolName, opts?.widgetConfig),
+          envelope,
+        };
         set((s) => ({
-          widgetEnvelopes: { ...s.widgetEnvelopes, [key]: envelope },
+          widgetEnvelopes: { ...s.widgetEnvelopes, [key]: update },
         }));
 
         // Forward to the dashboard-pins store so pins on the current slug
         // (user dashboards AND channel dashboards) re-render against the
         // same envelope. Lazy import to avoid module cycles.
         import("./dashboardPins")
-          .then((m) => m.useDashboardPinsStore.getState().onChannelBroadcast(toolName, envelope))
+          .then((m) => m.useDashboardPinsStore.getState().onChannelBroadcast(toolName, envelope, opts))
           .catch(() => { /* dashboard store not loaded — ignore */ });
       },
 
-      crossUpdateFromToolResult: (channelId, toolName, envelope) => {
+      crossUpdateFromToolResult: (channelId, toolName, envelope, opts) => {
         // Delegate — same semantics.
-        usePinnedWidgetsStore.getState().broadcastEnvelope(channelId, toolName, envelope);
+        usePinnedWidgetsStore.getState().broadcastEnvelope(channelId, toolName, envelope, {
+          kind: "tool_result",
+          widgetConfig: opts?.widgetConfig,
+        });
       },
     }),
     {

@@ -81,6 +81,18 @@ def test_single_entity_state_light_hides_brightness_when_config_disabled():
     assert out["show_brightness"] is False
 
 
+def test_single_entity_state_forced_toggle_chip_on_light_hides_brightness():
+    out = single_entity_state(HA_GET_STATE_LIGHT_ON, {
+        "config": {
+            "preset_variant": "toggle_chip",
+            "show_brightness": True,
+        },
+    })
+    assert out["widget_variant"] == "toggle_chip"
+    assert out["supports_brightness"] is True
+    assert out["show_brightness"] is False
+
+
 def test_single_entity_state_toggle_chip_variant():
     payload = json.dumps({
         "data": {
@@ -466,6 +478,46 @@ def test_get_live_context_entity_preset_renders_single_light_card():
     assert toggle["action"]["tool"] == "HassTurnOff"
     assert toggle["action"]["args"] == {"name": "Office Desk LED Strip"}
     assert not any(c.get("type") == "properties" for c in components)
+
+
+def test_get_live_context_toggle_chip_for_light_stays_chip_without_brightness_controls():
+    config = {
+        "entity_id": "light.office_desk_led_strip",
+        "preset_variant": "toggle_chip",
+        "show_brightness": True,
+        "action_target": "name",
+    }
+    out = live_context_poll(
+        json.dumps(GET_LIVE_CONTEXT_RESULT),
+        {
+            "display_label": "Office Desk LED Strip",
+            "tool_name": "GetLiveContext",
+            "config": config,
+        },
+    )
+    assert out["widget_variant"] == "toggle_chip"
+    assert out["show_brightness"] is False
+
+    components = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": config},
+        [],
+    )
+    assert [c["type"] for c in components] == ["toggle"]
+
+
+def test_get_live_context_light_card_does_not_render_brightness_toggle_buttons():
+    config = {
+        "entity_id": "light.office_desk_led_strip",
+        "preset_variant": "light_card",
+        "show_brightness": True,
+        "action_target": "name",
+    }
+    components = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": config},
+        [],
+    )
+    assert any(c.get("type") == "slider" for c in components)
+    assert not any(c.get("type") == "button" for c in components)
 
 
 def test_single_entity_state_via_state_poll_contract():

@@ -10,17 +10,48 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Skills-in-context is a canonical runtime residency set, not an accidental transcript side effect
+**Decided 2026-04-23.** The runtime now treats "this skill is already in prompt context" as an explicit per-turn fact shared by prompt assembly, `get_skill`, and UI metadata.
+
+**What changed.**
+- Context assembly now derives a canonical `skills_in_context` set from the actual active assistant history that survives replay/pruning for the current turn.
+- Each resident skill records:
+  - `skill_id`
+  - `skill_name`
+  - `source` (`loaded` or `auto_injected`)
+  - `messages_ago`
+- The enrolled-skill index now marks resident skills as `[loaded]` and explicitly tells the model not to call `get_skill` again unless it intentionally wants a fresh copy.
+- `get_skill()` now accepts `refresh: bool = false`.
+- If the requested skill is already resident and `refresh` is not set, `get_skill()` returns a lightweight "already loaded" result instead of pasting the full skill body into context again.
+- Existing `active_skills` metadata remains as a compatibility projection for UI paths that only understand manually loaded skills, but `skills_in_context` is now the canonical superset.
+
+**Why.**
+- The previous model had three conflicting realities:
+  - sticky `get_skill` tool results often remained in replayed history,
+  - prompt text still told the model to call `get_skill` "FIRST",
+  - UI metadata tracked "active skills" separately from the real prompt window.
+- That made duplicate skill fetches easy and hard to reason about. The model could already have the skill in context, but nothing in the runtime clearly told it so.
+- A canonical residency model is also the right place to support deliberate refresh/reordering later without pretending every duplicate fetch is useful.
+
+**Load-bearing invariants.**
+- "Already loaded" means resident in the active prompt window for this turn, not merely present somewhere in persisted session history.
+- Duplicate `get_skill()` calls must not reinsert the full skill body by default when the skill is already resident.
+- Intentional reload is still allowed, but it must be explicit via `refresh=true`.
+- Prompt guidance, runtime tool behavior, and UI metadata must all derive from the same residency computation; do not maintain separate "active skill" heuristics as the primary source of truth.
+- Auto-injected skills and manually loaded skills share the same residency surface; they differ only by `source`.
+
 ### Plan mode state is a runtime capsule plus a Markdown artifact
 **Decided 2026-04-23.** Session plan mode no longer treats the Markdown plan file as the only load-bearing state.
 
 **What changed.**
 - `Session.metadata_["plan_runtime"]` now stores the compact execution capsule: mode, current/next step ids, accepted/current revisions, next action, blockers, unresolved questions, replan metadata, pending/latest turn outcomes, and compaction watermark.
 - `Session.metadata_["planning_state"]` stores visible durable planning notes: confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes.
-- `Session.metadata_["plan_adherence"]` stores recent execution evidence, recent progress outcomes, and the current adherence status.
+- `Session.metadata_["plan_adherence"]` stores recent execution evidence, recent progress outcomes, semantic review history, and the current adherence status.
 - Plan-state and plan endpoints return both `runtime` and deterministic `validation`.
 - Approval rejects structurally incomplete plans instead of relying on prompt guidance.
 - `request_plan_replan` is the explicit transition when execution proves the accepted plan is stale.
 - `record_plan_progress` is the explicit per-turn execution outcome contract; turn-end supervision marks missing outcomes as pending and blocks further mutation until the outcome or replan is recorded.
+- Semantic review is a separate on-demand pass over persisted turn evidence; it writes `semantic_status`/`latest_semantic_review` without replacing deterministic adherence.
 
 **Why.**
 - Markdown is readable but too fuzzy to be the only execution contract.
@@ -32,6 +63,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - The runtime capsule is the canonical compact state summary for context injection and UI status.
 - Planning-state is visible durable user/agent back-and-forth, not an invisible hidden plan.
 - Adherence evidence and outcomes are compact supervision input, not proof that semantic step success has been fully verified.
+- Protocol adherence and semantic adherence are separate surfaces and separate fields.
 - Compaction summaries are never authoritative for plan state.
 - Replanning creates a new draft revision and preserves the previously accepted revision until a new one is approved.
 - Subagent guidance remains disabled by default until that orchestration path is separately vetted.
@@ -357,6 +389,7 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - `publish_plan` validation warns if confirmed planning decisions are not visibly reflected in the draft.
 - Tool dispatch gates mutating tools in planning mode and also blocks mutating execution when the accepted revision/current-step contract is invalid, blocked, or pending replan.
 - Turn-end supervision marks executing/blocked turns without an explicit outcome as pending, and only `record_plan_progress` or `request_plan_replan` can clear the protocol block.
+- Semantic review is user-triggered from the normal plan card, reconstructs persisted turn evidence by `correlation_id`, and writes `supported | weak_support | unsupported | needs_replan` without hard-blocking execution yet.
 
 **Why.**
 - Codex/Claude-style harnesses succeed by injecting the right small contract at the right time and gating side effects before they happen.
@@ -364,4 +397,4 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - The first reliable supervisor should be deterministic protocol enforcement plus evidence capture; semantic judging can come later as evals mature.
 
 **Remaining gap.**
-- The protocol now requires a recorded turn outcome, but it still does not semantically prove that the recorded outcome truly satisfied the active step; that needs behavioral evals and verifier work.
+- Semantic review now exists, but it is still warning-only and judge-calibration/eval work is still needed before any sampled auto-review or hard gating.

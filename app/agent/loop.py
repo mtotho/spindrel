@@ -1840,10 +1840,10 @@ async def run_stream(
 
     # Surface skills-still-in-context for the UI "skill orb" on the persisted
     # assistant message. Sourced from conversation-history scan in assembly.
-    if assembly_result.active_skills:
+    if assembly_result.skills_in_context:
         yield {
             "type": "active_skills",
-            "skills": assembly_result.active_skills,
+            "skills": assembly_result.skills_in_context,
         }
 
     # --- RAG re-ranking ---
@@ -1888,6 +1888,8 @@ async def run_stream(
     # so the content gets _no_prune protection and survives across turns.
     if assembly_result.auto_inject_skills:
         import hashlib as _hashlib
+        from app.agent.context import current_skills_in_context
+        _resident_skills = list(current_skills_in_context.get() or [])
         for _ai_skill in assembly_result.auto_inject_skills:
             _ai_sid = _ai_skill["skill_id"]
             _ai_tcid = f"auto_inject_{_hashlib.md5(_ai_sid.encode()).hexdigest()[:12]}"
@@ -1910,6 +1912,17 @@ async def run_stream(
                 "_no_prune": True,
                 "_auto_inject": True,
             })
+            if not any(
+                isinstance(_entry, dict) and _entry.get("skill_id") == _ai_sid
+                for _entry in _resident_skills
+            ):
+                _resident_skills.insert(0, {
+                    "skill_id": _ai_sid,
+                    "skill_name": _ai_skill["content"].splitlines()[0].removeprefix("# ").strip() or _ai_sid,
+                    "source": "auto_injected",
+                    "messages_ago": 0,
+                })
+        current_skills_in_context.set(_resident_skills)
         logger.info(
             "Auto-injected %d skill(s) as synthetic get_skill() pairs: %s",
             len(assembly_result.auto_inject_skills),

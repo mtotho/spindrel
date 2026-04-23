@@ -92,6 +92,7 @@ interface ChatState {
   channels: Record<string, ChatChannelState>;
   getChannel: (channelId: string) => ChatChannelState;
   addMessage: (channelId: string, message: Message) => void;
+  upsertMessage: (channelId: string, message: Message) => void;
   setMessages: (channelId: string, messages: Message[]) => void;
   /** Begin tracking a new turn for the channel. */
   startTurn: (
@@ -229,6 +230,29 @@ export const useChatStore = create<ChatState>()((set, get) => ({
         channels: {
           ...s.channels,
           [channelId]: { ...ch, messages: [...ch.messages, message] },
+        },
+      };
+    }),
+
+  upsertMessage: (channelId, message) =>
+    set((s) => {
+      const ch = s.channels[channelId] ?? emptyChannel;
+      const existingIndex = ch.messages.findIndex((current) => current.id === message.id);
+      if (existingIndex < 0) {
+        return {
+          channels: {
+            ...s.channels,
+            [channelId]: { ...ch, messages: [...ch.messages, message] },
+          },
+        };
+      }
+
+      const nextMessages = [...ch.messages];
+      nextMessages[existingIndex] = message;
+      return {
+        channels: {
+          ...s.channels,
+          [channelId]: { ...ch, messages: nextMessages },
         },
       };
     }),

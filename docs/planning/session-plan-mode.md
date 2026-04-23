@@ -138,6 +138,7 @@ Current web/session plumbing includes:
 - `GET /sessions/{session_id}/plan/revisions/{revision}`
 - `GET /sessions/{session_id}/plan/diff`
 - `POST /sessions/{session_id}/plan/start`
+- `POST /sessions/{session_id}/plan/review-adherence`
 - session plan approval and step-status routes in `app/routers/sessions.py`
 - session SSE at `GET /api/v1/sessions/{session_id}/events`
   carries `session_plan_updated` frames so the web UI does not have to poll while the user is looking at an active plan
@@ -364,6 +365,50 @@ Supported outcomes:
 - `blocked`
 - `no_progress`
 
+### Semantic review
+
+Purpose:
+
+- review whether the latest recorded execution outcome is actually supported by the turn evidence
+- keep semantic review separate from deterministic protocol adherence
+- persist a compact verdict that survives compaction and shows up in the normal plan card
+
+Expected use:
+
+- on demand from the transcript-native/session plan card
+- after an execution turn has already recorded `record_plan_progress`
+- as a warning/review loop, not a hard execution gate
+
+Current backend/runtime details:
+
+- driven by `POST /sessions/{session_id}/plan/review-adherence`
+- reviews the latest recorded outcome by default, or an explicit `correlation_id`
+- rejects legacy outcomes that do not carry a usable `correlation_id`
+- reconstructs evidence from the accepted plan step, assistant message, `tool_calls`, and compact trace events for that correlation id
+- uses hybrid judgment:
+  - deterministic contradiction checks first
+  - then rubric-based semantic judging over the structured evidence bundle
+  - deterministic contradictions override the judge
+- persists review history in `plan_adherence.semantic_reviews`
+- exposes `latest_semantic_review` through both `plan_adherence` and `plan_runtime`
+- exposes a separate `plan_runtime.semantic_status`
+
+Current verdicts:
+
+- `supported`
+- `weak_support`
+- `unsupported`
+- `needs_replan`
+
+Important invariant:
+
+- `adherence_status` answers the protocol question:
+  did the turn follow the explicit planning/execution contract
+- `semantic_status` answers the semantic question:
+  does the evidence actually support the claimed outcome
+
+Those must not be collapsed into one field.
+
 ## Transcript Rendering Contract
 
 All visible planning surfaces should render inside the chat feed.
@@ -372,6 +417,7 @@ Current transcript-native planning artifacts:
 
 - plan result envelope from `publish_plan`, `request_plan_replan`, and `record_plan_progress`
 - native-app `core/plan_questions` card from `ask_plan_questions`
+- the same plan card now also surfaces semantic review state and an explicit `Review Last Outcome` action
 
 What should not happen:
 

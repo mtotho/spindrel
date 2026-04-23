@@ -65,8 +65,10 @@ export interface PlanRuntimeCapsule {
   unresolved_questions?: string[];
   blockers?: string[];
   adherence_status?: "ok" | "warning" | "blocked" | "unknown" | "planning" | null;
+  semantic_status?: "ok" | "warning" | "needs_replan" | "unknown" | null;
   latest_evidence?: PlanExecutionEvidence | null;
   latest_outcome?: PlanProgressOutcome | null;
+  latest_semantic_review?: PlanSemanticReview | null;
   pending_turn_outcome?: PendingTurnOutcome | null;
   replan?: {
     reason?: string;
@@ -116,6 +118,8 @@ export interface PlanExecutionEvidence {
   plan_revision?: number | null;
   accepted_revision?: number | null;
   step_id?: string | null;
+  turn_id?: string | null;
+  correlation_id?: string | null;
   tool_name?: string;
   tool_kind?: string;
   status?: string;
@@ -139,13 +143,33 @@ export interface PlanProgressOutcome {
   correlation_id?: string | null;
 }
 
+export interface PlanSemanticReview {
+  created_at?: string;
+  plan_revision?: number | null;
+  accepted_revision?: number | null;
+  step_id?: string | null;
+  turn_id?: string | null;
+  correlation_id?: string | null;
+  outcome?: PlanProgressOutcome["outcome"] | null;
+  verdict?: "supported" | "weak_support" | "unsupported" | "needs_replan" | null;
+  semantic_status?: "ok" | "warning" | "needs_replan" | "unknown" | null;
+  confidence?: number | null;
+  reason?: string | null;
+  recommended_action?: "continue" | "repeat_step" | "review_manually" | "request_replan" | null;
+  deterministic_flags?: string[];
+  evidence_snapshot?: Record<string, unknown> | null;
+  judge_raw?: string | null;
+}
+
 export interface PlanAdherenceState {
   schema_version: number;
   status: "ok" | "warning" | "blocked" | "unknown" | "planning";
   evidence: PlanExecutionEvidence[];
   outcomes?: PlanProgressOutcome[];
+  semantic_reviews?: PlanSemanticReview[];
   latest_evidence?: PlanExecutionEvidence | null;
   latest_outcome?: PlanProgressOutcome | null;
+  latest_semantic_review?: PlanSemanticReview | null;
   last_transition?: string | null;
   last_updated_at?: string | null;
 }
@@ -399,6 +423,19 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     onError: capturePlanConflict,
   });
 
+  const reviewAdherence = useMutation({
+    mutationFn: async ({ correlationId }: { correlationId?: string } = {}) => {
+      if (!sessionId) throw new Error("Missing session id");
+      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/review-adherence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ correlation_id: correlationId ?? null }),
+      });
+    },
+    onSuccess: invalidate,
+    onError: capturePlanConflict,
+  });
+
   return {
     ...stateQuery,
     data: planQuery.data,
@@ -414,5 +451,6 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     resumePlan,
     updateStepStatus,
     requestReplan,
+    reviewAdherence,
   };
 }

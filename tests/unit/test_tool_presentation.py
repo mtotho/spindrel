@@ -27,6 +27,33 @@ def test_get_skill_presentation_is_transcript_read_skill():
     }
 
 
+def test_get_skill_presentation_shows_already_loaded_result():
+    surface, summary = derive_tool_presentation(
+        tool_name="get_skill",
+        arguments={"skill_id": "widgets"},
+        result=json.dumps(
+            {
+                "id": "widgets",
+                "name": "Widgets",
+                "already_loaded": True,
+                "message": "Skill already resident in context.",
+            },
+            ensure_ascii=False,
+        ),
+        envelope=None,
+    )
+
+    assert surface == "transcript"
+    assert summary == {
+        "kind": "result",
+        "subject_type": "skill",
+        "label": "Skill already loaded",
+        "target_id": "widgets",
+        "target_label": "widgets/INDEX.md",
+        "preview_text": "Skill already resident in context.",
+    }
+
+
 def test_file_edit_presentation_uses_diff_summary():
     diff_body = "\n".join([
         "--- a/index.html",

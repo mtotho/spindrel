@@ -49,7 +49,8 @@ export function PlanResultRenderer({
     || sessionPlan.exitPlan.isPending
     || sessionPlan.resumePlan.isPending
     || sessionPlan.updateStepStatus.isPending
-    || sessionPlan.requestReplan.isPending;
+    || sessionPlan.requestReplan.isPending
+    || sessionPlan.reviewAdherence.isPending;
 
   return (
     <SessionPlanCard
@@ -71,6 +72,7 @@ export function PlanResultRenderer({
         if (!reason?.trim()) return;
         sessionPlan.requestReplan.mutate({ reason });
       }}
+      onReviewLatestOutcome={(correlationId) => sessionPlan.reviewAdherence.mutate({ correlationId })}
     />
   );
 }

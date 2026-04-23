@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, skills, simplification]
 status: complete
-updated: 2026-04-22
+updated: 2026-04-23
 ---
 # Track — Skill & Capability Simplification
 
@@ -25,6 +25,14 @@ For the *why*, see [[Architecture Decisions#Per-Bot Persistent Skill Working Set
 | Phase 5 — Skills removed from bot config | ✅ DONE | `get_skill()` / `get_skill_list()` auto-injected for all bots |
 | Phase 6 — Workspace singleton cleanup | ✅ DONE 2026-04-10 | Promoted `workspace_member`/`channel_workspaces`/`docker_stacks` to `STARTER_SKILL_IDS`. Dropped `source="auto"` Literal + tests + UI badge. Retired POST/DELETE workspace-bot endpoints with 410. Removed `bots.workspace_only` (column drop migration 186, ORM/API/UI/tool/schema). UI BotsTab no longer exposes add/remove. Skill copy + carapace + docs + CLAUDE.md updated. 171/171 targeted tests pass; full suite has same 15 pre-existing failures as baseline. See [[Plan - Workspace Singleton Cleanup]] |
 | Phase 7 — Enrolled skill ranking + auto-inject | ✅ DONE 2026-04-14 | Per-turn semantic ranking of enrolled skills against user message via `rank_enrolled_skills()`. Two-tier annotation (relevant ↑ / auto-inject). Top match auto-injected as synthetic `get_skill()` tool call/result pairs with `_no_prune` persistence. Budget accounting (`_budget_can_afford`/`_budget_consume`). History-scan dedup. Separate tracking: `auto_inject_count`/`last_auto_injected_at` on enrollment. 5 tests. Trace events: `skills_in_history`, `skipped_in_history`, `skipped_budget`. See [[Architecture Decisions#Enrolled Skill Relevance Ranking + Auto-Inject]] |
+
+## 2026-04-23 follow-on
+- Tightened the post-Phase-7 runtime contract around already-loaded skills. The old system could keep prior `get_skill()` content resident in replayed history while still prompting the model to call `get_skill` again, and UI metadata tracked "active skills" through a separate heuristic path.
+- `context_assembly.py` now computes a canonical `skills_in_context` residency list from the actual active prompt history, with `source` (`loaded` vs `auto_injected`) and `messages_ago`.
+- The enrolled-skill index now annotates resident skills as `[loaded]` and explicitly tells the model not to call `get_skill` again for those entries unless it intentionally uses `refresh=true`.
+- `get_skill(skill_id, refresh=False)` now short-circuits duplicate fetches: if the skill is already resident, the tool returns an `already_loaded` result instead of pasting the full skill body into prompt context again. `refresh=true` is the deliberate reload path when reordering/freshening is useful, and a successful fetch immediately updates the in-turn residency set so later loop iterations also dedupe correctly.
+- The persisted/web metadata path now prefers canonical `skills_in_context`; legacy `active_skills` remains only as a compatibility projection for UI surfaces that still expect the older field, and the final assistant metadata now reads the end-of-turn live residency set instead of only the pre-loop snapshot.
+- Verification for this pass: `python -m py_compile` across the edited runtime/test files passed, `pytest tests/unit/test_get_skill.py tests/unit/test_tool_presentation.py -q` passed (`16 passed`), and `cd agent-server/ui && npx tsc --noEmit --pretty false` passed. The targeted `tests/integration/test_context_assembly.py` verification still stalls in fixture setup under this shell wrapper before the new test body runs, so it needs a calmer rerun.
 
 ## 2026-04-21 follow-on
 - Product direction changed again: there is no replacement "capability package" model. Foldered skills are still just skills.
@@ -75,6 +83,8 @@ Dropped `skills_disabled` and `skills_extra` columns (migration 195). Remaining 
 - **Enrolled skills are ranked per-turn** — RAG as ranker, not filter (all enrolled stay visible)
 - **Top-match auto-inject** — highest-confidence enrolled skill injected as synthetic tool call/result pairs with `_no_prune`
 - **Auto-inject tracking is separate from fetch tracking** — `auto_inject_count` vs `surface_count`/`fetch_count`
+- **Skills-in-context is canonical runtime state** — derive it from the actual active prompt window, not from UI heuristics or persisted-history guesses
+- **Duplicate `get_skill()` is suppressed by default when resident** — use `refresh=true` only for intentional reload/reordering
 - **Capability RAG discovery is being removed** — do not build new product behavior on top of it
 - **`activate_capability` is being removed** — use skill/tool discovery + enrollment only
 - **Tool RAG + tool enrollment** — semantic tool discovery + persistent working set (mirrors skill enrollment)

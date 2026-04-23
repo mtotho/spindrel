@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
                     "type": "string",
                     "description": "The skill ID to retrieve (e.g. 'arch_linux', 'cooking')",
                 },
+                "refresh": {
+                    "type": "boolean",
+                    "description": (
+                        "Force a fresh copy even if the skill is already resident in the current "
+                        "prompt context. Default false."
+                    ),
+                },
             },
             "required": ["skill_id"],
         },
@@ -40,13 +47,15 @@ logger = logging.getLogger(__name__)
         "id": {"type": "string"},
         "name": {"type": "string"},
         "content": {"type": "string"},
+        "already_loaded": {"type": "boolean"},
+        "message": {"type": "string"},
         "error": {"type": "string"},
     },
     "required": ["id"],
 })
-async def get_skill(skill_id: str) -> str:
+async def get_skill(skill_id: str, refresh: bool = False) -> str:
     """Fetch the full content of a skill from DB."""
-    from app.agent.context import current_channel_id
+    from app.agent.context import current_channel_id, current_skills_in_context
     bot_id = current_bot_id.get()
     channel_id = current_channel_id.get()
 
@@ -80,6 +89,34 @@ async def get_skill(skill_id: str) -> str:
                 )
 
     asyncio.create_task(_increment_surface_count(skill_id, bot_id))
+
+    if not refresh:
+        _resident_skills = list(current_skills_in_context.get() or [])
+        if any(
+            isinstance(_entry, dict) and _entry.get("skill_id") == skill_id
+            for _entry in _resident_skills
+        ):
+            return json.dumps(
+                {
+                    "id": skill_id,
+                    "name": row_name,
+                    "already_loaded": True,
+                    "message": "Skill already resident in context. Use refresh=true to reload it.",
+                },
+                ensure_ascii=False,
+            )
+
+    _resident_skills = [
+        _entry for _entry in list(current_skills_in_context.get() or [])
+        if not (isinstance(_entry, dict) and _entry.get("skill_id") == skill_id)
+    ]
+    _resident_skills.insert(0, {
+        "skill_id": skill_id,
+        "skill_name": row_name,
+        "source": "loaded",
+        "messages_ago": 0,
+    })
+    current_skills_in_context.set(_resident_skills)
 
     return json.dumps({"id": skill_id, "name": row_name, "content": row_content}, ensure_ascii=False)
 

@@ -26,6 +26,10 @@ import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
 import { formatRelativeTime } from "@/src/utils/format";
 import {
+  buildWidgetSyncSignature,
+  decidePinnedSharedEnvelopeUpdate,
+} from "@/src/lib/widgetEnvelopeSync";
+import {
   DEFAULT_CHROME,
   resolveShowTitle,
   resolveWrapperSurface,
@@ -152,6 +156,10 @@ export function PinnedToolWidget({
     (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
   );
   const widgetConfig = dashboardWidgetConfig;
+  const syncSignature = useMemo(
+    () => buildWidgetSyncSignature(widget.tool_name, widgetConfig ?? null),
+    [widget.tool_name, widgetConfig],
+  );
   const widgetConfigRef = useRef(widgetConfig);
   widgetConfigRef.current = widgetConfig;
 
@@ -255,9 +263,15 @@ export function PinnedToolWidget({
           selfBroadcastRef.current = fresh;
           setCurrentEnvelope(fresh);
           onEnvelopeUpdate(widget.id, fresh);
-          dashboardBroadcast(widget.tool_name, fresh);
+          dashboardBroadcast(widget.tool_name, fresh, {
+            kind: "state_poll",
+            widgetConfig: widgetConfigRef.current ?? null,
+          });
           if (channelId) {
-            channelBroadcast(channelId, widget.tool_name, fresh);
+            channelBroadcast(channelId, widget.tool_name, fresh, {
+              kind: "state_poll",
+              widgetConfig: widgetConfigRef.current ?? null,
+            });
           }
           markPinRefreshed(new Date().toISOString());
         }
@@ -331,19 +345,24 @@ export function PinnedToolWidget({
   //      re-poll to overwrite with live state.
   useEffect(() => {
     if (!sharedEnvelope) return;
-    if (sharedEnvelope === envelopeRef.current) return;
-    if (sharedEnvelope === selfBroadcastRef.current) return;
-    // Body equality = same rendered state. No re-poll, just adopt.
-    if (sharedEnvelope.body === envelopeRef.current?.body) {
-      selfBroadcastRef.current = sharedEnvelope;
-      setCurrentEnvelope(sharedEnvelope);
+    if (sharedEnvelope.envelope === envelopeRef.current) return;
+    if (sharedEnvelope.envelope === selfBroadcastRef.current) return;
+    const decision = decidePinnedSharedEnvelopeUpdate({
+      currentToolName: widget.tool_name,
+      currentSignature: syncSignature,
+      currentEnvelope: envelopeRef.current,
+      incoming: sharedEnvelope,
+    });
+    if (decision === "ignore") return;
+    if (decision === "adopt") {
+      selfBroadcastRef.current = sharedEnvelope.envelope;
+      setCurrentEnvelope(sharedEnvelope.envelope);
       markPinRefreshed(new Date().toISOString());
       return;
     }
-    setCurrentEnvelope(sharedEnvelope);
     markPinRefreshed(new Date().toISOString());
-    refreshState();
-  }, [sharedEnvelope, refreshState, markPinRefreshed]);
+    void refreshState();
+  }, [sharedEnvelope, refreshState, markPinRefreshed, syncSignature, widget.tool_name]);
 
   // Fallback drag binding for surfaces that don't pass `externalDrag` (the
   // channel-scope OmniPanel rail uses dnd-kit's SortableContext internally).
@@ -398,9 +417,15 @@ export function PinnedToolWidget({
           selfBroadcastRef.current = result.envelope;
           setCurrentEnvelope(result.envelope);
           onEnvelopeUpdate(widget.id, result.envelope);
-          dashboardBroadcast(widget.tool_name, result.envelope);
+          dashboardBroadcast(widget.tool_name, result.envelope, {
+            kind: "tool_result",
+            widgetConfig: widgetConfigRef.current ?? null,
+          });
           if (channelId) {
-            channelBroadcast(channelId, widget.tool_name, result.envelope);
+            channelBroadcast(channelId, widget.tool_name, result.envelope, {
+              kind: "tool_result",
+              widgetConfig: widgetConfigRef.current ?? null,
+            });
           }
           markPinRefreshed(new Date().toISOString());
         }

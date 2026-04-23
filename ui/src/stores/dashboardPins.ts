@@ -7,6 +7,8 @@ import type {
 } from "../types/api";
 import { envelopeIdentityKey } from "./pinnedWidgets";
 import { apiFetch } from "../api/client";
+import type { SharedEnvelopeUpdate, SharedEnvelopeUpdateKind } from "../lib/widgetEnvelopeSync";
+import { buildWidgetSyncSignature } from "../lib/widgetEnvelopeSync";
 
 interface LayoutUpdateItem extends GridLayoutItem {
   id: string;
@@ -25,7 +27,7 @@ interface DashboardPinsState {
   pins: WidgetDashboardPin[];
   /** Keyed by envelope identity — mirrors the channel store's shared-envelope
    *  map so cross-surface sync works (toggling in chat updates dashboard). */
-  widgetEnvelopes: Record<string, ToolResultEnvelope>;
+  widgetEnvelopes: Record<string, SharedEnvelopeUpdate>;
   hasHydrated: boolean;
   loadError: string | null;
 
@@ -113,11 +115,25 @@ interface DashboardPinsState {
   applyLayout: (items: LayoutUpdateItem[]) => Promise<void>;
 
   /** Broadcast an envelope update — stores by identity key so matching pins re-render. */
-  broadcastEnvelope: (toolName: string, envelope: ToolResultEnvelope) => void;
+  broadcastEnvelope: (
+    toolName: string,
+    envelope: ToolResultEnvelope,
+    opts?: {
+      kind?: SharedEnvelopeUpdateKind;
+      widgetConfig?: Record<string, unknown> | null;
+    },
+  ) => void;
 
   /** Fired by the channel-store broadcast so dashboard cards update when the
    *  same entity is toggled from a chat or OmniPanel pin. */
-  onChannelBroadcast: (toolName: string, envelope: ToolResultEnvelope) => void;
+  onChannelBroadcast: (
+    toolName: string,
+    envelope: ToolResultEnvelope,
+    opts?: {
+      kind?: SharedEnvelopeUpdateKind;
+      widgetConfig?: Record<string, unknown> | null;
+    },
+  ) => void;
 }
 
 export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => ({
@@ -386,10 +402,16 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
     }
   },
 
-  broadcastEnvelope: (toolName, envelope) => {
+  broadcastEnvelope: (toolName, envelope, opts) => {
     const key = dashboardEnvelopeKey(toolName, envelope);
+    const update: SharedEnvelopeUpdate = {
+      kind: opts?.kind ?? "tool_result",
+      sourceToolName: toolName,
+      sourceSignature: buildWidgetSyncSignature(toolName, opts?.widgetConfig),
+      envelope,
+    };
     set((s) => ({
-      widgetEnvelopes: { ...s.widgetEnvelopes, [key]: envelope },
+      widgetEnvelopes: { ...s.widgetEnvelopes, [key]: update },
       pins: s.pins.map((p) => {
         if (dashboardEnvelopeKey(p.tool_name, p.envelope) !== key) return p;
         return { ...p, envelope };
@@ -397,9 +419,9 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
     }));
   },
 
-  onChannelBroadcast: (toolName, envelope) => {
+  onChannelBroadcast: (toolName, envelope, opts) => {
     // Same mechanism — keyed by envelope identity. A no-op if no dashboard
     // pin matches the identity.
-    get().broadcastEnvelope(toolName, envelope);
+    get().broadcastEnvelope(toolName, envelope, opts);
   },
 }));

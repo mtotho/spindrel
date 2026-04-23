@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getAuthToken } from "../../stores/auth";
 import { useChatStore } from "../../stores/chat";
 import { useBots } from "./useBots";
+import type { Message } from "../../types/api";
 
 /** Timeout (ms) for in-flight turn observation — if no SSE event arrives
  *  for a given turn in this window, force-finish. Resets on every event
@@ -42,6 +43,29 @@ export type ChannelEventFrame = {
 type ChannelEventCallback = (event: ChannelEventFrame) => void;
 
 const channelEventSubscribers = new Map<string, Set<ChannelEventCallback>>();
+
+function normalizeEventMessage(message: any): Message {
+  return {
+    id: message.id,
+    session_id: message.session_id,
+    role: message.role,
+    content: message.content ?? "",
+    created_at: message.created_at,
+    ...(message.correlation_id ? { correlation_id: message.correlation_id } : {}),
+    ...(message.metadata ? { metadata: message.metadata } : {}),
+    ...(message.attachments ? { attachments: message.attachments } : {}),
+    ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}),
+  };
+}
+
+function isCompactionRunMessage(message: any): boolean {
+  return message?.role === "assistant" && message?.metadata?.kind === "compaction_run";
+}
+
+function invalidateCompactionDerivedQueries(queryClient: ReturnType<typeof useQueryClient>, channelId: string): void {
+  queryClient.invalidateQueries({ queryKey: ["session-header-stats", channelId] });
+  queryClient.invalidateQueries({ queryKey: ["channel-context-breakdown", channelId] });
+}
 
 function publishChannelEvent(channelId: string, wire: ChannelEventFrame): void {
   const subs = channelEventSubscribers.get(channelId);
@@ -346,6 +370,7 @@ export function useChannelEvents(
           const ch = store.getChannel(storeKey);
           const turnActive = Object.keys(ch.turns).length > 0 || ch.isProcessing;
           const msg = payload?.message;
+          const normalizedMessage = msg ? normalizeEventMessage(msg) : null;
 
           // User messages are always added directly to the store.
           // The refetch path (invalidateQueries) is racy for user messages:
@@ -370,25 +395,18 @@ export function useChannelEvents(
             );
             if (withoutOptimistic.length < existing.length) {
               // Had an optimistic message — replace it with the server version
-              store.setMessages(storeKey, [...withoutOptimistic, {
-                id: msg.id,
-                session_id: msg.session_id,
-                role: msg.role,
-                content: msg.content ?? "",
-                created_at: msg.created_at,
-                metadata: msg.metadata,
-                attachments: msg.attachments,
-              }]);
+              store.setMessages(storeKey, [...withoutOptimistic, normalizedMessage!]);
             } else if (!isDuplicate) {
-              store.addMessage(storeKey, {
-                id: msg.id,
-                session_id: msg.session_id,
-                role: msg.role,
-                content: msg.content ?? "",
-                created_at: msg.created_at,
-                metadata: msg.metadata,
-                attachments: msg.attachments,
-              });
+              store.addMessage(storeKey, normalizedMessage!);
+            }
+            return;
+          }
+
+          if (normalizedMessage && isCompactionRunMessage(normalizedMessage)) {
+            store.upsertMessage(storeKey, normalizedMessage);
+            queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+            if (subscribePathRef.current === "channels") {
+              invalidateCompactionDerivedQueries(queryClient, chId);
             }
             return;
           }
@@ -404,6 +422,13 @@ export function useChannelEvents(
         }
 
         case "message_updated": {
+          const msg = payload?.message;
+          if (msg && isCompactionRunMessage(msg)) {
+            store.upsertMessage(storeKey, normalizeEventMessage(msg));
+            if (subscribePathRef.current === "channels") {
+              invalidateCompactionDerivedQueries(queryClient, chId);
+            }
+          }
           // Workflow lifecycle / step progress in-place edits.
           queryClient.invalidateQueries({ queryKey: ["session-messages"] });
           return;

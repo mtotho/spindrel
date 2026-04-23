@@ -59,6 +59,18 @@ import {
   type ResultViewRendererProps,
 } from "./resultViewRegistry";
 
+type CompactionRunPayload = {
+  origin?: string;
+  status?: string;
+  title?: string | null;
+  detail?: string | null;
+  summary_text?: string | null;
+  summary_len?: number | null;
+  trigger_reason?: string | null;
+  result_kind?: string | null;
+  error?: string | null;
+};
+
 interface Props {
   envelope: ToolResultEnvelope;
   /** Session id, for lazy-fetching truncated bodies via
@@ -262,6 +274,152 @@ function renderTerminalSearchResultsView({ data, t }: RichResultViewProps) {
   return null;
 }
 
+function parseCompactionRunPayload(data: unknown, envelope: ToolResultEnvelope): CompactionRunPayload {
+  const payload = (data && typeof data === "object") ? (data as CompactionRunPayload) : {};
+  return {
+    origin: payload.origin ?? "manual",
+    status: payload.status ?? "completed",
+    title: payload.title ?? null,
+    detail: payload.detail ?? envelope.plain_body ?? null,
+    summary_text: payload.summary_text ?? null,
+    summary_len: payload.summary_len ?? null,
+    trigger_reason: payload.trigger_reason ?? null,
+    result_kind: payload.result_kind ?? payload.status ?? null,
+    error: payload.error ?? null,
+  };
+}
+
+function resolveCompactionStatusCopy(payload: CompactionRunPayload): {
+  label: string;
+  accent: "info" | "success" | "warning" | "danger";
+} {
+  if (payload.status === "queued") return { label: "Queued", accent: "warning" };
+  if (payload.status === "running") return { label: "Compacting...", accent: "info" };
+  if (payload.status === "failed") return { label: "Failed", accent: "danger" };
+  if (payload.result_kind === "noop") return { label: "Nothing to compact", accent: "warning" };
+  return { label: "Compacted", accent: "success" };
+}
+
+function CompactionRunRenderer({
+  envelope,
+  data,
+  mode,
+  t,
+}: RichResultViewProps) {
+  const payload = parseCompactionRunPayload(data, envelope);
+  const status = resolveCompactionStatusCopy(payload);
+  const [expanded, setExpanded] = useState(payload.status === "running" || payload.status === "failed");
+  const isTerminal = mode === "terminal";
+  const summaryText = payload.summary_text?.trim() ?? "";
+  const accentColor = status.accent === "success"
+    ? t.success
+    : status.accent === "warning"
+      ? t.warning
+      : status.accent === "danger"
+        ? t.danger
+        : t.accent;
+  const metaBits = [
+    payload.origin === "auto" ? "Auto compaction" : "Manual compaction",
+    payload.title ? `Title: ${payload.title}` : null,
+    typeof payload.summary_len === "number" ? `${payload.summary_len.toLocaleString()} chars` : null,
+    payload.trigger_reason ? `Trigger: ${payload.trigger_reason}` : null,
+  ].filter(Boolean);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: isTerminal ? "0 6px" : "3px 8px",
+            borderRadius: 999,
+            border: `1px solid ${accentColor}55`,
+            background: isTerminal ? "transparent" : `${accentColor}14`,
+            color: accentColor,
+            fontSize: isTerminal ? 11 : 12,
+            fontWeight: 700,
+            letterSpacing: 0.2,
+            fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+          }}
+        >
+          {status.label}
+        </span>
+        {payload.detail && (
+          <span
+            style={{
+              color: t.textMuted,
+              fontSize: isTerminal ? 12 : 13,
+              lineHeight: 1.5,
+              fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+            }}
+          >
+            {payload.detail}
+          </span>
+        )}
+      </div>
+
+      {metaBits.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            color: t.textDim,
+            fontSize: 11,
+            lineHeight: 1.45,
+            fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+          }}
+        >
+          {metaBits.map((bit) => (
+            <span key={bit}>{bit}</span>
+          ))}
+        </div>
+      )}
+
+      {(summaryText || payload.error) && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            style={{
+              alignSelf: "flex-start",
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: accentColor,
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 600,
+              fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+            }}
+          >
+            {expanded ? "Hide compaction summary" : "Show compaction summary"}
+          </button>
+          {expanded && (
+            <div
+              style={{
+                paddingLeft: 12,
+                borderLeft: `2px solid ${t.surfaceBorder}`,
+              }}
+            >
+              {summaryText ? (
+                <MarkdownContent text={summaryText} t={t} chatMode={mode === "terminal" ? "terminal" : "default"} />
+              ) : payload.error ? (
+                <TextRenderer body={payload.error} rendererVariant={isTerminal ? "terminal-chat" : "default-chat"} chromeMode="embedded" t={t} />
+              ) : null}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderCompactionRunView(props: RichResultViewProps) {
+  return <CompactionRunRenderer {...props} />;
+}
+
 function SafeFallbackResult({
   envelope,
   body,
@@ -339,6 +497,7 @@ resultViews.register("core.search_results", {
   default: renderDefaultSearchResultsView,
   terminal: renderTerminalSearchResultsView,
 });
+resultViews.register("compaction_run", { any: renderCompactionRunView });
 
 export function RichToolResult({
   envelope,

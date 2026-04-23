@@ -280,6 +280,7 @@ def _compaction_envelope(
     status: str,
     title: str | None = None,
     detail: str | None = None,
+    summary_text: str | None = None,
     summary_len: int | None = None,
     error: str | None = None,
     trigger_reason: str | None = None,
@@ -305,6 +306,8 @@ def _compaction_envelope(
     lines = [f"**{heading}**", "", body_detail, "", f"Source: {origin_label} compaction."]
     if title:
         lines.append(f"Title: {title}.")
+    if summary_text:
+        lines.extend(["", "Summary:", "", summary_text])
     if summary_len is not None:
         lines.append(f"Summary length: {summary_len:,} characters.")
     if trigger_reason:
@@ -323,9 +326,12 @@ def _compaction_envelope(
             "origin": origin,
             "status": status,
             "title": title,
+            "detail": body_detail,
+            "summary_text": summary_text,
             "summary_len": summary_len,
             "trigger_reason": trigger_reason,
             "result_kind": result_kind or status,
+            "error": error,
         },
     ).compact_dict()
 
@@ -337,6 +343,7 @@ def _compaction_metadata(
     status: str,
     title: str | None = None,
     detail: str | None = None,
+    summary_text: str | None = None,
     summary_len: int | None = None,
     error: str | None = None,
     trigger_reason: str | None = None,
@@ -356,6 +363,7 @@ def _compaction_metadata(
             status=status,
             title=title,
             detail=detail,
+            summary_text=summary_text,
             summary_len=summary_len,
             error=error,
             trigger_reason=trigger_reason,
@@ -366,6 +374,8 @@ def _compaction_metadata(
         metadata["compaction_title"] = title
     if summary_len is not None:
         metadata["compaction_summary_len"] = summary_len
+    if summary_text:
+        metadata["compaction_summary_text"] = summary_text
     if trigger_reason:
         metadata["compaction_trigger_reason"] = trigger_reason
     if result_kind:
@@ -443,6 +453,7 @@ async def _update_compaction_run_message(
     status: str,
     title: str | None = None,
     detail: str | None = None,
+    summary_text: str | None = None,
     summary_len: int | None = None,
     error: str | None = None,
     trigger_reason: str | None = None,
@@ -465,6 +476,7 @@ async def _update_compaction_run_message(
                 status=status,
                 title=title,
                 detail=detail,
+                summary_text=summary_text,
                 summary_len=summary_len,
                 error=error,
                 trigger_reason=merged_trigger,
@@ -1509,7 +1521,7 @@ async def run_compaction_stream(
             correlation_id=correlation_id,
             flush_result=flush_result,
         ))
-        yield {"type": "compaction_done", "title": title}
+        yield {"type": "compaction_done", "title": title, "summary": summary}
     except Exception as exc:
         logger.exception("Compaction failed for session %s", session_id)
         yield {"type": "compaction_failed", "error": str(exc)}
@@ -1567,11 +1579,14 @@ async def _drain_compaction(
                 terminal = True
                 if run_message_id:
                     title = str(event.get("title") or "Compacted conversation")
+                    summary_text = str(event.get("summary") or "") or None
                     await _update_compaction_run_message(
                         run_message_id,
                         bot,
                         status="completed",
                         title=title,
+                        summary_text=summary_text,
+                        summary_len=len(summary_text) if summary_text else None,
                         detail="Older conversation history was summarized automatically.",
                         result_kind="compacted",
                         trigger_reason=trigger_reason,
@@ -1669,6 +1684,7 @@ async def _run_manual_compaction_operation(
             status="completed",
             title=title,
             detail="Manual compaction completed.",
+            summary_text=summary,
             summary_len=len(summary),
             result_kind="compacted",
         )

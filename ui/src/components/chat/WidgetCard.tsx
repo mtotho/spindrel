@@ -102,7 +102,9 @@ export function WidgetCard({
       ) {
         setCurrentEnvelope(result.envelope);
         if (channelId) {
-          broadcastEnvelope(channelId, toolName, result.envelope);
+          broadcastEnvelope(channelId, toolName, result.envelope, {
+            kind: "tool_result",
+          });
         }
       }
 
@@ -142,7 +144,9 @@ export function WidgetCard({
       if (resp.ok && resp.envelope) {
         const fresh = resp.envelope as unknown as ToolResultEnvelope;
         setCurrentEnvelope(fresh);
-        broadcastEnvelope(channelId, toolName, fresh);
+        broadcastEnvelope(channelId, toolName, fresh, {
+          kind: "state_poll",
+        });
       }
     } catch {
       // Stale content is better than a flashing error banner here.
@@ -197,8 +201,8 @@ export function WidgetCard({
   const envelopeRef = useRef(currentEnvelope);
   envelopeRef.current = currentEnvelope;
   useEffect(() => {
-    if (sharedEnvelope && sharedEnvelope !== envelopeRef.current) {
-      setCurrentEnvelope(sharedEnvelope);
+    if (sharedEnvelope && sharedEnvelope.envelope !== envelopeRef.current) {
+      setCurrentEnvelope(sharedEnvelope.envelope);
     }
   }, [sharedEnvelope]);
 

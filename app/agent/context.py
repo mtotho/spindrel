@@ -89,6 +89,9 @@ current_ephemeral_skills: ContextVar[list] = ContextVar("current_ephemeral_skill
 # All skill IDs available to the bot after bot/channel enrollment resolution.
 # Set by context_assembly; read by get_skill to authorize enrolled skills.
 current_resolved_skill_ids: ContextVar[set | None] = ContextVar("current_resolved_skill_ids", default=None)
+current_skills_in_context: ContextVar[list[dict] | None] = ContextVar(
+    "current_skills_in_context", default=None,
+)
 
 # Channel-level model tier overrides (sparse dict, e.g. {"fast": {"model": "...", "provider_id": null}}).
 # Set from context_assembly; read by delegation tools.
@@ -191,6 +194,7 @@ class AgentContextSnapshot:
     provider_id_override: str | None
     channel_model_tier_overrides: dict | None
     resolved_skill_ids: set | None
+    skills_in_context: list[dict] | None
     turn_responded_bots: set | None
     run_origin: str | None
 
@@ -219,6 +223,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         provider_id_override=current_provider_id_override.get(),
         channel_model_tier_overrides=current_channel_model_tier_overrides.get(),
         resolved_skill_ids=current_resolved_skill_ids.get(),
+        skills_in_context=current_skills_in_context.get(),
         turn_responded_bots=current_turn_responded_bots.get(),
         run_origin=current_run_origin.get(),
     )
@@ -247,5 +252,6 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_provider_id_override.set(snap.provider_id_override)
     current_channel_model_tier_overrides.set(snap.channel_model_tier_overrides)
     current_resolved_skill_ids.set(snap.resolved_skill_ids)
+    current_skills_in_context.set(snap.skills_in_context)
     current_turn_responded_bots.set(snap.turn_responded_bots)
     current_run_origin.set(snap.run_origin)
