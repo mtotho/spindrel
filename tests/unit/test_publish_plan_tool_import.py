@@ -8,7 +8,7 @@ def test_plan_tools_register_during_tool_dispatch_import() -> None:
     script = """
 import app.agent.tool_dispatch
 from app.tools import registry
-required = {'publish_plan', 'ask_plan_questions', 'request_plan_replan'}
+required = {'publish_plan', 'ask_plan_questions', 'request_plan_replan', 'record_plan_progress'}
 raise SystemExit(0 if required.issubset(registry._tools) else 1)
 """
     result = subprocess.run(

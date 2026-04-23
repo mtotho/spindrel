@@ -216,6 +216,7 @@ export function SessionChatView({
           isGrouped={isGrouped}
           fullTurnText={fullTurnText}
           fullTurnMessages={fullTurnMessages}
+          channelId={parentChannelId}
           isLatestBotMessage={isLatest}
           chatMode={chatMode}
         />

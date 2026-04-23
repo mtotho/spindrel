@@ -14,12 +14,13 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 **Decided 2026-04-23.** Session plan mode no longer treats the Markdown plan file as the only load-bearing state.
 
 **What changed.**
-- `Session.metadata_["plan_runtime"]` now stores the compact execution capsule: mode, current/next step ids, accepted/current revisions, next action, blockers, unresolved questions, replan metadata, and compaction watermark.
+- `Session.metadata_["plan_runtime"]` now stores the compact execution capsule: mode, current/next step ids, accepted/current revisions, next action, blockers, unresolved questions, replan metadata, pending/latest turn outcomes, and compaction watermark.
 - `Session.metadata_["planning_state"]` stores visible durable planning notes: confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes.
-- `Session.metadata_["plan_adherence"]` stores recent execution evidence and the current adherence status.
+- `Session.metadata_["plan_adherence"]` stores recent execution evidence, recent progress outcomes, and the current adherence status.
 - Plan-state and plan endpoints return both `runtime` and deterministic `validation`.
 - Approval rejects structurally incomplete plans instead of relying on prompt guidance.
 - `request_plan_replan` is the explicit transition when execution proves the accepted plan is stale.
+- `record_plan_progress` is the explicit per-turn execution outcome contract; turn-end supervision marks missing outcomes as pending and blocks further mutation until the outcome or replan is recorded.
 
 **Why.**
 - Markdown is readable but too fuzzy to be the only execution contract.
@@ -30,7 +31,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Markdown remains the canonical human-readable artifact.
 - The runtime capsule is the canonical compact state summary for context injection and UI status.
 - Planning-state is visible durable user/agent back-and-forth, not an invisible hidden plan.
-- Adherence evidence is compact supervision input, not proof that semantic step success has been fully verified.
+- Adherence evidence and outcomes are compact supervision input, not proof that semantic step success has been fully verified.
 - Compaction summaries are never authoritative for plan state.
 - Replanning creates a new draft revision and preserves the previously accepted revision until a new one is approved.
 - Subagent guidance remains disabled by default until that orchestration path is separately vetted.
@@ -350,11 +351,12 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 
 **What this means.**
 - `planning_state` stores confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes. It is durable planning notes, not an invisible executable plan.
-- `plan_runtime` remains the compact execution state machine: accepted revision, current step, next action, blockers, replan, compaction watermark.
-- `plan_adherence` records deterministic execution evidence: current step, tool name/kind, tool-call ids, status/error, arguments summary, and result summary.
+- `plan_runtime` remains the compact execution state machine: accepted revision, current step, next action, blockers, replan, pending/latest turn outcomes, compaction watermark.
+- `plan_adherence` records deterministic execution evidence plus explicit progress outcomes: progress, verification, step done, blocked, or no progress.
 - `ask_plan_questions` answers are persisted both as a normal user message and as structured `planning_state` decisions.
 - `publish_plan` validation warns if confirmed planning decisions are not visibly reflected in the draft.
 - Tool dispatch gates mutating tools in planning mode and also blocks mutating execution when the accepted revision/current-step contract is invalid, blocked, or pending replan.
+- Turn-end supervision marks executing/blocked turns without an explicit outcome as pending, and only `record_plan_progress` or `request_plan_replan` can clear the protocol block.
 
 **Why.**
 - Codex/Claude-style harnesses succeed by injecting the right small contract at the right time and gating side effects before they happen.
@@ -362,4 +364,4 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - The first reliable supervisor should be deterministic protocol enforcement plus evidence capture; semantic judging can come later as evals mature.
 
 **Remaining gap.**
-- There is still no full turn-end stop hook requiring every execution turn to end with progress, blocker, replan, verification, or explicit no-progress reason.
+- The protocol now requires a recorded turn outcome, but it still does not semantically prove that the recorded outcome truly satisfied the active step; that needs behavioral evals and verifier work.

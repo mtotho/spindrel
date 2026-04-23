@@ -33,6 +33,7 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 
 - **Widget contract model is now explicit and canonical** (2026-04-22) — `app/services/widget_contracts.py` now normalizes the public widget model into `definition_kind`, `binding_kind`, `instantiation_kind`, `auth_model`, `state_model`, `refresh_model`, `theme_model`, `supported_scopes`, and `actions`, with optional `config_schema` alongside it. This contract now ships on tool previews, widget presets, library/catalog entries, native widgets, and persisted pins so the UI/docs no longer need to infer behavior from source paths or runtime heuristics.
 - **Canonical taxonomy is now definition-kind first** (2026-04-22) — the product language is locked around `tool_widget`, `html_widget`, and `native_widget`, with presets treated as an instantiation path rather than a fourth widget kind. Load-bearing invariant: a YAML tool widget using `html_template` is still a tool widget, not a standalone HTML widget.
+- **Component-widget design language is now part of the contract** (2026-04-23) — component/YAML widgets should render as low-chrome native controls, not debug visualizations. Cards adapt across compact/standard/expanded density from host layout/size; chip widgets remain explicit chip variants. New component hints: common `priority`, `properties.variant=metadata`, and toggle `description` / `on_label` / `off_label`.
 - **Canonical widget inventory started and modernized** (2026-04-23) — `agent-server/docs/reference/widget-inventory.md` now tracks shipped native widgets, core/local tool widgets, core/local HTML bundles, integration tool widgets, and preset entry points with a standard-alignment status (`Current`, `Partial`, `Legacy`, `Needs audit`). Current inventory: 2 native widgets, 6 core/local tool widgets, 2 core/local standalone HTML widgets, 17 integration tool widgets, and 4 preset entry points.
 - **Dashboard pin editing is now schema-aware where possible** (2026-04-22) — `EditPinDrawer` renders simple typed controls from `config_schema` before falling back to raw JSON, which closes the most obvious DX gap in per-pin config editing.
 - **Known follow-up: persisted instantiation provenance is still incomplete** (2026-04-22) — preset-created pins now stamp `source_instantiation_kind="preset"`, but older pins and some non-preset pin flows are still inferred best-effort on read. A future hardening pass should persist instantiation/source metadata across every pin creation path.
@@ -251,7 +252,9 @@ Plan-process hardening (2026-04-23):
 - Added `plan_adherence` execution evidence ledger and surfaced latest evidence/adherence state through runtime/plan payloads.
 - Tool dispatch now blocks mutating execution when the accepted revision/current-step contract is invalid, blocked, or pending replan.
 - `request_plan_replan` remains allowed as the explicit blocked/executing escape hatch, then returns the session to planning with the previous accepted revision preserved.
-- Remaining supervisor gap: no turn-end stop hook yet to require progress/blocker/replan/no-progress transitions after every execution turn.
+- Added deterministic turn-end supervision: missing execution outcomes create `pending_turn_outcome`, block further mutating tools, and require `record_plan_progress` or `request_plan_replan`.
+- Added `record_plan_progress` for `progress`, `verification`, `step_done`, `blocked`, and `no_progress`; latest/pending outcomes now surface through runtime payloads and plan cards.
+- Remaining gap: behavioral evals and semantic step verification, not the basic turn-outcome protocol.
 
 ### Phase 0.5 — Engine addition: `widget_config` rides into `toolResult.config` (done, 2026-04-19)
 

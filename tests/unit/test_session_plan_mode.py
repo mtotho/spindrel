@@ -302,6 +302,126 @@ def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path)
     assert runtime["latest_evidence"]["summary"] == "16 passed"
 
 
+def test_missing_turn_outcome_marks_pending_and_blocks_mutation(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Outcome Gate",
+        summary="Require an execution turn outcome.",
+        scope="Plan supervisor metadata.",
+        acceptance_criteria=["Missing outcomes block further mutation."],
+        steps=[{"id": "audit", "label": "Audit turn state"}],
+    )
+    spm.approve_session_plan(session)
+
+    pending = spm.mark_plan_turn_outcome_pending(
+        session,
+        turn_id="turn-1",
+        correlation_id="turn-1",
+        assistant_summary="I inspected the repo but did not record an outcome.",
+    )
+
+    assert pending is not None
+    assert pending["step_id"] == "audit"
+    runtime = spm.build_plan_runtime_capsule(session, spm.load_session_plan(session, required=True))
+    assert runtime["pending_turn_outcome"]["turn_id"] == "turn-1"
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="record_plan_progress",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    assert not spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+    reason = spm.plan_mode_tool_denial_reason(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+    assert reason is not None
+    assert "missing a plan outcome" in reason
+
+
+def test_record_plan_progress_clears_pending_outcome(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Progress Gate",
+        summary="Clear pending execution outcome.",
+        scope="Plan progress metadata.",
+        acceptance_criteria=["Progress clears pending turn outcome."],
+        steps=[{"id": "audit", "label": "Audit turn state"}],
+    )
+    spm.approve_session_plan(session)
+    spm.mark_plan_turn_outcome_pending(
+        session,
+        turn_id="turn-1",
+        correlation_id="turn-1",
+        assistant_summary="Need explicit outcome.",
+    )
+
+    outcome = spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_PROGRESS,
+        summary="Audited the current turn state.",
+        step_id="audit",
+        evidence="Focused test added.",
+        turn_id="turn-2",
+        correlation_id="turn-2",
+    )
+
+    assert outcome["outcome"] == "progress"
+    assert outcome["turn_id"] == "turn-1"
+    runtime = spm.build_plan_runtime_capsule(session, spm.load_session_plan(session, required=True))
+    assert runtime.get("pending_turn_outcome") is None
+    assert runtime["latest_outcome"]["summary"] == "Audited the current turn state."
+    assert runtime["adherence_status"] == "ok"
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+
+
+def test_record_plan_progress_step_done_advances_plan(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Step Outcome",
+        summary="Step done outcome advances the checklist.",
+        scope="Plan progress tool behavior.",
+        acceptance_criteria=["Step done updates the active step."],
+        steps=[
+            {"id": "audit", "label": "Audit turn state"},
+            {"id": "ship", "label": "Ship supervisor state"},
+        ],
+    )
+    spm.approve_session_plan(session)
+
+    spm.record_plan_progress_outcome(
+        session,
+        outcome=spm.PLAN_PROGRESS_OUTCOME_STEP_DONE,
+        summary="Audit completed.",
+        step_id="audit",
+        turn_id="turn-2",
+        correlation_id="turn-2",
+    )
+
+    plan = spm.load_session_plan(session, required=True)
+    assert plan.steps[0].status == spm.STEP_STATUS_DONE
+    assert plan.steps[1].status == spm.STEP_STATUS_IN_PROGRESS
+    assert session.metadata_["plan_adherence"]["latest_outcome"]["outcome"] == "step_done"
+
+
 def test_executing_guard_blocks_mutating_tools_when_replan_pending(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()

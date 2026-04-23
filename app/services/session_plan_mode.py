@@ -50,9 +50,24 @@ PLAN_VALIDATION_ERROR = "error"
 PLAN_VALIDATION_WARNING = "warning"
 
 PLAN_MUTATING_TOOL_ALLOWLIST = frozenset({"publish_plan"})
+PLAN_EXECUTION_OUTCOME_TOOL_ALLOWLIST = frozenset({"record_plan_progress", "request_plan_replan"})
 PLAN_GUIDED_SUBAGENT_TOOL = "spawn_subagents"
 _PLANNING_STATE_LIST_LIMIT = 12
 _ADHERENCE_EVIDENCE_LIMIT = 20
+_ADHERENCE_OUTCOME_LIMIT = 20
+
+PLAN_PROGRESS_OUTCOME_PROGRESS = "progress"
+PLAN_PROGRESS_OUTCOME_VERIFICATION = "verification"
+PLAN_PROGRESS_OUTCOME_STEP_DONE = "step_done"
+PLAN_PROGRESS_OUTCOME_BLOCKED = "blocked"
+PLAN_PROGRESS_OUTCOME_NO_PROGRESS = "no_progress"
+_VALID_PLAN_PROGRESS_OUTCOMES = {
+    PLAN_PROGRESS_OUTCOME_PROGRESS,
+    PLAN_PROGRESS_OUTCOME_VERIFICATION,
+    PLAN_PROGRESS_OUTCOME_STEP_DONE,
+    PLAN_PROGRESS_OUTCOME_BLOCKED,
+    PLAN_PROGRESS_OUTCOME_NO_PROGRESS,
+}
 
 _VALID_PLAN_MODES = {
     PLAN_MODE_CHAT,
@@ -609,6 +624,8 @@ def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None
         "unresolved_questions": list(plan.open_questions if plan is not None else existing.get("unresolved_questions") or []),
         "blockers": blockers,
         "replan": copy.deepcopy(existing.get("replan")),
+        "pending_turn_outcome": copy.deepcopy(existing.get("pending_turn_outcome")),
+        "latest_outcome": adherence.get("latest_outcome"),
         "adherence_status": adherence.get("status"),
         "latest_evidence": adherence.get("latest_evidence"),
         "compaction_watermark_message_id": (
@@ -625,7 +642,9 @@ def _adherence_default() -> dict[str, Any]:
         "schema_version": 1,
         "status": "unknown",
         "evidence": [],
+        "outcomes": [],
         "latest_evidence": None,
+        "latest_outcome": None,
         "last_transition": None,
         "last_updated_at": None,
     }
@@ -639,6 +658,8 @@ def _normalize_adherence(raw: Any) -> dict[str, Any]:
                 state[key] = copy.deepcopy(raw[key])
     evidence = state.get("evidence")
     state["evidence"] = evidence if isinstance(evidence, list) else []
+    outcomes = state.get("outcomes")
+    state["outcomes"] = outcomes if isinstance(outcomes, list) else []
     return state
 
 
@@ -658,8 +679,18 @@ def build_plan_adherence_state(session: Session, plan: SessionPlan | None = None
         else:
             runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)
             runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
-            if runtime.get("replan"):
+            if runtime.get("pending_turn_outcome"):
+                state["status"] = "warning"
+            elif runtime.get("replan"):
                 state["status"] = "blocked"
+            elif state.get("latest_outcome"):
+                latest_outcome = state["latest_outcome"] if isinstance(state["latest_outcome"], dict) else {}
+                if latest_outcome.get("outcome") == PLAN_PROGRESS_OUTCOME_NO_PROGRESS:
+                    state["status"] = "warning"
+                elif latest_outcome.get("outcome") == PLAN_PROGRESS_OUTCOME_BLOCKED:
+                    state["status"] = "blocked"
+                else:
+                    state["status"] = "ok"
             elif state.get("latest_evidence"):
                 state["status"] = "ok"
             else:
@@ -720,6 +751,183 @@ def record_plan_execution_evidence(
     session.metadata_ = meta
     flag_modified(session, "metadata_")
     return adherence
+
+
+def _current_or_next_step_id(plan: SessionPlan | None) -> str | None:
+    _current_step_id, next_step_id, _last_completed = _runtime_step_ids(plan)
+    return _current_step_id or next_step_id
+
+
+def _turn_ids_match(item: dict[str, Any], *, turn_id: str | None, correlation_id: str | None) -> bool:
+    if turn_id and str(item.get("turn_id") or "") == turn_id:
+        return True
+    if correlation_id and str(item.get("correlation_id") or "") == correlation_id:
+        return True
+    return False
+
+
+def _has_outcome_for_turn(adherence: dict[str, Any], *, turn_id: str | None, correlation_id: str | None) -> bool:
+    return any(
+        isinstance(item, dict) and _turn_ids_match(item, turn_id=turn_id, correlation_id=correlation_id)
+        for item in adherence.get("outcomes", [])
+    )
+
+
+def _clear_pending_turn_outcome(runtime: dict[str, Any], *, turn_id: str | None, correlation_id: str | None) -> None:
+    pending = runtime.get("pending_turn_outcome")
+    if not isinstance(pending, dict):
+        runtime.pop("pending_turn_outcome", None)
+        return
+    if not pending.get("turn_id") and not pending.get("correlation_id"):
+        runtime.pop("pending_turn_outcome", None)
+        return
+    if _turn_ids_match(pending, turn_id=turn_id, correlation_id=correlation_id):
+        runtime.pop("pending_turn_outcome", None)
+
+
+def record_plan_progress_outcome(
+    session: Session,
+    *,
+    outcome: str,
+    summary: str,
+    step_id: str | None = None,
+    evidence: str | None = None,
+    status_note: str | None = None,
+    turn_id: str | None = None,
+    correlation_id: str | None = None,
+) -> dict[str, Any]:
+    outcome = str(outcome or "").strip()
+    if outcome not in _VALID_PLAN_PROGRESS_OUTCOMES:
+        raise HTTPException(status_code=422, detail=f"Invalid plan progress outcome: {outcome}")
+    summary_text = (summary or "").strip()
+    if not summary_text:
+        raise HTTPException(status_code=422, detail="Plan progress summary is required.")
+
+    plan = load_session_plan(session, required=True)
+    assert plan is not None
+    mode = get_session_plan_mode(session)
+    if mode not in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED}:
+        raise HTTPException(status_code=409, detail="Plan progress can only be recorded while executing or blocked.")
+    _ensure_plan_is_approved_for_execution(session, plan)
+
+    resolved_step_id = (step_id or "").strip() or _current_or_next_step_id(plan)
+    if resolved_step_id and all(step.id != resolved_step_id for step in plan.steps):
+        raise HTTPException(status_code=404, detail=f"Plan step not found: {resolved_step_id}")
+    if outcome in {PLAN_PROGRESS_OUTCOME_STEP_DONE, PLAN_PROGRESS_OUTCOME_BLOCKED} and not resolved_step_id:
+        raise HTTPException(status_code=422, detail=f"{outcome} requires a plan step.")
+    if outcome == PLAN_PROGRESS_OUTCOME_NO_PROGRESS and not (evidence or status_note):
+        raise HTTPException(status_code=422, detail="no_progress requires evidence or a status note.")
+
+    if outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE:
+        plan = update_plan_step_status(
+            session,
+            step_id=resolved_step_id or "",
+            status=STEP_STATUS_DONE,
+            note=status_note or summary_text,
+        )
+    elif outcome == PLAN_PROGRESS_OUTCOME_BLOCKED:
+        plan = update_plan_step_status(
+            session,
+            step_id=resolved_step_id or "",
+            status=STEP_STATUS_BLOCKED,
+            note=status_note or summary_text,
+        )
+
+    now = _utc_now_iso()
+    meta = _session_plan_meta(session)
+    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
+    runtime_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
+    runtime = copy.deepcopy(runtime_raw if isinstance(runtime_raw, dict) else {})
+    pending = runtime.get("pending_turn_outcome")
+    record_turn_id = turn_id
+    record_correlation_id = correlation_id
+    if isinstance(pending, dict):
+        record_turn_id = str(pending.get("turn_id") or record_turn_id or "") or None
+        record_correlation_id = str(pending.get("correlation_id") or record_correlation_id or "") or None
+    outcome_record = {
+        "created_at": now,
+        "outcome": outcome,
+        "summary": _clip_plan_context(summary_text, 500),
+        "evidence": _clip_plan_context(evidence, 500) if evidence else None,
+        "status_note": _clip_plan_context(status_note, 500) if status_note else None,
+        "plan_revision": plan.revision,
+        "accepted_revision": _accepted_plan_revision(session) or None,
+        "step_id": resolved_step_id,
+        "turn_id": record_turn_id,
+        "correlation_id": record_correlation_id,
+    }
+    adherence["outcomes"].append(outcome_record)
+    adherence["outcomes"] = adherence["outcomes"][-_ADHERENCE_OUTCOME_LIMIT:]
+    adherence["latest_outcome"] = outcome_record
+    adherence["last_updated_at"] = now
+    adherence["last_transition"] = f"outcome_{outcome}"
+    if outcome == PLAN_PROGRESS_OUTCOME_BLOCKED:
+        adherence["status"] = "blocked"
+    elif outcome == PLAN_PROGRESS_OUTCOME_NO_PROGRESS:
+        adherence["status"] = "warning"
+    else:
+        adherence["status"] = "ok"
+
+    _clear_pending_turn_outcome(runtime, turn_id=record_turn_id, correlation_id=record_correlation_id)
+    runtime.update({
+        "latest_outcome": outcome_record,
+        "adherence_status": adherence["status"],
+        "last_updated_at": now,
+        "last_update_reason": f"plan_progress_{outcome}",
+    })
+    meta[PLAN_ADHERENCE_METADATA_KEY] = adherence
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    sync_plan_runtime_capsule(session, plan, reason=f"plan_progress_{outcome}")
+    return outcome_record
+
+
+def mark_plan_turn_outcome_pending(
+    session: Session,
+    *,
+    turn_id: str | None,
+    correlation_id: str | None,
+    reason: str = "missing_turn_outcome",
+    assistant_summary: str | None = None,
+) -> dict[str, Any] | None:
+    mode = get_session_plan_mode(session)
+    if mode not in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED}:
+        return None
+    plan = load_session_plan(session, required=False)
+    if plan is None or _accepted_plan_revision(session) <= 0 or plan.revision != _accepted_plan_revision(session):
+        return None
+    meta = _session_plan_meta(session)
+    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
+    if _has_outcome_for_turn(adherence, turn_id=turn_id, correlation_id=correlation_id):
+        return None
+    runtime = build_plan_runtime_capsule(session, plan)
+    existing = runtime.get("pending_turn_outcome")
+    if isinstance(existing, dict):
+        return None
+
+    now = _utc_now_iso()
+    pending = {
+        "created_at": now,
+        "reason": reason,
+        "turn_id": turn_id,
+        "correlation_id": correlation_id,
+        "plan_revision": plan.revision,
+        "accepted_revision": _accepted_plan_revision(session) or None,
+        "step_id": runtime.get("current_step_id") or runtime.get("next_step_id"),
+        "assistant_summary": _clip_plan_context(assistant_summary, 500) if assistant_summary else None,
+    }
+    runtime["pending_turn_outcome"] = pending
+    runtime["last_updated_at"] = now
+    runtime["last_update_reason"] = reason
+    adherence["status"] = "warning"
+    adherence["last_transition"] = reason
+    adherence["last_updated_at"] = now
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    meta[PLAN_ADHERENCE_METADATA_KEY] = adherence
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return pending
 
 
 def sync_plan_runtime_capsule(
@@ -1614,6 +1822,21 @@ def build_plan_artifact_context(session: Session) -> str | None:
                 240,
             )
         )
+    if runtime.get("latest_outcome"):
+        latest_outcome = runtime.get("latest_outcome") or {}
+        runtime_lines.append(
+            "Latest plan outcome: "
+            + _clip_plan_context(
+                f"{latest_outcome.get('outcome')}: {latest_outcome.get('summary') or 'recorded'}",
+                240,
+            )
+        )
+    pending_outcome = runtime.get("pending_turn_outcome") or {}
+    if pending_outcome:
+        runtime_lines.append(
+            "Pending turn outcome: "
+            + _clip_plan_context(str(pending_outcome.get("reason") or "missing"), 240)
+        )
     replan = runtime.get("replan") or {}
     if replan:
         runtime_lines.append(
@@ -1745,6 +1968,10 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         lines.append(
             "If execution reveals the accepted plan is stale, stop and use request_plan_replan with the reason/evidence instead of continuing or silently editing around the plan."
         )
+        lines.append(
+            "Before ending an execution turn, use record_plan_progress to record progress, verification, step_done, blocked, or no_progress. "
+            "If a prior turn has a pending outcome, record that outcome before using more mutating tools."
+        )
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Accepted revision: {accepted_revision}; plan status: {plan.status}")
         if next_step is not None:
@@ -1800,8 +2027,12 @@ def tool_allowed_in_plan_mode(
     runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
     plan = load_session_plan(session, required=False)
     accepted_revision = _accepted_plan_revision(session)
-    if tool_name == "request_plan_replan" and tool_kind == "local":
-        return plan is not None and accepted_revision > 0 and not runtime.get("replan")
+    if tool_kind == "local" and tool_name in PLAN_EXECUTION_OUTCOME_TOOL_ALLOWLIST:
+        if tool_name == "request_plan_replan":
+            return plan is not None and accepted_revision > 0 and not runtime.get("replan")
+        return plan is not None and accepted_revision > 0
+    if runtime.get("pending_turn_outcome"):
+        return False
     if mode == PLAN_MODE_BLOCKED or runtime.get("replan"):
         return False
     if plan is None or accepted_revision <= 0 or plan.revision != accepted_revision:
@@ -1831,8 +2062,14 @@ def plan_mode_tool_denial_reason(
         runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
         if runtime.get("replan"):
             return "The accepted plan has a pending replan request. Mutating tools are disabled until the plan is revised and approved again."
+        if runtime.get("pending_turn_outcome"):
+            return "The previous execution turn is missing a plan outcome. Use record_plan_progress before running more mutating tools."
         return "Plan execution guard blocked this mutating tool because the accepted revision/current step contract is not valid."
     if mode == PLAN_MODE_BLOCKED:
+        runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)
+        runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+        if runtime.get("pending_turn_outcome"):
+            return "The previous blocked-plan turn is missing a plan outcome. Use record_plan_progress or request_plan_replan before running more mutating tools."
         return "Plan execution is blocked. Resolve the blocker or request a replan before running mutating tools."
     if tool_name == "file":
         return "Plan mode is active. Direct file mutations are disabled while drafting; use publish_plan to revise the canonical plan."

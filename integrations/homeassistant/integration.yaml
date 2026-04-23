@@ -76,6 +76,9 @@ widget_presets:
     name: Entity Toggle Chip
     description: Compact status chip with on/off control for one Home Assistant entity.
     icon: ToggleLeft
+    layout_hints:
+      preferred_zone: chip
+      max_cells: {w: 4, h: 1}
     tool_name: GetLiveContext
     tool_family: official
     tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff]
@@ -107,6 +110,9 @@ widget_presets:
     name: Entity Chip
     description: Compact status/value chip for one Home Assistant entity.
     icon: Activity
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 3, h: 3}
     tool_name: GetLiveContext
     tool_family: official
     tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff]
@@ -164,6 +170,9 @@ widget_presets:
     name: Light Card
     description: Light status card with power and optional brightness control.
     icon: Lightbulb
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 4}
     tool_name: GetLiveContext
     tool_family: official
     tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff, HassLightSet]
@@ -203,6 +212,9 @@ widget_presets:
     name: Sensor Card
     description: Read-only sensor card with current value and freshness.
     icon: Thermometer
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 3, h: 3}
     tool_name: GetLiveContext
     tool_family: official
     tool_dependencies: [GetLiveContext]

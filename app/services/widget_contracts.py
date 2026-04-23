@@ -55,6 +55,27 @@ def _copy_supported_scopes(scopes: object) -> list[str]:
     return [str(scope) for scope in scopes if isinstance(scope, str) and scope.strip()]
 
 
+def normalize_layout_hints(hints: object) -> dict[str, Any] | None:
+    if not isinstance(hints, dict):
+        return None
+    out: dict[str, Any] = {}
+    preferred = hints.get("preferred_zone")
+    if isinstance(preferred, str) and preferred.strip():
+        out["preferred_zone"] = preferred.strip()
+    for key in ("min_cells", "max_cells"):
+        raw = hints.get(key)
+        if not isinstance(raw, dict):
+            continue
+        cells = {
+            dim: int(value)
+            for dim, value in raw.items()
+            if dim in {"w", "h"} and isinstance(value, int) and value > 0
+        }
+        if cells:
+            out[key] = cells
+    return out or None
+
+
 def _html_theme_model(theme_support: str | None) -> str:
     if theme_support == "none":
         return "none"
@@ -80,6 +101,7 @@ def build_tool_widget_contract(
         "theme_model": "html_host" if is_html_mode else "component_host",
         "supported_scopes": _copy_supported_scopes(supported_scopes),
         "actions": _copy_actions(actions or widget_def.get("actions")),
+        "layout_hints": normalize_layout_hints(widget_def.get("layout_hints")),
     }
 
 

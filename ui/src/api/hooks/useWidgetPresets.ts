@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { WidgetConfigSchema, WidgetContract } from "@/src/types/api";
+import type { WidgetConfigSchema, WidgetContract, WidgetLayoutHints } from "@/src/types/api";
 
 export interface WidgetPresetFieldUi {
   control?: string;
@@ -52,6 +52,7 @@ export interface WidgetPreset {
   default_config: Record<string, unknown>;
   config_schema?: WidgetConfigSchema | null;
   widget_contract?: WidgetContract | null;
+  layout_hints?: WidgetLayoutHints | null;
   dependency_contract?: WidgetPresetDependencyContract | null;
   resolved_binding_options?: Record<string, WidgetPresetOption[]>;
   binding_source_errors?: Record<string, string>;

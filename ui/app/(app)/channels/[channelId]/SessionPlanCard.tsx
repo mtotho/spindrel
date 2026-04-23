@@ -48,6 +48,8 @@ export function SessionPlanCard({
   const runtime = plan.runtime;
   const planningState = plan.planning_state;
   const adherence = plan.adherence;
+  const pendingOutcome = runtime?.pending_turn_outcome;
+  const latestOutcome = adherence?.latest_outcome ?? runtime?.latest_outcome;
   const planningStateItems = [
     { label: "Decisions", items: planningState?.decisions ?? [] },
     { label: "Open questions", items: planningState?.open_questions ?? [] },
@@ -221,7 +223,18 @@ export function SessionPlanCard({
               {runtime.next_step_id && runtime.next_step_id !== runtime.current_step_id ? <span>up next: {runtime.next_step_id}</span> : null}
               {runtime.accepted_revision ? <span>accepted rev {runtime.accepted_revision}</span> : null}
               {runtime.adherence_status ? <span>adherence: {runtime.adherence_status}</span> : null}
+              {pendingOutcome?.reason ? <span>pending outcome: {pendingOutcome.reason}</span> : null}
               {runtime.replan?.reason ? <span>replan: {runtime.replan.reason}</span> : null}
+            </div>
+          ) : null}
+          {pendingOutcome ? (
+            <div style={{ fontSize: 12, color: t.warningMuted }}>
+              Pending outcome: record progress, verification, blocker, replan, or no-progress before more execution.
+            </div>
+          ) : null}
+          {latestOutcome ? (
+            <div style={{ fontSize: 12, color: t.textDim }}>
+              Latest outcome: {latestOutcome.outcome ?? "recorded"}{latestOutcome.summary ? ` - ${latestOutcome.summary}` : ""}
             </div>
           ) : null}
           {adherence?.latest_evidence ? (

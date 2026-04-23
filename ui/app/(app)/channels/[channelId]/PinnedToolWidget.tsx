@@ -119,14 +119,14 @@ export function PinnedToolWidget({
   const isDashboard = scope.kind === "dashboard";
   const channelId =
     scope.kind === "channel" ? scope.channelId : scope.channelId ?? null;
-  const scratchSessionRouteMatch = useMatch("/channels/:channelId/session/:sessionId");
+  const channelSessionRouteMatch = useMatch("/channels/:channelId/session/:sessionId");
   const [searchParams] = useSearchParams();
-  const scratchRouteSessionId =
-    searchParams.get("scratch") === "true"
-      ? scratchSessionRouteMatch?.params.sessionId ?? null
+  const routeSessionId =
+    channelSessionRouteMatch?.params.channelId === channelId
+      ? channelSessionRouteMatch.params.sessionId ?? null
       : null;
   const dashboardScratchSessionId = searchParams.get("scratch_session_id");
-  const viewedSessionId = scratchRouteSessionId ?? dashboardScratchSessionId ?? null;
+  const viewedSessionId = routeSessionId ?? dashboardScratchSessionId ?? null;
   const isChip = scope.kind === "channel" && scope.compact === "chip";
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.

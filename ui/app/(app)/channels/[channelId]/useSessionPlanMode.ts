@@ -66,6 +66,8 @@ export interface PlanRuntimeCapsule {
   blockers?: string[];
   adherence_status?: "ok" | "warning" | "blocked" | "unknown" | "planning" | null;
   latest_evidence?: PlanExecutionEvidence | null;
+  latest_outcome?: PlanProgressOutcome | null;
+  pending_turn_outcome?: PendingTurnOutcome | null;
   replan?: {
     reason?: string;
     affected_step_ids?: string[];
@@ -76,6 +78,17 @@ export interface PlanRuntimeCapsule {
   compaction_watermark_message_id?: string | null;
   last_updated_at?: string | null;
   last_update_reason?: string | null;
+}
+
+export interface PendingTurnOutcome {
+  created_at?: string;
+  reason?: string;
+  turn_id?: string | null;
+  correlation_id?: string | null;
+  plan_revision?: number | null;
+  accepted_revision?: number | null;
+  step_id?: string | null;
+  assistant_summary?: string | null;
 }
 
 export interface PlanningStateItem {
@@ -113,11 +126,26 @@ export interface PlanExecutionEvidence {
   summary?: string;
 }
 
+export interface PlanProgressOutcome {
+  created_at?: string;
+  outcome?: "progress" | "verification" | "step_done" | "blocked" | "no_progress";
+  summary?: string;
+  evidence?: string | null;
+  status_note?: string | null;
+  plan_revision?: number | null;
+  accepted_revision?: number | null;
+  step_id?: string | null;
+  turn_id?: string | null;
+  correlation_id?: string | null;
+}
+
 export interface PlanAdherenceState {
   schema_version: number;
   status: "ok" | "warning" | "blocked" | "unknown" | "planning";
   evidence: PlanExecutionEvidence[];
+  outcomes?: PlanProgressOutcome[];
   latest_evidence?: PlanExecutionEvidence | null;
+  latest_outcome?: PlanProgressOutcome | null;
   last_transition?: string | null;
   last_updated_at?: string | null;
 }

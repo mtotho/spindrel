@@ -501,12 +501,19 @@ export interface WidgetContract {
   refresh_model: "none" | "state_poll" | "widget_runtime" | "instance_actions";
   theme_model?: string | null;
   supported_scopes?: string[];
+  layout_hints?: WidgetLayoutHints | null;
   actions?: Array<{
     id: string;
     description?: string;
     args_schema?: Record<string, unknown>;
     returns_schema?: Record<string, unknown> | null;
   }>;
+}
+
+export interface WidgetLayoutHints {
+  preferred_zone?: "chip" | "rail" | "dock" | "grid" | string | null;
+  min_cells?: { w?: number; h?: number } | null;
+  max_cells?: { w?: number; h?: number } | null;
 }
 
 export interface WidgetConfigSchemaField {
@@ -550,6 +557,7 @@ export interface WidgetLibraryEntry {
   supported_scopes?: string[];
   config_schema?: WidgetConfigSchema | null;
   widget_contract?: WidgetContract | null;
+  layout_hints?: WidgetLayoutHints | null;
   actions?: Array<{
     id: string;
     description?: string;

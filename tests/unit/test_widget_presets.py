@@ -31,6 +31,10 @@ def _manifest() -> dict:
             "widget_presets": {
                 "homeassistant-light-card": {
                     "name": "Light Card",
+                    "layout_hints": {
+                        "preferred_zone": "grid",
+                        "min_cells": {"w": 4, "h": 4},
+                    },
                     "tool_name": "GetLiveContext",
                     "tool_family": "official",
                     "tool_dependencies": ["GetLiveContext", "HassTurnOn", "HassTurnOff", "HassLightSet"],
@@ -103,6 +107,11 @@ def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
     assert preset["config_schema"]["properties"]["entity_id"]["type"] == "string"
     assert preset["widget_contract"]["definition_kind"] == "tool_widget"
     assert preset["widget_contract"]["instantiation_kind"] == "preset"
+    assert preset["layout_hints"] == {
+        "preferred_zone": "grid",
+        "min_cells": {"w": 4, "h": 4},
+    }
+    assert preset["widget_contract"]["layout_hints"] == preset["layout_hints"]
     assert preset["dependency_contract"] == {
         "tool_family": {
             "id": "official",

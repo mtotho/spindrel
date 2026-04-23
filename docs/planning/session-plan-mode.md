@@ -235,7 +235,7 @@ The injected rules shift to execution:
 
 ## Tooling Contract
 
-Plan mode depends on two explicit local tools.
+Plan mode depends on four explicit local tools.
 
 ### `ask_plan_questions`
 
@@ -329,13 +329,48 @@ Current backend/runtime details:
 - keeps `accepted_revision` pointed at the old approved revision until a new revision is approved
 - emits `session_plan_updated` with reason `replan`
 
+### `record_plan_progress`
+
+Purpose:
+
+- record the required execution outcome before an executing/blocked turn is considered complete
+- clear a pending missing-outcome warning from the previous execution turn
+- optionally advance the current plan step to `done` or `blocked`
+- preserve compact progress, verification, blocker, or no-progress notes across compaction
+
+Expected use:
+
+- before ending every `executing` turn
+- when a prior execution turn has been marked as missing an explicit outcome
+- after verification-only work, using `verification`
+- after useful partial progress, using `progress`
+- when no durable progress happened, using `no_progress` with evidence or a status note
+
+Current backend/runtime details:
+
+- registered as a local mutating tool
+- only allowed while the session is `executing` or `blocked` with an accepted current revision
+- remains allowed even when a pending turn outcome blocks other mutating tools
+- returns `application/vnd.spindrel.plan+json` so the transcript-native plan card refreshes
+- records the outcome in `plan_adherence.outcomes`
+- stores the newest outcome in both `plan_adherence.latest_outcome` and `plan_runtime.latest_outcome`
+- emits `session_plan_updated` with reason `plan_progress`
+
+Supported outcomes:
+
+- `progress`
+- `verification`
+- `step_done`
+- `blocked`
+- `no_progress`
+
 ## Transcript Rendering Contract
 
 All visible planning surfaces should render inside the chat feed.
 
 Current transcript-native planning artifacts:
 
-- plan result envelope from `publish_plan`
+- plan result envelope from `publish_plan`, `request_plan_replan`, and `record_plan_progress`
 - native-app `core/plan_questions` card from `ask_plan_questions`
 
 What should not happen:
@@ -509,6 +544,8 @@ Current `plan_runtime` fields:
 - `unresolved_questions`
 - `blockers`
 - `replan`
+- `pending_turn_outcome`
+- `latest_outcome`
 - `adherence_status`
 - `latest_evidence`
 - `compaction_watermark_message_id`
@@ -532,10 +569,14 @@ Current shape:
 - `status`: `ok`, `warning`, `blocked`, `planning`, or `unknown`
 - recent evidence records
 - latest evidence record
+- recent progress outcome records
+- latest progress outcome record
 - last transition
 - last update timestamp
 
 Evidence records capture the current accepted revision, current step id, tool name/kind, tool-call ids, status, error, arguments summary, and result summary.
+
+Outcome records capture the required turn-level execution result: outcome type, summary, optional evidence/status note, accepted revision, step id, turn id, and correlation id.
 
 This is the first deterministic supervisor loop:
 
@@ -543,8 +584,11 @@ This is the first deterministic supervisor loop:
 - executing mode blocks mutating tools if the accepted revision/current-step contract is invalid
 - blocked/replan-pending execution blocks mutating tools until the plan returns to a valid state
 - `request_plan_replan` is the allowed escape hatch while executing or blocked, unless a replan is already pending
+- turn-end supervision marks an executing/blocked turn as pending when no outcome was recorded
+- a pending turn outcome blocks further mutating tools except `record_plan_progress` and `request_plan_replan`
 - successful tool execution records compact evidence back into `plan_adherence` and `plan_runtime`
 - tool evidence emits `session_plan_updated` with reason `tool_evidence` so transcript plan cards can refresh the latest adherence state
+- progress outcomes emit `session_plan_updated` with reason `plan_progress`
 
 ## Execution Contract
 
@@ -559,9 +603,10 @@ Current intended loop:
 3. Inject step + compact plan context
 4. Execute that step
 5. Record tool evidence against the current step
-6. Mark result
-7. Update the plan file/runtime
-8. Continue only if the step finished cleanly
+6. Use `record_plan_progress` before ending the turn
+7. Mark result
+8. Update the plan file/runtime
+9. Continue only if the step finished cleanly
 
 Expected step outcomes:
 
@@ -569,6 +614,7 @@ Expected step outcomes:
 - `blocked`
 - `needs_replan`
 - `aborted`
+- explicit `no_progress` with evidence/status note
 
 Current persisted step statuses in the plan artifact are:
 
@@ -638,11 +684,13 @@ These are considered regressions:
 Backend:
 
 - `app/services/session_plan_mode.py`
+- `app/services/turn_supervisors.py`
 - `app/services/sessions.py`
 - `app/routers/sessions.py`
 - `app/tools/local/ask_plan_questions.py`
 - `app/tools/local/publish_plan.py`
 - `app/tools/local/request_plan_replan.py`
+- `app/tools/local/record_plan_progress.py`
 
 Frontend:
 
@@ -673,12 +721,13 @@ What v1 does well:
 - executing-mode tool guard for stale, blocked, or replan-pending state
 - deterministic approval validation
 - explicit replan transition back to planning
+- turn-end supervisor for missing execution outcomes
+- explicit progress outcome tool that can clear supervisor warnings and advance steps
 
 What v1 does not yet do:
 
 - background detached executor loop
 - Slack/Discord parity for this exact workflow
-- full turn-end stop hook that forces a progress/blocker/replan/no-progress transition after every assistant response
 - behavioral evaluation of whether the model is planning well beyond static validation
 
 ## Gaps
@@ -689,12 +738,12 @@ These are known gaps between the current v1 and the fuller planning system we li
   execution is still session-turn-driven rather than a fully autonomous background loop
 - no hard semantic step verifier
   the deterministic supervisor records evidence and gates invalid protocol state, but does not yet prove that every tool action semantically satisfied the step
-- no turn-end stop hook
-  the system can gate tools and record evidence, but does not yet require a final state transition before every assistant response completes
 - no full transcript history model for plan revisions
   revisions exist numerically, but there is no first-class diff/history experience beyond the canonical file and emitted revision artifacts
 - no explicit “agent may propose entering plan mode” tool yet
   entry is still user/control-driven in practice
+- no mature behavioral eval suite for the whole planning loop
+  the deterministic protocol is covered, but we still need model-behavior evals for question quality, stale-plan handling, and turn-outcome adherence under realistic transcripts
 
 ## Future Ideas
 
@@ -702,8 +751,8 @@ Potential next steps, roughly in order of usefulness:
 
 - expand plan validation heuristics
   examples: max-step heuristics, vague-step detection, required done-condition checks, oversized-plan warnings
-- add a turn-end stop hook
-  the agent should have to record progress, blocker, replan, verification, or no-progress reason before ending an execution turn
+- add behavioral evals for turn-outcome adherence
+  the agent should reliably record progress, blocker, replan, verification, or no-progress reason before ending an execution turn under realistic context pressure
 - add agent-side “propose plan mode” tooling
   the agent should be able to suggest entering plan mode without silently flipping the session itself
 - add revision history/diff UX
@@ -721,6 +770,7 @@ If any of these change, update this document in the same edit:
 - `ask_plan_questions` semantics
 - `publish_plan` semantics
 - `request_plan_replan` semantics
+- `record_plan_progress` semantics
 - runtime capsule or validation semantics
 - transcript vs page-level rendering rules
 - approval/execution contract

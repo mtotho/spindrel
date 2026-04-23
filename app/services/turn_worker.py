@@ -57,6 +57,7 @@ from app.services.compaction import maybe_compact
 from app.services.delegation import delegation_service as _ds
 from app.services.sessions import persist_turn
 from app.services.turn_event_emit import emit_run_stream_events
+from app.services.turn_supervisors import TurnEndContext, run_turn_supervisors
 from app.services.turns import TurnHandle
 from app.utils import safe_create_task
 
@@ -105,6 +106,7 @@ async def run_turn(
     was_cancelled = False
     error_text: str | None = None
     pre_user_msg_id: uuid.UUID | None = None
+    persisted_turn = False
 
     try:
         # Per-task ContextVars — safe because asyncio tasks each see their
@@ -404,6 +406,7 @@ async def run_turn(
                     pre_user_msg_id=pre_user_msg_id,
                     suppress_outbox=session_scoped or not has_channel,
                 )
+                persisted_turn = True
         except Exception:
             logger.exception(
                 "turn_worker: persist_turn failed for session %s — messages will be lost",
@@ -411,7 +414,22 @@ async def run_turn(
             )
             error_text = "persist_turn failed"
 
-        # 6. Trigger compaction in the background.
+        # 6. Run deterministic internal supervisors after persistence and
+        #    before TURN_ENDED so state changes reach the UI with the final
+        #    turn signal.
+        if persisted_turn:
+            await run_turn_supervisors(TurnEndContext(
+                session_id=session_id,
+                channel_id=channel_id,
+                bot_id=bot.id,
+                turn_id=turn_id,
+                correlation_id=correlation_id,
+                result=response_text or None,
+                error=error_text,
+                client_actions=list(response_actions or []),
+            ))
+
+        # 7. Trigger compaction in the background.
         maybe_compact(
             session_id, bot, messages,
             correlation_id=correlation_id,
@@ -419,7 +437,7 @@ async def run_turn(
             budget_snapshot=_budget_snapshot,
         )
 
-        # 7. Bot-to-bot @-mention chain: trigger member bot replies for
+        # 8. Bot-to-bot @-mention chain: trigger member bot replies for
         #    bots the primary bot mentioned in its response.
         #    Channel-less ephemeral sessions skip — @-mention fanout requires
         #    channel membership resolution.
@@ -456,7 +474,7 @@ async def run_turn(
         )
         error_text = f"{type(exc).__name__}: {str(exc)[:500]}"
     finally:
-        # 8. Always publish TURN_ENDED. Subscribers (renderers + UI) rely
+        # 9. Always publish TURN_ENDED. Subscribers (renderers + UI) rely
         #    on it to finalize their per-turn state.
         try:
             publish_typed(
@@ -491,7 +509,7 @@ async def run_turn(
                 turn_id, exc_info=True,
             )
 
-        # 9. Always release the session lock so the next turn can run.
+        # 10. Always release the session lock so the next turn can run.
         session_locks.release(session_id)
 
 

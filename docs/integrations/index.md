@@ -1197,7 +1197,9 @@ tool_widgets:
           text: "Done"
           color: success
         - type: toggle
-          label: Power
+          label: "{{entity_name}}"
+          on_label: "On"
+          off_label: "Off"
           value: true
           action:
             dispatch: tool
