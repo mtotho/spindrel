@@ -1,379 +1,386 @@
 # Widget System
 
-This is the canonical overview of how widgets work in Spindrel.
+This is the canonical reference for how the widget system works.
 
-If you only keep one mental model in your head, keep this one:
+If other docs, UI copy, or track notes disagree with this page, this page wins.
 
-- There are **three runtime kinds** of widgets: **tool renderer widgets**, **HTML widgets**, and **native widgets**.
-- There are several **authoring and entry surfaces** on top of those runtimes: **presets**, **tool renderers**, **library widgets**, and runtime HTML emission via `emit_html_widget`.
-- Placement is unified: to the end user, all of them become **tool results** and **pins** that can live on the same dashboards.
+## The shortest correct model
 
-This guide explains those layers, where they overlap, and where the current seams still show.
+There are three widget definition kinds:
 
-## The three axes
+| Public term | Internal/API term | Who authors it | User-addable |
+|---|---|---|---|
+| Tool widget | `tool_widget` | integration authors, admins, advanced users | yes |
+| HTML widget | `html_widget` | bots, users, integrations | yes |
+| Native widget | `native_widget` | core app only | no |
 
-The product gets confusing if you mix these three questions together:
+There are also several instantiation paths:
 
-1. **What runtime draws the widget?**
-2. **How was the widget created or configured?**
-3. **Where is the widget placed?**
-
-Spindrel is cleanest when you treat those as separate axes.
-
-### 1. Runtime kinds
-
-These are the actual widget substrates.
-
-| Runtime kind | Public term | Internal/API term | Who authors it | User-addable | Primary rendering model |
-|---|---|---|---|---|---|
-| Tool renderer widget | Tool renderer | `template` | Integration authors, admins, advanced users | Yes | Declarative renderer over a tool result |
-| HTML widget | HTML widget | `html` | Bots, users, integrations | Yes | Sandboxed iframe with widget SDK |
-| Native widget | Native widget | `native_app` | Core app only | No | First-party React/native host renderer |
-
-### 2. Authoring and entry surfaces
-
-These are the ways a user or bot encounters and configures widgets.
-
-| Surface | What it is | What runtime it usually lands on |
+| Instantiation path | Internal/API term | What it means |
 |---|---|---|
-| Preset | Guided binding flow for a ready-made widget shape | Usually a tool renderer widget |
-| Tool renderer | A definition of how one tool's output should render | Tool renderer widget |
-| Library widget | A directly pinnable widget bundle in the catalog | Usually HTML, sometimes native |
-| `emit_html_widget` | Runtime one-off HTML written by a bot | HTML widget |
+| Direct tool call | `direct_tool_call` | a tool widget rendered from a normal tool result |
+| Preset | `preset` | a guided binding flow that instantiates a tool widget |
+| Library pin | `library_pin` | a standalone HTML widget pinned from the library |
+| Runtime emit | `runtime_emit` | a standalone HTML widget emitted at runtime, usually via `emit_html_widget` |
+| Native catalog | `native_catalog` | a first-party native widget placed from the catalog |
 
-### 3. Placement surfaces
+The same placed thing can appear as:
 
-This part is intentionally unified:
+- a rich result in chat
+- a pinned dashboard widget
+- a channel dashboard placement
 
-- chat rich results
-- dashboard pins
-- channel dashboard zones
-- panel mode
+That shared placement surface is real. The authoring model underneath is not one single thing.
 
-The product tries hard to make placement feel like one system even though the runtime underneath may differ.
+## The two distinctions that matter
 
-## Runtime kinds in detail
+Most confusion comes from collapsing these questions together:
 
-### Tool renderer widgets
+1. What kind of widget definition is this?
+2. How did this particular widget instance get created?
 
-Tool renderer widgets are the YAML-backed lane. They render the result of a specific tool call.
+Those are different.
 
-They are the right choice when:
+### Definition kind
 
-- a tool already returns the right data shape
-- the UI can be expressed with the component/template grammar
-- you want server-side actions and `state_poll`
-- you want the result to feel host-native rather than iframe-native
+This is the durable authoring/runtime contract.
 
-Important properties:
+- `tool_widget`
+- `html_widget`
+- `native_widget`
 
-- They are **tool-bound**, not standalone bundles.
-- The authoritative state is usually the **tool result plus per-pin `widget_config`**.
-- Refresh is via **`state_poll`**, if declared.
-- Actions dispatch back through the server-side widget/tool action pipeline.
-- Presets often sit on top of this lane.
+### Instantiation kind
 
-What they are not:
+This is how one concrete widget instance got into the world.
 
-- not a free-form JS runtime
-- not a fourth widget kind separate from presets
+- `direct_tool_call`
+- `preset`
+- `library_pin`
+- `runtime_emit`
+- `native_catalog`
 
-### HTML widgets
+A preset is therefore not a fourth widget kind. It is an instantiation path, usually for a tool widget.
 
-HTML widgets are the iframe lane.
+## Tool widgets
 
-They are the right choice when:
+Tool widgets are the YAML-backed lane.
 
-- the UI needs custom layout or bespoke visuals
-- the widget wants local JS state
-- the widget needs custom charts, canvas, timelines, or SDK helpers
-- a bot is building something one-off at runtime
+They are defined under a tool and are bound to that tool's output contract. The current public contract for them is:
 
-Important properties:
+- `definition_kind = tool_widget`
+- `binding_kind = tool_bound`
+- `auth_model = server_context`
+- `state_model = tool_result`
 
-- They render in a sandboxed iframe.
-- They use the widget SDK (`window.spindrel.*`).
-- If they call the app API, they do so as the **source bot**, not the viewing user.
-- State is generally **widget-owned**:
-  - in widget JS
-  - in workspace files
-  - in suite storage / SQLite
-  - in widget handlers
-- Refresh is generally **widget-owned**:
-  - widget JS polling
-  - source-file edits
-  - action-driven rerenders
+### What a tool widget is
 
-HTML widgets come from two main places:
+A tool widget is:
 
-- **library widgets** discovered from core, integration, bot, workspace, or channel scopes
-- **runtime emission** via `emit_html_widget`
+- bound to one tool name
+- rendered from that tool's result plus optional `widget_config`
+- optionally refreshable via `state_poll`
+- placeable as a rich tool result or as a pinned widget
 
-Those are different authoring paths, but the same runtime lane.
+### What a tool widget is not
 
-### Native widgets
+A tool widget is not:
 
-Native widgets are first-party host-rendered widgets such as Notes and Todo.
+- a standalone widget bundle
+- a free-form mini app
+- a synonym for preset
 
-They are the right choice when:
+### Important clarification: YAML tool widgets can render two ways
 
-- the app wants a deeply integrated core widget
-- state should live in the app, not in an iframe bundle
-- the widget should feel fully native to the host shell
+This is the subtle part that caused the most confusion.
 
-Important properties:
+A tool widget may render through:
 
-- Native widgets are **first-party only**.
-- They share the same placement and action model as the other lanes.
-- Their authoritative state lives in **`widget_instances.state`**.
-- Dashboard pin envelopes are cached presentation, not the source of truth.
-- Actions dispatch through the native widget registry, not the HTML handler path.
+- the component/template renderer via `template:`
+- an HTML-backed renderer via `html_template:`
 
-What this means in practice:
+Both are still `tool_widget`.
 
-- users can place them
-- bots can invoke declared actions on them
-- users and bots do **not** author new native widgets
+`html_template` does not turn the definition into a standalone HTML widget. It only changes how that tool-bound widget renders.
 
-## Presets are not a fourth runtime
+That means a YAML-defined Home Assistant card can feel visually native or custom, but it is still fundamentally:
 
-This is the single most important taxonomy rule.
+- tool-bound
+- state-from-tool-result
+- instantiated from a tool call or preset
 
-A **preset** is not a new widget substrate. It is a **guided binding/configuration flow** over the existing widget engine.
+## HTML widgets
+
+HTML widgets are the standalone iframe/widget-SDK lane.
+
+Their public contract is:
+
+- `definition_kind = html_widget`
+- `binding_kind = standalone`
+- `state_model = bundle_runtime`
+- `refresh_model = widget_runtime`
+
+They are the right lane when the widget should behave like a small app rather than a decorated tool result.
+
+### Typical ways HTML widgets appear
+
+- a library widget bundle discovered from core, bot, workspace, or channel scope
+- a runtime-emitted widget from `emit_html_widget`
+
+Those are different instantiation paths over the same definition kind.
+
+### What makes HTML widgets different
+
+HTML widgets own more of their own lifecycle:
+
+- local JS state
+- custom fetches
+- custom polling
+- custom layout and rendering
+- bundle-owned storage or workspace-file coordination
+
+They are not tool-bound by default, even if they happen to call tools or APIs internally.
+
+## Native widgets
+
+Native widgets are first-party host-rendered widgets.
+
+Their public contract is:
+
+- `definition_kind = native_widget`
+- `binding_kind = standalone`
+- `auth_model = host_native`
+- `state_model = instance_state`
+
+They are used for core widgets such as Notes and Todo where the app wants:
+
+- host-owned persistence
+- host-owned actions
+- deep shell integration
+
+Native widgets are not a public authoring lane.
+
+## Presets
+
+Presets are guided binding flows.
+
+They are not a separate definition kind and they are not interchangeable with tool widgets.
+
+The clean mental model is:
+
+- preset = guided setup flow
+- tool widget = the underlying definition that actually renders
 
 Example:
 
-- "Home Assistant Light Card" is a preset
-- the resulting pinned thing is usually still a **tool renderer widget**
+- "Home Assistant Light Card" can be a preset
+- the resulting pinned thing is usually still a `tool_widget`
 
-Presets exist because many widgets need a user to bind a real object first:
+### Why presets exist
+
+Some widgets need the user to bind a real object before they make sense:
 
 - an entity
 - a device
-- a room
 - a mailbox
+- a room
 - a feed
 
-Without presets, that binding step leaks raw tool args and widget config into the user experience.
+Without presets, users would be dropped into raw tool args and ad hoc config.
 
-So the clean way to think about presets is:
+### Presets versus rich tool results
 
-- runtime kind: usually tool renderer
-- authoring surface: preset
-- placement: normal pin
+A preset usually compiles a known binding into a reusable pinned widget flow.
 
-## Tool renderers vs library widgets
+A direct rich tool result usually comes from:
 
-These two are easy to blur together because both show up in the widget surfaces.
+- one tool call
+- maybe a `state_poll`
+- pinning the resulting card as-is
 
-### Tool renderers
+Both can land on the dashboard. They are not the same DX path.
 
-Use a tool renderer when:
+## Concrete examples
 
-- the widget exists to shape the output of **one tool**
-- the tool call is the authoritative source of state
-- refresh should come from `state_poll`
+| Scenario | Definition kind | Instantiation kind |
+|---|---|---|
+| Call a tool and get a YAML-rendered result card | `tool_widget` | `direct_tool_call` |
+| Add a Home Assistant preset and pick one entity | `tool_widget` | `preset` |
+| Pin a reusable bot-authored HTML bundle from the library | `html_widget` | `library_pin` |
+| Have a bot emit a one-off custom HTML dashboard in chat | `html_widget` | `runtime_emit` |
+| Place Notes from the built-in catalog | `native_widget` | `native_catalog` |
 
-### Library widgets
+## The shared public contract
 
-Use a library widget when:
+The system now exposes a normalized `widget_contract` object so humans and code do not need to infer behavior from manifest details or source paths.
 
-- the widget is a **directly pinnable asset**
-- it should exist independently of a single tool call
-- it behaves more like an applet/panel/bundle than a decorated tool result
+Current fields:
 
-Most library widgets today are HTML widgets. Native widgets also appear in the library. Tool renderers are discoverable in the same broad product area, but they are instantiated from a tool call or preset rather than pinned as standalone bundles.
-
-## Tool results, pins, and the shared contract
-
-All widget lanes converge on the same user-visible behaviors:
-
-- a tool can return a rich result
-- that result can often be pinned
-- pinned widgets can expose actions
-- pinned widgets can refresh
-
-That shared surface is carried by a normalized envelope/action model, even when the runtime beneath it differs.
-
-What is intentionally shared:
-
-- one catalog/library surface
-- one dashboard placement model
-- one pin model
-- one widget-actions plumbing surface
-- one bot-facing action tool (`invoke_widget_action`)
-
-What is intentionally **not** shared:
-
-- HTML widget runtime internals
-- template renderer internals
-- native widget persistence internals
-
-The contract is unified at the product boundary, not because every lane uses the same substrate.
-
-## Rich tool results vs pinnable widgets
-
-Some rich tool results are effectively "single-call widgets":
-
-- a tool runs
-- its result renders richly
-- the result may support `state_poll`
-- the result can often be pinned as-is
-
-That is different from a general HTML widget bundle, which can be much more open-ended:
-
-- local UI state
-- multiple internal API calls
-- custom polling
-- bundle-owned storage
-
-And it is also different from presets, which may compile down to a tool renderer widget but still feel like a guided "add widget" flow.
-
-So there are really three different patterns living side-by-side:
-
-| Pattern | Typical shape |
+| Field | Meaning |
 |---|---|
-| Rich tool result that can be pinned | One tool call, maybe `state_poll` |
-| Preset-backed widget | Guided binding over the renderer engine |
-| HTML bundle/widget applet | Open-ended local JS + API calls + widget-owned state |
+| `definition_kind` | `tool_widget`, `html_widget`, or `native_widget` |
+| `binding_kind` | whether the widget is tool-bound or standalone |
+| `instantiation_kind` | how this concrete widget instance was created |
+| `auth_model` | who the widget ultimately acts as |
+| `state_model` | where authoritative state lives |
+| `refresh_model` | how refresh/update is expected to happen |
+| `theme_model` | which theming lane it participates in |
+| `supported_scopes` | which scopes the definition claims to support |
+| `actions` | declared callable actions exposed by the widget |
 
-They share placement. They do not share the same authoring or lifecycle model.
+This is now surfaced in:
+
+- widget library entries
+- preset previews
+- tool preview responses
+- pinned widget serialization
+- native catalog entries
+
+## Config surfaces
+
+There are three different config-shaped things in the system. They should not be conflated.
+
+### `binding_schema`
+
+This is preset-only.
+
+It describes the guided user inputs needed to instantiate a preset, such as:
+
+- entity selection
+- device selection
+- display mode choice
+
+### `default_config`
+
+This is the widget's default runtime config.
+
+It seeds per-instance `widget_config` values for a tool widget or preset-backed tool widget.
+
+### `config_schema`
+
+This is the editable runtime config contract.
+
+It describes which config keys are valid for the placed widget instance. It now ships on:
+
+- tool widgets
+- preset responses derived from tool widgets
+- HTML widget manifests
+- native widget catalog entries
+- pins
+
+The dashboard editor uses it to render schema-backed fields where possible instead of forcing raw JSON for everything.
 
 ## Auth and trust boundaries
 
-This is load-bearing.
+This remains load-bearing.
 
-### HTML widgets run as the source bot
+### Tool widgets
 
-If an HTML widget calls the app API through the widget SDK, it does so as the **source bot** attached to the widget or pin.
-
-It does **not** borrow the viewing user's session.
-
-That prevents a bot-authored widget from silently escalating into the viewer's privileges.
-
-### Tool renderer widgets act through server-side tool execution
-
-Template/tool renderer widgets do not execute arbitrary JS in the browser. Their actions and polls route through server-side tool/action handling using the pin's stored bot/channel context.
-
-### Native widgets are host-owned
-
-Native widget actions are handled by the app directly. There is no iframe token and no public "author your own React widget" lane.
-
-## State and refresh models
-
-This is the second place where the runtime seams matter.
-
-### Tool renderer widgets
-
-- Authoritative state: tool output + `widget_config`
-- Refresh: `state_poll`
-- Best for: cards whose truth comes from re-running a tool
+Tool widgets execute through server-side tool execution and widget action handling. They do not run arbitrary browser JS as the viewer.
 
 ### HTML widgets
 
-- Authoritative state: widget-owned
-- Refresh: widget-owned
-- Best for: custom mini-apps, custom JS, bundle/file-driven dashboards
+Standalone HTML widgets run through the widget SDK and act as the source bot when bot-scoped. They do not silently inherit the viewing user's privileges.
+
+In catalog contexts without a concrete source bot yet, the surfaced contract may show a more generic auth model because the final runtime authority is not resolved until instantiation.
 
 ### Native widgets
 
-- Authoritative state: `widget_instances.state`
-- Refresh: action results + instance reload
-- Best for: core first-party widgets
+Native widgets are host-owned. There is no public React/native authoring lane.
 
-If you try to explain all three with one sentence like "widgets poll tools and then rerender," the system becomes misleading. Only one lane really works that way.
+## What is implemented soundly
 
-## How to choose what to build
+Two parts of the current system are in good shape and are worth keeping stable:
+
+### Placement is genuinely unified
+
+No matter which definition kind produced it, the end-user experience converges on the same broad placement model:
+
+- rich result
+- pin
+- dashboard placement
+- widget action surface
+
+That part should stay shared.
+
+### The contract surface is finally explicit
+
+The system no longer needs humans to reverse-engineer a widget from source paths, manifest shape, or special cases in the UI.
+
+The addition of `widget_contract` and `config_schema` is the right direction for both DX and debugging.
+
+## Current limitations and real gaps
+
+These are current limitations, not theoretical ones.
+
+### 1. Persisted instantiation provenance is still incomplete
+
+New preset-created pins now stamp `source_instantiation_kind = "preset"`, but older pins and some non-preset paths are still inferred best-effort on read.
+
+Implication:
+
+- the contract can be slightly lossy for existing rows
+- debugging provenance is weaker than it should be
+
+Recommended fix:
+
+- persist instantiation provenance explicitly for every pin creation path, not just presets
+
+### 2. HTML pin manifest/schema recovery is context-sensitive
+
+For some HTML pins, especially when bot/channel provenance is incomplete, manifest-backed `config_schema` recovery can fail because the source bundle path cannot always be resolved later.
+
+Implication:
+
+- edit surfaces may fall back to raw JSON even when the bundle had schema
+- reloaded pins can lose some inspectability
+
+Recommended fix:
+
+- stamp canonical bundle identity or resolved manifest metadata into the persisted pin source record
+
+### 3. Presets can hide integration-boundary mistakes
+
+A preset can look like one clean guided card while actually depending on binding sources that cross incompatible tool families or MCP servers.
+
+The concrete risk already visible here is Home Assistant presets accidentally depending on tools from more than one server family when a preset should remain valid if the user only has one of them available.
+
+Recommended fix:
+
+- add preset registration-time validation that binding sources resolve within the declared integration/tool family contract
+- fail fast when one preset mixes incompatible server dependencies unless it is explicitly declared multi-source
+
+### 4. Tool widget terminology still has historical drag
+
+The code is now converging on `tool_widget`, but older docs and some UI still use:
+
+- template
+- tool renderer
+- tool result template
+
+Those are close enough to be dangerous.
+
+Recommended fix:
+
+- use "Tool widget" as the canonical public term
+- keep legacy terms only as parenthetical implementation notes
+
+## How to choose the right lane
 
 Use this order:
 
-1. **Can this be a tool renderer widget?**
-   - Prefer this first when one tool already owns the truth.
-2. **Does the user need a guided binding flow?**
-   - Add a preset on top of the renderer path.
-3. **Does it need free-form custom UI or local JS state?**
-   - Use an HTML widget.
-4. **Is this a core, deeply integrated first-party widget?**
-   - Consider a native widget.
+1. If one tool owns the truth and the widget should render that tool's output, use a tool widget.
+2. If users need a guided binding/setup experience for that tool widget, add a preset.
+3. If the widget should be a standalone mini app with its own runtime, use an HTML widget.
+4. If it should be a first-party host feature, use a native widget.
 
-Short version:
+## Invariants we should keep stable
 
-| Need | Best fit |
-|---|---|
-| Render a tool result cleanly | Tool renderer |
-| Make a bindable "add widget" flow | Preset over a tool renderer |
-| Build a custom interactive panel | HTML widget |
-| Ship a core app-native widget | Native widget |
-
-## Developer experience today
-
-The system is strongest where placement and action plumbing are unified:
-
-- one Add Widget experience
-- one library
-- one dashboard model
-- one way for bots to invoke declared widget actions
-
-The system is weaker where authoring models differ:
-
-- presets, tool renderers, and library widgets still require different mental models
-- some concepts are clearer in the runtime/API than in the human UI
-- state authority differs significantly by lane
-
-That is normal for the current system, but it should be documented honestly rather than hidden behind "all widgets are the same."
-
-## Current limitations and rough edges
-
-These are not theoretical. They are current design edges.
-
-### Presets are intentionally thin
-
-Presets are a guided binding layer, not a generic form-builder/runtime for arbitrary multi-step apps.
-
-### Native widgets are core-only
-
-There is no public React/native widget authoring surface. This is intentional for now.
-
-### Template expression power is still limited
-
-The template grammar still pushes some real branching into Python transforms because it lacks richer expression features such as broader boolean composition and ternary-style shaping.
-
-### Theme parity is uneven
-
-HTML widgets currently have the richest widget-theme story. Native widgets follow the host app theme. Tool renderer/theme parity is narrower than the HTML lane.
-
-### HTML authoring is still split across multiple entry paths
-
-Reusable library bundles and runtime `emit_html_widget` are the same runtime lane, but they are still different authoring paths with different ergonomics.
-
-### Placement is more unified than creation
-
-To the end user, placement feels like one system. To the author, creation still differs materially between:
-
-- presets
-- tool renderers
-- library widgets
-- runtime HTML emission
-
-That split is acceptable, but it should remain explicit.
-
-## Debugging and inspection
-
-Today the best surfaces are:
-
-- **Widget library preview** for live render, contract, source, and manifest
-- **Developer panel** for calling tools, previewing renderers, and inspecting recent calls
-- **Pin editing/inspection** for the saved pin contract and per-pin config
-- **Widget inspector** for HTML runtime event traces
-
-Use those surfaces to answer different questions:
-
-| Question | Best surface |
-|---|---|
-| What kind of widget is this really? | Library contract view / pin contract view |
-| What source code or manifest backs this? | Library source + manifest tabs |
-| What tool output shape am I actually rendering? | Developer panel: Recent / Call tools |
-| Why is this HTML widget failing at runtime? | Widget inspector |
+- Preset is an instantiation path, not a definition kind.
+- A YAML-defined widget that uses `html_template` is still a tool widget.
+- Standalone HTML widgets and tool widgets are different contracts even if both may render through HTML.
+- Native widgets remain core-only.
+- Placement stays unified even though definition/runtime internals are not.
+- `widget_contract` and `config_schema` are the public inspection surfaces and should be expanded, not bypassed.
 
 ## See also
 

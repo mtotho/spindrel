@@ -1,8 +1,8 @@
-# HTML Widgets — Bot-Built Live Dashboards
+# HTML Widgets — Standalone Live Dashboards
 
-For the canonical overview of how HTML widgets relate to presets, tool renderers, native widgets, and shared placement, start with [Widget System](widget-system.md). This guide goes deep on the HTML lane only.
+For the canonical overview of how HTML widgets relate to presets, tool widgets, native widgets, and shared placement, start with [Widget System](widget-system.md). This guide goes deep on the standalone HTML-widget lane only.
 
-Any bot with tool access can author a **live, interactive widget** that renders in your chat and (optionally) pins to your dashboard. Ask for "a little panel that shows X" or "a chart of Y over time" and you'll get back an HTML card that runs in a sandboxed iframe, reads from Spindrel's own API, and updates in real time.
+Any bot with tool access can author a **live, interactive standalone widget** that renders in your chat and optionally pins to your dashboard. Ask for "a little panel that shows X" or "a chart of Y over time" and you'll get back an HTML card that runs in a sandboxed iframe, reads from Spindrel's own API, and updates in real time.
 
 These widgets can:
 
@@ -11,6 +11,8 @@ These widgets can:
 - Re-render automatically when the underlying workspace file changes
 
 Think Grafana-like panels, but authored conversationally and scoped to whichever bot you asked.
+
+This guide is about standalone HTML widgets only. A YAML-defined tool widget that uses `html_template` is still a tool widget, not this lane.
 
 ## How it works, end to end
 
@@ -75,9 +77,10 @@ Regardless of where you pin a widget, it continues to act as the bot that emitte
 
 | You want | Best tool |
 |---|---|
-| A rich, interactive card not in the built-in widget grammar | HTML widget |
-| A chart, a table, a custom layout, a live mini-dashboard | HTML widget (usually path mode) |
-| An entity detail / toggle / status card | Built-in component widget (see [Widget Templates](../widget-templates.md)) |
+| A standalone mini-app, chart, table, or custom dashboard | HTML widget |
+| A rich card that is not naturally one tool's result | HTML widget (usually path mode) |
+| A tool-bound entity detail / toggle / status card | Tool widget (see [Widget Templates](../widget-templates.md)) |
+| A YAML-defined tool widget that needs custom visuals | Tool widget with `html_template`, not a standalone HTML widget |
 | A one-off textual answer | Just a normal reply |
 | A reusable parameterized widget across many channels | Not yet — HTML widgets v1 is per-emission; roadmap item |
 
@@ -94,6 +97,6 @@ Regardless of where you pin a widget, it continues to act as the bot that emitte
 ## Further reading
 
 - [Widget Dashboards](widget-dashboards.md) — how named dashboards and channel dashboards work, the OmniPanel rail, grid presets, and editing. HTML widgets pin onto the same boards as component widgets.
-- [Widget Templates](../widget-templates.md) — for component-grammar widgets authored from YAML. Different system, complementary use case.
+- [Widget Templates](../widget-templates.md) — for tool widgets authored from YAML, including tool widgets that render through `html_template`.
 - [Developer API](api.md) — the endpoints widgets can call (anything your bot's scoped key can hit).
 - [Custom Tools & Extensions](custom-tools.md) — if you want to ship HTML widget skills with your own integration.

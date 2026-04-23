@@ -377,11 +377,13 @@ Canonical plan behavior is documented in [Session Plan Mode](../planning/session
 Context policy now follows mode too:
 
 - `planning` keeps only the last `2` user-started exchanges live
-- `planning` admits conversation sections and tool-index hints
+- `planning` admits the compact active-plan artifact, conversation sections, and tool-index hints
 - `planning` does **not** admit workspace context, temporal prose, pinned-widget prose, recent memory logs, or tool-refusal guard text
 - `executing` keeps the last `4` user-started exchanges live
-- `executing` admits conversation sections, channel/workspace context, workspace RAG, tool-index hints, and tool-refusal guard text
+- `executing` admits the compact active-plan artifact, conversation sections, channel/workspace context, workspace RAG, tool-index hints, and tool-refusal guard text
 - `executing` still drops the more ambient/instructional additions such as temporal prose, pinned widgets, and recent memory logs
+
+The active-plan artifact is derived from the canonical Markdown plan file and is treated as load-bearing context for planning/execution. This is what makes a short planning live window safe: approved constraints and checklist state should live in the plan artifact, not only in older chat turns.
 
 ### Heartbeats
 
@@ -409,8 +411,8 @@ Special origins such as hygiene/subagent-style runs are also mapped to the restr
 Shipped profiles:
 
 - `chat`: current full chat policy, with optional injections admitted by both profile and budget
-- `planning`: short live window, sections + tool index only
-- `executing`: medium live window, execution-relevant workspace/context sources on, ambient prose off
+- `planning`: short live window, active plan artifact + sections + tool index only
+- `executing`: medium live window, active plan artifact + execution-relevant workspace/context sources on, ambient prose off
 - `task_recent`: task history only, narrow optional admissions
 - `task_none`: no live replay beyond system/base layers, no optional ambient injections
 - `heartbeat`: same restrictive admission posture as `task_none`

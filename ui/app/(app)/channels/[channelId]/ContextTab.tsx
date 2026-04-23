@@ -231,6 +231,8 @@ export function ContextTab({ channelId }: { channelId: string }) {
             ["Total Chars", data.total_chars.toLocaleString()],
             ["Bot", data.bot_id],
             ["Profile", data.context_profile ?? "unknown"],
+            ["Origin", data.context_origin ?? "chat"],
+            ["Live Turns", data.live_history_turns == null ? "full" : String(data.live_history_turns)],
             ["Conversation", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
           ].map(([label, val]) => (
             <div key={String(label)} style={{
@@ -248,6 +250,8 @@ export function ContextTab({ channelId }: { channelId: string }) {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
             {[
               ["Profile", data.context_budget.context_profile ?? data.context_profile ?? "\u2014"],
+              ["Origin", data.context_budget.context_origin ?? data.context_origin ?? "\u2014"],
+              ["History Turns", data.context_budget.live_history_turns == null ? "full" : String(data.context_budget.live_history_turns)],
               ["Estimate Gross", fmtNum(data.context_budget.estimate?.gross_prompt_tokens)],
               ["Estimate Util.", fmtPct(data.context_budget.estimate?.utilization)],
               ["Last Gross", fmtNum(data.context_budget.usage?.gross_prompt_tokens)],

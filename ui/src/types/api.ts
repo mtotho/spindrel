@@ -487,6 +487,42 @@ export interface HtmlWidgetCatalog {
   channels: ChannelHtmlWidgets[];
 }
 
+export interface WidgetContract {
+  definition_kind: "tool_widget" | "html_widget" | "native_widget";
+  binding_kind: "tool_bound" | "standalone";
+  instantiation_kind:
+    | "direct_tool_call"
+    | "preset"
+    | "library_pin"
+    | "runtime_emit"
+    | "native_catalog";
+  auth_model: "viewer" | "source_bot" | "server_context" | "host_native";
+  state_model: "tool_result" | "bundle_runtime" | "instance_state";
+  refresh_model: "none" | "state_poll" | "widget_runtime" | "instance_actions";
+  theme_model?: string | null;
+  supported_scopes?: string[];
+  actions?: Array<{
+    id: string;
+    description?: string;
+    args_schema?: Record<string, unknown>;
+    returns_schema?: Record<string, unknown> | null;
+  }>;
+}
+
+export interface WidgetConfigSchemaField {
+  type?: string;
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: unknown[];
+}
+
+export interface WidgetConfigSchema {
+  type?: string;
+  required?: string[];
+  properties?: Record<string, WidgetConfigSchemaField>;
+}
+
 /** One entry in the unified pinnable-widget catalog. Covers five scopes —
  *  the three ``widget://`` namespaces (``core`` / ``bot`` / ``workspace``)
  *  AND scanner-sourced ``integration`` / ``channel`` HTML widgets. The old
@@ -512,6 +548,8 @@ export interface WidgetLibraryEntry {
   group_ref?: string | null;
   widget_ref?: string | null;
   supported_scopes?: string[];
+  config_schema?: WidgetConfigSchema | null;
+  widget_contract?: WidgetContract | null;
   actions?: Array<{
     id: string;
     description?: string;
@@ -583,6 +621,8 @@ export interface WidgetDashboardPin {
    *  tile between the four canvases on a channel dashboard. User dashboards
    *  always carry ``"grid"``. */
   zone: ChatZone;
+  config_schema?: WidgetConfigSchema | null;
+  widget_contract?: WidgetContract | null;
   available_actions?: Array<{
     id: string;
     description?: string;
@@ -795,6 +835,8 @@ export interface ContextSummaryPayload {
     cached_prompt_tokens?: number | null;
     completion_tokens?: number | null;
     context_profile?: string | null;
+    context_origin?: string | null;
+    live_history_turns?: number | null;
     source?: string | null;
   } | null;
   top_categories: Array<{
@@ -1188,6 +1230,10 @@ export interface ContextBreakdown {
   session_id: string | null;
   bot_id: string;
   context_profile?: string | null;
+  context_origin?: string | null;
+  live_history_turns?: number | null;
+  mandatory_static_injections?: string[];
+  optional_static_injections?: string[];
   categories: ContextCategory[];
   total_chars: number;
   total_tokens_approx: number;
@@ -1197,6 +1243,10 @@ export interface ContextBreakdown {
   effective_settings: Record<string, EffectiveSetting>;
   context_budget?: {
     context_profile?: string | null;
+    context_origin?: string | null;
+    live_history_turns?: number | null;
+    mandatory_static_injections?: string[];
+    optional_static_injections?: string[];
     estimate?: {
       total_tokens?: number | null;
       reserve_tokens?: number | null;

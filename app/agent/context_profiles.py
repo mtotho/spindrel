@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.services.session_plan_mode import (
     PLAN_MODE_BLOCKED,
@@ -20,6 +20,7 @@ class ContextProfile:
     name: str
     live_history_turns: int | None
     include_compaction_summary: bool
+    allow_plan_artifact: bool
     allow_conversation_sections: bool
     allow_memory_recent_logs: bool
     allow_channel_workspace: bool
@@ -29,6 +30,17 @@ class ContextProfile:
     allow_pinned_widgets: bool
     allow_tool_refusal_guard: bool
     allow_tool_index: bool
+    mandatory_static_injections: tuple[str, ...] = ()
+    optional_static_injections: tuple[str, ...] = ()
+
+    def to_policy_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "live_history_turns": self.live_history_turns,
+            "allow_plan_artifact": self.allow_plan_artifact,
+            "mandatory_static_injections": list(self.mandatory_static_injections),
+            "optional_static_injections": list(self.optional_static_injections),
+        }
 
 
 _PROFILES: dict[str, ContextProfile] = {
@@ -36,6 +48,7 @@ _PROFILES: dict[str, ContextProfile] = {
         name="chat",
         live_history_turns=None,
         include_compaction_summary=True,
+        allow_plan_artifact=False,
         allow_conversation_sections=True,
         allow_memory_recent_logs=True,
         allow_channel_workspace=True,
@@ -45,11 +58,28 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=True,
         allow_tool_refusal_guard=True,
         allow_tool_index=True,
+        mandatory_static_injections=("memory_bootstrap",),
+        optional_static_injections=(
+            "memory_housekeeping",
+            "memory_today_log",
+            "memory_yesterday_log",
+            "memory_nudge",
+            "channel_workspace",
+            "channel_index_segments",
+            "conversation_sections",
+            "section_index",
+            "workspace_rag",
+            "tool_index",
+            "temporal_context",
+            "pinned_widgets",
+            "tool_refusal_guard",
+        ),
     ),
     "planning": ContextProfile(
         name="planning",
         live_history_turns=2,
         include_compaction_summary=True,
+        allow_plan_artifact=True,
         allow_conversation_sections=True,
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
@@ -59,11 +89,14 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
+        mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
+        optional_static_injections=("tool_index",),
     ),
     "executing": ContextProfile(
         name="executing",
         live_history_turns=4,
         include_compaction_summary=True,
+        allow_plan_artifact=True,
         allow_conversation_sections=True,
         allow_memory_recent_logs=False,
         allow_channel_workspace=True,
@@ -73,11 +106,20 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=True,
         allow_tool_index=True,
+        mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
+        optional_static_injections=(
+            "channel_workspace",
+            "channel_index_segments",
+            "workspace_rag",
+            "tool_index",
+            "tool_refusal_guard",
+        ),
     ),
     "task_recent": ContextProfile(
         name="task_recent",
         live_history_turns=None,
         include_compaction_summary=True,
+        allow_plan_artifact=False,
         allow_conversation_sections=True,
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
@@ -87,11 +129,14 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
+        mandatory_static_injections=("conversation_sections", "section_index"),
+        optional_static_injections=("tool_index",),
     ),
     "task_none": ContextProfile(
         name="task_none",
         live_history_turns=0,
         include_compaction_summary=False,
+        allow_plan_artifact=False,
         allow_conversation_sections=False,
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,
@@ -106,6 +151,7 @@ _PROFILES: dict[str, ContextProfile] = {
         name="heartbeat",
         live_history_turns=0,
         include_compaction_summary=False,
+        allow_plan_artifact=False,
         allow_conversation_sections=False,
         allow_memory_recent_logs=False,
         allow_channel_workspace=False,

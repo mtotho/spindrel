@@ -1818,6 +1818,7 @@ async def run_stream(
     # Emit budget info event for downstream consumers (e.g. compaction trigger)
     if _budget is not None:
         _budget_dict = _budget.to_dict()
+        _policy = assembly_result.context_policy or {}
         yield {
             "type": "context_budget",
             "utilization": round(_budget.utilization, 3),
@@ -1831,6 +1832,10 @@ async def run_stream(
             "static_injection_tokens": _budget_dict["static_injection_tokens"],
             "tool_schema_tokens": _budget_dict["tool_schema_tokens"],
             "context_profile": _resolved_context_profile,
+            "context_origin": assembly_result.context_origin,
+            "live_history_turns": _policy.get("live_history_turns"),
+            "mandatory_static_injections": _policy.get("mandatory_static_injections") or [],
+            "optional_static_injections": _policy.get("optional_static_injections") or [],
         }
 
     # Surface skills-still-in-context for the UI "skill orb" on the persisted

@@ -330,12 +330,16 @@ class ContextBudgetPayload:
     utilization: float
     model: str = ""
     context_profile: str | None = None
+    context_origin: str | None = None
+    live_history_turns: int | None = None
     available_budget: int = 0
     live_history_tokens: int = 0
     live_history_utilization: float = 0.0
     base_tokens: int = 0
     static_injection_tokens: int = 0
     tool_schema_tokens: int = 0
+    mandatory_static_injections: list[str] | None = None
+    optional_static_injections: list[str] | None = None
 
 
 @dataclass(frozen=True)

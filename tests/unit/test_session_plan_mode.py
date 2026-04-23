@@ -61,6 +61,35 @@ def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
     assert any("publish" in line.lower() for line in lines)
     assert any("ask_plan_questions" in line for line in lines)
     assert all("Canonical plan file:" not in line for line in lines)
+    assert spm.build_plan_artifact_context(session) is None
+
+
+def test_plan_artifact_context_summarizes_canonical_plan(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.publish_session_plan(
+        session,
+        title="Build Context Profiles",
+        summary="Keep planning lean while retaining durable decisions.",
+        scope="Context management policy and reporting.",
+        assumptions=["history_mode=file remains the default"],
+        open_questions=["Do evals prove planning needs more than two live turns?"],
+        steps=[
+            {"id": "policy", "label": "Make admission policy mode-aware"},
+            {"id": "reporting", "label": "Expose gross/current/cached prompt usage"},
+        ],
+        acceptance_criteria=["Planning can recover older decisions from the plan artifact"],
+    )
+
+    text = spm.build_plan_artifact_context(session)
+
+    assert text is not None
+    assert "Active plan artifact" in text
+    assert "Build Context Profiles" in text
+    assert "Keep planning lean" in text
+    assert "history_mode=file remains the default" in text
+    assert "[pending] policy | Make admission policy mode-aware" in text
+    assert "Planning can recover older decisions" in text
 
 
 def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):

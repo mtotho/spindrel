@@ -32,13 +32,14 @@ For the exact runtime admission/replay policy, treat [Context Management](../gui
 4. **Integration activation injection** (channel-activated integrations contribute declared tools)
 5. **Memory scheme setup** (MEMORY.md, daily logs, reference index)
 6. **Channel workspace files** (inject active `.md` files + schema)
-7. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
-8. **Skills injection** (per-bot working set + on-demand `get_skill` tool)
-9. **Conversation history** (sections index + `read_conversation_history` tool)
-10. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
-11. **Tool retrieval** (cosine similarity matching against tool schema embeddings)
-12. **Channel prompt + system preamble**
-13. **User message** (text or native audio)
+7. **Active plan artifact** (planning/execution profiles inject compact canonical plan state)
+8. **@mention tag resolution** (`@skill:name`, `@tool:name`, `@bot:name`)
+9. **Skills injection** (per-bot working set + on-demand `get_skill` tool)
+10. **Conversation history** (sections index + `read_conversation_history` tool)
+11. **Workspace filesystem RAG** (semantic retrieval from indexed workspace files)
+12. **Tool retrieval** (cosine similarity matching against tool schema embeddings)
+13. **Channel prompt + system preamble**
+14. **User message** (text or native audio)
 
 ### Tool Dispatch (`app/agent/tool_dispatch.py`)
 

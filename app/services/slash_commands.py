@@ -34,6 +34,8 @@ class ContextSummaryBudget(BaseModel):
     cached_prompt_tokens: int | None = None
     completion_tokens: int | None = None
     context_profile: str | None = None
+    context_origin: str | None = None
+    live_history_turns: int | None = None
     source: str | None = None
 
 
@@ -183,13 +185,13 @@ async def _build_channel_context_summary(
             breakdown.disclaimer,
             (f"Profile: {budget.context_profile}" if budget.context_profile else ""),
             (
-                f"Prompt split: {budget.current_prompt_tokens:,} current"
+                f"Prompt split: {budget.gross_prompt_tokens:,} gross, {budget.current_prompt_tokens:,} current"
                 + (
                     f", {budget.cached_prompt_tokens:,} cached"
                     if budget.cached_prompt_tokens is not None
                     else ""
                 )
-                if budget.current_prompt_tokens is not None
+                if budget.gross_prompt_tokens is not None and budget.current_prompt_tokens is not None
                 else ""
             ),
             f"Compaction {'on' if breakdown.compaction.enabled else 'off'}",

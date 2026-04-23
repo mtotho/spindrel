@@ -2,17 +2,17 @@
  * EditPinDrawer — per-pin display_label + widget_config editor.
  *
  * Opens as a right-side drawer from the dashboard page when the user clicks
- * the pencil icon on a pin (only visible in Edit layout mode). widget_config
- * has no canonical schema today, so the editor is a JSON textarea with
- * parse-time validation. Save replaces the config outright (merge:false) —
- * action-dispatched button flips stay on merge:true semantics.
+ * the pencil icon on a pin (only visible in Edit layout mode). When a pin
+ * ships a config_schema we render a simple form first and keep the raw JSON
+ * editor as an escape hatch. Save replaces the config outright (merge:false)
+ * and action-dispatched button flips stay on merge:true semantics.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Maximize2, Minimize2, Trash2, X } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useBots } from "@/src/api/hooks/useBots";
-import type { GridLayoutItem } from "@/src/types/api";
+import type { GridLayoutItem, WidgetConfigSchemaField } from "@/src/types/api";
 import type { GridPreset } from "@/src/lib/dashboardGrid";
 import {
   PinScopePicker,
@@ -20,10 +20,7 @@ import {
   pinScopeToBotId,
   type PinScope,
 } from "./PinScopePicker";
-import {
-  describePinContract,
-  WidgetContractCard,
-} from "./WidgetContractCard";
+import { WidgetContractCard } from "./WidgetContractCard";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -45,6 +42,16 @@ function prettyJson(value: unknown): string {
   }
 }
 
+function isRenderableSchemaField(field: WidgetConfigSchemaField): boolean {
+  if (Array.isArray(field.enum) && field.enum.every((item) => ["string", "number", "boolean"].includes(typeof item))) {
+    return true;
+  }
+  return field.type === "string"
+    || field.type === "boolean"
+    || field.type === "integer"
+    || field.type === "number";
+}
+
 export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const pin = useDashboardPinsStore((s) =>
     pinId ? s.pins.find((p) => p.id === pinId) ?? null : null,
@@ -56,10 +63,6 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
   const setPinScope = useDashboardPinsStore((s) => s.setPinScope);
   const { data: allBots } = useBots();
-  const botNameById = useMemo(
-    () => new Map((allBots ?? []).map((bot) => [bot.id, bot.name])),
-    [allBots],
-  );
 
   const [label, setLabel] = useState("");
   const [jsonText, setJsonText] = useState("{}");
@@ -181,6 +184,14 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
     setJsonText("{}");
   };
 
+  const setConfigFieldValue = (fieldId: string, value: unknown) => {
+    if (!parsedConfig) return;
+    const nextConfig: Record<string, unknown> = { ...parsedConfig };
+    if (value === undefined) delete nextConfig[fieldId];
+    else nextConfig[fieldId] = value;
+    setJsonText(prettyJson(nextConfig));
+  };
+
   // Title-visibility override — read/write `show_title` on the parsed config.
   // Disabled when the JSON is unparseable so we don't stomp the user's edit.
   const currentTitleOverride: "inherit" | "show" | "hide" = (() => {
@@ -210,9 +221,21 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
   const isHtmlWidget = pin?.envelope?.content_type === HTML_INTERACTIVE_CT;
   const isPanelPin = !!pin?.is_main_panel;
-  const contractFields = useMemo(
-    () => (pin ? describePinContract(pin, botNameById) : []),
-    [botNameById, pin],
+  const configSchemaProperties = useMemo(
+    () => pin?.config_schema?.properties ?? {},
+    [pin?.config_schema],
+  );
+  const requiredConfigFields = useMemo(
+    () => new Set(pin?.config_schema?.required ?? []),
+    [pin?.config_schema],
+  );
+  const schemaFields = useMemo(
+    () => Object.entries(configSchemaProperties).filter(([, field]) => isRenderableSchemaField(field)),
+    [configSchemaProperties],
+  );
+  const unsupportedSchemaFieldCount = useMemo(
+    () => Object.keys(configSchemaProperties).length - schemaFields.length,
+    [configSchemaProperties, schemaFields.length],
   );
 
   const isFullWidth =
@@ -497,9 +520,103 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
 
           {pin && (
             <WidgetContractCard
-              fields={contractFields}
+              contract={pin.widget_contract}
               title="Pin contract"
             />
+          )}
+
+          {pin?.config_schema && schemaFields.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">
+                  Config fields
+                </span>
+                <span className="text-[10px] text-text-dim">
+                  {schemaFields.length} field{schemaFields.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              {schemaFields.map(([fieldId, field]) => {
+                const required = requiredConfigFields.has(fieldId);
+                const title = field.title ?? fieldId;
+                const description = field.description ?? null;
+                const rawValue = parsedConfig?.[fieldId];
+                const enumValues = Array.isArray(field.enum)
+                  ? field.enum.filter((item) => ["string", "number", "boolean"].includes(typeof item))
+                  : [];
+                return (
+                  <label key={fieldId} className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-text">
+                      {title}
+                      {required ? <span className="ml-1 text-danger">*</span> : null}
+                    </span>
+                    {enumValues.length > 0 ? (
+                      <select
+                        value={rawValue === undefined ? "" : String(rawValue)}
+                        onChange={(e) => {
+                          const nextRaw = e.target.value;
+                          const matched = enumValues.find((item) => String(item) === nextRaw);
+                          setConfigFieldValue(fieldId, matched);
+                        }}
+                        className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
+                      >
+                        {!required && <option value="">Unset</option>}
+                        {enumValues.map((item) => (
+                          <option key={String(item)} value={String(item)}>
+                            {String(item)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : field.type === "boolean" ? (
+                      <select
+                        value={rawValue === undefined ? "" : rawValue ? "true" : "false"}
+                        onChange={(e) => {
+                          if (e.target.value === "") setConfigFieldValue(fieldId, undefined);
+                          else setConfigFieldValue(fieldId, e.target.value === "true");
+                        }}
+                        className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
+                      >
+                        {!required && <option value="">Unset</option>}
+                        <option value="true">True</option>
+                        <option value="false">False</option>
+                      </select>
+                    ) : (
+                      <input
+                        value={rawValue === undefined ? "" : String(rawValue)}
+                        type={field.type === "integer" || field.type === "number" ? "number" : "text"}
+                        step={field.type === "integer" ? "1" : "any"}
+                        onChange={(e) => {
+                          const nextRaw = e.target.value;
+                          if (nextRaw === "") {
+                            setConfigFieldValue(fieldId, undefined);
+                            return;
+                          }
+                          if (field.type === "integer") {
+                            setConfigFieldValue(fieldId, Number.parseInt(nextRaw, 10));
+                            return;
+                          }
+                          if (field.type === "number") {
+                            setConfigFieldValue(fieldId, Number.parseFloat(nextRaw));
+                            return;
+                          }
+                          setConfigFieldValue(fieldId, nextRaw);
+                        }}
+                        className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
+                      />
+                    )}
+                    {description && (
+                      <span className="text-[11px] text-text-dim">
+                        {description}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+              {unsupportedSchemaFieldCount > 0 && (
+                <p className="text-[11px] text-text-dim">
+                  {unsupportedSchemaFieldCount} schema field{unsupportedSchemaFieldCount === 1 ? "" : "s"} still require raw JSON editing below.
+                </p>
+              )}
+            </div>
           )}
 
           <div className="flex flex-col gap-1.5 rounded-md border border-surface-border bg-surface px-3 py-2.5">
@@ -598,7 +715,9 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
               </span>
             ) : (
               <span className="text-[11px] text-text-dim">
-                Save replaces the entire config object.
+                {pin?.config_schema
+                  ? "Schema-aware controls update this JSON live. Save replaces the entire config object."
+                  : "Save replaces the entire config object."}
               </span>
             )}
           </div>

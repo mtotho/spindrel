@@ -956,6 +956,87 @@ def append_plan_artifact(
     return save_session_plan(session, plan, mode=get_session_plan_mode(session))
 
 
+def _clip_plan_context(value: str | None, limit: int) -> str:
+    text = " ".join((value or "").split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+def build_plan_artifact_context(session: Session) -> str | None:
+    """Build a compact, load-bearing context block from the canonical plan file."""
+    plan = load_session_plan(session, required=False)
+    mode = get_session_plan_mode(session)
+    if plan is None or mode not in {
+        PLAN_MODE_PLANNING,
+        PLAN_MODE_EXECUTING,
+        PLAN_MODE_BLOCKED,
+        PLAN_MODE_DONE,
+    }:
+        return None
+
+    path = plan.path or get_session_active_plan_path(session) or "<unknown>"
+    accepted_revision = (session.metadata_ or {}).get(PLAN_ACCEPTED_REVISION_METADATA_KEY) or plan.revision
+
+    lines = [
+        "Active plan artifact (derived from the canonical plan file):",
+        f"Title: {plan.title}",
+        f"Path: {path}",
+        f"Revision: {plan.revision}",
+        f"Status: {plan.status}",
+    ]
+    if mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:
+        lines.append(f"Accepted revision: {accepted_revision}")
+
+    if plan.summary:
+        lines.append(f"Summary: {_clip_plan_context(plan.summary, 600)}")
+    if plan.scope:
+        lines.append(f"Scope: {_clip_plan_context(plan.scope, 600)}")
+    if plan.assumptions:
+        lines.append(
+            "Assumptions:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}" for item in plan.assumptions[:8]
+            )
+        )
+    if plan.open_questions and mode == PLAN_MODE_PLANNING:
+        lines.append(
+            "Open questions:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}" for item in plan.open_questions[:8]
+            )
+        )
+    if plan.steps:
+        lines.append(
+            "Checklist:\n" + "\n".join(
+                (
+                    f"- [{step.status}] {step.id} | {_clip_plan_context(step.label, 180)}"
+                    + (
+                        f" -- {_clip_plan_context(step.note, 180)}"
+                        if step.note else ""
+                    )
+                )
+                for step in plan.steps[:12]
+            )
+        )
+    if plan.acceptance_criteria:
+        lines.append(
+            "Acceptance criteria:\n" + "\n".join(
+                f"- {_clip_plan_context(item, 180)}"
+                for item in plan.acceptance_criteria[:8]
+            )
+        )
+    if plan.artifacts and mode in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE}:
+        lines.append(
+            "Recent artifacts:\n" + "\n".join(
+                f"- {artifact.kind}: {_clip_plan_context(artifact.label, 180)}"
+                for artifact in plan.artifacts[-5:]
+            )
+        )
+    if plan.outcome and plan.status == PLAN_STATUS_DONE:
+        lines.append(f"Outcome: {_clip_plan_context(plan.outcome, 400)}")
+
+    return "\n\n".join(line for line in lines if line.strip())
+
+
 def build_plan_mode_system_context(session: Session) -> list[str]:
     plan = load_session_plan(session, required=False)
     mode = get_session_plan_mode(session)

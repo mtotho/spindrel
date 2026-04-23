@@ -1,7 +1,7 @@
 ---
 tags: [widgets, library, sdk, track]
 status: active
-updated: 2026-04-22 (canonical widget-system doc + contract inspector pass)
+updated: 2026-04-22 (widget contract/catalog lock-in)
 ---
 
 # Track — Widget Library
@@ -258,6 +258,12 @@ Verification:
 - Follow-up 2026-04-22:
   - `pytest tests/integration/test_dashboard_pins.py -q -k native_envelope_from_instance_state` passed
   - `pytest tests/unit/test_widget_library_list.py -q -k native` passed
+
+Contract/DX follow-up 2026-04-22:
+
+- **Library/catalog entries now expose an explicit public widget contract.** `widget_library_list`, `/api/v1/widgets/library-widgets*`, native catalog entries, preset previews, and pins now ship `widget_contract` plus `config_schema`, replacing the old UI-side heuristic "what kind of widget is this?" classification.
+- **Canonical terminology is locked.** Public docs now center on `tool widget`, `HTML widget`, and `native widget`, while historical/internal terms like `template` and `tool renderer` are treated as implementation vocabulary. Presets are explicitly documented as an instantiation path over the same underlying system, not a separate fourth widget kind.
+- **Known gap: HTML library provenance can still be lossy after pinning.** When a persisted HTML pin lacks enough source context to re-resolve its manifest, some schema/contract detail falls back to best-effort recovery. Future work should stamp canonical bundle identity into persisted source metadata instead of resolving from context later.
   - `./node_modules/.bin/tsc --noEmit --pretty false` returned exit code 0 in `ui/`
 
 ## MVP decision — FS-backed, not DB-backed

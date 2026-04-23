@@ -280,7 +280,7 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
                 "HTML entries can be emitted via `emit_html_widget(library_ref=...)` "
                 "or pinned with `pin_widget`; native app entries are "
                 "first-party built-ins that can be pinned through the same "
-                "library flow; template entries can be "
+                "library flow; `template` entries are tool widgets and can be "
                 "instantiated by calling `pin_widget(source_kind='library', "
                 "widget='<tool_name>', tool_args={...})`. Filter "
                 "by `scope`, `format`, or free-text `q` (matches name + "
@@ -306,8 +306,8 @@ def _resolve_scope_roots() -> tuple[str | None, str | None]:
                         "enum": ["html", "template", "suite", "native_app"],
                         "description": (
                             "Filter by bundle format. `html` = iframe-backed "
-                            "HTML + SDK. `template` = YAML-declared component "
-                            "tree/tool renderer. `suite` = grouped HTML bundle "
+                            "HTML + SDK. `template` = YAML-defined tool widget "
+                            "bound to a tool result. `suite` = grouped HTML bundle "
                             "family, typically sharing state or DB. `native_app` "
                             "= first-party React-rendered widgets backed by "
                             "widget instances."

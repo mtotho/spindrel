@@ -1,6 +1,6 @@
 # Widget Dashboards
 
-For the canonical widget taxonomy and how presets, tool renderers, HTML widgets, and native widgets converge on the same placement model, read [Widget System](widget-system.md) first. This guide focuses on placement, dashboards, and pin behavior.
+For the canonical widget taxonomy and how presets, tool widgets, standalone HTML widgets, and native widgets converge on the same placement model, read [Widget System](widget-system.md) first. This guide focuses on placement, dashboards, and pin behavior.
 
 Dashboards are Spindrel's answer to "I want my agent's output *on a wall*, not buried in chat." Pin any tool result — a Home Assistant light toggle, a weather card, a task-status chip, a bot-authored HTML chart — to a dashboard and it keeps working: polling for fresh state, honoring clicks, updating when the underlying data moves.
 
@@ -11,16 +11,17 @@ There are two shapes of dashboard, and both are used by the same pins, grid, and
 
 You reach the `/widgets` page from the left sidebar rail ("Widgets" tab). Channel dashboards are reachable from the channel header's `LayoutDashboard` icon and the command palette ("Channel dashboard" under THIS CHANNEL).
 
-## Two kinds of widgets, one dashboard
+## Three definition kinds, one dashboard
 
 Any widget fits anywhere. The dashboard doesn't care what drew the pixels, only that the pin has an envelope.
 
 | Kind | Authored by | How it renders | Example |
 |---|---|---|---|
-| **Component widget** | A tool's YAML template (e.g. integration-declared `tool_widgets:` or a `*.widgets.yaml` file next to a local tool) | Structured JSON → the built-in `ComponentRenderer` — buttons, toggles, sliders, properties, tiles, status chips | HassLightSet power toggle + brightness slider; weather card with a "Show forecast" button; `schedule_task` status card |
-| **HTML widget** | A bot, via `emit_html_widget` | Sandboxed iframe with bot-written HTML + JS + CSS. Runs fetches against `/api/v1/...` via `window.spindrel.api()` | A recent-messages panel; a custom Chart.js bar chart; a per-project mini-control-surface |
+| **Tool widget** | A tool's YAML definition (for example `tool_widgets:`) | Either structured JSON via the built-in renderer or a tool-bound `html_template` renderer | Home Assistant status/control cards; weather cards; `schedule_task` status |
+| **HTML widget** | A bot or user-authored standalone bundle | Sandboxed iframe with custom HTML + JS + CSS. Runs fetches against `/api/v1/...` via `window.spindrel.api()` | A recent-messages panel; a custom Chart.js bar chart; a per-project mini-control-surface |
+| **Native widget** | Core app only | Host-rendered first-party widget with instance-backed state | Notes; Todo |
 
-Mix freely. A typical channel dashboard might have a Home Assistant tile, a bot-authored metrics chart, and a pinned `schedule_task` status — all on the same grid.
+Mix freely. A typical channel dashboard might have a Home Assistant tool widget, a bot-authored HTML chart, a native Notes card, and a pinned `schedule_task` status on the same grid.
 
 For the authoring deep-dive on each kind, see [Widget Templates](../widget-templates.md) (component widgets) and [HTML Widgets](html-widgets.md).
 

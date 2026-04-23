@@ -10,6 +10,8 @@ interface ContextBudgetResponse {
   cached_prompt_tokens?: number | null;
   completion_tokens?: number | null;
   context_profile?: string | null;
+  context_origin?: string | null;
+  live_history_turns?: number | null;
 }
 
 interface SessionDiagnosticsResponse {
@@ -39,6 +41,8 @@ export interface SessionHeaderStats {
   cachedPromptTokens: number | null;
   completionTokens: number | null;
   contextProfile: string | null;
+  contextOrigin: string | null;
+  liveHistoryTurns: number | null;
   turnsInContext: number | null;
   turnsUntilCompaction: number | null;
 }
@@ -67,6 +71,8 @@ export function useSessionHeaderStats(
         cachedPromptTokens: budget.cached_prompt_tokens ?? null,
         completionTokens: budget.completion_tokens ?? null,
         contextProfile: budget.context_profile ?? null,
+        contextOrigin: budget.context_origin ?? null,
+        liveHistoryTurns: budget.live_history_turns ?? null,
         turnsInContext: diagnostics?.compaction.user_turns_since_watermark ?? null,
         turnsUntilCompaction: diagnostics?.compaction.turns_until_next ?? null,
       };

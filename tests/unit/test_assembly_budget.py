@@ -109,6 +109,8 @@ class TestAssemblyBudgetGenerous:
         assert budget.consumed_tokens > 0
         assert result.budget_utilization is not None
         assert result.budget_utilization >= 0
+        assert result.context_policy["name"] == "chat"
+        assert "optional_static_injections" in result.context_policy
 
     @pytest.mark.asyncio
     async def test_budget_utilization_on_result(self):
@@ -308,6 +310,7 @@ class TestAssemblyBudgetTight:
         assert not [e for e in events if e.get("type") == "tool_index"]
         assert "tool_index" not in budget.breakdown
         assert result.context_profile == "task_none"
+        assert result.context_policy["live_history_turns"] == 0
         assert result.inject_decisions["tool_index"] == "skipped_by_profile"
 
 

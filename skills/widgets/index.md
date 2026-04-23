@@ -1,7 +1,7 @@
 ---
 name: Widgets
-description: Decision tree for building widgets across the three current lanes — template/tool-renderer widgets for bounded server-driven UI, HTML widgets for free-form iframe-backed bundles, and first-party native app widgets for flagship built-in React surfaces. Covers library authoring under `widget://`, grouping with `suite`/`package`, themes, dashboards, and which follow-up skill to read next.
-triggers: emit_html_widget, html widget, template widget, yaml widget, tool renderer, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title, suite widget, package widget
+description: Decision tree for building widgets across the three current definition kinds — tool widgets for tool-bound server-driven UI, HTML widgets for standalone iframe-backed bundles, and first-party native widgets for built-in host-rendered surfaces. Covers library authoring under `widget://`, grouping with `suite`/`package`, themes, dashboards, and which follow-up skill to read next.
+triggers: emit_html_widget, html widget, template widget, yaml widget, tool widget, tool renderer, interactive widget, custom widget, build a widget, mini dashboard, render html, iframe widget, workspace html, live dashboard, bespoke ui, project status dashboard, status board, tool control panel, chart widget, chip widget, header chip, panel title, sticky widget title, suite widget, package widget
 category: core
 ---
 
@@ -9,14 +9,19 @@ category: core
 
 Treat **widget** as the umbrella term. There are currently three implementation paths:
 
-- **Template widget** — YAML/tool-renderer path. Use this for bounded, server-driven UI that already fits the component grammar or should stay close to tool results.
-- **HTML widget** — iframe-backed bundle emitted with `emit_html_widget`. Use this for free-form layouts, charts, mini-apps, richer local interactivity, or when the component grammar is the wrong shape.
-- **Native app widget** — first-party React widget shipped in the app (for example `notes_native`). Not bot-authored. Use this when the built-in library already exposes an official widget with persistent state and rich host integration.
+- **Tool widget** — YAML-defined, tool-bound path. Use this for bounded, server-driven UI that already fits the component grammar or should stay close to one tool's result. A tool widget may render through `template:` or `html_template:` and is still the same underlying kind.
+- **HTML widget** — standalone iframe-backed bundle emitted with `emit_html_widget` or pinned from the library. Use this for free-form layouts, charts, mini-apps, richer local interactivity, or when the UI should not be bound to one tool definition.
+- **Native widget** — first-party host-rendered widget shipped in the app (for example `notes_native`). Not bot-authored. Use this when the built-in library already exposes an official widget with persistent state and rich host integration.
+
+Important taxonomy rule:
+
+- a preset is not a fourth widget kind
+- a YAML widget using `html_template` is still a tool widget, not a standalone HTML widget
 
 HTML widgets can:
 
 - Run JavaScript (fetch app data, handle clicks, update itself)
-- Call the app's own API at `/api/v1/...` (same-origin — auth comes along for free)
+- Call the app's own API at `/api/v1/...` through the widget runtime as the source bot
 - **Trigger backend tools** via `POST /api/v1/widget-actions` (run `fetch_url`, `generate_image`, whatever — the fresh result flows back as a new envelope)
 - Re-render automatically when a workspace file changes (path mode)
 - Persist state to a workspace JSON file and read it back next time
@@ -26,23 +31,24 @@ HTML widgets can:
 
 | Situation | Use |
 |---|---|
-| Entity detail, toggle, status card, or bounded dashboard tile that fits the component grammar | Template widget / YAML renderer |
-| Tool result should stay server-driven and refresh through tool actions + polls | Template widget / YAML renderer |
+| Entity detail, toggle, status card, or bounded dashboard tile that fits the component grammar | Tool widget |
+| Tool result should stay server-driven and refresh through tool actions + polls | Tool widget |
+| Tool-bound UI needs richer visuals but is still fundamentally one tool's result | Tool widget with `html_template` |
 | Chart, table, free-form layout, or anything not in the grammar | HTML widget via `emit_html_widget` |
 | User says "make me a custom widget for X" and the UI is bespoke | HTML widget |
-| User says "show me X live / as a dashboard" | Usually an HTML bundle; use template only if the layout is simple and renderer-driven |
+| User says "show me X live / as a dashboard" | Usually an HTML widget; use a tool widget only if the layout is simple and tool-driven |
 | User says "build a status board / project dashboard / control panel" | Usually HTML widget + bundle (see `html.md`) |
-| User says "place the built-in Notes / official first-party widget" | Native app widget from the library, not a new HTML bundle |
+| User says "place the built-in Notes / official first-party widget" | Native widget from the library, not a new HTML bundle |
 | One-off inline result | Normal text/Markdown reply (no widget needed) |
 
-Default to template widgets when a good renderer already exists; reach for HTML when the component grammar or server-driven model does not cover the request cleanly.
+Default to tool widgets when a good tool-bound renderer already exists; reach for standalone HTML when the component grammar or server-driven model does not cover the request cleanly.
 
 Bot control rule:
 
 - Discover widgets through the shared library/catalog tools.
 - Place them with `pin_widget`.
 - Interact with pinned widgets through `invoke_widget_action`.
-- Always inspect the widget's declared action schema first (`describe_dashboard` exposes `available_actions`; library metadata exposes actions for native widgets).
+- Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
 
 ## The unified operator loop
 
@@ -53,12 +59,12 @@ Treat widgets with one operational loop regardless of runtime kind:
 3. Inspect declared actions before operating.
 4. Invoke through `invoke_widget_action`.
 
-The interface is unified even though the runtime is not. Bots should think in terms of library entries, pins, widget instances, and declared actions — not iframe handlers vs native React internals.
+The interface is unified even though the runtime is not. Bots should think in terms of library entries, pins, widget instances, declared actions, and explicit widget contracts, not iframe handlers vs native internals.
 
 Theme note:
 
 - The widget theme system is currently implemented for **HTML widgets**.
-- Keep shared widget naming generic, but do not promise template-widget theme parity yet.
+- Keep shared widget naming generic, but do not promise tool-widget theme parity yet.
 
 ## Decision tree — which sub-skill do you need?
 
@@ -66,13 +72,13 @@ Theme note:
 Start: what do you want to render?
 │
 ├─ Entity card, toggle, status, detail grid, tool result card
-│     → Template widget / tool renderer. Prefer the YAML path.
+│     → Tool widget. Prefer the YAML path.
 │
 ├─ Need a free-form layout, chart, table, mini app, or richer local JS
 │     → HTML widget. Continue.
 │
 ├─ Need a built-in first-party widget like Notes with richer host-native UX
-│     → Native app widget. Do not author this via HTML/YAML; place the existing library entry.
+│     → Native widget. Do not author this via HTML/YAML; place the existing library entry.
 │
 ├─ One-shot, ephemeral, no backend state
 │     → widgets/html  (inline mode)
@@ -154,9 +160,9 @@ Also, avoid the "whole widget reload" feel:
 
 If you're building a live control surface, read `widgets/tool-dispatch.md` after this file. That's where the concrete click→state-update pattern lives.
 
-## Native app widgets — what bots should assume
+## Native widgets — what bots should assume
 
-Native app widgets are:
+Native widgets are:
 
 - first-party library entries
 - placeable through `pin_widget`
@@ -181,7 +187,7 @@ When the user says *"build me a dashboard for X"*:
 
 1. **Discover** — `list_api_endpoints(scope="...")` to see what your bot can read/write. Build from what you have, not what you wish you had. `widget_library_list()` to see what bundles already exist.
 2. **Pick a scope** — `widget://bot/<name>/...` (your bot's own library, always available) or `widget://workspace/<name>/...` (shared with every bot in this workspace, shared-workspace bots only). `widget://core/...` is read-only.
-3. **Decide template vs HTML** — template if the renderer/model is already a good fit; HTML if you need bespoke layout, local interactivity, or theme-aware styling.
+3. **Decide tool-widget vs HTML** — choose a tool widget if the renderer/model is already a good fit and the UI should stay bound to one tool result; choose standalone HTML if you need bespoke layout, local interactivity, or bundle-owned behavior.
 4. **Pick an archetype** — status (RMW `state.json`), feed (poll API), control panel (dispatch tools), KB reader (workspace files + markdown). Most real dashboards mix two. See `widgets/dashboards.md`.
 5. **One-shot the bundle** — `file(create, path="widget://bot/<name>/index.html", content=<full doc>)` plus any `widget://bot/<name>/state.json` defaults. Use `sd-*` classes; use `window.spindrel.api()` for every GET; use `spindrel.callTool` for triggering work.
 6. **Group it if it belongs with siblings** — set exactly one of `suite:` or `package:` in the HTML frontmatter or `widget.yaml`. Use a group when the widget is part of a related family the library should show together.

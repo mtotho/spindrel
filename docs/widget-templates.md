@@ -1,6 +1,6 @@
 # Widget Templates
 
-For the overall taxonomy and how tool renderers fit alongside presets, HTML widgets, native widgets, and dashboard pins, read [Widget System](guides/widget-system.md) first. This document is the detailed reference for the tool-renderer/template lane only.
+For the overall taxonomy and how tool widgets fit alongside presets, standalone HTML widgets, native widgets, and dashboard pins, read [Widget System](guides/widget-system.md) first. This document is the detailed reference for the tool-widget lane only.
 
 Tool results in Spindrel can render as rich, interactive widgets — status
 chips, toggles, sliders, tables, charts — instead of plain JSON. Each tool
@@ -13,31 +13,32 @@ Packages are editable in the admin UI at **Tools → Widget Library**.
 
 ## Product terms
 
-The UI now separates four related concepts. The deeper system-level explanation lives in [Widget System](guides/widget-system.md); this section is just the local vocabulary needed for the template lane.
+The system-level explanation lives in [Widget System](guides/widget-system.md); this section is just the local vocabulary needed for the tool-widget lane.
 
 | Term | Meaning |
 |---|---|
-| Widget preset | A ready-to-pin widget with a guided binding flow. Example: "Home Assistant Light Card" where the user only selects an entity. |
-| Tool renderer | A YAML/HTML definition that renders the output of a specific tool call. This is what this document describes. |
+| Widget preset | A ready-to-pin guided binding flow. Example: "Home Assistant Light Card" where the user only selects an entity. |
+| Tool widget | A YAML-defined widget contract bound to one tool's output. This is what this document describes. |
+| Tool renderer / template | Legacy internal wording for the tool-widget lane. |
 | Native widget | A first-party React widget like Notes or Todo with host-owned actions and persistence. |
-| HTML widget | A standalone iframe/bundle widget, either library-backed or emitted at runtime via `emit_html_widget`. |
+| HTML widget | A standalone iframe/bundle widget, either library-backed or emitted at runtime via `emit_html_widget`. This is distinct from a tool widget that happens to use `html_template`. |
 
-Use a **preset** when the product should guide the user through binding a real object like an entity, device, or task feed. Use a **tool renderer** when you are authoring how one tool's output should render once the tool has already been called.
+Use a **preset** when the product should guide the user through binding a real object like an entity, device, or task feed. Use a **tool widget** when you are authoring how one tool's output should render once the tool has already been called.
 
 ## Picking a mode
 
-There are three ways to turn a tool result into a rendered card. They coexist and target different problems:
+There are three ways a tool-related experience can become a rendered card. They coexist and target different problems:
 
 | Mode | Who authors | When to use |
 |---|---|---|
-| Component template (YAML `template:`) | Integration author — declarative | The card fits the component grammar (status, toggle, slider, tiles, properties, tables). Composable, admin-editable. |
-| HTML template (YAML `html_template:`) | Integration author — bundled HTML file | The tool always returns a specific shape and wants a rich custom layout (image with overlays, custom timelines, canvas). Declarative, admin-forkable, pinnable, state_poll works. |
-| Runtime `emit_html_widget` | Bot author — HTML written at chat time | One-off dashboards, prompts like "make me a panel that…". Fresh HTML per invocation. See [HTML Widgets guide](guides/html-widgets.md). |
+| Component template (YAML `template:`) | Integration author — declarative | A tool widget whose UI fits the component grammar (status, toggle, slider, tiles, properties, tables). |
+| HTML template (YAML `html_template:`) | Integration author — bundled HTML file | Still a tool widget, but rendered through HTML because the tool's output wants richer visuals or layout. |
+| Runtime `emit_html_widget` | Bot author — HTML written at chat time | A standalone HTML widget, not a tool widget. Useful for one-off dashboards and custom mini-apps. See [HTML Widgets guide](guides/html-widgets.md). |
 
-Both HTML-based modes share the same iframe, CSP, and bot-scoped auth model. If you want every call to a tool to render the same way, pick **HTML template**. If each call emits its own bespoke HTML, the bot uses **`emit_html_widget`**.
+If you want every call to a tool to render the same way, pick **HTML template**. If each call emits its own bespoke standalone widget, use **`emit_html_widget`** instead.
 
-!!! tip "Looking for bot-authored HTML widgets?"
-    The template system on this page is for **tool-result component widgets** and **declarative HTML templates** — both bound to a tool name. For bot-written HTML (charts, mini-dashboards, anything outside the component grammar), see the [HTML Widgets guide](guides/html-widgets.md). Those run as the emitting bot with short-lived bot-scoped tokens — same auth model.
+!!! tip "Looking for standalone HTML widgets?"
+    The system on this page is for **tool widgets** — including tool widgets that render through `html_template`. If you want a standalone HTML mini-app, chart, or dashboard that is not bound to one tool definition, see the [HTML Widgets guide](guides/html-widgets.md).
 
 !!! tip "Where these widgets live"
     Both component widgets and HTML widgets pin onto the same dashboards — named user boards and per-channel boards. See [Widget Dashboards](guides/widget-dashboards.md) for dashboard creation, the OmniPanel rail, grid presets, and editing.
@@ -88,6 +89,7 @@ Common top-level keys:
 | `display_label` | string | Templated label used by pinned widgets. |
 | `state_poll` | object | Optional live-refresh config (see below). |
 | `default_config` | object | Merged under user `widget_config` as `{{config.*}}`. |
+| `config_schema` | object | Optional JSON Schema for editing runtime widget config. Must be an object schema. |
 
 ### Substitution syntax
 
@@ -193,15 +195,18 @@ Before the HTML body runs, the renderer prepends:
 ```html
 <script>
   window.spindrel = window.spindrel || {};
-  window.spindrel.toolResult = {/* tool JSON result, minus the merged config */};
+  window.spindrel.toolResult = {/* tool JSON result, including merged config under toolResult.config */};
 </script>
 ```
 
 Widget JS reads `window.spindrel.toolResult` synchronously at load:
 
 ```js
-const { attachment_id, filename } = window.spindrel.toolResult;
+const { attachment_id, filename, config } = window.spindrel.toolResult;
 document.querySelector("h3").textContent = filename;
+if (config.show_bbox) {
+  document.body.dataset.showBbox = "true";
+}
 ```
 
 ### Responding to refreshes

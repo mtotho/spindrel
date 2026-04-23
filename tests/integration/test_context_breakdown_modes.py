@@ -56,6 +56,12 @@ async def _seed_channel_with_token_usage(
             "breakdown": {"system_prompt": 1000, "memory": 500},
             "total_chars": 1500,
             "context_profile": "chat",
+            "context_origin": "task",
+            "context_policy": {
+                "live_history_turns": 4,
+                "mandatory_static_injections": ["plan_artifact", "section_index"],
+                "optional_static_injections": ["tool_index"],
+            },
             "context_budget": {
                 "consumed_tokens": estimate_consumed,
                 "total_tokens": estimate_total,
@@ -110,6 +116,9 @@ class TestBreakdownModes:
         assert data["context_budget"]["usage"]["gross_prompt_tokens"] == 12345
         assert data["context_budget"]["usage"]["current_prompt_tokens"] == 12245
         assert data["context_budget"]["usage"]["cached_prompt_tokens"] == 100
+        assert data["context_origin"] == "task"
+        assert data["live_history_turns"] == 4
+        assert data["mandatory_static_injections"] == ["plan_artifact", "section_index"]
 
     @pytest.mark.asyncio
     async def test_next_turn_total_uses_forecast_not_api(
@@ -164,6 +173,8 @@ class TestBreakdownModes:
         assert data["cached_prompt_tokens"] == 100
         assert data["completion_tokens"] == 42
         assert data["context_profile"] == "chat"
+        assert data["context_origin"] == "task"
+        assert data["live_history_turns"] == 4
         assert data["source"] == "api"
 
     @pytest.mark.asyncio

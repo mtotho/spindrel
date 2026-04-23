@@ -97,6 +97,10 @@ class ContextBreakdownResult:
     reranking: RerankState
     effective_settings: dict[str, EffectiveSetting]
     context_profile: str | None = None
+    context_origin: str | None = None
+    live_history_turns: int | None = None
+    mandatory_static_injections: list[str] = field(default_factory=list)
+    optional_static_injections: list[str] = field(default_factory=list)
     context_budget: dict | None = None
     disclaimer: str = ""
 
@@ -155,6 +159,11 @@ async def fetch_latest_context_budget(
     inj_data = inj_row.scalar_one_or_none()
     inj_budget = (inj_data or {}).get("context_budget") or {}
     context_profile = (inj_data or {}).get("context_profile")
+    context_origin = (inj_data or {}).get("context_origin")
+    context_policy = (inj_data or {}).get("context_policy") or {}
+    live_history_turns = context_policy.get("live_history_turns")
+    mandatory_static_injections = context_policy.get("mandatory_static_injections") or []
+    optional_static_injections = context_policy.get("optional_static_injections") or []
     total_tokens = inj_budget.get("total_tokens")
     est_consumed = inj_budget.get("consumed_tokens")
 
@@ -196,6 +205,10 @@ async def fetch_latest_context_budget(
             "cached_prompt_tokens": None,
             "completion_tokens": None,
             "context_profile": context_profile,
+            "context_origin": context_origin,
+            "live_history_turns": live_history_turns,
+            "mandatory_static_injections": mandatory_static_injections,
+            "optional_static_injections": optional_static_injections,
             "source": "none",
         }
 
@@ -216,6 +229,10 @@ async def fetch_latest_context_budget(
         "cached_prompt_tokens": cached_prompt_tokens if api_prompt_tokens is not None else None,
         "completion_tokens": completion_tokens if api_prompt_tokens is not None else None,
         "context_profile": context_profile,
+        "context_origin": context_origin,
+        "live_history_turns": live_history_turns,
+        "mandatory_static_injections": mandatory_static_injections,
+        "optional_static_injections": optional_static_injections,
         "source": "api" if api_prompt_tokens is not None else "estimate",
     }
 
@@ -778,6 +795,10 @@ async def compute_context_breakdown(
     _budget_info = None
     api_total_tokens: int | None = None
     context_profile: str | None = None
+    context_origin: str | None = None
+    live_history_turns: int | None = None
+    mandatory_static_injections: list[str] = []
+    optional_static_injections: list[str] = []
     if settings.CONTEXT_BUDGET_ENABLED:
         try:
             from app.agent.context_budget import get_model_context_window
@@ -787,9 +808,17 @@ async def compute_context_breakdown(
             # Pull the API-reported prompt_tokens for last_turn alignment.
             _latest = await fetch_latest_context_budget(channel_id, db, session_id=target_session_id)
             context_profile = _latest.get("context_profile")
+            context_origin = _latest.get("context_origin")
+            live_history_turns = _latest.get("live_history_turns")
+            mandatory_static_injections = list(_latest.get("mandatory_static_injections") or [])
+            optional_static_injections = list(_latest.get("optional_static_injections") or [])
             api_total_tokens = _latest.get("consumed_tokens") if _latest.get("source") == "api" else None
             _budget_info = {
                 "context_profile": context_profile,
+                "context_origin": context_origin,
+                "live_history_turns": live_history_turns,
+                "mandatory_static_injections": mandatory_static_injections,
+                "optional_static_injections": optional_static_injections,
                 "estimate": {
                     "total_tokens": _window,
                     "reserve_tokens": _reserve,
@@ -832,6 +861,10 @@ async def compute_context_breakdown(
         reranking=reranking,
         effective_settings=effective_settings,
         context_profile=context_profile,
+        context_origin=context_origin,
+        live_history_turns=live_history_turns,
+        mandatory_static_injections=mandatory_static_injections,
+        optional_static_injections=optional_static_injections,
         context_budget=_budget_info,
         disclaimer="RAG components are heuristic estimates. Actual values vary per query based on semantic similarity scores.",
     )

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dx]
 status: active
-updated: 2026-04-22 (widget-system canonical doc + contract surfacing)
+updated: 2026-04-22 (widget contract/model lock-in)
 ---
 # Track — Widget System DX + Robustness
 
@@ -30,6 +30,12 @@ Reference doc: [[Widget Authoring]]. Implementation artifact: plan file at `~/.c
 | P3-1 | HTML widget catalog + frontmatter | Workspace scanner for `**/widgets/**/*.html` + files referencing `window.spindrel.*`; YAML frontmatter convention in leading HTML comment; "HTML widgets" tab on `AddFromChannelSheet`; dev-panel Library restructured into Tool renderers vs HTML widgets sections | **done** (2026-04-19) |
 
 ## Follow-ups (extracted from P0-1 / P1-1 shipping)
+
+- **Widget contract model is now explicit and canonical** (2026-04-22) — `app/services/widget_contracts.py` now normalizes the public widget model into `definition_kind`, `binding_kind`, `instantiation_kind`, `auth_model`, `state_model`, `refresh_model`, `theme_model`, `supported_scopes`, and `actions`, with optional `config_schema` alongside it. This contract now ships on tool previews, widget presets, library/catalog entries, native widgets, and persisted pins so the UI/docs no longer need to infer behavior from source paths or runtime heuristics.
+- **Canonical taxonomy is now definition-kind first** (2026-04-22) — the product language is locked around `tool_widget`, `html_widget`, and `native_widget`, with presets treated as an instantiation path rather than a fourth widget kind. Load-bearing invariant: a YAML tool widget using `html_template` is still a tool widget, not a standalone HTML widget.
+- **Dashboard pin editing is now schema-aware where possible** (2026-04-22) — `EditPinDrawer` renders simple typed controls from `config_schema` before falling back to raw JSON, which closes the most obvious DX gap in per-pin config editing.
+- **Known follow-up: persisted instantiation provenance is still incomplete** (2026-04-22) — preset-created pins now stamp `source_instantiation_kind="preset"`, but older pins and some non-preset pin flows are still inferred best-effort on read. A future hardening pass should persist instantiation/source metadata across every pin creation path.
+- **Known follow-up: preset dependency boundaries need validation** (2026-04-22) — presets can currently look like one clean guided card while hiding mixed binding-source dependencies underneath. Home Assistant presets especially should fail registration if one preset implicitly depends on multiple incompatible MCP server families unless that is explicitly declared.
 
 - **Home Assistant adaptive entity widget landed** (2026-04-22) — `integrations/homeassistant/integration.yaml:ha_get_state` now renders four shapes off one tool contract: sensor card, light card, toggle chip, and generic entity/value chip. `state_poll.args.entity_id` reads `{{config.entity_id}}`; `app/services/dashboard_pins.py` seeds that config from `display_label` once at pin-create time so refresh no longer depends on label scraping after the pin exists.
 - **Widget presets landed as a first-class surface** (2026-04-22) — integrations can now declare `widget_presets:` alongside `tool_widgets:`. `app/services/widget_presets.py` resolves preset metadata, binding-source options, preview, and pinning through the existing widget engine, and `/api/v1/widgets/presets*` powers both Add Widget and `/widgets/dev`. New invariant: presets own guided binding inputs; tool renderers remain the advanced “render a tool result” path.

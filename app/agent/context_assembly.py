@@ -15,7 +15,7 @@ from dataclasses import replace as _dc_replace
 
 from app.agent.bots import BotConfig
 from app.agent.channel_overrides import EffectiveTools, apply_auto_injections, resolve_effective_tools
-from app.agent.context import set_ephemeral_delegates, set_ephemeral_skills
+from app.agent.context import current_run_origin, set_ephemeral_delegates, set_ephemeral_skills
 from app.agent.context_profiles import ContextProfile, get_context_profile
 from typing import TYPE_CHECKING
 
@@ -327,6 +327,8 @@ class AssemblyResult:
     inject_chars: dict[str, int] = field(default_factory=dict)
     inject_decisions: dict[str, str] = field(default_factory=dict)
     context_profile: str | None = None
+    context_origin: str | None = None
+    context_policy: dict[str, Any] = field(default_factory=dict)
 
 
 def _mark_injection_decision(
@@ -335,6 +337,50 @@ def _mark_injection_decision(
     decision: str,
 ) -> None:
     inject_decisions[key] = decision
+
+
+async def _inject_plan_artifact(
+    messages: list[dict],
+    session_id: uuid.UUID | None,
+    inject_chars: dict[str, int],
+    budget_consume: Any,
+    budget_can_afford: Any,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
+) -> None:
+    """Inject a compact block derived from the active canonical plan artifact."""
+    if not context_profile.allow_plan_artifact:
+        return
+    if session_id is None:
+        _mark_injection_decision(inject_decisions, "plan_artifact", "skipped_missing")
+        return
+
+    try:
+        from app.db.engine import async_session
+        from app.db.models import Session as SessionRow
+        from app.services.session_plan_mode import build_plan_artifact_context
+
+        async with async_session() as db:
+            session_row = await db.get(SessionRow, session_id)
+        if session_row is None:
+            _mark_injection_decision(inject_decisions, "plan_artifact", "skipped_missing")
+            return
+
+        content = build_plan_artifact_context(session_row)
+        if not content:
+            _mark_injection_decision(inject_decisions, "plan_artifact", "skipped_empty")
+            return
+        if not budget_can_afford(content):
+            _mark_injection_decision(inject_decisions, "plan_artifact", "skipped_by_budget")
+            return
+
+        messages.append({"role": "system", "content": content})
+        budget_consume("plan_artifact", content)
+        inject_chars["plan_artifact"] = len(content)
+        _mark_injection_decision(inject_decisions, "plan_artifact", "admitted")
+    except Exception:
+        logger.warning("Failed to inject plan artifact for session %s", session_id, exc_info=True)
+        _mark_injection_decision(inject_decisions, "plan_artifact", "skipped_error")
 
 
 async def _inject_memory_scheme(
@@ -969,6 +1015,8 @@ async def assemble_context(
     _inject_decisions: dict[str, str] = {}
     context_profile = get_context_profile(context_profile_name or "chat")
     result.context_profile = context_profile.name
+    result.context_origin = current_run_origin.get(None)
+    result.context_policy = context_profile.to_policy_dict()
 
     def _budget_consume(category: str, text: str) -> None:
         """Record consumption in the budget if one is active."""
@@ -1173,6 +1221,16 @@ async def assemble_context(
             _budget_can_afford, context_profile, _inject_decisions,
         ):
             yield evt
+
+    await _inject_plan_artifact(
+        messages,
+        session_id,
+        _inject_chars,
+        _budget_consume,
+        _budget_can_afford,
+        context_profile,
+        _inject_decisions,
+    )
 
     # --- @mention tag resolution ---
     _tagged = await resolve_tags(
@@ -2235,6 +2293,8 @@ async def assemble_context(
             "breakdown": _inject_chars,
             "total_chars": sum(_inject_chars.values()),
             "context_profile": context_profile.name,
+            "context_origin": result.context_origin,
+            "context_policy": result.context_policy,
             "decisions": _inject_decisions,
         }
         if budget is not None:

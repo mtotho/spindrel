@@ -1,6 +1,6 @@
 # Architecture Decisions
 
-For the canonical runtime context-policy guide, see `agent-server/docs/guides/context-management.md`. Keep this file for load-bearing decisions and invariants, not the full operational policy/tuning guide.
+For the canonical runtime context-policy guide, see [Context Management](../../../agent-server/docs/guides/context-management.md). Keep this file for load-bearing decisions and invariants, not the full operational policy/tuning guide.
 
 ## Guiding Principles
 - **Product identity**: "Best self-hosted personal AI agent"
@@ -26,6 +26,7 @@ For the canonical runtime context-policy guide, see `agent-server/docs/guides/co
   - how much live history is replayed
   - which optional static injections are allowed at all
 - Optional static injections are now budget-gated through one admission path instead of being appended ad hoc.
+- Planning/execution profiles now admit a compact active-plan block derived from the canonical Markdown plan file so older decisions survive the short live-history window.
 
 **Why.**
 - The previous pass separated replayable live history from static injections, but the runtime still let too many origins share the same additive prompt policy.
@@ -34,6 +35,7 @@ For the canonical runtime context-policy guide, see `agent-server/docs/guides/co
 
 **Load-bearing invariants.**
 - `planning` and `executing` are different profiles. `blocked` and `done` continue to map to `executing` until a separate follow-up proves they need distinct policy.
+- The active plan artifact is load-bearing context for `planning` and `executing`; important planning decisions should be written there instead of relying on older live chat turns.
 - `task_none` and `heartbeat` are deliberately restrictive: no live replay beyond the system/base layers and no optional ambient injections.
 - Special background origins (`subagent`, hygiene-style runs) default to the `task_none` posture unless explicitly widened later.
 - Compaction summary reload is also profile-aware. Restrictive profiles may suppress it even if the session has archival summary state.
@@ -205,6 +207,34 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - **First proving widget is native Notes.** Use a small flagship widget (`core/notes_native`) to validate the model before expanding the native lane.
 - **Outer widget chrome belongs to the host wrapper.** Title bars and the outer surfaced-vs-plain shell are host concerns (`show_title`, `wrapper_surface`); widgets should not duplicate that chrome internally.
 - **Legacy HTML Notes is compatibility-only.** Keep the old bundle on disk for existing pins/direct refs, but hide it from library discovery so new Notes placements use `notes_native`.
+
+### Widget taxonomy is definition-kind first; presets are an instantiation path, not a widget kind
+**Decided 2026-04-22.** The widget system now standardizes on an explicit public contract model instead of relying on overlapping historical terms like "template", "tool renderer", "preset", and "HTML widget" to explain everything.
+
+**Canonical model.**
+- There are three public definition kinds:
+  - `tool_widget`
+  - `html_widget`
+  - `native_widget`
+- Concrete widget instances also carry an instantiation path:
+  - `direct_tool_call`
+  - `preset`
+  - `library_pin`
+  - `runtime_emit`
+  - `native_catalog`
+
+**Why.**
+- The prior language blurred "what this widget is" with "how this widget got instantiated", which made presets sound like a fourth widget type and made YAML tool widgets that use `html_template` look like standalone HTML widgets when they are not.
+- DX and debugging were too inference-heavy. Humans had to reverse-engineer behavior from source paths, manifests, or pin envelopes.
+- The system needed one honest model that can be surfaced in the API, UI, docs, and future tooling without each layer inventing its own taxonomy.
+
+**Load-bearing invariants.**
+- **Preset is never a definition kind.** A preset is a guided setup flow, usually over a `tool_widget`.
+- **A YAML tool widget that uses `html_template` is still a `tool_widget`.** It is tool-bound, state-from-tool-result, and not equivalent to a standalone `html_widget`.
+- **Standalone HTML widgets remain a separate contract.** They are bundle/runtime-owned and arrive through `library_pin` or `runtime_emit`.
+- **Native widgets remain core-only.**
+- **Placement stays unified.** Rich results, pins, and dashboard placements may feel the same to end users even though the definition/runtime internals differ.
+- **`widget_contract` + `config_schema` are the public inspection surfaces.** Future UI/debug tooling should extend those fields rather than reintroducing heuristic classification.
 
 ### Bot-authored widget bundles use git-backed source history inside `.widget_library`
 **Decided 2026-04-21.** Bot/workspace-authored library bundles (`widget://bot/...`, `widget://workspace/...`) are versioned with Git at the writable widget-library root, not by extending workspace-wide history and not by adding a separate revisions table. Each successful mutating `file` tool call that touches a bundle creates at most one new bundle-scoped commit per affected library root.

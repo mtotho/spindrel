@@ -46,10 +46,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { ToolRenderersPane } from "./ToolRenderersPane";
-import {
-  describeLibraryContract,
-  WidgetContractCard,
-} from "./WidgetContractCard";
+import { WidgetContractCard } from "./WidgetContractCard";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 const NATIVE_APP_CT = "application/vnd.spindrel.native-app+json";
@@ -890,11 +887,6 @@ function PreviewPanel({
   );
   const needsBot = entry.scope === "bot" || entry.scope === "workspace";
   const canPreview = !needsBot || !!effectiveBotId;
-  const contractFields = useMemo(
-    () => describeLibraryContract(entry, effectiveBotId),
-    [entry, effectiveBotId],
-  );
-
   const handlePin = async () => {
     if (!onPin) return;
     setBusy(true);
@@ -955,7 +947,7 @@ function PreviewPanel({
           </div>
         )}
         {tab === "contract" && (
-          <WidgetContractCard fields={contractFields} />
+          <WidgetContractCard contract={entry.widget_contract} />
         )}
         {tab === "source" && <SourceView entry={entry} botId={effectiveBotId} />}
         {tab === "manifest" && <ManifestView entry={entry} botId={effectiveBotId} />}

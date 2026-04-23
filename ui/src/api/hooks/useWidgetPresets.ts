@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { WidgetConfigSchema, WidgetContract } from "@/src/types/api";
 
 export interface WidgetPresetFieldUi {
   control?: string;
@@ -40,6 +41,8 @@ export interface WidgetPreset {
   binding_schema: WidgetPresetBindingSchema;
   binding_sources: Record<string, WidgetPresetBindingSource>;
   default_config: Record<string, unknown>;
+  config_schema?: WidgetConfigSchema | null;
+  widget_contract?: WidgetContract | null;
   resolved_binding_options?: Record<string, WidgetPresetOption[]>;
   binding_source_errors?: Record<string, string>;
 }
@@ -64,6 +67,8 @@ export interface WidgetPresetPreviewResponse {
     source_bot_id?: string | null;
     source_channel_id?: string | null;
   } | null;
+  widget_contract?: WidgetContract | null;
+  config_schema?: WidgetConfigSchema | null;
   errors: Array<{ phase: string; message: string; line?: number | null; severity?: string }>;
   config: Record<string, unknown>;
 }
