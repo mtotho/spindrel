@@ -74,6 +74,8 @@ class SideEffectPayload(BaseModel):
     scope_id: str
     title: str
     detail: str
+    status: Literal["queued", "started"] | None = None
+    message_id: str | None = None
 
 
 class _ContextDebugMessage(BaseModel):
@@ -340,21 +342,30 @@ async def _compact_session(
     db: AsyncSession,
 ) -> SlashCommandResult:
     from app.agent.bots import get_bot
-    from app.services.compaction import run_compaction_forced
+    from app.services.compaction import request_manual_compaction
 
     session = await db.get(Session, session_id)
     if session is None:
         raise LookupError("Session not found")
 
     bot = get_bot(session.bot_id)
-    title, summary = await run_compaction_forced(session_id, bot, db)
-    await db.commit()
+    request = await request_manual_compaction(session_id, bot, db)
+    status: Literal["queued", "started"] = (
+        "queued" if request.get("status") == "queued" else "started"
+    )
+    queued = status == "queued"
     payload = SideEffectPayload(
         effect="compact",
         scope_kind=scope_kind,
         scope_id=str(scope_id),
-        title=title,
-        detail=f"Compacted the active conversation into a {len(summary):,}-character summary.",
+        title="Compaction queued" if queued else "Compaction started",
+        detail=(
+            "Compaction will start after the current response finishes."
+            if queued
+            else "Compaction started."
+        ),
+        status=status,
+        message_id=request.get("message_id") or None,
     )
     return _side_effect_result(payload, command_id="compact")
 

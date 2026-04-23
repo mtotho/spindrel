@@ -50,7 +50,13 @@ export type PersistedRenderItem =
       widget: InlineWidgetEntry;
     }
   | {
-      kind: "rich_result" | "root_rich_result";
+      kind: "rich_result";
+      key: string;
+      envelope: ToolResultEnvelope;
+      summary?: ToolCallSummary | null;
+    }
+  | {
+      kind: "root_rich_result";
       key: string;
       envelope: ToolResultEnvelope;
     };
@@ -375,6 +381,7 @@ type OrderedToolResolution = {
   key: string;
   envelope: ToolResultEnvelope;
   kind: "rich_result";
+  summary?: ToolCallSummary | null;
 };
 
 function buildMissingToolDataEntry(toolCallId: string): SharedToolTranscriptEntry {
@@ -626,6 +633,7 @@ function resolveOrderedTool(
         kind: "rich_result",
         key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
         envelope: result,
+        summary: toolCall.summary ?? null,
       };
     }
 
@@ -655,6 +663,7 @@ function resolveOrderedTool(
       kind: "rich_result",
       key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
       envelope,
+      summary: toolCall.summary ?? null,
     };
   }
 
@@ -724,6 +733,7 @@ function materializeAssistantTurnBodyItems({
         kind: tool.kind,
         key: `${entry.id}:${tool.key}`,
         envelope: tool.envelope,
+        summary: tool.summary,
       });
       continue;
     }

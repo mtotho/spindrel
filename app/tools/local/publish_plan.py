@@ -7,6 +7,7 @@ from app.db.engine import async_session
 from app.db.models import Session
 from app.services.session_plan_mode import (
     PLAN_MODE_PLANNING,
+    build_session_plan_response,
     get_session_plan_mode,
     publish_session_plan,
     publish_session_plan_event,
@@ -71,8 +72,9 @@ _SCHEMA = {
             "_envelope": {"type": "object"},
             "llm": {"type": "string"},
             "plan": {"type": "object"},
+            "validation": {"type": "object"},
         },
-        "required": ["_envelope", "llm", "plan"],
+        "required": ["_envelope", "llm", "plan", "validation"],
     },
 )
 async def publish_plan(
@@ -109,11 +111,9 @@ async def publish_plan(
         )
         await db.commit()
         publish_session_plan_event(session, "revise")
+        payload = build_session_plan_response(session, plan)
 
-    payload = {
-        **plan.as_dict(),
-        "mode": PLAN_MODE_PLANNING,
-    }
+    assert payload is not None
     from app.agent.tool_dispatch import ToolResultEnvelope
 
     envelope = ToolResultEnvelope(
@@ -126,7 +126,11 @@ async def publish_plan(
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
-            "llm": f"Published plan revision {plan.revision} for {plan.title}.",
+            "llm": (
+                f"Published plan revision {plan.revision} for {plan.title}. "
+                "If validation has blocking issues, revise the plan before approval."
+            ),
             "plan": payload,
+            "validation": payload["validation"],
         }
     )

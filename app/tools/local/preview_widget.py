@@ -65,8 +65,8 @@ _SCHEMA = {
                 "library_ref": {
                     "type": "string",
                     "description": (
-                        "Name of a library widget to preview, e.g. `notes`, "
-                        "`core/notes`, `bot/my_toggle`, or "
+                        "Name of a library widget to preview, e.g. "
+                        "`core/context_tracker`, `bot/my_toggle`, or "
                         "`workspace/team_board`. Same resolution order as "
                         "`emit_html_widget`. Supports grouped bundles authored "
                         "with `suite:` or `package:` metadata. Mutually "

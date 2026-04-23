@@ -161,6 +161,7 @@ def _register_widgets(
         _widget_templates[tool_name] = {
             "content_type": expanded.get("content_type", default_content_type),
             "display": expanded.get("display", "inline"),
+            "view_key": expanded.get("view_key"),
             "template": expanded.get("template"),
             "html_template_body": html_body,
             "transform": expanded.get("transform"),
@@ -338,6 +339,7 @@ def _build_entry_from_package(row) -> dict | None:
     return {
         "content_type": widget_def.get("content_type", default_content_type),
         "display": widget_def.get("display", "inline"),
+        "view_key": widget_def.get("view_key"),
         "template": widget_def.get("template"),
         "html_template_body": html_body,
         "transform": transform,
@@ -471,6 +473,9 @@ def _build_widget_template_envelope(
     refresh_interval_seconds: int | None = None,
     source_bot_id: str | None = None,
     source_channel_id: str | None = None,
+    view_key: str | None = None,
+    data: Any | None = None,
+    template_id: str | None = None,
 ) -> ToolResultEnvelope:
     if isinstance(body, str):
         body_text = body
@@ -488,6 +493,9 @@ def _build_widget_template_envelope(
         refresh_interval_seconds=refresh_interval_seconds,
         source_bot_id=source_bot_id,
         source_channel_id=source_channel_id,
+        view_key=view_key,
+        data=data,
+        template_id=template_id,
     )
 
 
@@ -568,6 +576,9 @@ def apply_widget_template(
             refresh_interval_seconds=int(interval) if interval else None,
             source_bot_id=bot_id if bot_id else None,
             source_channel_id=channel_str,
+            view_key=tmpl.get("view_key"),
+            data=data_with_config,
+            template_id=f"{tmpl.get('source', 'template')}:{tool_name}",
         )
 
     # Component template mode (legacy/default)
@@ -590,6 +601,9 @@ def apply_widget_template(
         display_label=display_label,
         refreshable=bool(tmpl.get("state_poll")),
         refresh_interval_seconds=int(interval) if interval else None,
+        view_key=tmpl.get("view_key"),
+        data=data_with_config,
+        template_id=f"{tmpl.get('source', 'template')}:{tool_name}",
     )
 
 
@@ -623,28 +637,51 @@ def _build_html_widget_body(html_template_body: str, tool_result_json: dict) -> 
     # behavior as the tile's outer scroll container.
     scrollbar_style = (
         "<style>"
-        "html[data-hover-scrollbars=\"1\"] {"
-        " scrollbar-width: thin;"
+        "html[data-hover-scrollbars=\"1\"],"
+        "html[data-hover-scrollbars=\"1\"] body,"
+        "html[data-hover-scrollbars=\"1\"] * {"
+        " scrollbar-width: none;"
         " scrollbar-color: transparent transparent;"
         " transition: scrollbar-color 200ms ease;"
         "}"
         "html[data-hover-scrollbars=\"1\"]:hover,"
-        "html[data-hover-scrollbars=\"1\"]:focus-within {"
+        "html[data-hover-scrollbars=\"1\"]:focus-within,"
+        "html[data-hover-scrollbars=\"1\"]:hover body,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within body,"
+        "html[data-hover-scrollbars=\"1\"]:hover *,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within * {"
+        " scrollbar-width: thin;"
         " scrollbar-color: rgba(153,163,180,0.35) transparent;"
         "}"
-        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar {"
-        " width: 6px; height: 6px;"
+        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"] body::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"] *::-webkit-scrollbar {"
+        " width: 0; height: 0;"
         "}"
         "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar-track {"
         " background: transparent;"
         "}"
-        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar-thumb {"
+        "html[data-hover-scrollbars=\"1\"]::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"] body::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"] *::-webkit-scrollbar-thumb {"
         " background: transparent;"
         " border-radius: 3px;"
         " transition: background-color 200ms ease;"
         "}"
+        "html[data-hover-scrollbars=\"1\"]:hover::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"]:hover body::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within body::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"]:hover *::-webkit-scrollbar,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within *::-webkit-scrollbar {"
+        " width: 6px; height: 6px;"
+        "}"
         "html[data-hover-scrollbars=\"1\"]:hover::-webkit-scrollbar-thumb,"
-        "html[data-hover-scrollbars=\"1\"]:focus-within::-webkit-scrollbar-thumb {"
+        "html[data-hover-scrollbars=\"1\"]:focus-within::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"]:hover body::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within body::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"]:hover *::-webkit-scrollbar-thumb,"
+        "html[data-hover-scrollbars=\"1\"]:focus-within *::-webkit-scrollbar-thumb {"
         " background: rgba(153,163,180,0.35);"
         "}"
         "</style>\n"
@@ -739,6 +776,9 @@ def apply_state_poll(
             refresh_interval_seconds=int(interval) if interval else None,
             source_bot_id=widget_meta.get("source_bot_id"),
             source_channel_id=widget_meta.get("source_channel_id"),
+            view_key=owner_tmpl.get("view_key"),
+            data=data_with_config,
+            template_id=f"{owner_tmpl.get('source', 'template')}:{tool_name}",
         )
 
     # Component-template mode
@@ -753,6 +793,9 @@ def apply_state_poll(
         display_label=display_label,
         refreshable=True,
         refresh_interval_seconds=int(interval) if interval else None,
+        view_key=owner_tmpl.get("view_key"),
+        data=data_with_config,
+        template_id=f"{owner_tmpl.get('source', 'template')}:{tool_name}",
     )
 
 

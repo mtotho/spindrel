@@ -35,18 +35,15 @@ docker_compose:
 provides:
   - tools
 
-# Rich HTML widget for web_search — per-result cards with favicon, snippet,
-# domain chip, star-to-save (persists via widget_config.starred[]), Summarize
-# button that dispatches fetch_url and expands an inline panel.
+# Web Search opts into the core semantic search-results renderer. The component
+# template below is a compatibility fallback for clients that do not understand
+# view_key: core.search_results.
 tool_widgets:
   web_search:
-    content_type: application/vnd.spindrel.html+interactive
+    content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "Web search"
-    html_template:
-      path: widgets/web_search.html
-    default_config:
-      starred: []
+    view_key: core.search_results
     sample_payload:
       query: "best espresso machine under 500"
       count: 3
@@ -60,3 +57,14 @@ tool_widgets:
         - title: "Breville Bambino Plus vs Infuser head-to-head"
           url: "https://reviews.example.net/breville-bambino-plus-vs-infuser"
           content: "The Bambino Plus and the Infuser are both popular mid-range picks. We compared espresso quality, steaming speed, and long-term reliability across 6 months."
+    template:
+      v: 1
+      components:
+        - type: heading
+          text: "Search: {{query}}"
+          level: 2
+        - type: status
+          text: "{{count}} result(s)"
+          color: info
+        - type: links
+          items: "{{results | map: {url: url, title: title, subtitle: content} }}"

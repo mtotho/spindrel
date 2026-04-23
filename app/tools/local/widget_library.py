@@ -44,7 +44,6 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # ``suites/`` directory up one level; suites now surface via the presence of
 # a ``suite.yaml`` inside a widget folder, alongside template/html bundles.
 _SKIP_NAMES = frozenset({"examples"})
-_RETIRED_CORE_LIBRARY_WIDGETS = frozenset({"notes"})
 
 _METADATA_KEYS = (
     "display_label",
@@ -98,9 +97,6 @@ def _read_widget_meta(
     name = widget_dir.name
     if not _NAME_RE.match(name) or name in _SKIP_NAMES:
         return None
-    if scope == "core" and name in _RETIRED_CORE_LIBRARY_WIDGETS:
-        return None
-
     has_index = (widget_dir / "index.html").is_file()
     has_suite = (widget_dir / "suite.yaml").is_file()
     has_template = (widget_dir / "template.yaml").is_file()

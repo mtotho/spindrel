@@ -30,81 +30,108 @@ function toneColor(isError: boolean, t: ThemeTokens): string {
   return isError ? t.dangerMuted : t.textMuted;
 }
 
-function renderDiffBlock(detail: string, t: ThemeTokens, rowId: string) {
+function renderDiffTitle(label: string | null | undefined, metaLabel: string | null | undefined, t: ThemeTokens) {
+  if (!label?.trim()) return null;
   return (
     <div
       style={{
-        marginLeft: 10,
-        marginTop: 6,
-        fontFamily: CODE_FONT_STACK,
+        display: "flex", flexDirection: "row",
+        alignItems: "baseline",
+        gap: 4,
+        margin: "8px 0 4px 10px",
+        fontFamily: TERMINAL_FONT_STACK,
         fontSize: 11.5,
-        lineHeight: 1.45,
+        lineHeight: 1.4,
+        color: t.textMuted,
       }}
     >
-      {detailRows(detail).map((line, lineIndex) => (
-        <div
-          key={`${rowId}-detail-${lineIndex}`}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "38px 14px minmax(0, 1fr)",
-            gap: 8,
-            alignItems: "start",
-            background: line.tone === "success"
-              ? t.successSubtle
-              : line.tone === "danger"
-                ? t.dangerSubtle
-                : line.tone === "accent"
-                  ? t.overlayLight
-                  : "transparent",
-            borderRadius: 3,
-          }}
-        >
-          <span
-            style={{
-              color: t.textDim,
-              textAlign: "right",
-              userSelect: "none",
-              padding: "0 0 0 2px",
-            }}
-          >
-            {line.lineNumber ?? ""}
-          </span>
-          <span
-            style={{
-              color: line.tone === "success"
-                ? t.success
-                : line.tone === "danger"
-                  ? t.danger
-                  : line.tone === "accent"
-                    ? t.accent
-                    : t.textDim,
-              textAlign: "center",
-              userSelect: "none",
-            }}
-          >
-            {line.sign ?? ""}
-          </span>
-          <span
-            style={{
-              color: line.tone === "success"
-                ? t.success
-                : line.tone === "danger"
-                  ? t.danger
-                  : line.tone === "accent"
-                    ? t.accent
-                    : t.textMuted,
-              padding: "0 4px 0 0",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-              overflowWrap: "anywhere",
-              fontFamily: CODE_FONT_STACK,
-            }}
-          >
-            {line.text || " "}
-          </span>
-        </div>
-      ))}
+      <span style={{ color: t.text, fontWeight: 600 }}>{label.trim()}</span>
+      {metaLabel && <span style={{ color: t.textMuted }}>{metaLabel}</span>}
     </div>
+  );
+}
+
+function renderDiffBlock(detail: string, t: ThemeTokens, rowId: string, isTerminalMode = false, titleLabel?: string | null, titleMeta?: string | null) {
+  const rows = detailRows(detail).filter((line) => (
+    !isTerminalMode || (line.sign !== "---" && line.sign !== "+++" && !line.text.startsWith("---") && !line.text.startsWith("+++"))
+  ));
+  return (
+    <>
+      {isTerminalMode && renderDiffTitle(titleLabel, titleMeta, t)}
+      <div
+        style={{
+          marginLeft: 10,
+          marginTop: isTerminalMode ? 0 : 6,
+          fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : CODE_FONT_STACK,
+          fontSize: isTerminalMode ? 11 : 11.5,
+          lineHeight: 1.45,
+        }}
+      >
+        {rows.map((line, lineIndex) => (
+          <div
+            key={`${rowId}-detail-${lineIndex}`}
+            style={{
+              display: "grid",
+              gridTemplateColumns: "38px 14px minmax(0, 1fr)",
+              gap: 8,
+              alignItems: "start",
+              background: line.tone === "success"
+                ? t.successSubtle
+                : line.tone === "danger"
+                  ? t.dangerSubtle
+                  : line.tone === "accent"
+                    ? t.overlayLight
+                    : "transparent",
+              borderRadius: 3,
+            }}
+          >
+            <span
+              style={{
+                color: t.textDim,
+                textAlign: "right",
+                userSelect: "none",
+                padding: "0 0 0 2px",
+              }}
+            >
+              {line.lineNumber ?? ""}
+            </span>
+            <span
+              style={{
+                color: line.tone === "success"
+                  ? t.success
+                  : line.tone === "danger"
+                    ? t.danger
+                    : line.tone === "accent"
+                      ? t.accent
+                      : t.textDim,
+                textAlign: "center",
+                userSelect: "none",
+              }}
+            >
+              {line.sign ?? ""}
+            </span>
+            <span
+              style={{
+                color: line.tone === "success"
+                  ? t.success
+                  : line.tone === "danger"
+                    ? t.danger
+                    : line.tone === "accent"
+                      ? t.accent
+                      : t.textMuted,
+                padding: "0 4px 0 0",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflowWrap: "anywhere",
+                fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : CODE_FONT_STACK,
+              }}
+            >
+              {line.text || " "}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -301,7 +328,7 @@ export function DefaultToolRows({
                 ))}
             </div>
 
-            {entry.detailKind === "inline-diff" && entry.detail && renderDiffBlock(entry.detail, t, entry.id)}
+            {entry.detailKind === "inline-diff" && entry.detail && renderDiffBlock(entry.detail, t, entry.id, isTerminalMode, entry.label, entry.metaLabel)}
 
             {entry.approval && onApproval && (
               <div
@@ -351,14 +378,19 @@ export function DefaultToolRows({
               <div
                 className="rounded-lg border overflow-hidden mt-1"
                 style={{
-                  borderColor: t.surfaceBorder,
-                  backgroundColor: t.surfaceRaised,
+                  borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
+                  backgroundColor: isTerminalMode ? "transparent" : t.surfaceRaised,
+                  borderRadius: isTerminalMode ? 0 : undefined,
                 }}
               >
                 {formattedArgs && (
                   <div
                     className="max-h-[200px] overflow-y-auto px-3 py-2 border-b"
-                    style={{ borderColor: t.surfaceBorder }}
+                    style={{
+                      borderColor: isTerminalMode ? "transparent" : t.surfaceBorder,
+                      padding: isTerminalMode ? "2px 0 4px 18px" : undefined,
+                      overflowY: isTerminalMode ? "hidden" : undefined,
+                    }}
                   >
                     <pre className="m-0 text-[11px] font-mono whitespace-pre-wrap break-words leading-relaxed" style={{ color: t.textMuted }}>
                       {formattedArgs}
@@ -367,7 +399,10 @@ export function DefaultToolRows({
                 )}
 
                 {entry.env && (
-                  <div className="relative px-3 py-1 pb-2">
+                  <div
+                    className="relative px-3 py-1 pb-2"
+                    style={isTerminalMode ? { padding: "2px 0 2px 18px" } : undefined}
+                  >
                     {entry.isError ? (
                       <ErrorResult env={entry.env} t={t} chatMode={chatMode} sessionId={sessionId} channelId={channelId} botId={botId} />
                     ) : (
@@ -384,7 +419,7 @@ export function DefaultToolRows({
                     {!entry.env.truncated && (entry.env.byte_size > 2000 || envelopeBodyLength(entry.env) > 1500) && (
                       <div
                         className="absolute bottom-0 left-0 right-0 h-12 flex items-end justify-center pb-1.5 pointer-events-none"
-                        style={{ background: `linear-gradient(transparent, ${t.surfaceRaised})` }}
+                        style={{ background: isTerminalMode ? "transparent" : `linear-gradient(transparent, ${t.surfaceRaised})` }}
                       />
                     )}
                   </div>

@@ -109,6 +109,14 @@ tool_widgets:
       path: widgets/frigate_snapshot.html
     default_config:
       show_bbox: true
+    config_schema:
+      type: object
+      properties:
+        show_bbox:
+          type: boolean
+          title: Show bounding boxes
+          description: Overlay Frigate detection bounding boxes on the snapshot when available.
+          default: true
     state_poll:
       tool: frigate_snapshot
       args:

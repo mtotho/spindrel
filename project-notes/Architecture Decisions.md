@@ -10,6 +10,31 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Plan mode state is a runtime capsule plus a Markdown artifact
+**Decided 2026-04-23.** Session plan mode no longer treats the Markdown plan file as the only load-bearing state.
+
+**What changed.**
+- `Session.metadata_["plan_runtime"]` now stores the compact execution capsule: mode, current/next step ids, accepted/current revisions, next action, blockers, unresolved questions, replan metadata, and compaction watermark.
+- `Session.metadata_["planning_state"]` stores visible durable planning notes: confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes.
+- `Session.metadata_["plan_adherence"]` stores recent execution evidence and the current adherence status.
+- Plan-state and plan endpoints return both `runtime` and deterministic `validation`.
+- Approval rejects structurally incomplete plans instead of relying on prompt guidance.
+- `request_plan_replan` is the explicit transition when execution proves the accepted plan is stale.
+
+**Why.**
+- Markdown is readable but too fuzzy to be the only execution contract.
+- Short planning/execution context windows and automatic compaction need a compact state capsule that can be injected every turn.
+- Adherence cannot depend only on instructions; the runtime must block thin/unresolved plans and provide a typed replan path.
+
+**Load-bearing invariants.**
+- Markdown remains the canonical human-readable artifact.
+- The runtime capsule is the canonical compact state summary for context injection and UI status.
+- Planning-state is visible durable user/agent back-and-forth, not an invisible hidden plan.
+- Adherence evidence is compact supervision input, not proof that semantic step success has been fully verified.
+- Compaction summaries are never authoritative for plan state.
+- Replanning creates a new draft revision and preserves the previously accepted revision until a new one is approved.
+- Subagent guidance remains disabled by default until that orchestration path is separately vetted.
+
 ### Context assembly is origin-aware and profile-driven
 **Decided 2026-04-22.** Context assembly no longer treats chat, plan mode, tasks, and heartbeat runs as one generic additive prompt policy.
 
@@ -206,7 +231,7 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - **Theming stays small.** Native app widgets inherit the app's existing light/dark theme tokens only. Widget-specific theming remains an HTML-lane concern unless the app adopts a broader theming platform later.
 - **First proving widget is native Notes.** Use a small flagship widget (`core/notes_native`) to validate the model before expanding the native lane.
 - **Outer widget chrome belongs to the host wrapper.** Title bars and the outer surfaced-vs-plain shell are host concerns (`show_title`, `wrapper_surface`); widgets should not duplicate that chrome internally.
-- **Legacy HTML Notes is compatibility-only.** Keep the old bundle on disk for existing pins/direct refs, but hide it from library discovery so new Notes placements use `notes_native`.
+- **Legacy HTML Notes is deleted, not compatibility-hidden.** The old `app/tools/local/widgets/notes/` bundle is intentionally unsupported so new and existing first-party Notes behavior routes through `notes_native`; stale direct refs should be replaced rather than shimmed.
 
 ### Widget taxonomy is definition-kind first; presets are an instantiation path, not a widget kind
 **Decided 2026-04-22.** The widget system now standardizes on an explicit public contract model instead of relying on overlapping historical terms like "template", "tool renderer", "preset", and "HTML widget" to explain everything.
@@ -230,6 +255,7 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 
 **Load-bearing invariants.**
 - **Preset is never a definition kind.** A preset is a guided setup flow, usually over a `tool_widget`.
+- **Preset dependencies must be explicit.** If a preset declares a `tool_family`, every backing tool, binding-source tool, and action dependency must stay inside that family. Single guided flows must not silently depend on multiple incompatible MCP/server lanes.
 - **A YAML tool widget that uses `html_template` is still a `tool_widget`.** It is tool-bound, state-from-tool-result, and not equivalent to a standalone `html_widget`.
 - **Standalone HTML widgets remain a separate contract.** They are bundle/runtime-owned and arrive through `library_pin` or `runtime_emit`.
 - **Native widgets remain core-only.**
@@ -303,3 +329,37 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 **Why not `apt-get install`.** apt writes to `/usr/bin`, `/usr/lib`, `/etc` — all part of the image filesystem layer, wiped on every `docker build`. A volume mounted at `/usr` would shadow the base Python/gosu/sudo installs, so that's a non-starter. Baking heavy packages into the Dockerfile was rejected early — don't want to ship 300MB of chromium to users who don't need it.
 
 **Why `dpkg -x` is fine.** The tradeoff is that postinst scripts don't run. For the packages Spindrel's integrations actually declare (chromium, gh, jq, ripgrep, other dev tools), postinst is either cosmetic (menu entries, alternatives registration) or a no-op. If a future package needs specific postinst behavior (`update-ca-certificates`, etc.), invoke the hook explicitly after extraction rather than reverting this pattern.
+
+### Tool results render by `view_key + mode`, not by terminal-specific rewrites
+**Decided 2026-04-22.** Tool result rendering is a mode-aware view registry. Envelopes identify the stable result view with `view_key` and carry structured `data`; the UI chooses the renderer for the active mode (`default`, `terminal`, future compact/dashboard modes) without rewriting one mode into another.
+
+**What this means.**
+- `body` is the rendered/default artifact for the envelope's content type; `data` is the shared renderer-neutral payload.
+- Default, terminal, and future modes are peers in the registry. Terminal must not iframe/mount default widget chrome as a fallback.
+- If a view has no renderer for the current mode, the UI renders a safe fallback rather than guessing from HTML or crashing old rows.
+- Widget templates may provide default HTML/components while also stamping `view_key`/`data` so terminal and future modes can render bespoke components from the same result.
+- Generic result shapes use core view keys, not integration-specific registrations. `core.search_results` is the first example: Web Search opts into it, but the React app does not know about a `web_search.results` view.
+
+**Why.**
+- Terminal mode needs fully custom components and composer behavior, not CSS overrides of default chat.
+- Parsing default widget markup to recover terminal content couples modes in the wrong direction.
+- A registry keeps the system extensible for more presentation modes without adding another bespoke branch per mode.
+
+### Plan mode uses visible state capsules plus deterministic adherence gates
+**Decided 2026-04-23.** Plan mode is not allowed to rely on transcript memory alone. The approved plan remains the executable contract, but pre-publication planning back-and-forth and execution evidence now live in visible metadata-backed capsules that context assembly can always inject.
+
+**What this means.**
+- `planning_state` stores confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes. It is durable planning notes, not an invisible executable plan.
+- `plan_runtime` remains the compact execution state machine: accepted revision, current step, next action, blockers, replan, compaction watermark.
+- `plan_adherence` records deterministic execution evidence: current step, tool name/kind, tool-call ids, status/error, arguments summary, and result summary.
+- `ask_plan_questions` answers are persisted both as a normal user message and as structured `planning_state` decisions.
+- `publish_plan` validation warns if confirmed planning decisions are not visibly reflected in the draft.
+- Tool dispatch gates mutating tools in planning mode and also blocks mutating execution when the accepted revision/current-step contract is invalid, blocked, or pending replan.
+
+**Why.**
+- Codex/Claude-style harnesses succeed by injecting the right small contract at the right time and gating side effects before they happen.
+- Chat history and compaction summaries are too lossy to be the source of truth for multi-turn planning.
+- The first reliable supervisor should be deterministic protocol enforcement plus evidence capture; semantic judging can come later as evals mature.
+
+**Remaining gap.**
+- There is still no full turn-end stop hook requiring every execution turn to end with progress, blocker, replan, verification, or explicit no-progress reason.

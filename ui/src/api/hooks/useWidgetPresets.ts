@@ -31,6 +31,15 @@ export interface WidgetPresetBindingSource {
   params?: Record<string, unknown>;
 }
 
+export interface WidgetPresetDependencyContract {
+  tool_family?: {
+    id: string;
+    label: string;
+    tools: string[];
+  } | null;
+  tools: string[];
+}
+
 export interface WidgetPreset {
   id: string;
   integration_id: string | null;
@@ -43,6 +52,7 @@ export interface WidgetPreset {
   default_config: Record<string, unknown>;
   config_schema?: WidgetConfigSchema | null;
   widget_contract?: WidgetContract | null;
+  dependency_contract?: WidgetPresetDependencyContract | null;
   resolved_binding_options?: Record<string, WidgetPresetOption[]>;
   binding_source_errors?: Record<string, string>;
 }

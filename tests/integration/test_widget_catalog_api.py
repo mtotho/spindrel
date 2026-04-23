@@ -55,9 +55,9 @@ def seeded_catalog(tmp_path, monkeypatch):
     widgets_root = tools_local / "widgets"
     monkeypatch.setattr(html_widget_scanner, "BUILTIN_WIDGET_ROOT", widgets_root)
 
-    (widgets_root / "notes").mkdir(parents=True)
-    (widgets_root / "notes" / "index.html").write_text(
-        _widget_html("Notes", "2.0.0"), encoding="utf-8",
+    (widgets_root / "scratchpad").mkdir(parents=True)
+    (widgets_root / "scratchpad" / "index.html").write_text(
+        _widget_html("Scratchpad", "1.0.0"), encoding="utf-8",
     )
     (widgets_root / "generate_image").mkdir(parents=True)
     (widgets_root / "generate_image" / "image.html").write_text(
@@ -116,7 +116,7 @@ class TestCatalogEndpoint:
         )
         builtin = r.json()["builtin"]
         slugs = {e["slug"] for e in builtin}
-        assert "notes" in slugs
+        assert "scratchpad" in slugs
         assert "image" not in slugs, "image.html is a tool renderer — must be hidden"
         for e in builtin:
             assert e["source"] == "builtin"
@@ -144,13 +144,13 @@ class TestBuiltinContentEndpoint:
     async def test_read_builtin_content(self, client, seeded_catalog):
         r = await client.get(
             "/api/v1/widgets/html-widget-content/builtin",
-            params={"path": "notes/index.html"},
+            params={"path": "scratchpad/index.html"},
             headers=AUTH_HEADERS,
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["path"] == "notes/index.html"
-        assert "Notes" in body["content"]
+        assert body["path"] == "scratchpad/index.html"
+        assert "Scratchpad" in body["content"]
 
     @pytest.mark.asyncio
     async def test_read_builtin_rejects_traversal(self, client, seeded_catalog):
@@ -212,12 +212,12 @@ class TestLibraryContentEndpoint:
         """Core scope resolves without a bot_id — it's in-repo content."""
         r = await client.get(
             "/api/v1/widgets/html-widget-content/library",
-            params={"ref": "core/notes"},
+            params={"ref": "core/context_tracker"},
             headers=AUTH_HEADERS,
         )
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["path"] == "core/notes/index.html"
+        assert body["path"] == "core/context_tracker/index.html"
         assert "<" in body["content"] and body["content"].strip()
 
     @pytest.mark.asyncio

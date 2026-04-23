@@ -25,12 +25,22 @@ export function PlanResultRenderer({
   const fallbackPlan = useMemo(() => parsePlan(envelope), [envelope]);
   const plan = useMemo(() => {
     if (!fallbackPlan) return sessionPlan.data ?? null;
+    const currentRevision = sessionPlan.state?.revision ?? sessionPlan.data?.revision ?? null;
+    const useCurrentDetails = currentRevision == null || fallbackPlan.revision === currentRevision;
     return {
       ...fallbackPlan,
       accepted_revision: sessionPlan.state?.accepted_revision ?? sessionPlan.data?.accepted_revision ?? fallbackPlan.accepted_revision,
       revisions: sessionPlan.data?.revisions ?? fallbackPlan.revisions,
+      runtime: useCurrentDetails ? (sessionPlan.state?.runtime ?? sessionPlan.data?.runtime ?? fallbackPlan.runtime) : fallbackPlan.runtime,
+      validation: useCurrentDetails ? (sessionPlan.state?.validation ?? sessionPlan.data?.validation ?? fallbackPlan.validation) : fallbackPlan.validation,
+      planning_state: useCurrentDetails
+        ? (sessionPlan.state?.planning_state ?? sessionPlan.data?.planning_state ?? fallbackPlan.planning_state)
+        : fallbackPlan.planning_state,
+      adherence: useCurrentDetails
+        ? (sessionPlan.state?.adherence ?? sessionPlan.data?.adherence ?? fallbackPlan.adherence)
+        : fallbackPlan.adherence,
     } satisfies SessionPlan;
-  }, [fallbackPlan, sessionPlan.data, sessionPlan.state?.accepted_revision]);
+  }, [fallbackPlan, sessionPlan.data, sessionPlan.state]);
 
   if (!plan) return null;
 
@@ -38,7 +48,8 @@ export function PlanResultRenderer({
     || sessionPlan.approvePlan.isPending
     || sessionPlan.exitPlan.isPending
     || sessionPlan.resumePlan.isPending
-    || sessionPlan.updateStepStatus.isPending;
+    || sessionPlan.updateStepStatus.isPending
+    || sessionPlan.requestReplan.isPending;
 
   return (
     <SessionPlanCard
@@ -54,6 +65,11 @@ export function PlanResultRenderer({
       onStepStatus={(stepId, status) => {
         const note = status === "blocked" ? (window.prompt("Why is this step blocked?") ?? "") : undefined;
         sessionPlan.updateStepStatus.mutate({ stepId, status, note });
+      }}
+      onReplan={() => {
+        const reason = window.prompt("Why does this plan need revision?");
+        if (!reason?.trim()) return;
+        sessionPlan.requestReplan.mutate({ reason });
       }}
     />
   );

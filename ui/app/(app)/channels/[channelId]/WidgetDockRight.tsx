@@ -7,33 +7,40 @@
  * channel-chat-zones resolver (y then x).
  *
  * Author on the channel dashboard at `/widgets/channel/:id` — this component
- * is strictly read-only. Width is user-persisted in localStorage.
+ * is strictly read-only. Width is owned by the channel runtime panel prefs.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { ChevronRight, Settings2 } from "lucide-react";
+import { useCallback, useMemo } from "react";
+import { ChevronRight } from "lucide-react";
 import { ResizeHandle } from "@/src/components/workspace/ResizeHandle";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
 import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
+import {
+  CHANNEL_PANEL_DEFAULT_WIDTH,
+  CHANNEL_PANEL_MAX_WIDTH,
+  clampChannelPanelWidth,
+} from "@/src/lib/channelPanelLayout";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import { WidgetRailSection } from "./WidgetRailSection";
-
-const STORAGE_KEY = "chat-dock-right-width";
-const DEFAULT_WIDTH = 320;
-const MIN_WIDTH = 240;
-const MAX_WIDTH = 520;
 
 interface Props {
   channelId: string;
   dashboardHref?: string;
+  width?: number;
+  maxWidth?: number;
+  onWidthChange?: (width: number) => void;
+  onCollapse?: () => void;
 }
 
-export function WidgetDockRight({ channelId, dashboardHref }: Props) {
-  const t = useThemeTokens();
+export function WidgetDockRight({
+  channelId,
+  width = CHANNEL_PANEL_DEFAULT_WIDTH,
+  maxWidth = CHANNEL_PANEL_MAX_WIDTH,
+  onWidthChange,
+  onCollapse,
+}: Props) {
   const { dock: pins } = useChannelChatZones(channelId);
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
@@ -54,20 +61,6 @@ export function WidgetDockRight({ channelId, dashboardHref }: Props) {
     [dashboardRow?.grid_config],
   );
   const applyLayout = useDashboardPinsStore((s) => s.applyLayout);
-
-  const [width, setWidth] = useState<number>(() => {
-    if (typeof window === "undefined") return DEFAULT_WIDTH;
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? parseInt(raw, 10) : NaN;
-    return Number.isFinite(parsed) && parsed >= MIN_WIDTH && parsed <= MAX_WIDTH
-      ? parsed
-      : DEFAULT_WIDTH;
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, String(width));
-  }, [width]);
 
   const handleUnpin = useCallback(
     async (pinId: string) => {
@@ -92,10 +85,6 @@ export function WidgetDockRight({ channelId, dashboardHref }: Props) {
   // is preserved because the outer container honors its parent's flex rules.
   const hasPins = pins.length > 0;
   const targetWidth = hasPins ? width : 0;
-  const resolvedDashboardHref = (() => {
-    const base = dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`;
-    return `${base}${base.includes("?") ? "&" : "?"}zone=dock`;
-  })();
 
   return (
     <>
@@ -103,13 +92,13 @@ export function WidgetDockRight({ channelId, dashboardHref }: Props) {
         <ResizeHandle
           direction="horizontal"
           onResize={(delta: number) =>
-            setWidth((w) => Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, w - delta)))
+            onWidthChange?.(clampChannelPanelWidth(width - delta, maxWidth))
           }
           invisible
         />
       )}
       <div
-        className="group relative flex flex-col h-full overflow-hidden"
+        className="group relative flex h-full flex-row overflow-visible"
         style={{
           width: targetWidth,
           flexShrink: 0,
@@ -118,31 +107,21 @@ export function WidgetDockRight({ channelId, dashboardHref }: Props) {
         aria-hidden={!hasPins}
       >
         {hasPins && <>
-        {/* Hover-revealed top-right controls — the bare column has no title
-            strip, so Settings + Collapse fade in only on hover to keep the
-            column calm at rest. */}
-        <div className="absolute top-1 right-1 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <Link
-            to={resolvedDashboardHref}
-            aria-label="Edit right dock on channel dashboard"
-            title="Edit on channel dashboard"
-            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/[0.06]"
-            style={{ color: t.textDim }}
-          >
-            <Settings2 size={12} />
-          </Link>
+        <div className="absolute -left-5 top-2 z-20">
           <button
             type="button"
-            onClick={() => setRightDockHidden(true)}
+            onClick={() => {
+              if (onCollapse) onCollapse();
+              else setRightDockHidden(true);
+            }}
             aria-label="Collapse right dock"
             title="Collapse dock"
-            className="flex items-center justify-center w-6 h-6 rounded-md hover:bg-white/[0.06]"
-            style={{ color: t.textDim }}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-text-dim/60 transition-colors hover:bg-surface-overlay hover:text-text focus-visible:bg-surface-overlay focus-visible:text-text focus-visible:outline-none"
           >
             <ChevronRight size={14} />
           </button>
         </div>
-        <div className="flex flex-col flex-1 min-h-0 overflow-y-auto scroll-subtle pl-0 pr-2 py-2">
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto scroll-subtle py-2 pl-0 pr-1">
           <WidgetRailSection
             channelId={channelId}
             pins={pins}

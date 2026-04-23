@@ -115,15 +115,16 @@ interface Props {
 // ---------------------------------------------------------------------------
 // HistoricalThinking — collapsed reasoning block on persisted messages
 // ---------------------------------------------------------------------------
-function HistoricalThinking({ text, t }: { text: string; t: ThemeTokens }) {
+function HistoricalThinking({ text, t, chatMode = "default" }: { text: string; t: ThemeTokens; chatMode?: "default" | "terminal" }) {
   const [expanded, setExpanded] = useState(false);
+  const isTerminalMode = chatMode === "terminal";
   return (
     <div className="mb-2 mt-0.5">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         className="flex items-center gap-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wider opacity-70 hover:opacity-100"
-        style={{ color: t.purpleMuted }}
+        style={{ color: isTerminalMode ? t.textMuted : t.purpleMuted }}
       >
         <ChevronRight
           size={12}
@@ -364,7 +365,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
 
   const messageContent = (
     <>
-      {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} />}
+      {thinkingText.length > 0 && <HistoricalThinking text={thinkingText} t={t} chatMode={chatMode} />}
       {hasAssistantTurnBody ? (
         <OrderedTranscript
           items={orderedTurnBodyItems}
@@ -393,10 +394,22 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       onOpen={() => onReplyInThread(message.id)}
     />
   ) : null;
+  const terminalUserBlock = isTerminalMode && isUser;
 
   // Grouped message -- compact, no avatar or name header.
   // Mobile: no left indent (flush-left like non-grouped).
   if (isGrouped) {
+    const groupedMessageContent = terminalUserBlock ? (
+      <div
+        style={{
+          background: t.overlayLight,
+          padding: "9px 11px 10px",
+          fontFamily: TERMINAL_FONT_STACK,
+        }}
+      >
+        {messageContent}
+      </div>
+    ) : messageContent;
     return (
       <>
         <div
@@ -409,7 +422,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             borderRadius: 4,
           }}
         >
-          {messageContent}
+          {groupedMessageContent}
           {(displayContent.length > 0 || !!fullTurnMessages?.length) && <MessageActions text={displayContent} fullTurnText={fullTurnText} fullTurnMessages={fullTurnMessages} correlationId={message.correlation_id} t={t} canReplyInThread={canReplyInThread && !!onReplyInThread} onReplyInThread={onReplyInThread ? () => onReplyInThread(message.id) : undefined} />}
         </div>
         {threadAnchorEl}
@@ -435,8 +448,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         gap: narrow ? 0 : 12,
         paddingLeft: isTerminalMode ? 12 : narrow ? 12 : 20,
         paddingRight: narrow ? 12 : 20,
-        paddingTop: isTerminalMode ? 10 : 14,
-        paddingBottom: isTerminalMode ? 10 : 6,
+        paddingTop: isTerminalMode ? 9 : 14,
+        paddingBottom: isTerminalMode ? 9 : 6,
         borderRadius: 4,
       }}
     >
@@ -451,23 +464,30 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
       )}
 
       {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div
+        style={{
+          flex: 1,
+          minWidth: 0,
+          background: terminalUserBlock ? t.overlayLight : undefined,
+          padding: terminalUserBlock ? "9px 11px 10px" : undefined,
+        }}
+      >
         {/* Name + timestamp header */}
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: terminalUserBlock ? 6 : 2, flexWrap: "wrap" }}>
           <span
             onClick={handleBotClick}
             className={handleBotClick ? "bot-name-link" : undefined}
             style={{
-              fontSize: isTerminalMode ? 13 : 15,
+              fontSize: isTerminalMode ? 12 : 15,
               fontWeight: isTerminalMode ? 600 : 700,
-              color: isTerminalMode ? (isUser ? t.accent : avatarColor(displayName)) : isUser ? t.text : avatarColor(displayName),
+              color: isTerminalMode ? t.textMuted : isUser ? t.text : avatarColor(displayName),
               cursor: handleBotClick ? "pointer" : undefined,
               borderBottom: handleBotClick ? "1px solid transparent" : undefined,
               transition: handleBotClick ? "border-color 0.15s" : undefined,
               fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
               textTransform: isTerminalMode ? "lowercase" : undefined,
             }}
-            onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = avatarColor(displayName); } : undefined}
+            onMouseEnter={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = isTerminalMode ? t.textMuted : avatarColor(displayName); } : undefined}
             onMouseLeave={handleBotClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
           >
             {isTerminalMode ? `${isUser ? "user" : "assistant"}:${displayName}` : displayName}
@@ -487,9 +507,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             <span style={{
               fontSize: 10,
               fontWeight: 600,
-              color: "#06b6d4",
-              background: "#06b6d415",
-              border: "1px solid #06b6d430",
+              color: isTerminalMode ? t.textMuted : "#06b6d4",
+              background: isTerminalMode ? "transparent" : "#06b6d415",
+              border: isTerminalMode ? `1px solid ${t.overlayBorder}` : "1px solid #06b6d430",
               borderRadius: 10,
               padding: "1px 6px",
               letterSpacing: 0.3,
@@ -503,7 +523,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             </span>
           )}
           {delegatedByDisplay && (
-            <span style={{ fontSize: 11, color: "#8b5cf6", fontStyle: "italic" }}>
+            <span style={{ fontSize: 11, color: isTerminalMode ? t.textMuted : "#8b5cf6", fontStyle: "italic" }}>
               delegated by {delegatedByDisplay}
             </span>
           )}
@@ -515,9 +535,9 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
                 gap: 3,
                 fontSize: 10,
                 fontWeight: 600,
-                color: triggerBadge.color,
-                background: `${triggerBadge.color}18`,
-                border: `1px solid ${triggerBadge.color}30`,
+                color: isTerminalMode ? t.textMuted : triggerBadge.color,
+                background: isTerminalMode ? "transparent" : `${triggerBadge.color}18`,
+                border: isTerminalMode ? `1px solid ${t.overlayBorder}` : `1px solid ${triggerBadge.color}30`,
                 borderRadius: 10,
                 padding: "1px 7px",
                 letterSpacing: 0.3,

@@ -57,15 +57,38 @@ export function JsonTreeRenderer({
   const nodeCount = countNodes(parsed);
   // Small trees expand fully; larger ones use depth-based collapsing.
   const expandDepth = nodeCount < SMALL_TREE_THRESHOLD ? 20 : 2;
+  const isTerminal = rendererVariant === "terminal-chat";
+  const clipped = isTerminal && nodeCount >= SMALL_TREE_THRESHOLD;
 
   return (
     <div
       style={{
         ...resolveCodeShell({ t, rendererVariant, chromeMode }),
+        position: "relative",
+        paddingBottom: clipped ? 20 : undefined,
         lineHeight: rendererVariant === "terminal-chat" ? 1.45 : 1.55,
       }}
     >
-      <JsonNode value={parsed} t={t} keyPath="$" depth={0} expandDepth={expandDepth} />
+      <JsonNode value={parsed} t={t} keyPath="$" depth={0} expandDepth={expandDepth} rendererVariant={rendererVariant} />
+      {clipped && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            marginTop: 4,
+            paddingTop: 10,
+            paddingLeft: chromeMode === "embedded" ? 0 : 12,
+            color: t.textDim,
+            background: `linear-gradient(transparent, ${chromeMode === "embedded" ? t.surface : t.codeBg} 45%)`,
+            fontSize: 11,
+            pointerEvents: "none",
+          }}
+        >
+          ... more
+        </div>
+      )}
     </div>
   );
 }
@@ -76,20 +99,23 @@ function JsonNode({
   keyPath,
   depth,
   expandDepth = 2,
+  rendererVariant = "default-chat",
 }: {
   value: unknown;
   t: ThemeTokens;
   keyPath: string;
   depth: number;
   expandDepth?: number;
+  rendererVariant?: RichRendererVariant;
 }) {
   const [open, setOpen] = useState(depth < expandDepth);
+  const isTerminal = rendererVariant === "terminal-chat";
 
   if (value === null) return <span style={{ color: t.textDim }}>null</span>;
-  if (typeof value === "boolean") return <span style={{ color: t.purple }}>{String(value)}</span>;
-  if (typeof value === "number") return <span style={{ color: t.warning }}>{value}</span>;
+  if (typeof value === "boolean") return <span style={{ color: isTerminal ? t.textMuted : t.purple }}>{String(value)}</span>;
+  if (typeof value === "number") return <span style={{ color: isTerminal ? t.textMuted : t.warning }}>{value}</span>;
   if (typeof value === "string")
-    return <span style={{ color: t.success }}>"{value}"</span>;
+    return <span style={{ color: isTerminal ? t.text : t.success }}>"{value}"</span>;
 
   if (Array.isArray(value)) {
     if (value.length === 0) return <span style={{ color: t.textDim }}>[]</span>;
@@ -102,7 +128,7 @@ function JsonNode({
             {value.map((item, i) => (
               <div key={`${keyPath}.${i}`}>
                 <span style={{ color: t.textDim }}>{i}: </span>
-                <JsonNode value={item} t={t} keyPath={`${keyPath}.${i}`} depth={depth + 1} expandDepth={expandDepth} />
+                <JsonNode value={item} t={t} keyPath={`${keyPath}.${i}`} depth={depth + 1} expandDepth={expandDepth} rendererVariant={rendererVariant} />
               </div>
             ))}
           </div>
@@ -124,7 +150,7 @@ function JsonNode({
               <div key={`${keyPath}.${k}`}>
                 <span style={{ color: t.accent }}>"{k}"</span>
                 <span style={{ color: t.textMuted }}>: </span>
-                <JsonNode value={v} t={t} keyPath={`${keyPath}.${k}`} depth={depth + 1} expandDepth={expandDepth} />
+                <JsonNode value={v} t={t} keyPath={`${keyPath}.${k}`} depth={depth + 1} expandDepth={expandDepth} rendererVariant={rendererVariant} />
               </div>
             ))}
           </div>

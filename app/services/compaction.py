@@ -7,13 +7,15 @@ import shutil
 import time as _time
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.bots import BotConfig
+from app.agent.tool_dispatch import ToolResultEnvelope
 from app.agent.recording import _record_trace_event
 from app.config import settings
 from app.db.engine import async_session
@@ -23,6 +25,15 @@ from app.services.sessions import normalize_stored_content
 logger = logging.getLogger(__name__)
 
 from app.config import DEFAULT_MEMORY_SCHEME_FLUSH_PROMPT
+
+COMPACTION_RUN_KIND = "compaction_run"
+_ACTIVE_MANUAL_COMPACTION_STATUSES = {"queued", "running"}
+_MANUAL_COMPACTION_TASKS: dict[str, asyncio.Task] = {}
+_COMPACTION_NOOP_ERRORS = (
+    "All messages within keep window",
+    "No conversation content to summarize",
+    "No user messages found in session",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +261,242 @@ def _get_memory_flush_model(bot: BotConfig, channel: Channel | None = None) -> s
     return bot.model
 
 
+def _compaction_bus_key(session: Session) -> uuid.UUID:
+    return session.channel_id or session.id
+
+
+def _compact_bot_name(bot: BotConfig) -> str:
+    return getattr(bot, "display_name", None) or getattr(bot, "name", None) or bot.id
+
+
+def _is_noop_compaction_error(exc: Exception) -> bool:
+    text = str(exc)
+    return any(marker in text for marker in _COMPACTION_NOOP_ERRORS)
+
+
+def _compaction_envelope(
+    *,
+    origin: str,
+    status: str,
+    title: str | None = None,
+    detail: str | None = None,
+    summary_len: int | None = None,
+    error: str | None = None,
+    trigger_reason: str | None = None,
+    result_kind: str | None = None,
+) -> dict[str, Any]:
+    origin_label = "Manual" if origin == "manual" else "Auto"
+    if status == "queued":
+        heading = "Compaction queued"
+        body_detail = detail or "A response is still running. Compaction will start after it finishes."
+    elif status == "running":
+        heading = "Compaction running"
+        body_detail = detail or "Older conversation history is being summarized."
+    elif status == "failed":
+        heading = "Compaction failed"
+        body_detail = error or detail or "Compaction did not complete."
+    elif result_kind == "noop":
+        heading = "Nothing to compact"
+        body_detail = detail or "The live keep window already contains the available conversation."
+    else:
+        heading = "Context compacted"
+        body_detail = detail or "Older conversation history was summarized."
+
+    lines = [f"**{heading}**", "", body_detail, "", f"Source: {origin_label} compaction."]
+    if title:
+        lines.append(f"Title: {title}.")
+    if summary_len is not None:
+        lines.append(f"Summary length: {summary_len:,} characters.")
+    if trigger_reason:
+        lines.append(f"Trigger: {trigger_reason}.")
+    body = "\n".join(lines)
+    plain_body = f"{heading}: {body_detail}"
+    return ToolResultEnvelope(
+        content_type="text/markdown",
+        body=body,
+        plain_body=plain_body,
+        display="panel",
+        display_label="Compaction",
+        byte_size=len(body.encode("utf-8")),
+        view_key="compaction_run",
+        data={
+            "origin": origin,
+            "status": status,
+            "title": title,
+            "summary_len": summary_len,
+            "trigger_reason": trigger_reason,
+            "result_kind": result_kind or status,
+        },
+    ).compact_dict()
+
+
+def _compaction_metadata(
+    *,
+    bot: BotConfig,
+    origin: str,
+    status: str,
+    title: str | None = None,
+    detail: str | None = None,
+    summary_len: int | None = None,
+    error: str | None = None,
+    trigger_reason: str | None = None,
+    result_kind: str | None = None,
+) -> dict[str, Any]:
+    metadata = {
+        "kind": COMPACTION_RUN_KIND,
+        "source": "compaction",
+        "sender_type": "bot",
+        "sender_id": f"bot:{bot.id}",
+        "sender_display_name": _compact_bot_name(bot),
+        "compaction_origin": origin,
+        "compaction_status": status,
+        "assistant_turn_body": {"version": 1, "items": []},
+        "envelope": _compaction_envelope(
+            origin=origin,
+            status=status,
+            title=title,
+            detail=detail,
+            summary_len=summary_len,
+            error=error,
+            trigger_reason=trigger_reason,
+            result_kind=result_kind,
+        ),
+    }
+    if title:
+        metadata["compaction_title"] = title
+    if summary_len is not None:
+        metadata["compaction_summary_len"] = summary_len
+    if trigger_reason:
+        metadata["compaction_trigger_reason"] = trigger_reason
+    if result_kind:
+        metadata["compaction_result"] = result_kind
+    if error:
+        metadata["compaction_error"] = error[:500]
+    return metadata
+
+
+async def _find_latest_compaction_run(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    *,
+    origin: str | None = None,
+    statuses: set[str] | None = None,
+) -> Message | None:
+    result = await db.execute(
+        select(Message)
+        .where(Message.session_id == session_id)
+        .order_by(Message.created_at.desc())
+        .limit(100)
+    )
+    for msg in result.scalars().all():
+        meta = msg.metadata_ or {}
+        if meta.get("kind") != COMPACTION_RUN_KIND:
+            continue
+        if origin is not None and meta.get("compaction_origin") != origin:
+            continue
+        if statuses is not None and meta.get("compaction_status") not in statuses:
+            continue
+        return msg
+    return None
+
+
+async def _insert_compaction_run_message(
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    *,
+    origin: str,
+    status: str,
+    detail: str | None = None,
+    trigger_reason: str | None = None,
+) -> uuid.UUID | None:
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return None
+        msg = Message(
+            session_id=session_id,
+            role="assistant",
+            content="",
+            metadata_=_compaction_metadata(
+                bot=bot,
+                origin=origin,
+                status=status,
+                detail=detail,
+                trigger_reason=trigger_reason,
+            ),
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(msg)
+        await db.commit()
+        await db.refresh(msg)
+
+        from app.services.channel_events import publish_message
+
+        publish_message(_compaction_bus_key(session), msg)
+        return msg.id
+
+
+async def _update_compaction_run_message(
+    message_id: uuid.UUID,
+    bot: BotConfig,
+    *,
+    status: str,
+    title: str | None = None,
+    detail: str | None = None,
+    summary_len: int | None = None,
+    error: str | None = None,
+    trigger_reason: str | None = None,
+    result_kind: str | None = None,
+) -> None:
+    async with async_session() as db:
+        msg = await db.get(Message, message_id)
+        if msg is None:
+            return
+        session = await db.get(Session, msg.session_id)
+        if session is None:
+            return
+        meta = dict(msg.metadata_ or {})
+        origin = str(meta.get("compaction_origin") or "manual")
+        merged_trigger = trigger_reason or meta.get("compaction_trigger_reason")
+        meta.update(
+            _compaction_metadata(
+                bot=bot,
+                origin=origin,
+                status=status,
+                title=title,
+                detail=detail,
+                summary_len=summary_len,
+                error=error,
+                trigger_reason=merged_trigger,
+                result_kind=result_kind,
+            )
+        )
+        msg.metadata_ = meta
+        flag_modified(msg, "metadata_")
+        await db.commit()
+        await db.refresh(msg)
+
+        from app.services.channel_events import publish_message_updated
+
+        publish_message_updated(_compaction_bus_key(session), msg)
+
+
+def _manual_task_active(session_id: uuid.UUID | str) -> bool:
+    task = _MANUAL_COMPACTION_TASKS.get(str(session_id))
+    return task is not None and not task.done()
+
+
+def _track_manual_task(session_id: uuid.UUID | str, task: asyncio.Task) -> None:
+    key = str(session_id)
+    _MANUAL_COMPACTION_TASKS[key] = task
+
+    def _drop_done(_task: asyncio.Task) -> None:
+        if _MANUAL_COMPACTION_TASKS.get(key) is _task:
+            _MANUAL_COMPACTION_TASKS.pop(key, None)
+
+    task.add_done_callback(_drop_done)
+
+
 async def _run_memory_flush(
     channel: Channel,
     bot: BotConfig,
@@ -475,7 +722,12 @@ def _messages_for_summary(messages: list[dict]) -> list[dict]:
     for m in messages:
         # Skip heartbeat messages — they're automated internal checks
         meta = m.get("_metadata") or {}
-        if meta.get("is_heartbeat") or meta.get("hidden") or meta.get("pipeline_step"):
+        if (
+            meta.get("is_heartbeat")
+            or meta.get("hidden")
+            or meta.get("pipeline_step")
+            or meta.get("kind") == COMPACTION_RUN_KIND
+        ):
             continue
         role = m.get("role")
         content = m.get("content")
@@ -960,6 +1212,11 @@ async def run_compaction_stream(
         )
 
     logger.info("Starting compaction for session %s", session_id)
+    yield {
+        "type": "compaction_start",
+        "trigger_reason": trigger_reason,
+        "budget_triggered": budget_triggered,
+    }
 
     client_id: str
     existing_summary: str | None
@@ -1253,8 +1510,9 @@ async def run_compaction_stream(
             flush_result=flush_result,
         ))
         yield {"type": "compaction_done", "title": title}
-    except Exception:
+    except Exception as exc:
         logger.exception("Compaction failed for session %s", session_id)
+        yield {"type": "compaction_failed", "error": str(exc)}
 
 
 async def _drain_compaction(
@@ -1265,7 +1523,24 @@ async def _drain_compaction(
 ) -> None:
     """Drain run_compaction_stream (memory phase if any + summary). Used by fire-and-forget path."""
     compacted = False
+    started = False
+    terminal = False
+    run_message_id: uuid.UUID | None = None
     try:
+        async with async_session() as db:
+            manual = await _find_latest_compaction_run(
+                db,
+                session_id,
+                origin="manual",
+                statuses=_ACTIVE_MANUAL_COMPACTION_STATUSES,
+            )
+            if manual is not None:
+                logger.info(
+                    "Skipping auto compaction for %s because manual compaction is %s",
+                    session_id,
+                    (manual.metadata_ or {}).get("compaction_status"),
+                )
+                return
         async for event in run_compaction_stream(
             session_id,
             bot,
@@ -1274,51 +1549,65 @@ async def _drain_compaction(
             budget_triggered=budget_triggered,
             trigger_reason=trigger_reason,
         ):
-            if isinstance(event, dict) and event.get("type") == "compaction_done":
+            if not isinstance(event, dict):
+                continue
+            event_type = event.get("type")
+            if event_type == "compaction_start":
+                started = True
+                run_message_id = await _insert_compaction_run_message(
+                    session_id,
+                    bot,
+                    origin="auto",
+                    status="running",
+                    detail="Automatic compaction started after the latest response.",
+                    trigger_reason=trigger_reason,
+                )
+            elif event_type == "compaction_done":
                 compacted = True
+                terminal = True
+                if run_message_id:
+                    title = str(event.get("title") or "Compacted conversation")
+                    await _update_compaction_run_message(
+                        run_message_id,
+                        bot,
+                        status="completed",
+                        title=title,
+                        detail="Older conversation history was summarized automatically.",
+                        result_kind="compacted",
+                        trigger_reason=trigger_reason,
+                    )
+            elif event_type == "compaction_failed" and run_message_id:
+                terminal = True
+                await _update_compaction_run_message(
+                    run_message_id,
+                    bot,
+                    status="failed",
+                    error=str(event.get("error") or "Compaction failed."),
+                    trigger_reason=trigger_reason,
+                    result_kind="failed",
+                )
     except Exception:
         logger.exception("Background compaction failed for session %s", session_id)
+        terminal = True
+        if run_message_id:
+            await _update_compaction_run_message(
+                run_message_id,
+                bot,
+                status="failed",
+                error="Background compaction failed.",
+                trigger_reason=trigger_reason,
+                result_kind="failed",
+            )
 
-    if compacted:
-        try:
-            from app.db.engine import async_session as _async_session
-            from app.db.models import Session as _SessionRow
-            async with _async_session() as _db:
-                _sess = await _db.get(_SessionRow, session_id)
-                _channel_id = _sess.channel_id if _sess else None
-            if _channel_id is not None:
-                from datetime import datetime, timezone
-
-                from app.domain.actor import ActorRef
-                from app.domain.channel_events import ChannelEvent, ChannelEventKind
-                from app.domain.message import Message as DomainMessage
-                from app.domain.payloads import MessagePayload
-                from app.services.channel_events import publish_typed
-                from app.services.outbox_publish import enqueue_new_message_for_channel
-
-                _domain_msg = DomainMessage(
-                    id=uuid.uuid4(),
-                    session_id=session_id,
-                    role="system",
-                    content="🧠 _Context compacted._",
-                    created_at=datetime.now(timezone.utc),
-                    actor=ActorRef.system("compaction", "Context"),
-                    metadata={"source": "compaction"},
-                    channel_id=_channel_id,
-                )
-                # NEW_MESSAGE is outbox-durable: enqueue for renderer delivery,
-                # publish_typed for SSE.
-                await enqueue_new_message_for_channel(_channel_id, _domain_msg)
-                publish_typed(
-                    _channel_id,
-                    ChannelEvent(
-                        channel_id=_channel_id,
-                        kind=ChannelEventKind.NEW_MESSAGE,
-                        payload=MessagePayload(message=_domain_msg),
-                    ),
-                )
-        except Exception:
-            logger.warning("Failed to publish compaction notification for session %s", session_id)
+    if started and run_message_id and not compacted and not terminal:
+        await _update_compaction_run_message(
+            run_message_id,
+            bot,
+            status="completed",
+            detail="Nothing was eligible for compaction.",
+            trigger_reason=trigger_reason,
+            result_kind="noop",
+        )
 
 
 def _should_trigger_budget_compaction(
@@ -1363,6 +1652,158 @@ def maybe_compact(
         budget_triggered=_budget_triggered,
         trigger_reason=_trigger_reason,
     ))
+
+
+async def _run_manual_compaction_operation(
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    message_id: uuid.UUID,
+) -> None:
+    try:
+        async with async_session() as db:
+            title, summary = await run_compaction_forced(session_id, bot, db)
+            await db.commit()
+        await _update_compaction_run_message(
+            message_id,
+            bot,
+            status="completed",
+            title=title,
+            detail="Manual compaction completed.",
+            summary_len=len(summary),
+            result_kind="compacted",
+        )
+    except Exception as exc:
+        if _is_noop_compaction_error(exc):
+            await _update_compaction_run_message(
+                message_id,
+                bot,
+                status="completed",
+                detail=str(exc),
+                result_kind="noop",
+            )
+            return
+        logger.exception("Manual compaction failed for session %s", session_id)
+        await _update_compaction_run_message(
+            message_id,
+            bot,
+            status="failed",
+            error=str(exc) or "Manual compaction failed.",
+            result_kind="failed",
+        )
+
+
+def _start_manual_compaction_task(
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    message_id: uuid.UUID,
+) -> None:
+    if _manual_task_active(session_id):
+        return
+    task = asyncio.create_task(_run_manual_compaction_operation(session_id, bot, message_id))
+    _track_manual_task(session_id, task)
+
+
+async def request_manual_compaction(
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    db: AsyncSession,
+) -> dict[str, str]:
+    """Persist a manual compaction request and run it when the session is idle."""
+    from app.services import session_locks
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise ValueError("Session not found")
+
+    active = await _find_latest_compaction_run(
+        db,
+        session_id,
+        origin="manual",
+        statuses=_ACTIVE_MANUAL_COMPACTION_STATUSES,
+    )
+    if active is not None:
+        active_status = str((active.metadata_ or {}).get("compaction_status") or "running")
+        if active_status == "running" and not _manual_task_active(session_id):
+            _start_manual_compaction_task(session_id, bot, active.id)
+        if active_status == "queued" and not session_locks.is_active(session_id):
+            await _update_compaction_run_message(
+                active.id,
+                bot,
+                status="running",
+                detail="Manual compaction started.",
+            )
+            _start_manual_compaction_task(session_id, bot, active.id)
+            return {"status": "started", "message_id": str(active.id)}
+        return {
+            "status": "queued" if active_status == "queued" else "started",
+            "message_id": str(active.id),
+        }
+
+    if session_locks.is_active(session_id):
+        message_id = await _insert_compaction_run_message(
+            session_id,
+            bot,
+            origin="manual",
+            status="queued",
+            detail="A response is still running. Compaction will start after it finishes.",
+        )
+        return {"status": "queued", "message_id": str(message_id or "")}
+
+    message_id = await _insert_compaction_run_message(
+        session_id,
+        bot,
+        origin="manual",
+        status="running",
+        detail="Manual compaction started.",
+    )
+    if message_id:
+        _start_manual_compaction_task(session_id, bot, message_id)
+    return {"status": "started", "message_id": str(message_id or "")}
+
+
+def drain_queued_manual_compaction(session_id: uuid.UUID | str) -> None:
+    """Schedule queued manual compaction after the active turn releases its lock."""
+    try:
+        key = str(session_id)
+        if _manual_task_active(key):
+            return
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(_drain_queued_manual_compaction(uuid.UUID(key)))
+        _track_manual_task(key, task)
+    except RuntimeError:
+        logger.debug("No running loop to drain queued compaction for %s", session_id)
+    except Exception:
+        logger.warning("Failed to schedule queued compaction drain for %s", session_id, exc_info=True)
+
+
+async def _drain_queued_manual_compaction(session_id: uuid.UUID) -> None:
+    from app.agent.bots import get_bot
+    from app.services import session_locks
+
+    if session_locks.is_active(session_id):
+        return
+    async with async_session() as db:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return
+        bot = get_bot(session.bot_id)
+        queued = await _find_latest_compaction_run(
+            db,
+            session_id,
+            origin="manual",
+            statuses={"queued"},
+        )
+        if queued is None:
+            return
+        message_id = queued.id
+
+    await _update_compaction_run_message(
+        message_id,
+        bot,
+        status="running",
+        detail="Manual compaction started after the active response finished.",
+    )
+    await _run_manual_compaction_operation(session_id, bot, message_id)
 
 
 async def run_compaction_forced(

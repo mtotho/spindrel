@@ -817,6 +817,8 @@ export interface SlashCommandSideEffectPayload {
   scope_id: string;
   title: string;
   detail: string;
+  status?: "queued" | "started";
+  message_id?: string;
 }
 
 export interface ContextSummaryPayload {
@@ -954,6 +956,12 @@ export interface ToolResultEnvelope {
   tool_call_id?: string | null;
   content_type: string;
   body: string | Record<string, unknown> | null;
+  /** Stable view identity used by mode-aware render registries. */
+  view_key?: string | null;
+  /** Structured result data shared by default, terminal, and future render modes. */
+  data?: unknown;
+  /** Optional source template identity for template-backed views. */
+  template_id?: string | null;
   plain_body: string;
   display: "badge" | "inline" | "panel";
   truncated: boolean;

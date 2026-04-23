@@ -2,6 +2,33 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { migrateRecentPage } from "../lib/recentPages";
 import { canonicalizePaletteHref, resolvePaletteRoute } from "../lib/paletteRoutes";
+import { CHANNEL_PANEL_DEFAULT_WIDTH, clampChannelPanelWidth, } from "../lib/channelPanelLayout";
+export function defaultChannelPanelPrefs() {
+    return {
+        leftOpen: false,
+        rightOpen: true,
+        leftPinned: false,
+        rightPinned: false,
+        leftWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
+        rightWidth: CHANNEL_PANEL_DEFAULT_WIDTH,
+        leftTab: "widgets",
+        mobileDrawerOpen: false,
+        mobileExpandedWidgetId: null,
+        focusModePrior: null,
+    };
+}
+function normalizeChannelPanelPrefs(prefs) {
+    const base = defaultChannelPanelPrefs();
+    return {
+        ...base,
+        ...(prefs ?? {}),
+        leftWidth: clampChannelPanelWidth(prefs?.leftWidth ?? base.leftWidth),
+        rightWidth: clampChannelPanelWidth(prefs?.rightWidth ?? base.rightWidth),
+        leftTab: prefs?.leftTab ?? base.leftTab,
+        mobileExpandedWidgetId: prefs?.mobileExpandedWidgetId ?? null,
+        focusModePrior: prefs?.focusModePrior ?? null,
+    };
+}
 export const SIDEBAR_MIN_WIDTH = 180;
 export const SIDEBAR_MAX_WIDTH = 360;
 export const SIDEBAR_DEFAULT_WIDTH = 240;
@@ -15,6 +42,7 @@ export const useUIStore = create()(persist((set) => ({
     fileExplorerSplit: false,
     rightDockHidden: false,
     omniPanelTab: "widgets",
+    channelPanelPrefs: {},
     filesFocusTick: 0,
     hudCollapsedChannels: [],
     hudExpandedOnMobile: [],
@@ -40,11 +68,86 @@ export const useUIStore = create()(persist((set) => ({
     toggleRightDock: () => set((s) => ({ rightDockHidden: !s.rightDockHidden })),
     setRightDockHidden: (hidden) => set({ rightDockHidden: hidden }),
     setOmniPanelTab: (tab) => set({ omniPanelTab: tab }),
+    ensureChannelPanelPrefs: (channelId, defaults) => set((s) => {
+        if (s.channelPanelPrefs[channelId])
+            return s;
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: normalizeChannelPanelPrefs(defaults),
+            },
+        };
+    }),
+    patchChannelPanelPrefs: (channelId, patch) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        const patchValue = typeof patch === "function" ? patch(current) : patch;
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: normalizeChannelPanelPrefs({ ...current, ...patchValue }),
+            },
+        };
+    }),
+    setChannelPanelTab: (channelId, tab) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: { ...current, leftTab: tab },
+            },
+        };
+    }),
+    setMobileDrawerOpen: (channelId, open) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: { ...current, mobileDrawerOpen: open },
+            },
+        };
+    }),
+    toggleMobileDrawerToWidgets: (channelId) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: {
+                    ...current,
+                    mobileDrawerOpen: current.mobileDrawerOpen && current.leftTab === "widgets" ? false : true,
+                    leftTab: "widgets",
+                },
+            },
+        };
+    }),
+    setMobileExpandedWidget: (channelId, widgetId) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        return {
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: { ...current, mobileExpandedWidgetId: widgetId },
+            },
+        };
+    }),
     requestFilesFocus: () => set((s) => ({
         fileExplorerOpen: true,
         omniPanelTab: "files",
         filesFocusTick: s.filesFocusTick + 1,
     })),
+    requestChannelFilesFocus: (channelId) => set((s) => {
+        const current = normalizeChannelPanelPrefs(s.channelPanelPrefs[channelId]);
+        return {
+            filesFocusTick: s.filesFocusTick + 1,
+            channelPanelPrefs: {
+                ...s.channelPanelPrefs,
+                [channelId]: {
+                    ...current,
+                    leftOpen: true,
+                    mobileDrawerOpen: true,
+                    leftTab: "files",
+                },
+            },
+        };
+    }),
     toggleDrawerToWidgets: () => set((s) => {
         if (s.fileExplorerOpen && s.omniPanelTab === "widgets") {
             return { fileExplorerOpen: false };
@@ -101,6 +204,7 @@ export const useUIStore = create()(persist((set) => ({
         fileExplorerSplit: state.fileExplorerSplit,
         rightDockHidden: state.rightDockHidden,
         omniPanelTab: state.omniPanelTab,
+        channelPanelPrefs: state.channelPanelPrefs,
         hudCollapsedChannels: state.hudCollapsedChannels,
         hudExpandedOnMobile: state.hudExpandedOnMobile,
         recentPages: state.recentPages,
@@ -109,6 +213,7 @@ export const useUIStore = create()(persist((set) => ({
     merge: (persisted, current) => ({
         ...current,
         ...persisted,
+        channelPanelPrefs: Object.fromEntries(Object.entries(persisted?.channelPanelPrefs ?? {}).map(([channelId, prefs]) => [channelId, normalizeChannelPanelPrefs(prefs)])),
         recentPages: (persisted?.recentPages ?? []).map((p) => migrateRecentPage((typeof p === "string" ? { href: p } : p))),
     }),
 }));

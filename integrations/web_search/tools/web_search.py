@@ -117,11 +117,10 @@ async def _web_search_ddgs(query: str, num_results: int = 5) -> str:
 def _search_result(query: str, items: list[dict]) -> str:
     """Build a web search result.
 
-    When a widget template is registered for ``web_search`` (the HTML
-    widget under ``integrations/web_search/widgets/web_search.html``), it
-    renders the structured payload directly — no ``_envelope`` opt-in is
-    needed. Without a template we fall back to a components-JSON
-    ``links`` envelope so non-widget consumers still get a decent render.
+    When a widget template is registered for ``web_search``, it carries
+    ``view_key=core.search_results`` so the UI can render the same semantic
+    search-results view across default and terminal modes. Without a template
+    we fall back to a components-JSON ``links`` envelope for older clients.
     """
     from app.services.widget_templates import get_widget_template
 
@@ -136,6 +135,8 @@ def _search_result(query: str, items: list[dict]) -> str:
             "content_type": "application/vnd.spindrel.components+json",
             "display": "inline",
             "plain_body": f"{len(items)} result(s) for: {query}",
+            "view_key": "core.search_results",
+            "data": {"query": query, "results": items, "count": len(items)},
             "body": {
                 "v": 1,
                 "components": [

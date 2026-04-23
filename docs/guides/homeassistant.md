@@ -100,6 +100,12 @@ Use the same pattern in your own prompts and skills — "call HA with the human 
 
 The integration ships widget packages for every HA tool. Highlights:
 
+Home Assistant has two MCP tool families. Do not mix them inside one preset or one assumed control flow:
+
+- Official HA MCP presets use `GetLiveContext` plus `HassTurnOn` / `HassTurnOff` / `HassLightSet`.
+- Community `ha-mcp` widgets use `ha_get_state` / `ha_search_entities`.
+- Current presets declare `tool_family: official`; registration fails if a preset straddles both families.
+
 ### `HassTurnOn` / `HassTurnOff` — power toggle
 
 Renders:
@@ -121,7 +127,7 @@ The result shape of `HassLightSet` itself doesn't echo the new brightness, so th
 
 ### `ha_get_state` — single-entity sensor read
 
-Community `ha-mcp` path. Renders a heading (friendly name), a status badge (e.g. `21.5°C`), and an entity + last-changed properties row. Pins use `state_poll` with `refresh_interval_seconds: 30` so a temperature card stays live.
+Community `ha-mcp` path. Renders an adaptive single-entity card: sensor card, light card, toggle chip, or generic entity chip depending on domain and config. Pins use `state_poll.args.entity_id = {{config.entity_id}}` with `refresh_interval_seconds: 30` so the card stays live without re-parsing the display label after creation.
 
 ### `ha_search_entities` — collapsible result grid
 
@@ -147,9 +153,9 @@ state_poll:
   refresh_interval_seconds: 60
 ```
 
-`GetLiveContext` is the shared poll target: it returns every entity's state in one call, the Python transform filters to the specific entity on the pin, and the resulting `is_on` / `is_off` / `brightness` drives the toggle + slider components. One cached poll feeds every HA pin on the dashboard.
+`GetLiveContext` is the official-lane shared poll target: it returns every entity's state in one call, the Python transform filters to the specific entity on official action/preset pins, and the resulting `is_on` / `is_off` / `brightness` drives the toggle + slider components. One cached poll can feed official-lane HA pins on the dashboard.
 
-Per-pin `state_poll.args` can reference `{{display_label}}` — that's how `ha_get_state` pins re-call themselves with the same `entity_id` they were originally pinned for.
+Community `ha_get_state` pins instead re-call `ha_get_state` with `{{config.entity_id}}`. Preset-created official pins render through `GetLiveContext` with empty tool args and keep their selected entity in `widget_config`.
 
 See [Widget Templates → State polling](widget-templates.md#state-polling) for the underlying mechanism.
 

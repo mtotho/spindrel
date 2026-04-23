@@ -82,7 +82,7 @@ interface PinnedToolWidgetProps {
   layout?: WidgetLayout;
   /** Dashboard-level chrome flags (`grid_config.borderless` /
    *  `grid_config.hover_scrollbars` / `grid_config.hide_titles`). Default to
-   *  a bordered card with a persistent scrollbar and the title row shown. */
+   *  a bordered card with hover-only scrollbars and the title row shown. */
   borderless?: boolean;
   hoverScrollbars?: boolean;
   hideTitles?: boolean;
@@ -106,7 +106,7 @@ export function PinnedToolWidget({
   onEdit,
   railMode = false,
   borderless = false,
-  hoverScrollbars = false,
+  hoverScrollbars = DEFAULT_CHROME.hoverScrollbars,
   hideTitles = false,
   panelSurface = false,
   externalDrag,

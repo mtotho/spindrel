@@ -9,7 +9,7 @@ category: core
 
 Treat **widget** as the umbrella term. There are currently three implementation paths:
 
-- **Tool widget** — YAML-defined, tool-bound path. Use this for bounded, server-driven UI that already fits the component grammar or should stay close to one tool's result. A tool widget may render through `template:` or `html_template:` and is still the same underlying kind.
+- **Tool widget** — YAML-defined, tool-bound path. Use this for bounded, server-driven UI that already fits the component grammar, can use a core semantic `view_key`, or should stay close to one tool's result. A tool widget may render through `template:`, `html_template:`, or a core renderer and is still the same underlying kind.
 - **HTML widget** — standalone iframe-backed bundle emitted with `emit_html_widget` or pinned from the library. Use this for free-form layouts, charts, mini-apps, richer local interactivity, or when the UI should not be bound to one tool definition.
 - **Native widget** — first-party host-rendered widget shipped in the app (for example `notes_native`). Not bot-authored. Use this when the built-in library already exposes an official widget with persistent state and rich host integration.
 
@@ -17,6 +17,7 @@ Important taxonomy rule:
 
 - a preset is not a fourth widget kind
 - a YAML widget using `html_template` is still a tool widget, not a standalone HTML widget
+- presets may declare a `dependency_contract`; if present, do not mix tools from another family just because a similarly named integration tool exists
 
 HTML widgets can:
 
@@ -33,6 +34,7 @@ HTML widgets can:
 |---|---|
 | Entity detail, toggle, status card, or bounded dashboard tile that fits the component grammar | Tool widget |
 | Tool result should stay server-driven and refresh through tool actions + polls | Tool widget |
+| Tool result has a generic semantic shape already supported by core, such as search results | Tool widget with the matching `view_key` |
 | Tool-bound UI needs richer visuals but is still fundamentally one tool's result | Tool widget with `html_template` |
 | Chart, table, free-form layout, or anything not in the grammar | HTML widget via `emit_html_widget` |
 | User says "make me a custom widget for X" and the UI is bespoke | HTML widget |
@@ -49,6 +51,7 @@ Bot control rule:
 - Place them with `pin_widget`.
 - Interact with pinned widgets through `invoke_widget_action`.
 - Always inspect the widget's declared action schema and contract first when available. `describe_dashboard` exposes `available_actions`; library and preset metadata now expose `actions`, `widget_contract`, and `config_schema`.
+- For presets, also inspect `dependency_contract`. A Home Assistant preset on the official HA MCP lane should stay on `GetLiveContext` / `Hass*` tools, not community `ha_get_state`.
 
 ## The unified operator loop
 

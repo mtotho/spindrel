@@ -29,13 +29,16 @@ from app.services.session_plan_mode import (
     exit_session_plan_mode,
     get_session_plan_state,
     get_session_plan_mode,
+    record_plan_question_answers,
     build_session_plan_response,
     list_session_plans,
     list_session_plan_revisions,
     load_session_plan,
     load_session_plan_revision,
     publish_session_plan_event,
+    request_plan_replan,
     resume_session_plan_mode,
+    update_planning_state,
     update_plan_step_status,
     update_session_plan,
 )
@@ -112,6 +115,10 @@ class SessionPlanOut(BaseModel):
     mode: str
     accepted_revision: Optional[int] = None
     revisions: list[PlanRevisionOut] = []
+    planning_state: Optional[dict[str, Any]] = None
+    adherence: Optional[dict[str, Any]] = None
+    runtime: Optional[dict[str, Any]] = None
+    validation: Optional[dict[str, Any]] = None
 
 
 class SessionPlanStateOut(BaseModel):
@@ -123,6 +130,10 @@ class SessionPlanStateOut(BaseModel):
     accepted_revision: Optional[int] = None
     status: Optional[str] = None
     revision_count: int = 0
+    planning_state: Optional[dict[str, Any]] = None
+    adherence: Optional[dict[str, Any]] = None
+    runtime: Optional[dict[str, Any]] = None
+    validation: Optional[dict[str, Any]] = None
 
 
 class SessionPlanCreateRequest(BaseModel):
@@ -154,6 +165,36 @@ class PlanStatusUpdateRequest(BaseModel):
 
 class PlanApproveRequest(BaseModel):
     revision: Optional[int] = None
+
+
+class PlanReplanRequest(BaseModel):
+    reason: str
+    affected_step_ids: Optional[list[str]] = None
+    evidence: Optional[str] = None
+    revision: Optional[int] = None
+
+
+class PlanningStateUpdateRequest(BaseModel):
+    decisions: Optional[list[str | dict[str, Any]]] = None
+    open_questions: Optional[list[str | dict[str, Any]]] = None
+    assumptions: Optional[list[str | dict[str, Any]]] = None
+    constraints: Optional[list[str | dict[str, Any]]] = None
+    non_goals: Optional[list[str | dict[str, Any]]] = None
+    evidence: Optional[list[str | dict[str, Any]]] = None
+    preference_changes: Optional[list[str | dict[str, Any]]] = None
+    reason: Optional[str] = None
+
+
+class PlanQuestionAnswer(BaseModel):
+    question_id: Optional[str] = None
+    label: str
+    answer: str
+
+
+class PlanQuestionAnswersRequest(BaseModel):
+    title: str
+    answers: list[PlanQuestionAnswer]
+    source_message_id: Optional[str] = None
 
 
 def _serialize_plan(session: Session) -> SessionPlanOut:
@@ -302,6 +343,55 @@ async def get_session_plan_state_route(
     return _serialize_plan_state(session)
 
 
+@router.patch("/{session_id}/plan/planning-state", response_model=SessionPlanStateOut)
+async def patch_session_planning_state(
+    session_id: uuid.UUID,
+    body: PlanningStateUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    update_planning_state(
+        session,
+        decisions=body.decisions,
+        open_questions=body.open_questions,
+        assumptions=body.assumptions,
+        constraints=body.constraints,
+        non_goals=body.non_goals,
+        evidence=body.evidence,
+        preference_changes=body.preference_changes,
+        reason=body.reason or "planning_state_route",
+    )
+    await db.commit()
+    await db.refresh(session)
+    publish_session_plan_event(session, "planning_state")
+    return _serialize_plan_state(session)
+
+
+@router.post("/{session_id}/plan/question-answers", response_model=SessionPlanStateOut)
+async def submit_plan_question_answers(
+    session_id: uuid.UUID,
+    body: PlanQuestionAnswersRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    record_plan_question_answers(
+        session,
+        title=body.title,
+        answers=[answer.model_dump() for answer in body.answers],
+        source_message_id=body.source_message_id,
+    )
+    await db.commit()
+    await db.refresh(session)
+    publish_session_plan_event(session, "question_answers")
+    return _serialize_plan_state(session)
+
+
 @router.post("/{session_id}/plan/start", response_model=SessionPlanStateOut)
 async def start_session_plan_mode(
     session_id: uuid.UUID,
@@ -386,6 +476,29 @@ async def approve_plan(
     await db.commit()
     await db.refresh(session)
     publish_session_plan_event(session, "approve")
+    return _serialize_plan(session)
+
+
+@router.post("/{session_id}/plan/replan", response_model=SessionPlanOut)
+async def replan(
+    session_id: uuid.UUID,
+    body: PlanReplanRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("sessions:write")),
+):
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    request_plan_replan(
+        session,
+        reason=body.reason,
+        affected_step_ids=body.affected_step_ids,
+        evidence=body.evidence,
+        revision=body.revision,
+    )
+    await db.commit()
+    await db.refresh(session)
+    publish_session_plan_event(session, "replan")
     return _serialize_plan(session)
 
 

@@ -128,6 +128,22 @@ class TestApplyWidgetTemplate:
         assert body["components"][0]["text"] == "action_done"
         assert env.byte_size == len(env.body.encode("utf-8"))
 
+    def test_template_view_key_and_data_are_preserved(self):
+        _widget_templates["TestTool"] = {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "view_key": "test.result",
+            "template": {"v": 1, "components": []},
+            "source": "test",
+        }
+
+        env = apply_widget_template("TestTool", json.dumps({"message": "ok"}))
+        assert env is not None
+        assert env.view_key == "test.result"
+        assert env.data == {"message": "ok", "config": {}}
+        assert env.compact_dict()["view_key"] == "test.result"
+        assert env.compact_dict()["data"] == {"message": "ok", "config": {}}
+
     def test_html_template_sets_byte_size(self):
         _widget_templates["TestTool"] = {
             "content_type": "application/vnd.spindrel.html+interactive",

@@ -88,6 +88,23 @@ tool_widgets:
   github_get_pr:
     content_type: application/vnd.spindrel.components+json
     display: inline
+    sample_payload:
+      number: 42
+      title: Add widget preset validation
+      state: open
+      user:
+        login: mtoth
+      head:
+        ref: widget-contract-cleanup
+      base:
+        ref: main
+        repo:
+          name: agent-server
+          owner:
+            login: spindrel
+      additions: 120
+      deletions: 18
+      changed_files: 5
     template:
       v: 1
       components:
@@ -135,6 +152,18 @@ tool_widgets:
   github_get_issue:
     content_type: application/vnd.spindrel.components+json
     display: inline
+    sample_payload:
+      number: 17
+      title: Widget config editor should show accepted keys
+      state: open
+      user:
+        login: mtoth
+      created_at: "2026-04-18T10:00:00Z"
+      updated_at: "2026-04-22T14:15:00Z"
+      repository:
+        name: agent-server
+        owner:
+          login: spindrel
     template:
       v: 1
       components:

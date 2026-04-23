@@ -157,12 +157,19 @@ class TestSessionMessagesRouter:
         await db_session.flush()
 
         spm.enter_session_plan_mode(session)
-        spm.create_session_plan(session, title="Plan Hardening", summary="Draft one", scope="Initial scope")
+        spm.create_session_plan(
+            session,
+            title="Plan Hardening",
+            summary="Draft one",
+            scope="Initial scope",
+            acceptance_criteria=["The current revision can be approved."],
+        )
         spm.publish_session_plan(
             session,
             title="Plan Hardening",
             summary="Draft two",
             scope="Revised scope",
+            acceptance_criteria=["The current revision can be approved."],
             steps=[
                 {"id": "audit", "label": "Audit current behavior"},
                 {"id": "ship", "label": "Ship the remaining fixes"},
@@ -198,3 +205,31 @@ class TestSessionMessagesRouter:
 
         assert stale_approve.status_code == 409
         assert "revision mismatch" in stale_approve.json()["detail"].lower()
+
+        approve = await client.post(
+            f"/sessions/{session_id}/plan/approve",
+            headers=AUTH_HEADERS,
+            json={"revision": 2},
+        )
+        assert approve.status_code == 200
+        approved_body = approve.json()
+        assert approved_body["runtime"]["current_step_id"] == "audit"
+        assert approved_body["validation"]["ok"] is True
+
+        replan = await client.post(
+            f"/sessions/{session_id}/plan/replan",
+            headers=AUTH_HEADERS,
+            json={
+                "revision": 2,
+                "reason": "Audit found the plan is missing a gate.",
+                "affected_step_ids": ["audit"],
+                "evidence": "test evidence",
+            },
+        )
+        assert replan.status_code == 200
+        replan_body = replan.json()
+        assert replan_body["mode"] == spm.PLAN_MODE_PLANNING
+        assert replan_body["revision"] == 3
+        assert replan_body["accepted_revision"] == 2
+        assert replan_body["runtime"]["replan"]["from_revision"] == 2
+        assert replan_body["validation"]["ok"] is False

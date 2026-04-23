@@ -500,6 +500,7 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
                 kind: "rich_result",
                 key: `rich:${index}:${result.record_id ?? normalized.name ?? "result"}`,
                 envelope: result,
+                summary: toolCall.summary ?? null,
             };
         }
         return {
@@ -525,6 +526,7 @@ function resolveOrderedTool(toolCall, result, index, renderMode) {
             kind: "rich_result",
             key: `rich:${index}:${envelope.record_id ?? toolCall.name ?? "result"}`,
             envelope,
+            summary: toolCall.summary ?? null,
         };
     }
     return {
@@ -578,6 +580,7 @@ function materializeAssistantTurnBodyItems({ assistantTurnBody, orderedTools, ro
                 kind: tool.kind,
                 key: `${entry.id}:${tool.key}`,
                 envelope: tool.envelope,
+                summary: tool.summary,
             });
             continue;
         }

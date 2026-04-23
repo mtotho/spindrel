@@ -27,6 +27,7 @@ import ReactDOM from "react-dom";
 import { Layers, Search, Files, X, LayoutDashboard } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
+import type { OmniPanelTab } from "@/src/stores/ui";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
@@ -50,6 +51,10 @@ interface MobileChannelDrawerProps {
   channelDisplayName?: string | null;
   activeFile: string | null;
   onSelectFile: (workspaceRelativePath: string) => void;
+  activeTab?: OmniPanelTab;
+  onTabChange?: (tab: OmniPanelTab) => void;
+  expandedWidgetId?: string | null;
+  onExpandedWidgetChange?: (widgetId: string | null) => void;
 }
 
 function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
@@ -75,10 +80,22 @@ export function MobileChannelDrawer({
   channelDisplayName,
   activeFile,
   onSelectFile,
+  activeTab: controlledTab,
+  onTabChange,
+  expandedWidgetId,
+  onExpandedWidgetChange,
 }: MobileChannelDrawerProps) {
   const t = useThemeTokens();
-  const tab = useUIStore((s) => s.omniPanelTab);
-  const setTab = useUIStore((s) => s.setOmniPanelTab);
+  const storeTab = useUIStore((s) => s.omniPanelTab);
+  const setStoreTab = useUIStore((s) => s.setOmniPanelTab);
+  const tab = controlledTab ?? storeTab;
+  const setTab = useCallback(
+    (next: OmniPanelTab) => {
+      if (onTabChange) onTabChange(next);
+      else setStoreTab(next);
+    },
+    [onTabChange, setStoreTab],
+  );
 
   const slug = channelSlug(channelId);
   // Hydrate the dashboard pins store for this channel — needed by the
@@ -206,6 +223,8 @@ export function MobileChannelDrawer({
             onUnpin={handleUnpin}
             onEnvelopeUpdate={handleEnvelopeUpdate}
             onClose={onClose}
+            expandedWidgetId={expandedWidgetId ?? null}
+            onExpandedWidgetChange={onExpandedWidgetChange}
           />
         )}
         {activeTab === "files" && hasWorkspace && (
@@ -244,6 +263,8 @@ interface WidgetsTabProps {
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
   onClose: () => void;
+  expandedWidgetId: string | null;
+  onExpandedWidgetChange?: (widgetId: string | null) => void;
 }
 
 function WidgetsTab({
@@ -256,6 +277,8 @@ function WidgetsTab({
   onUnpin,
   onEnvelopeUpdate,
   onClose,
+  expandedWidgetId,
+  onExpandedWidgetChange,
 }: WidgetsTabProps) {
   const t = useThemeTokens();
   const total = rail.length + header.length + dock.length + grid.length;
@@ -276,6 +299,8 @@ function WidgetsTab({
         chipMode
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        expandedWidgetId={expandedWidgetId}
+        onExpandedWidgetChange={onExpandedWidgetChange}
       />
       <ZoneSection
         title="Rail"
@@ -284,6 +309,8 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        expandedWidgetId={expandedWidgetId}
+        onExpandedWidgetChange={onExpandedWidgetChange}
       />
       <ZoneSection
         title="Dock"
@@ -292,6 +319,8 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        expandedWidgetId={expandedWidgetId}
+        onExpandedWidgetChange={onExpandedWidgetChange}
       />
       <ZoneSection
         title="Grid"
@@ -300,6 +329,8 @@ function WidgetsTab({
         channelId={channelId}
         onUnpin={onUnpin}
         onEnvelopeUpdate={onEnvelopeUpdate}
+        expandedWidgetId={expandedWidgetId}
+        onExpandedWidgetChange={onExpandedWidgetChange}
       />
       <a
         href={dashboardHref ?? `/widgets/channel/${encodeURIComponent(channelId)}`}
@@ -326,6 +357,8 @@ interface ZoneSectionProps {
   chipMode?: boolean;
   onUnpin: (id: string) => void;
   onEnvelopeUpdate: (id: string, env: ToolResultEnvelope) => void;
+  expandedWidgetId: string | null;
+  onExpandedWidgetChange?: (widgetId: string | null) => void;
 }
 
 function ZoneSection({
@@ -336,6 +369,8 @@ function ZoneSection({
   chipMode = false,
   onUnpin,
   onEnvelopeUpdate,
+  expandedWidgetId,
+  onExpandedWidgetChange,
 }: ZoneSectionProps) {
   const t = useThemeTokens();
   if (pins.length === 0) return null;
@@ -355,21 +390,55 @@ function ZoneSection({
           {subtitle}
         </span>
       </div>
-      <div className={chipMode ? "flex flex-wrap gap-1.5" : "flex flex-col gap-2"}>
-        {pins.map((p) => (
-          <PinnedToolWidget
-            key={p.id}
-            widget={asPinnedWidget(p)}
-            scope={
-              chipMode
-                ? { kind: "channel", channelId, compact: "chip" }
-                : { kind: "dashboard", channelId }
-            }
-            onUnpin={onUnpin}
-            onEnvelopeUpdate={onEnvelopeUpdate}
-            panelSurface={!chipMode}
-          />
-        ))}
+      <div className="flex flex-col gap-1.5">
+        {pins.map((p) => {
+          const expanded = expandedWidgetId === p.id;
+          return (
+            <div
+              key={p.id}
+              className="rounded-lg border overflow-hidden"
+              style={{
+                borderColor: expanded ? `${t.accent}66` : t.surfaceBorder,
+                background: expanded ? t.surfaceRaised : "transparent",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => onExpandedWidgetChange?.(expanded ? null : p.id)}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
+                style={{ color: expanded ? t.text : t.textMuted }}
+              >
+                <span className="min-w-0 truncate text-[12px] font-medium">
+                  {p.display_label ?? p.envelope?.display_label ?? p.tool_name}
+                </span>
+                <span
+                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider"
+                  style={{
+                    color: expanded ? t.accent : t.textDim,
+                    background: expanded ? `${t.accent}1f` : t.surfaceOverlay,
+                  }}
+                >
+                  {expanded ? "Open" : title}
+                </span>
+              </button>
+              {expanded && (
+                <div className={chipMode ? "px-3 pb-3" : "px-2 pb-2"}>
+                  <PinnedToolWidget
+                    widget={asPinnedWidget(p)}
+                    scope={
+                      chipMode
+                        ? { kind: "channel", channelId, compact: "chip" }
+                        : { kind: "dashboard", channelId }
+                    }
+                    onUnpin={onUnpin}
+                    onEnvelopeUpdate={onEnvelopeUpdate}
+                    panelSurface={!chipMode}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

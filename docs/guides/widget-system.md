@@ -97,10 +97,13 @@ A tool widget may render through:
 
 - the component/template renderer via `template:`
 - an HTML-backed renderer via `html_template:`
+- a core semantic renderer via `view_key` plus renderer-neutral `data`
 
 Both are still `tool_widget`.
 
 `html_template` does not turn the definition into a standalone HTML widget. It only changes how that tool-bound widget renders.
+
+`view_key` is different: it lets a tool widget opt into a first-party semantic renderer when the payload shape is generic enough for core to own. For example, Web Search uses `view_key: core.search_results` with `{query, count, results[]}` data. The integration still owns the tool and fallback component template; core owns the reusable search-results presentation for default and terminal chat modes.
 
 That means a YAML-defined Home Assistant card can feel visually native or custom, but it is still fundamentally:
 
@@ -199,6 +202,17 @@ A direct rich tool result usually comes from:
 
 Both can land on the dashboard. They are not the same DX path.
 
+### Preset dependency contract
+
+Presets may use more than one tool during setup and operation: a binding source can discover options, the backing tool can render, and action tools can mutate state.
+
+That power has a hard boundary: a preset that declares `tool_family` must keep all declared dependencies inside that family. Registration now fails if a preset mixes incompatible tool families. Home Assistant uses this to keep official HA MCP presets on `GetLiveContext` / `Hass*` tools and away from community `ha_get_state`, so a user with only one HA MCP server does not get a broken "simple" preset.
+
+Preset responses expose this as `dependency_contract`:
+
+- `tool_family` is the declared family id/label/tool set when present.
+- `tools` is the normalized set of tools the preset depends on.
+
 ## Concrete examples
 
 | Scenario | Definition kind | Instantiation kind |
@@ -262,7 +276,7 @@ This is the editable runtime config contract.
 It describes which config keys are valid for the placed widget instance. It now ships on:
 
 - tool widgets
-- preset responses derived from tool widgets
+- preset responses derived from the preset `binding_schema`
 - HTML widget manifests
 - native widget catalog entries
 - pins
@@ -338,16 +352,20 @@ Recommended fix:
 
 - stamp canonical bundle identity or resolved manifest metadata into the persisted pin source record
 
-### 3. Presets can hide integration-boundary mistakes
+### 3. Preset dependency validation is structural, not capability discovery
 
-A preset can look like one clean guided card while actually depending on binding sources that cross incompatible tool families or MCP servers.
+Preset manifests now fail fast when a `tool_family` preset declares dependencies outside that family.
 
-The concrete risk already visible here is Home Assistant presets accidentally depending on tools from more than one server family when a preset should remain valid if the user only has one of them available.
+What it does not do yet:
+
+- verify the user's configured bot actually has that MCP server enabled
+- express intentional multi-family presets with a richer compatibility matrix
+- explain missing runtime capability in the preset picker before execution
 
 Recommended fix:
 
-- add preset registration-time validation that binding sources resolve within the declared integration/tool family contract
-- fail fast when one preset mixes incompatible server dependencies unless it is explicitly declared multi-source
+- add preset availability checks against the selected bot's enabled tools/MCP servers
+- only introduce explicit multi-family presets with a first-class manifest shape and UI explanation
 
 ### 4. Tool widget terminology still has historical drag
 
@@ -384,6 +402,7 @@ Use this order:
 
 ## See also
 
+- [Widget Inventory](../reference/widget-inventory.md)
 - [Widget Templates](../widget-templates.md)
 - [HTML Widgets](html-widgets.md)
 - [Widget Dashboards](widget-dashboards.md)

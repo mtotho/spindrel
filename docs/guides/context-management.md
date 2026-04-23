@@ -75,6 +75,7 @@ Important replay rules now in place:
 
 - rows marked `metadata.hidden` are excluded from LLM reload
 - rows marked `metadata.pipeline_step` are excluded from LLM reload
+- rows marked `metadata.kind == "compaction_run"` are excluded from LLM reload and live-history accounting
 - older heartbeat turns are trimmed, keeping only the latest heartbeat turn(s)
 - older assistant turns with large verbose `content` are compacted from canonical `assistant_turn_body` metadata
 - the most recent assistant turn stays verbatim
@@ -225,6 +226,8 @@ Compaction now summarizes the exact persisted message range:
 That means compaction no longer summarizes content that is still inside the live keep window.
 
 The kept live window and the summarized window should never overlap.
+
+Manual and automatic compaction both persist a visible assistant-owned operation row with `metadata.kind == "compaction_run"` and status metadata (`queued`, `running`, `completed`, or `failed`). That row is UI state only: it is delivered over the normal message event path and survives refresh, but it is not replayed to the model, summarized into future compactions, counted as live history, or used as an extra "you were compacted" instruction. The agent learns about compaction through the existing session summary / section history plus post-watermark live history.
 
 ---
 
@@ -377,13 +380,13 @@ Canonical plan behavior is documented in [Session Plan Mode](../planning/session
 Context policy now follows mode too:
 
 - `planning` keeps only the last `2` user-started exchanges live
-- `planning` admits the compact active-plan artifact, conversation sections, and tool-index hints
+- `planning` admits the compact active-plan artifact, visible planning-state capsule, runtime capsule, conversation sections, and tool-index hints
 - `planning` does **not** admit workspace context, temporal prose, pinned-widget prose, recent memory logs, or tool-refusal guard text
 - `executing` keeps the last `4` user-started exchanges live
-- `executing` admits the compact active-plan artifact, conversation sections, channel/workspace context, workspace RAG, tool-index hints, and tool-refusal guard text
+- `executing` admits the compact active-plan artifact, planning-state capsule, runtime/adherence capsule, conversation sections, channel/workspace context, workspace RAG, tool-index hints, and tool-refusal guard text
 - `executing` still drops the more ambient/instructional additions such as temporal prose, pinned widgets, and recent memory logs
 
-The active-plan artifact is derived from the canonical Markdown plan file and is treated as load-bearing context for planning/execution. This is what makes a short planning live window safe: approved constraints and checklist state should live in the plan artifact, not only in older chat turns.
+The active-plan artifact is derived from the canonical Markdown plan file and is treated as load-bearing context for planning/execution. It is paired with the metadata-backed `planning_state`, `plan_runtime`, and `plan_adherence` capsules. `planning_state` carries the visible back-and-forth notes before the full plan exists, `plan_runtime` carries compact execution state such as current step, next action, blockers, accepted revision, and replan requests, and `plan_adherence` carries recent execution evidence. This is what makes a short planning live window safer: approved constraints live in the plan artifact, while volatile planning/execution position survives via metadata instead of depending on older chat turns.
 
 ### Heartbeats
 
@@ -411,8 +414,8 @@ Special origins such as hygiene/subagent-style runs are also mapped to the restr
 Shipped profiles:
 
 - `chat`: current full chat policy, with optional injections admitted by both profile and budget
-- `planning`: short live window, active plan artifact + sections + tool index only
-- `executing`: medium live window, active plan artifact + execution-relevant workspace/context sources on, ambient prose off
+- `planning`: short live window, active plan artifact/planning-state/runtime capsule + sections + tool index only
+- `executing`: medium live window, active plan artifact/planning-state/runtime/adherence capsule + execution-relevant workspace/context sources on, ambient prose off
 - `task_recent`: task history only, narrow optional admissions
 - `task_none`: no live replay beyond system/base layers, no optional ambient injections
 - `heartbeat`: same restrictive admission posture as `task_none`

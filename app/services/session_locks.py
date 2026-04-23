@@ -48,6 +48,12 @@ def release(session_id: UUID | str) -> None:
     key = str(session_id)
     _active.pop(key, None)
     _cancel_requested.discard(key)
+    try:
+        from app.services.compaction import drain_queued_manual_compaction
+
+        drain_queued_manual_compaction(key)
+    except Exception:
+        logger.debug("session_locks: failed to schedule queued compaction drain", exc_info=True)
 
 
 def request_cancel(session_id: UUID | str) -> bool:

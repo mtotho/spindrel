@@ -61,10 +61,12 @@ export function useSlashCommandExecutor({
           });
           if (result.result_type === "side_effect") {
             const payload = result.payload as SlashCommandSideEffectPayload;
-            toast({
-              kind: "info",
-              message: payload.detail || result.fallback_text,
-            });
+            if (payload.effect !== "compact") {
+              toast({
+                kind: "info",
+                message: payload.detail || result.fallback_text,
+              });
+            }
             await onSideEffect?.(result);
             return;
           }

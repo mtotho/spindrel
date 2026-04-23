@@ -10,6 +10,7 @@ from app.services.widget_presets import (
     preview_widget_preset,
     serialize_widget_preset,
     resolve_runtime_args,
+    WidgetPresetValidationError,
 )
 from app.services.widget_preview import PreviewEnvelope, PreviewOut
 
@@ -17,10 +18,22 @@ from app.services.widget_preview import PreviewEnvelope, PreviewOut
 def _manifest() -> dict:
     return {
         "homeassistant": {
+            "tool_families": {
+                "official": {
+                    "label": "Official Home Assistant MCP",
+                    "tools": ["GetLiveContext", "HassTurnOn", "HassTurnOff", "HassLightSet"],
+                },
+                "community": {
+                    "label": "Community ha-mcp",
+                    "tools": ["ha_get_state", "ha_search_entities"],
+                },
+            },
             "widget_presets": {
                 "homeassistant-light-card": {
                     "name": "Light Card",
-                    "tool_name": "ha_get_state",
+                    "tool_name": "GetLiveContext",
+                    "tool_family": "official",
+                    "tool_dependencies": ["GetLiveContext", "HassTurnOn", "HassTurnOff", "HassLightSet"],
                     "binding_schema": {
                         "type": "object",
                         "properties": {
@@ -44,9 +57,10 @@ def _manifest() -> dict:
                     "default_config": {
                         "preset_variant": "light_card",
                         "show_brightness": True,
+                        "action_target": "name",
                     },
                     "runtime": {
-                        "tool_args": {"entity_id": "{{config.entity_id}}"},
+                        "tool_args": {},
                     },
                 },
             },
@@ -89,6 +103,14 @@ def test_serialize_widget_preset_exposes_resulting_contract(monkeypatch):
     assert preset["config_schema"]["properties"]["entity_id"]["type"] == "string"
     assert preset["widget_contract"]["definition_kind"] == "tool_widget"
     assert preset["widget_contract"]["instantiation_kind"] == "preset"
+    assert preset["dependency_contract"] == {
+        "tool_family": {
+            "id": "official",
+            "label": "Official Home Assistant MCP",
+            "tools": ["GetLiveContext", "HassTurnOn", "HassTurnOff", "HassLightSet"],
+        },
+        "tools": ["GetLiveContext", "HassLightSet", "HassTurnOff", "HassTurnOn"],
+    }
 
 
 @pytest.mark.asyncio
@@ -241,7 +263,7 @@ def test_resolve_runtime_args_substitutes_config(monkeypatch):
         source_bot_id="bot-1",
         source_channel_id=None,
     )
-    assert args == {"entity_id": "light.office_desk_led_strip"}
+    assert args == {}
 
 
 @pytest.mark.asyncio
@@ -249,21 +271,24 @@ async def test_preview_widget_preset_executes_underlying_tool(monkeypatch):
     monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())
 
     async def _exec(tool_name, args, bot_id=None, channel_id=None):
-        assert tool_name == "ha_get_state"
-        assert args == {"entity_id": "light.office_desk_led_strip"}
+        assert tool_name == "GetLiveContext"
+        assert args == {}
         assert bot_id == "bot-1"
         return ({
-            "data": {
-                "entity_id": "light.office_desk_led_strip",
-                "state": "on",
-                "attributes": {"friendly_name": "Office Desk LED Strip"},
-            },
+            "result": (
+                "Live Context: overview\n"
+                "- names: Office Desk LED Strip\n"
+                "  domain: light\n"
+                "  state: 'on'\n"
+                "  areas: Office\n"
+            ),
         }, None)
 
     async def _preview(_db, *, tool_name, sample_payload, widget_config, source_bot_id, source_channel_id):
-        assert tool_name == "ha_get_state"
-        assert sample_payload["data"]["entity_id"] == "light.office_desk_led_strip"
+        assert tool_name == "GetLiveContext"
+        assert "Office Desk LED Strip" in sample_payload["result"]
         assert widget_config["preset_variant"] == "light_card"
+        assert widget_config["entity_id"] == "light.office_desk_led_strip"
         assert source_bot_id == "bot-1"
         return PreviewOut(
             ok=True,
@@ -289,7 +314,29 @@ async def test_preview_widget_preset_executes_underlying_tool(monkeypatch):
     assert resolved_config == {
         "preset_variant": "light_card",
         "show_brightness": True,
+        "action_target": "name",
         "entity_id": "light.office_desk_led_strip",
     }
-    assert tool_args == {"entity_id": "light.office_desk_led_strip"}
+    assert tool_args == {}
     assert preview.widget_contract is None or preview.widget_contract["definition_kind"] == "tool_widget"
+
+
+def test_list_widget_presets_rejects_mixed_tool_family(monkeypatch):
+    manifest = _manifest()
+    preset = manifest["homeassistant"]["widget_presets"]["homeassistant-light-card"]
+    preset["tool_name"] = "ha_get_state"
+    preset["tool_dependencies"] = ["GetLiveContext", "ha_get_state"]
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: manifest)
+
+    with pytest.raises(WidgetPresetValidationError, match="outside tool_family 'official'"):
+        list_widget_presets()
+
+
+def test_list_widget_presets_rejects_invalid_binding_schema(monkeypatch):
+    manifest = _manifest()
+    preset = manifest["homeassistant"]["widget_presets"]["homeassistant-light-card"]
+    preset["binding_schema"] = {"type": "array"}
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: manifest)
+
+    with pytest.raises(WidgetPresetValidationError, match="binding_schema"):
+        list_widget_presets()

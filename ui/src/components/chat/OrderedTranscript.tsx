@@ -123,6 +123,7 @@ export function OrderedTranscript({
                 botId={botId}
                 rendererVariant="terminal-chat"
                 chromeMode="embedded"
+                summary={"summary" in item ? item.summary : null}
                 t={t}
               />
             </div>
@@ -139,6 +140,7 @@ export function OrderedTranscript({
                 botId={botId}
                 rendererVariant="default-chat"
                 chromeMode="standalone"
+                summary={"summary" in item ? item.summary : null}
                 t={t}
               />
             </div>
@@ -166,6 +168,7 @@ export function OrderedTranscript({
                 botId={botId}
                 rendererVariant="default-chat"
                 chromeMode="embedded"
+                summary={"summary" in item ? item.summary : null}
                 t={t}
               />
             </div>

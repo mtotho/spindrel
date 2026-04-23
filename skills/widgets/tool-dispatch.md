@@ -199,7 +199,7 @@ The only content type that was already exempt from the cap — `application/vnd.
 await window.spindrel.callTool("web_search", { query: "docs" }, {
   extra: {
     display_label: "Docs search",        // lets state_poll fetch fresh state after
-    widget_config: { starred: [...] },   // current pin config for {{config.*}} substitution
+    widget_config: { units: "metric" },  // current pin config for {{config.*}} substitution
     dashboard_pin_id: window.spindrel.dashboardPinId,
     source_record_id: someRecordId,
   }
@@ -208,7 +208,6 @@ await window.spindrel.callTool("web_search", { query: "docs" }, {
 
 **Working exemplars in-tree** — read these before writing yours:
 
-- `integrations/web_search/widgets/web_search.html` — Summarize button dispatches `fetch_url`.
 - `app/tools/local/widgets/generate_image/image.html` — regen buttons dispatch `generate_image` with mutated prompts.
 
 (These were written before `callTool` shipped; they build the body by hand. The behavior is identical — `callTool` is the shorter way.)

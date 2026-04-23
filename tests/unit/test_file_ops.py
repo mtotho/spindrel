@@ -306,8 +306,8 @@ class TestResolvePathWidgetUri:
         )
 
     def test_widget_core_uri_resolves_to_in_repo_dir(self, ws):
-        result = _resolve_path("widget://core/notes/index.html", str(ws))
-        assert result.endswith("/widgets/notes/index.html")
+        result = _resolve_path("widget://core/context_tracker/index.html", str(ws))
+        assert result.endswith("/widgets/context_tracker/index.html")
         # Lives under the in-repo tree, not the bot workspace.
         assert "/app/tools/local/widgets/" in result
 
@@ -373,10 +373,10 @@ class TestFileToolWidgetUri:
     @pytest.mark.asyncio
     async def test_read_from_widget_core_scope_allowed(self, ws, bot_ctx):
         # Read is allowed — bots can study core widgets as examples.
-        # Uses the real in-repo `notes` widget.
+        # Uses a real in-repo core widget.
         result = await file_tool(
             operation="read",
-            path="widget://core/notes/index.html",
+            path="widget://core/context_tracker/index.html",
         )
         parsed = json.loads(result)
         # Either returned the envelope (wrapped) or the raw numbered text —

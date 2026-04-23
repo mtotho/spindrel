@@ -26,11 +26,11 @@ export function resolveCodeShell({
     background: isEmbedded ? "transparent" : t.codeBg,
     border: isEmbedded ? "none" : `1px solid ${t.codeBorder ?? t.surfaceBorder}`,
     fontFamily: TERMINAL_FONT_STACK,
-    fontSize: isTerminal ? 11 : 12,
-    lineHeight: isTerminal ? 1.45 : 1.5,
+    fontSize: 12,
+    lineHeight: isTerminal ? 1.5 : 1.5,
     color: t.contentText,
     maxHeight: 400,
-    overflowY: "auto",
+    overflowY: isTerminal ? "hidden" : "auto",
   };
 }
 
@@ -50,10 +50,10 @@ export function resolveSurfaceShell({
     borderRadius: isEmbedded ? 0 : 8,
     background: isEmbedded ? "transparent" : t.codeBg,
     fontFamily: TERMINAL_FONT_STACK,
-    fontSize: isTerminal ? 11 : 12,
-    lineHeight: isTerminal ? 1.45 : 1.5,
+    fontSize: 12,
+    lineHeight: isTerminal ? 1.5 : 1.5,
     color: t.contentText,
     maxHeight: 400,
-    overflowY: "auto",
+    overflowY: isTerminal ? "hidden" : "auto",
   };
 }

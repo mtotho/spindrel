@@ -26,6 +26,19 @@ test("default-mode composer width is centralized through ChatComposerShell", () 
     assert.match(channelPage, /ChatComposerShell/);
     assert.match(chatSession, /ChatComposerShell/);
 });
+test("chat modes centralize composer placement and rich result mode conventions", () => {
+    const chatModes = readChatFile("chatModes.ts");
+    const chatSession = readChatFile("ChatSession.tsx");
+    const richToolResult = readChatFile("RichToolResult.tsx");
+    assert.match(chatModes, /composerPlacement:\s*"viewport-overlay"/);
+    assert.match(chatModes, /composerPlacement:\s*"transcript-flow"/);
+    assert.match(chatSession, /isTranscriptFlowComposer/);
+    assert.match(richToolResult, /resultViews\.resolve\(viewKey, renderMode\)/);
+    assert.match(richToolResult, /SafeFallbackResult/);
+    assert.match(richToolResult, /core\.search_results/);
+    assert.doesNotMatch(richToolResult, /web_search\.results/);
+    assert.match(richToolResult, /resultViews\.register\("core\.plan", \{ default: renderPlanView, terminal: renderPlanView \}\)/);
+});
 test("chat rich-result wrappers explicitly separate renderer variant from chrome ownership", () => {
     const orderedTranscript = readChatFile("OrderedTranscript.tsx");
     const toolBadges = readChatFile("ToolBadges.tsx");

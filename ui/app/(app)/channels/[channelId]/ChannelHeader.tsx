@@ -116,14 +116,15 @@ export function ChannelHeader({
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
-  const openChannelDrawer = useUIStore((s) => s.setFileExplorerOpen);
+  const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
   // Mobile-only: the top-right widget button toggles the same drawer but
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
   // buttons don't clobber each other.
-  const toggleDrawerToWidgets = useUIStore((s) => s.toggleDrawerToWidgets);
-  const drawerOpen = useUIStore((s) => s.fileExplorerOpen);
-  const drawerTab = useUIStore((s) => s.omniPanelTab);
+  const toggleDrawerToWidgets = useUIStore((s) => s.toggleMobileDrawerToWidgets);
+  const drawerPrefs = useUIStore((s) => s.channelPanelPrefs[channelId]);
+  const drawerOpen = drawerPrefs?.mobileDrawerOpen ?? false;
+  const drawerTab = drawerPrefs?.leftTab ?? "widgets";
   const widgetsDrawerActive = isMobile && drawerOpen && drawerTab === "widgets";
 
   const { data: channelData } = useChannel(channelId);
@@ -292,7 +293,7 @@ export function ChannelHeader({
           label: "Widgets",
           icon: LayoutDashboard,
           onClick: isMobile
-            ? toggleDrawerToWidgets
+            ? () => toggleDrawerToWidgets(channelId)
             : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`),
           active: !!widgetsDrawerActive,
           danger: false,
@@ -350,7 +351,7 @@ export function ChannelHeader({
         <button
           className="header-icon-btn"
           style={{ width: 44, height: 44 }}
-          onClick={() => openChannelDrawer(true)}
+          onClick={() => setMobileDrawerOpen(channelId, true)}
           title="Open menu"
         >
           <Menu size={18} color={t.textMuted} />
@@ -599,7 +600,7 @@ export function ChannelHeader({
           }}
           onClick={
             isMobile
-              ? toggleDrawerToWidgets
+              ? () => toggleDrawerToWidgets(channelId)
               : () => navigate(dashboardHref ?? `/widgets/channel/${channelId}`)
           }
           title={isMobile ? "Widgets" : "Switch to dashboard view"}

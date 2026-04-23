@@ -35,7 +35,7 @@ class TestInputValidation:
 
     @pytest.mark.asyncio
     async def test_multiple_modes_set_returns_input_error(self):
-        out = _parse(await preview_widget(html="<p>x</p>", library_ref="notes"))
+        out = _parse(await preview_widget(html="<p>x</p>", library_ref="context_tracker"))
         assert out["ok"] is False
         assert out["errors"][0]["phase"] == "input"
 
@@ -99,10 +99,10 @@ class TestInlineMode:
 class TestLibraryRefMode:
     @pytest.mark.asyncio
     async def test_library_ref_resolves_core_widget(self):
-        out = _parse(await preview_widget(library_ref="notes"))
+        out = _parse(await preview_widget(library_ref="context_tracker"))
         assert out["ok"] is True, out
         env = out["envelope"]
-        assert env["source_library_ref"] == "core/notes"
+        assert env["source_library_ref"] == "core/context_tracker"
         assert env["body"].strip()
 
     @pytest.mark.asyncio

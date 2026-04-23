@@ -7,6 +7,14 @@ version: "1.0"
 # MCP servers are configured externally (official HA MCP + community ha-mcp).
 # No settings needed — this integration provides skills and widget templates.
 
+tool_families:
+  official:
+    label: Official Home Assistant MCP
+    tools: [GetLiveContext, HassTurnOn, HassTurnOff, HassLightSet]
+  community:
+    label: Community ha-mcp
+    tools: [ha_get_state, ha_search_entities]
+
 # Shared state_poll config — all HA widgets use the same poll mechanism.
 # GetLiveContext returns all entity states; the transform filters to the
 # specific entity by display_label.
@@ -76,7 +84,9 @@ widget_presets:
     name: Entity Toggle Chip
     description: Compact status chip with on/off control for one Home Assistant entity.
     icon: ToggleLeft
-    tool_name: ha_get_state
+    tool_name: GetLiveContext
+    tool_family: official
+    tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff]
     binding_schema:
       type: object
       required: [entity_id]
@@ -97,15 +107,17 @@ widget_presets:
           toggle_only: true
     default_config:
       preset_variant: toggle_chip
+      action_target: name
     runtime:
-      tool_args:
-        entity_id: "{{config.entity_id}}"
+      tool_args: {}
 
   homeassistant-entity-chip:
     name: Entity Chip
     description: Compact status/value chip for one Home Assistant entity.
     icon: Activity
-    tool_name: ha_get_state
+    tool_name: GetLiveContext
+    tool_family: official
+    tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff]
     binding_schema:
       type: object
       required: [entity_id]
@@ -152,15 +164,17 @@ widget_presets:
       allow_action: true
       primary_info: name
       secondary_info: none
+      action_target: name
     runtime:
-      tool_args:
-        entity_id: "{{config.entity_id}}"
+      tool_args: {}
 
   homeassistant-light-card:
     name: Light Card
     description: Light status card with power and optional brightness control.
     icon: Lightbulb
-    tool_name: ha_get_state
+    tool_name: GetLiveContext
+    tool_family: official
+    tool_dependencies: [GetLiveContext, HassTurnOn, HassTurnOff, HassLightSet]
     binding_schema:
       type: object
       required: [entity_id]
@@ -189,15 +203,17 @@ widget_presets:
     default_config:
       preset_variant: light_card
       show_brightness: true
+      action_target: name
     runtime:
-      tool_args:
-        entity_id: "{{config.entity_id}}"
+      tool_args: {}
 
   homeassistant-sensor-card:
     name: Sensor Card
     description: Read-only sensor card with current value and freshness.
     icon: Thermometer
-    tool_name: ha_get_state
+    tool_name: GetLiveContext
+    tool_family: official
+    tool_dependencies: [GetLiveContext]
     binding_schema:
       type: object
       required: [entity_id]
@@ -218,9 +234,9 @@ widget_presets:
           domains: [sensor]
     default_config:
       preset_variant: sensor_card
+      action_target: name
     runtime:
-      tool_args:
-        entity_id: "{{config.entity_id}}"
+      tool_args: {}
 
 tool_widgets:
   # Official HA MCP tools — intent-based
@@ -231,6 +247,14 @@ tool_widgets:
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
     state_poll: *ha_state_poll
+    sample_payload:
+      response_type: action_done
+      data:
+        success:
+          - name: Office Desk LED Strip
+            type: entity
+            id: light.office_desk_led_strip
+        failed: []
     template:
       v: 1
       components:
@@ -256,6 +280,14 @@ tool_widgets:
     display: inline
     display_label: "{{data.success | where: type=entity | pluck: name | first}}"
     state_poll: *ha_state_poll
+    sample_payload:
+      response_type: action_done
+      data:
+        success:
+          - name: Office Desk LED Strip
+            type: entity
+            id: light.office_desk_led_strip
+        failed: []
     template:
       v: 1
       components:
@@ -284,6 +316,14 @@ tool_widgets:
     # brightness/on-state echo, so we can't infer the new state from it. The
     # pinned-widget state_poll (above) fetches live HA state and renders the
     # real toggle + brightness slider.
+    sample_payload:
+      response_type: action_done
+      data:
+        success:
+          - name: Office Desk LED Strip
+            type: entity
+            id: light.office_desk_led_strip
+        failed: []
     template:
       v: 1
       components:
@@ -311,6 +351,49 @@ tool_widgets:
     transform: "integrations.homeassistant.widget_transforms:render_single_entity_widget"
     default_config:
       show_brightness: true
+    config_schema:
+      type: object
+      required: [entity_id]
+      properties:
+        entity_id:
+          type: string
+          title: Entity ID
+          description: Home Assistant entity id to refresh, such as light.office_desk_led_strip.
+        preset_variant:
+          type: string
+          title: Variant
+          enum: [sensor_card, light_card, toggle_chip, entity_chip]
+          description: Optional forced renderer variant. Leave unset for domain-based auto selection.
+        show_brightness:
+          type: boolean
+          title: Show brightness
+          default: true
+        allow_action:
+          type: boolean
+          title: Show action
+          default: false
+        primary_info:
+          type: string
+          title: Primary information
+          default: name
+        secondary_info:
+          type: string
+          title: Secondary information
+          default: none
+        action_target:
+          type: string
+          title: Action target
+          enum: [entity_id, name]
+          default: entity_id
+          description: Use entity_id for community ha-mcp style action targets, or name for official HA MCP actions.
+    sample_payload:
+      data:
+        entity_id: light.office_desk_led_strip
+        state: "on"
+        attributes:
+          friendly_name: Office Desk LED Strip
+          brightness: 180
+        last_changed: "2026-04-18T03:15:51.821593+00:00"
     state_poll:
       tool: ha_get_state
       args:
@@ -443,6 +526,18 @@ tool_widgets:
     content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "{{data.query}} — {{data.total_matches}} matches"
+    sample_payload:
+      data:
+        query: kitchen
+        total_matches: 2
+        count: 2
+        results:
+          - entity_id: light.kitchen_ceiling_lights
+            friendly_name: Kitchen Ceiling Lights
+            state: "on"
+          - entity_id: sensor.kitchen_temperature
+            friendly_name: Kitchen Temperature
+            state: "71.7"
     template:
       v: 1
       components:
@@ -471,6 +566,53 @@ tool_widgets:
     transform: "integrations.homeassistant.widget_transforms:live_context_summary"
     default_config:
       filter: ""
+    config_schema:
+      type: object
+      properties:
+        filter:
+          type: string
+          title: Filter
+          description: Filter summary mode by area, domain, or entity name.
+        entity_id:
+          type: string
+          title: Entity ID
+          description: Optional entity id. When set, renders one entity instead of the full-home summary.
+        preset_variant:
+          type: string
+          title: Variant
+          enum: [sensor_card, light_card, toggle_chip, entity_chip]
+        show_brightness:
+          type: boolean
+          title: Show brightness
+          default: true
+        allow_action:
+          type: boolean
+          title: Show action
+          default: false
+        primary_info:
+          type: string
+          title: Primary information
+          default: name
+        secondary_info:
+          type: string
+          title: Secondary information
+          default: none
+    sample_payload:
+      success: true
+      result: |
+        Live Context: overview
+        - names: Office Desk LED Strip
+          domain: light
+          state: 'on'
+          areas: Office
+          attributes:
+            brightness: '180'
+        - names: Kitchen Temperature
+          domain: sensor
+          state: '71.7'
+          areas: Kitchen
+          attributes:
+            unit_of_measurement: °F
     # state_poll drives the pinned-card view. Needed so that clicking a
     # filter button (dispatch: widget_config) triggers a re-render —
     # _dispatch_widget_config returns envelope=None unless a state_poll
@@ -484,7 +626,94 @@ tool_widgets:
       template:
         v: 1
         components:
+          - type: heading
+            when: "{{is_sensor_card}}"
+            text: "{{friendly_name}}"
+            level: 3
+          - type: heading
+            when: "{{is_light_card}}"
+            text: "{{friendly_name}}"
+            level: 3
           - type: status
+            when: "{{is_sensor_card}}"
+            text: "{{display_value}}"
+            color: accent
+          - type: status
+            when: "{{show_light_status_on}}"
+            text: "On"
+            color: success
+          - type: status
+            when: "{{show_light_status_off}}"
+            text: "Off"
+            color: muted
+          - type: status
+            when: "{{is_toggle_chip}}"
+            text: "{{chip_text}}"
+            color: "{{chip_color}}"
+          - type: status
+            when: "{{is_entity_chip}}"
+            text: "{{chip_text}}"
+            color: "{{chip_color}}"
+          - type: toggle
+            when: "{{show_toggle_off}}"
+            label: Power
+            value: true
+            color: success
+            action:
+              dispatch: tool
+              tool: "{{toggle_off_tool}}"
+              args:
+                name: "{{toggle_target_entity_id}}"
+              optimistic: true
+          - type: toggle
+            when: "{{show_toggle_on}}"
+            label: Power
+            value: false
+            action:
+              dispatch: tool
+              tool: "{{toggle_on_tool}}"
+              args:
+                name: "{{toggle_target_entity_id}}"
+              optimistic: true
+          - type: button
+            when: "{{show_brightness_button_hide}}"
+            label: Hide brightness
+            subtle: true
+            action:
+              dispatch: widget_config
+              config:
+                show_brightness: false
+          - type: button
+            when: "{{show_brightness_button_show}}"
+            label: Show brightness
+            subtle: true
+            action:
+              dispatch: widget_config
+              config:
+                show_brightness: true
+          - type: slider
+            when: "{{show_brightness}}"
+            label: Brightness
+            value: "{{brightness}}"
+            min: 0
+            max: 100
+            step: 5
+            unit: "%"
+            color: accent
+            action:
+              dispatch: tool
+              tool: HassLightSet
+              args:
+                name: "{{toggle_target_entity_id}}"
+              value_key: brightness
+          - type: properties
+            when: "{{is_entity_preset}}"
+            layout: inline
+            items:
+              - label: entity
+                value: "{{entity_id}}"
+          - type: status
+            when: "{{is_live_summary}}"
             text: "{{status_text}}"
             color: "{{status_color}}"
           - type: button
@@ -509,7 +738,7 @@ tool_widgets:
                 min_width: 180
                 items: "{{active}}"
           - type: section
-            when: "{{filter_active | not}}"
+            when: "{{area_buttons | not_empty}}"
             label: "Filter by area"
             collapsible: true
             defaultOpen: false
@@ -524,7 +753,7 @@ tool_widgets:
                   config:
                     filter: "{{_.filter_value}}"
           - type: section
-            when: "{{filter_active | not}}"
+            when: "{{domain_buttons | not_empty}}"
             label: "Filter by domain"
             collapsible: true
             defaultOpen: false

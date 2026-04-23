@@ -51,6 +51,45 @@ async def _load_session_for_plan_mode(session_id: uuid.UUID | None) -> Session |
         return await db.get(Session, session_id)
 
 
+async def _record_plan_tool_evidence(
+    *,
+    session_id: uuid.UUID | None,
+    tool_name: str,
+    tool_kind: str,
+    status: str,
+    error: str | None,
+    tool_call_id: str | None,
+    record_id: uuid.UUID | None,
+    arguments: dict[str, Any],
+    result_summary: str | None,
+) -> None:
+    if session_id is None:
+        return
+    try:
+        from app.services.session_plan_mode import publish_session_plan_event, record_plan_execution_evidence
+
+        async with async_session() as db:
+            session = await db.get(Session, session_id)
+            if session is None:
+                return
+            changed = record_plan_execution_evidence(
+                session,
+                tool_name=tool_name,
+                tool_kind=tool_kind,
+                status=status,
+                error=error,
+                tool_call_id=tool_call_id,
+                record_id=str(record_id) if record_id else None,
+                arguments=arguments,
+                result_summary=result_summary,
+            )
+            if changed is not None:
+                await db.commit()
+                publish_session_plan_event(session, "tool_evidence")
+    except Exception:
+        logger.warning("Failed to record plan execution evidence for %s", tool_name, exc_info=True)
+
+
 @dataclass
 class ToolResultEnvelope:
     """Structured envelope for the user-visible rendering of a tool result.
@@ -119,6 +158,12 @@ class ToolResultEnvelope:
     panel_title: str | None = None
     show_panel_title: bool | None = None
     tool_call_id: str | None = None
+    # Stable presentation identity and structured payload for mode-aware UI
+    # renderers. ``body`` remains the default-mode rendered artifact; ``data``
+    # is the shared input for terminal/compact/dashboard variants.
+    view_key: str | None = None
+    data: Any | None = None
+    template_id: str | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -160,6 +205,12 @@ class ToolResultEnvelope:
             d["show_panel_title"] = self.show_panel_title
         if self.tool_call_id:
             d["tool_call_id"] = self.tool_call_id
+        if self.view_key:
+            d["view_key"] = self.view_key
+        if self.data is not None:
+            d["data"] = self.data
+        if self.template_id:
+            d["template_id"] = self.template_id
         return d
 
 
@@ -326,6 +377,9 @@ def _build_envelope_from_optin(
     display_mode = (
         raw_display_mode if raw_display_mode in ("inline", "panel") else None
     )
+    view_key = envelope_data.get("view_key")
+    data = envelope_data.get("data")
+    template_id = envelope_data.get("template_id")
 
     return ToolResultEnvelope(
         content_type=content_type,
@@ -342,6 +396,9 @@ def _build_envelope_from_optin(
         source_bot_id=str(source_bot_id) if source_bot_id else None,
         extra_csp=extra_csp,
         display_mode=display_mode,
+        view_key=str(view_key) if view_key else None,
+        data=data,
+        template_id=str(template_id) if template_id else None,
     )
 
 
@@ -1016,6 +1073,17 @@ async def dispatch_tool_call(
     tool_event["surface"] = _surface
     tool_event["summary"] = _summary
     result_obj.tool_event = tool_event
+    safe_create_task(_record_plan_tool_evidence(
+        session_id=session_id,
+        tool_name=name,
+        tool_kind=_tc_type,
+        status="error" if _tc_error else "done",
+        error=_tc_error,
+        tool_call_id=tool_call_id,
+        record_id=_tc_record_id,
+        arguments=_tc_args_pre,
+        result_summary=_summary or result_preview,
+    ))
 
     return result_obj
 

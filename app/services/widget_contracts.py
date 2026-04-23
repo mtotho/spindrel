@@ -248,6 +248,25 @@ def build_public_fields_for_pin(
             )
         return {"config_schema": None, "widget_contract": None}
 
+    source_preset_id = envelope.get("source_preset_id")
+    if isinstance(source_preset_id, str) and source_preset_id.strip():
+        try:
+            from app.services.widget_presets import get_widget_preset
+
+            preset = get_widget_preset(source_preset_id.strip())
+            fields = build_public_fields_for_tool_widget(
+                str(preset.get("tool_name") or tool_name),
+                instantiation_kind="preset",
+            )
+            fields["config_schema"] = normalize_config_schema(
+                preset.get("binding_schema")
+            )
+            return fields
+        except Exception:
+            # Fall through to the normal tool/html detection path. Pin reads
+            # should degrade to best-effort metadata instead of failing.
+            pass
+
     tool_fields = build_public_fields_for_tool_widget(
         tool_name,
         instantiation_kind=_pin_instantiation_kind(envelope, tool_name),

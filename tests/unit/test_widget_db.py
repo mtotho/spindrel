@@ -180,9 +180,8 @@ class TestResolveDbPath:
         # Simulate a workspace root that IS the builtin widget dir so
         # the resolved bundle_dir falls inside _BUILTIN_WIDGET_DIR.
         builtin_dir = _widget_db._BUILTIN_WIDGET_DIR
-        notes_bundle = builtin_dir / "notes"
         # Temporarily set ws_root to the parent of builtin_dir so
-        # "notes/index.html" resolves into the builtin tree.
+        # "context_tracker/index.html" resolves into the builtin tree.
         ws_root = builtin_dir.parent
 
         bot = BotConfig(
@@ -195,9 +194,10 @@ class TestResolveDbPath:
 
         pin = mock.MagicMock(spec=WidgetDashboardPin)
         # source_path must be relative to ws_root and resolve INTO _BUILTIN_WIDGET_DIR.
-        # ws_root = builtin_dir.parent (= .../tools/local/), so "widgets/notes/index.html"
-        # resolves to .../tools/local/widgets/notes — inside _BUILTIN_WIDGET_DIR.
-        pin.envelope = {"source_path": "widgets/notes/index.html"}
+        # ws_root = builtin_dir.parent (= .../tools/local/), so
+        # "widgets/context_tracker/index.html" resolves to
+        # .../tools/local/widgets/context_tracker — inside _BUILTIN_WIDGET_DIR.
+        pin.envelope = {"source_path": "widgets/context_tracker/index.html"}
         pin.source_channel_id = uuid.UUID("bbbb0000-0000-0000-0000-000000000001")
         pin.source_bot_id = "test-bot"
 
@@ -213,7 +213,7 @@ class TestResolveDbPath:
 
         assert "builtin" in result.parts
         assert result.name == "data.sqlite"
-        assert result.parent.name == "notes"
+        assert result.parent.name == "context_tracker"
 
 
 # ---------------------------------------------------------------------------

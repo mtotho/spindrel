@@ -25,8 +25,7 @@ async def test_lists_core_widgets():
     assert data["count"] > 0
     names = {w["name"] for w in data["widgets"]}
     # ``notes_native`` is the supported Notes library entry; the older HTML
-    # bundle stays on disk for compatibility but should no longer surface in
-    # the discoverable library.
+    # bundle has been deleted and must not reappear in discovery.
     assert "notes" not in names
     assert "notes_native" in names
     # Every entry carries the required fields.
@@ -227,7 +226,7 @@ async def test_all_scope_merges_core_bot_and_workspace(tmp_path, monkeypatch):
     names_by_scope = {(w["name"], w["scope"]) for w in data["widgets"]}
     assert ("private", "bot") in names_by_scope
     assert ("team", "workspace") in names_by_scope
-    # core still present — `notes` ships in-repo.
+    # core still present — first-party in-repo widgets ship with the server.
     assert any(scope == "core" for _name, scope in names_by_scope)
 
 

@@ -132,8 +132,12 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
                     source_channel_id=str(channel_id),
                 ),
             ),
-            {"entity_id": "light.kitchen_ceiling_lights", "preset_variant": "entity_chip"},
-            {"entity_id": "light.kitchen_ceiling_lights"},
+            {
+                "entity_id": "light.kitchen_ceiling_lights",
+                "preset_variant": "entity_chip",
+                "action_target": "name",
+            },
+            {},
         )
 
     monkeypatch.setattr(
@@ -142,7 +146,7 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
     )
     monkeypatch.setattr(
         "app.services.widget_presets.get_widget_preset",
-        lambda preset_id: {"id": preset_id, "tool_name": "ha_get_state"},
+        lambda preset_id: {"id": preset_id, "tool_name": "GetLiveContext"},
     )
 
     resp = await client.post(
@@ -158,10 +162,11 @@ async def test_preset_pin_creates_dashboard_pin(client, db_session, monkeypatch)
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["tool_name"] == "ha_get_state"
+    assert body["tool_name"] == "GetLiveContext"
     assert body["display_label"] == "Kitchen Ceiling Lights"
     assert body["source_bot_id"] == "bot-123"
     assert body["source_channel_id"] == str(channel_id)
-    assert body["tool_args"] == {"entity_id": "light.kitchen_ceiling_lights"}
+    assert body["tool_args"] == {}
     assert body["widget_config"]["entity_id"] == "light.kitchen_ceiling_lights"
     assert body["envelope"]["source_instantiation_kind"] == "preset"
+    assert body["envelope"]["source_preset_id"] == "homeassistant-entity-chip"

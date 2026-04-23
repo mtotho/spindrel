@@ -35,6 +35,20 @@ tool_widgets:
     default_config:
       units: "imperial"
       show_feels_like: false
+    config_schema:
+      type: object
+      properties:
+        units:
+          type: string
+          title: Units
+          description: Temperature and wind units used by refresh calls.
+          enum: [imperial, metric]
+          default: imperial
+        show_feels_like:
+          type: boolean
+          title: Show feels-like
+          description: Emphasize feels-like temperature in the widget.
+          default: false
     state_poll:
       tool: get_weather
       args:

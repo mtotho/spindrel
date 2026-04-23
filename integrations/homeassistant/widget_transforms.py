@@ -84,6 +84,47 @@ _ON_STATES = ("on", "open", "playing", "home", "active", "unlocked", "heat", "co
 _TOGGLEABLE_DOMAINS = {"light", "switch", "fan", "input_boolean", "media_player"}
 
 
+def _entity_id_from_live_entity(entity: dict) -> str:
+    name = str(entity.get("name") or "").strip().lower()
+    domain = str(entity.get("domain") or "").strip().lower()
+    if not name or not domain:
+        return ""
+    slug = "".join(ch if ch.isalnum() else "_" for ch in name)
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    slug = slug.strip("_")
+    return f"{domain}.{slug}" if slug else ""
+
+
+def _single_entity_view_from_live_context(raw_text: str, config: dict, display_label: str = "") -> dict:
+    target = str(config.get("entity_id") or display_label or "").strip().lower()
+    if not target:
+        return {}
+
+    for live_entity in _parse_live_context(raw_text):
+        entity_id = _entity_id_from_live_entity(live_entity)
+        name = str(live_entity.get("name") or "").strip()
+        if target not in {entity_id.lower(), name.lower()}:
+            continue
+
+        attrs = dict(live_entity.get("attributes") or {})
+        attrs.setdefault("friendly_name", name or entity_id)
+        entity = {
+            "entity_id": entity_id,
+            "state": live_entity.get("state", ""),
+            "attributes": attrs,
+            "last_changed": live_entity.get("last_changed", ""),
+            "last_updated": live_entity.get("last_updated", ""),
+        }
+        view = _single_entity_view(entity, config)
+        if str(config.get("action_target") or "").strip().lower() == "name":
+            view["toggle_target_entity_id"] = view.get("friendly_name", "") or entity_id
+        view["is_live_summary"] = False
+        view["is_entity_preset"] = True
+        return view
+    return {}
+
+
 def _unwrap(raw_result: str) -> dict:
     """Best-effort JSON parse of an MCP tool result string.
 
@@ -405,14 +446,16 @@ def _compute_live_context_view(raw_text: str, raw_filter: str) -> dict:
         status_text = f"{total} entities · {len(active)} active"
         status_color = "info"
 
-    area_buttons = [
+    area_buttons = [] if filter_active else [
         {"label": area, "filter_value": area} for area in all_areas
     ]
-    domain_buttons = [
+    domain_buttons = [] if filter_active else [
         {"label": domain, "filter_value": domain} for domain in all_domains
     ]
 
     return {
+        "is_live_summary": True,
+        "is_entity_preset": False,
         "status_text": status_text,
         "status_color": status_color,
         "total": total,
@@ -441,6 +484,15 @@ def live_context_summary(data: dict, components: list[dict]) -> list[dict]:
         return components
 
     cfg = data.get("config") if isinstance(data.get("config"), dict) else {}
+    if cfg.get("entity_id") or cfg.get("preset_variant"):
+        entity_view = _single_entity_view_from_live_context(
+            result_text,
+            cfg,
+            str(data.get("display_label") or ""),
+        )
+        if entity_view:
+            return _build_entity_widget_components(entity_view)
+
     view = _compute_live_context_view(result_text, str(cfg.get("filter", "") or ""))
 
     new_components: list[dict] = [
@@ -528,6 +580,14 @@ def live_context_poll(raw_result: str, widget_meta: dict) -> dict:
         raw_text = ""
 
     cfg = widget_meta.get("config") if isinstance(widget_meta.get("config"), dict) else {}
+    if cfg.get("entity_id") or cfg.get("preset_variant"):
+        entity_view = _single_entity_view_from_live_context(
+            raw_text,
+            cfg,
+            str(widget_meta.get("display_label") or ""),
+        )
+        if entity_view:
+            return entity_view
     return _compute_live_context_view(raw_text, str(cfg.get("filter", "") or ""))
 
 

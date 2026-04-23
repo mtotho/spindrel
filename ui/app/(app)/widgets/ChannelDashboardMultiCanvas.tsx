@@ -3,10 +3,10 @@
  *
  * Each canvas mirrors its chat-runtime chrome so edit mode looks like
  * reality:
- *   - Rail   ↔ OmniPanel          (bare flex-col, ~300px, no card bg)
+ *   - Rail   ↔ OmniPanel          (bare flex-col, runtime panel width)
  *   - Header ↔ ChannelHeaderChip  (centered chip pill strip)
  *   - Grid   ↔ ChatMessageArea    (bare surface, fills height)
- *   - Dock   ↔ WidgetDockRight    (bare flex-col, ~320px, no card bg)
+ *   - Dock   ↔ WidgetDockRight    (bare flex-col, runtime panel width)
  *
  * Edit-mode affordances are layered on top as a dashed overlay ring that
  * brightens on `isOver`. Widgets themselves still carry their own tile
@@ -62,6 +62,7 @@ import type {
   WidgetScope,
 } from "@/src/types/api";
 import type { GridPreset, DashboardChrome } from "@/src/lib/dashboardGrid";
+import { CHANNEL_PANEL_DEFAULT_WIDTH } from "@/src/lib/channelPanelLayout";
 import { EditModeGridGuides } from "./EditModeGridGuides";
 import {
   DroppableCanvas,
@@ -77,9 +78,9 @@ import {
   type TileBox,
 } from "./DashboardDnd";
 
-// Widths mirror the runtime OmniPanel (300px default) + WidgetDockRight (320px).
-const RAIL_WIDTH_PX = 300;
-const DOCK_WIDTH_PX = 320;
+// Widths mirror the runtime chat workbench/dock defaults.
+const RAIL_WIDTH_PX = CHANNEL_PANEL_DEFAULT_WIDTH;
+const DOCK_WIDTH_PX = CHANNEL_PANEL_DEFAULT_WIDTH;
 // Header is temporarily one fixed chip slot that mirrors the chat runtime.
 const HEADER_SLOT_WIDTH_PX = 180;
 const HEADER_SLOT_HEIGHT_PX = 32;

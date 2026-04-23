@@ -150,6 +150,7 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
+  const nameColor = isTerminalMode ? t.accent : bg;
 
   return (
     <div style={{ display: "flex", flexDirection: "row", gap: 12, padding: isTerminalMode ? "10px 12px 6px" : "10px 20px 4px", alignSelf: "stretch" }}>
@@ -160,7 +161,7 @@ export function ProcessingIndicator({ botName, chatMode = "default" }: { botName
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", flexDirection: "row", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
-          <span style={{ fontSize: isTerminalMode ? 13 : 15, fontWeight: 700, color: bg, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{name}</span>
+          <span style={{ fontSize: isTerminalMode ? 13 : 15, fontWeight: 700, color: nameColor, fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined }}>{isTerminalMode ? `assistant:${name}` : name}</span>
         </div>
         {isTerminalMode ? (
           <TerminalThinkingStatus color={t.textMuted} dimColor={t.textDim} />
@@ -185,8 +186,9 @@ type AutoInjectedSkillDisplay = {
 };
 
 /** Compact pills showing which skills were auto-loaded for this turn */
-function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: ReturnType<typeof useThemeTokens> }) {
+function SkillPills({ skills, t, chatMode = "default" }: { skills: AutoInjectedSkillDisplay[]; t: ReturnType<typeof useThemeTokens>; chatMode?: "default" | "terminal" }) {
   if (skills.length === 0) return null;
+  const isTerminalMode = chatMode === "terminal";
   return (
     <div style={{ marginBottom: 6 }}>
       {/* Section label — mirrors ThinkingBlock pattern */}
@@ -196,10 +198,10 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
         gap: 5,
         paddingBottom: 4,
       }}>
-        <BookOpen size={10} color={t.purpleMuted} style={{ opacity: 0.7 }} />
+        <BookOpen size={10} color={isTerminalMode ? t.textDim : t.purpleMuted} style={{ opacity: 0.7 }} />
         <span style={{
           fontSize: 10,
-          color: t.purpleMuted,
+          color: isTerminalMode ? t.textDim : t.purpleMuted,
           fontWeight: 500,
           letterSpacing: 0.3,
           textTransform: "uppercase",
@@ -219,8 +221,8 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
               gap: 5,
               padding: "2px 8px 2px 6px",
               borderRadius: 10,
-              backgroundColor: t.purpleSubtle,
-              border: `1px solid ${t.purpleBorder}`,
+              backgroundColor: isTerminalMode ? "transparent" : t.purpleSubtle,
+              border: isTerminalMode ? `1px solid ${t.overlayBorder}` : `1px solid ${t.purpleBorder}`,
               animationDelay: `${i * 60}ms`,
             }}
           >
@@ -229,7 +231,7 @@ function SkillPills({ skills, t }: { skills: AutoInjectedSkillDisplay[]; t: Retu
               width: 5,
               height: 5,
               borderRadius: "50%",
-              backgroundColor: t.purple,
+              backgroundColor: isTerminalMode ? t.textDim : t.purple,
               opacity: 0.3 + s.similarity * 0.7,
               flexShrink: 0,
             }} />
@@ -323,6 +325,7 @@ export function StreamingIndicator({
   const bg = avatarColor(name);
   const t = useThemeTokens();
   const isTerminalMode = chatMode === "terminal";
+  const nameColor = isTerminalMode ? t.accent : bg;
 
   // Trim trailing whitespace/newlines to prevent empty spacer divs from markdown parser
   const displayContent = content.trim();
@@ -353,7 +356,7 @@ export function StreamingIndicator({
           <span style={{
             fontSize: isTerminalMode ? 13 : 15,
             fontWeight: isTerminalMode ? 600 : 700,
-            color: bg,
+            color: nameColor,
             fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
             textTransform: isTerminalMode ? "lowercase" : undefined,
           }}>
@@ -363,12 +366,12 @@ export function StreamingIndicator({
 
         {/* Thinking content */}
         {displayThinking ? (
-          <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={t.purpleMuted} chatMode={chatMode} />
+          <ThinkingBlock text={displayThinking} borderColor={t.textDim} textColor={t.textMuted} labelColor={isTerminalMode ? t.textMuted : t.purpleMuted} chatMode={chatMode} />
         ) : null}
 
         {/* Auto-injected skills */}
         {autoInjectedSkills && autoInjectedSkills.length > 0 && (
-          <SkillPills skills={autoInjectedSkills} t={t} />
+          <SkillPills skills={autoInjectedSkills} t={t} chatMode={chatMode} />
         )}
 
         {/* Ordered transcript body */}

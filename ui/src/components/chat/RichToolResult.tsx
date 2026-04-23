@@ -23,7 +23,7 @@
  * + re-expand re-fetches.
  */
 import { useMemo, useState } from "react";
-import type { ToolResultEnvelope } from "../../types/api";
+import type { ToolCallSummary, ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { apiFetch } from "../../api/client";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
@@ -41,12 +41,23 @@ import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
 import { NativeAppRenderer } from "./renderers/NativeAppRenderer";
 import { PlanResultRenderer } from "./renderers/PlanResultRenderer";
+import {
+  DefaultSearchResultsRenderer,
+  TerminalSearchResultsRenderer,
+  isSearchResultsPayload,
+} from "./renderers/SearchResultsRenderer";
 import type { WidgetActionDispatcher } from "./renderers/ComponentRenderer";
 import { WidgetActionContext } from "./renderers/ComponentRenderer";
 import type {
   RichRendererChromeMode,
   RichRendererVariant,
 } from "./renderers/genericRendererChrome";
+import { getChatModeConfig } from "./chatModes";
+import {
+  createResultViewRegistry,
+  envelopeViewKey,
+  type ResultViewRendererProps,
+} from "./resultViewRegistry";
 
 interface Props {
   envelope: ToolResultEnvelope;
@@ -94,17 +105,8 @@ interface Props {
   hostSurface?: HostSurface;
   rendererVariant?: RichRendererVariant;
   chromeMode?: RichRendererChromeMode;
+  summary?: ToolCallSummary | null;
   t: ThemeTokens;
-}
-
-function extractInteractiveToolResultJson(body: string): string | null {
-  const match = body.match(/window\.spindrel\.toolResult\s*=\s*([\s\S]*?);<\/script>/i);
-  if (!match?.[1]) return null;
-  try {
-    return JSON.stringify(JSON.parse(match[1]));
-  } catch {
-    return null;
-  }
 }
 
 function resolveRendererTokens(base: ThemeTokens, rendererVariant: RichRendererVariant): ThemeTokens {
@@ -122,6 +124,205 @@ function resolveRendererTokens(base: ThemeTokens, rendererVariant: RichRendererV
   };
 }
 
+interface RichResultViewProps extends ResultViewRendererProps {
+  envelope: ToolResultEnvelope;
+  summary?: ToolCallSummary | null;
+  body: string;
+  data: unknown;
+  sessionId?: string;
+  channelId?: string;
+  fillHeight?: boolean;
+  dashboardPinId?: string;
+  gridDimensions?: { width: number; height: number };
+  onIframeReady?: () => void;
+  hoverScrollbars?: boolean;
+  layout?: WidgetLayout;
+  hostSurface?: HostSurface;
+  rendererVariant: RichRendererVariant;
+  chromeMode: RichRendererChromeMode;
+  showJson: boolean;
+  t: ThemeTokens;
+}
+
+function renderMarkdownView({ body, t, mode }: RichResultViewProps) {
+  return (
+    <div style={{ padding: "4px 0" }}>
+      <MarkdownContent text={body} t={t} chatMode={mode === "terminal" ? "terminal" : "default"} />
+    </div>
+  );
+}
+
+function renderJsonView({ body, rendererVariant, chromeMode, t }: RichResultViewProps) {
+  return <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
+}
+
+function renderTextView({ body, rendererVariant, chromeMode, t }: RichResultViewProps) {
+  return <TextRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
+}
+
+function renderSandboxedHtmlView({ body, chromeMode, t }: RichResultViewProps) {
+  return <SandboxedHtmlRenderer body={body} chromeMode={chromeMode} t={t} />;
+}
+
+function renderInteractiveHtmlView({
+  envelope,
+  sessionId,
+  channelId,
+  fillHeight,
+  dashboardPinId,
+  gridDimensions,
+  onIframeReady,
+  hoverScrollbars,
+  layout,
+  hostSurface,
+  t,
+}: RichResultViewProps) {
+  return (
+    <InteractiveHtmlRenderer
+      envelope={envelope}
+      sessionId={sessionId}
+      channelId={channelId}
+      fillHeight={fillHeight}
+      dashboardPinId={dashboardPinId}
+      gridDimensions={gridDimensions}
+      onIframeReady={onIframeReady}
+      hoverScrollbars={hoverScrollbars}
+      layout={layout}
+      hostSurface={hostSurface}
+      t={t}
+    />
+  );
+}
+
+function renderDiffView({ body, rendererVariant, summary, t }: RichResultViewProps) {
+  return <DiffRenderer body={body} rendererVariant={rendererVariant} summary={summary} t={t} />;
+}
+
+function renderFileListingView({ body, rendererVariant, chromeMode, t }: RichResultViewProps) {
+  return <FileListingRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
+}
+
+function renderComponentsView({ body, showJson, rendererVariant, chromeMode, t }: RichResultViewProps) {
+  if (showJson) {
+    return <JsonTreeRenderer body={body} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />;
+  }
+  return <ComponentRenderer body={body} t={t} />;
+}
+
+function renderNativeAppView({
+  envelope,
+  sessionId,
+  dashboardPinId,
+  channelId,
+  t,
+}: RichResultViewProps) {
+  return (
+    <NativeAppRenderer
+      envelope={envelope}
+      sessionId={sessionId}
+      dashboardPinId={dashboardPinId}
+      channelId={channelId}
+      t={t}
+    />
+  );
+}
+
+function renderPlanView({ envelope, sessionId }: RichResultViewProps) {
+  return <PlanResultRenderer envelope={envelope} sessionId={sessionId} />;
+}
+
+function renderDefaultSearchResultsView({ data, t }: RichResultViewProps) {
+  if (isSearchResultsPayload(data)) {
+    return <DefaultSearchResultsRenderer payload={data} t={t} />;
+  }
+  return null;
+}
+
+function renderTerminalSearchResultsView({ data, t }: RichResultViewProps) {
+  if (isSearchResultsPayload(data)) {
+    return <TerminalSearchResultsRenderer payload={data} t={t} />;
+  }
+  return null;
+}
+
+function SafeFallbackResult({
+  envelope,
+  body,
+  data,
+  viewKey,
+  mode,
+  rendererVariant,
+  chromeMode,
+  t,
+}: RichResultViewProps) {
+  const label = envelope.display_label || envelope.plain_body || viewKey;
+  const hasStructuredData = data !== undefined && data !== null;
+  const canShowBody = envelope.content_type !== "application/vnd.spindrel.html+interactive";
+  const fallbackBody = hasStructuredData
+    ? JSON.stringify(data, null, 2)
+    : canShowBody
+      ? body
+      : "";
+  const isTerminal = mode === "terminal";
+  return (
+    <details
+      style={{
+        fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
+        fontSize: isTerminal ? 12 : 12,
+        lineHeight: 1.45,
+        color: t.textMuted,
+      }}
+    >
+      <summary style={{ cursor: "pointer", color: isTerminal ? t.textMuted : t.accent }}>
+        {label}
+      </summary>
+      {fallbackBody ? (
+        hasStructuredData ? (
+          <JsonTreeRenderer body={fallbackBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />
+        ) : (
+          <TextRenderer body={fallbackBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={t} />
+        )
+      ) : (
+        <div style={{ paddingTop: 6 }}>No {mode} renderer is registered for {viewKey}.</div>
+      )}
+    </details>
+  );
+}
+
+function parseStructuredData(envelope: ToolResultEnvelope, body: string): unknown {
+  if (envelope.data !== undefined) return envelope.data;
+  if (
+    envelope.content_type === "application/json"
+    || envelope.content_type === "application/vnd.spindrel.file-listing+json"
+    || envelope.content_type === "application/vnd.spindrel.components+json"
+    || envelope.content_type === "application/vnd.spindrel.native-app+json"
+    || envelope.content_type === "application/vnd.spindrel.plan+json"
+  ) {
+    try {
+      return JSON.parse(body);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+const resultViews = createResultViewRegistry<RichResultViewProps>();
+resultViews.register("core.markdown", { any: renderMarkdownView });
+resultViews.register("core.json", { any: renderJsonView });
+resultViews.register("core.text", { any: renderTextView });
+resultViews.register("core.html", { default: renderSandboxedHtmlView });
+resultViews.register("core.interactive_html", { default: renderInteractiveHtmlView });
+resultViews.register("core.diff", { any: renderDiffView });
+resultViews.register("core.file_listing", { any: renderFileListingView });
+resultViews.register("core.components", { default: renderComponentsView, terminal: renderJsonView });
+resultViews.register("core.native_app", { default: renderNativeAppView });
+resultViews.register("core.plan", { default: renderPlanView, terminal: renderPlanView });
+resultViews.register("core.search_results", {
+  default: renderDefaultSearchResultsView,
+  terminal: renderTerminalSearchResultsView,
+});
+
 export function RichToolResult({
   envelope,
   sessionId,
@@ -137,6 +338,7 @@ export function RichToolResult({
   hostSurface,
   rendererVariant = "default-chat",
   chromeMode = "standalone",
+  summary,
   t,
 }: Props) {
   const [fetched, setFetched] = useState<string | null>(null);
@@ -164,29 +366,10 @@ export function RichToolResult({
   const rawBody = fetched ?? envelope.body;
   const body = rawBody == null ? null : typeof rawBody === "string" ? rawBody : JSON.stringify(rawBody);
   const isTerminalRenderer = rendererVariant === "terminal-chat";
-  const terminalWidgetJson = isTerminalRenderer && body != null && envelope.content_type === "application/vnd.spindrel.html+interactive"
-    ? extractInteractiveToolResultJson(body)
-    : null;
-  const terminalBody = (() => {
-    if (!isTerminalRenderer || body == null) return body;
-    if (envelope.content_type === "application/vnd.spindrel.html+interactive") {
-      return terminalWidgetJson ?? envelope.plain_body ?? body;
-    }
-    return body;
-  })();
-  const effectiveContentType = (() => {
-    if (!isTerminalRenderer) return envelope.content_type;
-    if (envelope.content_type === "application/vnd.spindrel.components+json") {
-      return "application/json";
-    }
-    if (envelope.content_type === "application/vnd.spindrel.html+interactive") {
-      return terminalWidgetJson ? "application/json" : "text/plain";
-    }
-    return envelope.content_type;
-  })();
+  const renderMode = getChatModeConfig(isTerminalRenderer ? "terminal" : "default").resultMode;
 
   // Truncated and not yet fetched — show the lazy-load affordance.
-  if (envelope.truncated && terminalBody == null) {
+  if (envelope.truncated && body == null) {
     const canFetch = sessionId && envelope.record_id;
     const isEmbedded = chromeMode === "embedded";
     const isTerminal = rendererVariant === "terminal-chat";
@@ -199,13 +382,16 @@ export function RichToolResult({
           background: isEmbedded ? "transparent" : rendererTokens.overlayLight,
           fontSize: 11,
           color: rendererTokens.textMuted,
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
+          display: "flex",
+          flexDirection: isTerminal ? "column" : "row",
+          alignItems: isTerminal ? "flex-start" : "center",
+          gap: isTerminal ? 4 : 8,
           fontFamily: isTerminal ? "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace" : undefined,
         }}
       >
-        <span>{envelope.plain_body || "Output exceeds inline limit."}</span>
+        <span style={{ display: "block", maxWidth: "100%" }}>
+          {envelope.plain_body || "Output exceeds inline limit."}
+        </span>
         {canFetch && (
           <button
             type="button"
@@ -225,17 +411,24 @@ export function RichToolResult({
             }}
             disabled={fetching}
             style={{
-              padding: "2px 8px",
-              borderRadius: 4,
-              border: `1px solid ${rendererTokens.accentBorder}`,
-              background: isEmbedded ? "transparent" : rendererTokens.accentSubtle,
+              padding: isTerminal ? 0 : "2px 8px",
+              borderRadius: isTerminal ? 0 : 4,
+              border: isTerminal ? "none" : `1px solid ${rendererTokens.accentBorder}`,
+              background: isTerminal ? "transparent" : isEmbedded ? "transparent" : rendererTokens.accentSubtle,
               color: rendererTokens.accent,
               fontSize: 11,
+              display: "block",
+              alignSelf: isTerminal ? "flex-start" : undefined,
+              whiteSpace: "nowrap",
               cursor: fetching ? "wait" : "pointer",
               transition: "background-color 0.15s",
             }}
-            onMouseEnter={(e) => { if (!fetching) e.currentTarget.style.backgroundColor = rendererTokens.accentMuted; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = rendererTokens.accentSubtle; }}
+            onMouseEnter={(e) => {
+              if (!fetching && !isTerminal) e.currentTarget.style.backgroundColor = rendererTokens.accentMuted;
+            }}
+            onMouseLeave={(e) => {
+              if (!isTerminal) e.currentTarget.style.backgroundColor = rendererTokens.accentSubtle;
+            }}
           >
             {fetching ? "Loading\u2026" : "Show full output"}
           </button>
@@ -247,80 +440,36 @@ export function RichToolResult({
     );
   }
 
-  if (terminalBody == null) return null;
+  if (body == null) return null;
 
   // Components content type supports a JSON toggle for debugging
   const isComponents = envelope.content_type === "application/vnd.spindrel.components+json" && !isTerminalRenderer;
-
-  let content: React.ReactNode;
-  if (isComponents && showJson) {
-    // Force JSON view of the component body
-    content = <JsonTreeRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
-  } else {
-    switch (effectiveContentType) {
-      case "text/markdown":
-        content = (
-          <div style={{ padding: "4px 0" }}>
-            <MarkdownContent
-              text={terminalBody}
-              t={rendererTokens}
-              chatMode={rendererVariant === "terminal-chat" ? "terminal" : "default"}
-            />
-          </div>
-        );
-        break;
-      case "application/json":
-        content = <JsonTreeRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
-        break;
-      case "text/html":
-        content = <SandboxedHtmlRenderer body={terminalBody} chromeMode={chromeMode} t={rendererTokens} />;
-        break;
-      case "application/vnd.spindrel.html+interactive":
-        content = (
-          <InteractiveHtmlRenderer
-            envelope={envelope}
-            sessionId={sessionId}
-            channelId={channelId}
-            fillHeight={fillHeight}
-            dashboardPinId={dashboardPinId}
-            gridDimensions={gridDimensions}
-            onIframeReady={onIframeReady}
-            hoverScrollbars={hoverScrollbars}
-            layout={layout}
-            hostSurface={hostSurface}
-            t={rendererTokens}
-          />
-        );
-        break;
-      case "application/vnd.spindrel.diff+text":
-        content = <DiffRenderer body={terminalBody} rendererVariant={rendererVariant} t={rendererTokens} />;
-        break;
-      case "application/vnd.spindrel.file-listing+json":
-        content = <FileListingRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
-        break;
-      case "application/vnd.spindrel.components+json":
-        content = <ComponentRenderer body={terminalBody} t={rendererTokens} />;
-        break;
-      case "application/vnd.spindrel.native-app+json":
-        content = (
-          <NativeAppRenderer
-            envelope={envelope}
-            sessionId={sessionId}
-            dashboardPinId={dashboardPinId}
-            channelId={channelId}
-            t={rendererTokens}
-          />
-        );
-        break;
-      case "application/vnd.spindrel.plan+json":
-        content = <PlanResultRenderer envelope={envelope} sessionId={sessionId} />;
-        break;
-      case "text/plain":
-      default:
-        content = <TextRenderer body={terminalBody} rendererVariant={rendererVariant} chromeMode={chromeMode} t={rendererTokens} />;
-        break;
-    }
-  }
+  const viewKey = envelopeViewKey(envelope);
+  const data = parseStructuredData(envelope, body);
+  const viewProps: RichResultViewProps = {
+    viewKey,
+    mode: renderMode,
+    envelope,
+    summary,
+    body,
+    data,
+    sessionId,
+    channelId,
+    fillHeight,
+    dashboardPinId,
+    gridDimensions,
+    onIframeReady,
+    hoverScrollbars,
+    layout,
+    hostSurface,
+    rendererVariant,
+    chromeMode,
+    showJson,
+    t: rendererTokens,
+  };
+  const renderer = resultViews.resolve(viewKey, renderMode);
+  const rendered = renderer?.(viewProps);
+  const content = rendered ?? <SafeFallbackResult {...viewProps} />;
 
   const wrapped = actionCtx ? (
     <WidgetActionContext.Provider value={actionCtx}>

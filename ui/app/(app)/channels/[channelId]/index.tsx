@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
-import { ChevronUp, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { OmniPanel } from "./OmniPanel";
 import { WidgetDockRight } from "./WidgetDockRight";
@@ -14,9 +14,10 @@ import { MessageBubble } from "@/src/components/chat/MessageBubble";
 import { MessageInput } from "@/src/components/chat/MessageInput";
 import { ChatComposerShell } from "@/src/components/chat/ChatComposerShell";
 import { useChatStore } from "@/src/stores/chat";
-import { useUIStore } from "@/src/stores/ui";
+import { useUIStore, defaultChannelPanelPrefs, type OmniPanelTab } from "@/src/stores/ui";
 import { useChannelReadStore } from "@/src/stores/channelRead";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
@@ -25,7 +26,7 @@ import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
 import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActions";
-import { FolderOpen, Cog, Settings as SettingsIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon } from "lucide-react";
+import { FolderOpen, Cog, Settings as SettingsIcon, PanelLeft as PanelLeftIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon, Layers, Search } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
 import { useIntegrationHuds } from "@/src/api/hooks/useChatHud";
@@ -44,6 +45,14 @@ import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
+import {
+  CHANNEL_CHAT_MIN_WIDTH,
+  CHANNEL_PANEL_DEFAULT_WIDTH,
+  CHANNEL_PANEL_MAX_WIDTH,
+  CHANNEL_PANEL_MIN_WIDTH,
+  clampChannelPanelWidth,
+  resolveChannelPanelLayout,
+} from "@/src/lib/channelPanelLayout";
 import { useScratchReturnStore } from "@/src/stores/scratchReturn";
 import { OrchestratorLaunchpad } from "./OrchestratorEmptyState";
 import { useChannelPipelines } from "@/src/api/hooks/useChannelPipelines";
@@ -72,41 +81,65 @@ import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
-/** Peek tab — thin floating chevron on the viewport edge that re-opens a
- *  collapsed dock. Sits above most chat chrome but below modals/drawers so it
- *  doesn't fight a slide-in panel. */
-function DockPeekTab({
+function readLegacyRightDockWidth(): number {
+  if (typeof window === "undefined") return CHANNEL_PANEL_DEFAULT_WIDTH;
+  const raw = window.localStorage.getItem("chat-dock-right-width");
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return clampChannelPanelWidth(Number.isFinite(parsed) ? parsed : CHANNEL_PANEL_DEFAULT_WIDTH);
+}
+
+type PanelSpineAction = {
+  id: string;
+  label: string;
+  hint?: string;
+  icon: ReactNode;
+  onSelect: () => void;
+};
+
+/** Collapsed panel spine: the closed panel still occupies an honest slot in
+ *  the row instead of relying on hidden edge hover or floating grabbers. */
+function CollapsedPanelSpine({
   side,
-  onClick,
   title,
+  actions,
 }: {
   side: "left" | "right";
-  onClick: () => void;
   title: string;
+  actions: PanelSpineAction[];
 }) {
-  const positionClass = side === "left" ? "left-0" : "right-0";
-  const radiusClass = side === "left" ? "rounded-r-md" : "rounded-l-md";
-  const Icon = side === "left" ? ChevronRight : ChevronLeft;
-  // Absolute positioning anchors to the chat flex-row container (NOT the
-  // viewport) so the left tab sits just right of the app shell's channel
-  // rail instead of hiding behind it.
+  const t = useThemeTokens();
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
+      role="group"
       aria-label={title}
       title={title}
-      className={`absolute top-1/2 -translate-y-1/2 ${positionClass} ${radiusClass} z-[25]
-                  flex items-center justify-center
-                  w-4 h-16
-                  bg-surface-raised/80 hover:bg-surface-raised
-                  border border-surface-border/60
-                  text-text-dim hover:text-text
-                  transition-colors shadow-md
-                  backdrop-blur-sm`}
+      className={`flex h-full w-10 shrink-0 flex-col items-center py-2 ${side === "left" ? "mr-1" : "ml-1"}`}
+      style={{ backgroundColor: t.surface, color: t.textDim }}
     >
-      <Icon size={12} />
-    </button>
+      <div className="flex flex-col items-center gap-0.5">
+        {actions.map((action) => (
+          <button
+            key={action.id}
+            type="button"
+            onClick={action.onSelect}
+            aria-label={action.label}
+            title={action.hint ? `${action.label} · ${action.hint}` : action.label}
+            className="flex h-9 w-10 items-center justify-center bg-transparent text-text-dim transition-colors hover:bg-surface-overlay/70 hover:text-text focus-visible:bg-surface-overlay/70 focus-visible:text-text focus-visible:outline-none"
+          >
+            {action.icon}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-1 items-start justify-center">
+        <span
+          className="select-none text-[9px] font-semibold uppercase tracking-[0.18em] text-text-dim/60"
+          style={{ writingMode: "vertical-rl", transform: side === "left" ? "rotate(180deg)" : undefined }}
+        >
+          {side === "left" ? "Panel" : "Dock"}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -213,6 +246,7 @@ export default function ChatScreen() {
   useWidgetStreamBroker(channelId);
   const isPaused = systemStatus?.paused ?? false;
   const columns = useResponsiveColumns();
+  const { width: viewportWidth } = useWindowSize();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
@@ -635,16 +669,54 @@ export default function ChatScreen() {
   // ---- Workspace / file explorer state ----
   const workspaceId = channel?.resolved_workspace_id;
   const explorerWidth = useFileBrowserStore((s) => s.channelExplorerWidth);
-  const setExplorerWidth = useFileBrowserStore((s) => s.setChannelExplorerWidth);
-
-  const explorerOpen = useUIStore((s) => s.fileExplorerOpen);
-  const toggleExplorer = useUIStore((s) => s.toggleFileExplorer);
-  const setExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+  const legacyExplorerOpen = useUIStore((s) => s.fileExplorerOpen);
+  const legacyOmniPanelTab = useUIStore((s) => s.omniPanelTab);
+  const ensureChannelPanelPrefs = useUIStore((s) => s.ensureChannelPanelPrefs);
+  const patchChannelPanelPrefs = useUIStore((s) => s.patchChannelPanelPrefs);
+  const setChannelPanelTab = useUIStore((s) => s.setChannelPanelTab);
+  const requestChannelFilesFocus = useUIStore((s) => s.requestChannelFilesFocus);
+  const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
+  const setMobileExpandedWidget = useUIStore((s) => s.setMobileExpandedWidget);
+  const channelPanelPrefs = useUIStore((s) =>
+    channelId ? s.channelPanelPrefs[channelId] : undefined,
+  );
   const splitMode = useUIStore((s) => s.fileExplorerSplit);
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
-  const rightDockHidden = useUIStore((s) => s.rightDockHidden);
-  const setRightDockHidden = useUIStore((s) => s.setRightDockHidden);
+  const legacyRightDockHidden = useUIStore((s) => s.rightDockHidden);
+  const isMobile = columns === "single";
   const fileDirtyRef = useRef(false);
+  const channelPanelDefaults = useMemo(() => ({
+    ...defaultChannelPanelPrefs(),
+    leftOpen: legacyExplorerOpen,
+    rightOpen: !legacyRightDockHidden,
+    leftWidth: explorerWidth,
+    rightWidth: readLegacyRightDockWidth(),
+    leftTab: legacyOmniPanelTab,
+  }), [explorerWidth, legacyExplorerOpen, legacyOmniPanelTab, legacyRightDockHidden]);
+  useEffect(() => {
+    if (!channelId) return;
+    ensureChannelPanelPrefs(channelId, channelPanelDefaults);
+  }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
+  const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
+  const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
+    if (!channelId) return;
+    if (tab === "files") {
+      requestChannelFilesFocus(channelId);
+      return;
+    }
+    patchChannelPanelPrefs(channelId, {
+      leftOpen: true,
+      mobileDrawerOpen: isMobile,
+      leftTab: tab,
+      focusModePrior: null,
+    });
+  }, [channelId, isMobile, patchChannelPanelPrefs, requestChannelFilesFocus]);
+  const toggleExplorer = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => current.leftOpen
+      ? { leftOpen: false }
+      : { leftOpen: true, leftTab: current.leftTab, focusModePrior: null });
+  }, [channelId, patchChannelPanelPrefs]);
 
   // `?from=dock` — dashboard's Open-chat toggle cues an entrance animation
   // that visually reverses the chat-dock-expand-in motion (scales up from
@@ -672,25 +744,54 @@ export default function ChatScreen() {
   // Header-zone pins — read here so the floating strip below the header
   // renders only when there's something to show (empty translucent pill is
   // visual noise).
-  const { header: headerChipPins } = useChannelChatZones(channelId ?? "");
+  const { rail: railPins, header: headerChipPins, dock: dockPins } = useChannelChatZones(channelId ?? "");
   const hasHeaderChips = headerChipPins.length > 0;
 
   // "Browse files" gesture — opens the OmniPanel on the Files tab and
   // auto-focuses its filter input. Replaces the old BrowseFilesModal.
-  const requestFilesFocus = useUIStore((s) => s.requestFilesFocus);
   const openBrowseFiles = useCallback(() => {
-    requestFilesFocus();
-  }, [requestFilesFocus]);
+    if (!channelId) return;
+    requestChannelFilesFocus(channelId);
+  }, [channelId, requestChannelFilesFocus]);
+  const toggleRightDockPanel = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      rightOpen: !current.rightOpen,
+      focusModePrior: null,
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const focusOrRestorePanels = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => {
+      if (current.leftOpen || current.rightOpen) {
+        return {
+          focusModePrior: { leftOpen: current.leftOpen, rightOpen: current.rightOpen },
+          leftOpen: false,
+          rightOpen: false,
+        };
+      }
+      return {
+        leftOpen: current.focusModePrior?.leftOpen ?? true,
+        rightOpen: current.focusModePrior?.rightOpen ?? (dockPins.length > 0),
+        focusModePrior: null,
+      };
+    });
+  }, [channelId, dockPins.length, patchChannelPanelPrefs]);
 
   // Keyboard shortcuts for explorer/split/file viewer/browse
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.altKey && (e.key === "b" || e.key === "B")) {
+        e.preventDefault();
+        focusOrRestorePanels();
+        return;
+      }
       // Cmd+Shift+B → Browse files (OmniPanel Files tab + focus filter).
       // Check before the plain Cmd+B branch since `e.key` is just "b" either way.
       if (mod && e.shiftKey && (e.key === "b" || e.key === "B")) {
         e.preventDefault();
-        requestFilesFocus();
+        if (channelId) requestChannelFilesFocus(channelId);
         return;
       }
       if (mod && !e.shiftKey && e.key === "b") {
@@ -712,7 +813,7 @@ export default function ChatScreen() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleExplorer, toggleSplit, activeFile, requestFilesFocus]);
+  }, [toggleExplorer, toggleSplit, activeFile, channelId, requestChannelFilesFocus, focusOrRestorePanels]);
 
   // Reset file selection when switching channels
   useEffect(() => {
@@ -722,16 +823,100 @@ export default function ChatScreen() {
 
   // OmniPanel is always available — it shows pinned widgets even without a workspace.
   // The file explorer section inside OmniPanel is conditionally shown when workspaceId exists.
-  const showExplorer = explorerOpen;
   const showFileViewer = activeFile !== null;
-  const isMobile = columns === "single";
-
   // Chat-screen layout mode. Controls which dashboard zones surface on the
   // chat screen itself. Mobile drawer always shows every zone regardless.
   const showRailZone = layoutMode !== "dashboard-only";
   const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
   const showDockZone = layoutMode === "full";
   const dashboardOnly = layoutMode === "dashboard-only";
+  const panelLayout = resolveChannelPanelLayout({
+    availableWidth: viewportWidth || 0,
+    isMobile,
+    layoutMode,
+    hasLeftPanel: !!channelId && !isSystemChannel && showRailZone,
+    hasRightPanel: !!channelId && !isSystemChannel && showDockZone && dockPins.length > 0,
+    leftOpen: panelPrefs.leftOpen,
+    rightOpen: panelPrefs.rightOpen,
+    leftPinned: panelPrefs.leftPinned,
+    rightPinned: panelPrefs.rightPinned,
+    leftWidth: panelPrefs.leftWidth,
+    rightWidth: panelPrefs.rightWidth,
+  });
+  const showExplorer = isMobile
+    ? panelPrefs.mobileDrawerOpen
+    : panelLayout.left.mode !== "closed";
+  const showRightDock = !isMobile && panelLayout.right.mode !== "closed";
+  const overlayPanelOpen = panelLayout.left.mode === "overlay" || panelLayout.right.mode === "overlay";
+  const panelResizeMax = useCallback((side: "left" | "right") => {
+    const panelMode = side === "left" ? panelLayout.left.mode : panelLayout.right.mode;
+    if (panelMode !== "push") return CHANNEL_PANEL_MAX_WIDTH;
+    const viewport = viewportWidth || CHANNEL_CHAT_MIN_WIDTH + CHANNEL_PANEL_MAX_WIDTH;
+    const otherPushedWidth =
+      side === "left"
+        ? (panelLayout.right.mode === "push" ? panelLayout.right.width : 0)
+        : (panelLayout.left.mode === "push" ? panelLayout.left.width : 0);
+    const safeWidth = viewport - CHANNEL_CHAT_MIN_WIDTH - otherPushedWidth - 40;
+    return Math.max(
+      CHANNEL_PANEL_MIN_WIDTH,
+      Math.min(CHANNEL_PANEL_MAX_WIDTH, safeWidth),
+    );
+  }, [panelLayout.left.mode, panelLayout.left.width, panelLayout.right.mode, panelLayout.right.width, viewportWidth]);
+  const leftPanelResizeMax = panelResizeMax("left");
+  const rightPanelResizeMax = panelResizeMax("right");
+  const closeOverlayPanels = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, {
+      ...(panelLayout.left.mode === "overlay" ? { leftOpen: false } : {}),
+      ...(panelLayout.right.mode === "overlay" ? { rightOpen: false } : {}),
+    });
+  }, [channelId, panelLayout.left.mode, panelLayout.right.mode, patchChannelPanelPrefs]);
+  useEffect(() => {
+    if (!overlayPanelOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      closeOverlayPanels();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [closeOverlayPanels, overlayPanelOpen]);
+  const leftSpineActions = useMemo<PanelSpineAction[]>(() => {
+    const actions: PanelSpineAction[] = [
+      {
+        id: "widgets",
+        label: "Widgets",
+        hint: railPins.length > 0 ? String(railPins.length) : undefined,
+        icon: <Layers size={15} />,
+        onSelect: () => openLeftPanelTab("widgets"),
+      },
+    ];
+    if (workspaceId) {
+      actions.push({
+        id: "files",
+        label: "Files",
+        icon: <FolderOpen size={15} />,
+        onSelect: () => openLeftPanelTab("files"),
+      });
+    }
+    actions.push({
+      id: "jump",
+      label: "Jump",
+      icon: <Search size={15} />,
+      onSelect: () => openLeftPanelTab("jump"),
+    });
+    return actions;
+  }, [openLeftPanelTab, railPins.length, workspaceId]);
+  const rightSpineActions = useMemo<PanelSpineAction[]>(() => [
+    {
+      id: "dock",
+      label: "Dock",
+      hint: dockPins.length > 0 ? String(dockPins.length) : undefined,
+      icon: <PanelRightIcon size={15} />,
+      onSelect: () => patchChannelPanelPrefs(channelId!, { rightOpen: true, focusModePrior: null }),
+    },
+  ], [channelId, dockPins.length, patchChannelPanelPrefs]);
 
   // Auto-enable split mode on wide screens when a file is first opened.
   const autoSplitApplied = useRef(false);
@@ -756,9 +941,15 @@ export default function ChatScreen() {
     switch (action.type) {
       case "select": setActiveFile(action.path); break;
       case "close": setActiveFile(null); break;
-      case "closeExplorer": setExplorerOpen(false); setActiveFile(null); break;
+      case "closeExplorer":
+        if (channelId) {
+          if (isMobile) setMobileDrawerOpen(channelId, false);
+          else patchChannelPanelPrefs(channelId, { leftOpen: false });
+        }
+        setActiveFile(null);
+        break;
     }
-  }, [setExplorerOpen]);
+  }, [channelId, isMobile, patchChannelPanelPrefs, setMobileDrawerOpen]);
 
   const handleDirtyChange = useCallback((dirty: boolean) => {
     fileDirtyRef.current = dirty;
@@ -788,9 +979,9 @@ export default function ChatScreen() {
     if (activeFile) {
       setActiveFile(null);
     } else {
-      setExplorerOpen(false);
+      if (channelId) setMobileDrawerOpen(channelId, false);
     }
-  }, [activeFile, setExplorerOpen]);
+  }, [activeFile, channelId, setMobileDrawerOpen]);
 
   const displayName = (channel as any)?.display_name || channel?.name || channel?.client_id || "Chat";
 
@@ -816,6 +1007,74 @@ export default function ChatScreen() {
     }
 
     if (!isSystemChannel) {
+      actions.push({
+        id: `channel:${channelId}:open-widgets`,
+        label: "Open panel: Widgets",
+        hint: railPins.length > 0 ? `${railPins.length} widget${railPins.length === 1 ? "" : "s"}` : channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => openLeftPanelTab("widgets"),
+      });
+      if (workspaceId) {
+        actions.push({
+          id: `channel:${channelId}:open-files`,
+          label: "Open panel: Files",
+          hint: channelLabel,
+          icon: FolderOpen,
+          category: "This Channel",
+          onSelect: () => openLeftPanelTab("files"),
+        });
+      }
+      actions.push({
+        id: `channel:${channelId}:open-jump`,
+        label: "Open panel: Jump",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => openLeftPanelTab("jump"),
+      });
+      actions.push({
+        id: `channel:${channelId}:toggle-left-panel`,
+        label: panelPrefs.leftOpen ? "Hide left workbench" : "Show left workbench",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => patchChannelPanelPrefs(channelId, { leftOpen: !panelPrefs.leftOpen }),
+      });
+      actions.push({
+        id: `channel:${channelId}:pin-left-panel`,
+        label: panelPrefs.leftPinned ? "Unpin left workbench" : "Pin left workbench open",
+        hint: channelLabel,
+        icon: PanelLeftIcon,
+        category: "This Channel",
+        onSelect: () => patchChannelPanelPrefs(channelId, { leftPinned: !panelPrefs.leftPinned, leftOpen: true }),
+      });
+      if (dockPins.length > 0 && layoutMode === "full") {
+        actions.push({
+          id: `channel:${channelId}:toggle-right-dock`,
+          label: panelPrefs.rightOpen ? "Hide right dock" : "Show right dock",
+          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
+          icon: PanelRightIcon,
+          category: "This Channel",
+          onSelect: () => toggleRightDockPanel(),
+        });
+        actions.push({
+          id: `channel:${channelId}:pin-right-dock`,
+          label: panelPrefs.rightPinned ? "Unpin right dock" : "Pin right dock open",
+          hint: `${dockPins.length} widget${dockPins.length === 1 ? "" : "s"}`,
+          icon: PanelRightIcon,
+          category: "This Channel",
+          onSelect: () => patchChannelPanelPrefs(channelId, { rightPinned: !panelPrefs.rightPinned, rightOpen: true }),
+        });
+      }
+      actions.push({
+        id: `channel:${channelId}:focus-mode`,
+        label: panelPrefs.leftOpen || panelPrefs.rightOpen ? "Collapse panels" : "Restore panels",
+        hint: channelLabel,
+        icon: LayoutDashboardIcon,
+        category: "This Channel",
+        onSelect: () => focusOrRestorePanels(),
+      });
       actions.push({
         id: `channel:${channelId}:bot-context`,
         label: "View bot context",
@@ -863,8 +1122,20 @@ export default function ChatScreen() {
     findingsCount,
     channel?.bot_id,
     channelDashboardHref,
+    dockPins.length,
+    focusOrRestorePanels,
     navigate,
+    openLeftPanelTab,
+    panelPrefs.leftOpen,
+    panelPrefs.rightOpen,
+    panelPrefs.leftPinned,
+    panelPrefs.rightPinned,
+    panelPrefs.focusModePrior,
+    railPins.length,
+    layoutMode,
+    patchChannelPanelPrefs,
     registerPaletteActions,
+    toggleRightDockPanel,
   ]);
 
   // ---- Shared message input props ----
@@ -1051,7 +1322,7 @@ export default function ChatScreen() {
           columns={columns}
           goBack={goBack}
           workspaceId={workspaceId}
-          explorerOpen={explorerOpen}
+          explorerOpen={showExplorer}
           toggleExplorer={toggleExplorer}
           onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
@@ -1179,6 +1450,10 @@ export default function ChatScreen() {
               channelDisplayName={channel?.display_name || channel?.name}
               activeFile={activeFile}
               onSelectFile={handleSelectFile}
+              activeTab={panelPrefs.leftTab}
+              onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
+              expandedWidgetId={panelPrefs.mobileExpandedWidgetId}
+              onExpandedWidgetChange={(widgetId) => setMobileExpandedWidget(channelId, widgetId)}
             />
           )}
           {/* Mobile file viewer — slides in over the chat, chat stays mounted. */}
@@ -1202,6 +1477,21 @@ export default function ChatScreen() {
           {channelHeaderBlock}
         <div style={{ flex: 1, display: "flex", flexDirection: "row", overflow: "hidden", position: "relative", minHeight: 0 }}>
           {headerChipOverlay}
+          {overlayPanelOpen && (
+            <button
+              type="button"
+              aria-label="Close overlay panels"
+              className="absolute inset-0 z-[24] cursor-default bg-transparent"
+              onClick={closeOverlayPanels}
+            />
+          )}
+          {!isMobile && panelLayout.left.mode === "closed" && channelId && !isSystemChannel && showRailZone && (
+            <CollapsedPanelSpine
+              side="left"
+              title="Open left panel"
+              actions={leftSpineActions}
+            />
+          )}
           {/* OmniPanel — always rendered, animated via width clip.
               Hidden on system channels (orchestrator has no workspace files
               or channel-specific pinned widgets worth surfacing) and when
@@ -1211,7 +1501,19 @@ export default function ChatScreen() {
             <div
               className="pl-2.5 py-2.5"
               style={{
-                width: showExplorer ? explorerWidth + 10 : 0,
+                width: panelLayout.left.mode === "push" ? panelLayout.left.width + 10 : 0,
+                ...(panelLayout.left.mode === "overlay"
+                  ? {
+                      position: "absolute",
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      zIndex: 30,
+                      width: panelLayout.left.width + 10,
+                      backgroundColor: t.surface,
+                      boxShadow: "18px 0 36px rgba(0,0,0,0.28)",
+                    }
+                  : {}),
                 overflow: "hidden",
                 transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
                 flexShrink: 0,
@@ -1226,14 +1528,21 @@ export default function ChatScreen() {
                 activeFile={activeFile}
                 onSelectFile={handleSelectFile}
                 onClose={handleCloseExplorer}
-                width={explorerWidth}
+                width={panelLayout.left.width}
+                activeTab={panelPrefs.leftTab}
+                onTabChange={(tab) => setChannelPanelTab(channelId, tab)}
+                onCollapse={() => patchChannelPanelPrefs(channelId, { leftOpen: false })}
               />
             </div>
           )}
-          {showExplorer && channelId && (
+          {panelLayout.left.mode === "push" && channelId && (
             <ResizeHandle
               direction="horizontal"
-              onResize={(delta) => setExplorerWidth(explorerWidth + delta)}
+              onResize={(delta) =>
+                patchChannelPanelPrefs(channelId, {
+                  leftWidth: clampChannelPanelWidth(panelPrefs.leftWidth + delta, leftPanelResizeMax),
+                })
+              }
               invisible
             />
           )}
@@ -1346,25 +1655,43 @@ export default function ChatScreen() {
             <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
           )}
 
+          {!isMobile && panelLayout.right.mode === "closed" && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (
+            <CollapsedPanelSpine
+              side="right"
+              title="Open right dock"
+              actions={rightSpineActions}
+            />
+          )}
+
           {/* Right-side widget dock — surfaces channel-dashboard pins whose
               left edge sits in the dock-right band. Hidden on system channels
               (no channel dashboard) and when the band is empty. Outer
               `pr-2.5 py-2.5` mirrors the left dock's `pl-2.5 py-2.5` so the
               floating-card gap is symmetric on both sides. */}
-          {!isMobile && channelId && !isSystemChannel && !rightDockHidden && showDockZone && (
-            <div className="pr-2.5 py-2.5 flex">
-              <WidgetDockRight channelId={channelId} dashboardHref={channelDashboardHref} />
+          {!isMobile && channelId && !isSystemChannel && showRightDock && showDockZone && (
+            <div
+              className="pr-2.5 py-2.5 flex"
+              style={panelLayout.right.mode === "overlay"
+                ? {
+                    position: "absolute",
+                    right: 0,
+                    top: 0,
+                    bottom: 0,
+                    zIndex: 30,
+                    backgroundColor: t.surface,
+                    boxShadow: "-18px 0 36px rgba(0,0,0,0.28)",
+                  }
+                : undefined}
+            >
+              <WidgetDockRight
+                channelId={channelId}
+                dashboardHref={channelDashboardHref}
+                width={panelLayout.right.width}
+                maxWidth={rightPanelResizeMax}
+                onWidthChange={(width) => patchChannelPanelPrefs(channelId, { rightWidth: width })}
+                onCollapse={() => patchChannelPanelPrefs(channelId, { rightOpen: false })}
+              />
             </div>
-          )}
-
-          {/* Peek tabs — floating chevrons on the viewport edges so the user
-              can always un-hide a collapsed dock. The existing in-dock
-              chevrons handle the hide direction; these handle un-hide. */}
-          {!isMobile && !explorerOpen && channelId && !isSystemChannel && (
-            <DockPeekTab side="left" onClick={() => setExplorerOpen(true)} title="Show widgets panel" />
-          )}
-          {!isMobile && rightDockHidden && channelId && !isSystemChannel && (
-            <DockPeekTab side="right" onClick={() => setRightDockHidden(false)} title="Show right dock" />
           )}
 
           {/* Findings panel — pipelines awaiting user approval (system channels only) */}

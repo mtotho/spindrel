@@ -10,11 +10,13 @@
  * Empty diff body → "(no changes)" placeholder.
  */
 import type { ThemeTokens } from "../../../theme/tokens";
+import type { ToolCallSummary } from "../../../types/api";
 import type { RichRendererVariant } from "./genericRendererChrome";
 
 interface Props {
   body: string;
   rendererVariant?: RichRendererVariant;
+  summary?: ToolCallSummary | null;
   t: ThemeTokens;
 }
 
@@ -45,7 +47,7 @@ function parseDiff(body: string): DiffLine[] {
 
 const CODE_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
 
-export function DiffRenderer({ body, rendererVariant = "default-chat", t }: Props) {
+export function DiffRenderer({ body, rendererVariant = "default-chat", summary, t }: Props) {
   const isTerminal = rendererVariant === "terminal-chat";
   if (!body || !body.trim()) {
     return (
@@ -66,64 +68,101 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", t }: Prop
     );
   }
 
-  const lines = parseDiff(body);
+  const lines = parseDiff(body).filter((line) => !isTerminal || line.kind !== "header");
+  const diffSummary =
+    isTerminal && summary?.kind === "diff" && summary.subject_type === "file"
+      ? summary
+      : null;
 
   return (
-    <div
-      style={{
-        display: "block",
-        borderRadius: isTerminal ? 0 : 8,
-        border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
-        background: isTerminal ? "transparent" : t.codeBg,
-        fontFamily: CODE_FONT_STACK,
-        fontSize: isTerminal ? 11 : 12,
-        lineHeight: isTerminal ? 1.42 : 1.5,
-        overflow: "hidden",
-        maxHeight: 400,
-        overflowY: "auto",
-      }}
-    >
-      {lines.map((line, i) => {
-        const styles = lineStyles(line, t);
-        return (
-          <div
-            key={i}
-            style={{
-              display: "flex", flexDirection: "row",
-              minHeight: "1.5em",
-              ...styles.row,
-            }}
-          >
+    <div style={{ fontFamily: CODE_FONT_STACK }}>
+      {diffSummary && (
+        <DiffTitle summary={diffSummary} t={t} />
+      )}
+      <div
+        style={{
+          display: "block",
+          borderRadius: isTerminal ? 0 : 8,
+          border: isTerminal ? "none" : `1px solid ${t.surfaceBorder}`,
+          background: isTerminal ? "transparent" : t.codeBg,
+          fontSize: isTerminal ? 11 : 12,
+          lineHeight: isTerminal ? 1.42 : 1.5,
+          overflow: "hidden",
+          maxHeight: 400,
+          overflowY: isTerminal ? "hidden" : "auto",
+        }}
+      >
+        {lines.map((line, i) => {
+          const styles = lineStyles(line, t, isTerminal);
+          return (
             <div
+              key={i}
               style={{
-                flex: isTerminal ? "0 0 24px" : "0 0 18px",
-                textAlign: "center",
-                color: styles.gutterColor,
-                userSelect: "none",
-                paddingTop: isTerminal ? 1 : 0,
+                display: "flex", flexDirection: "row",
+                minHeight: "1.5em",
+                ...styles.row,
               }}
             >
-              {styles.gutter}
+              <div
+                style={{
+                  flex: isTerminal ? "0 0 24px" : "0 0 18px",
+                  textAlign: "center",
+                  color: styles.gutterColor,
+                  userSelect: "none",
+                  paddingTop: isTerminal ? 1 : 0,
+                }}
+              >
+                {styles.gutter}
+              </div>
+              <div
+                style={{
+                  flex: 1,
+                  padding: isTerminal ? "1px 8px 1px 2px" : "0 8px",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  color: styles.textColor,
+                }}
+              >
+                {line.text || "\u00a0"}
+              </div>
             </div>
-            <div
-              style={{
-                flex: 1,
-                padding: isTerminal ? "1px 8px 1px 2px" : "0 8px",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                color: styles.textColor,
-              }}
-            >
-              {line.text || "\u00a0"}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function lineStyles(line: DiffLine, t: ThemeTokens) {
+function DiffTitle({ summary, t }: { summary: ToolCallSummary; t: ThemeTokens }) {
+  const label = summary.label || summary.path || summary.target_label || "Edited file";
+  const stats = summary.diff_stats;
+  return (
+    <div
+      style={{
+        display: "flex", flexDirection: "row",
+        alignItems: "baseline",
+        gap: 4,
+        margin: "0 0 6px 0",
+        color: t.textMuted,
+        fontSize: 11.5,
+        lineHeight: 1.4,
+      }}
+    >
+      <span style={{ color: t.text, fontWeight: 600 }}>{label}</span>
+      {stats && (
+        <span>
+          (
+          <span style={{ color: t.success }}>+{stats.additions}</span>
+          {" "}
+          <span style={{ color: t.danger }}>-{stats.deletions}</span>
+          )
+        </span>
+      )}
+    </div>
+  );
+}
+
+function lineStyles(line: DiffLine, t: ThemeTokens, isTerminal: boolean) {
   switch (line.kind) {
     case "add":
       return {
@@ -141,7 +180,7 @@ function lineStyles(line: DiffLine, t: ThemeTokens) {
       };
     case "hunk":
       return {
-        row: { background: t.overlayLight },
+        row: { background: isTerminal ? "transparent" : t.overlayLight },
         gutter: "@",
         gutterColor: t.textDim,
         textColor: t.textMuted,

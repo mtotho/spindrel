@@ -1179,7 +1179,11 @@ def _message_to_dict(msg: Message, enrich_attachments: bool = False) -> dict:
 
 def _is_internal_history_message(msg: dict) -> bool:
     meta = msg.get("_metadata") or {}
-    return bool(meta.get("hidden") or meta.get("pipeline_step"))
+    return bool(
+        meta.get("hidden")
+        or meta.get("pipeline_step")
+        or meta.get("kind") == "compaction_run"
+    )
 
 
 def _compact_assistant_turn_body_text(msg: dict) -> str | None:

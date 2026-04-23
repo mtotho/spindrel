@@ -25,6 +25,9 @@ PLAN_SLUG_METADATA_KEY = "plan_task_slug"
 PLAN_REVISION_METADATA_KEY = "plan_revision"
 PLAN_ACCEPTED_REVISION_METADATA_KEY = "plan_accepted_revision"
 PLAN_STATUS_METADATA_KEY = "plan_status"
+PLAN_RUNTIME_METADATA_KEY = "plan_runtime"
+PLAN_PLANNING_STATE_METADATA_KEY = "planning_state"
+PLAN_ADHERENCE_METADATA_KEY = "plan_adherence"
 
 PLAN_MODE_CHAT = "chat"
 PLAN_MODE_PLANNING = "planning"
@@ -43,8 +46,13 @@ STEP_STATUS_IN_PROGRESS = "in_progress"
 STEP_STATUS_DONE = "done"
 STEP_STATUS_BLOCKED = "blocked"
 
+PLAN_VALIDATION_ERROR = "error"
+PLAN_VALIDATION_WARNING = "warning"
+
 PLAN_MUTATING_TOOL_ALLOWLIST = frozenset({"publish_plan"})
 PLAN_GUIDED_SUBAGENT_TOOL = "spawn_subagents"
+_PLANNING_STATE_LIST_LIMIT = 12
+_ADHERENCE_EVIDENCE_LIMIT = 20
 
 _VALID_PLAN_MODES = {
     PLAN_MODE_CHAT,
@@ -100,6 +108,10 @@ _SESSION_LINE_RE = re.compile(r"^Session:\s*([0-9a-fA-F-]+)$", re.MULTILINE)
 _TASK_LINE_RE = re.compile(r"^Task:\s*([a-z0-9][a-z0-9_-]*)$", re.MULTILINE)
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def slugify_task(value: str) -> str:
     raw = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
     return raw[:80] or f"task-{uuid.uuid4().hex[:8]}"
@@ -125,6 +137,158 @@ def _format_list(items: list[str]) -> str:
 def _normalize_free_text(value: str | None, fallback: str) -> str:
     text = (value or "").strip()
     return text or fallback
+
+
+def _dedupe_recent_items(items: list[dict[str, Any]], *, key: str = "text", limit: int) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in reversed(items):
+        value = str(item.get(key) or item.get("label") or item).strip().lower()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(copy.deepcopy(item))
+    deduped.reverse()
+    return deduped[-limit:]
+
+
+def _planning_state_default() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "decisions": [],
+        "open_questions": [],
+        "assumptions": [],
+        "constraints": [],
+        "non_goals": [],
+        "evidence": [],
+        "preference_changes": [],
+        "last_updated_at": None,
+        "last_update_reason": None,
+    }
+
+
+def _normalize_planning_state(raw: Any) -> dict[str, Any]:
+    state = _planning_state_default()
+    if isinstance(raw, dict):
+        for key in state:
+            if key in raw:
+                state[key] = copy.deepcopy(raw[key])
+    for key in ("decisions", "open_questions", "assumptions", "constraints", "non_goals", "evidence", "preference_changes"):
+        value = state.get(key)
+        state[key] = value if isinstance(value, list) else []
+    return state
+
+
+def get_planning_state(session: Session) -> dict[str, Any]:
+    return _normalize_planning_state((session.metadata_ or {}).get(PLAN_PLANNING_STATE_METADATA_KEY))
+
+
+def _planning_state_context_lines(state: dict[str, Any]) -> list[str]:
+    lines = ["Planning state capsule (visible durable planning notes):"]
+    sections = (
+        ("Confirmed decisions", "decisions"),
+        ("Open questions", "open_questions"),
+        ("Assumptions", "assumptions"),
+        ("Constraints", "constraints"),
+        ("Non-goals", "non_goals"),
+        ("Relevant evidence", "evidence"),
+        ("Preference changes", "preference_changes"),
+    )
+    for label, key in sections:
+        items = state.get(key) or []
+        if not items:
+            continue
+        lines.append(
+            f"{label}:\n"
+            + "\n".join(
+                f"- {_clip_plan_context(str(item.get('text') or item.get('label') or item), 220)}"
+                for item in items[-6:]
+                if isinstance(item, dict)
+            )
+        )
+    if state.get("last_updated_at"):
+        lines.append(f"Last planning-state update: {state['last_updated_at']} ({state.get('last_update_reason') or 'update'})")
+    return lines
+
+
+def update_planning_state(
+    session: Session,
+    *,
+    decisions: list[str | dict[str, Any]] | None = None,
+    open_questions: list[str | dict[str, Any]] | None = None,
+    assumptions: list[str | dict[str, Any]] | None = None,
+    constraints: list[str | dict[str, Any]] | None = None,
+    non_goals: list[str | dict[str, Any]] | None = None,
+    evidence: list[str | dict[str, Any]] | None = None,
+    preference_changes: list[str | dict[str, Any]] | None = None,
+    reason: str = "planning_state_update",
+) -> dict[str, Any]:
+    meta = _session_plan_meta(session)
+    state = _normalize_planning_state(meta.get(PLAN_PLANNING_STATE_METADATA_KEY))
+    now = _utc_now_iso()
+
+    def append_items(field: str, values: list[str | dict[str, Any]] | None) -> None:
+        if not values:
+            return
+        for raw in values:
+            if isinstance(raw, dict):
+                text = str(raw.get("text") or raw.get("label") or raw.get("answer") or "").strip()
+                if not text:
+                    continue
+                item = copy.deepcopy(raw)
+                item.setdefault("text", text)
+            else:
+                text = str(raw).strip()
+                if not text:
+                    continue
+                item = {"text": text}
+            item.setdefault("created_at", now)
+            item.setdefault("source", reason)
+            state[field].append(item)
+        state[field] = _dedupe_recent_items(state[field], limit=_PLANNING_STATE_LIST_LIMIT)
+
+    append_items("decisions", decisions)
+    append_items("open_questions", open_questions)
+    append_items("assumptions", assumptions)
+    append_items("constraints", constraints)
+    append_items("non_goals", non_goals)
+    append_items("evidence", evidence)
+    append_items("preference_changes", preference_changes)
+    state["last_updated_at"] = now
+    state["last_update_reason"] = reason
+    meta[PLAN_PLANNING_STATE_METADATA_KEY] = state
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return state
+
+
+def record_plan_question_answers(
+    session: Session,
+    *,
+    title: str,
+    answers: list[dict[str, Any]],
+    source_message_id: str | None = None,
+) -> dict[str, Any]:
+    decisions: list[dict[str, Any]] = []
+    for answer in answers:
+        value = str(answer.get("answer") or "").strip()
+        if not value:
+            continue
+        label = str(answer.get("label") or answer.get("question_id") or "Plan question").strip()
+        decisions.append({
+            "text": f"{label}: {value}",
+            "question_id": answer.get("question_id"),
+            "label": label,
+            "answer": value,
+            "source_message_id": source_message_id,
+            "source": "plan_question_answer",
+        })
+    evidence = [{
+        "text": f"Answered plan question card: {title.strip() or 'Plan questions'}",
+        "source_message_id": source_message_id,
+        "source": "plan_question_answer",
+    }] if decisions else []
+    return update_planning_state(session, decisions=decisions, evidence=evidence, reason="plan_question_answers")
 
 
 @dataclass
@@ -364,6 +528,7 @@ def get_session_active_plan_path(session: Session) -> str | None:
 
 def get_session_plan_state(session: Session) -> dict[str, Any]:
     meta = session.metadata_ or {}
+    plan = load_session_plan(session, required=False)
     return {
         "mode": get_session_plan_mode(session),
         "has_plan": bool(get_session_active_plan_path(session)),
@@ -373,7 +538,204 @@ def get_session_plan_state(session: Session) -> dict[str, Any]:
         "accepted_revision": meta.get(PLAN_ACCEPTED_REVISION_METADATA_KEY),
         "status": meta.get(PLAN_STATUS_METADATA_KEY),
         "revision_count": len(list_session_plan_revisions(session)),
+        "planning_state": get_planning_state(session),
+        "adherence": build_plan_adherence_state(session, plan),
+        "runtime": build_plan_runtime_capsule(session, plan),
+        "validation": validate_plan_for_approval(plan, planning_state=get_planning_state(session)) if plan is not None else None,
     }
+
+
+def _runtime_step_ids(plan: SessionPlan | None) -> tuple[str | None, str | None, str | None]:
+    if plan is None:
+        return None, None, None
+    active = next((step for step in plan.steps if step.status == STEP_STATUS_IN_PROGRESS), None)
+    pending = _find_next_pending_step(plan)
+    completed = [step for step in plan.steps if step.status == STEP_STATUS_DONE]
+    return (
+        active.id if active else None,
+        (active or pending).id if (active or pending) else None,
+        completed[-1].id if completed else None,
+    )
+
+
+def _runtime_next_action(mode: str, plan: SessionPlan | None, validation: dict[str, Any] | None) -> str:
+    if mode == PLAN_MODE_PLANNING:
+        if plan is None:
+            return "clarify_scope"
+        if plan.open_questions:
+            return "resolve_open_questions"
+        if validation and not validation.get("ok"):
+            return "fix_plan_validation"
+        return "publish_or_approve_plan"
+    if mode == PLAN_MODE_EXECUTING:
+        return "execute_current_step"
+    if mode == PLAN_MODE_BLOCKED:
+        return "resolve_blocker_or_replan"
+    if mode == PLAN_MODE_DONE:
+        return "complete"
+    return "chat"
+
+
+def build_plan_runtime_capsule(session: Session, plan: SessionPlan | None = None) -> dict[str, Any]:
+    """Build the compact durable execution state separate from plan prose."""
+    meta = session.metadata_ or {}
+    existing_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
+    existing = copy.deepcopy(existing_raw if isinstance(existing_raw, dict) else {})
+    mode = get_session_plan_mode(session)
+    current_step_id, next_step_id, last_completed_step_id = _runtime_step_ids(plan)
+    validation = validate_plan_for_approval(plan, planning_state=get_planning_state(session)) if plan is not None else None
+    blockers: list[str] = []
+    if plan is not None:
+        blockers.extend(
+            step.note or step.label
+            for step in plan.steps
+            if step.status == STEP_STATUS_BLOCKED
+        )
+    for blocker in existing.get("blockers") or []:
+        if blocker and blocker not in blockers:
+            blockers.append(str(blocker))
+
+    adherence = build_plan_adherence_state(session, plan)
+    runtime = {
+        "schema_version": 1,
+        "mode": mode,
+        "plan_revision": plan.revision if plan is not None else meta.get(PLAN_REVISION_METADATA_KEY),
+        "accepted_revision": meta.get(PLAN_ACCEPTED_REVISION_METADATA_KEY),
+        "plan_status": plan.status if plan is not None else meta.get(PLAN_STATUS_METADATA_KEY),
+        "current_step_id": current_step_id,
+        "next_step_id": next_step_id,
+        "last_completed_step_id": last_completed_step_id,
+        "next_action": _runtime_next_action(mode, plan, validation),
+        "unresolved_questions": list(plan.open_questions if plan is not None else existing.get("unresolved_questions") or []),
+        "blockers": blockers,
+        "replan": copy.deepcopy(existing.get("replan")),
+        "adherence_status": adherence.get("status"),
+        "latest_evidence": adherence.get("latest_evidence"),
+        "compaction_watermark_message_id": (
+            str(session.summary_message_id) if getattr(session, "summary_message_id", None) else None
+        ),
+        "last_updated_at": existing.get("last_updated_at"),
+        "last_update_reason": existing.get("last_update_reason"),
+    }
+    return runtime
+
+
+def _adherence_default() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "status": "unknown",
+        "evidence": [],
+        "latest_evidence": None,
+        "last_transition": None,
+        "last_updated_at": None,
+    }
+
+
+def _normalize_adherence(raw: Any) -> dict[str, Any]:
+    state = _adherence_default()
+    if isinstance(raw, dict):
+        for key in state:
+            if key in raw:
+                state[key] = copy.deepcopy(raw[key])
+    evidence = state.get("evidence")
+    state["evidence"] = evidence if isinstance(evidence, list) else []
+    return state
+
+
+def build_plan_adherence_state(session: Session, plan: SessionPlan | None = None) -> dict[str, Any]:
+    state = _normalize_adherence((session.metadata_ or {}).get(PLAN_ADHERENCE_METADATA_KEY))
+    mode = get_session_plan_mode(session)
+    if mode == PLAN_MODE_PLANNING:
+        state["status"] = "planning"
+    elif mode == PLAN_MODE_BLOCKED:
+        state["status"] = "blocked"
+    elif mode == PLAN_MODE_DONE:
+        state["status"] = "ok"
+    elif mode == PLAN_MODE_EXECUTING:
+        accepted = _accepted_plan_revision(session)
+        if accepted <= 0 or plan is None or plan.revision != accepted:
+            state["status"] = "blocked"
+        else:
+            runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)
+            runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+            if runtime.get("replan"):
+                state["status"] = "blocked"
+            elif state.get("latest_evidence"):
+                state["status"] = "ok"
+            else:
+                state["status"] = "unknown"
+    else:
+        state["status"] = "unknown"
+    return state
+
+
+def record_plan_execution_evidence(
+    session: Session,
+    *,
+    tool_name: str,
+    tool_kind: str,
+    status: str,
+    error: str | None = None,
+    tool_call_id: str | None = None,
+    record_id: str | None = None,
+    arguments: dict[str, Any] | None = None,
+    result_summary: str | None = None,
+) -> dict[str, Any] | None:
+    plan = load_session_plan(session, required=False)
+    mode = get_session_plan_mode(session)
+    if mode not in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED, PLAN_MODE_DONE} or plan is None:
+        return None
+    runtime = build_plan_runtime_capsule(session, plan)
+    now = _utc_now_iso()
+    evidence = {
+        "created_at": now,
+        "plan_revision": plan.revision,
+        "accepted_revision": _accepted_plan_revision(session) or None,
+        "step_id": runtime.get("current_step_id") or runtime.get("next_step_id"),
+        "tool_name": tool_name,
+        "tool_kind": tool_kind,
+        "status": status,
+        "error": error,
+        "tool_call_id": tool_call_id,
+        "record_id": record_id,
+        "arguments": copy.deepcopy(arguments or {}),
+        "summary": _clip_plan_context(result_summary or error or f"{tool_name} completed", 500),
+    }
+    meta = _session_plan_meta(session)
+    adherence = _normalize_adherence(meta.get(PLAN_ADHERENCE_METADATA_KEY))
+    adherence["evidence"].append(evidence)
+    adherence["evidence"] = adherence["evidence"][-_ADHERENCE_EVIDENCE_LIMIT:]
+    adherence["latest_evidence"] = evidence
+    adherence["last_updated_at"] = now
+    adherence["last_transition"] = "tool_error" if error else "tool_evidence"
+    adherence["status"] = "warning" if error else "ok"
+    meta[PLAN_ADHERENCE_METADATA_KEY] = adherence
+    meta[PLAN_RUNTIME_METADATA_KEY] = {
+        **copy.deepcopy(meta.get(PLAN_RUNTIME_METADATA_KEY) if isinstance(meta.get(PLAN_RUNTIME_METADATA_KEY), dict) else {}),
+        "adherence_status": adherence["status"],
+        "latest_evidence": evidence,
+        "last_updated_at": now,
+        "last_update_reason": "tool_evidence",
+    }
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return adherence
+
+
+def sync_plan_runtime_capsule(
+    session: Session,
+    plan: SessionPlan | None = None,
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    runtime = build_plan_runtime_capsule(session, plan)
+    runtime["last_updated_at"] = _utc_now_iso()
+    runtime["last_update_reason"] = reason
+    meta = _session_plan_meta(session)
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return runtime
 
 
 def _plan_channel_id(session: Session) -> uuid.UUID | None:
@@ -417,6 +779,9 @@ def write_session_plan_metadata(
         meta.pop(PLAN_REVISION_METADATA_KEY, None)
         meta.pop(PLAN_ACCEPTED_REVISION_METADATA_KEY, None)
         meta.pop(PLAN_STATUS_METADATA_KEY, None)
+        meta.pop(PLAN_RUNTIME_METADATA_KEY, None)
+        meta.pop(PLAN_PLANNING_STATE_METADATA_KEY, None)
+        meta.pop(PLAN_ADHERENCE_METADATA_KEY, None)
     else:
         if mode is not None:
             meta[PLAN_MODE_METADATA_KEY] = mode
@@ -612,6 +977,10 @@ def build_session_plan_response(session: Session, plan: SessionPlan | None = Non
         "mode": get_session_plan_mode(session),
         "accepted_revision": _accepted_plan_revision(session) or None,
         "revisions": list_session_plan_revisions(session),
+        "planning_state": get_planning_state(session),
+        "adherence": build_plan_adherence_state(session, current_plan),
+        "runtime": build_plan_runtime_capsule(session, current_plan),
+        "validation": validate_plan_for_approval(current_plan, planning_state=get_planning_state(session)),
     }
 
 
@@ -636,7 +1005,14 @@ def publish_session_plan_event(session: Session, reason: str) -> None:
     )
 
 
-def save_session_plan(session: Session, plan: SessionPlan, *, mode: str | None = None, accepted_revision: int | None = None) -> SessionPlan:
+def save_session_plan(
+    session: Session,
+    plan: SessionPlan,
+    *,
+    mode: str | None = None,
+    accepted_revision: int | None = None,
+    reason: str = "save_plan",
+) -> SessionPlan:
     plan_path = plan.path or build_plan_path(session, plan.task_slug)
     rendered = render_plan_markdown(plan)
     Path(plan_path).parent.mkdir(parents=True, exist_ok=True)
@@ -655,11 +1031,13 @@ def save_session_plan(session: Session, plan: SessionPlan, *, mode: str | None =
         plan_status=plan.status,
     )
     plan.path = plan_path
+    sync_plan_runtime_capsule(session, plan, reason=reason)
     return plan
 
 
 def enter_session_plan_mode(session: Session) -> dict[str, Any]:
     write_session_plan_metadata(session, mode=PLAN_MODE_PLANNING)
+    sync_plan_runtime_capsule(session, None, reason="enter_plan_mode")
     return get_session_plan_state(session)
 
 
@@ -701,7 +1079,7 @@ def create_session_plan(
         acceptance_criteria=[item.strip() for item in (acceptance_criteria or []) if item.strip()],
         outcome="Pending execution.",
     )
-    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING)
+    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING, reason="create_plan")
 
 
 def publish_session_plan(
@@ -752,7 +1130,13 @@ def publish_session_plan(
         ]
     existing.revision += 1
     existing.status = PLAN_STATUS_DRAFT
-    return save_session_plan(session, existing, mode=PLAN_MODE_PLANNING, accepted_revision=0)
+    return save_session_plan(
+        session,
+        existing,
+        mode=PLAN_MODE_PLANNING,
+        accepted_revision=_accepted_plan_revision(session) or 0,
+        reason="publish_plan",
+    )
 
 
 def update_session_plan(
@@ -787,16 +1171,168 @@ def update_session_plan(
         plan.outcome = outcome.strip() or plan.outcome
     plan.revision += 1
     plan.status = PLAN_STATUS_DRAFT
-    return save_session_plan(session, plan, mode=PLAN_MODE_PLANNING)
+    return save_session_plan(
+        session,
+        plan,
+        mode=PLAN_MODE_PLANNING,
+        accepted_revision=_accepted_plan_revision(session) or 0,
+        reason="update_plan",
+    )
 
 
 def _validate_plan_for_execution(plan: SessionPlan) -> None:
-    if not plan.steps:
-        raise HTTPException(status_code=422, detail="Plan must have at least one step.")
-    if plan.open_questions:
-        raise HTTPException(status_code=422, detail="Resolve open questions before execution.")
-    if any(step.status not in _VALID_STEP_STATUSES for step in plan.steps):
-        raise HTTPException(status_code=422, detail="Plan contains invalid step statuses.")
+    validation = validate_plan_for_approval(plan)
+    if not validation["ok"]:
+        messages = "; ".join(issue["message"] for issue in validation["issues"] if issue["severity"] == PLAN_VALIDATION_ERROR)
+        raise HTTPException(status_code=422, detail=messages or "Plan is not ready for execution.")
+
+
+def _is_placeholder_text(value: str | None, placeholders: set[str]) -> bool:
+    text = " ".join((value or "").strip().split()).lower()
+    return not text or text in placeholders
+
+
+def _validation_issue(
+    code: str,
+    message: str,
+    *,
+    field: str,
+    severity: str = PLAN_VALIDATION_ERROR,
+) -> dict[str, str]:
+    return {
+        "code": code,
+        "severity": severity,
+        "field": field,
+        "message": message,
+    }
+
+
+def validate_plan_for_approval(
+    plan: SessionPlan | None,
+    *,
+    planning_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    issues: list[dict[str, str]] = []
+    if plan is None:
+        issues.append(_validation_issue(
+            "missing_plan",
+            "Publish a plan before approval.",
+            field="plan",
+        ))
+    else:
+        if _is_placeholder_text(plan.summary, {"pending summary.", "pending summary", "none"}):
+            issues.append(_validation_issue(
+                "missing_summary",
+                "Plan summary must describe the intended outcome.",
+                field="summary",
+            ))
+        if _is_placeholder_text(plan.scope, {"pending scope.", "pending scope", "none"}):
+            issues.append(_validation_issue(
+                "missing_scope",
+                "Plan scope must define what is in and out of the work.",
+                field="scope",
+            ))
+        if plan.open_questions:
+            issues.append(_validation_issue(
+                "open_questions",
+                "Resolve open questions before approval.",
+                field="open_questions",
+            ))
+        if not plan.acceptance_criteria:
+            issues.append(_validation_issue(
+                "missing_acceptance_criteria",
+                "Add at least one acceptance criterion before approval.",
+                field="acceptance_criteria",
+            ))
+        if not plan.steps:
+            issues.append(_validation_issue(
+                "missing_steps",
+                "Plan must have at least one execution step.",
+                field="steps",
+            ))
+        seen_step_ids: set[str] = set()
+        for idx, step in enumerate(plan.steps):
+            field = f"steps[{idx}]"
+            if step.status not in _VALID_STEP_STATUSES:
+                issues.append(_validation_issue(
+                    "invalid_step_status",
+                    f"Step {step.id!r} has invalid status {step.status!r}.",
+                    field=f"{field}.status",
+                ))
+            elif step.status == STEP_STATUS_BLOCKED:
+                issues.append(_validation_issue(
+                    "blocked_step_before_approval",
+                    f"Step {step.id!r} is blocked; revise or reset it before approval.",
+                    field=f"{field}.status",
+                ))
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", step.id or ""):
+                issues.append(_validation_issue(
+                    "invalid_step_id",
+                    f"Step id {step.id!r} must be stable kebab/snake case.",
+                    field=f"{field}.id",
+                ))
+            if step.id in seen_step_ids:
+                issues.append(_validation_issue(
+                    "duplicate_step_id",
+                    f"Step id {step.id!r} is duplicated.",
+                    field=f"{field}.id",
+                ))
+            seen_step_ids.add(step.id)
+            if _is_placeholder_text(step.label, {"step", "todo", "pending", "implementation"}):
+                issues.append(_validation_issue(
+                    "thin_step_label",
+                    f"Step {step.id!r} needs a concrete action label.",
+                    field=f"{field}.label",
+                ))
+        if len(plan.steps) == 1:
+            issues.append(_validation_issue(
+                "single_step_plan",
+                "Single-step plans are allowed, but consider whether verification should be explicit.",
+                field="steps",
+                severity=PLAN_VALIDATION_WARNING,
+            ))
+        if planning_state:
+            plan_text = " ".join([
+                plan.title,
+                plan.summary,
+                plan.scope,
+                " ".join(plan.assumptions),
+                " ".join(plan.open_questions),
+                " ".join(plan.acceptance_criteria),
+                " ".join(step.label for step in plan.steps),
+            ]).lower()
+            missing_decisions = [
+                item for item in planning_state.get("decisions", [])[-6:]
+                if isinstance(item, dict)
+                and str(item.get("text") or "").strip()
+                and str(item.get("text") or "").strip().lower()[:80] not in plan_text
+            ]
+            if missing_decisions:
+                issues.append(_validation_issue(
+                    "planning_state_not_reflected",
+                    "Some confirmed planning decisions are not visibly reflected in the draft.",
+                    field="planning_state.decisions",
+                    severity=PLAN_VALIDATION_WARNING,
+                ))
+            unresolved_questions = [
+                item for item in planning_state.get("open_questions", [])
+                if isinstance(item, dict) and str(item.get("text") or "").strip()
+            ]
+            if unresolved_questions and not plan.open_questions:
+                issues.append(_validation_issue(
+                    "planning_questions_not_carried_forward",
+                    "Planning notes still contain open questions; carry them into the draft or resolve them.",
+                    field="open_questions",
+                    severity=PLAN_VALIDATION_WARNING,
+                ))
+    blocking = [issue for issue in issues if issue["severity"] == PLAN_VALIDATION_ERROR]
+    warnings = [issue for issue in issues if issue["severity"] == PLAN_VALIDATION_WARNING]
+    return {
+        "ok": not blocking,
+        "blocking_count": len(blocking),
+        "warning_count": len(warnings),
+        "issues": issues,
+    }
 
 
 def _find_next_pending_step(plan: SessionPlan) -> PlanStep | None:
@@ -850,16 +1386,19 @@ def approve_session_plan(session: Session) -> SessionPlan:
         plan,
         mode=PLAN_MODE_EXECUTING,
         accepted_revision=accepted_revision,
+        reason="approve_plan",
     )
 
 
 def exit_session_plan_mode(session: Session) -> None:
     if load_session_plan(session, required=False) is None:
         write_session_plan_metadata(session, mode=PLAN_MODE_CHAT)
+        sync_plan_runtime_capsule(session, None, reason="exit_plan_mode")
         return
     plan = load_session_plan(session, required=True)
     assert plan is not None
     write_session_plan_metadata(session, mode=PLAN_MODE_CHAT, plan_status=plan.status)
+    sync_plan_runtime_capsule(session, plan, reason="exit_plan_mode")
 
 
 def resume_session_plan_mode(session: Session) -> SessionPlan:
@@ -877,6 +1416,7 @@ def resume_session_plan_mode(session: Session) -> SessionPlan:
         plan,
         mode=mode,
         accepted_revision=(session.metadata_ or {}).get(PLAN_ACCEPTED_REVISION_METADATA_KEY),
+        reason="resume_plan",
     )
     return plan
 
@@ -903,7 +1443,7 @@ def update_plan_step_status(
         plan.status = PLAN_STATUS_BLOCKED
         if note:
             plan.outcome = note.strip()
-        return save_session_plan(session, plan, mode=PLAN_MODE_BLOCKED)
+        return save_session_plan(session, plan, mode=PLAN_MODE_BLOCKED, reason="step_blocked")
     if status == STEP_STATUS_DONE:
         next_step = _find_next_pending_step(plan)
         if next_step is not None:
@@ -911,18 +1451,80 @@ def update_plan_step_status(
             plan.status = PLAN_STATUS_EXECUTING
             if note:
                 plan.outcome = note.strip()
-            return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING)
+            return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING, reason="step_done")
         plan.status = PLAN_STATUS_DONE
         plan.outcome = note.strip() if note and note.strip() else "Execution complete."
-        return save_session_plan(session, plan, mode=PLAN_MODE_DONE)
+        return save_session_plan(session, plan, mode=PLAN_MODE_DONE, reason="plan_done")
     if status == STEP_STATUS_IN_PROGRESS:
         for other in plan.steps:
             if other.id != step.id and other.status == STEP_STATUS_IN_PROGRESS:
                 other.status = STEP_STATUS_PENDING
         plan.status = PLAN_STATUS_EXECUTING
-        return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING)
+        return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING, reason="step_in_progress")
     plan.status = PLAN_STATUS_APPROVED
-    return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING)
+    return save_session_plan(session, plan, mode=PLAN_MODE_EXECUTING, reason="step_pending")
+
+
+def request_plan_replan(
+    session: Session,
+    *,
+    reason: str,
+    affected_step_ids: list[str] | None = None,
+    evidence: str | None = None,
+    revision: int | None = None,
+) -> SessionPlan:
+    plan = load_session_plan(session, required=True)
+    assert plan is not None
+    if revision is not None and revision != plan.revision:
+        raise HTTPException(status_code=409, detail=f"Revision mismatch. Expected {plan.revision}.")
+    accepted_revision = _accepted_plan_revision(session)
+    if accepted_revision <= 0:
+        raise HTTPException(status_code=409, detail="Only an accepted plan can be marked for replanning.")
+
+    affected = [item.strip() for item in (affected_step_ids or []) if item and item.strip()]
+    unknown = [step_id for step_id in affected if all(step.id != step_id for step in plan.steps)]
+    if unknown:
+        raise HTTPException(status_code=404, detail=f"Unknown plan step ids: {', '.join(unknown)}")
+
+    reason_text = reason.strip()
+    if not reason_text:
+        raise HTTPException(status_code=422, detail="Replan reason is required.")
+    evidence_text = (evidence or "").strip() or None
+
+    for step in plan.steps:
+        if affected and step.id not in affected:
+            continue
+        if step.status == STEP_STATUS_IN_PROGRESS:
+            step.status = STEP_STATUS_BLOCKED
+            step.note = reason_text
+
+    question = f"Replan required: {reason_text}"
+    if question not in plan.open_questions:
+        plan.open_questions.append(question)
+    plan.revision += 1
+    plan.status = PLAN_STATUS_DRAFT
+    plan.outcome = reason_text
+
+    meta = _session_plan_meta(session)
+    runtime_raw = meta.get(PLAN_RUNTIME_METADATA_KEY)
+    runtime = copy.deepcopy(runtime_raw if isinstance(runtime_raw, dict) else {})
+    runtime["replan"] = {
+        "reason": reason_text,
+        "affected_step_ids": affected,
+        "evidence": evidence_text,
+        "from_revision": accepted_revision,
+        "created_at": _utc_now_iso(),
+    }
+    meta[PLAN_RUNTIME_METADATA_KEY] = runtime
+    session.metadata_ = meta
+    flag_modified(session, "metadata_")
+    return save_session_plan(
+        session,
+        plan,
+        mode=PLAN_MODE_PLANNING,
+        accepted_revision=accepted_revision,
+        reason="request_replan",
+    )
 
 
 def list_session_plans(session: Session, *, status: str | None = None) -> list[dict[str, Any]]:
@@ -953,7 +1555,7 @@ def append_plan_artifact(
                 metadata=copy.deepcopy(metadata or {}),
             )
     )
-    return save_session_plan(session, plan, mode=get_session_plan_mode(session))
+    return save_session_plan(session, plan, mode=get_session_plan_mode(session), reason="append_artifact")
 
 
 def _clip_plan_context(value: str | None, limit: int) -> str:
@@ -967,13 +1569,63 @@ def build_plan_artifact_context(session: Session) -> str | None:
     """Build a compact, load-bearing context block from the canonical plan file."""
     plan = load_session_plan(session, required=False)
     mode = get_session_plan_mode(session)
-    if plan is None or mode not in {
+    if mode not in {
         PLAN_MODE_PLANNING,
         PLAN_MODE_EXECUTING,
         PLAN_MODE_BLOCKED,
         PLAN_MODE_DONE,
     }:
         return None
+
+    runtime = build_plan_runtime_capsule(session, plan)
+    runtime_lines = [
+        "Plan runtime capsule (durable execution state):",
+        f"Mode: {runtime.get('mode')}",
+        f"Plan revision: {runtime.get('plan_revision')}",
+        f"Accepted revision: {runtime.get('accepted_revision')}",
+        f"Plan status: {runtime.get('plan_status')}",
+        f"Current step id: {runtime.get('current_step_id')}",
+        f"Next step id: {runtime.get('next_step_id')}",
+        f"Last completed step id: {runtime.get('last_completed_step_id')}",
+        f"Next action: {runtime.get('next_action')}",
+    ]
+    if runtime.get("unresolved_questions"):
+        runtime_lines.append(
+            "Unresolved questions:\n" + "\n".join(
+                f"- {_clip_plan_context(str(item), 180)}"
+                for item in runtime.get("unresolved_questions", [])[:8]
+            )
+        )
+    if runtime.get("blockers"):
+        runtime_lines.append(
+            "Blockers:\n" + "\n".join(
+                f"- {_clip_plan_context(str(item), 180)}"
+                for item in runtime.get("blockers", [])[:5]
+            )
+        )
+    if runtime.get("adherence_status"):
+        runtime_lines.append(f"Adherence status: {runtime.get('adherence_status')}")
+    if runtime.get("latest_evidence"):
+        latest = runtime.get("latest_evidence") or {}
+        runtime_lines.append(
+            "Latest execution evidence: "
+            + _clip_plan_context(
+                str(latest.get("summary") or latest.get("tool_name") or "recorded"),
+                240,
+            )
+        )
+    replan = runtime.get("replan") or {}
+    if replan:
+        runtime_lines.append(
+            "Replan request: "
+            + _clip_plan_context(str(replan.get("reason") or "pending"), 240)
+        )
+
+    planning_state = get_planning_state(session)
+    planning_lines = _planning_state_context_lines(planning_state)
+
+    if plan is None:
+        return "\n\n".join(["\n".join(planning_lines), "\n".join(runtime_lines)])
 
     path = plan.path or get_session_active_plan_path(session) or "<unknown>"
     accepted_revision = (session.metadata_ or {}).get(PLAN_ACCEPTED_REVISION_METADATA_KEY) or plan.revision
@@ -1034,6 +1686,10 @@ def build_plan_artifact_context(session: Session) -> str | None:
     if plan.outcome and plan.status == PLAN_STATUS_DONE:
         lines.append(f"Outcome: {_clip_plan_context(plan.outcome, 400)}")
 
+    if any(planning_state.get(key) for key in ("decisions", "open_questions", "assumptions", "constraints", "non_goals", "evidence", "preference_changes")):
+        lines.append("\n".join(planning_lines))
+    lines.append("\n".join(runtime_lines))
+
     return "\n\n".join(line for line in lines if line.strip())
 
 
@@ -1048,6 +1704,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             lines = [
                 "Plan mode is active. Stay in planning mode: do not execute implementation changes, do not edit non-plan files, and do not answer with long freeform proposals before the scope is clear.",
                 "Your first job in plan mode is to narrow scope. Ask at most 1-3 focused clarifying questions, preferably by using ask_plan_questions when multiple structured answers would help.",
+                "Treat the visible planning-state capsule as durable notes for the back-and-forth: preserve confirmed decisions, open questions, constraints, assumptions, non-goals, evidence, and preference changes there instead of relying only on chat history.",
                 "Formatting contract: keep chat replies short, avoid giant markdown sections/lists unless the user explicitly asks for a prose writeup, and use tools for structured planning surfaces instead of hand-formatting them in chat.",
                 "Do not publish a plan until the user has answered the key scope questions or explicitly said to proceed with assumptions.",
                 "When you are ready to propose the actual plan, use publish_plan instead of writing a giant markdown response in chat. Keep conversational replies short and scoped to the next decision.",
@@ -1065,6 +1722,7 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
             "Plan mode is active. Stay in planning mode: ask focused clarifying questions, keep chat replies concise, refine the canonical plan artifact via tools, "
             "and do not edit non-plan files or execute implementation changes."
         )
+        lines.append("Use the planning-state capsule as durable notes for confirmed decisions, open questions, assumptions, constraints, non-goals, evidence, and preference changes.")
         lines.append("Formatting contract: keep planning chat terse and decision-oriented; use publish_plan for the structured draft and avoid restating the whole plan in normal assistant prose.")
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Current revision: {plan.revision} ({plan.status})")
@@ -1083,6 +1741,9 @@ def build_plan_mode_system_context(session: Session) -> list[str]:
         lines.append(
             "An approved plan is active. Follow the accepted plan revision, work one step at a time, "
             "and keep the plan file current as progress changes."
+        )
+        lines.append(
+            "If execution reveals the accepted plan is stale, stop and use request_plan_replan with the reason/evidence instead of continuing or silently editing around the plan."
         )
         lines.append(f"Canonical plan file: {path}")
         lines.append(f"Accepted revision: {accepted_revision}; plan status: {plan.status}")
@@ -1121,13 +1782,31 @@ def tool_allowed_in_plan_mode(
     tool_kind: str,
     safety_tier: str | None = None,
 ) -> bool:
-    if get_session_plan_mode(session) != PLAN_MODE_PLANNING:
+    mode = get_session_plan_mode(session)
+    if mode not in {PLAN_MODE_PLANNING, PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED}:
         return True
-    if tool_kind == "local":
-        if tool_name in PLAN_MUTATING_TOOL_ALLOWLIST:
-            return True
-        return safety_tier not in {"mutating", "exec_capable", "control_plane"}
-    if tool_kind in {"client", "widget"}:
+    mutating = tool_kind in {"client", "widget"} or safety_tier in {"mutating", "exec_capable", "control_plane"}
+    if mode == PLAN_MODE_PLANNING:
+        if tool_kind == "local":
+            if tool_name in PLAN_MUTATING_TOOL_ALLOWLIST:
+                return True
+            return safety_tier not in {"mutating", "exec_capable", "control_plane"}
+        if tool_kind in {"client", "widget"}:
+            return False
+        return True
+    if not mutating:
+        return True
+    runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)
+    runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+    plan = load_session_plan(session, required=False)
+    accepted_revision = _accepted_plan_revision(session)
+    if tool_name == "request_plan_replan" and tool_kind == "local":
+        return plan is not None and accepted_revision > 0 and not runtime.get("replan")
+    if mode == PLAN_MODE_BLOCKED or runtime.get("replan"):
+        return False
+    if plan is None or accepted_revision <= 0 or plan.revision != accepted_revision:
+        return False
+    if not any(step.status == STEP_STATUS_IN_PROGRESS for step in plan.steps):
         return False
     return True
 
@@ -1146,6 +1825,15 @@ def plan_mode_tool_denial_reason(
         safety_tier=safety_tier,
     ):
         return None
+    mode = get_session_plan_mode(session)
+    if mode == PLAN_MODE_EXECUTING:
+        runtime_raw = (session.metadata_ or {}).get(PLAN_RUNTIME_METADATA_KEY)
+        runtime = runtime_raw if isinstance(runtime_raw, dict) else {}
+        if runtime.get("replan"):
+            return "The accepted plan has a pending replan request. Mutating tools are disabled until the plan is revised and approved again."
+        return "Plan execution guard blocked this mutating tool because the accepted revision/current step contract is not valid."
+    if mode == PLAN_MODE_BLOCKED:
+        return "Plan execution is blocked. Resolve the blocker or request a replan before running mutating tools."
     if tool_name == "file":
         return "Plan mode is active. Direct file mutations are disabled while drafting; use publish_plan to revise the canonical plan."
     if tool_kind in {"client", "widget"}:

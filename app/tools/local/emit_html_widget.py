@@ -222,8 +222,9 @@ _SCHEMA = {
                 "library_ref": {
                     "type": "string",
                     "description": (
-                        "Name of a library widget to render, e.g. `notes`, "
-                        "`core/notes`, `bot/my_toggle`, or `workspace/team_board`. "
+                        "Name of a library widget to render, e.g. "
+                        "`core/context_tracker`, `bot/my_toggle`, or "
+                        "`workspace/team_board`. "
                         "Implicit refs (no scope prefix) resolve in the order "
                         "bot → workspace → core, so bot-authored widgets "
                         "naturally shadow core names. Use `widget_library_list` "

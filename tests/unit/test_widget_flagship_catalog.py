@@ -1,15 +1,14 @@
 """Smoke tests for the Phase 2 flagship HTML widget catalog.
 
-Covers the four widgets shipped on 2026-04-19:
+Covers flagship/result widgets shipped on 2026-04-19 and later:
 
 - ``generate_image``  → app/tools/local/widgets/generate_image/template.yaml
 - ``get_weather``     → integrations/openweather/integration.yaml
-- ``web_search``      → integrations/web_search/integration.yaml
+- ``web_search``      → integrations/web_search/integration.yaml (core semantic renderer)
 - ``frigate_list_cameras`` → integrations/frigate/integration.yaml
 
-Each widget must register with the correct ``html+interactive`` content_type,
-a resolvable ``html_template.path``, and a representative ``sample_payload``
-so the dev-panel preview renders on first open.
+Each widget must register with the correct content type and a representative
+``sample_payload`` so the dev-panel preview renders on first open.
 """
 from __future__ import annotations
 
@@ -99,20 +98,23 @@ class TestGetWeatherWidget:
         cfg = raw["tool_widgets"]["get_weather"].get("default_config") or {}
         assert cfg.get("units") in {"imperial", "metric"}
 
+    def test_config_schema_documents_user_controls(self):
+        raw, _ = _load_integration_manifest("openweather")
+        schema = raw["tool_widgets"]["get_weather"]["config_schema"]
+        assert schema["properties"]["units"]["enum"] == ["imperial", "metric"]
+        assert schema["properties"]["show_feels_like"]["type"] == "boolean"
+
 
 class TestWebSearchWidget:
-    def test_registers_as_html(self):
+    def test_registers_as_core_search_results(self):
         raw, base = _load_integration_manifest("web_search")
         tool_widgets = raw["tool_widgets"]
         count = _register_widgets("integration:web_search", tool_widgets, base_dir=base)
         assert count == 1
         tmpl = _widget_templates["web_search"]
-        assert tmpl["content_type"] == "application/vnd.spindrel.html+interactive"
-
-    def test_default_config_declares_starred_array(self):
-        raw, _ = _load_integration_manifest("web_search")
-        cfg = raw["tool_widgets"]["web_search"]["default_config"]
-        assert cfg["starred"] == []
+        assert tmpl["content_type"] == "application/vnd.spindrel.components+json"
+        assert tmpl["view_key"] == "core.search_results"
+        assert tmpl.get("html_template_body") is None
 
     def test_sample_payload_has_results(self):
         raw, _ = _load_integration_manifest("web_search")
@@ -161,6 +163,11 @@ class TestFrigateSnapshotWidgetCarriesCamera:
         raw, _ = _load_integration_manifest("frigate")
         sample = raw["tool_widgets"]["frigate_snapshot"]["sample_payload"]
         assert sample.get("camera"), "sample_payload needs camera for dev preview"
+
+    def test_config_schema_documents_bbox_toggle(self):
+        raw, _ = _load_integration_manifest("frigate")
+        schema = raw["tool_widgets"]["frigate_snapshot"]["config_schema"]
+        assert schema["properties"]["show_bbox"]["type"] == "boolean"
 
     def test_state_poll_args_substitute_camera_from_display_label(self):
         from app.services.widget_templates import substitute_vars
@@ -218,15 +225,20 @@ class TestConfigRidesIntoHtmlToolResult:
         data = json.loads(payload)
         assert "config" in data
 
-    def test_web_search_starred_config_is_merged(self):
+    def test_web_search_structured_data_feeds_core_renderer(self):
         raw, base = _load_integration_manifest("web_search")
         _register_widgets("integration:web_search", raw["tool_widgets"], base_dir=base)
         env = apply_widget_template(
             "web_search",
-            json.dumps({"query": "x", "results": [], "count": 0}),
-            widget_config={"starred": ["https://example.com"]},
+            json.dumps({
+                "query": "x",
+                "results": [{"title": "A", "url": "https://example.com", "content": "Snippet"}],
+                "count": 1,
+            }),
         )
-        preamble = env.body.split("</script>")[0]
-        payload = preamble.split("window.spindrel.toolResult = ", 1)[1].rstrip(";")
-        data = json.loads(payload)
-        assert data["config"]["starred"] == ["https://example.com"]
+        body = json.loads(env.body)
+        assert env.content_type == "application/vnd.spindrel.components+json"
+        assert env.view_key == "core.search_results"
+        assert env.data["query"] == "x"
+        assert env.data["results"][0]["url"] == "https://example.com"
+        assert body["components"][2]["items"][0]["title"] == "A"

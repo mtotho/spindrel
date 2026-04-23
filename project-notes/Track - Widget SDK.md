@@ -13,6 +13,10 @@ updated: 2026-04-21 (control-dashboard reactivity docs strengthened after HA wid
 > **DX — Ambient debug trace + Widget Inspector (shipped 2026-04-21).** Plan: `~/.claude/plans/magical-frolicking-kurzweil.md`. The inert dev-panel "Widget log" tab (0 entries, ever) is gone. Every `callTool` / `loadAttachment` / `loadAsset` invocation, every uncaught JS error, every unhandled promise rejection, every `console.*` call, and every `spindrel.log.*` entry is now auto-captured and POSTed to a server-side per-pin event ring (`app/services/widget_debug.py`, 50 entries cap, in-memory). Two readers: a new `WidgetInspector` side-panel triggered by a Bug icon on any pinned tile, and a new `inspect_widget_pin(pin_id, limit?)` readonly tool so the authoring bot can iterate against real envelope shapes instead of guessing. Also new: `GET /api/v1/tools/{name}/signature` + `window.spindrel.toolSchema(name)` so bots can look up `returns=` schemas at authoring time (null for MCP — fall back to the trace). Skills `sdk.md` / `tool-dispatch.md` rewritten: documents `loadAttachment`, `toolSchema`, the iteration recipe ("probe → pin → `inspect_widget_pin` → rewrite against confirmed path"), and the canonical envelope shapes for `frigate_snapshot` + `ha_get_state`. Fallback-chain guidance deleted — the anti-pattern that caused the kitchen-dashboard bug. 20 new tests (9 unit + 7 integration + 4 tool). Root cause: widget authoring runs ahead of any real invocation + MCP protocol has no `outputSchema` slot, so the bot had nothing to check its guesses against and no signal when they failed.
 >
 > **2026-04-21 doc follow-up — control-dashboard rerender rule made explicit.** After reviewing a bot-authored Home Assistant dashboard that toggled lights by rebuilding the entire lights list and refetching unrelated surfaces, `skills/widgets/tool-dispatch.md` now spells out the intended pattern for HA/control dashboards: split local state by surface (`lights`, `climate`, `cameraUrls`, `featuredCamera`), patch only the touched row/card on click, and keep `onToolResult` / `onReload` as reconciliation rather than the primary click-response path. `skills/widgets/sdk.md` now points at that section from the subscription docs so authors hit it from either entrypoint. New invariant: a control click should not cause unrelated camera/image sections to blink or refetch.
+>
+> **2026-04-23 supersession note.** Earlier Phase A notes mention the legacy HTML Notes showcase under `app/tools/local/widgets/notes/`. That bundle has since been hard-deleted; first-party Notes is `core/notes_native`, and stale direct refs should be replaced rather than shimmed.
+>
+> **2026-04-23 Web Search supersession.** Earlier Phase A/A.2 notes mention `integrations/web_search/widgets/web_search.html` as an SDK showcase. That file has since been deleted; Web Search now uses the generic core `core.search_results` React renderer and keeps a component-template fallback. Use a different future flagship for HTML SDK interactivity.
 
 ## North Star
 
@@ -418,7 +422,7 @@ def on_new_message(evt):
 
 **Exit criteria**
 - New reference widget `app/tools/local/widgets/examples/project-status/` (30-line widget.py + 10-line widget.yaml + 40-line index.html) — polls API on cron, stores history in SQLite, form-driven row add, live table via `spindrel.stream("widget_reload")`, cross-widget bus ping
-- `integrations/web_search/widgets/web_search.html` rewritten to use SQLite for `starred[]` (currently `widget_config`)
+- Future HTML flagship should use SQLite-backed state instead of `widget_config` for durable cross-copy state. Web Search no longer applies because it moved to `core.search_results`.
 
 ### Phase B.0 detail — widget.yaml manifest (shipped 2026-04-19)
 

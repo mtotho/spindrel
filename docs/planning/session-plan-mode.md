@@ -266,6 +266,7 @@ Current backend/runtime details:
 Current UI behavior:
 
 - the widget submits the collected answers as a real user message on the session
+- the same answers are captured as structured entries in the visible `planning_state` capsule
 - the answers land in transcript history instead of living only in browser/composer state
 - submission still remains explicit user action; the widget does not silently answer itself
 
@@ -295,12 +296,38 @@ Current backend/runtime details:
 - increments the revision
 - returns `application/vnd.spindrel.plan+json`
 - includes the structured plan payload plus an `_envelope`
+- includes validation feedback so blocking issues are visible before approval
+- warns when confirmed `planning_state` decisions are not visibly reflected in the draft
 
 Current rendering path:
 
 - rendered in-feed through `RichToolResult`
 - should be treated as the transcript-native plan surface
 - approval and progress actions belong on this surface, not elsewhere
+
+### `request_plan_replan`
+
+Purpose:
+
+- stop execution when the accepted plan is materially stale
+- return the session to `planning`
+- preserve the previous accepted revision as historical execution context
+- record a replan reason, affected step ids, and optional evidence in the runtime capsule
+
+Expected use:
+
+- only after a plan has been approved
+- during `executing` or `blocked`
+- when continuing would mean working around the accepted plan instead of following it
+
+Current backend/runtime details:
+
+- registered as a local mutating tool
+- also exposed as `POST /sessions/{session_id}/plan/replan`
+- returns `application/vnd.spindrel.plan+json` so agent-triggered replans render on the transcript-native plan surface
+- creates a new draft revision with an open replan question
+- keeps `accepted_revision` pointed at the old approved revision until a new revision is approved
+- emits `session_plan_updated` with reason `replan`
 
 ## Transcript Rendering Contract
 
@@ -392,8 +419,33 @@ That means:
 The web routes now enforce this more explicitly:
 
 - approve routes can reject a stale client revision with `409 Revision mismatch`
+- approve routes reject structurally incomplete plans with `422`
 - step-status routes can reject a stale client revision with the same `409`
 - transcript cards for older revisions should therefore be treated as historical views, not implicit control surfaces for the latest draft
+
+### Plan validation
+
+Approval is gated by a deterministic validator, not just prompt guidance.
+
+Current blocking issues:
+
+- missing or placeholder summary
+- missing or placeholder scope
+- unresolved open questions
+- no acceptance criteria
+- no execution steps
+- invalid or duplicate step ids
+- invalid step statuses
+- placeholder step labels
+
+Validation is returned on:
+
+- `GET /sessions/{session_id}/plan-state`
+- `GET /sessions/{session_id}/plan`
+- `session_plan_updated` SSE payloads
+- `publish_plan` tool results
+
+The UI surfaces these issues on the transcript plan card and disables approval when blocking issues remain.
 
 ## Revision History And Sync
 
@@ -412,6 +464,88 @@ Session sync is event-driven:
 - `useSessionPlanMode` updates query state from that event stream
 - polling is no longer the primary plan-state refresh mechanism
 
+## Runtime Capsule
+
+The Markdown plan is not the only load-bearing state. The runtime also persists a compact `plan_runtime` capsule in `Session.metadata_`.
+
+Planning before the first published plan also has visible durable state: `planning_state`.
+
+`planning_state` stores the back-and-forth that would otherwise depend only on live transcript history:
+
+- confirmed decisions
+- open questions
+- assumptions
+- constraints
+- non-goals
+- relevant evidence
+- preference changes
+
+It is not an invisible executable plan. It is durable planning notes, shown through plan state/card surfaces and injected into planning/execution context so compaction or short live-history windows do not erase the user's latest decisions.
+
+Current `planning_state` fields:
+
+- `schema_version`
+- `decisions`
+- `open_questions`
+- `assumptions`
+- `constraints`
+- `non_goals`
+- `evidence`
+- `preference_changes`
+- `last_updated_at`
+- `last_update_reason`
+
+Current `plan_runtime` fields:
+
+- `schema_version`
+- `mode`
+- `plan_revision`
+- `accepted_revision`
+- `plan_status`
+- `current_step_id`
+- `next_step_id`
+- `last_completed_step_id`
+- `next_action`
+- `unresolved_questions`
+- `blockers`
+- `replan`
+- `adherence_status`
+- `latest_evidence`
+- `compaction_watermark_message_id`
+- `last_updated_at`
+- `last_update_reason`
+
+This capsule is deliberately separate from the Markdown artifact:
+
+- Markdown remains the readable plan artifact
+- the capsule is the compact state machine summary
+- `planning_state` is the visible durable notes layer before and around the plan
+- compaction summaries are not authoritative for plan state
+- context assembly injects the runtime capsule alongside the active plan artifact for planning/executing profiles
+
+## Adherence State
+
+Execution also maintains a compact `plan_adherence` ledger in session metadata.
+
+Current shape:
+
+- `status`: `ok`, `warning`, `blocked`, `planning`, or `unknown`
+- recent evidence records
+- latest evidence record
+- last transition
+- last update timestamp
+
+Evidence records capture the current accepted revision, current step id, tool name/kind, tool-call ids, status, error, arguments summary, and result summary.
+
+This is the first deterministic supervisor loop:
+
+- planning mode blocks mutating tools before approval
+- executing mode blocks mutating tools if the accepted revision/current-step contract is invalid
+- blocked/replan-pending execution blocks mutating tools until the plan returns to a valid state
+- `request_plan_replan` is the allowed escape hatch while executing or blocked, unless a replan is already pending
+- successful tool execution records compact evidence back into `plan_adherence` and `plan_runtime`
+- tool evidence emits `session_plan_updated` with reason `tool_evidence` so transcript plan cards can refresh the latest adherence state
+
 ## Execution Contract
 
 Execution is supervised and step-scoped.
@@ -424,9 +558,10 @@ Current intended loop:
 2. Select current/next pending step
 3. Inject step + compact plan context
 4. Execute that step
-5. Mark result
-6. Update the plan file
-7. Continue only if the step finished cleanly
+5. Record tool evidence against the current step
+6. Mark result
+7. Update the plan file/runtime
+8. Continue only if the step finished cleanly
 
 Expected step outcomes:
 
@@ -445,6 +580,8 @@ Current persisted step statuses in the plan artifact are:
 If a step reveals that the rest of the plan is stale, execution should stop and return the session to planning instead of blindly marching forward.
 
 Current session router behavior also includes step-level updates and auto-advance logic through `update_plan_step_status(...)` and related routes in `app/routers/sessions.py`.
+
+If the plan is stale, the correct transition is `request_plan_replan(...)`, not manual status hacking or continuing with unstated assumptions.
 
 That means the practical v1 system is:
 
@@ -505,6 +642,7 @@ Backend:
 - `app/routers/sessions.py`
 - `app/tools/local/ask_plan_questions.py`
 - `app/tools/local/publish_plan.py`
+- `app/tools/local/request_plan_replan.py`
 
 Frontend:
 
@@ -529,25 +667,30 @@ What v1 does well:
 - snapshot-backed revision history + diff surfaces
 - event-driven plan-state sync on the session bus
 - one-step-at-a-time execution model
+- visible planning-state capsule for decisions/questions before the full plan exists
+- metadata-backed runtime capsule injected across context trimming/compaction boundaries
+- metadata-backed adherence/evidence ledger for execution
+- executing-mode tool guard for stale, blocked, or replan-pending state
+- deterministic approval validation
+- explicit replan transition back to planning
 
 What v1 does not yet do:
 
 - background detached executor loop
 - Slack/Discord parity for this exact workflow
-- automatic evaluation of whether a plan is too large beyond prompt/runtime heuristics
+- full turn-end stop hook that forces a progress/blocker/replan/no-progress transition after every assistant response
+- behavioral evaluation of whether the model is planning well beyond static validation
 
 ## Gaps
 
 These are known gaps between the current v1 and the fuller planning system we likely want:
 
-- no dedicated replan tool
-  the model can ask more questions or publish a revision, but there is no explicit `needs_replan` artifact/tool contract yet
-- no explicit “question answered” structured reply channel
-  answers now persist as ordinary user chat messages; there is still no separate typed answer artifact beyond the transcript message itself
-- no hard validator for plan breadth/quality before approval
-  current guardrails are mostly prompt and runtime convention, not deep static validation
 - no detached execution worker
   execution is still session-turn-driven rather than a fully autonomous background loop
+- no hard semantic step verifier
+  the deterministic supervisor records evidence and gates invalid protocol state, but does not yet prove that every tool action semantically satisfied the step
+- no turn-end stop hook
+  the system can gate tools and record evidence, but does not yet require a final state transition before every assistant response completes
 - no full transcript history model for plan revisions
   revisions exist numerically, but there is no first-class diff/history experience beyond the canonical file and emitted revision artifacts
 - no explicit “agent may propose entering plan mode” tool yet
@@ -557,12 +700,10 @@ These are known gaps between the current v1 and the fuller planning system we li
 
 Potential next steps, roughly in order of usefulness:
 
-- add a dedicated replan flow
-  examples: `request_replan`, `mark_plan_stale`, or a richer execution outcome contract than today’s simple step statuses
-- add stronger plan validation before approval
-  examples: max-step heuristics, vague-step detection, required done-condition checks, unresolved-question blocking
-- add a structured answer-submission path for plan questions
-  so the question card can submit typed answers as a first-class structured event instead of only filling the composer
+- expand plan validation heuristics
+  examples: max-step heuristics, vague-step detection, required done-condition checks, oversized-plan warnings
+- add a turn-end stop hook
+  the agent should have to record progress, blocker, replan, verification, or no-progress reason before ending an execution turn
 - add agent-side “propose plan mode” tooling
   the agent should be able to suggest entering plan mode without silently flipping the session itself
 - add revision history/diff UX
@@ -579,6 +720,8 @@ If any of these change, update this document in the same edit:
 - injected planning context
 - `ask_plan_questions` semantics
 - `publish_plan` semantics
+- `request_plan_replan` semantics
+- runtime capsule or validation semantics
 - transcript vs page-level rendering rules
 - approval/execution contract
 - Markdown artifact structure

@@ -73,7 +73,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
   const [railChoice, setRailChoice] = useState<RailChoice>("off");
   const [presetId, setPresetId] = useState<GridPresetId>("standard");
   const [borderless, setBorderless] = useState(false);
-  const [hoverScrollbars, setHoverScrollbars] = useState(false);
+  const [hoverScrollbars, setHoverScrollbars] = useState(true);
   const [hideTitles, setHideTitles] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +188,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
       // Chrome (borderless / hover_scrollbars) is a sibling of `preset` in the
       // same grid_config blob. We can only collapse to `null` when the dashboard
       // is fully default — otherwise the non-default chrome bits would be lost.
-      const chromeDefault = !borderless && !hoverScrollbars && !hideTitles;
+      const chromeDefault = !borderless && hoverScrollbars && !hideTitles;
       const gridConfig =
         presetId === "standard" && chromeDefault
           ? null
@@ -196,7 +196,7 @@ export function EditDashboardDrawer({ slug, onClose, onResetLayout }: Props) {
               layout_type: "grid",
               preset: presetId,
               ...(borderless ? { borderless: true } : {}),
-              ...(hoverScrollbars ? { hover_scrollbars: true } : {}),
+              ...(!hoverScrollbars ? { hover_scrollbars: false } : {}),
               ...(hideTitles ? { hide_titles: true } : {}),
             };
       const patch = isChannel

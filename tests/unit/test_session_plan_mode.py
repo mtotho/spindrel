@@ -61,7 +61,36 @@ def test_planning_context_exists_before_first_plan(monkeypatch, tmp_path):
     assert any("publish" in line.lower() for line in lines)
     assert any("ask_plan_questions" in line for line in lines)
     assert all("Canonical plan file:" not in line for line in lines)
-    assert spm.build_plan_artifact_context(session) is None
+    artifact_context = spm.build_plan_artifact_context(session)
+    assert artifact_context is not None
+    assert "Plan runtime capsule" in artifact_context
+    assert "Planning state capsule" in artifact_context
+    assert "Next action: clarify_scope" in artifact_context
+
+
+def test_planning_state_records_question_answers_and_enters_context(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+
+    state = spm.record_plan_question_answers(
+        session,
+        title="Scope choices",
+        answers=[
+            {"question_id": "strictness", "label": "Strictness", "answer": "Guardrail-first"},
+            {"question_id": "subagents", "label": "Subagents", "answer": "Default off"},
+        ],
+        source_message_id="msg-1",
+    )
+
+    assert len(state["decisions"]) == 2
+    assert state["decisions"][0]["text"] == "Strictness: Guardrail-first"
+    plan_state = spm.get_session_plan_state(session)
+    assert plan_state["planning_state"]["decisions"][1]["answer"] == "Default off"
+    context = spm.build_plan_artifact_context(session)
+    assert context is not None
+    assert "Planning state capsule" in context
+    assert "Strictness: Guardrail-first" in context
 
 
 def test_plan_artifact_context_summarizes_canonical_plan(monkeypatch, tmp_path):
@@ -92,10 +121,35 @@ def test_plan_artifact_context_summarizes_canonical_plan(monkeypatch, tmp_path):
     assert "Planning can recover older decisions" in text
 
 
+def test_plan_validation_warns_when_planning_decision_missing_from_draft(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.enter_session_plan_mode(session)
+    spm.update_planning_state(session, decisions=["Use default-off subagent guidance"], reason="test")
+
+    plan = spm.publish_session_plan(
+        session,
+        title="Plan Runtime",
+        summary="Improve runtime state.",
+        scope="Plan context only.",
+        acceptance_criteria=["Runtime state is visible."],
+        steps=[{"id": "runtime", "label": "Expose runtime state"}],
+    )
+    validation = spm.validate_plan_for_approval(plan, planning_state=spm.get_planning_state(session))
+
+    assert any(issue["code"] == "planning_state_not_reflected" for issue in validation["issues"])
+
+
 def test_approve_plan_marks_first_step_in_progress(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
-    spm.create_session_plan(session, title="Build Widget Planner")
+    spm.create_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Build a transcript-first widget planner.",
+        scope="Plan artifact approval and execution.",
+        acceptance_criteria=["The first step starts after approval."],
+    )
 
     plan = spm.approve_session_plan(session)
 
@@ -133,6 +187,9 @@ def test_done_step_auto_advances_and_finishes(monkeypatch, tmp_path):
     spm.create_session_plan(
         session,
         title="Ship Widget",
+        summary="Ship the widget in two verified steps.",
+        scope="Widget implementation and verification.",
+        acceptance_criteria=["Both steps complete in order."],
         steps=[
             {"id": "step-one", "label": "Step one"},
             {"id": "step-two", "label": "Step two"},
@@ -154,13 +211,188 @@ def test_done_step_auto_advances_and_finishes(monkeypatch, tmp_path):
 def test_cannot_update_step_status_before_plan_approval(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
-    spm.create_session_plan(session, title="Ship Widget")
+    spm.create_session_plan(
+        session,
+        title="Ship Widget",
+        summary="Ship the widget change.",
+        scope="Widget implementation only.",
+        acceptance_criteria=["The change is verified."],
+    )
 
     with pytest.raises(spm.HTTPException) as excinfo:
         spm.update_plan_step_status(session, step_id="clarify-scope", status=spm.STEP_STATUS_DONE)
 
     assert excinfo.value.status_code == 409
     assert "approved" in str(excinfo.value.detail).lower()
+
+
+def test_approval_rejects_thin_plan_and_state_reports_validation(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(session, title="Thin Plan")
+
+    state = spm.get_session_plan_state(session)
+    assert state["validation"]["ok"] is False
+    assert any(issue["code"] == "missing_acceptance_criteria" for issue in state["validation"]["issues"])
+
+    with pytest.raises(spm.HTTPException) as excinfo:
+        spm.approve_session_plan(session)
+
+    assert excinfo.value.status_code == 422
+    assert "acceptance criterion" in str(excinfo.value.detail).lower()
+
+
+def test_runtime_capsule_tracks_current_step_and_compaction_watermark(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    session.summary_message_id = uuid.uuid4()
+    spm.create_session_plan(
+        session,
+        title="Runtime Capsule",
+        summary="Track durable plan execution state.",
+        scope="Plan runtime metadata.",
+        acceptance_criteria=["Runtime identifies the active step."],
+        steps=[
+            {"id": "audit", "label": "Audit runtime fields"},
+            {"id": "ship", "label": "Ship runtime fields"},
+        ],
+    )
+    spm.approve_session_plan(session)
+
+    runtime = session.metadata_["plan_runtime"]
+
+    assert runtime["mode"] == spm.PLAN_MODE_EXECUTING
+    assert runtime["plan_revision"] == 1
+    assert runtime["accepted_revision"] == 1
+    assert runtime["current_step_id"] == "audit"
+    assert runtime["next_action"] == "execute_current_step"
+    assert runtime["adherence_status"] in {"unknown", "ok"}
+    assert runtime["compaction_watermark_message_id"] == str(session.summary_message_id)
+
+
+def test_execution_evidence_updates_adherence_and_runtime(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Evidence Loop",
+        summary="Capture execution evidence.",
+        scope="Plan adherence metadata.",
+        acceptance_criteria=["Tool evidence is durable."],
+        steps=[{"id": "run-tests", "label": "Run focused tests"}],
+    )
+    spm.approve_session_plan(session)
+
+    adherence = spm.record_plan_execution_evidence(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        status="done",
+        tool_call_id="call-1",
+        record_id="record-1",
+        arguments={"cmd": "pytest tests/unit/test_session_plan_mode.py -q"},
+        result_summary="16 passed",
+    )
+
+    assert adherence is not None
+    assert adherence["status"] == "ok"
+    assert adherence["latest_evidence"]["step_id"] == "run-tests"
+    runtime = spm.build_plan_runtime_capsule(session, spm.load_session_plan(session, required=True))
+    assert runtime["adherence_status"] == "ok"
+    assert runtime["latest_evidence"]["summary"] == "16 passed"
+
+
+def test_executing_guard_blocks_mutating_tools_when_replan_pending(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Guard Loop",
+        summary="Guard stale execution.",
+        scope="Tool dispatch guard.",
+        acceptance_criteria=["Replan blocks mutation."],
+        steps=[{"id": "audit", "label": "Audit current state"}],
+    )
+    spm.approve_session_plan(session)
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+    spm.request_plan_replan(session, reason="Scope changed", affected_step_ids=["audit"], revision=1)
+
+    reason = spm.plan_mode_tool_denial_reason(
+        session,
+        tool_name="exec_command",
+        tool_kind="local",
+        safety_tier="exec_capable",
+    )
+
+    assert reason is not None
+    assert "disabled" in reason.lower() or "plan mode" in reason.lower()
+
+
+def test_blocked_plan_still_allows_replan_tool(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Blocked Replan",
+        summary="Allow the replan escape hatch.",
+        scope="Blocked execution tool guard.",
+        acceptance_criteria=["Blocked plans can request a replan."],
+        steps=[{"id": "audit", "label": "Audit blocked state"}],
+    )
+    spm.approve_session_plan(session)
+    spm.update_plan_step_status(session, step_id="audit", status=spm.STEP_STATUS_BLOCKED, note="Need a new path")
+
+    assert spm.tool_allowed_in_plan_mode(
+        session,
+        tool_name="request_plan_replan",
+        tool_kind="local",
+        safety_tier="mutating",
+    )
+    assert spm.plan_mode_tool_denial_reason(
+        session,
+        tool_name="request_plan_replan",
+        tool_kind="local",
+        safety_tier="mutating",
+    ) is None
+
+
+def test_request_replan_preserves_accepted_revision_and_returns_to_planning(monkeypatch, tmp_path):
+    _patch_workspace(monkeypatch, tmp_path)
+    session = _make_session()
+    spm.create_session_plan(
+        session,
+        title="Replan Flow",
+        summary="Exercise replan transitions.",
+        scope="Accepted revision handling.",
+        acceptance_criteria=["A replan creates a new draft revision."],
+        steps=[
+            {"id": "audit", "label": "Audit the accepted plan"},
+            {"id": "ship", "label": "Ship the accepted plan"},
+        ],
+    )
+    spm.approve_session_plan(session)
+
+    plan = spm.request_plan_replan(
+        session,
+        reason="The audit uncovered a missing acceptance gate.",
+        affected_step_ids=["audit"],
+        evidence="runtime trace",
+        revision=1,
+    )
+
+    assert plan.revision == 2
+    assert plan.status == spm.PLAN_STATUS_DRAFT
+    assert session.metadata_["plan_mode"] == spm.PLAN_MODE_PLANNING
+    assert session.metadata_["plan_accepted_revision"] == 1
+    assert session.metadata_["plan_runtime"]["replan"]["from_revision"] == 1
+    assert session.metadata_["plan_runtime"]["current_step_id"] is None
+    assert session.metadata_["plan_runtime"]["next_action"] == "resolve_open_questions"
+    assert any("Replan required" in item for item in plan.open_questions)
 
 
 def test_plan_context_only_mentions_subagents_when_enabled(monkeypatch, tmp_path):
@@ -205,7 +437,13 @@ def test_publish_plan_writes_revision_snapshot(monkeypatch, tmp_path):
 def test_append_plan_artifact_persists(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
-    spm.create_session_plan(session, title="Ship Widget")
+    spm.create_session_plan(
+        session,
+        title="Ship Widget",
+        summary="Ship a widget revision.",
+        scope="Widget revision artifact tracking.",
+        acceptance_criteria=["The artifact is recorded."],
+    )
     spm.approve_session_plan(session)
 
     updated = spm.append_plan_artifact(
@@ -231,12 +469,19 @@ def test_append_plan_artifact_persists(monkeypatch, tmp_path):
 def test_list_plan_revisions_includes_snapshots_and_current(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
-    spm.create_session_plan(session, title="Build Widget Planner", summary="Draft one")
+    spm.create_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Draft one",
+        scope="Initial scope",
+        acceptance_criteria=["The plan can be approved."],
+    )
     spm.publish_session_plan(
         session,
         title="Build Widget Planner",
         summary="Draft two",
         scope="Updated scope",
+        acceptance_criteria=["The plan can be approved."],
         steps=[
             {"id": "audit", "label": "Audit the current plan flow"},
             {"id": "ship", "label": "Ship the hardening"},
@@ -257,12 +502,19 @@ def test_list_plan_revisions_includes_snapshots_and_current(monkeypatch, tmp_pat
 def test_build_plan_revision_diff_uses_snapshot_content(monkeypatch, tmp_path):
     _patch_workspace(monkeypatch, tmp_path)
     session = _make_session()
-    spm.create_session_plan(session, title="Build Widget Planner", summary="Draft one", scope="Initial scope")
+    spm.create_session_plan(
+        session,
+        title="Build Widget Planner",
+        summary="Draft one",
+        scope="Initial scope",
+        acceptance_criteria=["The plan can be approved."],
+    )
     spm.publish_session_plan(
         session,
         title="Build Widget Planner",
         summary="Draft two",
         scope="Updated scope",
+        acceptance_criteria=["The plan can be approved."],
         steps=[
             {"id": "audit", "label": "Audit the current plan flow"},
             {"id": "ship", "label": "Ship the hardening"},

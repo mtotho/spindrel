@@ -39,7 +39,7 @@ export type WrapperSurfaceOverride = "inherit" | "surface" | "plain";
 
 export const DEFAULT_CHROME: DashboardChrome = {
   borderless: false,
-  hoverScrollbars: false,
+  hoverScrollbars: true,
   hideTitles: false,
 };
 
@@ -48,7 +48,7 @@ export function resolveChrome(grid_config: unknown): DashboardChrome {
   const cfg = grid_config as Record<string, unknown>;
   return {
     borderless: cfg.borderless === true,
-    hoverScrollbars: cfg.hover_scrollbars === true,
+    hoverScrollbars: cfg.hover_scrollbars !== false,
     hideTitles: cfg.hide_titles === true,
   };
 }

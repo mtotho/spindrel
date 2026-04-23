@@ -411,37 +411,49 @@ class TestLibraryRefMode:
 
     @pytest.mark.asyncio
     async def test_library_ref_resolves_core_widget(self):
-        # ``notes`` ships in core — confirm its index.html lands in the body.
-        result = await emit_html_widget(library_ref="notes")
+        # ``context_tracker`` ships in core — confirm its index.html lands in the body.
+        result = await emit_html_widget(library_ref="context_tracker")
         parsed = _parse(result)
         assert "error" not in parsed, parsed.get("error")
         env = parsed["_envelope"]
         assert env["content_type"] == INTERACTIVE_HTML_CONTENT_TYPE
         assert env["source_kind"] == "library"
-        assert env["source_library_ref"] == "core/notes"
+        assert env["source_library_ref"] == "core/context_tracker"
         # Body is the real bundle's index.html content.
         assert "<" in env["body"] and env["body"].strip()
 
     @pytest.mark.asyncio
     async def test_library_ref_accepts_explicit_core_prefix(self):
-        result = await emit_html_widget(library_ref="core/notes")
+        result = await emit_html_widget(library_ref="core/context_tracker")
         env = _envelope(result)
-        assert env["source_library_ref"] == "core/notes"
+        assert env["source_library_ref"] == "core/context_tracker"
 
     @pytest.mark.asyncio
-    async def test_library_ref_picks_up_display_label_from_yaml(self):
-        # When display_label is not overridden, the widget.yaml name/label wins.
-        result = await emit_html_widget(library_ref="notes")
-        env = _envelope(result)
-        assert env.get("display_label")  # bundle supplies one
+    async def test_library_ref_picks_up_display_label_from_yaml(self, tmp_path, monkeypatch):
+        from app.tools.local import emit_html_widget as ehw
+
+        bundle = tmp_path / ".widget_library" / "scratchpad"
+        bundle.mkdir(parents=True)
+        (bundle / "index.html").write_text("<p>scratch</p>")
+        (bundle / "widget.yaml").write_text("name: Scratchpad\n")
+        monkeypatch.setattr(
+            ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
+        )
+
+        ctx = current_bot_id.set("crumb")
+        try:
+            result = await emit_html_widget(library_ref="bot/scratchpad")
+        finally:
+            current_bot_id.reset(ctx)
+        assert _envelope(result)["display_label"] == "Scratchpad"
 
     @pytest.mark.asyncio
     async def test_library_ref_caller_display_label_wins(self):
         result = await emit_html_widget(
-            library_ref="notes", display_label="My Notes"
+            library_ref="context_tracker", display_label="My Context"
         )
         env = _envelope(result)
-        assert env["display_label"] == "My Notes"
+        assert env["display_label"] == "My Context"
 
     @pytest.mark.asyncio
     async def test_library_ref_bot_scope_renders_authored_widget(
@@ -531,9 +543,9 @@ class TestLibraryRefMode:
         bot-authored widget shadows a core widget with the same name."""
         from app.tools.local import emit_html_widget as ehw
 
-        (tmp_path / ".widget_library" / "notes").mkdir(parents=True)
-        (tmp_path / ".widget_library" / "notes" / "index.html").write_text(
-            "<p>bot notes</p>"
+        (tmp_path / ".widget_library" / "context_tracker").mkdir(parents=True)
+        (tmp_path / ".widget_library" / "context_tracker" / "index.html").write_text(
+            "<p>bot context</p>"
         )
         monkeypatch.setattr(
             ehw, "_resolve_scope_roots", lambda: (str(tmp_path), None),
@@ -541,12 +553,12 @@ class TestLibraryRefMode:
 
         ctx = current_bot_id.set("crumb")
         try:
-            # Core ships a `notes` widget, but implicit ref should land on the
+            # Core ships `context_tracker`, but implicit ref should land on the
             # bot-authored shadow, not the core one.
-            result = await emit_html_widget(library_ref="notes")
+            result = await emit_html_widget(library_ref="context_tracker")
             env = _envelope(result)
-            assert env["body"] == "<p>bot notes</p>"
-            assert env["source_library_ref"] == "bot/notes"
+            assert env["body"] == "<p>bot context</p>"
+            assert env["source_library_ref"] == "bot/context_tracker"
         finally:
             current_bot_id.reset(ctx)
 
@@ -590,7 +602,7 @@ class TestLibraryRefMode:
     @pytest.mark.asyncio
     async def test_library_ref_mutually_exclusive_with_html(self):
         result = await emit_html_widget(
-            library_ref="notes", html="<p>x</p>",
+            library_ref="context_tracker", html="<p>x</p>",
         )
         err = _parse(result).get("error", "")
         assert "exactly one" in err
@@ -598,7 +610,7 @@ class TestLibraryRefMode:
     @pytest.mark.asyncio
     async def test_library_ref_mutually_exclusive_with_path(self):
         result = await emit_html_widget(
-            library_ref="notes", path="foo.html",
+            library_ref="context_tracker", path="foo.html",
         )
         err = _parse(result).get("error", "")
         assert "exactly one" in err
@@ -609,7 +621,7 @@ class TestLibraryRefMode:
         ctx_chan = current_channel_id.set(channel_id)
         ctx_bot = current_bot_id.set("crumb")
         try:
-            result = await emit_html_widget(library_ref="notes")
+            result = await emit_html_widget(library_ref="context_tracker")
             env = _envelope(result)
             assert env["source_channel_id"] == str(channel_id)
             assert env["source_bot_id"] == "crumb"

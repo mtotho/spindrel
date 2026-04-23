@@ -143,16 +143,6 @@ class TestHappyPath:
         assert m.db.migrations[1].from_version == 1
         assert m.db.migrations[1].to_version == 2
 
-    def test_notes_bundle_manifest(self):
-        """The shipped notes/widget.yaml parses without errors."""
-        notes_yaml = (
-            Path(__file__).parent.parent.parent
-            / "app/tools/local/widgets/notes/widget.yaml"
-        )
-        m = parse_manifest(notes_yaml)
-        assert m.name == "Notes"
-        assert m.version == "2.0.0"
-
     def test_db_shared_accepted(self, tmp_path):
         """`db.shared` on its own is valid — the suite manifest owns schema."""
         p = write_yaml(

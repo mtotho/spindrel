@@ -71,7 +71,7 @@ refresh();
 </script>
 ```
 
-**Why RMW matters**: if two copies of the widget are open, naive `save(patch)` loses concurrent edits. `patch` reads fresh each time, so two copies stay coherent. This is the same pattern `web_search.html` uses for its `starred[]` list (hand-rolled, pre-`data` helper).
+**Why RMW matters**: if two copies of the widget are open, naive `save(patch)` loses concurrent edits. `patch` reads fresh each time, so two copies stay coherent.
 
 **First-run safety**: the file doesn't have to exist. `load` returns defaults on miss; `patch` creates it.
 

@@ -38,6 +38,90 @@ export interface SessionPlanRevisionDiff {
   diff: string;
 }
 
+export interface PlanValidationIssue {
+  code: string;
+  severity: "error" | "warning";
+  field: string;
+  message: string;
+}
+
+export interface PlanValidationResult {
+  ok: boolean;
+  blocking_count: number;
+  warning_count: number;
+  issues: PlanValidationIssue[];
+}
+
+export interface PlanRuntimeCapsule {
+  schema_version: number;
+  mode: "chat" | "planning" | "executing" | "blocked" | "done";
+  plan_revision?: number | null;
+  accepted_revision?: number | null;
+  plan_status?: "draft" | "approved" | "executing" | "blocked" | "done" | null;
+  current_step_id?: string | null;
+  next_step_id?: string | null;
+  last_completed_step_id?: string | null;
+  next_action?: string | null;
+  unresolved_questions?: string[];
+  blockers?: string[];
+  adherence_status?: "ok" | "warning" | "blocked" | "unknown" | "planning" | null;
+  latest_evidence?: PlanExecutionEvidence | null;
+  replan?: {
+    reason?: string;
+    affected_step_ids?: string[];
+    evidence?: string | null;
+    from_revision?: number | null;
+    created_at?: string;
+  } | null;
+  compaction_watermark_message_id?: string | null;
+  last_updated_at?: string | null;
+  last_update_reason?: string | null;
+}
+
+export interface PlanningStateItem {
+  text: string;
+  created_at?: string;
+  source?: string;
+  [key: string]: unknown;
+}
+
+export interface PlanningStateCapsule {
+  schema_version: number;
+  decisions: PlanningStateItem[];
+  open_questions: PlanningStateItem[];
+  assumptions: PlanningStateItem[];
+  constraints: PlanningStateItem[];
+  non_goals: PlanningStateItem[];
+  evidence: PlanningStateItem[];
+  preference_changes: PlanningStateItem[];
+  last_updated_at?: string | null;
+  last_update_reason?: string | null;
+}
+
+export interface PlanExecutionEvidence {
+  created_at?: string;
+  plan_revision?: number | null;
+  accepted_revision?: number | null;
+  step_id?: string | null;
+  tool_name?: string;
+  tool_kind?: string;
+  status?: string;
+  error?: string | null;
+  tool_call_id?: string | null;
+  record_id?: string | null;
+  arguments?: Record<string, unknown>;
+  summary?: string;
+}
+
+export interface PlanAdherenceState {
+  schema_version: number;
+  status: "ok" | "warning" | "blocked" | "unknown" | "planning";
+  evidence: PlanExecutionEvidence[];
+  latest_evidence?: PlanExecutionEvidence | null;
+  last_transition?: string | null;
+  last_updated_at?: string | null;
+}
+
 export interface SessionPlan {
   title: string;
   status: "draft" | "approved" | "executing" | "blocked" | "done";
@@ -56,6 +140,10 @@ export interface SessionPlan {
   mode: "chat" | "planning" | "executing" | "blocked" | "done";
   accepted_revision?: number | null;
   revisions?: SessionPlanRevision[];
+  runtime?: PlanRuntimeCapsule | null;
+  planning_state?: PlanningStateCapsule | null;
+  adherence?: PlanAdherenceState | null;
+  validation?: PlanValidationResult | null;
 }
 
 export interface SessionPlanState {
@@ -67,6 +155,10 @@ export interface SessionPlanState {
   accepted_revision?: number | null;
   status?: "draft" | "approved" | "executing" | "blocked" | "done" | null;
   revision_count?: number;
+  planning_state?: PlanningStateCapsule | null;
+  adherence?: PlanAdherenceState | null;
+  runtime?: PlanRuntimeCapsule | null;
+  validation?: PlanValidationResult | null;
 }
 
 const stateQueryKeyFor = (sessionId: string | undefined) => ["session-plan-state", sessionId];
@@ -261,6 +353,24 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     onError: capturePlanConflict,
   });
 
+  const requestReplan = useMutation({
+    mutationFn: async ({ reason, affectedStepIds, evidence }: { reason: string; affectedStepIds?: string[]; evidence?: string }) => {
+      if (!sessionId) throw new Error("Missing session id");
+      return apiFetch<SessionPlan>(`/sessions/${sessionId}/plan/replan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason,
+          affected_step_ids: affectedStepIds,
+          evidence,
+          revision: stateQuery.data?.revision ?? null,
+        }),
+      });
+    },
+    onSuccess: invalidate,
+    onError: capturePlanConflict,
+  });
+
   return {
     ...stateQuery,
     data: planQuery.data,
@@ -275,5 +385,6 @@ export function useSessionPlanMode(sessionId: string | undefined) {
     exitPlan,
     resumePlan,
     updateStepStatus,
+    requestReplan,
   };
 }

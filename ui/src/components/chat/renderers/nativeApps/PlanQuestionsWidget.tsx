@@ -68,6 +68,16 @@ export function PlanQuestionsWidget({
     return lines.join("\n");
   };
 
+  const buildStructuredAnswers = () => {
+    return questions
+      .map((q) => ({
+        question_id: q.id,
+        label: q.label,
+        answer: String(values[q.id] ?? "").trim(),
+      }))
+      .filter((item) => item.answer);
+  };
+
   const submitAnswers = async () => {
     const text = buildAnswerText();
     if (!text) return;
@@ -78,6 +88,13 @@ export function PlanQuestionsWidget({
     setBusy(true);
     setError(null);
     try {
+      await apiFetch(`/sessions/${sessionId}/plan/question-answers`, {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          answers: buildStructuredAnswers(),
+        }),
+      });
       await apiFetch(`/sessions/${sessionId}/messages`, {
         method: "POST",
         body: JSON.stringify({

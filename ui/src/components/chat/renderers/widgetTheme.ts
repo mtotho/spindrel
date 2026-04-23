@@ -173,6 +173,56 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   ::-webkit-scrollbar-thumb { background: var(--sd-surface-border); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--sd-text-dim); }
   ::-webkit-scrollbar-corner { background: transparent; }
+  html[data-hover-scrollbars="1"],
+  html[data-hover-scrollbars="1"] body,
+  html[data-hover-scrollbars="1"] * {
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 200ms ease;
+  }
+  html[data-hover-scrollbars="1"]:hover,
+  html[data-hover-scrollbars="1"]:focus-within,
+  html[data-hover-scrollbars="1"]:hover body,
+  html[data-hover-scrollbars="1"]:focus-within body,
+  html[data-hover-scrollbars="1"]:hover *,
+  html[data-hover-scrollbars="1"]:focus-within * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sd-surface-border) transparent;
+  }
+  html[data-hover-scrollbars="1"]::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"] body::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"] *::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+  html[data-hover-scrollbars="1"]::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"] body::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"] *::-webkit-scrollbar-thumb {
+    background: transparent;
+    transition: background-color 200ms ease;
+  }
+  html[data-hover-scrollbars="1"]:hover::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"]:focus-within::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"]:hover body::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"]:focus-within body::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"]:hover *::-webkit-scrollbar,
+  html[data-hover-scrollbars="1"]:focus-within *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  html[data-hover-scrollbars="1"]:hover::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"]:focus-within::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"]:hover body::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"]:focus-within body::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"]:hover *::-webkit-scrollbar-thumb,
+  html[data-hover-scrollbars="1"]:focus-within *::-webkit-scrollbar-thumb {
+    background: var(--sd-surface-border);
+  }
+  html[data-hover-scrollbars="1"]::-webkit-scrollbar-thumb:hover,
+  html[data-hover-scrollbars="1"] body::-webkit-scrollbar-thumb:hover,
+  html[data-hover-scrollbars="1"] *::-webkit-scrollbar-thumb:hover {
+    background: var(--sd-text-dim);
+  }
 
   /* ── Root wrapper (measured by host for iframe auto-sizing) ─ */
   #__sd_root {

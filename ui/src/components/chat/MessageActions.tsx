@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import { writeToClipboard } from "../../utils/clipboard";
 import type { ThemeTokens } from "../../theme/tokens";
 import type { Message } from "../../types/api";
+import { stringifyMessagesForJsonCopy } from "./messageJsonCopy";
 
 // ---------------------------------------------------------------------------
 // Copy + trace buttons -- appears on hover (web only)
@@ -62,7 +63,7 @@ export function MessageActions({
     });
   };
 
-  const fullTurnJson = fullTurnMessages?.length ? JSON.stringify(fullTurnMessages, null, 2) : null;
+  const fullTurnJson = fullTurnMessages?.length ? stringifyMessagesForJsonCopy(fullTurnMessages) : null;
   const copyTextLabel = fullTurnText ? "Copy full response" : "Copy message";
   const copyTextValue = fullTurnText || text;
 
@@ -209,7 +210,7 @@ export function TimestampActions({
   };
 
   const hasFullTurn = !!fullTurnText && fullTurnText !== text && fullTurnText.length > text.length;
-  const fullTurnJson = fullTurnMessages?.length ? JSON.stringify(fullTurnMessages, null, 2) : null;
+  const fullTurnJson = fullTurnMessages?.length ? stringifyMessagesForJsonCopy(fullTurnMessages) : null;
   const hasSingleMessageText = !!text;
   const showReply = !!(canReplyInThread && onReplyInThread);
   const nothingToShow = !correlationId && !onBotClick && !text && !showReply && !fullTurnJson;

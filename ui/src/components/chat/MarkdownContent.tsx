@@ -93,7 +93,7 @@ function InlineRenderer({
                   background: isTerminalMode ? "transparent" : t.codeBg,
                   padding: isTerminalMode ? 0 : "2px 6px",
                   borderRadius: isTerminalMode ? 0 : 4,
-                  color: isTerminalMode ? t.warning : t.codeText,
+                  color: isTerminalMode ? t.accent : t.codeText,
                   border: isTerminalMode ? "none" : `1px solid ${t.codeBorder}`,
                   fontWeight: isTerminalMode ? 500 : undefined,
                 }}
@@ -123,7 +123,9 @@ function InlineRenderer({
             );
           case "mention": {
             if (!("prefix" in n)) return null;
-            const colors = MENTION_COLORS[n.prefix] ?? { bg: "#374151", fg: t.contentText };
+            const colors = isTerminalMode
+              ? { bg: "transparent", fg: t.accent }
+              : MENTION_COLORS[n.prefix] ?? { bg: "#374151", fg: t.contentText };
             return (
               <span
                 key={i}

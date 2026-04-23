@@ -47,6 +47,7 @@ import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
 import { buildRecentHref, formatSessionRecentLabel } from "@/src/lib/recentPages";
+import { isTranscriptFlowComposer } from "./chatModes";
 
 export interface EphemeralContextPayload {
   page_name?: string;
@@ -243,6 +244,7 @@ function ChannelChatSession({
   chatMode = "default",
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
+  const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -470,7 +472,7 @@ function ChannelChatSession({
     <div className="flex flex-col h-full">
       {header}
       <div className="flex-1 min-h-0 relative">
-        {chatMode === "terminal" ? (
+        {composerInTranscriptFlow ? (
           <ChatMessageArea
             invertedData={src.invertedData}
             renderMessage={renderMessage}
@@ -542,7 +544,7 @@ function ChannelChatSession({
         )}
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors the main channel screen pattern). */}
-        {chatMode !== "terminal" && (
+        {!composerInTranscriptFlow && (
           <div
             ref={inputOverlayRef}
             className="absolute bottom-0 left-0 right-0 z-[4]"
@@ -626,6 +628,7 @@ function EphemeralChatSession({
   chatMode = "default",
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
+  const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
   const qc = useQueryClient();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1055,10 +1058,10 @@ function EphemeralChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
-            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
             syntheticMessages={slashSyntheticMessages}
-            bottomSlot={chatMode === "terminal" ? (
+            bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -1111,9 +1114,9 @@ function EphemeralChatSession({
                 {emptyState ?? "Send a message to start the conversation"}
               </div>
             }
-            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
-            bottomSlot={chatMode === "terminal" ? (
+            bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -1151,7 +1154,7 @@ function EphemeralChatSession({
         {/* Composer overlay — messages scroll behind the frosted card
             (mirrors ChannelChatSession + the main channel screen). No
             border-top wrapper; the card's own elevation separates it. */}
-        {chatMode !== "terminal" && (
+        {!composerInTranscriptFlow && (
           <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
             {sendError && (
               <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -1263,6 +1266,7 @@ function ThreadChatSession({
   chatMode = "default",
 }: ThreadChatSessionProps) {
   const t = useThemeTokens();
+  const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
   const navigate = useNavigate();
   const qc = useQueryClient();
 
@@ -1475,10 +1479,10 @@ function ThreadChatSession({
             parentChannelId={parentChannelId}
             botId={botId}
             emptyStateComponent={emptyState}
-            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             syntheticMessages={[...syntheticMessages, ...slashSyntheticMessages]}
             chatMode={chatMode}
-            bottomSlot={chatMode === "terminal" ? (
+            bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -1531,9 +1535,9 @@ function ThreadChatSession({
             handleLoadMore={() => {}}
             isProcessing={false}
             t={t}
-            scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 16}
+            scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
-            bottomSlot={chatMode === "terminal" ? (
+            bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
                   <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">
@@ -1569,7 +1573,7 @@ function ThreadChatSession({
             ) : undefined}
           />
         )}
-        {chatMode !== "terminal" && (
+        {!composerInTranscriptFlow && (
           <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
             {sendError && (
               <div className="px-4 py-1.5 text-[11px] text-red-400 bg-red-500/5">

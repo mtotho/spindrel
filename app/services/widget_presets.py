@@ -8,9 +8,104 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.services.integration_manifests import get_all_manifests
-from app.services.widget_contracts import build_public_fields_for_tool_widget
+from app.services.widget_contracts import (
+    build_public_fields_for_tool_widget,
+    normalize_config_schema,
+)
 from app.services.widget_preview import PreviewEnvelope, preview_active_widget_for_tool
 from app.services.widget_templates import _substitute
+
+
+class WidgetPresetValidationError(ValueError):
+    """Raised when an integration declares an invalid widget preset contract."""
+
+
+def _tool_dependencies_for_preset(preset: dict[str, Any]) -> set[str]:
+    deps: set[str] = set()
+    tool_name = preset.get("tool_name")
+    if isinstance(tool_name, str) and tool_name.strip():
+        deps.add(tool_name.strip())
+
+    binding_sources = preset.get("binding_sources") or {}
+    if isinstance(binding_sources, dict):
+        for source in binding_sources.values():
+            if not isinstance(source, dict):
+                continue
+            source_tool = source.get("tool")
+            if isinstance(source_tool, str) and source_tool.strip():
+                deps.add(source_tool.strip())
+
+    explicit = preset.get("tool_dependencies") or []
+    if isinstance(explicit, list):
+        for item in explicit:
+            if isinstance(item, str) and item.strip():
+                deps.add(item.strip())
+    return deps
+
+
+def _family_def(manifest: dict[str, Any], family_id: str) -> dict[str, Any] | None:
+    families = manifest.get("tool_families") or {}
+    if not isinstance(families, dict):
+        return None
+    raw = families.get(family_id)
+    return raw if isinstance(raw, dict) else None
+
+
+def validate_widget_preset_dependency_contract(
+    integration_id: str,
+    manifest: dict[str, Any],
+    preset_id: str,
+    preset: dict[str, Any],
+) -> None:
+    """Validate that a preset stays inside one declared tool family.
+
+    Presets are guided binding flows. They must not look like one simple card
+    while depending on multiple incompatible integration/MCP lanes underneath.
+    """
+    binding_schema = preset.get("binding_schema")
+    if binding_schema is not None and normalize_config_schema(binding_schema) is None:
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: binding_schema must be an object JSON schema"
+        )
+
+    family_id = preset.get("tool_family")
+    if family_id is None:
+        return
+    if not isinstance(family_id, str) or not family_id.strip():
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: tool_family must be a non-empty string"
+        )
+    family_id = family_id.strip()
+    family = _family_def(manifest, family_id)
+    if family is None:
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: unknown tool_family '{family_id}'"
+        )
+    allowed_raw = family.get("tools") or []
+    if not isinstance(allowed_raw, list):
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: tool_families.{family_id}.tools must be a list"
+        )
+    allowed = {item.strip() for item in allowed_raw if isinstance(item, str) and item.strip()}
+    if not allowed:
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: tool_family '{family_id}' declares no tools"
+        )
+
+    deps = _tool_dependencies_for_preset(preset)
+    outside = sorted(dep for dep in deps if dep not in allowed)
+    if outside:
+        raise WidgetPresetValidationError(
+            f"{integration_id}.{preset_id}: tool dependencies {outside} are outside "
+            f"tool_family '{family_id}'"
+        )
+
+
+def _preset_config_schema(preset: dict[str, Any]) -> dict[str, Any] | None:
+    schema = normalize_config_schema(preset.get("binding_schema"))
+    if schema is not None:
+        return schema
+    return normalize_config_schema({"type": "object", "properties": {}})
 
 
 def _iter_presets() -> list[dict[str, Any]]:
@@ -22,6 +117,12 @@ def _iter_presets() -> list[dict[str, Any]]:
         for preset_id, raw in presets.items():
             if not isinstance(raw, dict):
                 continue
+            validate_widget_preset_dependency_contract(
+                integration_id,
+                manifest,
+                str(preset_id),
+                raw,
+            )
             out.append({
                 "id": raw.get("id") or preset_id,
                 "integration_id": integration_id,
@@ -48,6 +149,17 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
         str(preset.get("tool_name") or ""),
         instantiation_kind="preset",
     )
+    family_id = preset.get("tool_family")
+    tool_family = None
+    if isinstance(family_id, str) and family_id.strip():
+        manifest = get_all_manifests().get(str(preset.get("integration_id") or ""), {})
+        family = _family_def(manifest, family_id.strip())
+        if family is not None:
+            tool_family = {
+                "id": family_id.strip(),
+                "label": family.get("label") or family_id.strip(),
+                "tools": copy.deepcopy(family.get("tools") or []),
+            }
     return {
         "id": preset["id"],
         "integration_id": preset.get("integration_id"),
@@ -58,8 +170,12 @@ def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
         "binding_schema": copy.deepcopy(preset.get("binding_schema") or {}),
         "binding_sources": copy.deepcopy(preset.get("binding_sources") or {}),
         "default_config": copy.deepcopy(preset.get("default_config") or {}),
-        "config_schema": public_fields.get("config_schema"),
+        "config_schema": _preset_config_schema(preset),
         "widget_contract": public_fields.get("widget_contract"),
+        "dependency_contract": {
+            "tool_family": tool_family,
+            "tools": sorted(_tool_dependencies_for_preset(preset)),
+        },
     }
 
 

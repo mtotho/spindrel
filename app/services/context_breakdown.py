@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 # next tab flip while coalescing the worst-case stampede.
 _BREAKDOWN_CACHE_TTL = 15.0
 _breakdown_cache: dict[tuple[str, str], tuple[float, "ContextBreakdownResult"]] = {}
+_not_compaction_run_clause = or_(
+    Message.metadata_["kind"].astext.is_(None),
+    Message.metadata_["kind"].astext != "compaction_run",
+)
 
 
 def invalidate_context_breakdown_cache(channel_id: str | None = None) -> None:
@@ -544,11 +548,13 @@ async def compute_context_breakdown(
         total_messages = (await db.execute(
             select(func.count()).select_from(Message)
             .where(Message.session_id == target_session_pk)
+            .where(_not_compaction_run_clause)
         )).scalar_one()
 
         total_msg_chars = (await db.execute(
             select(func.coalesce(func.sum(func.length(Message.content)), 0))
             .where(Message.session_id == target_session_pk)
+            .where(_not_compaction_run_clause)
         )).scalar_one()
 
         # Messages since watermark
@@ -560,6 +566,7 @@ async def compute_context_breakdown(
                     .where(
                         Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
+                        _not_compaction_run_clause,
                     )
                 )
                 row = result.one()
@@ -572,6 +579,7 @@ async def compute_context_breakdown(
                         Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                         Message.role == "user",
+                        _not_compaction_run_clause,
                     )
                 )).scalar_one()
             else:
@@ -624,6 +632,7 @@ async def compute_context_breakdown(
                 ).where(
                     Message.session_id == target_session_pk,
                     _watermark_clause,
+                    _not_compaction_run_clause,
                     Message.role == "tool",
                     func.length(Message.content) >= _min_len,
                 )
@@ -683,6 +692,7 @@ async def compute_context_breakdown(
                         Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                         Message.role == "user",
+                        _not_compaction_run_clause,
                     )
                 )).scalar_one()
             else:
@@ -691,6 +701,7 @@ async def compute_context_breakdown(
                     .where(
                         Message.session_id == target_session_pk,
                         Message.role == "user",
+                        _not_compaction_run_clause,
                     )
                 )).scalar_one()
         else:
@@ -699,6 +710,7 @@ async def compute_context_breakdown(
                 .where(
                     Message.session_id == target_session_pk,
                     Message.role == "user",
+                    _not_compaction_run_clause,
                 )
             )).scalar_one()
 

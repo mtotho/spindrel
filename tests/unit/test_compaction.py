@@ -1,8 +1,10 @@
 """Priority 3 tests for app.services.compaction — message filtering, summary generation."""
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from app.services.compaction import (
+    _compaction_metadata,
     _messages_for_summary,
 )
 
@@ -123,3 +125,38 @@ class TestMessagesForSummary:
         assert "hb final" not in contents
         assert "real msg" in contents
         assert "real reply" in contents
+
+    def test_compaction_run_messages_excluded(self):
+        messages = [
+            {"role": "user", "content": "real question"},
+            {
+                "role": "assistant",
+                "content": "",
+                "_metadata": {"kind": "compaction_run", "source": "compaction"},
+            },
+            {"role": "assistant", "content": "real answer"},
+        ]
+        result = _messages_for_summary(messages)
+        assert [m["content"] for m in result] == ["real question", "real answer"]
+
+
+class TestCompactionRunMetadata:
+    def test_metadata_is_visible_but_not_replayable(self):
+        bot = SimpleNamespace(id="test-bot", name="Test Bot")
+        metadata = _compaction_metadata(
+            bot=bot,
+            origin="manual",
+            status="queued",
+            detail="A response is still running.",
+        )
+
+        assert metadata["kind"] == "compaction_run"
+        assert metadata["source"] == "compaction"
+        assert metadata["compaction_origin"] == "manual"
+        assert metadata["compaction_status"] == "queued"
+        assert metadata["assistant_turn_body"] == {"version": 1, "items": []}
+        assert metadata["envelope"]["content_type"] == "text/markdown"
+        assert metadata["envelope"]["display"] == "panel"
+        assert metadata["envelope"]["view_key"] == "compaction_run"
+        assert "hidden" not in metadata
+        assert "pipeline_step" not in metadata

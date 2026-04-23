@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Circle, CircleDashed, PauseCircle, PlayCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Circle, CircleDashed, PauseCircle, PlayCircle } from "lucide-react";
 import { apiFetch } from "@/src/api/client";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { SessionPlan, SessionPlanRevisionDiff } from "./useSessionPlanMode";
@@ -16,6 +16,7 @@ export function SessionPlanCard({
   onApprove,
   onExit,
   onStepStatus,
+  onReplan,
 }: {
   plan: SessionPlan;
   sessionId?: string;
@@ -27,6 +28,7 @@ export function SessionPlanCard({
   onApprove: () => void;
   onExit: () => void;
   onStepStatus: (stepId: string, status: "pending" | "in_progress" | "done" | "blocked") => void;
+  onReplan?: () => void;
 }) {
   const t = useThemeTokens();
   const historical = currentRevision != null && plan.revision !== currentRevision;
@@ -39,6 +41,21 @@ export function SessionPlanCard({
     () => (plan.revisions ?? []).slice().sort((a, b) => b.revision - a.revision),
     [plan.revisions],
   );
+  const validationIssues = plan.validation?.issues ?? [];
+  const blockingIssues = validationIssues.filter((issue) => issue.severity === "error");
+  const warningIssues = validationIssues.filter((issue) => issue.severity === "warning");
+  const approvalBlocked = !!blockingIssues.length;
+  const runtime = plan.runtime;
+  const planningState = plan.planning_state;
+  const adherence = plan.adherence;
+  const planningStateItems = [
+    { label: "Decisions", items: planningState?.decisions ?? [] },
+    { label: "Open questions", items: planningState?.open_questions ?? [] },
+    { label: "Assumptions", items: planningState?.assumptions ?? [] },
+    { label: "Constraints", items: planningState?.constraints ?? [] },
+    { label: "Non-goals", items: planningState?.non_goals ?? [] },
+    { label: "Evidence", items: planningState?.evidence ?? [] },
+  ].filter((section) => section.items.length > 0);
 
   useEffect(() => {
     setCompareRevision(defaultCompareRevision ?? null);
@@ -133,13 +150,30 @@ export function SessionPlanCard({
             <button
               type="button"
               onClick={onApprove}
-              disabled={busy}
+              disabled={busy || approvalBlocked}
               className="inline-flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] font-medium transition-colors"
-              style={{ borderColor: t.accent, color: t.text, background: t.surface }}
+              title={approvalBlocked ? "Resolve plan validation issues before approval." : undefined}
+              style={{
+                borderColor: approvalBlocked ? t.surfaceBorder : t.accent,
+                color: approvalBlocked ? t.textDim : t.text,
+                background: t.surface,
+                opacity: approvalBlocked ? 0.65 : 1,
+              }}
             >
               Approve & Execute
             </button>
           )}
+          {(plan.mode === "executing" || plan.mode === "blocked") && !historical && onReplan ? (
+            <button
+              type="button"
+              onClick={onReplan}
+              disabled={busy}
+              className="inline-flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] font-medium transition-colors"
+              style={{ borderColor: t.warningBorder, color: t.warningMuted, background: t.warningSubtle }}
+            >
+              Request Replan
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onExit}
@@ -165,6 +199,78 @@ export function SessionPlanCard({
         >
           {staleMessage ?? `This card is showing historical revision ${plan.revision}. Current planning state is on revision ${currentRevision}.`}
         </div>
+      ) : null}
+
+      {(runtime || validationIssues.length > 0) ? (
+        <section
+          style={{
+            border: `1px solid ${approvalBlocked ? t.warningBorder : t.surfaceBorder}`,
+            background: approvalBlocked ? t.warningSubtle : t.surface,
+            borderRadius: 12,
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          {runtime ? (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", fontSize: 11, color: t.textDim }}>
+              <span style={{ fontWeight: 700, color: t.textMuted }}>Runtime</span>
+              {runtime.next_action ? <span>next: {runtime.next_action}</span> : null}
+              {runtime.current_step_id ? <span>current: {runtime.current_step_id}</span> : null}
+              {runtime.next_step_id && runtime.next_step_id !== runtime.current_step_id ? <span>up next: {runtime.next_step_id}</span> : null}
+              {runtime.accepted_revision ? <span>accepted rev {runtime.accepted_revision}</span> : null}
+              {runtime.adherence_status ? <span>adherence: {runtime.adherence_status}</span> : null}
+              {runtime.replan?.reason ? <span>replan: {runtime.replan.reason}</span> : null}
+            </div>
+          ) : null}
+          {adherence?.latest_evidence ? (
+            <div style={{ fontSize: 12, color: adherence.status === "warning" ? t.warningMuted : t.textDim }}>
+              Latest evidence: {adherence.latest_evidence.summary ?? adherence.latest_evidence.tool_name ?? "recorded"}
+            </div>
+          ) : null}
+          {validationIssues.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, color: approvalBlocked ? t.warningMuted : t.textMuted }}>
+                <AlertTriangle size={14} />
+                {approvalBlocked ? `${blockingIssues.length} issue${blockingIssues.length === 1 ? "" : "s"} before approval` : `${warningIssues.length} warning${warningIssues.length === 1 ? "" : "s"}`}
+              </div>
+              {validationIssues.slice(0, 4).map((issue) => (
+                <div key={`${issue.code}-${issue.field}-${issue.message}`} style={{ fontSize: 12, color: issue.severity === "error" ? t.warningMuted : t.textDim }}>
+                  {issue.severity === "error" ? "Required" : "Warning"}: {issue.message}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {planningStateItems.length > 0 ? (
+        <section
+          style={{
+            border: `1px solid ${t.surfaceBorder}`,
+            background: t.surface,
+            borderRadius: 12,
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Planning Notes</div>
+          {planningStateItems.slice(0, 4).map((section) => (
+            <div key={section.label} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                {section.label}
+              </div>
+              {section.items.slice(-3).map((item, idx) => (
+                <div key={`${section.label}-${idx}-${item.text}`} style={{ fontSize: 12, color: t.textMuted }}>
+                  {item.text}
+                </div>
+              ))}
+            </div>
+          ))}
+        </section>
       ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 10 }}>

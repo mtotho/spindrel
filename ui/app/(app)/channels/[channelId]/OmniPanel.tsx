@@ -29,6 +29,7 @@ import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useDashboards, channelSlug } from "@/src/stores/dashboards";
 import { useUIStore } from "@/src/stores/ui";
+import type { OmniPanelTab } from "@/src/stores/ui";
 import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import type {
@@ -53,6 +54,9 @@ interface OmniPanelProps {
   fullWidth?: boolean;
   /** Mobile bottom-sheet mode: swap stacked layout for Files/Widgets tabs. */
   mobileTabs?: boolean;
+  activeTab?: OmniPanelTab;
+  onTabChange?: (tab: OmniPanelTab) => void;
+  onCollapse?: () => void;
 }
 
 /** Top-to-bottom, then left-to-right — matches the visual scan order of the
@@ -81,6 +85,9 @@ export function OmniPanel({
   width = 300,
   fullWidth = false,
   mobileTabs: _mobileTabs = false,
+  activeTab: controlledTab,
+  onTabChange,
+  onCollapse,
 }: OmniPanelProps) {
   const t = useThemeTokens();
 
@@ -187,13 +194,21 @@ export function OmniPanel({
   // so the last-used tab sticks + external actions (⌘⇧B, header browse
   // button) can flip the tab via `setOmniPanelTab`/`requestFilesFocus`.
   const tab = useUIStore((s) => s.omniPanelTab);
-  const setTab = useUIStore((s) => s.setOmniPanelTab);
+  const setStoreTab = useUIStore((s) => s.setOmniPanelTab);
   const setFileExplorerOpen = useUIStore((s) => s.setFileExplorerOpen);
+  const selectedTab = controlledTab ?? tab;
+  const setTab = useCallback(
+    (next: OmniPanelTab) => {
+      if (onTabChange) onTabChange(next);
+      else setStoreTab(next);
+    },
+    [onTabChange, setStoreTab],
+  );
   useEffect(() => {
-    if (!hasWorkspace && tab === "files") setTab("widgets");
-  }, [hasWorkspace, tab, setTab]);
+    if (!hasWorkspace && selectedTab === "files") setTab("widgets");
+  }, [hasWorkspace, selectedTab, setTab]);
 
-  const activeTab = hasWorkspace ? tab : tab === "files" ? "widgets" : tab;
+  const activeTab = hasWorkspace ? selectedTab : selectedTab === "files" ? "widgets" : selectedTab;
 
   return (
     <div
@@ -235,7 +250,10 @@ export function OmniPanel({
             dedicated Switch-to-Dashboard toggle. */}
         <button
           type="button"
-          onClick={() => setFileExplorerOpen(false)}
+          onClick={() => {
+            if (onCollapse) onCollapse();
+            else setFileExplorerOpen(false);
+          }}
           aria-label="Collapse widgets panel"
           title="Collapse panel"
           className="ml-auto flex items-center justify-center w-6 h-6 rounded-md transition-colors"

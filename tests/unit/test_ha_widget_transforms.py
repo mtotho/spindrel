@@ -387,8 +387,8 @@ def test_live_context_poll_returns_data_dict_for_each_block_template():
         assert isinstance(out[key], list)
         for b in out[key]:
             assert "label" in b and "filter_value" in b
-    # An active filter should suppress the button lists in the template
-    # via {{filter_active | not}}, but the data shape is the same.
+    # An active filter should suppress the button lists entirely so the
+    # template does not render empty filter sections.
     out2 = live_context_poll(
         json.dumps(GET_LIVE_CONTEXT_RESULT),
         {"config": {"filter": "kitchen"}},
@@ -396,6 +396,8 @@ def test_live_context_poll_returns_data_dict_for_each_block_template():
     assert out2["filter_active"] is True
     assert "Filtered: kitchen" in out2["status_text"]
     assert "1/5" in out2["status_text"]
+    assert out2["area_buttons"] == []
+    assert out2["domain_buttons"] == []
 
 
 def test_get_live_context_widget_has_state_poll_wired():
@@ -409,6 +411,55 @@ def test_get_live_context_widget_has_state_poll_wired():
     assert "state_poll" in spec
     assert spec["state_poll"]["tool"] == "GetLiveContext"
     assert spec["state_poll"]["transform"].endswith(":live_context_poll")
+
+
+def test_get_live_context_presets_use_official_tool_family():
+    import yaml
+
+    with open("integrations/homeassistant/integration.yaml") as f:
+        doc = yaml.safe_load(f)
+
+    official_tools = set(doc["tool_families"]["official"]["tools"])
+    for preset in doc["widget_presets"].values():
+        assert preset["tool_name"] == "GetLiveContext"
+        assert preset["tool_family"] == "official"
+        assert set(preset["tool_dependencies"]).issubset(official_tools)
+        assert "ha_get_state" not in preset["tool_dependencies"]
+
+
+def test_get_live_context_entity_preset_renders_single_light_card():
+    config = {
+        "entity_id": "light.office_desk_led_strip",
+        "preset_variant": "light_card",
+        "show_brightness": True,
+        "action_target": "name",
+    }
+    out = live_context_poll(
+        json.dumps(GET_LIVE_CONTEXT_RESULT),
+        {
+            "display_label": "Office Desk LED Strip",
+            "tool_name": "GetLiveContext",
+            "config": config,
+        },
+    )
+    assert out["is_entity_preset"] is True
+    assert out["is_live_summary"] is False
+    assert out["entity_id"] == "light.office_desk_led_strip"
+    assert out["friendly_name"] == "Office Desk LED Strip"
+    assert out["widget_variant"] == "light_card"
+    assert out["supports_brightness"] is True
+    assert out["show_brightness"] is True
+    # Official HA action tools accept a friendly-name target, not a community
+    # ha-mcp entity_id target.
+    assert out["toggle_target_entity_id"] == "Office Desk LED Strip"
+
+    components = live_context_summary(
+        {**GET_LIVE_CONTEXT_RESULT, "config": config},
+        [],
+    )
+    toggle = next(c for c in components if c.get("type") == "toggle")
+    assert toggle["action"]["tool"] == "HassTurnOff"
+    assert toggle["action"]["args"] == {"name": "Office Desk LED Strip"}
 
 
 def test_single_entity_state_via_state_poll_contract():

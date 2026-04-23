@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 
+from app.agent.context import current_session_id
+from app.db.engine import async_session
+from app.db.models import Session
 from app.tools.registry import register
 
 NATIVE_APP_CONTENT_TYPE = "application/vnd.spindrel.native-app+json"
@@ -72,6 +75,7 @@ async def ask_plan_questions(
     submit_label: str = "Submit Answers",
 ) -> str:
     from app.agent.tool_dispatch import ToolResultEnvelope
+    from app.services.session_plan_mode import publish_session_plan_event, update_planning_state
 
     payload = {
         "widget_ref": "core/plan_questions",
@@ -90,6 +94,27 @@ async def ask_plan_questions(
         display="inline",
         display_label=title.strip() or "Plan questions",
     )
+    session_id = current_session_id.get()
+    if session_id is not None:
+        async with async_session() as db:
+            session = await db.get(Session, session_id)
+            if session is not None:
+                update_planning_state(
+                    session,
+                    open_questions=[
+                        {
+                            "text": str(question.get("label") or question.get("id") or "").strip(),
+                            "question_id": question.get("id"),
+                            "source": "ask_plan_questions",
+                        }
+                        for question in questions
+                        if str(question.get("label") or question.get("id") or "").strip()
+                    ],
+                    evidence=[f"Asked structured plan questions: {title.strip() or 'Plan questions'}"],
+                    reason="ask_plan_questions",
+                )
+                await db.commit()
+                publish_session_plan_event(session, "ask_questions")
     return json.dumps(
         {
             "_envelope": envelope.compact_dict(),
