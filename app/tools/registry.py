@@ -57,6 +57,7 @@ def register(
     *,
     source_dir: str | None = None,
     safety_tier: str = "readonly",
+    execution_policy: str = "normal",
     required_capabilities: "frozenset | None" = None,
     required_integrations: "frozenset[str] | None" = None,
     requires_bot_context: bool = False,
@@ -70,6 +71,10 @@ def register(
         source_dir: Override auto-detected source directory.
         safety_tier: One of 'readonly', 'mutating', 'exec_capable', 'control_plane'.
             Defaults to 'readonly' (safe by default).
+        execution_policy: Additional runtime execution gate applied on top of
+            tool policy. "normal" = no extra gate, "interactive_user" =
+            requires a live JWT-authenticated user context, "live_target_lease"
+            = requires an active session-bound machine-control lease.
         required_capabilities: Renderer capabilities that must be
             supported by at least one binding on a channel for this tool
             to be exposed to the LLM. Used by ``app/agent/context_
@@ -103,6 +108,7 @@ def register(
             "source_integration": _current_source_integration,
             "source_file": source_file,
             "safety_tier": safety_tier,
+            "execution_policy": execution_policy,
             "required_capabilities": required_capabilities,
             "required_integrations": required_integrations,
             "requires_bot_context": requires_bot_context,
@@ -158,6 +164,12 @@ def get_tool_safety_tier(name: str) -> str:
     """Return the safety tier of a registered tool, or 'unknown' if not found."""
     entry = _tools.get(name)
     return entry["safety_tier"] if entry else "unknown"
+
+
+def get_tool_execution_policy(name: str) -> str:
+    """Return the runtime execution policy for a registered tool."""
+    entry = _tools.get(name)
+    return str(entry.get("execution_policy") or "normal") if entry else "normal"
 
 
 def get_all_tool_tiers() -> dict[str, str]:

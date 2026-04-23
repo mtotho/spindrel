@@ -1782,11 +1782,6 @@ async def assemble_context(
             "Available delegates for delegate_to_agent:\n"
             + "\n".join(_delegate_lines)
         )
-        if "spawn_subagents" in (bot.local_tools or []):
-            _delegate_content += (
-                "\n\nFor anonymous parallel grunt work (file scanning, research, summarizing), "
-                "use spawn_subagents instead — results return to you without posting to the channel."
-            )
         messages.append({
             "role": "system",
             "content": _delegate_content,

@@ -16,6 +16,7 @@ When authoring the HTML, remember the rendering split:
 - the host provides the outer tile shell
 - your widget provides the inner composition
 - `sd-card` is an optional inner panel, not a mandatory wrapper
+- shared `sd-btn` / `sd-chip` / `sd-tag` defaults are already low-chrome and tight-radius; do not re-round them into pills or wrap them in extra bordered control rows unless the shape is semantically required
 
 Theme note:
 
@@ -23,6 +24,7 @@ Theme note:
 - Global default comes from the widget theme library.
 - A channel may override it with `channel.config.widget_theme_ref`.
 - Widgets should read from `sd-*`, `var(--sd-*)`, and `window.spindrel.theme`; do not hardcode copied theme CSS into each bundle.
+- The shared SDK now quiets inner panel chrome automatically when the host already owns a framed surface. Start flat with `sd-stack` / `sd-section`; add `sd-card` only when grouping clearly improves the widget.
 - Theme support currently applies to **HTML widgets**. Template widgets should not be documented as theme-parity surfaces yet.
 
 ```
@@ -318,6 +320,8 @@ Do not use it when:
 
 - The iframe auto-resizes to content height (up to 800px). Taller content scrolls inside the iframe.
 - Cards fill available width on the dashboard grid. Let the user resize from the dashboard; don't set fixed widths.
+- Pinned/dashboard hosts already provide the outer frame. Prefer `sd-stack`, `sd-grid`, and `sd-section` first; reach for `sd-card` only when the widget needs a deliberate inner panel.
+- Shared controls/chips/tags are intentionally flatter and less rounded now. Avoid reintroducing pill buttons, nested rounded boxes, or border-heavy "toolbar" wrappers in local CSS.
 - The theme stylesheet handles reset (box-sizing, margin/padding), scrollbar styling, table borders, code blocks, links. You rarely need a `<style>` block — reach for `sd-*` classes and `var(--sd-*)` first. See `widgets/styling.md`.
 
 ## Scroll behavior

@@ -34,6 +34,8 @@
     "src/components/chat/toolTranscriptModel.ts",
     "src/components/chat/toolTranscriptModel.test.ts",
     "src/components/chat/renderArchitecture.test.ts",
+    "src/components/chat/renderers/widgetTheme.ts",
+    "src/components/chat/renderers/widgetTheme.test.ts",
     "src/components/palette/types.ts",
     "src/components/palette/catalog.ts",
     "src/components/palette/items.test.ts",

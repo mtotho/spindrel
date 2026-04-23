@@ -835,6 +835,7 @@ class TestDelegateIndex:
             delegate_msgs = [m for m in messages if "helper-bot" in m.get("content", "")]
             assert len(delegate_msgs) == 1
             assert "delegate_to_agent" in delegate_msgs[0]["content"]
+            assert "spawn_subagents" not in delegate_msgs[0]["content"]
 
             delegate_events = [e for e in events if e.get("type") == "delegate_index"]
             assert len(delegate_events) == 1

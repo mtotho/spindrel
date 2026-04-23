@@ -101,12 +101,13 @@ try:
     from app.tools.registry import get_settings  # noqa: F401
 except ImportError:
 
-    def register_tool(schema, *, source_dir=None, safety_tier="readonly", returns=None, **kwargs):  # type: ignore[misc]
+    def register_tool(schema, *, source_dir=None, safety_tier="readonly", execution_policy="normal", returns=None, **kwargs):  # type: ignore[misc]
         """Stub register — attaches schema for later discovery."""
 
         def decorator(func):
             func._tool_schema = schema
             func._safety_tier = safety_tier
+            func._execution_policy = execution_policy
             return func
 
         return decorator
@@ -153,6 +154,7 @@ from app.agent.hooks import (  # noqa: E402, F401
 from app.agent.context import (  # noqa: E402, F401
     current_dispatch_config,
     current_dispatch_type,
+    current_user_id,
 )
 
 # ---------------------------------------------------------------------------

@@ -68,7 +68,7 @@ export function ScopeStrip({
   return (
     <div style={{
       display: "flex", flexDirection: "row", alignItems: "center",
-      gap: 6, padding: "4px 10px", flexShrink: 0,
+      gap: 6, padding: "6px 10px 4px", flexShrink: 0,
     }}>
       {scopeTargets.map((c, i) => {
         const active = currentPath === c.path || (c.path !== "/" && currentPath.startsWith(c.path + "/"));
@@ -239,6 +239,7 @@ export function TreeFolderRow({
       }}
       {...(onContextMenu ? { onContextMenu } : {})}
       title={isKB ? `${name} — auto-indexed knowledge base` : (displayLabel ? name : undefined)}
+      aria-label={isKB ? "Knowledge Base folder" : `${label} folder`}
       {...dropProps}
     >
       {expanded ? <ChevronDown size={11} color={t.textDim} /> : <ChevronRight size={11} color={t.textDim} />}
@@ -305,7 +306,7 @@ export function TreeFileRow({
         height: 22, paddingLeft: depth * INDENT_PX + 6 + 11 + 4 /* chevron-slot + gap */, paddingRight: 8, gap: 6, width: "100%",
         background: bg,
         outline: focused && !selected ? `1px dotted ${t.textDim}` : "none",
-        outlineOffset: -1, cursor: dragging ? "grabbing" : "pointer",
+        outlineOffset: -1, cursor: dragging ? "grabbing" : (draggable ? "grab" : "pointer"),
         opacity: dragging ? 0.5 : 1, border: "none",
       }}
       {...(onContextMenu ? { onContextMenu } : {})}
@@ -324,7 +325,18 @@ export function TreeFileRow({
       }}>
         {name}
       </span>
-      {hovered ? (
+      {selected ? (
+        <span style={{
+          color: t.accent,
+          fontSize: 8.5,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          flexShrink: 0,
+        }}>
+          Open
+        </span>
+      ) : hovered ? (
         <button type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(); }}
           style={{ padding: 2, opacity: 0.7, background: "none", border: "none", cursor: "pointer" }}

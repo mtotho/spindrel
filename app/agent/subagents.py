@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 SUBAGENT_PRESETS: dict[str, dict[str, Any]] = {
     "file-scanner": {
-        "tools": ["file", "exec_command"],
+        "tools": ["file"],
         "system_prompt": (
             "You scan files and extract information. Be concise and precise. "
             "Return only what was asked for — no commentary."
@@ -54,7 +54,7 @@ SUBAGENT_PRESETS: dict[str, dict[str, Any]] = {
         "default_tier": "standard",
     },
     "code-reviewer": {
-        "tools": ["file", "exec_command"],
+        "tools": ["file"],
         "system_prompt": (
             "You review code for bugs, security issues, and quality problems. "
             "Be specific — cite file paths and line numbers. Rate issues by severity."
@@ -62,7 +62,7 @@ SUBAGENT_PRESETS: dict[str, dict[str, Any]] = {
         "default_tier": "standard",
     },
     "data-extractor": {
-        "tools": ["file", "exec_command"],
+        "tools": ["file"],
         "system_prompt": (
             "You extract structured data from files and command output. "
             "Return data in a clean, parseable format (JSON when appropriate)."
@@ -88,6 +88,34 @@ class SubagentResult:
     result: str
     model: str | None = None
     elapsed_ms: int = 0
+    tool_names: list[str] = field(default_factory=list)
+    blocked_tools: list[str] = field(default_factory=list)
+    correlation_id: str | None = None
+
+
+_FORBIDDEN_TOOLS = {"spawn_subagents", "delegate_to_agent", "delegate_to_exec"}
+
+
+def _filter_subagent_tools(requested_tools: list[str]) -> tuple[list[str], list[str]]:
+    """Allow only readonly tools inside sub-agents.
+
+    Sub-agents are intentionally bounded sidecars, not a second execution loop.
+    Unknown, recursive, mutating, exec-capable, and control-plane tools are
+    stripped even if the parent explicitly requested them.
+    """
+    from app.tools.registry import get_tool_safety_tier
+
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for tool_name in requested_tools:
+        if tool_name in _FORBIDDEN_TOOLS:
+            blocked.append(tool_name)
+            continue
+        if get_tool_safety_tier(tool_name) != "readonly":
+            blocked.append(tool_name)
+            continue
+        allowed.append(tool_name)
+    return allowed, blocked
 
 
 # ---------------------------------------------------------------------------
@@ -117,12 +145,14 @@ async def run_subagent(
     """
     from app.agent.bots import BotConfig, get_bot
     from app.agent.context import (
+        current_run_origin,
         current_channel_model_tier_overrides,
         restore_agent_context,
         set_agent_context,
         snapshot_agent_context,
     )
     from app.agent.loop import run_agent_tool_loop
+    from app.agent.recording import _record_trace_event
     from app.services.server_config import resolve_model_tier
     from app.tools.registry import get_local_tool_schemas
 
@@ -143,7 +173,7 @@ async def run_subagent(
     # preserved). Previously explicit `tools` replaced the preset entirely,
     # which trapped LLMs into restating the preset tool list whenever they
     # wanted to add one tool. Concrete failure: a parent picked
-    # `data-extractor` (preset = ["file", "exec_command"]) and tried to add
+    # `data-extractor` (preset = ["file"]) and tried to add
     # `github_get_commit` — explicit tools fully replaced, the sub-agent
     # got only `[github_get_commit]` and couldn't read files.
     preset_tools: list[str] = preset_config.get("tools", []) if preset_config else []
@@ -175,9 +205,9 @@ async def run_subagent(
         except Exception:
             effective_model = settings.DEFAULT_MODEL
 
-    # Strip spawn_subagents and delegate_to_agent from sub-agent tools (depth limit)
-    _forbidden_tools = {"spawn_subagents", "delegate_to_agent", "delegate_to_exec"}
-    effective_tools = [t for t in effective_tools if t not in _forbidden_tools]
+    # Sub-agents are deliberately capped at readonly sidecar work.
+    effective_tools, blocked_tools = _filter_subagent_tools(effective_tools)
+    subagent_correlation_id = uuid.uuid4()
 
     # Build minimal messages (system prompt + user prompt only)
     messages: list[dict] = [
@@ -210,29 +240,73 @@ async def run_subagent(
         set_agent_context(
             session_id=parent_session_id,
             bot_id=parent_bot_id or "default",
+            correlation_id=subagent_correlation_id,
             channel_id=channel_id,
             dispatch_type=None,  # No dispatch — results stay inline
             dispatch_config=None,
         )
+        current_run_origin.set("subagent")
+
+        if parent_session_id is not None:
+            await _record_trace_event(
+                correlation_id=subagent_correlation_id,
+                session_id=parent_session_id,
+                bot_id=parent_bot_id,
+                client_id=None,
+                event_type="subagent_started",
+                data={
+                    "preset": preset,
+                    "model": effective_model,
+                    "model_tier": effective_tier,
+                    "requested_tools": preset_tools + extra_tools,
+                    "tool_names": effective_tools,
+                    "blocked_tools": blocked_tools,
+                    "prompt_preview": prompt[:300],
+                },
+            )
+
+        tools_used: list[str] = []
 
         async for event in run_agent_tool_loop(
             messages,
             subagent_bot,
             session_id=parent_session_id,
+            correlation_id=subagent_correlation_id,
             model_override=effective_model,
             provider_id_override=effective_provider,
             pre_selected_tools=tool_schemas,
             max_iterations=5,  # Sub-agents should be quick
-            skip_tool_policy=True,  # No approval gates for sub-agents
+            skip_tool_policy=False,
         ):
             if event.get("type") == "response":
                 final_response = event.get("text", "")
             elif event.get("type") == "assistant_text":
                 # Accumulate intermediate text as the response
                 final_response = event.get("text", "")
+            elif event.get("type") == "tool_start":
+                tool_name = event.get("tool")
+                if isinstance(tool_name, str) and tool_name not in tools_used:
+                    tools_used.append(tool_name)
     except Exception as exc:
         logger.exception("Sub-agent execution failed")
         elapsed = int((time.monotonic() - t0) * 1000)
+        if parent_session_id is not None:
+            await _record_trace_event(
+                correlation_id=subagent_correlation_id,
+                session_id=parent_session_id,
+                bot_id=parent_bot_id,
+                client_id=None,
+                event_type="subagent_finished",
+                event_name="error",
+                data={
+                    "preset": preset,
+                    "model": effective_model,
+                    "tool_names": effective_tools,
+                    "blocked_tools": blocked_tools,
+                    "error": str(exc),
+                },
+                duration_ms=elapsed,
+            )
         return SubagentResult(
             index=0,
             preset=preset,
@@ -240,6 +314,9 @@ async def run_subagent(
             result=f"Execution failed: {exc}",
             model=effective_model,
             elapsed_ms=elapsed,
+            tool_names=list(effective_tools),
+            blocked_tools=list(blocked_tools),
+            correlation_id=str(subagent_correlation_id),
         )
     finally:
         await asyncio.sleep(0)  # Let pending tasks settle
@@ -250,6 +327,23 @@ async def run_subagent(
         final_response = final_response[:max_chars] + f"\n... (truncated at {max_chars} chars)"
 
     elapsed = int((time.monotonic() - t0) * 1000)
+    if parent_session_id is not None:
+        await _record_trace_event(
+            correlation_id=subagent_correlation_id,
+            session_id=parent_session_id,
+            bot_id=parent_bot_id,
+            client_id=None,
+            event_type="subagent_finished",
+            event_name="ok",
+            data={
+                "preset": preset,
+                "model": effective_model,
+                "tool_names": tools_used,
+                "blocked_tools": blocked_tools,
+                "result_chars": len(final_response or ""),
+            },
+            duration_ms=elapsed,
+        )
     return SubagentResult(
         index=0,
         preset=preset,
@@ -257,6 +351,9 @@ async def run_subagent(
         result=final_response or "(empty response)",
         model=effective_model,
         elapsed_ms=elapsed,
+        tool_names=tools_used,
+        blocked_tools=list(blocked_tools),
+        correlation_id=str(subagent_correlation_id),
     )
 
 

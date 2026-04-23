@@ -1,6 +1,6 @@
 # Architecture Decisions
 
-For the canonical runtime context-policy guide, see [Context Management](../../../agent-server/docs/guides/context-management.md). Keep this file for load-bearing decisions and invariants, not the full operational policy/tuning guide.
+For the canonical runtime context-policy guide, see [Context Management](../../../agent-server/docs/guides/context-management.md). For the canonical machine-target / local-companion architecture guide, see [Local Machine Control](../../../agent-server/docs/guides/local-machine-control.md). Keep this file for load-bearing decisions and invariants, not the full operational policy/tuning guide.
 
 ## Guiding Principles
 - **Product identity**: "Best self-hosted personal AI agent"
@@ -9,6 +9,57 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - **Integration isolation**: NO integration-specific code in `app/` — must live in `integrations/{name}/`
 
 ## Key Decisions
+
+### Local machine control is a leased machine-target abstraction, not a hidden server-side exec backdoor
+**Decided 2026-04-23.** "Run on my computer" is now modeled explicitly as temporary control over one leased machine target.
+
+**What changed.**
+- Added a generic machine-target abstraction with `driver="companion"` in v1.
+- Enrolled targets live in the `local_companion` integration settings JSON instead of new DB tables.
+- Session control state lives in `Session.metadata_["machine_target_lease"]`.
+- Tool registry now carries `execution_policy`; machine tools use `interactive_user` or `live_target_lease`.
+- Companion routing is explicit by leased `target_id`; there is no "most recent connection wins" fallback.
+- Direct bot/script-style execution surfaces hard-deny machine tools unless the same live-user lease invariant is satisfied.
+
+**Why.**
+- The product needs a native-feeling "operate on my machine" path, but server-side exec and local-machine exec are not the same trust boundary.
+- SSH-first would have conflated headless LAN/server control with "my current local computer" pairing.
+- The right safety contract is explicit, session-scoped, user-held control state, not an ambient ability any background run can reuse.
+
+**Load-bearing invariants.**
+- A machine target is always explicit. Routing must never fall back to recency.
+- One session may lease only one target; one target may be leased by only one session.
+- Lease-gated tools require:
+  - a live JWT user
+  - active presence
+  - an unexpired lease for the current session
+  - the same leasing user
+  - a currently connected target
+- Autonomous origins (`heartbeat`, `task`, `subagent`, hygiene-style runs) are denied even if other context exists.
+- API-key/script surfaces do not gain local-machine power by virtue of being able to call tools.
+- SSH, browser control, file sync, or other desktop automation should reuse the same machine-target + lease abstraction instead of inventing parallel consent paths.
+
+### Sub-agents are experimental readonly sidecars, not a default orchestration primitive
+**Decided 2026-04-23.** `spawn_subagents` is no longer treated as a generally encouraged prompt-level tool.
+
+**What changed.**
+- Generic base-prompt and delegate-index nudges telling bots to use subagents were removed.
+- Plan-mode subagent guidance remains separately gated and default-off.
+- Built-in subagent presets were narrowed to readonly tools only.
+- Subagent runtime now drops mutating, exec-capable, control-plane, unknown, and recursive delegation tools.
+- Subagent runs no longer bypass tool policy.
+- Each child run now records explicit `subagent_started` / `subagent_finished` trace events with tool/model metadata.
+
+**Why.**
+- The earlier contract encouraged models to use subagents casually before the orchestration pathway had been fully vetted.
+- A readonly wrapper around exec-capable child work plus `skip_tool_policy=True` was an unsafe mismatch.
+- The right first contract is bounded sidecar research, not arbitrary delegated execution hidden inside a tool call.
+
+**Load-bearing invariants.**
+- `spawn_subagents` is for bounded, parallel, readonly side work only.
+- Subagents are never the default answer to "help me think."
+- Prompt guidance must not encourage general subagent use unless a separate reviewed pathway explicitly enables it.
+- Child runs must remain observable through persisted trace events.
 
 ### Skills-in-context is a canonical runtime residency set, not an accidental transcript side effect
 **Decided 2026-04-23.** The runtime now treats "this skill is already in prompt context" as an explicit per-turn fact shared by prompt assembly, `get_skill`, and UI metadata.

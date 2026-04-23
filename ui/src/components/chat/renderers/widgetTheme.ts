@@ -88,10 +88,10 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
 
     --sd-shadow-focus: 0 0 0 3px var(--sd-accent-subtle);
 
-    --sd-radius-sm: 6px;
-    --sd-radius-md: 10px;
-    --sd-radius-lg: 14px;
-    --sd-radius-xl: 18px;
+    --sd-radius-sm: 4px;
+    --sd-radius-md: 6px;
+    --sd-radius-lg: 8px;
+    --sd-radius-xl: 10px;
     --sd-gap-xs: 4px;
     --sd-gap-sm: 8px;
     --sd-gap-md: 10px;
@@ -108,11 +108,11 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     --sd-line: 1.45;
     --sd-shell-pad-x: 0px;
     --sd-shell-pad-y: 0px;
-    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 90%, var(--sd-surface-overlay) 10%)' : 'var(--sd-surface-raised)'};
-    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 78%, transparent 22%)' : 'color-mix(in srgb, var(--sd-surface-border) 72%, white 28%)'};
-    --sd-card-shadow: ${isDark ? '0 1px 0 rgba(255,255,255,0.03) inset' : '0 1px 2px rgba(15, 23, 42, 0.04), 0 0 0 1px rgba(255,255,255,0.7) inset'};
-    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 86%, transparent 14%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 88%, white 12%)'};
-    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 72%, transparent 28%)' : 'color-mix(in srgb, var(--sd-surface-border) 64%, white 36%)'};
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 84%, transparent 16%)' : 'color-mix(in srgb, var(--sd-surface-raised) 92%, transparent 8%)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 54%, transparent 46%)' : 'color-mix(in srgb, var(--sd-surface-border) 56%, white 44%)'};
+    --sd-card-shadow: none;
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 68%, transparent 32%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 76%, white 24%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 46%, transparent 54%)' : 'color-mix(in srgb, var(--sd-surface-border) 48%, white 52%)'};
     --sd-section-gap: 12px;
   }
 
@@ -121,8 +121,23 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     --sd-shell-pad-y: 0px;
   }
   html[data-sd-host="pinned"] {
-    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 84%, var(--sd-surface-overlay) 16%)' : 'var(--sd-surface-raised)'};
-    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 62%, transparent 38%)' : 'color-mix(in srgb, var(--sd-surface-border) 78%, white 22%)'};
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 72%, transparent 28%)' : 'color-mix(in srgb, var(--sd-surface-raised) 82%, transparent 18%)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 40%, transparent 60%)' : 'color-mix(in srgb, var(--sd-surface-border) 42%, white 58%)'};
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 60%, transparent 40%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 68%, white 32%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 36%, transparent 64%)' : 'color-mix(in srgb, var(--sd-surface-border) 38%, white 62%)'};
+  }
+  html[data-sd-host-surface="surface"] {
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 64%, transparent 36%)' : 'color-mix(in srgb, var(--sd-surface-raised) 76%, transparent 24%)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 32%, transparent 68%)' : 'color-mix(in srgb, var(--sd-surface-border) 36%, white 64%)'};
+    --sd-card-shadow: none;
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 54%, transparent 46%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 62%, white 38%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 30%, transparent 70%)' : 'color-mix(in srgb, var(--sd-surface-border) 34%, white 66%)'};
+  }
+  html[data-sd-host-surface="plain"] {
+    --sd-card-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-raised) 88%, transparent 12%)' : 'color-mix(in srgb, var(--sd-surface-raised) 96%, transparent 4%)'};
+    --sd-card-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 58%, transparent 42%)' : 'color-mix(in srgb, var(--sd-surface-border) 60%, white 40%)'};
+    --sd-subpanel-bg: ${isDark ? 'color-mix(in srgb, var(--sd-surface-overlay) 72%, transparent 28%)' : 'color-mix(in srgb, var(--sd-surface-overlay) 80%, white 20%)'};
+    --sd-subpanel-border: ${isDark ? 'color-mix(in srgb, var(--sd-surface-border) 52%, transparent 48%)' : 'color-mix(in srgb, var(--sd-surface-border) 54%, white 46%)'};
   }
   html[data-sd-layout="grid"],
   html[data-sd-layout="rail"],
@@ -312,12 +327,12 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     align-items: center;
     justify-content: center;
     gap: var(--sd-gap-xs);
-    min-height: 32px;
-    padding: 7px 12px;
-    border: 1px solid var(--sd-surface-border);
-    background: color-mix(in srgb, var(--sd-surface-overlay) 84%, transparent 16%);
+    min-height: 30px;
+    padding: 6px 10px;
+    border: 1px solid color-mix(in srgb, var(--sd-surface-border) 52%, transparent 48%);
+    background: color-mix(in srgb, var(--sd-surface-overlay) 42%, transparent 58%);
     color: var(--sd-text);
-    border-radius: 10px;
+    border-radius: var(--sd-radius-md);
     font-size: var(--sd-font-size-sm);
     font-weight: 600;
     letter-spacing: 0.01em;
@@ -326,8 +341,8 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
   }
   .sd-btn:hover {
-    background: color-mix(in srgb, var(--sd-surface-overlay) 72%, var(--sd-overlay-light) 28%);
-    border-color: var(--sd-overlay-border);
+    background: color-mix(in srgb, var(--sd-surface-overlay) 56%, transparent 44%);
+    border-color: color-mix(in srgb, var(--sd-surface-border) 66%, transparent 34%);
   }
   .sd-btn:disabled { opacity: 0.55; cursor: not-allowed; }
   .sd-btn[aria-pressed="true"] { background: var(--sd-accent); border-color: var(--sd-accent); color: white; }
@@ -339,21 +354,25 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-btn-primary:hover { background: var(--sd-accent-hover); border-color: var(--sd-accent-hover); color: white; }
   .sd-btn-subtle {
     background: transparent;
-    border-color: color-mix(in srgb, var(--sd-surface-border) 55%, transparent 45%);
+    border-color: color-mix(in srgb, var(--sd-surface-border) 34%, transparent 66%);
     color: var(--sd-text-muted);
   }
-  .sd-btn-subtle:hover { background: var(--sd-overlay-light); color: var(--sd-text); }
+  .sd-btn-subtle:hover {
+    background: color-mix(in srgb, var(--sd-overlay-light) 72%, transparent 28%);
+    border-color: color-mix(in srgb, var(--sd-surface-border) 48%, transparent 52%);
+    color: var(--sd-text);
+  }
   .sd-btn-danger { background: var(--sd-danger-subtle); border-color: var(--sd-danger-border); color: var(--sd-danger); }
   .sd-btn-danger:hover { background: var(--sd-danger); border-color: var(--sd-danger); color: white; }
 
   .sd-input, .sd-select, .sd-textarea {
     appearance: none;
     width: 100%;
-    padding: 9px 11px;
-    border: 1px solid var(--sd-input-border);
-    background: var(--sd-input-bg);
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--sd-input-border) 72%, transparent 28%);
+    background: color-mix(in srgb, var(--sd-input-bg) 90%, transparent 10%);
     color: var(--sd-text);
-    border-radius: 12px;
+    border-radius: var(--sd-radius-md);
     font-size: var(--sd-font-size-sm);
     font-family: inherit;
     outline: none;
@@ -373,7 +392,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     align-items: center;
     gap: 4px;
     padding: 3px 8px;
-    border-radius: 999px;
+    border-radius: var(--sd-radius-sm);
     font-size: var(--sd-font-size-xs);
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -417,9 +436,9 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     font-size: var(--sd-font-size-sm);
     padding: var(--sd-pad-lg) var(--sd-pad-md);
     text-align: center;
-    border: 1px dashed color-mix(in srgb, var(--sd-surface-border) 84%, transparent 16%);
+    border: 1px dashed color-mix(in srgb, var(--sd-surface-border) 60%, transparent 40%);
     border-radius: var(--sd-radius-md);
-    background: color-mix(in srgb, var(--sd-overlay-light) 72%, transparent 28%);
+    background: color-mix(in srgb, var(--sd-overlay-light) 48%, transparent 52%);
   }
   /* Structured empty-state: <div class="sd-empty"><svg class="sd-icon sd-empty__icon">…</svg>
      <div class="sd-empty__title">Nothing yet</div><div class="sd-empty__subtitle">…</div></div> */
@@ -502,13 +521,13 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     position: relative;
     display: inline-flex; align-items: center; justify-content: center;
     width: 18px; height: 18px;
-    border: 2px solid var(--sd-surface-border);
+    border: 1.5px solid color-mix(in srgb, var(--sd-surface-border) 80%, transparent 20%);
     background: var(--sd-input-bg);
     border-radius: var(--sd-radius-sm);
     transition: background 120ms, border-color 120ms, box-shadow 120ms;
     flex: 0 0 auto;
   }
-  .sd-check:hover .sd-check__box { box-shadow: 0 0 0 3px var(--sd-accent-subtle); }
+  .sd-check:hover .sd-check__box { box-shadow: 0 0 0 2px var(--sd-accent-subtle); }
   .sd-check__mark {
     width: 14px; height: 14px;
     stroke: white; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none;
@@ -592,11 +611,11 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
      </div> */
   .sd-input-group {
     display: flex; align-items: stretch;
-    background: var(--sd-input-bg);
-    border: 1px solid var(--sd-input-border);
+    background: color-mix(in srgb, var(--sd-input-bg) 90%, transparent 10%);
+    border: 1px solid color-mix(in srgb, var(--sd-input-border) 72%, transparent 28%);
     border-radius: var(--sd-radius-md);
     transition: border-color 120ms, box-shadow 120ms;
-    min-height: 42px;
+    min-height: 38px;
   }
   .sd-input-group:hover { border-color: var(--sd-surface-border); }
   .sd-input-group:focus-within {
@@ -608,7 +627,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-input-group > .sd-textarea {
     flex: 1 1 auto; min-width: 0;
     background: transparent; border: none; outline: none;
-    padding: 9px 12px;
+    padding: 8px 10px;
     font-size: var(--sd-font-size);
   }
   .sd-input-group__icon {
@@ -618,7 +637,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     width: auto; height: auto;
   }
   .sd-input-group__action {
-    margin: 4px; padding: 6px 14px;
+    margin: 3px; padding: 6px 10px;
     border-radius: calc(var(--sd-radius-md) - 2px);
     flex: 0 0 auto;
     font-weight: 600;
@@ -633,7 +652,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-textarea {
     resize: vertical;
     min-height: 88px;
-    padding: 10px 12px;
+    padding: 9px 10px;
     line-height: 1.55;
     white-space: pre-wrap;
   }
@@ -656,7 +675,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-row {
     position: relative;
     display: flex; align-items: center; gap: var(--sd-gap-md);
-    padding: 8px 8px;
+    padding: 7px 8px;
     border-radius: var(--sd-radius-md);
     transition: background 120ms;
     min-height: 36px;
@@ -688,8 +707,8 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-tag {
     display: inline-flex; align-items: center; gap: 4px;
     padding: 3px 8px;
-    border-radius: 999px;
-    background: var(--sd-overlay-light);
+    border-radius: var(--sd-radius-sm);
+    background: color-mix(in srgb, var(--sd-overlay-light) 72%, transparent 28%);
     color: var(--sd-text);
     font-size: var(--sd-font-size-sm);
     font-weight: 600;
@@ -720,7 +739,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     background: var(--sd-surface-raised);
     border: 1px solid var(--sd-surface-border);
     border-radius: var(--sd-radius-md);
-    box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
   }
   .sd-menu-item {
     appearance: none;
@@ -760,13 +779,13 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   /* ── Tooltip (used by spindrel.ui.tooltip) ────────────────── */
   .sd-tooltip {
     position: absolute; z-index: 1001;
-    padding: 4px 8px;
+    padding: 4px 7px;
     background: var(--sd-surface);
     border: 1px solid var(--sd-surface-border);
     color: var(--sd-text);
     font-size: var(--sd-font-size-xs);
     border-radius: var(--sd-radius-sm);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    box-shadow: 0 6px 14px rgba(0,0,0,0.16);
     pointer-events: none;
     max-width: 220px;
   }
@@ -785,7 +804,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     border-radius: var(--sd-radius-lg);
     padding: var(--sd-pad-md);
     display: flex; flex-direction: column; gap: var(--sd-gap-md);
-    box-shadow: 0 12px 48px rgba(0,0,0,0.4);
+    box-shadow: 0 12px 36px rgba(0,0,0,0.28);
   }
   .sd-modal__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--sd-text); }
   .sd-modal__body { font-size: var(--sd-font-size-sm); color: var(--sd-text-muted); }

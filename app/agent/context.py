@@ -23,6 +23,9 @@ current_turn_id: ContextVar[uuid.UUID | None] = ContextVar(
 current_client_id: ContextVar[str | None] = ContextVar(
     "current_client_id", default=None
 )
+current_user_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "current_user_id", default=None
+)
 current_bot_id: ContextVar[str | None] = ContextVar(
     "current_bot_id", default=None
 )
@@ -122,6 +125,7 @@ current_invoked_member_bots: ContextVar[set | None] = ContextVar(
 def set_agent_context(
     session_id: uuid.UUID | None = None,
     client_id: str | None = None,
+    user_id: uuid.UUID | None = None,
     bot_id: str | None = None,
     correlation_id: uuid.UUID | None = None,
     *,
@@ -139,6 +143,8 @@ def set_agent_context(
     current_session_id.set(session_id)
     current_channel_id.set(channel_id)
     current_client_id.set(client_id)
+    if user_id is not None:
+        current_user_id.set(user_id)
     current_bot_id.set(bot_id)
     current_correlation_id.set(correlation_id)
     if memory_cross_channel is not None:
@@ -177,6 +183,7 @@ class AgentContextSnapshot:
     correlation_id: uuid.UUID | None
     turn_id: uuid.UUID | None
     client_id: str | None
+    user_id: uuid.UUID | None
     bot_id: str | None
     memory_cross_channel: bool | None
     memory_cross_client: bool | None
@@ -206,6 +213,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         correlation_id=current_correlation_id.get(),
         turn_id=current_turn_id.get(),
         client_id=current_client_id.get(),
+        user_id=current_user_id.get(),
         bot_id=current_bot_id.get(),
         memory_cross_channel=current_memory_cross_channel.get(),
         memory_cross_client=current_memory_cross_client.get(),
@@ -235,6 +243,7 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_correlation_id.set(snap.correlation_id)
     current_turn_id.set(snap.turn_id)
     current_client_id.set(snap.client_id)
+    current_user_id.set(snap.user_id)
     current_bot_id.set(snap.bot_id)
     current_memory_cross_channel.set(snap.memory_cross_channel)
     current_memory_cross_client.set(snap.memory_cross_client)

@@ -1,0 +1,9 @@
+id: local_companion
+name: Local Companion
+icon: Monitor
+description: Paired local machine companion for shell access with a live per-session lease.
+version: "0.1"
+
+provides:
+  - tools
+  - router

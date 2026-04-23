@@ -32,6 +32,7 @@ export interface PublicToolSignature {
   input_schema?: Record<string, any> | null;
   returns_schema?: Record<string, any> | null;
   source_integration?: string | null;
+  execution_policy?: string;
   requires_bot_context?: boolean;
   requires_channel_context?: boolean;
 }

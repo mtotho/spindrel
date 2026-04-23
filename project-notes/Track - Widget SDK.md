@@ -17,6 +17,8 @@ updated: 2026-04-21 (control-dashboard reactivity docs strengthened after HA wid
 > **2026-04-23 supersession note.** Earlier Phase A notes mention the legacy HTML Notes showcase under `app/tools/local/widgets/notes/`. That bundle has since been hard-deleted; first-party Notes is `core/notes_native`, and stale direct refs should be replaced rather than shimmed.
 >
 > **2026-04-23 Web Search supersession.** Earlier Phase A/A.2 notes mention `integrations/web_search/widgets/web_search.html` as an SDK showcase. That file has since been deleted; Web Search now uses the generic core `core.search_results` React renderer and keeps a component-template fallback. Use a different future flagship for HTML SDK interactivity.
+>
+> **2026-04-23 shared CSS low-chrome follow-up.** `widgetTheme.ts` kept the same `sd-*` vocabulary but retuned the defaults toward the current widget direction: tighter radii (`4/6/8/10`), flatter buttons/inputs, rectangular chips/tags, quieter card/subcard borders, and host-surface-aware panel flattening via the existing `data-sd-host-surface` hint. New invariant: pinned/dashboard HTML widgets should inherit a low-noise inner language by default rather than needing every author to manually strip pill buttons and nested chrome.
 
 ## North Star
 

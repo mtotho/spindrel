@@ -38,6 +38,7 @@ That means:
 - Use `sd-card` when the widget needs an intentional inner panel, like a compact control center or a grouped status board.
 - Use `sd-tile` / `sd-subcard` inside that panel for nested stat blocks, grouped controls, or quieter inset regions.
 - Use `sd-card--flat` when you want card semantics without the extra panel treatment.
+- The shared `sd-btn`, `sd-chip`, and `sd-tag` styles are intentionally low-chrome and rectangular now. Keep them that way unless roundness is part of the control's meaning.
 - When rendering multiple `sd-tile` / `sd-subcard` blocks, wrap them in `sd-stack-sm`, `sd-grid`, or another explicit gap container. Do not rely on plain sibling `<div>` flow.
 
 The goal is not "never use a panel." The goal is "don't accidentally create double chrome."
@@ -81,7 +82,7 @@ Prefer these over hand-rolled CSS:
 | Rows & lists | `sd-list`, `sd-list--divided`, `sd-row`, `sd-row__title`, `sd-row__meta`, `sd-row__actions` |
 | Section grouping | `sd-section`, `sd-section__header`, `sd-section__title`, `sd-inline` |
 | Status chip | `sd-chip`, `sd-chip-accent/success/warning/danger/purple` |
-| Tag (pill) | `sd-tag`, `sd-tag--accent/success/warning/danger/purple`, `sd-tag__remove` |
+| Tag | `sd-tag`, `sd-tag--accent/success/warning/danger/purple`, `sd-tag__remove` |
 | Icons | `sd-icon`, `sd-icon--sm/lg/xl`, `sd-icon--muted/dim/accent/success/danger/warning` |
 | Keyboard hint | `sd-kbd` |
 | Menu / Tooltip / Modal | `sd-menu`, `sd-menu-item`, `sd-menu-item--danger`, `sd-menu-divider`, `sd-tooltip`, `sd-modal` (built by `spindrel.ui.menu/tooltip/confirm`) |
@@ -163,6 +164,7 @@ See `widgets/sdk.md#reacting-to-live-updates` for the full event surface.
 | Wrap every widget in a heavy nested card by default | Start with `sd-stack`; add `sd-card` only when grouping improves clarity | Avoid double chrome in pinned dashboards. |
 | `<button style="padding: 3px 8px; border: 1px solid #e5e7eb; ...">` | `<button class="sd-btn">` | Fewer lines, on-brand, dark-mode correct. |
 | `border-bottom: 1px solid #e5e7eb` between bars | Spacing + `sd-card` separation | Gratuitous borders look like low-polish admin chrome. |
+| Re-rounding every chip/button to `999px` | Leave `sd-btn` / `sd-chip` / `sd-tag` on their shared tight-radius defaults | Pill chrome fights the current widget language and makes small widgets feel toy-like. |
 | Hard-coded success green (`#16a34a`) | `class="sd-chip-success"` or `var(--sd-success)` | Same color in one place; updates ripple. |
 
 ## Panel guidance
@@ -183,8 +185,13 @@ If you're unsure, start flat and add one panel only where it improves comprehens
 
 Hierarchy rule:
 
-- `sd-card` = base panel, brighter, reads as the widget's main surface
+- `sd-card` = base panel, subtle, reads as the widget's main grouped region without trying to replace the host shell
 - `sd-tile` / `sd-subcard` = inset sub-panel, slightly greyer, used inside the main panel
+
+Host-surface rule:
+
+- On pinned/panel hosts the SDK automatically quiets `sd-card`, `sd-tile`, and `sd-subcard` further.
+- In plain hosts the same classes stay a little stronger so inline widgets still have readable separation.
 
 That keeps light mode from turning the whole widget muddy while still giving bots a quieter nested surface for grouped controls or stats.
 

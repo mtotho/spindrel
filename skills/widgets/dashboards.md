@@ -212,6 +212,7 @@ Pinned dashboards already provide the outer widget slot. Do not waste that shell
 - Use `sd-tile` / `sd-subcard` inside that panel for the quieter nested sections.
 - If you have several sub-panels, wrap them in `sd-stack-sm` or `sd-grid` so the spacing is explicit.
 - Prefer spacing, section titles, and button grouping over gratuitous borders.
+- Leave `sd-btn`, `sd-chip`, and `sd-tag` on their flatter shared defaults; do not add pill wrappers or extra bordered "button bars" unless the widget truly needs them.
 
 Good pattern:
 

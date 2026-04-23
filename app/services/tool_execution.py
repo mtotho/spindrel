@@ -65,7 +65,7 @@ async def execute_tool_with_context(
 ) -> tuple[Any, str]:
     from app.agent.context import current_bot_id, current_channel_id
     from app.tools.mcp import call_mcp_tool, is_mcp_tool
-    from app.tools.registry import call_local_tool, is_local_tool
+    from app.tools.registry import call_local_tool, get_tool_execution_policy, is_local_tool
 
     resolved_tool_name, _requires_bot, _requires_channel, channel_uuid = validate_tool_context_requirements(
         tool_name,
@@ -78,6 +78,19 @@ async def execute_tool_with_context(
     channel_token = current_channel_id.set(channel_uuid) if channel_uuid else None
     try:
         if is_local_tool(resolved_tool_name):
+            execution_policy = get_tool_execution_policy(resolved_tool_name)
+            if execution_policy != "normal":
+                from app.services.local_machine_control import validate_current_execution_policy
+
+                resolution = await validate_current_execution_policy(execution_policy)
+                if not resolution.allowed:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "local_control_required",
+                            "message": resolution.reason or "Machine-control tools are not available from this surface.",
+                        },
+                    )
             raw = await call_local_tool(resolved_tool_name, args_json)
         elif is_mcp_tool(resolved_tool_name):
             raw = await call_mcp_tool(resolved_tool_name, args_json)

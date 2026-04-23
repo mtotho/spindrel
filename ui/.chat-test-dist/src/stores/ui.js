@@ -65,6 +65,7 @@ export const useUIStore = create()(persist((set) => ({
     toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
     setFileExplorerOpen: (open) => set({ fileExplorerOpen: open }),
     toggleFileExplorerSplit: () => set((s) => ({ fileExplorerSplit: !s.fileExplorerSplit })),
+    setFileExplorerSplit: (split) => set({ fileExplorerSplit: split }),
     toggleRightDock: () => set((s) => ({ rightDockHidden: !s.rightDockHidden })),
     setRightDockHidden: (hidden) => set({ rightDockHidden: hidden }),
     setOmniPanelTab: (tab) => set({ omniPanelTab: tab }),

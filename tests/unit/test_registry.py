@@ -103,6 +103,20 @@ class TestRegister:
         bot, channel = registry.get_tool_context_requirements("nonexistent_tool")
         assert (bot, channel) == (False, False)
 
+    def test_execution_policy_defaults_to_normal(self):
+        _register_dummy("exec_default")
+        assert registry.get_tool_execution_policy("exec_default") == "normal"
+
+    def test_execution_policy_round_trip(self):
+        async def _f(**_):
+            return "ok"
+
+        registry.register(
+            {"type": "function", "function": {"name": "needs_live_user", "parameters": {}}},
+            execution_policy="live_target_lease",
+        )(_f)
+        assert registry.get_tool_execution_policy("needs_live_user") == "live_target_lease"
+
 
 # ---------------------------------------------------------------------------
 # iter_registered_tools()

@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
         "schema": {"type": "object", "description": "OpenAI function-call input schema"},
         "output_schema": {"type": ["object", "null"], "description": "JSON Schema for the tool's return shape (when declared)"},
         "safety_tier": {"type": "string"},
+        "execution_policy": {"type": "string"},
         "tool_name": {"type": "string"},
         "server_name": {"type": "string", "description": "Set for MCP tools"},
         "error": {"type": "string"},
@@ -66,6 +67,7 @@ async def get_tool_info(tool_name: str) -> str:
             "schema": schema_for_activation,
             "output_schema": entry.get("returns"),
             "safety_tier": entry.get("safety_tier"),
+            "execution_policy": entry.get("execution_policy", "normal"),
         }
         response_json = json.dumps(payload, indent=2, ensure_ascii=False)
     else:
@@ -363,6 +365,7 @@ def _summarize_params(parameters: dict | None) -> str:
                     "returns": {"type": "string"},
                     "description": {"type": "string"},
                     "safety_tier": {"type": "string"},
+                    "execution_policy": {"type": "string"},
                     "source_integration": {"type": ["string", "null"]},
                 },
                 "required": ["name", "params", "returns"],
@@ -397,6 +400,7 @@ async def list_tool_signatures(category: str | None = None, limit: int = 50) -> 
             "returns": _summarize_returns(returns),
             "description": (fn.get("description") or "").strip().split("\n", 1)[0][:160],
             "safety_tier": entry.get("safety_tier", "readonly"),
+            "execution_policy": entry.get("execution_policy", "normal"),
             "source_integration": entry.get("source_integration"),
         })
         if len(out) >= n:

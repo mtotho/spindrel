@@ -584,8 +584,48 @@ async def dispatch_tool_call(
             duration_ms=0,
             correlation_id=correlation_id,
             status="denied",
-        ))
+                    ))
         return result_obj
+
+    _execution_policy = "normal"
+    _execution_resolution = None
+    if is_local_tool(name):
+        from app.tools.registry import get_tool_execution_policy
+
+        _execution_policy = get_tool_execution_policy(name)
+        if _execution_policy != "normal":
+            try:
+                from app.services.local_machine_control import validate_current_execution_policy
+
+                _execution_resolution = await validate_current_execution_policy(_execution_policy)
+            except Exception:
+                logger.exception("Execution-policy validation failed for %s", name)
+                _exec_guard_err = "Tool call denied: unable to validate the machine-control policy. Please retry."
+                result_obj.result = json.dumps({"error": _exec_guard_err})
+                result_obj.result_for_llm = result_obj.result
+                result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _exec_guard_err}
+                return result_obj
+            if _execution_resolution is not None and not _execution_resolution.allowed:
+                _exec_err = _execution_resolution.reason or "Tool call denied by execution policy."
+                result_obj.result = json.dumps({"error": "local_control_required", "message": _exec_err})
+                result_obj.result_for_llm = result_obj.result
+                result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _exec_err}
+                safe_create_task(_record_tool_call(
+                    session_id=session_id,
+                    client_id=client_id,
+                    bot_id=bot_id,
+                    tool_name=name,
+                    tool_type="local",
+                    server_name=None,
+                    iteration=iteration,
+                    arguments=json.loads(args or "{}") if args else {},
+                    result=result_obj.result,
+                    error=_exec_err,
+                    duration_ms=0,
+                    correlation_id=correlation_id,
+                    status="denied",
+                ))
+                return result_obj
 
     # --- Policy check ---
     if not skip_policy:
@@ -602,7 +642,15 @@ async def dispatch_tool_call(
                 correlation_id=str(correlation_id) if correlation_id else None,
             )
             if decision is not None:
-                if decision.action == "deny":
+                if (
+                    _execution_policy in {"interactive_user", "live_target_lease"}
+                    and decision.action == "require_approval"
+                    and decision.rule_id is None
+                ):
+                    decision = None
+                if decision is None:
+                    pass
+                elif decision.action == "deny":
                     _deny_err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
                     result_obj.result = json.dumps({"error": _deny_err})
                     result_obj.result_for_llm = result_obj.result

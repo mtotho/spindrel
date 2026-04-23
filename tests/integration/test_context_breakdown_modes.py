@@ -393,6 +393,59 @@ class TestBreakdownModes:
         assert scoped_resp.json()["consumed_tokens"] == 111
 
     @pytest.mark.asyncio
+    async def test_context_breakdown_accepts_scratch_session_linked_by_parent_channel(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """Scratch sessions belong to their parent channel even without channel_id."""
+        channel_id = uuid.uuid4()
+        main_session_id = uuid.uuid4()
+        scratch_session_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+
+        db_session.add(Channel(
+            id=channel_id,
+            name="ctx-scratch-session",
+            bot_id="test-bot",
+            active_session_id=main_session_id,
+        ))
+        db_session.add(Session(
+            id=main_session_id,
+            bot_id="test-bot",
+            client_id=f"c-{channel_id.hex[:8]}-main",
+            channel_id=channel_id,
+        ))
+        db_session.add(Session(
+            id=scratch_session_id,
+            bot_id="test-bot",
+            client_id=f"c-{channel_id.hex[:8]}-scratch",
+            channel_id=None,
+            parent_channel_id=channel_id,
+            session_type="ephemeral",
+        ))
+        db_session.add(TraceEvent(
+            id=uuid.uuid4(),
+            session_id=scratch_session_id,
+            bot_id="test-bot",
+            event_type="context_injection_summary",
+            data={"context_budget": {
+                "consumed_tokens": 321,
+                "total_tokens": 10_000,
+                "utilization": 0.0321,
+            }},
+            created_at=now,
+        ))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/context-breakdown?session_id={scratch_session_id}",
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["context_budget"]["usage"]["gross_prompt_tokens"] == 321
+
+    @pytest.mark.asyncio
     async def test_last_turn_total_falls_back_to_forecast_after_compaction(
         self, client: AsyncClient, db_session: AsyncSession,
     ):

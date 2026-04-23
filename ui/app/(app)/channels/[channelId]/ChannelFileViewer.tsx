@@ -1,6 +1,6 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowLeft, X, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon, Hash, Lock } from "lucide-react";
+import { ArrowLeft, Save, RotateCw, Columns2, ChevronRight, History as HistoryIcon, Hash, Lock, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelWorkspaceFileContent,
@@ -214,9 +214,9 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
           onClick={handleBack}
           style={{ padding: 6, borderRadius: 4 }}
           className="hover:bg-surface-overlay active:bg-surface-overlay"
-          {...{ title: splitMode ? "Close file" : "Back (Esc)" }}
+          {...{ title: "Back to chat" }}
         >
-          {splitMode ? <X size={16} color={t.textMuted} /> : <ArrowLeft size={16} color={t.textMuted} />}
+          <ArrowLeft size={16} color={t.textMuted} />
         </button>
 
         {/* Channel chip — only when we know the channel display name (mobile
@@ -314,7 +314,7 @@ export function ChannelFileViewer({ channelId, workspaceId, filePath, onBack, sp
               backgroundColor: splitMode ? t.surfaceOverlay : "transparent",
             }}
             className="hover:bg-surface-overlay active:bg-surface-overlay"
-            {...{ title: splitMode ? "Exit split view" : "Split view" }}
+            {...{ title: splitMode ? "Return to file only" : "Split with chat" }}
           >
             <Columns2 size={13} color={splitMode ? t.accent : t.textDim} />
           </button>

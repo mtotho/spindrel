@@ -615,7 +615,11 @@ async def compute_context_breakdown(
         target_session = await db.get(Session, target_session_pk)
         if target_session is None:
             raise ValueError(f"Session not found: {target_session_id}")
-        if str(target_session.channel_id) != str(channel.id):
+        belongs_to_channel = (
+            str(target_session.channel_id) == str(channel.id)
+            or str(target_session.parent_channel_id) == str(channel.id)
+        )
+        if not belongs_to_channel:
             raise ValueError(f"Session {target_session_id} does not belong to channel {channel_id}")
 
     # -----------------------------------------------------------------------

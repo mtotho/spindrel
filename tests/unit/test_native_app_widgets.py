@@ -171,6 +171,10 @@ def test_native_catalog_entries_expose_contract():
     assert context["actions"] == []
     assert context["widget_contract"]["definition_kind"] == "native_widget"
     assert context["widget_contract"]["supported_scopes"] == ["channel"]
+    usage = next(entry for entry in entries if entry["name"] == "usage_forecast_native")
+    assert usage["supported_scopes"] == ["channel", "dashboard"]
+    upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
+    assert upcoming["supported_scopes"] == ["channel", "dashboard"]
 
 
 @pytest.mark.asyncio
@@ -182,3 +186,26 @@ async def test_context_tracker_rejects_user_dashboard_scope(db_session):
             dashboard_key="default",
             source_channel_id=None,
         )
+
+
+@pytest.mark.asyncio
+async def test_usage_and_upcoming_native_widgets_allow_channel_and_dashboard_scopes(db_session):
+    channel_id = uuid.uuid4()
+    for widget_ref in ("core/usage_forecast_native", "core/upcoming_activity_native"):
+        channel_instance = await get_or_create_native_widget_instance(
+            db_session,
+            widget_ref=widget_ref,
+            dashboard_key=f"channel:{channel_id}",
+            source_channel_id=channel_id,
+        )
+        assert channel_instance.scope_kind == "channel"
+        assert channel_instance.scope_ref == str(channel_id)
+
+        dashboard_instance = await get_or_create_native_widget_instance(
+            db_session,
+            widget_ref=widget_ref,
+            dashboard_key="default",
+            source_channel_id=None,
+        )
+        assert dashboard_instance.scope_kind == "dashboard"
+        assert dashboard_instance.scope_ref == "default"

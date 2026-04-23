@@ -83,6 +83,7 @@ import {
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
+import { Lock as LockIcon } from "lucide-react";
 
 import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
@@ -99,6 +100,8 @@ type PanelSpineAction = {
   hint?: string;
   icon: ReactNode;
   onSelect: () => void;
+  disabled?: boolean;
+  disabledReason?: string;
 };
 
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
@@ -107,10 +110,12 @@ function CollapsedPanelSpine({
   side,
   title,
   actions,
+  statusLabel,
 }: {
   side: "left" | "right";
   title: string;
   actions: PanelSpineAction[];
+  statusLabel?: string;
 }) {
   const t = useThemeTokens();
 
@@ -127,10 +132,19 @@ function CollapsedPanelSpine({
           <button
             key={action.id}
             type="button"
-            onClick={action.onSelect}
+            onClick={action.disabled ? undefined : action.onSelect}
             aria-label={action.label}
-            title={action.hint ? `${action.label} · ${action.hint}` : action.label}
-            className="flex h-9 w-10 items-center justify-center bg-transparent text-text-dim transition-colors hover:bg-surface-overlay/70 hover:text-text focus-visible:bg-surface-overlay/70 focus-visible:text-text focus-visible:outline-none"
+            disabled={action.disabled}
+            title={
+              action.disabled
+                ? action.disabledReason
+                  ? `${action.label} · ${action.disabledReason}`
+                  : action.label
+                : action.hint
+                  ? `${action.label} · ${action.hint}`
+                  : action.label
+            }
+            className="flex h-9 w-10 items-center justify-center bg-transparent text-text-dim transition-colors hover:bg-surface-overlay/70 hover:text-text focus-visible:bg-surface-overlay/70 focus-visible:text-text focus-visible:outline-none disabled:cursor-default disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-text-dim"
           >
             {action.icon}
           </button>
@@ -141,7 +155,7 @@ function CollapsedPanelSpine({
           className="select-none text-[9px] font-semibold uppercase tracking-[0.18em] text-text-dim/60"
           style={{ writingMode: "vertical-rl", transform: side === "left" ? "rotate(180deg)" : undefined }}
         >
-          {side === "left" ? "Panel" : "Dock"}
+          {statusLabel ?? (side === "left" ? "Panel" : "Dock")}
         </span>
       </div>
     </div>
@@ -687,6 +701,7 @@ export default function ChatScreen() {
     channelId ? s.channelPanelPrefs[channelId] : undefined,
   );
   const splitMode = useUIStore((s) => s.fileExplorerSplit);
+  const setSplitMode = useUIStore((s) => s.setFileExplorerSplit);
   const toggleSplit = useUIStore((s) => s.toggleFileExplorerSplit);
   const legacyRightDockHidden = useUIStore((s) => s.rightDockHidden);
   const isMobile = columns === "single";
@@ -825,7 +840,8 @@ export default function ChatScreen() {
   useEffect(() => {
     setActiveFile(null);
     fileDirtyRef.current = false;
-  }, [channelId]);
+    setSplitMode(false);
+  }, [channelId, setSplitMode]);
 
   // OmniPanel is always available — it shows pinned widgets even without a workspace.
   // The file explorer section inside OmniPanel is conditionally shown when workspaceId exists.
@@ -836,12 +852,13 @@ export default function ChatScreen() {
   const showHeaderChips = layoutMode === "full" || layoutMode === "rail-header-chat";
   const showDockZone = layoutMode === "full";
   const dashboardOnly = layoutMode === "dashboard-only";
+  const dockBlockedByFileViewer = showFileViewer && !splitMode;
   const panelLayout = resolveChannelPanelLayout({
     availableWidth: viewportWidth || 0,
     isMobile,
     layoutMode,
     hasLeftPanel: !!channelId && !isSystemChannel && showRailZone,
-    hasRightPanel: !!channelId && !isSystemChannel && showDockZone && dockPins.length > 0,
+    hasRightPanel: !!channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && !dockBlockedByFileViewer,
     leftOpen: panelPrefs.leftOpen,
     rightOpen: panelPrefs.rightOpen,
     leftPinned: panelPrefs.leftPinned,
@@ -918,23 +935,16 @@ export default function ChatScreen() {
     {
       id: "dock",
       label: "Dock",
-      hint: dockPins.length > 0 ? String(dockPins.length) : undefined,
-      icon: <PanelRightIcon size={15} />,
+      hint: dockBlockedByFileViewer ? undefined : (dockPins.length > 0 ? String(dockPins.length) : undefined),
+      icon: dockBlockedByFileViewer ? <LockIcon size={14} /> : <PanelRightIcon size={15} />,
       onSelect: () => patchChannelPanelPrefs(channelId!, { rightOpen: true, focusModePrior: null }),
+      disabled: dockBlockedByFileViewer,
+      disabledReason: dockBlockedByFileViewer ? "Close file or enter split view to open dock." : undefined,
     },
-  ], [channelId, dockPins.length, patchChannelPanelPrefs]);
-
-  // Auto-enable split mode on wide screens when a file is first opened.
-  const autoSplitApplied = useRef(false);
-  useEffect(() => {
-    if (showFileViewer && columns === "triple" && !splitMode && !autoSplitApplied.current) {
-      autoSplitApplied.current = true;
-      toggleSplit();
-    }
-  }, [showFileViewer, columns, splitMode, toggleSplit]);
+  ], [channelId, dockBlockedByFileViewer, dockPins.length, patchChannelPanelPrefs]);
 
   // Dirty-file guard: instead of window.confirm, use a ConfirmDialog
-  type DirtyAction = { type: "select"; path: string } | { type: "close" } | { type: "closeExplorer" };
+  type DirtyAction = { type: "select"; path: string } | { type: "close" } | { type: "closePanel" };
   const [pendingDirtyAction, setPendingDirtyAction] = useState<DirtyAction | null>(null);
 
   const tryOrConfirmDirty = useCallback((action: DirtyAction) => {
@@ -945,17 +955,22 @@ export default function ChatScreen() {
 
   const executeDirtyAction = useCallback((action: DirtyAction) => {
     switch (action.type) {
-      case "select": setActiveFile(action.path); break;
-      case "close": setActiveFile(null); break;
-      case "closeExplorer":
+      case "select":
+        if (channelId && isMobile) setMobileDrawerOpen(channelId, false);
+        setActiveFile(action.path);
+        break;
+      case "close":
+        setActiveFile(null);
+        setSplitMode(false);
+        break;
+      case "closePanel":
         if (channelId) {
           if (isMobile) setMobileDrawerOpen(channelId, false);
           else patchChannelPanelPrefs(channelId, { leftOpen: false });
         }
-        setActiveFile(null);
         break;
     }
-  }, [channelId, isMobile, patchChannelPanelPrefs, setMobileDrawerOpen]);
+  }, [channelId, isMobile, patchChannelPanelPrefs, setMobileDrawerOpen, setSplitMode]);
 
   const handleDirtyChange = useCallback((dirty: boolean) => {
     fileDirtyRef.current = dirty;
@@ -1001,9 +1016,8 @@ export default function ChatScreen() {
   }, [executeDirtyAction]);
 
   const handleCloseExplorer = useCallback(() => {
-    const action: DirtyAction = { type: "closeExplorer" };
-    if (!fileDirtyRef.current) { executeDirtyAction(action); return; }
-    setPendingDirtyAction(action);
+    const action: DirtyAction = { type: "closePanel" };
+    executeDirtyAction(action);
   }, [executeDirtyAction]);
 
   // Mobile: back from file viewer goes to explorer, back from explorer goes to chat
@@ -1360,6 +1374,7 @@ export default function ChatScreen() {
           isMobile={isMobile}
           contextBudget={effectiveContextBudget}
           sessionHeaderStats={sessionHeaderStats ?? null}
+          sessionId={channel?.active_session_id ?? null}
           onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
           isSystemChannel={isSystemChannel}
           findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}
@@ -1531,9 +1546,8 @@ export default function ChatScreen() {
               Outer padding (pl-1.5 py-1.5) creates the 6px floating-card gap. */}
           {channelId && !isSystemChannel && showRailZone && (
             <div
-              className="pl-2.5 py-2.5"
               style={{
-                width: panelLayout.left.mode === "push" ? panelLayout.left.width + 10 : 0,
+                width: panelLayout.left.mode === "push" ? panelLayout.left.width : 0,
                 ...(panelLayout.left.mode === "overlay"
                   ? {
                       position: "absolute",
@@ -1541,7 +1555,7 @@ export default function ChatScreen() {
                       top: 0,
                       bottom: 0,
                       zIndex: 30,
-                      width: panelLayout.left.width + 10,
+                      width: panelLayout.left.width,
                       backgroundColor: t.surface,
                       boxShadow: "18px 0 36px rgba(0,0,0,0.28)",
                     }
@@ -1687,11 +1701,12 @@ export default function ChatScreen() {
             <PinnedPanelsRail channelId={channelId} workspaceId={workspaceId} />
           )}
 
-          {!isMobile && panelLayout.right.mode === "closed" && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (
+          {!isMobile && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (panelLayout.right.mode === "closed" || dockBlockedByFileViewer) && (
             <CollapsedPanelSpine
               side="right"
-              title="Open right dock"
+              title={dockBlockedByFileViewer ? "Right dock unavailable" : "Open right dock"}
               actions={rightSpineActions}
+              statusLabel={dockBlockedByFileViewer ? "Dock Locked" : undefined}
             />
           )}
 

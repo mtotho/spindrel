@@ -118,6 +118,14 @@ Purpose:
 Follow-up refinement the same day:
 
 - Split the page into **readiness** and **confidence** instead of pretending those are the same thing
+
+### 2026-04-23 progress — subagent docs corrected to match runtime hardening
+
+Aligned the subagent-facing docs with the hardened runtime contract:
+
+- `docs/guides/subagents.md` now frames subagents as **experimental readonly sidecars**, not an automatic/default orchestration primitive.
+- `skills/delegation.md` now distinguishes named-bot delegation from bounded readonly side work and removes the older "use subagents to help thinking" framing.
+- `tests/e2e/scenarios/test_subagents.py` header/examples were updated away from the stale exec-command assumption for `file-scanner`.
 - Confidence is now explicitly grounded in operator usage feedback (e.g. command palette = high confidence from constant use; usage tracking = working but medium confidence because cost estimates are best-effort; tool policies = works but not yet polished; webhooks = documented but low-confidence due to limited recent exercise)
 - Added a **provider/model snapshot** subsection to `feature-status.md` so the page now captures operator-tested provider paths and model families (Claude via LiteLLM, anthropic-compatible MiniMax, Gemini via LiteLLM, GPT-5.4 via LiteLLM + openai-subscription, local Ollama models, image-generation paths, embeddings options).
 - Final gap pass tightened the transparency matrix with several user-visible capabilities that were still undercounted: tool approval flow, temporal context awareness, scratch/side-thread sessions, push notifications, `run_script` programmatic orchestration, channel integration bindings/outbound delivery, and endpoint-catalog discoverability.

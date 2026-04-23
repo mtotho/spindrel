@@ -41,7 +41,7 @@ export function useCommandPaletteShortcut() {
 
 export interface CommandPaletteContentProps {
   variant: "modal" | "inline";
-  onAfterSelect?: () => void;
+  onAfterSelect?: (item: PaletteItem) => void;
   autoFocus?: boolean;
   showInlineClose?: boolean;
   onEscape?: () => void;
@@ -165,9 +165,9 @@ export function CommandPaletteContent({
   }, [selectedIndex]);
 
   const go = useCallback(
-    (href: string) => {
+    (item: PaletteItem, href: string) => {
       recordPageVisit(href);
-      onAfterSelect?.();
+      onAfterSelect?.(item);
       closeMobileSidebar();
       const hashIdx = href.indexOf("#");
       if (hashIdx >= 0) {
@@ -189,12 +189,12 @@ export function CommandPaletteContent({
   const selectItem = useCallback(
     (item: PaletteItem) => {
       if (item.onSelect) {
-        onAfterSelect?.();
+        onAfterSelect?.(item);
         closeMobileSidebar();
         item.onSelect();
         return;
       }
-      if (item.href) go(item.href);
+      if (item.href) go(item, item.href);
     },
     [closeMobileSidebar, go, onAfterSelect],
   );

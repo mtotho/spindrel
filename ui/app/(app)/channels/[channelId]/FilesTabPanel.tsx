@@ -221,6 +221,10 @@ export function FilesTabPanel({
 
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const lastClickedRef = useRef<string | null>(null);
+  const selectedCount = selectedPaths.size;
+  const visibleSummary = searchQuery
+    ? `${filtered.length} match${filtered.length === 1 ? "" : "es"}`
+    : `${folders.length} folder${folders.length === 1 ? "" : "s"} · ${files.length} file${files.length === 1 ? "" : "s"}`;
 
   const allItemPaths = useMemo(
     () => [
@@ -634,133 +638,148 @@ export function FilesTabPanel({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className="flex flex-col h-full min-h-0 overflow-hidden outline-none relative"
-      style={{ background: t.surfaceRaised }}
+      style={{ background: t.surface }}
     >
-      {/* Action row — create / filter / refresh + token gauge */}
       <div
-        className="flex items-center gap-0.5 px-2 h-8 shrink-0 border-b"
-        style={{ borderColor: `${t.surfaceBorder}55` }}
+        className="shrink-0 border-b"
+        style={{
+          borderColor: `${t.surfaceBorder}55`,
+          background: t.surface,
+        }}
       >
-        <button
-          type="button"
-          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-          onClick={() => setNewItem("file")}
-          title="New file in current folder"
+        <div
+          className="flex items-center gap-0.5 px-2 h-8"
+          style={{ borderColor: `${t.surfaceBorder}40` }}
         >
-          <Plus size={14} color={t.textDim} />
-        </button>
-        <button
-          type="button"
-          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-          onClick={() => setNewItem("folder")}
-          title="New folder in current folder"
-        >
-          <FolderPlus size={14} color={t.textDim} />
-        </button>
-        <button
-          type="button"
-          className="header-icon-btn p-1.5 rounded cursor-pointer border-0"
-          onClick={() => {
-            setShowFilter((v) => !v);
-            if (!showFilter) setTimeout(() => searchRef.current?.focus(), 0);
-          }}
-          style={{ background: showFilter ? t.surfaceOverlay : "transparent" }}
-          title="Filter files ( / )"
-        >
-          <Search size={13} color={showFilter ? t.accent : t.textDim} />
-        </button>
-        <button
-          type="button"
-          className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
-          onClick={refreshAll}
-          title="Refresh"
-        >
-          <RefreshCw size={13} color={t.textDim} />
-        </button>
-        <span
-          className="ml-auto relative overflow-hidden rounded"
-          title={tokenTitle}
-          style={{
-            padding: "1px 6px",
-            fontSize: 10,
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            color: tokenColor,
-            backgroundColor: `${t.text}06`,
-            flexShrink: 0,
-          }}
-        >
-          <span
-            className="absolute left-0 top-0 bottom-0 rounded"
-            style={{
-              width: `${Math.round(tokenPct * 100)}%`,
-              backgroundColor: tokenColor,
-              opacity: 0.12,
-              transition: "width 0.3s ease, background-color 0.3s ease",
-            }}
-          />
-          <span className="relative">~{tokenStr} tok</span>
-        </span>
-      </div>
-
-      {/* Filter input — toggled */}
-      {showFilter && (
-        <div className="px-2 py-1.5 border-b shrink-0" style={{ borderColor: `${t.surfaceBorder}55` }}>
-          <div
-            className="flex items-center gap-2 rounded px-2 h-7 border"
-            style={{ background: t.inputBg, borderColor: t.surfaceBorder }}
+          <button
+            type="button"
+            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+            onClick={() => setNewItem("file")}
+            title="New file in current folder"
           >
-            <Search size={12} color={t.textDim} className="shrink-0" />
-            <input
-              ref={searchRef}
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  setSearchQuery("");
-                  setShowFilter(false);
-                }
+            <Plus size={14} color={t.textDim} />
+          </button>
+          <button
+            type="button"
+            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+            onClick={() => setNewItem("folder")}
+            title="New folder in current folder"
+          >
+            <FolderPlus size={14} color={t.textDim} />
+          </button>
+          <button
+            type="button"
+            className="header-icon-btn p-1.5 rounded cursor-pointer border-0"
+            onClick={() => {
+              setShowFilter((v) => !v);
+              if (!showFilter) setTimeout(() => searchRef.current?.focus(), 0);
+            }}
+            style={{ background: showFilter ? t.surfaceOverlay : "transparent" }}
+            title="Filter files ( / )"
+          >
+            <Search size={13} color={showFilter ? t.accent : t.textDim} />
+          </button>
+          <button
+            type="button"
+            className="header-icon-btn p-1.5 rounded cursor-pointer bg-transparent border-0"
+            onClick={refreshAll}
+            title="Refresh"
+          >
+            <RefreshCw size={13} color={t.textDim} />
+          </button>
+          <span
+            className="ml-1 truncate"
+            style={{
+              color: t.textDim,
+              fontSize: 10,
+              letterSpacing: "0.02em",
+            }}
+          >
+            {visibleSummary}
+            {selectedCount > 0 ? ` · ${selectedCount} selected` : " · drag files to move"}
+          </span>
+          <span
+            className="ml-auto relative overflow-hidden rounded"
+            title={tokenTitle}
+            style={{
+              padding: "1px 6px",
+              fontSize: 10,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              color: tokenColor,
+              backgroundColor: `${t.text}06`,
+              flexShrink: 0,
+            }}
+          >
+            <span
+              className="absolute left-0 top-0 bottom-0 rounded"
+              style={{
+                width: `${Math.round(tokenPct * 100)}%`,
+                backgroundColor: tokenColor,
+                opacity: 0.12,
+                transition: "width 0.3s ease, background-color 0.3s ease",
               }}
-              placeholder="Filter files…"
-              autoFocus
-              className="flex-1 bg-transparent border-0 outline-none text-xs p-0 min-w-0"
-              style={{ color: t.text }}
             />
-            {searchQuery && (
-              <X
-                size={12}
-                color={t.textDim}
-                className="cursor-pointer shrink-0"
-                onClick={() => {
-                  setSearchQuery("");
-                  searchRef.current?.focus();
-                }}
-              />
-            )}
-          </div>
+            <span className="relative">~{tokenStr} tok</span>
+          </span>
         </div>
-      )}
 
-      {/* Scope strip — Channel | Workspace | Memory */}
-      <ScopeStrip
-        currentPath={currentPath}
-        scopeTargets={[
-          ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
-          { label: "Workspace", path: "/" },
-          ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
-        ]}
-        onJump={setCurrentPath}
-      />
+        {showFilter && (
+          <div className="px-2 py-1.5 border-t shrink-0" style={{ borderColor: `${t.surfaceBorder}40` }}>
+            <div
+              className="flex items-center gap-2 rounded px-2 h-7 border"
+              style={{ background: t.inputBg, borderColor: t.surfaceBorder }}
+            >
+              <Search size={12} color={t.textDim} className="shrink-0" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setSearchQuery("");
+                    setShowFilter(false);
+                  }
+                }}
+                placeholder="Filter files…"
+                autoFocus
+                className="flex-1 bg-transparent border-0 outline-none text-xs p-0 min-w-0"
+                style={{ color: t.text }}
+              />
+              {searchQuery && (
+                <X
+                  size={12}
+                  color={t.textDim}
+                  className="cursor-pointer shrink-0"
+                  onClick={() => {
+                    setSearchQuery("");
+                    searchRef.current?.focus();
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
-      {/* Breadcrumb */}
-      <Breadcrumb
-        path={currentPath}
-        channelId={channelId}
-        channelDisplayName={channelDisplayName}
-        channelNameMap={channelNameMap}
-        onNavigate={setCurrentPath}
-      />
+        <ScopeStrip
+          currentPath={currentPath}
+          scopeTargets={[
+            ...(channelTarget ? [{ label: "Channel", path: channelTarget }] : []),
+            { label: "Workspace", path: "/" },
+            ...(memoryTarget ? [{ label: "Memory", path: memoryTarget }] : []),
+          ]}
+          onJump={setCurrentPath}
+        />
+
+        <Breadcrumb
+          path={currentPath}
+          channelId={channelId}
+          channelDisplayName={channelDisplayName}
+          channelNameMap={channelNameMap}
+          onNavigate={setCurrentPath}
+        />
+      </div>
 
       {/* Tree */}
       <div
@@ -825,10 +844,15 @@ export function FilesTabPanel({
             />
             {!treeLoading && (treeData?.entries ?? []).length === 0 && !newItem && (
               <div
-                className="italic text-center p-3"
-                style={{ color: t.textDim, fontSize: 11 }}
+                className="px-4 py-6 text-center"
+                style={{ color: t.textDim }}
               >
-                {searchQuery ? "No matching files" : "Empty directory"}
+                <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
+                  {searchQuery ? "No matching files" : "Empty directory"}
+                </div>
+                <div style={{ fontSize: 10, marginTop: 4 }}>
+                  {searchQuery ? "Try a broader filter or clear search." : "Create a file, create a folder, or drop files here to upload."}
+                </div>
               </div>
             )}
             {uploadStatus && (
@@ -854,7 +878,7 @@ export function FilesTabPanel({
         >
           <Upload size={14} color={t.accent} />
           <span style={{ color: t.accent, fontSize: 12, fontWeight: 600 }}>
-            Drop to upload to {currentPath}
+            Drop files to upload into {currentPath}
           </span>
         </div>
       )}

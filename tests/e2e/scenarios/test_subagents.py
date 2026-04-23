@@ -10,7 +10,7 @@ Verifies the spawn_subagents tool — inline, parallel, ephemeral agent executio
 - Custom sub-agent (no preset, explicit tools + system prompt)
 - Result truncation respects max_chars
 
-These tests are expected to FAIL until spawn_subagents is implemented.
+These tests cover the current bounded sub-agent contract.
 """
 
 from __future__ import annotations
@@ -129,22 +129,21 @@ async def test_parallel_subagents_return_all_results(client: E2EClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3. File-scanner preset gets file tools
+# 3. File-scanner preset gets readonly file tools
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_file_scanner_preset_has_file_tools(client: E2EClient) -> None:
-    """Sub-agent with preset 'file-scanner' should be able to use exec_command
-    to run shell commands for file scanning."""
+    """Sub-agent with preset 'file-scanner' should be able to read files."""
     bot_id = await _create_subagent_bot(client)
     try:
         client_id = client.new_client_id("e2e-subagent-scanner")
         result = await asyncio.wait_for(
             client.chat_stream(
                 'Use spawn_subagents with one sub-agent: '
-                '{"preset": "file-scanner", "prompt": "Use exec_command to run: '
-                'echo SCANNER_WORKS — then report what the command printed."}',
+                '{"preset": "file-scanner", "prompt": "Use the file tool to read README.md '
+                'and report the main project name or title."}',
                 bot_id=bot_id,
                 client_id=client_id,
             ),
@@ -154,9 +153,9 @@ async def test_file_scanner_preset_has_file_tools(client: E2EClient) -> None:
         assert_tool_called(result.tools_used, ["spawn_subagents"])
         assert_response_not_empty(result.response_text, min_chars=10)
 
-        # The scanner sub-agent should have run exec_command and reported the output
+        # The scanner sub-agent should have read README.md and reported what it found.
         assert_contains_any(result.response_text, [
-            "scanner_works", "SCANNER_WORKS",
+            "agent server", "spindrel", "readme",
         ])
     finally:
         await client.delete_bot(bot_id)

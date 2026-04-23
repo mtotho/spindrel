@@ -108,7 +108,7 @@ async def exec_tool(
 
     bot_id = await _resolve_calling_bot(db, auth)
 
-    from app.tools.registry import is_local_tool, get_tool_safety_tier
+    from app.tools.registry import is_local_tool, get_tool_execution_policy, get_tool_safety_tier
     from app.tools.mcp import is_mcp_tool
 
     is_local = is_local_tool(payload.name)
@@ -132,6 +132,21 @@ async def exec_tool(
                     "Client tools (browser-side) are not exposed via this endpoint."
                 ),
             )
+
+    if is_local:
+        execution_policy = get_tool_execution_policy(payload.name)
+        if execution_policy != "normal":
+            from app.services.local_machine_control import validate_current_execution_policy
+
+            resolution = await validate_current_execution_policy(execution_policy)
+            if not resolution.allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "local_control_required",
+                        "message": resolution.reason or "Machine-control tools are not available from this surface.",
+                    },
+                )
 
     # --- Policy check --- same gate the LLM-driven dispatch uses.
     from app.agent.tool_dispatch import _check_tool_policy

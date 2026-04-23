@@ -21,22 +21,24 @@ _PRESET_SUMMARY = ", ".join(
 
 @register({
     "type": "function",
-    "function": {
-        "name": "spawn_subagents",
-        "description": (
-            "Spawn one or more ephemeral sub-agents to perform focused tasks in parallel. "
-            "Each sub-agent runs with minimal context (just your prompt), executes quickly, "
-            "and returns its result directly to you — nothing is posted to the channel.\n\n"
-            "Use this for grunt work: scanning files, summarizing text, researching topics, "
-            "extracting data. Sub-agents run on cheaper models with minimal context, so they "
-            "save money when you're on an expensive model or have a large conversation history. "
-            "They also save time when you have multiple independent tasks to parallelize.\n\n"
-            "**When to use:** 2+ independent tasks, or expensive parent model + grunt work.\n"
-            "**When NOT to use:** Single simple task you can handle directly in one step.\n\n"
-            f"Built-in presets: {_PRESET_SUMMARY}.\n"
-            "You can also specify custom tools and system_prompt instead of a preset.\n\n"
-            f"Maximum {MAX_SUBAGENTS_PER_CALL} sub-agents per call."
-        ),
+        "function": {
+            "name": "spawn_subagents",
+            "description": (
+                "Spawn one or more ephemeral sub-agents to perform bounded, parallel, read-only side research. "
+                "Each sub-agent runs with minimal context (just your prompt), executes quickly, "
+                "and returns its result directly to you — nothing is posted to the channel.\n\n"
+                "Use this only for independent side tasks like file scanning, summarizing text, "
+                "lightweight research, or extracting data before you synthesize the answer. "
+                "Sub-agents are not a general planning-or-reasoning shortcut and should not own "
+                "the critical path of the turn.\n\n"
+                "**When to use:** 2+ bounded independent read-only tasks.\n"
+                "**When NOT to use:** single simple work, anything requiring mutating or exec-capable tools, "
+                "or work that depends on the full conversation context.\n\n"
+                f"Built-in presets: {_PRESET_SUMMARY}.\n"
+                "You can also specify custom readonly tools and system_prompt instead of a preset. "
+                "Mutating, exec-capable, control-plane, and recursive delegation tools are dropped.\n\n"
+                f"Maximum {MAX_SUBAGENTS_PER_CALL} sub-agents per call."
+            ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -66,7 +68,7 @@ _PRESET_SUMMARY = ", ".join(
                                     "These ADD to the preset's tool list — you do NOT need to "
                                     "restate the preset's tools. "
                                     "Example: preset=\"data-extractor\" + tools=[\"github_get_commit\"] "
-                                    "gives the sub-agent file + exec_command + github_get_commit."
+                                    "gives the sub-agent file + github_get_commit."
                                 ),
                             },
                             "system_prompt": {
@@ -109,7 +111,11 @@ _PRESET_SUMMARY = ", ".join(
                     "status": {"type": "string"},
                     "result": {"type": ["string", "null"]},
                     "preset": {"type": "string"},
+                    "model": {"type": ["string", "null"]},
                     "elapsed_ms": {"type": "number"},
+                    "tool_names": {"type": "array", "items": {"type": "string"}},
+                    "blocked_tools": {"type": "array", "items": {"type": "string"}},
+                    "correlation_id": {"type": ["string", "null"]},
                 },
                 "required": ["index", "status"],
             },
@@ -152,8 +158,16 @@ async def spawn_subagents(agents: list[dict]) -> str:
         }
         if r.preset:
             entry["preset"] = r.preset
+        if r.model:
+            entry["model"] = r.model
         if r.elapsed_ms:
             entry["elapsed_ms"] = r.elapsed_ms
+        if r.tool_names:
+            entry["tool_names"] = r.tool_names
+        if r.blocked_tools:
+            entry["blocked_tools"] = r.blocked_tools
+        if r.correlation_id:
+            entry["correlation_id"] = r.correlation_id
         output.append(entry)
 
     response: dict = {"results": output}

@@ -1,6 +1,7 @@
 # Architecture
 
 For the canonical document covering runtime context policy, replay/compaction behavior, history modes, context profiles, and prompt-budget reporting, see [Context Management](../guides/context-management.md).
+For the canonical document covering leased local-machine access, paired companions, machine targets, and execution-policy gating, see [Local Machine Control](../guides/local-machine-control.md).
 
 ## System Overview
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.agent.base_prompt import resolve_workspace_base_prompt
+from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +60,29 @@ class TestResolveWorkspaceBasePrompt:
         mock_svc.read_file.side_effect = mock_read
         result = resolve_workspace_base_prompt("ws-123", "coder")
         assert result == "Common only."
+
+
+class TestRenderBasePrompt:
+    def _make_bot(self, **kwargs):
+        defaults = {
+            "name": "Coder",
+            "base_prompt": True,
+            "local_tools": ["spawn_subagents"],
+            "delegate_bots": ["helper-bot"],
+        }
+        defaults.update(kwargs)
+        return SimpleNamespace(**defaults)
+
+    def test_subagents_not_mentioned_in_base_prompt(self):
+        template = (
+            "You are {bot_name}.\n"
+            "Tools:{skills_section}{memory_section}{knowledge_section}{delegation_section}{subagent_section}"
+        )
+        with patch("app.agent.base_prompt._cached_template", template):
+            rendered = render_base_prompt(self._make_bot())
+        assert rendered is not None
+        assert "delegate_to_agent" in rendered
+        assert "spawn_subagents" not in rendered
 
 
 # ---------------------------------------------------------------------------

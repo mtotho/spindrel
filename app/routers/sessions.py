@@ -14,9 +14,17 @@ from app.config import settings
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Channel, Message, Session, TraceEvent
-from app.dependencies import get_db, require_scopes
+from app.dependencies import get_db, require_scopes, verify_user
 from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
+from app.services import presence
+from app.services.local_machine_control import (
+    DEFAULT_LEASE_TTL_SECONDS,
+    MAX_LEASE_TTL_SECONDS,
+    build_session_machine_target_payload,
+    clear_session_lease,
+    grant_session_lease,
+)
 from app.services.plan_semantic_review import review_plan_adherence
 from app.services.session_plan_mode import (
     STEP_STATUS_BLOCKED,
@@ -202,6 +210,29 @@ class PlanQuestionAnswersRequest(BaseModel):
     source_message_id: Optional[str] = None
 
 
+class SessionMachineTargetLeaseOut(BaseModel):
+    lease_id: str
+    target_id: str
+    user_id: str
+    granted_at: str
+    expires_at: str
+    capabilities: list[str]
+    connection_id: str | None = None
+    connected: bool
+    target_label: str
+
+
+class SessionMachineTargetOut(BaseModel):
+    session_id: str
+    lease: SessionMachineTargetLeaseOut | None = None
+    targets: list[dict[str, Any]]
+
+
+class SessionMachineTargetLeaseRequest(BaseModel):
+    target_id: str
+    ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS
+
+
 def _serialize_plan(session: Session) -> SessionPlanOut:
     plan = load_session_plan(session, required=True)
     assert plan is not None
@@ -232,6 +263,11 @@ def _assert_expected_plan_revision(session: Session, expected_revision: int | No
             status_code=409,
             detail=f"Revision mismatch. Expected {plan.revision}.",
         )
+
+
+def _require_admin_user(user) -> None:
+    if not getattr(user, "is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access required")
 
 
 @router.get("", response_model=list[SessionSummary])
@@ -951,6 +987,66 @@ async def get_session_context_diagnostics(
 class SummarizeResponse(BaseModel):
     title: str
     summary: str
+
+
+@router.get("/{session_id}/machine-target", response_model=SessionMachineTargetOut)
+async def get_session_machine_target(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    presence.mark_active(user.id)
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
+
+
+@router.post("/{session_id}/machine-target/lease", response_model=SessionMachineTargetOut)
+async def grant_session_machine_target_lease(
+    session_id: uuid.UUID,
+    body: SessionMachineTargetLeaseRequest,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    presence.mark_active(user.id)
+    try:
+        await grant_session_lease(
+            db,
+            session=session,
+            user=user,
+            target_id=body.target_id,
+            ttl_seconds=max(30, min(body.ttl_seconds, MAX_LEASE_TTL_SECONDS)),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
+
+
+@router.delete("/{session_id}/machine-target/lease", response_model=SessionMachineTargetOut)
+async def clear_session_machine_target_lease(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(verify_user),
+):
+    _require_admin_user(user)
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    clear_session_lease(session)
+    await db.commit()
+    await db.refresh(session)
+    payload = await build_session_machine_target_payload(db, session=session)
+    return SessionMachineTargetOut(**payload)
 
 
 @router.post("/{session_id}/summarize", response_model=SummarizeResponse)

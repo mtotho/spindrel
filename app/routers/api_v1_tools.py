@@ -37,6 +37,7 @@ class ToolSignature(BaseModel):
     input_schema: dict | None = None
     returns_schema: dict | None = None
     source_integration: str | None = None
+    execution_policy: str = "normal"
     requires_bot_context: bool = False
     requires_channel_context: bool = False
 
@@ -54,6 +55,7 @@ def _local_signature(name: str) -> ToolSignature | None:
         input_schema=fn.get("parameters"),
         returns_schema=entry.get("returns"),
         source_integration=entry.get("source_integration"),
+        execution_policy=str(entry.get("execution_policy") or "normal"),
         requires_bot_context=bool(entry.get("requires_bot_context")),
         requires_channel_context=bool(entry.get("requires_channel_context")),
     )

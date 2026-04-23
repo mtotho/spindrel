@@ -52,7 +52,7 @@ class TestPresets:
     def test_file_scanner_has_file_tools(self):
         tools = SUBAGENT_PRESETS["file-scanner"]["tools"]
         assert "file" in tools
-        assert "exec_command" in tools
+        assert "exec_command" not in tools
 
     def test_researcher_has_web_search(self):
         assert "web_search" in SUBAGENT_PRESETS["researcher"]["tools"]
@@ -78,6 +78,19 @@ def _mock_bot_config():
         model="test-model",
         system_prompt="Test bot.",
     )
+
+
+def _mock_safety_tier(name: str) -> str:
+    return {
+        "file": "readonly",
+        "web_search": "readonly",
+        "get_current_time": "readonly",
+        "github_get_commit": "readonly",
+        "exec_command": "exec_capable",
+        "spawn_subagents": "readonly",
+        "delegate_to_agent": "control_plane",
+        "delegate_to_exec": "control_plane",
+    }.get(name, "unknown")
 
 
 class TestRunSubagent:
@@ -121,8 +134,9 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
     @patch("app.tools.registry.get_local_tool_schemas")
-    async def test_forbidden_tools_stripped(self, mock_schemas, mock_loop):
-        """spawn_subagents and delegate_to_agent must be stripped from sub-agent tools."""
+    @patch("app.tools.registry.get_tool_safety_tier", side_effect=_mock_safety_tier)
+    async def test_forbidden_tools_stripped(self, mock_tier, mock_schemas, mock_loop):
+        """Sub-agents stay read-only and strip recursion/delegation tools."""
         mock_schemas.return_value = []
         with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
             result = await run_subagent(
@@ -136,12 +150,13 @@ class TestRunSubagent:
         assert "spawn_subagents" not in called_tools
         assert "delegate_to_agent" not in called_tools
         assert "file" in called_tools
-        assert "exec_command" in called_tools
+        assert "exec_command" not in called_tools
 
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
     @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
-    async def test_preset_and_explicit_tools_merge(self, mock_schemas, mock_loop):
+    @patch("app.tools.registry.get_tool_safety_tier", side_effect=_mock_safety_tier)
+    async def test_preset_and_explicit_tools_merge(self, mock_tier, mock_schemas, mock_loop):
         """Explicit tools augment preset tools rather than replacing them.
 
         Regression: a parent picking `data-extractor` (preset =
@@ -159,13 +174,14 @@ class TestRunSubagent:
         assert result.status == "ok"
         called_tools = mock_schemas.call_args[0][0]
         assert "file" in called_tools
-        assert "exec_command" in called_tools
+        assert "exec_command" not in called_tools
         assert "github_get_commit" in called_tools
 
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
     @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
-    async def test_preset_tools_deduped_when_explicit_overlaps(self, mock_schemas, mock_loop):
+    @patch("app.tools.registry.get_tool_safety_tier", side_effect=_mock_safety_tier)
+    async def test_preset_tools_deduped_when_explicit_overlaps(self, mock_tier, mock_schemas, mock_loop):
         """Tools listed in both preset and explicit appear once, preset order preserved."""
         with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
             await run_subagent(
@@ -176,7 +192,7 @@ class TestRunSubagent:
             )
         called_tools = mock_schemas.call_args[0][0]
         # `file` appears once (preset position preserved), `github_get_commit` appended.
-        assert called_tools == ["file", "exec_command", "github_get_commit"]
+        assert called_tools == ["file", "github_get_commit"]
 
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
@@ -257,7 +273,8 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("ok"))
     @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
-    async def test_no_preset_with_explicit_tools_and_prompt(self, mock_schemas, mock_loop):
+    @patch("app.tools.registry.get_tool_safety_tier", side_effect=_mock_safety_tier)
+    async def test_no_preset_with_explicit_tools_and_prompt(self, mock_tier, mock_schemas, mock_loop):
         """Custom sub-agent with no preset should work."""
         with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
             result = await run_subagent(
@@ -286,11 +303,30 @@ class TestRunSubagent:
     @pytest.mark.asyncio
     @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
     @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
-    async def test_skip_tool_policy_enabled(self, mock_schemas, mock_loop):
-        """Sub-agents should skip tool approval policy."""
+    async def test_subagents_honor_tool_policy(self, mock_schemas, mock_loop):
+        """Sub-agents should run through the normal tool-policy path."""
         with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
             await run_subagent("test", preset="summarizer", parent_bot_id="test-bot")
         assert mock_loop.called
+        assert mock_loop.call_args.kwargs["skip_tool_policy"] is False
+
+    @pytest.mark.asyncio
+    @patch("app.agent.loop.run_agent_tool_loop", side_effect=_mock_agent_loop("done"))
+    @patch("app.tools.registry.get_local_tool_schemas", return_value=[])
+    @patch("app.tools.registry.get_tool_safety_tier", side_effect=_mock_safety_tier)
+    @patch("app.agent.recording._record_trace_event", new_callable=AsyncMock)
+    async def test_subagent_records_trace_events(self, mock_trace, mock_tier, mock_schemas, mock_loop):
+        with patch("app.agent.bots.get_bot", return_value=_mock_bot_config()):
+            result = await run_subagent(
+                "test",
+                preset="summarizer",
+                parent_bot_id="test-bot",
+                parent_session_id=uuid.uuid4(),
+            )
+        assert result.status == "ok"
+        event_types = [call.kwargs["event_type"] for call in mock_trace.await_args_list]
+        assert "subagent_started" in event_types
+        assert "subagent_finished" in event_types
 
 
 # ---------------------------------------------------------------------------

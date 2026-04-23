@@ -52,6 +52,7 @@ from app.routers.chat._multibot import (
 )
 from app.routers.chat._schemas import ChatRequest
 from app.services import session_locks
+from app.services import presence
 from app.services.channel_events import publish_typed
 from app.services.compaction import maybe_compact
 from app.services.delegation import delegation_service as _ds
@@ -114,6 +115,7 @@ async def run_turn(
         set_agent_context(
             session_id=session_id,
             client_id=req.client_id,
+            user_id=getattr(user, "id", None),
             bot_id=bot.id,
             correlation_id=correlation_id,
             channel_id=channel_id,
@@ -131,6 +133,8 @@ async def run_turn(
         # right in-flight turn slot.
         from app.agent.context import current_turn_id
         current_turn_id.set(turn_id)
+        if getattr(user, "id", None) is not None:
+            presence.mark_active(user.id)
 
         # 1. Pre-persist the user message and publish NEW_MESSAGE so the bus
         #    sees the user input before the agent starts emitting tokens.

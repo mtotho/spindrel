@@ -207,3 +207,34 @@ test("finishTurn materializes the canonical assistant turn body", () => {
     assert.equal(metadata.tool_results?.[1]?.record_id, "result-time");
     assert.equal(metadata.tool_results?.[2]?.record_id, "result-b");
 });
+test("upsertMessage replaces an existing persisted row in place", () => {
+    useChatStore.setState({ channels: {} });
+    const store = useChatStore.getState();
+    store.addMessage("channel-1", {
+        id: "msg-1",
+        session_id: "session-1",
+        role: "assistant",
+        content: "",
+        created_at: "2026-04-23T12:00:00Z",
+        metadata: {
+            kind: "compaction_run",
+            compaction_status: "running",
+        },
+    });
+    store.upsertMessage("channel-1", {
+        id: "msg-1",
+        session_id: "session-1",
+        role: "assistant",
+        content: "",
+        created_at: "2026-04-23T12:00:00Z",
+        metadata: {
+            kind: "compaction_run",
+            compaction_status: "completed",
+            compaction_summary_text: "Updated summary",
+        },
+    });
+    const messages = useChatStore.getState().getChannel("channel-1").messages;
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.metadata?.compaction_status, "completed");
+    assert.equal(messages[0]?.metadata?.compaction_summary_text, "Updated summary");
+});

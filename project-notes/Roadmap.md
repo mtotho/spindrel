@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-21 (Chat page request-storm cleanup — workflow polling killed, approvals onto SSE, session-status slowed, widget refresh coalesced, context-breakdown cached)
+updated: 2026-04-23 (Local machine control v1 — companion driver, explicit session leases, local exec/inspect tools, channel-header machine chip)
 ---
 # Agent Server — Roadmap
 
@@ -24,7 +24,7 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 | Memory hygiene | Two job types (Maintenance + Skill Review), cross-channel curation, 80+ tests |
 | Multi-bot channels | Unified `prepare_bot_context()` pipeline, identity/routing fixes |
 | Skill simplification | All 7 phases done. Per-bot working set, auto-inject, enrolled ranking. See [[Track - Skill Simplification]] |
-| Sub-agent system | 5 presets, parallel exec, depth/rate limit, 25 unit + 10 E2E tests |
+| Sub-agent system | Experimental readonly sidecars only; prompt nudges removed, policy enforced, traceable child runs |
 | Declarative integrations | YAML-only, bundled MCP, visual/YAML editor, per-channel scoping |
 | Web-native Phase 2 | Metro→Vite, expo-router→react-router v7, all RN→HTML. Zero TS errors |
 | Integration delivery | Bus + outbox + renderer abstraction. POST /chat → 202. See [[Track - Integration Delivery]] |
@@ -36,6 +36,9 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 
 ### `browser_live` integration — v0.1 shipped 2026-04-19
 New `integrations/browser_live/` drives the user's *real* logged-in Chrome session via a paired MV3 extension. Five tools (`browser_goto / browser_act / browser_eval / browser_screenshot / browser_status`) RPC over a WebSocket bridge (`integrations/browser_live/bridge.py`) to a service worker (`extension/background.js`) that dispatches onto `chrome.tabs / chrome.scripting / chrome.tabs.captureVisibleTab`. Pairing: single global `BROWSER_LIVE_PAIRING_TOKEN` integration setting, generated/rotated via admin endpoint `POST /integrations/browser_live/admin/token/rotate` (returns plaintext once); `GET /integrations/browser_live/admin/status` lists paired connections. Multi-browser supported — default route = most-recent, override with `connection_id` arg. Tool tiers: `browser_eval` exec_capable, `browser_goto/act` mutating, `browser_screenshot/status` readonly. Bridge is in-memory / single-worker — multi-worker needs an external broker. Screenshot widget at `widgets/screenshot.html` (sd-card with PNG download + lightbox). 9 new bridge tests + returns-schema lint pin green. Future: forward extension-initiated events onto `channel_events` so widgets can subscribe; live-tab mirror widget; per-user tokens once a `current_user_id` ContextVar exists; Firefox port. See `integrations/browser_live/README.md`.
+
+### Local machine control — v1 companion driver shipped 2026-04-23
+New `integrations/local_companion/` adds paired-machine shell access without pretending the server is local. Runtime model is a generic **machine target** abstraction with `driver="companion"` in v1 and SSH deferred to a later driver. Targets are enrolled in integration settings JSON; session-scoped leases live in `Session.metadata_["machine_target_lease"]`. New execution policies (`interactive_user`, `live_target_lease`) gate the three local tools: `local_status`, `local_inspect_command`, `local_exec_command`. Machine tools require a live signed-in admin user, active presence, and an explicit session lease for one connected target; one session gets one target and one target can only be leased by one session at a time. Session APIs: `GET/POST/DELETE /api/v1/sessions/{id}/machine-target*`. UI: desktop `MachineTargetChip` in the channel header for enroll / grant / revoke / remove. Bot/script execution surfaces now hard-deny these tools instead of treating them like ordinary server-side exec. Follow-up: SSH driver, inline "Grant machine access" transcript card, and reuse of the lease abstraction for `browser_live`. See [[Track - Local Machine Control]].
 
 ### Provider-dialect prompt templating — v1 shipped 2026-04-19
 New `prompt_style` capability flag on `ProviderModel` (markdown/xml/structured, default markdown). Framework prompts (`DEFAULT_GLOBAL_BASE_PROMPT` + `DEFAULT_MEMORY_SCHEME_PROMPT`) use `{% section "Title" %}...{% endsection %}` markers; `app/services/prompt_dialect.render` rewrites to markdown `## Title` or XML `<title>` per the resolved model's flag. Migration 222 seeds `xml` for `provider_type='anthropic'`, `markdown` for everything else (admin opts into non-default). Applied at `_effective_system_prompt` (sessions.py) and `_render_channel_workspace_prompt` (context_assembly.py); bot's own `system_prompt` + workspace-authored base/bot prompts stay verbatim. Admin UI exposes dropdown on provider-model add + shows non-default style badge. 16 new tests; 97 adjacent tests green. **Open question**: does XML wrapping on Anthropic actually move any metric? The whole premise is folk wisdom — no eval data yet. Next: hook into [[Track - Experiments]] harness and run before/after on 2–3 canonical prompts before adding more fragments. If <2% delta, rip it out. Plan: `~/.claude/plans/swirling-plotting-biscuit.md`.

@@ -10,9 +10,9 @@
  *          Dock / Grid), so mobile users see the full dashboard contents
  *          regardless of the zone each pin lives in on desktop.
  *
- * Files:   passes through to `FilesTabPanel`. Tapping a file closes the
- *          drawer and hands the path back to the page so the mobile file
- *          viewer can open it (same contract the old sheet used).
+ * Files:   passes through to `FilesTabPanel`. Tapping a file hands the path
+ *          back to the page; the parent owns closing the drawer and opening
+ *          the mobile file viewer so dirty-file guards stay coherent.
  *
  * Jump:    the existing `CommandPaletteContent` rendered inline. Default
  *          tab on open so the drawer's default behavior matches today's
@@ -33,6 +33,7 @@ import { useDashboardPins } from "@/src/api/hooks/useDashboardPins";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { channelSlug } from "@/src/stores/dashboards";
 import { CommandPaletteContent } from "@/src/components/layout/CommandPalette";
+import type { PaletteItem } from "@/src/components/palette/types";
 import { FilesTabPanel } from "./FilesTabPanel";
 import { PinnedToolWidget } from "./PinnedToolWidget";
 import type {
@@ -70,6 +71,12 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
   };
 }
 
+function parseChannelIdFromPaletteItem(item: PaletteItem): string | null {
+  if (!item.href) return null;
+  const match = item.href.match(/^\/channels\/([^/?#]+)/);
+  return match?.[1] ?? null;
+}
+
 export function MobileChannelDrawer({
   open,
   onClose,
@@ -88,6 +95,7 @@ export function MobileChannelDrawer({
   const t = useThemeTokens();
   const storeTab = useUIStore((s) => s.omniPanelTab);
   const setStoreTab = useUIStore((s) => s.setOmniPanelTab);
+  const patchChannelPanelPrefs = useUIStore((s) => s.patchChannelPanelPrefs);
   const tab = controlledTab ?? storeTab;
   const setTab = useCallback(
     (next: OmniPanelTab) => {
@@ -145,9 +153,22 @@ export function MobileChannelDrawer({
   const handleSelectFile = useCallback(
     (path: string) => {
       onSelectFile(path);
+    },
+    [onSelectFile],
+  );
+
+  const handleAfterJumpSelect = useCallback(
+    (item: PaletteItem) => {
+      const targetChannelId = parseChannelIdFromPaletteItem(item);
+      if (targetChannelId) {
+        patchChannelPanelPrefs(targetChannelId, {
+          mobileDrawerOpen: false,
+          mobileExpandedWidgetId: null,
+        });
+      }
       onClose();
     },
-    [onSelectFile, onClose],
+    [onClose, patchChannelPanelPrefs],
   );
 
   // If the user lost file-tab access (no workspace), bounce them off it.
@@ -242,7 +263,7 @@ export function MobileChannelDrawer({
           <CommandPaletteContent
             variant="modal"
             autoFocus
-            onAfterSelect={onClose}
+            onAfterSelect={handleAfterJumpSelect}
             onEscape={onClose}
             showInlineClose={false}
           />

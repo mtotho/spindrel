@@ -191,3 +191,30 @@ async def test_list_tool_signatures_dispatches_through_endpoint(bot_bound_client
     assert "count" in body["result"]
 
 
+async def test_machine_control_tools_are_hard_denied_for_bot_key_surface(bot_bound_client):
+    ac, _auth, _key_id = bot_bound_client
+
+    from app.tools import registry
+
+    tool_name = f"machine_gate_{uuid.uuid4().hex[:8]}"
+
+    async def _machine_tool():
+        return json.dumps({"ok": True})
+
+    registry.register(
+        {"type": "function", "function": {"name": tool_name, "parameters": {}}},
+        execution_policy="live_target_lease",
+    )(_machine_tool)
+    try:
+        r = await ac.post(
+            "/api/v1/internal/tools/exec",
+            json={"name": tool_name, "arguments": {}},
+        )
+    finally:
+        registry._tools.pop(tool_name, None)
+
+    assert r.status_code == 403
+    body = r.json()
+    assert body["detail"]["error"] == "local_control_required"
+    assert "live signed-in user session" in body["detail"]["message"].lower()
+

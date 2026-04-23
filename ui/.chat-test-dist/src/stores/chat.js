@@ -83,6 +83,26 @@ export const useChatStore = create()((set, get) => ({
             },
         };
     }),
+    upsertMessage: (channelId, message) => set((s) => {
+        const ch = s.channels[channelId] ?? emptyChannel;
+        const existingIndex = ch.messages.findIndex((current) => current.id === message.id);
+        if (existingIndex < 0) {
+            return {
+                channels: {
+                    ...s.channels,
+                    [channelId]: { ...ch, messages: [...ch.messages, message] },
+                },
+            };
+        }
+        const nextMessages = [...ch.messages];
+        nextMessages[existingIndex] = message;
+        return {
+            channels: {
+                ...s.channels,
+                [channelId]: { ...ch, messages: nextMessages },
+            },
+        };
+    }),
     startTurn: (channelId, turnId, botId, botName, isPrimary) => set((s) => {
         const ch = s.channels[channelId] ?? emptyChannel;
         // Idempotent: if a turn with this id already exists (e.g. SSE

@@ -128,6 +128,7 @@ interface UIState {
   toggleFileExplorer: () => void;
   setFileExplorerOpen: (open: boolean) => void;
   toggleFileExplorerSplit: () => void;
+  setFileExplorerSplit: (split: boolean) => void;
   toggleRightDock: () => void;
   setRightDockHidden: (hidden: boolean) => void;
   setOmniPanelTab: (tab: OmniPanelTab) => void;
@@ -194,6 +195,7 @@ export const useUIStore = create<UIState>()(
       toggleFileExplorer: () => set((s) => ({ fileExplorerOpen: !s.fileExplorerOpen })),
       setFileExplorerOpen: (open) => set({ fileExplorerOpen: open }),
       toggleFileExplorerSplit: () => set((s) => ({ fileExplorerSplit: !s.fileExplorerSplit })),
+      setFileExplorerSplit: (split) => set({ fileExplorerSplit: split }),
       toggleRightDock: () => set((s) => ({ rightDockHidden: !s.rightDockHidden })),
       setRightDockHidden: (hidden) => set({ rightDockHidden: hidden }),
       setOmniPanelTab: (tab) => set({ omniPanelTab: tab }),

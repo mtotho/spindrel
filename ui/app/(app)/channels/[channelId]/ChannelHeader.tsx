@@ -14,6 +14,7 @@ import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemer
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
+import { MachineTargetChip } from "./MachineTargetChip";
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -49,6 +50,7 @@ export interface ChannelHeaderProps {
     turnsInContext: number | null;
     turnsUntilCompaction: number | null;
   } | null;
+  sessionId?: string | null;
   /** Orchestrator / system-control channel — renders SYSTEM pill next to title. */
   isSystemChannel?: boolean;
   /** Findings panel state (awaiting-user-input pipelines). Inline icon shows
@@ -94,6 +96,7 @@ export function ChannelHeader({
   contextBudget,
   onContextBudgetClick,
   sessionHeaderStats,
+  sessionId,
   isSystemChannel,
   findingsPanelOpen,
   toggleFindingsPanel,
@@ -161,7 +164,7 @@ export function ChannelHeader({
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
   const showScratchState = !!scratchFullpageMode;
-  const scratchBadgeLabel = "Scratch session";
+  const scratchBadgeLabel = "Scratch";
   const sessionButtonLabel = "Sessions";
   const scratchTone = {
     bg: t.surfaceOverlay,
@@ -226,10 +229,7 @@ export function ChannelHeader({
     const matchedCurrent = currentScratchSession?.session_id === scratchSessionId ? currentScratchSession : null;
     const label =
       matchedHistory?.title?.trim()
-      || matchedHistory?.summary?.trim()
-      || matchedHistory?.preview?.trim()
       || matchedCurrent?.title?.trim()
-      || matchedCurrent?.summary?.trim()
       || null;
     const bits = [
       formatScratchHeaderTimestamp(matchedHistory?.last_active ?? matchedCurrent?.created_at ?? null),
@@ -243,19 +243,12 @@ export function ChannelHeader({
         : typeof matchedCurrent?.section_count === "number"
           ? `${matchedCurrent.section_count} section${matchedCurrent.section_count === 1 ? "" : "s"}`
           : null,
-      ...headerMetaBits.map((bit) => {
-        if (!React.isValidElement(bit)) return null;
-        const children = (bit.props as { children?: React.ReactNode } | null | undefined)?.children;
-        if (typeof children === "string") return children;
-        if (typeof children === "number") return String(children);
-        return null;
-      }),
     ].filter(Boolean);
     return {
       label,
       stats: bits.join(" · ") || null,
     };
-  }, [currentScratchSession, headerMetaBits, scratchHistory, scratchSessionId, showScratchState]);
+  }, [currentScratchSession, scratchHistory, scratchSessionId, showScratchState]);
   const mobileOverflowActions = [
     showFindingsButton
       ? {
@@ -385,7 +378,13 @@ export function ChannelHeader({
               style={{
                 color: scratchTone.text,
               }}
-              title={scratchBadgeLabel}
+              title={
+                [
+                  "Scratch session",
+                  scratchSessionMeta?.label ?? null,
+                  scratchSessionMeta?.stats ?? null,
+                ].filter(Boolean).join("\n") || "Scratch session"
+              }
             >
               <StickyNote size={10} color={scratchTone.icon} />
               {scratchBadgeLabel}
@@ -435,22 +434,30 @@ export function ChannelHeader({
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1, minWidth: 0 }}>
             {scratchFullpageMode ? (
               <>
-                {scratchSessionMeta?.label ? (
-                  <span
-                    className="truncate text-[11px]"
-                    style={{ color: t.text }}
-                  >
-                    {scratchSessionMeta.label}
-                  </span>
-                ) : (
-                  <span
-                    className="truncate text-[11px]"
-                    style={{ color: t.textDim }}
-                  >
-                    Session
-                  </span>
-                )}
-                {scratchSessionMeta?.stats ? (
+                <a
+                  className="header-bot-link"
+                  onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${bot.id}`); }}
+                  href={`/admin/bots/${bot.id}`}
+                  style={{ fontSize: 11, color: t.textMuted, textDecoration: "none", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={bot.name}
+                >
+                  {bot.name}
+                </a>
+                <span
+                  className="shrink-0 text-[11px]"
+                  style={{ color: t.textDim }}
+                  title={
+                    [
+                      scratchSessionMeta?.label ?? null,
+                      scratchSessionMeta?.stats ?? null,
+                    ].filter(Boolean).join("\n") || "Private scratch session for this channel"
+                  }
+                >
+                  scratch session
+                </span>
+                {headerMetaBits.length > 0 ? (
+                  headerMetaBits.map((bit, idx) => <React.Fragment key={idx}>{bit}</React.Fragment>)
+                ) : scratchSessionMeta?.stats ? (
                   <span className="truncate text-[11px]" style={{ color: t.textDim }}>
                     {scratchSessionMeta.stats}
                   </span>
@@ -572,6 +579,10 @@ export function ChannelHeader({
             }}
           />
         </div>
+      )}
+
+      {!isMobile && sessionId && isAdmin && !scratchFullpageMode && (
+        <MachineTargetChip sessionId={sessionId} />
       )}
 
       {/* Settings — primary chrome. */}

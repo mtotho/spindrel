@@ -340,7 +340,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         display_label="Usage forecast",
         description="First-party native global usage forecast with compact activity charting.",
         icon="chart-column",
-        supported_scopes=("dashboard",),
+        supported_scopes=("channel", "dashboard"),
         default_state={
             "created_at": "",
             "updated_at": "",
@@ -370,7 +370,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         display_label="Upcoming activity",
         description="First-party native schedule window for upcoming heartbeats, tasks, and dreaming runs.",
         icon="calendar-range",
-        supported_scopes=("dashboard",),
+        supported_scopes=("channel", "dashboard"),
         default_state={
             "created_at": "",
             "updated_at": "",
