@@ -103,6 +103,10 @@ type PanelSpineAction = {
   disabledReason?: string;
 };
 
+const COLLAPSED_PANEL_SPINE_WIDTH_PX = 44;
+const HEADER_RAIL_EDGE_INSET_PX = 12;
+const CENTER_PANEL_GUTTER_PX = 6;
+
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
  *  the row instead of relying on hidden edge hover or floating grabbers. */
 function CollapsedPanelSpine({
@@ -1427,8 +1431,20 @@ export default function ChatScreen() {
       <div
         className="absolute top-1 z-20 pointer-events-none"
         style={{
-          left: panelLayout.left.mode === "push" ? panelLayout.left.width + 12 : 12,
-          right: panelLayout.right.mode === "push" ? panelLayout.right.width + 12 : 12,
+          left:
+            panelLayout.left.mode === "push"
+              ? panelLayout.left.width + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
+              : panelLayout.left.mode === "closed" && !isSystemChannel && showRailZone
+                ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
+                : HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX,
+          right:
+            dockBlockedByFileViewer && !isSystemChannel && showDockZone && dockPins.length > 0
+              ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
+              : panelLayout.right.mode === "push"
+                ? panelLayout.right.width + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
+                : panelLayout.right.mode === "closed" && !isSystemChannel && showDockZone && dockPins.length > 0
+                ? COLLAPSED_PANEL_SPINE_WIDTH_PX + HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX
+                : HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX,
         }}
       >
         <div className="w-full">
@@ -1597,103 +1613,113 @@ export default function ChatScreen() {
             />
           )}
 
-          {/* Dashboard-only mode: replace the chat column with a card
-              that points users at the full dashboard. No messages, no
-              composer — the channel is purely a widget surface. */}
-          {dashboardOnly && channelId && (
-            <div
-              className="flex-1 flex items-center justify-center p-6"
-              style={{ backgroundColor: t.surface }}
-            >
-              <div
-                className="max-w-sm w-full rounded-lg p-6 flex flex-col items-center gap-3 text-center"
-                style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}
-              >
-                <LayoutDashboardIcon size={20} style={{ color: t.accent }} />
-                <div className="text-[15px] font-semibold" style={{ color: t.text }}>
-                  Dashboard-only channel
-                </div>
-                <div className="text-[12px] leading-relaxed" style={{ color: t.textMuted }}>
-                  This channel renders as a widget dashboard. Open the dashboard
-                  to see pinned widgets.
-                </div>
-                <button
-                  type="button"
-                  onClick={() => navigate(channelDashboardHref)}
-                  className="mt-1 rounded-md px-4 py-1.5 text-[12px] font-medium"
-                  style={{ backgroundColor: t.accent, color: t.surface }}
-                >
-                  Open dashboard
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Chat column — messages + input stacked vertically. The full-width
-              ChannelHeader now lives ABOVE this flex-row, so the column is
-              header-free and the message area doesn't need a top-offset. */}
-          {!dashboardOnly && scratchColumnNode && (
-            scratchColumnNode
-          )}
-          {!dashboardOnly && !scratchColumnNode && (!showFileViewer || splitMode) && (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-                <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                  <ChatMessageArea
-                    {...messageAreaProps}
-                    bottomSlot={terminalBottomSlot}
-                    scrollPaddingTop={0}
-                    scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 48}
-                  />
-                  {floatingActions.map((h) => (
-                    <HudFloatingAction key={h.key} hud={h} />
-                  ))}
-                </div>
-                {chatMode !== "terminal" && (
-                <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
-                  {chatState.error && (
-                    <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-                  )}
-                  {chatState.secretWarning && (
-                    <SecretWarningBanner
-                      patterns={chatState.secretWarning.patterns}
-                      onDismiss={() => channelId && useChatStore.setState((s) => ({
-                        channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                      }))}
-                    />
-                  )}
-                  {inputBars.map((h) => (
-                    <HudInputBar key={h.key} hud={h} />
-                  ))}
-                  <ChatComposerShell chatMode={chatMode}>
-                    <MessageInput {...messageInputProps} />
-                  </ChatComposerShell>
-                </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* File viewer -- visible when a file is selected */}
-          {showFileViewer && channelId && (
-            <div style={{
+          <div
+            style={{
               flex: 1,
-              display: "flex",
-              flexDirection: "column",
               minWidth: 0,
-              borderLeft: splitMode ? `1px solid ${t.surfaceBorder}` : "none",
-            }}>
-              <ChannelFileViewer
-                channelId={channelId}
-                workspaceId={workspaceId ?? undefined}
-                filePath={activeFile!}
-                onBack={handleCloseFile}
-                splitMode={splitMode}
-                onToggleSplit={toggleSplit}
-                onDirtyChange={handleDirtyChange}
-              />
-            </div>
-          )}
+              display: "flex",
+              paddingLeft: CENTER_PANEL_GUTTER_PX,
+              paddingRight: CENTER_PANEL_GUTTER_PX,
+            }}
+          >
+            {/* Dashboard-only mode: replace the chat column with a card
+                that points users at the full dashboard. No messages, no
+                composer — the channel is purely a widget surface. */}
+            {dashboardOnly && channelId && (
+              <div
+                className="flex-1 flex items-center justify-center p-6"
+                style={{ backgroundColor: t.surface }}
+              >
+                <div
+                  className="max-w-sm w-full rounded-lg p-6 flex flex-col items-center gap-3 text-center"
+                  style={{ backgroundColor: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}` }}
+                >
+                  <LayoutDashboardIcon size={20} style={{ color: t.accent }} />
+                  <div className="text-[15px] font-semibold" style={{ color: t.text }}>
+                    Dashboard-only channel
+                  </div>
+                  <div className="text-[12px] leading-relaxed" style={{ color: t.textMuted }}>
+                    This channel renders as a widget dashboard. Open the dashboard
+                    to see pinned widgets.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigate(channelDashboardHref)}
+                    className="mt-1 rounded-md px-4 py-1.5 text-[12px] font-medium"
+                    style={{ backgroundColor: t.accent, color: t.surface }}
+                  >
+                    Open dashboard
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Chat column — messages + input stacked vertically. The full-width
+                ChannelHeader now lives ABOVE this flex-row, so the column is
+                header-free and the message area doesn't need a top-offset. */}
+            {!dashboardOnly && scratchColumnNode && (
+              scratchColumnNode
+            )}
+            {!dashboardOnly && !scratchColumnNode && (!showFileViewer || splitMode) && (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+                  <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+                    <ChatMessageArea
+                      {...messageAreaProps}
+                      bottomSlot={terminalBottomSlot}
+                      scrollPaddingTop={0}
+                      scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 48}
+                    />
+                    {floatingActions.map((h) => (
+                      <HudFloatingAction key={h.key} hud={h} />
+                    ))}
+                  </div>
+                  {chatMode !== "terminal" && (
+                  <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+                    {chatState.error && (
+                      <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+                    )}
+                    {chatState.secretWarning && (
+                      <SecretWarningBanner
+                        patterns={chatState.secretWarning.patterns}
+                        onDismiss={() => channelId && useChatStore.setState((s) => ({
+                          channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+                        }))}
+                      />
+                    )}
+                    {inputBars.map((h) => (
+                      <HudInputBar key={h.key} hud={h} />
+                    ))}
+                    <ChatComposerShell chatMode={chatMode}>
+                      <MessageInput {...messageInputProps} />
+                    </ChatComposerShell>
+                  </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* File viewer -- visible when a file is selected */}
+            {showFileViewer && channelId && (
+              <div style={{
+                flex: 1,
+                display: "flex",
+                flexDirection: "column",
+                minWidth: 0,
+                borderLeft: splitMode ? `1px solid ${t.surfaceBorder}` : "none",
+              }}>
+                <ChannelFileViewer
+                  channelId={channelId}
+                  workspaceId={workspaceId ?? undefined}
+                  filePath={activeFile!}
+                  onBack={handleCloseFile}
+                  splitMode={splitMode}
+                  onToggleSplit={toggleSplit}
+                  onDirtyChange={handleDirtyChange}
+                />
+              </div>
+            )}
+          </div>
 
           {/* HUD side panels */}
           {!isMobile && sidePanels.map((h) => (

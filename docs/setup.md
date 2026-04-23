@@ -499,15 +499,15 @@ agent-server/
 
 ## Local Companion
 
-`local_companion` is the local-machine-control integration. It lets a live admin user grant one session temporary access to one enrolled machine target, then use `local_status`, `local_inspect_command`, and `local_exec_command` against that machine.
+`local_companion` is the first machine-control provider. Core machine control now lives under **Admin > Machines** rather than under the integration page.
 
 Current setup flow:
 
-1. Enroll the target from **Admin > Integrations > Local Companion**.
+1. Enroll the target from **Admin > Machines** under the `Local Companion` provider.
 2. Run the returned companion launch command on the target machine.
 3. Open the chat session you want to use.
 4. Grant that session a machine lease.
-5. Use the local machine tools from that session.
+5. Use `machine_status`, `machine_inspect_command`, and `machine_exec_command` from that session.
 
 For the architecture and safety model, read [Local Machine Control](guides/local-machine-control.md). For the integration-specific operator notes, read [`integrations/local_companion/README.md`](../integrations/local_companion/README.md).
 

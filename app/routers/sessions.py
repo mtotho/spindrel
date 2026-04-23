@@ -18,7 +18,7 @@ from app.dependencies import get_db, require_scopes, verify_user
 from app.schemas.messages import AttachmentBrief, MessageOut
 from app.services.compaction import run_compaction_forced
 from app.services import presence
-from app.services.local_machine_control import (
+from app.services.machine_control import (
     DEFAULT_LEASE_TTL_SECONDS,
     MAX_LEASE_TTL_SECONDS,
     build_session_machine_target_payload,
@@ -212,6 +212,7 @@ class PlanQuestionAnswersRequest(BaseModel):
 
 class SessionMachineTargetLeaseOut(BaseModel):
     lease_id: str
+    provider_id: str
     target_id: str
     user_id: str
     granted_at: str
@@ -219,6 +220,7 @@ class SessionMachineTargetLeaseOut(BaseModel):
     capabilities: list[str]
     connection_id: str | None = None
     connected: bool
+    provider_label: str | None = None
     target_label: str
 
 
@@ -229,6 +231,7 @@ class SessionMachineTargetOut(BaseModel):
 
 
 class SessionMachineTargetLeaseRequest(BaseModel):
+    provider_id: str
     target_id: str
     ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS
 
@@ -1021,6 +1024,7 @@ async def grant_session_machine_target_lease(
             db,
             session=session,
             user=user,
+            provider_id=body.provider_id,
             target_id=body.target_id,
             ttl_seconds=max(30, min(body.ttl_seconds, MAX_LEASE_TTL_SECONDS)),
         )

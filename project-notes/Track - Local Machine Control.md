@@ -2,115 +2,113 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-23 (phase 5A rich-result UX + docs/skill shipped)
+updated: 2026-04-23 (phase 6 core provider architecture shipped)
 ---
 # Track — Local Machine Control
 
 ## Goal
 
-Let a live signed-in admin grant one chat/session temporary control over one explicit machine target, so the agent can inspect or execute on the user's own computer without pretending the server itself is local.
+Let a live signed-in admin grant one chat/session temporary control over one explicit machine target so the agent can inspect or execute on the user's real machine without pretending the server itself is local.
 
 ## Decisions Locked
 
-- Machine access is modeled as a generic **machine target**, not a one-off localhost hack.
-- v1 ships `driver="companion"` only. SSH is deferred as a second driver on the same abstraction.
+- Machine control is a core subsystem, not a `local_companion` feature with bespoke core UI.
+- Targets are addressed as `(provider_id, target_id)`.
+- v1 ships one provider: `local_companion` with `driver="companion"`.
+- SSH is deferred as a second provider on the same contract.
 - One session can lease one target at a time. One target can be leased by only one session at a time.
 - Lease-gated tools are denied unless there is a live JWT user, active presence, and a valid session lease for the same user.
-- Lease state lives in `Session.metadata_["machine_target_lease"]`; enrolled companion targets live in the `local_companion` integration settings JSON. No new tables.
-- Default route is never "most recent connection". The user must explicitly lease a target.
+- Lease state lives in `Session.metadata_["machine_target_lease"]`.
+- Core owns the machine tools, admin APIs, session APIs, transcript/result UX, and admin machine center.
+- Integrations implement a typed machine-control provider contract and may expose provider-specific transport/settings surfaces, but they do not own machine CRUD UX.
 
 ## Status
 
 | Phase | Summary | Status |
 |---|---|---|
-| 1 | Backend target/lease model + companion bridge + local tools | ✅ shipped 2026-04-23 |
-| 2 | Session APIs + channel-header machine chip + enrollment flow | ✅ shipped 2026-04-23 |
-| 3 | Guardrails on non-interactive surfaces (`run_script`, admin tool execute, widget-style direct dispatch) | ✅ partial 2026-04-23 |
+| 1 | Backend target/lease model + companion bridge + lease-gated tools | ✅ shipped 2026-04-23 |
+| 2 | Session APIs + initial chat/header lease surfaces | ✅ shipped 2026-04-23 |
+| 3 | Non-interactive guardrails for bot/script surfaces | ✅ shipped 2026-04-23 |
 | 4 | Canonical docs + architecture linking | ✅ shipped 2026-04-23 |
-| 5 | Rich result UX, inline grant/revoke flow, operator docs, and generic machine-control skill | ✅ partial 2026-04-23 |
+| 5A | Rich result UX, transcript grant flow, operator docs, agent skill | ✅ shipped 2026-04-23 |
+| 6 | Core provider architecture, `/admin/machines`, renderer extraction, tool rename | ✅ shipped 2026-04-23 |
 
 ## What Shipped
 
-### Phase 1 — Backend machine targets + companion bridge
+### Phase 1-3 — Core lease model and companion transport
 
-- New `app/services/local_machine_control.py` owns:
-  - target enrollment/lookup/status
-  - session lease grant/revoke payloads
-  - execution-policy validation (`interactive_user`, `live_target_lease`)
-- New `integrations/local_companion/`:
-  - `integration.yaml`
-  - `router.py` admin/status + enroll + websocket RPC bridge
-  - `bridge.py` target-id keyed live connection map
-  - `client.py` paired local companion CLI/daemon entrypoint
-  - `tools/local_companion.py` (`local_status`, `local_inspect_command`, `local_exec_command`)
-- Companion metadata is stable per install (`target_id`) and ephemeral per socket (`connection_id`).
-- Companion enrollment auto-enables the integration and loads/indexes tools on first use.
+- Core service now lives in `app/services/machine_control.py` and owns:
+  - provider discovery
+  - provider-aware target payloads
+  - session lease grant/revoke
+  - execution-policy validation
+  - machine-access-required payloads
+- `local_machine_control.py` is now just a compatibility shim.
+- `integrations/local_companion/` now supplies:
+  - `machine_control.py` provider implementation
+  - `bridge.py` websocket bridge
+  - `router.py` websocket transport only
+  - `client.py` paired companion CLI/daemon
+- Tool registry execution policies gate machine control through:
+  - `interactive_user`
+  - `live_target_lease`
+- Non-interactive origins and direct bot/script execution surfaces hard-deny machine tools by default.
 
-### Phase 2 — Session lease APIs + chat UI
+### Phase 4-5A — Native machine UX
 
-- New session endpoints:
-  - `GET /api/v1/sessions/{id}/machine-target`
-  - `POST /api/v1/sessions/{id}/machine-target/lease`
-  - `DELETE /api/v1/sessions/{id}/machine-target/lease`
-- Admin/JWT only in v1; each endpoint refreshes user presence before lease work.
-- Channel header now exposes a desktop `MachineTargetChip` with:
-  - current lease state
-  - connected target list
-  - enroll/remove target actions
-  - session lease grant/revoke actions
-- Enroll response returns a companion launch command with the current server base URL.
+- Core tools are now:
+  - `machine_status`
+  - `machine_inspect_command`
+  - `machine_exec_command`
+- Rich transcript/result views are core-owned:
+  - `core.machine_target_status`
+  - `core.command_result`
+  - `core.machine_access_required`
+- Inline transcript machine-access-required cards drive grant/revoke against the existing session lease APIs.
+- Added operator/provider docs for `local_companion` and the generic `skills/machine_control.md` agent skill.
 
-### Phase 3 — Execution guards
+### Phase 6 — Provider architecture and admin machine center
 
-- Tool registry now carries `execution_policy`.
-- `dispatch_tool_call()` enforces the machine-control gate before normal policy/approval handling.
-- Lease-gated tools bypass tier-default approval prompts when the lease is already the explicit consent surface; explicit policy rules still win.
-- Direct bot/script surfaces now hard-deny machine tools before execution:
-  - `POST /api/v1/internal/tools/exec`
-  - `execute_tool_with_context()` callers such as admin tool execute / dashboard execution helpers
-- Revoking a target clears any session leases pointing at it so the UI cannot hold stale control state.
+- Machine control is now provider-backed rather than integration-owned.
+- New core admin API:
+  - `GET /api/v1/admin/machines`
+  - `POST /api/v1/admin/machines/providers/{provider_id}/enroll`
+  - `DELETE /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}`
+- New core admin page:
+  - `Admin > Machines`
+- Session lease API now requires `provider_id` when granting a lease.
+- `local_*` tools were removed; there is no alias layer.
+- `local_companion` integration no longer owns:
+  - tool registration
+  - machine CRUD admin endpoints
+  - chat UX
+- `RichToolResult.tsx` no longer defines machine renderers inline; they live under `ui/src/components/chat/renderers/machineControl/`.
 
-### Phase 4 — Canonical docs
+## Current Architecture Shape
 
-- Added `agent-server/docs/guides/local-machine-control.md` as the canonical detailed doc for:
-  - machine targets
-  - leases
-  - companion transport
-  - execution-policy gating
-  - current limits and follow-up work
-- Linked the docs guide from:
-  - `docs/reference/architecture.md`
-  - vault `Architecture Decisions.md`
-  - MkDocs navigation
-
-### Phase 5A — Native-feeling result UX + packaging
-
-- Local machine-control tools now render as semantic rich results instead of generic JSON blobs:
-  - `local_status` -> `core.machine_target_status`
-  - `local_inspect_command` / `local_exec_command` -> `core.command_result`
-- Execution-policy denials in chat now return a `core.machine_access_required` envelope with:
-  - denial reason
-  - connected target list
-  - inline grant/revoke actions backed by the existing session lease endpoints
-  - deep link to the local companion integration when no targets are connected
-- Added `tool_widgets` metadata for the local companion tools so widget contracts/catalog surfaces understand the result views.
-- Added `integrations/local_companion/README.md` for operator setup/use and `skills/machine_control.md` for agent-facing behavior on the machine-target abstraction.
-- Updated docs parity:
-  - `docs/setup.md`
-  - `docs/guides/api.md`
-  - `docs/reference/widget-inventory.md`
-  - canonical local-machine-control guide to reflect transcript-native grant/status/result UX
+- Core:
+  - `app/services/machine_control.py`
+  - `app/tools/local/machine_control.py`
+  - `app/routers/api_v1_admin/machines.py`
+  - `app/routers/sessions.py`
+  - `/admin/machines`
+  - transcript-native machine result renderers
+- Provider implementation:
+  - `integrations/local_companion/machine_control.py`
+  - `integrations/local_companion/router.py`
+  - `integrations/local_companion/bridge.py`
+  - `integrations/local_companion/client.py`
 
 ## Deferred
 
-- `driver="ssh"` for headless LAN/server targets.
-- Applying the same lease abstraction to `browser_live` and any future desktop/file automation drivers.
-- Companion-side richer capabilities beyond shell (`files`, `browser`, `input`, screenshots).
-- Better integrations/settings management surfaces for target enrollment and long-lived machine administration.
+- SSH provider on the same machine-control contract.
+- Shared lease/consent model for `browser_live` if that path should converge.
+- Richer machine capabilities beyond shell once the provider contract settles.
+- Multi-worker/shared-broker support for live provider connection state.
 
 ## Verification
 
-- `python -m py_compile` on the new/edited backend files
-- `pytest tests/unit/test_registry.py tests/integration/test_internal_tools_exec.py tests/integration/test_machine_target_sessions.py -q`
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q`
-- `cd agent-server/ui && npx tsc --noEmit --pretty false`
+- `pytest tests/unit/test_machine_target_sessions.py -q`
+- `cd agent-server/ui && node --test src/components/chat/renderArchitecture.test.ts 'app/(app)/channels/[channelId]/sessionHeaderChrome.test.ts'`
+- `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false`

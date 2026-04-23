@@ -7,6 +7,7 @@ import {
   BookOpen,
   Hash,
   LayoutDashboard,
+  Monitor,
   Plug,
   PanelLeftClose,
   PanelLeftOpen,
@@ -104,6 +105,7 @@ export function SidebarRail() {
   const isBotsActive = pathname.startsWith("/admin/bots");
   const isSkillsActive = pathname.startsWith("/admin/skills");
   const isIntegrationsActive = pathname.startsWith("/admin/integrations");
+  const isMachinesActive = pathname.startsWith("/admin/machines");
   const isUsageActive = pathname.startsWith("/admin/usage");
   const isLearningActive = pathname.startsWith("/admin/learning");
   const isHomeActive = pathname === "/" && !search;
@@ -217,6 +219,10 @@ export function SidebarRail() {
 
             <RailLink href="/admin/integrations" active={isIntegrationsActive} title="Integrations">
               <Plug size={18} className={isIntegrationsActive ? "text-accent" : "text-text-dim"} />
+            </RailLink>
+
+            <RailLink href="/admin/machines" active={isMachinesActive} title="Machines">
+              <Monitor size={18} className={isMachinesActive ? "text-accent" : "text-text-dim"} />
             </RailLink>
 
             <RailLink href="/admin/usage" active={isUsageActive} title="Activity">

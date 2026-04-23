@@ -75,6 +75,32 @@ test("chat rich-result wrappers explicitly separate renderer variant from chrome
   assert.match(widgetCard, /hostSurface=\{isTerminalMode \? "plain" : "surface"\}/);
 });
 
+test("machine-control rich-result views are extracted into dedicated renderer files", () => {
+  const richToolResult = readChatFile("RichToolResult.tsx");
+  const machineStatusRenderer = readFileSync(
+    resolve(CHAT_DIR, "renderers/machineControl/MachineTargetStatusRenderer.tsx"),
+    "utf8",
+  );
+  const machineAccessRenderer = readFileSync(
+    resolve(CHAT_DIR, "renderers/machineControl/MachineAccessRequiredRenderer.tsx"),
+    "utf8",
+  );
+  const commandRenderer = readFileSync(
+    resolve(CHAT_DIR, "renderers/machineControl/CommandResultRenderer.tsx"),
+    "utf8",
+  );
+
+  assert.match(richToolResult, /renderers\/machineControl\/MachineTargetStatusRenderer/);
+  assert.match(richToolResult, /renderers\/machineControl\/MachineAccessRequiredRenderer/);
+  assert.match(richToolResult, /renderers\/machineControl\/CommandResultRenderer/);
+  assert.doesNotMatch(richToolResult, /function MachineTargetStatusRenderer/);
+  assert.doesNotMatch(richToolResult, /function MachineAccessRequiredRenderer/);
+  assert.doesNotMatch(richToolResult, /function CommandResultRenderer/);
+  assert.match(machineStatusRenderer, /useGrantSessionMachineTargetLease/);
+  assert.match(machineAccessRenderer, /admin_machines_href/);
+  assert.match(commandRenderer, /coerceCommandResultPayload/);
+});
+
 test("chat copy actions share one assistant-response bundle primitive for text and json", () => {
   const channelPage = readFileSync(
     resolve(process.cwd(), "app/(app)/channels/[channelId]/index.tsx"),

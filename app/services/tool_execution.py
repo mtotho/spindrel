@@ -80,7 +80,7 @@ async def execute_tool_with_context(
         if is_local_tool(resolved_tool_name):
             execution_policy = get_tool_execution_policy(resolved_tool_name)
             if execution_policy != "normal":
-                from app.services.local_machine_control import validate_current_execution_policy
+                from app.services.machine_control import validate_current_execution_policy
 
                 resolution = await validate_current_execution_policy(execution_policy)
                 if not resolution.allowed:

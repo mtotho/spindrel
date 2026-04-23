@@ -4,12 +4,16 @@ import type { ToolResultEnvelope } from "@/src/types/api";
 import { apiFetch } from "@/src/api/client";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { usePinnedWidgetsStore } from "@/src/stores/pinnedWidgets";
+import type { HostSurface, WidgetLayout } from "../InteractiveHtmlRenderer";
 
 export interface NativeAppRendererProps {
   envelope: ToolResultEnvelope;
   sessionId?: string;
   dashboardPinId?: string;
   channelId?: string;
+  gridDimensions?: { width: number; height: number };
+  layout?: WidgetLayout;
+  hostSurface?: HostSurface;
   t: ThemeTokens;
 }
 

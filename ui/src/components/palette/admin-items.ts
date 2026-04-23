@@ -1,6 +1,7 @@
 import {
   Bot,
   Plug,
+  Monitor,
   Server,
   Cable,
   Wrench,
@@ -32,6 +33,7 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   // -- Configure --
   { id: "nav-bots", label: "Bots", href: "/admin/bots", icon: Bot, category: "Configure" },
   { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
+  { id: "nav-machines", label: "Machines", href: "/admin/machines", icon: Monitor, category: "Configure" },
   { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },
   { id: "nav-mcp", label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable, category: "Configure" },
   { id: "nav-tools", label: "Tools", href: "/admin/tools", icon: Wrench, category: "Configure" },

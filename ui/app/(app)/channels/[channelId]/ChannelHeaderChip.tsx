@@ -1,8 +1,8 @@
-import { useCallback, useEffect } from "react";
-import { resolvePreset } from "@/src/lib/dashboardGrid";
+import { useCallback, useMemo } from "react";
+import { resolveChrome, resolvePreset } from "@/src/lib/dashboardGrid";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
-import { channelSlug, useDashboardsStore } from "@/src/stores/dashboards";
+import { channelSlug, useDashboards } from "@/src/stores/dashboards";
 import type {
   GridLayoutItem,
   PinnedWidget,
@@ -47,15 +47,9 @@ interface Props {
 
 export function ChannelHeaderChip({ channelId }: Props) {
   const { header: pins } = useChannelChatZones(channelId);
-  const dashboards = useDashboardsStore((s) => s.list);
-  const dashboardsHydrated = useDashboardsStore((s) => s.hasHydrated);
-  const hydrateDashboards = useDashboardsStore((s) => s.hydrate);
+  const { allDashboards } = useDashboards();
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);
   const updateEnvelope = useDashboardPinsStore((s) => s.updateEnvelope);
-
-  useEffect(() => {
-    if (!dashboardsHydrated) void hydrateDashboards();
-  }, [dashboardsHydrated, hydrateDashboards]);
 
   const handleUnpin = useCallback(
     async (pinId: string) => {
@@ -73,9 +67,17 @@ export function ChannelHeaderChip({ channelId }: Props) {
     [updateEnvelope],
   );
 
+  const dashboardRow = allDashboards.find((d) => d.slug === channelSlug(channelId));
   const headerCols = resolvePreset(
-    dashboards.find((d) => d.slug === channelSlug(channelId))?.grid_config ?? null,
+    dashboardRow?.grid_config ?? null,
   ).cols.lg;
+  // Header rail defaults to titleless widgets even when the dashboard itself
+  // shows titles elsewhere. Pins can still explicitly opt back in via
+  // `widget_config.show_title = "show"`.
+  const chrome = useMemo(
+    () => ({ ...resolveChrome(dashboardRow?.grid_config ?? null), hoverScrollbars: true, hideTitles: true }),
+    [dashboardRow?.grid_config],
+  );
   const sortedPins = pins.slice().sort((a, b) => {
     const ag = toGridLayout(a);
     const bg = toGridLayout(b);
@@ -108,7 +110,7 @@ export function ChannelHeaderChip({ channelId }: Props) {
           return (
             <div
               key={pin.id}
-              className="pointer-events-auto min-w-0"
+              className="pointer-events-auto min-h-0 h-full min-w-0 overflow-hidden"
               style={{
                 gridColumn: `${gl.x + 1} / span ${gl.w}`,
                 gridRow: `${gl.y + 1} / span ${gl.h}`,
@@ -118,6 +120,9 @@ export function ChannelHeaderChip({ channelId }: Props) {
                 widget={asPinnedWidget(pin)}
                 scope={scope}
                 layout={chipLike ? "chip" : "header"}
+                borderless={chrome.borderless}
+                hoverScrollbars={chrome.hoverScrollbars}
+                hideTitles={chrome.hideTitles}
                 onUnpin={handleUnpin}
                 onEnvelopeUpdate={handleEnvelopeUpdate}
               />

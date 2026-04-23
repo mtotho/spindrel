@@ -135,6 +135,7 @@ export function PinnedToolWidget({
   // Resolve the effective layout: explicit prop wins, otherwise chip is
   // implied by the compact scope, and everything else is the dashboard grid.
   const effectiveLayout: WidgetLayout = layout ?? (isChip ? "chip" : "grid");
+  const fillsHostHeight = isDashboard || effectiveLayout === "header";
   // InteractiveHtmlRenderer pools iframes by dashboard pin id for every
   // pinned widget surface, including channel-scope chip rendering inside the
   // channel-dashboard editor. Keep the readiness gate keyed the same way so
@@ -532,7 +533,7 @@ export function PinnedToolWidget({
       return (
         <div
           ref={externalDrag?.setNodeRef ?? fbSetRef}
-          className={`${runtimeRail ? "animate-pulse" : "rounded-lg border animate-pulse"}`}
+          className={`${runtimeRail ? "animate-pulse" : "rounded-lg border animate-pulse"} ${fillsHostHeight ? "h-full flex flex-col overflow-hidden" : ""}`}
           style={{ borderColor: `${t.surfaceBorder}80` }}
           {...(externalDrag?.attributes ?? fbAttrs)}
         >
@@ -597,10 +598,11 @@ export function PinnedToolWidget({
     ? `${updatedLabel === "now" ? "Updated just now" : `Updated ${updatedLabel} ago`} · ${new Date(lastRefreshedAt).toLocaleString()} · Click to refresh`
     : "Refresh";
 
-  // Dashboard cards live inside react-grid-layout tiles — fill height so the
-  // body expands to the resized dimensions rather than clipping at 350px.
-  const cardSizeClass = isDashboard
-    ? "h-full flex flex-col"
+  // Dashboard cards and header-rail tiles live inside host-constrained slots
+  // — fill height so the body scrolls/clips within the tile instead of
+  // expanding past the allotted runtime surface.
+  const cardSizeClass = fillsHostHeight
+    ? "h-full flex flex-col overflow-hidden"
     : "";
 
   // Dashboard-scope controls get roomier padding so the touch target is
@@ -638,13 +640,15 @@ export function PinnedToolWidget({
     && currentEnvelope?.show_panel_title === true
     && !!resolvedPanelTitle;
   const showGenericTitle = showTitle && !showPanelTitle;
+  const suppressHostHeaderForTitlelessHeader =
+    effectiveLayout === "header" && !showPanelTitle && !showGenericTitle;
   // Overlay chrome floats the grip + controls on hover instead of reserving
   // a ~30px header row. Only use it when titles are intentionally hidden in
   // edit mode; equivalent widgets should otherwise render the same host header
   // regardless of whether they sit in the center grid or a side rail.
   const overlayChrome =
     ((isDashboard || railMode) && editMode && !showGenericTitle) && !showPanelTitle;
-  const showHostHeader = !runtimeRail;
+  const showHostHeader = !runtimeRail && !suppressHostHeaderForTitlelessHeader;
   const showHeaderDragLane = showHostHeader && (!isDashboard || editMode || railMode) && !!handleListeners;
   if (isChip) {
     // Edit mode (only reachable when the parent DndContext provides
@@ -893,7 +897,7 @@ export function PinnedToolWidget({
       <div
         className={
           "relative "
-          + (isDashboard
+          + (fillsHostHeight
             ? (flushInteractiveHtmlBody
               ? "flex-1 min-h-0 "
               : (overlayChrome
@@ -910,7 +914,7 @@ export function PinnedToolWidget({
           sessionId={viewedSessionId ?? undefined}
           channelId={channelId ?? undefined}
           dispatcher={dispatcher}
-          fillHeight={isDashboard}
+          fillHeight={fillsHostHeight}
           dashboardPinId={widget.id}
           gridDimensions={measuredSize ?? undefined}
           onIframeReady={handleIframeReady}

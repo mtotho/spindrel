@@ -1,8 +1,9 @@
-import { Bot, Plug, Server, Cable, Wrench, BookOpen, FileText, Paperclip, Boxes, ClipboardList, Lock, Shield, ShieldCheck, Key, Webhook, FileCode, BarChart3, Activity, Users, ScrollText, HardDrive, Code2, Brain, Settings, MessageCircle, Zap, } from "lucide-react";
+import { Bot, Plug, Monitor, Server, Cable, Wrench, BookOpen, FileText, Paperclip, Boxes, ClipboardList, Lock, Shield, ShieldCheck, Key, Webhook, FileCode, BarChart3, Activity, Users, ScrollText, HardDrive, Code2, Brain, Settings, MessageCircle, Zap, } from "lucide-react";
 export const ADMIN_ITEMS = [
     // -- Configure --
     { id: "nav-bots", label: "Bots", href: "/admin/bots", icon: Bot, category: "Configure" },
     { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
+    { id: "nav-machines", label: "Machines", href: "/admin/machines", icon: Monitor, category: "Configure" },
     { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },
     { id: "nav-mcp", label: "MCP Servers", href: "/admin/mcp-servers", icon: Cable, category: "Configure" },
     { id: "nav-tools", label: "Tools", href: "/admin/tools", icon: Wrench, category: "Configure" },

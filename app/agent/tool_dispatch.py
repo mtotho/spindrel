@@ -595,7 +595,7 @@ async def dispatch_tool_call(
         _execution_policy = get_tool_execution_policy(name)
         if _execution_policy != "normal":
             try:
-                from app.services.local_machine_control import (
+                from app.services.machine_control import (
                     build_machine_access_required_payload,
                     validate_current_execution_policy,
                 )
@@ -620,7 +620,8 @@ async def dispatch_tool_call(
                     "targets": [],
                     "connected_targets": [],
                     "connected_target_count": 0,
-                    "integration_admin_href": "/admin/integrations/local_companion",
+                    "admin_machines_href": "/admin/machines",
+                    "integration_admin_href": "/admin/machines",
                 }
                 try:
                     async with async_session() as db:

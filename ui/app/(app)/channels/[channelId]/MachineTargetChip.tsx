@@ -1,10 +1,9 @@
 import React from "react";
-import { Monitor, Plug, Power, Trash2 } from "lucide-react";
+import { Monitor, Plug, Power } from "lucide-react";
 
 import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useClearSessionMachineTargetLease,
-  useDeleteLocalCompanionTarget,
   useGrantSessionMachineTargetLease,
   useSessionMachineTarget,
 } from "@/src/api/hooks/useMachineTargets";
@@ -20,7 +19,6 @@ export function MachineTargetChip({
   const { data, isLoading } = useSessionMachineTarget(sessionId, true);
   const grantLease = useGrantSessionMachineTargetLease(sessionId);
   const clearLease = useClearSessionMachineTargetLease(sessionId);
-  const deleteTarget = useDeleteLocalCompanionTarget(sessionId);
 
   React.useEffect(() => {
     if (!open) return;
@@ -37,8 +35,7 @@ export function MachineTargetChip({
   const hasVisibleControl = visibleTargets.length > 0 || !!lease;
   const pending =
     grantLease.isPending
-    || clearLease.isPending
-    || deleteTarget.isPending;
+    || clearLease.isPending;
 
   if (!isLoading && !hasVisibleControl) return null;
 
@@ -177,7 +174,10 @@ export function MachineTargetChip({
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <button
                           type="button"
-                          onClick={() => grantLease.mutate({ target_id: target.target_id })}
+                          onClick={() => grantLease.mutate({
+                            provider_id: target.provider_id,
+                            target_id: target.target_id,
+                          })}
                           disabled={pending || !target.connected || active}
                           style={{
                             display: "inline-flex",
@@ -196,20 +196,6 @@ export function MachineTargetChip({
                           <Plug size={12} />
                           {active ? "Leased" : "Use"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteTarget.mutate(target.target_id)}
-                          disabled={pending}
-                          title="Remove target"
-                          style={{
-                            border: "none",
-                            background: "transparent",
-                            color: t.textDim,
-                            padding: 4,
-                          }}
-                        >
-                          <Trash2 size={13} />
-                        </button>
                       </div>
                     </div>
                     {target.capabilities.length > 0 ? (
@@ -223,7 +209,7 @@ export function MachineTargetChip({
             </div>
           )}
 
-          {(grantLease.error || clearLease.error || deleteTarget.error) ? (
+          {(grantLease.error || clearLease.error) ? (
             <div
               style={{
                 padding: "10px 12px",

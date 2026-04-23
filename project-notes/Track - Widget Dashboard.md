@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-23 (native widget file-route contract)
+updated: 2026-04-23 (responsive native context widget layouts)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -46,6 +46,8 @@ updated: 2026-04-23 (native widget file-route contract)
 > Same-day follow-up: the resize fix needed the same invariant for cross-panel moves inside `/widgets/channel/:id`. The header editor renders the runtime chat-chip scope even though the widget is still a dashboard pin, so `PinnedToolWidget` now keys readiness off the pooled dashboard-pin identity for every pinned-widget surface, not just dashboard-scope renders. New invariant: moving an interactive HTML widget between grid, rail, dock, and header must reuse the parked iframe without waiting on a fresh `spindrel:ready`.
 >
 > **2026-04-23 floating-header follow-up.** The old single centered chip slot was too fake: it did not match the desired chat behavior and made `preferred_zone: chip` dishonest. `header` is now a real floating two-row top rail authored with normal `{x,y,w,h}` tile coords. It spans only the center workspace between the left rail and right dock, stays flush under the subheader, and floats over chat/content rather than consuming page height. Empty rail area is transparent and click-through. `chip` remains an author-facing compact widget family / alias; persisted zone stays `header`. Backend normalization now clamps header pins to preset-width columns and `y<=1,h<=2`, legacy singleton header pins auto-upgrade to a sane `4x1` chip footprint, and the channel-dashboard editor/runtime both render the same floating rail geometry.
+>
+> **2026-04-23 native context widget responsive follow-up.** `core/context_tracker` was still a single static card, so the new floating header/two-row rail and wider center-panel tiles wasted space or clipped useful detail. Native-app renderers now receive the same measured tile `gridDimensions` + `layout` signal that component/HTML widgets already use, and the context tracker switches among explicit `compact / standard / tall / wide` compositions. New invariant: header/rail/chip placements stay low-chrome and utility-dense (status, percent, current budget, compaction hint), while tall and wide center tiles expand into richer breakdown + recent-turn views instead of just scaling the old layout.
 >
 > **2026-04-21 localhost→remote dev follow-up.** Interactive HTML widgets were still assuming same-origin API routing inside the iframe preamble: `window.spindrel.apiFetch()` called `fetch(path)` directly, so running the UI at `http://localhost:5173` against a remote server sent widget traffic to Vite (`/api/v1/widget-actions`, `/widget-debug/events`, `/widget-actions/stream`) and exploded in 404s. The main app already used auth-store `serverUrl`; the iframe SDK now does too. `InteractiveHtmlRenderer` injects the configured `serverUrl` into `window.spindrel`, resolves app-relative widget SDK requests against it, and keeps absolute URLs untouched. New invariant: widget iframe API traffic must follow the configured backend origin, not the browser origin hosting the UI shell.
 >

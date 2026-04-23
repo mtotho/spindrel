@@ -20,15 +20,15 @@ Always make that distinction explicit in your reasoning and wording.
 
 ## Default workflow
 
-1. Start with `local_status()`.
+1. Start with `machine_status()`.
 2. Confirm whether the session already has a lease and which target it points at.
 3. If no lease exists, let the user grant one through the inline machine-access card or session controls.
-4. Prefer `local_inspect_command()` for discovery.
-5. Use `local_exec_command()` only when you actually need mutation or real execution.
+4. Prefer `machine_inspect_command()` for discovery.
+5. Use `machine_exec_command()` only when you actually need mutation or real execution.
 
 ## When to use each tool
 
-### `local_status`
+### `machine_status`
 
 Use first. It tells you:
 
@@ -36,7 +36,7 @@ Use first. It tells you:
 - which are connected
 - whether the current session already has a lease
 
-### `local_inspect_command`
+### `machine_inspect_command`
 
 Use for readonly discovery:
 
@@ -49,7 +49,7 @@ Use for readonly discovery:
 
 Treat it as the default shell tool until you know you need more.
 
-### `local_exec_command`
+### `machine_exec_command`
 
 Use only when the task needs real execution on the leased machine:
 

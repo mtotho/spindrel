@@ -53,9 +53,9 @@ Use this checklist when adding or modernizing a widget.
 | Area | Count | Notes |
 |---|---:|---|
 | Native widgets | 2 | First-party, current-standard. |
-| Core/local tool widgets | 6 | Mostly current; all have sample payloads. |
+| Core/local tool widgets | 9 | Includes YAML-defined tool widgets plus core semantic machine-control result views. |
 | Core/local standalone HTML widgets | 2 | One active, one QA/example. Legacy HTML Notes was deleted; new Notes placements use native. |
-| Integration tool widgets | 20 | Current-standard metadata is now present across the audited shipped set. |
+| Integration tool widgets | 17 | Current-standard metadata is now present across the audited shipped set. |
 | Preset entry points | 4 | All Home Assistant; official HA MCP lane only, with preset dependency validation. |
 
 ## Native Widgets
@@ -67,7 +67,7 @@ Use this checklist when adding or modernizing a widget.
 
 ## Core/Local Tool Widgets
 
-These are YAML-defined tool widgets shipped with local tools.
+These are core tool result surfaces shipped with local tools. Most are YAML-defined tool widgets; machine control uses core semantic result envelopes emitted directly by the tool implementation.
 
 | Widget / tool | Render mode | Source | Status | Notes |
 |---|---|---|---|---|
@@ -76,6 +76,9 @@ These are YAML-defined tool widgets shipped with local tools.
 | `get_task_result` | `template` | `app/tools/local/widgets/get_task_result/template.yaml` | Current | Component tool widget with sample payload. |
 | `list_tasks` | `template` | `app/tools/local/widgets/list_tasks/template.yaml` | Current | Component tool widget with sample payload and task actions. |
 | `manage_bot_skill` | `template` | `app/tools/local/widgets/manage_bot_skill/template.yaml` | Current | Component tool widget with sample payload. |
+| `machine_status` | `core.machine_target_status` | `app/tools/local/machine_control.py` | Current | Core semantic machine-status renderer with refresh metadata; provider-agnostic, not integration-owned. |
+| `machine_inspect_command` | `core.command_result` | `app/tools/local/machine_control.py` | Current | Core semantic command-result renderer for readonly machine shell output. |
+| `machine_exec_command` | `core.command_result` | `app/tools/local/machine_control.py` | Current | Core semantic command-result renderer for exec-capable machine shell output. |
 | `schedule_task` | `template` | `app/tools/local/widgets/schedule_task/template.yaml` | Current | Component tool widget with sample payload and `state_poll`. |
 
 ## Core/Local Standalone HTML Widgets
@@ -100,9 +103,6 @@ These are integration-defined `tool_widgets:` entries. HTML files under `integra
 | `frigate` | `frigate_list_cameras` | `html_template` | `integrations/frigate/integration.yaml` | Current | HTML-backed camera-list renderer with sample payload and `state_poll`. |
 | `github` | `github_get_pr` | `template` | `integrations/github/integration.yaml` | Current | Component renderer with sample payload. |
 | `github` | `github_get_issue` | `template` | `integrations/github/integration.yaml` | Current | Component renderer with sample payload. |
-| `local_companion` | `local_status` | `core.machine_target_status` + `template` fallback | `integrations/local_companion/integration.yaml` | Current | Semantic machine-status renderer with `state_poll` and sample payload. |
-| `local_companion` | `local_inspect_command` | `core.command_result` + `template` fallback | `integrations/local_companion/integration.yaml` | Current | Semantic command-result renderer for readonly local shell output. |
-| `local_companion` | `local_exec_command` | `core.command_result` + `template` fallback | `integrations/local_companion/integration.yaml` | Current | Semantic command-result renderer for exec-capable local shell output. |
 | `homeassistant` | `HassTurnOn` | `template` | `integrations/homeassistant/integration.yaml` | Current | Official HA MCP action-result widget with sample payload and `state_poll`. |
 | `homeassistant` | `HassTurnOff` | `template` | `integrations/homeassistant/integration.yaml` | Current | Official HA MCP action-result widget with sample payload and `state_poll`. |
 | `homeassistant` | `HassLightSet` | `template` | `integrations/homeassistant/integration.yaml` | Current | Official HA MCP action-result widget with sample payload and `state_poll`. |

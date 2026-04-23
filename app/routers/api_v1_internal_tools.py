@@ -136,7 +136,7 @@ async def exec_tool(
     if is_local:
         execution_policy = get_tool_execution_policy(payload.name)
         if execution_policy != "normal":
-            from app.services.local_machine_control import validate_current_execution_policy
+            from app.services.machine_control import validate_current_execution_policy
 
             resolution = await validate_current_execution_policy(execution_policy)
             if not resolution.allowed:

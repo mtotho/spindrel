@@ -408,6 +408,8 @@ def _load_single_integration(
         detected_provides.add("tools")
     if (candidate / "skills").is_dir() and any((candidate / "skills").glob("*.md")):
         detected_provides.add("skills")
+    if (candidate / "machine_control.py").exists() or _get_manifest_field(integration_id, "machine_control"):
+        detected_provides.add("machine_control")
 
     from app.services.integration_manifests import set_detected_provides
     set_detected_provides(integration_id, detected_provides)

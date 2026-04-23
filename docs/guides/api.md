@@ -369,27 +369,27 @@ Lists currently paired browser connections. Admin auth required.
 
 Generates a new global pairing token for the integration. Rotating the token disconnects existing paired browsers until they re-pair. Admin auth required.
 
-## Local Companion endpoints
+## Machine control endpoints
 
-The `local_companion` integration exposes both operator endpoints and session lease endpoints.
+Machine control is a core subsystem with provider-backed admin APIs plus session lease APIs.
 
-### Admin status
+### List providers and targets
 
-`GET /integrations/local_companion/admin/status`
+`GET /api/v1/admin/machines`
 
-Lists enrolled machine targets plus live connection state. Admin auth required.
+Lists machine-control providers with their enrolled targets and current connection state. Scope: `integrations:read`.
 
-### Enroll target
+### Enroll target for a provider
 
-`POST /integrations/local_companion/admin/enroll`
+`POST /api/v1/admin/machines/providers/{provider_id}/enroll`
 
-Creates a new companion target enrollment and returns the target metadata, token, websocket path, and example launch command. Admin auth required.
+Creates a new target enrollment through the selected provider and returns target metadata plus provider-specific launch details. Scope: `integrations:write`.
 
-### Revoke target
+### Remove target for a provider
 
-`DELETE /integrations/local_companion/admin/targets/{target_id}`
+`DELETE /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}`
 
-Removes an enrolled target and clears any active session lease that still points at it. Admin auth required.
+Removes an enrolled target through the selected provider and clears any active session lease that still points at it. Scope: `integrations:write`.
 
 ### Session machine-target state
 
@@ -405,6 +405,7 @@ Grants the session a lease for one connected target. Body:
 
 ```json
 {
+  "provider_id": "local_companion",
   "target_id": "uuid",
   "ttl_seconds": 900
 }
@@ -415,6 +416,12 @@ Grants the session a lease for one connected target. Body:
 `DELETE /api/v1/sessions/{session_id}/machine-target/lease`
 
 Clears the active lease for that session.
+
+### Local companion websocket
+
+`WS /integrations/local_companion/ws?target_id=<id>&token=<token>`
+
+Provider transport endpoint used by the paired local companion process after enrollment. This is not the machine-management API surface; it is the provider's live transport socket.
 
 ## Common Patterns
 

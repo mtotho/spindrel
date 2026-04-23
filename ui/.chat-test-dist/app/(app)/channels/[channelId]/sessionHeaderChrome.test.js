@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { resolveHeaderMetrics, resolveRouteSessionChrome, } from "./sessionHeaderChrome.js";
 test("session header metrics fall back to session stats when live context budget is missing", () => {
     const metrics = resolveHeaderMetrics(null, {
@@ -68,4 +70,10 @@ test("route session chrome compacts long titles", () => {
     assert.ok(chrome.inlineTitle);
     assert.ok(chrome.inlineTitle.endsWith("..."));
     assert.ok(chrome.inlineTitle.length <= 56);
+});
+test("machine target chip stays session-scoped and does not own target deletion", () => {
+    const chip = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/MachineTargetChip.tsx"), "utf8");
+    assert.doesNotMatch(chip, /useDeleteMachineTarget/);
+    assert.doesNotMatch(chip, /Trash2/);
+    assert.match(chip, /provider_id: target\.provider_id/);
 });

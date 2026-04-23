@@ -34,12 +34,21 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - `chip` remains an authoring alias / compact widget family, not a database zone.
 - Any widget may be placed in `header`, but only dedicated chip widgets are expected to look truly chip-native there.
 
-### Local machine control is a leased machine-target abstraction, not a hidden server-side exec backdoor
-**Decided 2026-04-23.** "Run on my computer" is now modeled explicitly as temporary control over one leased machine target.
+### Local machine control is a core provider-backed machine-target subsystem, not an integration-owned exec surface
+**Decided 2026-04-23.** "Run on my computer" is modeled as temporary control over one leased machine target, and that feature is core-owned with pluggable provider implementations.
 
 **What changed.**
-- Added a generic machine-target abstraction with `driver="companion"` in v1.
-- Enrolled targets live in the `local_companion` integration settings JSON instead of new DB tables.
+- Added a generic machine-target abstraction addressed by `(provider_id, target_id)`.
+- Core now owns:
+  - `app/services/machine_control.py`
+  - provider-aware session leases
+  - machine admin APIs
+  - `/admin/machines`
+  - transcript/result UX
+  - the tools `machine_status`, `machine_inspect_command`, and `machine_exec_command`
+- Provider integrations participate through a typed contract declared in `integration.yaml` plus `integrations/<id>/machine_control.py`.
+- `local_companion` is the first provider implementation with `driver="companion"`.
+- Enrolled companion targets still live in the `local_companion` integration settings JSON instead of new DB tables.
 - Session control state lives in `Session.metadata_["machine_target_lease"]`.
 - Tool registry now carries `execution_policy`; machine tools use `interactive_user` or `live_target_lease`.
 - Companion routing is explicit by leased `target_id`; there is no "most recent connection wins" fallback.
@@ -48,9 +57,11 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 **Why.**
 - The product needs a native-feeling "operate on my machine" path, but server-side exec and local-machine exec are not the same trust boundary.
 - SSH-first would have conflated headless LAN/server control with "my current local computer" pairing.
+- Letting `local_companion` own the admin/UI surfaces would have forced future providers through an integration-specific product surface.
 - The right safety contract is explicit, session-scoped, user-held control state, not an ambient ability any background run can reuse.
 
 **Load-bearing invariants.**
+- Machine control is core-owned; integrations implement providers but do not own the generic machine admin/session UX.
 - A machine target is always explicit. Routing must never fall back to recency.
 - One session may lease only one target; one target may be leased by only one session.
 - Lease-gated tools require:
@@ -61,6 +72,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
   - a currently connected target
 - Autonomous origins (`heartbeat`, `task`, `subagent`, hygiene-style runs) are denied even if other context exists.
 - API-key/script surfaces do not gain local-machine power by virtue of being able to call tools.
+- Future implementations such as SSH should plug into the same provider contract instead of inventing parallel machine-control stacks.
 - SSH, browser control, file sync, or other desktop automation should reuse the same machine-target + lease abstraction instead of inventing parallel consent paths.
 
 ### Sub-agents are experimental readonly sidecars, not a default orchestration primitive

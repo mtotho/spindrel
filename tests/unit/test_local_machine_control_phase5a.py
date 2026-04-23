@@ -3,15 +3,13 @@ from __future__ import annotations
 import json
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-import yaml
 
 from app.agent.tool_dispatch import dispatch_tool_call
-from app.services.widget_templates import _register_widgets, _widget_templates, apply_widget_template
+from app.tools.local.machine_control import machine_exec_command, machine_status
 
 
 @pytest.fixture
@@ -54,11 +52,13 @@ class TestMachineControlExecutionPolicyEnvelope:
         payload = {
             "reason": "Grant machine control for this session before using that tool.",
             "execution_policy": "live_target_lease",
-            "requested_tool": "local_exec_command",
+            "requested_tool": "machine_exec_command",
             "session_id": str(dkw["session_id"]),
             "lease": None,
             "targets": [
                 {
+                    "provider_id": "local_companion",
+                    "provider_label": "Local Companion",
                     "target_id": "target-1",
                     "driver": "companion",
                     "label": "Desk",
@@ -71,6 +71,8 @@ class TestMachineControlExecutionPolicyEnvelope:
             ],
             "connected_targets": [
                 {
+                    "provider_id": "local_companion",
+                    "provider_label": "Local Companion",
                     "target_id": "target-1",
                     "driver": "companion",
                     "label": "Desk",
@@ -82,7 +84,8 @@ class TestMachineControlExecutionPolicyEnvelope:
                 },
             ],
             "connected_target_count": 1,
-            "integration_admin_href": "/admin/integrations/local_companion",
+            "admin_machines_href": "/admin/machines",
+            "integration_admin_href": "/admin/machines",
         }
 
         with (
@@ -91,7 +94,7 @@ class TestMachineControlExecutionPolicyEnvelope:
             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False),
             patch("app.tools.registry.get_tool_execution_policy", return_value="live_target_lease"),
             patch(
-                "app.services.local_machine_control.validate_current_execution_policy",
+                "app.services.machine_control.validate_current_execution_policy",
                 new_callable=AsyncMock,
                 return_value=SimpleNamespace(
                     allowed=False,
@@ -100,7 +103,7 @@ class TestMachineControlExecutionPolicyEnvelope:
                 ),
             ),
             patch(
-                "app.services.local_machine_control.build_machine_access_required_payload",
+                "app.services.machine_control.build_machine_access_required_payload",
                 new_callable=AsyncMock,
                 return_value=payload,
             ),
@@ -109,7 +112,7 @@ class TestMachineControlExecutionPolicyEnvelope:
             patch("app.agent.tool_dispatch.safe_create_task", side_effect=_swallow_task),
         ):
             result = await dispatch_tool_call(
-                name="local_exec_command",
+                name="machine_exec_command",
                 allowed_tool_names=None,
                 **dkw,
             )
@@ -124,65 +127,84 @@ class TestMachineControlExecutionPolicyEnvelope:
         assert recorded_envelope["data"]["connected_target_count"] == 1
 
 
-class TestLocalCompanionWidgets:
-    def _register_local_companion_widgets(self):
-        manifest_path = Path("integrations/local_companion/integration.yaml")
-        manifest = yaml.safe_load(manifest_path.read_text())
-        _widget_templates.clear()
-        _register_widgets(
-            "test:local_companion",
-            manifest["tool_widgets"],
-            base_dir=manifest_path.parent,
-        )
-
-    def test_local_status_widget_is_refreshable_semantic_view(self):
-        self._register_local_companion_widgets()
-        env = apply_widget_template(
-            "local_status",
-            json.dumps(
+class TestCoreMachineControlToolEnvelopes:
+    @pytest.mark.asyncio
+    async def test_machine_status_returns_refreshable_semantic_envelope(self):
+        payload = {
+            "session_id": "session-1",
+            "lease": None,
+            "connected_target_count": 1,
+            "targets": [
                 {
-                    "session_id": "session-1",
-                    "lease": None,
-                    "connected_target_count": 1,
-                    "targets": [
-                        {
-                            "target_id": "target-1",
-                            "driver": "companion",
-                            "label": "Desk",
-                            "hostname": "workstation",
-                            "platform": "linux",
-                            "capabilities": ["shell"],
-                            "connected": True,
-                            "connection_id": "conn-1",
-                        },
-                    ],
-                }
-            ),
-        )
-        assert env is not None
-        assert env.view_key == "core.machine_target_status"
-        assert env.refreshable is True
-
-    def test_local_exec_widget_uses_command_result_view(self):
-        self._register_local_companion_widgets()
-        env = apply_widget_template(
-            "local_exec_command",
-            json.dumps(
-                {
-                    "command": "npm test",
-                    "working_dir": "/repo",
+                    "provider_id": "local_companion",
+                    "provider_label": "Local Companion",
                     "target_id": "target-1",
-                    "target_label": "Desk",
-                    "target_hostname": "workstation",
-                    "target_platform": "linux",
-                    "stdout": "PASS\n",
-                    "stderr": "",
-                    "exit_code": 0,
-                    "duration_ms": 42,
-                    "truncated": False,
-                }
+                    "driver": "companion",
+                    "label": "Desk",
+                    "hostname": "workstation",
+                    "platform": "linux",
+                    "capabilities": ["shell"],
+                    "connected": True,
+                    "connection_id": "conn-1",
+                },
+            ],
+        }
+
+        with (
+            patch(
+                "app.tools.local.machine_control.validate_current_execution_policy",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(allowed=True),
             ),
+            patch("app.tools.local.machine_control.current_session_id", SimpleNamespace(get=lambda: None)),
+            patch("app.tools.local.machine_control.build_targets_status", return_value=payload["targets"]),
+        ):
+            raw = await machine_status()
+
+        parsed = json.loads(raw)
+        envelope = parsed["_envelope"]
+        assert envelope["view_key"] == "core.machine_target_status"
+        assert envelope["refreshable"] is True
+        assert envelope["refresh_interval_seconds"] == 5
+        assert envelope["data"]["connected_target_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_machine_exec_command_uses_command_result_view(self):
+        fake_provider = SimpleNamespace(
+            label="Local Companion",
+            exec_command=AsyncMock(return_value={
+                "stdout": "PASS\n",
+                "stderr": "",
+                "exit_code": 0,
+                "duration_ms": 42,
+                "truncated": False,
+            }),
         )
-        assert env is not None
-        assert env.view_key == "core.command_result"
-        assert env.display_label == "Desk"
+        lease = {
+            "provider_id": "local_companion",
+            "target_id": "target-1",
+        }
+
+        with (
+            patch(
+                "app.tools.local.machine_control.validate_current_execution_policy",
+                new_callable=AsyncMock,
+                return_value=SimpleNamespace(allowed=True, lease=lease),
+            ),
+            patch("app.tools.local.machine_control.get_provider", return_value=fake_provider),
+            patch(
+                "app.tools.local.machine_control.get_target_by_id",
+                return_value={
+                    "label": "Desk",
+                    "hostname": "workstation",
+                    "platform": "linux",
+                },
+            ),
+        ):
+            raw = await machine_exec_command("npm test", "/repo")
+
+        parsed = json.loads(raw)
+        envelope = parsed["_envelope"]
+        assert envelope["view_key"] == "core.command_result"
+        assert envelope["display_label"] == "Desk"
+        assert parsed["target_label"] == "Desk"

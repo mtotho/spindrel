@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ToolResultEnvelope } from "@/src/types/api";
 import type { ThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { getAuthToken, useAuthStore } from "@/src/stores/auth";
-import { PreviewCard } from "./shared";
+import { PreviewCard, type NativeAppRendererProps } from "./shared";
+import { deriveContextTrackerLayoutProfile } from "./contextTrackerLayout";
 
 interface ContextBudgetResponse {
   utilization: number | null;
@@ -58,6 +59,11 @@ interface ActivityEntry {
   ts: number;
 }
 
+interface StatItem {
+  label: string;
+  value: string;
+}
+
 function fmtNum(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
   if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -74,18 +80,195 @@ function timeLabel(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
+function formatSourceLabel(source: string | null | undefined): string | null {
+  if (source === "api") return "Actual";
+  if (source === "estimate") return "Estimate";
+  return null;
+}
+
+function formatProfileLabel(profile: string | null | undefined): string | null {
+  if (!profile || profile === "chat") return null;
+  return `${profile.slice(0, 1).toUpperCase()}${profile.slice(1)} profile`;
+}
+
+function formatStatusLabel(status: "idle" | "live" | "tool" | "error", label: string): string {
+  if (status === "idle") return "Waiting";
+  if (status === "error") return "Turn failed";
+  if (status === "tool") return label === "tool" ? "Running tool" : label;
+  return label;
+}
+
+function sectionTitleStyle(t: ThemeTokens) {
+  return {
+    fontSize: 10,
+    color: t.textDim,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+  };
+}
+
+function sectionCardStyle(t: ThemeTokens, compact = false) {
+  return {
+    border: `1px solid ${t.surfaceBorder}`,
+    borderRadius: compact ? 10 : 12,
+    padding: compact ? "8px 9px" : "10px 11px",
+    background: t.surface,
+  };
+}
+
+function renderStatGrid(
+  items: StatItem[],
+  columns: number,
+  t: ThemeTokens,
+  compact = false,
+) {
+  return (
+    <section
+      style={{
+        display: "grid",
+        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+        gap: compact ? 6 : 8,
+      }}
+    >
+      {items.map((item) => (
+        <div key={item.label} style={sectionCardStyle(t, compact)}>
+          <div
+            style={{
+              fontSize: compact ? 13 : 15,
+              fontWeight: 650,
+              color: t.text,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {item.value}
+          </div>
+          <div style={sectionTitleStyle(t)}>{item.label}</div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function renderBreakdownSection(
+  categories: ContextCategory[],
+  t: ThemeTokens,
+  minimal = false,
+) {
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: minimal ? 6 : 8 }}>
+      <div style={sectionTitleStyle(t)}>Breakdown</div>
+      {categories.length ? categories.map((cat) => {
+        const share = Number.isFinite(cat.percentage) ? cat.percentage : 0;
+        return (
+          <div key={cat.key} style={minimal ? undefined : sectionCardStyle(t)}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 8,
+                alignItems: "baseline",
+                fontSize: minimal ? 12 : 12.5,
+              }}
+            >
+              <span
+                style={{
+                  color: t.textMuted,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {cat.label || cat.key}
+              </span>
+              <span style={{ color: t.textDim, fontVariantNumeric: "tabular-nums", flex: "0 0 auto" }}>
+                {fmtNum(cat.tokens_approx)}
+              </span>
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: minimal ? "minmax(0, 1fr) auto" : "minmax(0, 1fr) 44px",
+                gap: 8,
+                alignItems: "center",
+                marginTop: 4,
+              }}
+            >
+              <div style={{ height: minimal ? 3 : 4, background: t.surfaceBorder }}>
+                <div
+                  style={{
+                    width: `${Math.max(1, Math.min(100, Math.round(share * 100)))}%`,
+                    height: "100%",
+                    background: t.textDim,
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  textAlign: "right",
+                  fontSize: 11,
+                  color: t.textDim,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {fmtPct(share)}
+              </div>
+            </div>
+          </div>
+        );
+      }) : (
+        <div style={{ color: t.textMuted, fontSize: 12 }}>No context categories yet.</div>
+      )}
+    </section>
+  );
+}
+
+function renderActivitySection(activity: ActivityEntry[], t: ThemeTokens) {
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: 7, minHeight: 0 }}>
+      <div style={sectionTitleStyle(t)}>Recent turns</div>
+      {activity.length ? activity.map((entry) => (
+        <div key={`${entry.id}:${entry.ts}`} style={sectionCardStyle(t, true)}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 8,
+              alignItems: "baseline",
+            }}
+          >
+            <span style={{ color: t.textDim, fontSize: 11, fontVariantNumeric: "tabular-nums", flex: "0 0 auto" }}>
+              {timeLabel(entry.ts)}
+            </span>
+            <span
+              style={{
+                color: entry.tone === "error" ? t.danger : t.textMuted,
+                fontSize: 12,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}
+            >
+              {entry.label}
+            </span>
+          </div>
+        </div>
+      )) : (
+        <div style={{ color: t.textMuted, fontSize: 12 }}>Waiting for channel activity.</div>
+      )}
+    </section>
+  );
+}
+
 export function ContextTrackerWidget({
   envelope,
   sessionId,
   channelId,
+  gridDimensions,
+  layout,
   t,
-}: {
-  envelope: ToolResultEnvelope;
-  sessionId?: string;
-  dashboardPinId?: string;
-  channelId?: string;
-  t: ThemeTokens;
-}) {
+}: NativeAppRendererProps) {
   const serverUrl = useAuthStore((s) => s.serverUrl);
   const [budget, setBudget] = useState<ContextBudgetResponse | null>(null);
   const [breakdown, setBreakdown] = useState<ContextBreakdownResponse | null>(null);
@@ -222,7 +405,7 @@ export function ContextTrackerWidget({
               try {
                 handleWire(JSON.parse(line.slice(6)));
               } catch {
-                // Keepalive or malformed frame; ignore and keep the stream alive.
+                // Ignore malformed frames and keep the stream alive.
               }
             }
           }
@@ -257,7 +440,6 @@ export function ContextTrackerWidget({
       : pct >= 0.75
         ? t.warning
         : t.accent;
-  const topCategories = (breakdown?.categories ?? []).slice(0, 5);
   const turnsInContext = diagnostics?.compaction?.user_turns_since_watermark;
   const turnsUntilCompact =
     diagnostics?.compaction?.turns_until_next
@@ -271,93 +453,186 @@ export function ContextTrackerWidget({
         ? t.danger
         : t.textDim;
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: "100%", color: t.text }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-          <span style={{ width: 7, height: 7, background: dotColor, display: "inline-block", flex: "0 0 auto" }} />
-          <span style={{ color: t.textMuted, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {statusLabel}
-          </span>
+  const profile = useMemo(
+    () => deriveContextTrackerLayoutProfile(layout, gridDimensions),
+    [layout, gridDimensions],
+  );
+  const sourceLabel = formatSourceLabel(budget?.source);
+  const profileLabel = formatProfileLabel(budget?.context_profile);
+  const friendlyStatusLabel = formatStatusLabel(status, statusLabel);
+  const topCategories = (breakdown?.categories ?? []).slice(0, profile.categoryLimit);
+  const visibleActivity = activity.slice(0, profile.activityLimit);
+  const compactSecondStat: StatItem = turnsUntilCompact == null
+    ? { label: "Cached", value: fmtNum(budget?.cached_prompt_tokens) }
+    : { label: "Until", value: String(turnsUntilCompact) };
+  const statItems: StatItem[] = profile.mode === "compact"
+    ? [
+        { label: "Current", value: fmtNum(budget?.current_prompt_tokens) },
+        compactSecondStat,
+      ]
+    : [
+        { label: "Current", value: fmtNum(budget?.current_prompt_tokens) },
+        { label: "Cached", value: fmtNum(budget?.cached_prompt_tokens) },
+        { label: "Until", value: turnsUntilCompact == null ? "-" : String(turnsUntilCompact) },
+        ...(profile.showTurnsInContext
+          ? [{ label: "Turns", value: turnsInContext == null ? "-" : String(turnsInContext) }]
+          : []),
+      ];
+  const footerLeft = error
+    ? "Snapshot failed"
+    : profile.mode === "compact" && budget?.cached_prompt_tokens != null && turnsUntilCompact != null
+      ? `Cached ${fmtNum(budget.cached_prompt_tokens)}`
+      : turnsInContext == null
+        ? "Last turn view"
+        : `${turnsInContext} turns in context`;
+  const percentFontSize = profile.mode === "wide"
+    ? 44
+    : profile.mode === "tall"
+      ? 40
+      : profile.mode === "compact"
+        ? 28
+        : 34;
+  const compact = profile.mode === "compact";
+
+  const hero = (
+    <section style={{ display: "flex", flexDirection: "column", gap: compact ? 6 : 10 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: compact ? "flex-end" : "baseline",
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            fontSize: percentFontSize,
+            lineHeight: 0.95,
+            fontWeight: 700,
+            letterSpacing: "-0.05em",
+            color: gaugeColor,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {fmtPct(utilization)}
         </div>
-        <span style={{ color: t.textDim, fontSize: 11, fontVariantNumeric: "tabular-nums" }}>
-          {budget?.source ?? "none"}
+        <div
+          style={{
+            textAlign: "right",
+            fontSize: compact ? 10.5 : 11,
+            color: t.textDim,
+            fontVariantNumeric: "tabular-nums",
+            flex: "0 0 auto",
+          }}
+        >
+          <div>{fmtNum(budget?.gross_prompt_tokens ?? budget?.consumed_tokens)} / {fmtNum(budget?.total_tokens)}</div>
+          {profileLabel ? <div>{profileLabel}</div> : null}
+        </div>
+      </div>
+      <div style={{ height: compact ? 4 : 5, background: t.surfaceBorder }}>
+        <div style={{ height: "100%", width: `${Math.round(pct * 100)}%`, background: gaugeColor }} />
+      </div>
+    </section>
+  );
+
+  const header = (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+        <span style={{ width: 7, height: 7, background: dotColor, display: "inline-block", flex: "0 0 auto" }} />
+        <span
+          style={{
+            color: t.textMuted,
+            fontSize: compact ? 11 : 12,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {friendlyStatusLabel}
         </span>
       </div>
+      {!compact && sourceLabel ? (
+        <span
+          style={{
+            color: t.textDim,
+            fontSize: 11,
+            fontVariantNumeric: "tabular-nums",
+            flex: "0 0 auto",
+          }}
+        >
+          {sourceLabel}
+        </span>
+      ) : null}
+    </div>
+  );
 
-      <section>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-          <div style={{ fontSize: 34, lineHeight: 1, fontWeight: 700, letterSpacing: "-0.05em", color: gaugeColor }}>
-            {fmtPct(utilization)}
-          </div>
-          <div style={{ textAlign: "right", fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-            <div>{fmtNum(budget?.gross_prompt_tokens ?? budget?.consumed_tokens)} / {fmtNum(budget?.total_tokens)}</div>
-            <div>{budget?.context_profile ?? "profile unknown"}</div>
-          </div>
-        </div>
-        <div style={{ height: 3, background: t.surfaceBorder, marginTop: 10 }}>
-          <div style={{ height: "100%", width: `${Math.round(pct * 100)}%`, background: gaugeColor }} />
-        </div>
-      </section>
+  const footer = (
+    <div
+      style={{
+        marginTop: "auto",
+        borderTop: `1px solid ${t.surfaceBorder}`,
+        paddingTop: compact ? 5 : 6,
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 8,
+        fontSize: compact ? 10 : 11,
+        color: error ? t.danger : t.textDim,
+      }}
+    >
+      <span>{compact ? (sourceLabel ?? footerLeft) : footerLeft}</span>
+      <span>{lastUpdated ? `Updated ${timeLabel(lastUpdated)}` : "No snapshot"}</span>
+    </div>
+  );
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", borderTop: `1px solid ${t.surfaceBorder}`, borderBottom: `1px solid ${t.surfaceBorder}` }}>
-        {[
-          ["Current", fmtNum(budget?.current_prompt_tokens)],
-          ["Cached", fmtNum(budget?.cached_prompt_tokens)],
-          ["Until", turnsUntilCompact == null ? "-" : String(turnsUntilCompact)],
-        ].map(([label, value], index) => (
-          <div key={label} style={{ padding: "8px 6px", borderLeft: index === 0 ? "none" : `1px solid ${t.surfaceBorder}` }}>
-            <div style={{ fontSize: 14, fontWeight: 650, color: t.text, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-            <div style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
-          </div>
-        ))}
-      </section>
-
-      <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          Breakdown
-        </div>
-        {topCategories.length ? topCategories.map((cat) => {
-          const share = Number.isFinite(cat.percentage) ? cat.percentage : 0;
-          return (
-            <div key={cat.key} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 42px", gap: 8, alignItems: "center" }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12 }}>
-                  <span style={{ color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat.label || cat.key}</span>
-                  <span style={{ color: t.textDim, fontVariantNumeric: "tabular-nums" }}>{fmtNum(cat.tokens_approx)}</span>
-                </div>
-                <div style={{ height: 2, background: t.surfaceBorder, marginTop: 3 }}>
-                  <div style={{ width: `${Math.max(1, Math.min(100, Math.round(share * 100)))}%`, height: "100%", background: t.textDim }} />
-                </div>
-              </div>
-              <div style={{ textAlign: "right", fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-                {fmtPct(share)}
-              </div>
-            </div>
-          );
-        }) : (
-          <div style={{ color: t.textMuted, fontSize: 12 }}>No context categories yet.</div>
-        )}
-      </section>
-
-      <section style={{ display: "flex", flexDirection: "column", gap: 5, minHeight: 0 }}>
-        <div style={{ fontSize: 10, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-          Recent turns
-        </div>
-        {activity.length ? activity.map((entry) => (
-          <div key={`${entry.id}:${entry.ts}`} style={{ display: "grid", gridTemplateColumns: "44px minmax(0, 1fr)", gap: 8, fontSize: 12 }}>
-            <span style={{ color: t.textDim, fontVariantNumeric: "tabular-nums" }}>{timeLabel(entry.ts)}</span>
-            <span style={{ color: entry.tone === "error" ? t.danger : t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.label}</span>
-          </div>
-        )) : (
-          <div style={{ color: t.textMuted, fontSize: 12 }}>Waiting for channel activity.</div>
-        )}
-      </section>
-
-      <div style={{ marginTop: "auto", borderTop: `1px solid ${t.surfaceBorder}`, paddingTop: 6, display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11, color: error ? t.danger : t.textDim }}>
-        <span>{error ? "Snapshot failed" : turnsInContext == null ? "Last turn view" : `${turnsInContext} turns in context`}</span>
-        <span>{lastUpdated ? `Updated ${timeLabel(lastUpdated)}` : "No snapshot"}</span>
+  if (profile.mode === "compact") {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, minHeight: "100%", color: t.text }}>
+        {header}
+        {hero}
+        {renderStatGrid(statItems, profile.statColumns, t, true)}
+        {footer}
       </div>
+    );
+  }
+
+  const secondaryContent = (
+    <>
+      {profile.showBreakdown ? renderBreakdownSection(topCategories, t) : null}
+      {profile.showActivity ? renderActivitySection(visibleActivity, t) : null}
+    </>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: profile.mode === "wide" ? 14 : 12, minHeight: "100%", color: t.text }}>
+      {header}
+
+      {profile.mode === "wide" ? (
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1.15fr) minmax(220px, 0.95fr)",
+            gap: 14,
+            alignItems: "start",
+            flex: "1 1 auto",
+          }}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {hero}
+            {renderStatGrid(statItems, profile.statColumns, t)}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {secondaryContent}
+          </div>
+        </section>
+      ) : (
+        <>
+          {hero}
+          {renderStatGrid(statItems, profile.statColumns, t)}
+          {secondaryContent}
+        </>
+      )}
+
+      {footer}
     </div>
   );
 }

@@ -1,0 +1,107 @@
+import { useState } from "react";
+
+import { useClearSessionMachineTargetLease, useGrantSessionMachineTargetLease, useSessionMachineTarget } from "@/src/api/hooks/useMachineTargets";
+
+import type { RichResultViewProps } from "../../RichToolResult";
+import {
+  MachineLeaseSummary,
+  MachineTargetRow,
+  coerceMachineTargetState,
+  machineCardStyle,
+  machineMetaTextStyle,
+} from "./shared";
+
+export function MachineTargetStatusRenderer({
+  data,
+  sessionId,
+  t,
+}: RichResultViewProps) {
+  const initial = coerceMachineTargetState(data);
+  const live = useSessionMachineTarget(sessionId, Boolean(sessionId));
+  const liveState = live.data ?? (sessionId ? undefined : initial);
+  const state = liveState ?? initial;
+  const targets = state.targets ?? [];
+  const connectedTargets = targets.filter((target) => target.connected);
+  const lease = state.lease ?? null;
+  const grantLease = useGrantSessionMachineTargetLease(sessionId ?? "");
+  const clearLease = useClearSessionMachineTargetLease(sessionId ?? "");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const canMutate = Boolean(sessionId);
+  const busy = grantLease.isPending || clearLease.isPending;
+
+  async function handleUse(target: (typeof targets)[number]) {
+    if (!sessionId) return;
+    setActionError(null);
+    try {
+      await grantLease.mutateAsync({ provider_id: target.provider_id, target_id: target.target_id });
+      await live.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to grant machine access.");
+    }
+  }
+
+  async function handleRevoke() {
+    if (!sessionId) return;
+    setActionError(null);
+    try {
+      await clearLease.mutateAsync();
+      await live.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to revoke machine access.");
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={machineCardStyle(t)}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontWeight: 700, color: t.text }}>Machine Control</div>
+            <div style={machineMetaTextStyle(t)}>
+              {lease
+                ? "This session currently has a machine lease."
+                : connectedTargets.length
+                  ? `${connectedTargets.length} connected target${connectedTargets.length === 1 ? "" : "s"} available.`
+                  : "No connected targets are available for this session."}
+            </div>
+          </div>
+          {sessionId ? (
+            <span style={machineMetaTextStyle(t)}>{sessionId.slice(0, 8)}</span>
+          ) : null}
+        </div>
+        {lease ? (
+          <div style={{ marginTop: 10, ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>
+            <MachineLeaseSummary lease={lease} t={t} />
+          </div>
+        ) : null}
+        {!targets.length ? (
+          <div style={{ marginTop: 10, ...machineMetaTextStyle(t) }}>
+            Enroll a machine from Admin &gt; Machines, then connect the provider companion from that machine.
+          </div>
+        ) : (
+          <div style={{ marginTop: 10 }}>
+            {targets.map((target, index) => (
+              <MachineTargetRow
+                key={`${target.provider_id}:${target.target_id}`}
+                target={target}
+                activeLeaseTargetId={lease?.target_id}
+                busy={busy}
+                showTopBorder={index !== 0}
+                onUse={canMutate ? handleUse : undefined}
+                onRevoke={canMutate && lease?.target_id === target.target_id ? handleRevoke : undefined}
+                t={t}
+              />
+            ))}
+          </div>
+        )}
+        {actionError ? (
+          <div style={{ marginTop: 8, fontSize: 11, color: t.danger }}>{actionError}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+export function renderMachineTargetStatusView(props: RichResultViewProps) {
+  return <MachineTargetStatusRenderer {...props} />;
+}

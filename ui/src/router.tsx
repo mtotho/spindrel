@@ -70,6 +70,7 @@ const AdminLogsFallbacks = lazy(() => import("@/app/(app)/admin/logs/fallbacks")
 const AdminLogsServer = lazy(() => import("@/app/(app)/admin/logs/server"));
 const AdminLogsTraces = lazy(() => import("@/app/(app)/admin/logs/traces"));
 const AdminLogDetail = lazy(() => import("@/app/(app)/admin/logs/[correlationId]/index"));
+const AdminMachines = lazy(() => import("@/app/(app)/admin/machines/index"));
 const AdminMcpServers = lazy(() => import("@/app/(app)/admin/mcp-servers/index"));
 const AdminMcpServerDetail = lazy(() => import("@/app/(app)/admin/mcp-servers/[serverId]/index"));
 const AdminMemories = lazy(() => import("@/app/(app)/admin/memories"));
@@ -205,6 +206,7 @@ export const router = createBrowserRouter([
               { path: "logs/server", element: <AdminLogsServer /> },
               { path: "logs/traces", element: <AdminLogsTraces /> },
               { path: "logs/:correlationId", element: <AdminLogDetail /> },
+              { path: "machines", element: <AdminMachines /> },
               { path: "mcp-servers", element: <AdminMcpServers /> },
               { path: "mcp-servers/:serverId", element: <AdminMcpServerDetail /> },
               { path: "memories", element: <AdminMemories /> },

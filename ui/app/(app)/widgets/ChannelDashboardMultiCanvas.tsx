@@ -408,13 +408,13 @@ export function ChannelDashboardMultiCanvas({
         const rect = headerMeasure.rect;
         if (!rect) return;
         const { x, y } = pointerToCell(
-          clientX - rect.left - CANVAS_INNER_PADDING,
-          clientY - rect.top - CANVAS_INNER_PADDING,
+          clientX - rect.left,
+          clientY - rect.top,
           {
             cols: preset.cols.lg,
             rowHeight: HEADER_ROW_HEIGHT_PX,
             gap: GAP_PX,
-            canvasWidth: Math.max(1, rect.width - CANVAS_INNER_PADDING * 2),
+            canvasWidth: Math.max(1, rect.width),
           },
         );
         const placement = clampPlacement(x, y, size.w, Math.min(size.h, HEADER_MAX_ROWS), preset.cols.lg);
@@ -574,13 +574,13 @@ export function ChannelDashboardMultiCanvas({
       if (!rect || !pin) return;
       const existing = toGridLayout(pin);
       const { x, y } = pointerToCell(
-        clientX - rect.left - CANVAS_INNER_PADDING,
-        clientY - rect.top - CANVAS_INNER_PADDING,
+        clientX - rect.left,
+        clientY - rect.top,
         {
           cols: preset.cols.lg,
           rowHeight: HEADER_ROW_HEIGHT_PX,
           gap: GAP_PX,
-          canvasWidth: Math.max(1, rect.width - CANVAS_INNER_PADDING * 2),
+          canvasWidth: Math.max(1, rect.width),
         },
       );
       const placement = clampPlacement(x, y, existing.w, Math.min(existing.h, HEADER_MAX_ROWS), preset.cols.lg);
@@ -676,13 +676,13 @@ export function ChannelDashboardMultiCanvas({
     if (overZone !== "header" || !dragPointer || !activePin || !headerMeasure.rect) return null;
     const existing = toGridLayout(activePin);
     const { x, y } = pointerToCell(
-      dragPointer.x - headerMeasure.rect.left - CANVAS_INNER_PADDING,
-      dragPointer.y - headerMeasure.rect.top - CANVAS_INNER_PADDING,
+      dragPointer.x - headerMeasure.rect.left,
+      dragPointer.y - headerMeasure.rect.top,
       {
         cols: preset.cols.lg,
         rowHeight: HEADER_ROW_HEIGHT_PX,
         gap: GAP_PX,
-        canvasWidth: Math.max(1, headerMeasure.rect.width - CANVAS_INNER_PADDING * 2),
+        canvasWidth: Math.max(1, headerMeasure.rect.width),
       },
     );
     const placement = clampPlacement(x, y, existing.w, Math.min(existing.h, HEADER_MAX_ROWS), preset.cols.lg);
@@ -733,26 +733,9 @@ export function ChannelDashboardMultiCanvas({
           </div>
         )}
 
-        <HeaderCanvas
-          pins={headerPins}
-          editMode={editMode}
-          chrome={chrome}
-          onUnpin={onUnpin}
-          onEnvelopeUpdate={onEnvelopeUpdate}
-          onEditPin={onEditPin}
-          anyDragging={activeDragId !== null}
-          isOver={overZone === "header"}
-          applyLayout={applyLayout}
-          channelId={channelId}
-          measure={headerMeasure}
-          cols={preset.cols.lg}
-          justMovedId={justMovedId}
-          onTileMoved={pulseMoved}
-          ghost={headerGhost}
-        />
-
         <UnifiedBodyCanvas
           pins={[...railPins, ...gridPins, ...dockPins]}
+          headerPins={headerPins}
           preset={preset}
           editMode={editMode}
           chrome={chrome}
@@ -765,6 +748,9 @@ export function ChannelDashboardMultiCanvas({
           applyLayout={applyLayout}
           measureRef={bodyMeasure.setRef}
           measuredRect={bodyMeasure.rect}
+          headerMeasure={headerMeasure}
+          headerIsOver={overZone === "header"}
+          headerGhost={headerGhost}
           channelId={channelId}
           justMovedId={justMovedId}
           onTileMoved={pulseMoved}
@@ -860,6 +846,7 @@ interface HeaderCanvasProps extends CanvasSharedProps {
   measure: ReturnType<typeof useCanvasMeasure>;
   cols: number;
   ghost: { x: number; y: number; w: number; h: number } | null;
+  embedded?: boolean;
 }
 
 function HeaderCanvas({
@@ -878,8 +865,15 @@ function HeaderCanvas({
   justMovedId,
   onTileMoved,
   ghost,
+  embedded = false,
 }: HeaderCanvasProps) {
   const t = useThemeTokens();
+  const [resizePreview, setResizePreview] = useState<{
+    id: string;
+    x: number;
+    w: number;
+    h: number;
+  } | null>(null);
   if (!editMode && pins.length === 0) return null;
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
   const railHeight = HEADER_ROW_HEIGHT_PX * HEADER_MAX_ROWS + GAP_PX * (HEADER_MAX_ROWS - 1);
@@ -901,8 +895,8 @@ function HeaderCanvas({
       measureRef={measure.setRef}
     >
       <div
-        className="relative min-h-0 p-3"
-        style={{ minHeight: railHeight + CANVAS_INNER_PADDING * 2 }}
+        className={embedded ? "relative min-h-0" : "relative min-h-0 p-3"}
+        style={{ minHeight: railHeight + (embedded ? 0 : CANVAS_INNER_PADDING * 2) }}
       >
         <div style={gridStyle} className="relative">
           {ghost && (
@@ -932,6 +926,10 @@ function HeaderCanvas({
           ) : (
             pins.map((pin) => {
               const gl = toGridLayout(pin);
+              const preview = resizePreview?.id === pin.id ? resizePreview : null;
+              const effX = preview ? preview.x : gl.x;
+              const effW = preview ? preview.w : gl.w;
+              const effH = preview ? preview.h : gl.h;
               const chipLike = isChipLikeHeaderLayout(gl);
               const scope: WidgetScope = chipLike
                 ? { kind: "channel", channelId, compact: "chip" }
@@ -941,8 +939,8 @@ function HeaderCanvas({
                   key={pin.id}
                   id={pin.id}
                   disabled={!editMode}
-                  gridColumn={`${gl.x + 1} / span ${gl.w}`}
-                  gridRow={`${gl.y + 1} / span ${gl.h}`}
+                  gridColumn={`${effX + 1} / span ${effW}`}
+                  gridRow={`${gl.y + 1} / span ${effH}`}
                 >
                   {(binding) => (
                     <div
@@ -970,12 +968,12 @@ function HeaderCanvas({
                           editMode
                             ? {
                                 edges: chipLike
-                                  ? (["e"] as ResizeEdge[])
-                                  : (["s", "e", "se"] as ResizeEdge[]),
+                                  ? (["e", "w"] as ResizeEdge[])
+                                  : (["s", "e", "se", "w", "sw"] as ResizeEdge[]),
                                 initial: { x: gl.x, y: gl.y, w: gl.w, h: gl.h },
                                 cellPx: {
                                   w:
-                                    ((measure.rect?.width ?? 0) - CANVAS_INNER_PADDING * 2 - (cols - 1) * GAP_PX)
+                                    ((measure.rect?.width ?? 0) - (cols - 1) * GAP_PX)
                                     / cols
                                     + GAP_PX,
                                   h: HEADER_ROW_HEIGHT_PX + GAP_PX,
@@ -983,7 +981,15 @@ function HeaderCanvas({
                                 clampW: { min: 1, max: cols },
                                 clampH: { min: 1, max: HEADER_MAX_ROWS },
                                 showRest: true,
+                                onResizing: ({ x, w, h }) =>
+                                  setResizePreview({
+                                    id: pin.id,
+                                    x,
+                                    w,
+                                    h: Math.min(h, HEADER_MAX_ROWS),
+                                  }),
                                 onCommit: ({ x, w, h }) => {
+                                  setResizePreview(null);
                                   const next = clampPlacement(x, gl.y, w, Math.min(h, HEADER_MAX_ROWS), cols);
                                   void applyLayout([{
                                     id: pin.id,
@@ -1016,15 +1022,20 @@ function HeaderCanvas({
 // ---------------------------------------------------------------------------
 
 interface UnifiedBodyCanvasProps extends CanvasSharedProps {
+  headerPins: WidgetDashboardPin[];
   preset: GridPreset;
   measureRef: (el: HTMLDivElement | null) => void;
   measuredRect: DOMRect | null;
+  headerMeasure: ReturnType<typeof useCanvasMeasure>;
+  headerIsOver: boolean;
+  headerGhost: { x: number; y: number; w: number; h: number } | null;
   overZone: "rail" | "grid" | "dock" | null;
   ghost: { x: number; y: number; w: number; h: number } | null;
 }
 
 function UnifiedBodyCanvas({
   pins,
+  headerPins,
   preset,
   editMode,
   chrome,
@@ -1036,6 +1047,9 @@ function UnifiedBodyCanvas({
   applyLayout,
   measureRef,
   measuredRect,
+  headerMeasure,
+  headerIsOver,
+  headerGhost,
   channelId,
   justMovedId,
   onTileMoved,
@@ -1057,6 +1071,8 @@ function UnifiedBodyCanvas({
   );
   const centerCellWidth = metrics?.centerColWidth ?? 64;
   const dashboardScope = (): WidgetScope => ({ kind: "dashboard", channelId });
+  const headerLeft = metrics ? CANVAS_INNER_PADDING + metrics.centerStartX : 0;
+  const headerWidth = metrics?.centerTrackWidth ?? 0;
   const gridStyle: CSSProperties = {
     display: "grid",
     gridTemplateColumns: `${RAIL_WIDTH_PX}px repeat(${preset.cols.lg}, minmax(0, 1fr)) ${DOCK_WIDTH_PX}px`,
@@ -1096,6 +1112,35 @@ function UnifiedBodyCanvas({
             rowGap={GAP_PX}
           />
         </>
+      )}
+      {metrics && (
+        <div
+          className="absolute z-20"
+          style={{
+            top: CANVAS_INNER_PADDING,
+            left: headerLeft,
+            width: headerWidth,
+          }}
+        >
+          <HeaderCanvas
+            pins={headerPins}
+            editMode={editMode}
+            chrome={chrome}
+            onUnpin={onUnpin}
+            onEnvelopeUpdate={onEnvelopeUpdate}
+            onEditPin={onEditPin}
+            anyDragging={anyDragging}
+            isOver={headerIsOver}
+            applyLayout={applyLayout}
+            channelId={channelId}
+            measure={headerMeasure}
+            cols={preset.cols.lg}
+            justMovedId={justMovedId}
+            onTileMoved={onTileMoved}
+            ghost={headerGhost}
+            embedded
+          />
+        </div>
       )}
       <div style={gridStyle} className="relative">
         {ghost && (
@@ -1257,10 +1302,11 @@ function EmptyZoneSlot({
   column: string;
   message: string;
 }) {
+  const t = useThemeTokens();
   return (
     <div
       className="pointer-events-none flex items-start justify-center px-3 py-2 text-[11px] text-center opacity-60 select-none"
-      style={{ gridColumn: column, gridRow: "1 / span 2" }}
+      style={{ gridColumn: column, gridRow: "1 / span 2", color: t.textDim }}
     >
       {message}
     </div>

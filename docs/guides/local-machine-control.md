@@ -1,98 +1,70 @@
 # Local Machine Control
 
-This is the canonical document for the current "run on my computer" architecture in Spindrel.
+This is the canonical document for Spindrel's "operate on a real machine" architecture.
 
-If the machine-target model, lease rules, companion transport, execution-policy guards, or planned SSH follow-up change, update this file first and then update shorter vault summaries that point at it.
-
----
+If the provider contract, lease rules, tool names, admin surfaces, or local companion role change, update this file first and then update the shorter summaries that point at it.
 
 ## What this is for
 
-Spindrel is a web app running on a server. That server is not your laptop or desktop.
+Spindrel runs on a server. That server is not automatically the same machine as the user's workstation, laptop, or other boxes on their network.
 
-Sometimes the useful thing is not "run a command on the server", but:
+Machine control exists for cases where the useful action is:
 
-- inspect the files on the machine the user is actively sitting at
-- run a command in the user's real local checkout
-- check local git state, processes, config, or working tree
-- eventually, operate on a different machine on the user's network
+- inspect the user's actual local checkout
+- run a command in the user's real shell environment
+- check local git/process/config state
+- later, operate on other explicit machines such as LAN boxes over a different driver
 
-That requires a different trust model from normal server-side tools.
-
-The local-machine-control design exists to support those use cases without pretending that "server exec" and "my own computer" are the same boundary.
-
----
+The feature exists to preserve that trust boundary rather than blur it with ordinary server-side execution.
 
 ## Current design in one sentence
 
-Spindrel models local access as an explicit **machine target** leased to a specific session by a live signed-in admin user, with the actual work executed by a paired **local companion** process running on that machine.
+Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, and the selected provider executes the work on that target.
 
----
-
-## Mental model
-
-There are four core concepts:
+## Core mental model
 
 | Term | Meaning |
 |---|---|
-| `machine target` | A controllable machine endpoint, identified explicitly by `target_id` |
-| `driver` | The transport/implementation behind that target; v1 ships `companion`, future work adds `ssh` |
-| `lease` | Session-scoped permission allowing one session to control one target temporarily |
-| `execution policy` | A runtime gate on top of normal tool policy, used to require a live user and/or lease |
+| `machine target` | A controllable machine endpoint identified by `(provider_id, target_id)` |
+| `provider` | The implementation/transport behind the target |
+| `driver` | The provider's transport family such as `companion` now, `ssh` later |
+| `connection` | The provider's current live transport handle for a connected target |
+| `lease` | A session-scoped grant allowing one session to control one target temporarily |
+| `execution_policy` | A runtime guard layered on top of normal tool policy |
 
-Important distinction:
+Important distinctions:
 
-- a **target** is the machine
-- a **connection** is the current live socket from that machine
-- a **lease** is the user's explicit permission for one session to use that target
+- a target is the machine
+- a connection is the provider's current live link to that machine
+- a lease is the user's explicit permission for one session to use that target
 
-Spindrel never routes by "whichever companion connected most recently". The target must be explicit.
+Spindrel never routes by recency. The target is always explicit.
 
----
+## Why this is core-owned
 
-## Why the architecture looks like this
+Machine control is not just "an integration with some tools."
 
-### Why not reuse server-side `exec_command`
+The app needs native, provider-agnostic surfaces for:
 
-Server-side command execution already exists for server-owned workspaces. That is a different capability.
+- session lease state
+- transcript grant/revoke flows
+- rich tool results
+- admin machine management
+- future provider expansion
 
-If Spindrel used the same mental model for local-machine access, it would blur two very different trust boundaries:
+If those lived under `local_companion`, every future provider would have to tunnel through someone else's product surface. That would violate the app/integration boundary in the wrong direction.
 
-- "the server can run this"
-- "the user's current computer can run this"
+So the split is:
 
-The whole point of this feature is preserving that distinction.
-
-### Why not start with SSH
-
-SSH is a good fit for headless boxes and LAN/server management. It is not the best first fit for:
-
-- the user's actively used workstation
-- developer machines behind NAT
-- quick pairing with a self-hosted web app
-- future desktop-oriented capabilities beyond shell
-
-So v1 ships a paired companion driver first and keeps SSH as a future second driver on the same abstraction.
-
-### Why session leases instead of a global "local mode"
-
-A global mode is too ambient. The user needs to know:
-
-- which session currently has access
-- which machine it is talking to
-- whether that access is still active
-- when it expires
-
-A session-scoped lease makes that explicit and inspectable.
-
----
+- core owns the abstraction, tools, leases, admin page, session APIs, and result renderers
+- integrations implement a typed machine-control provider contract
 
 ## Current architecture
 
 ```text
-chat session / plan session
+chat or plan session
     │
-    │ uses lease-gated local tool
+    │ uses machine_* tool
     ▼
 execution-policy gate
     │
@@ -101,93 +73,61 @@ execution-policy gate
     ├── requires valid session lease
     └── requires connected leased target
     ▼
-local_companion bridge
+core machine-control service
     │
-    │ request(target_id, op, args)
+    │ dispatch(provider_id, target_id, op, args)
     ▼
-paired local companion process
+provider implementation
     │
-    ├── inspect-command validation
-    ├── allowed-root enforcement
-    ├── blocked-pattern checks
-    └── timeout/output caps
+    ├── local_companion today
+    └── ssh or other providers later
     ▼
-local shell on the target machine
+target machine
 ```
 
----
+## Current shipped pieces
 
-## Current components
+### 1. Core service and provider registry
 
-### 1. Tool registry execution policies
+`app/services/machine_control.py` is the core service.
 
-Tool registration now carries `execution_policy` in addition to the existing safety tier.
+It owns:
 
-Current values:
+- provider discovery
+- provider-aware target payloads
+- provider-aware lease grant/revoke
+- execution-policy validation
+- admin machines aggregation
+- helper payloads for session and transcript surfaces
 
-| Policy | Meaning |
-|---|---|
-| `normal` | No extra runtime gate beyond normal tool policy |
-| `interactive_user` | Requires a live signed-in user with active presence |
-| `live_target_lease` | Requires the above plus a valid lease for the current session |
+Providers are discovered from integrations that declare machine control through:
 
-This is used for the current local tools:
+- `provides: ["machine_control"]`
+- an optional `machine_control:` block in `integration.yaml`
+- a runtime module at `integrations/<id>/machine_control.py`
 
-| Tool | Tier | Execution policy |
-|---|---|---|
-| `local_status` | `readonly` | `interactive_user` |
-| `local_inspect_command` | `readonly` | `live_target_lease` |
-| `local_exec_command` | `exec_capable` | `live_target_lease` |
+### 2. Provider contract
 
-These gates run before normal tool execution and before default approval behavior.
+Each provider implements a machine-control contract that exposes:
 
-### 2. `current_user_id` in agent context
+- identity metadata: `provider_id`, `label`, `driver`
+- target enumeration and lookup
+- connection lookup
+- optional enrollment/removal
+- command execution methods
 
-The runtime now carries `current_user_id` alongside the usual bot/session/channel context.
+This keeps core UI and APIs provider-agnostic while still letting providers add metadata.
 
-That matters because machine-control tools are intentionally tied to:
+### 3. Session lease state
 
-- an actual signed-in user
-- not just a bot key
-- not just a session id
-- not just a generic tool call
-
-Without `current_user_id`, the runtime cannot prove that a live user is the source of the action.
-
-### 3. Machine-target state
-
-Current state is intentionally lightweight.
-
-#### Enrolled targets
-
-Enrolled companion targets live in the `local_companion` integration settings JSON:
-
-- integration id: `local_companion`
-- key: `LOCAL_COMPANION_TARGETS_JSON`
-
-Each target stores metadata such as:
-
-- `target_id`
-- `driver`
-- `label`
-- `hostname`
-- `platform`
-- `capabilities`
-- `token`
-- `enrolled_at`
-- `last_seen_at`
-
-This avoids adding new tables for a still-evolving feature.
-
-#### Session lease
-
-The active lease lives in:
+The active session lease lives in:
 
 - `Session.metadata_["machine_target_lease"]`
 
-It stores:
+Current stored fields:
 
 - `lease_id`
+- `provider_id`
 - `target_id`
 - `user_id`
 - `granted_at`
@@ -195,313 +135,191 @@ It stores:
 - `capabilities`
 - `connection_id`
 
-Key invariant:
+Load-bearing invariants:
 
-- one session can lease one target
-- one target can be leased by one session
+- one session may lease one target
+- one target may be leased by one session
+- leases are always explicit and session-scoped
 
-### 4. Local companion integration
+### 4. Execution policies
 
-`integrations/local_companion/` is the v1 transport.
+Machine tools use runtime execution policies in addition to normal tool policy.
 
-It provides:
+Current policy values:
 
-- `router.py`
-  - `GET /integrations/local_companion/admin/status`
-  - `POST /integrations/local_companion/admin/enroll`
-  - `DELETE /integrations/local_companion/admin/targets/{target_id}`
-  - `WS /integrations/local_companion/ws?...`
-- `bridge.py`
-  - target-id keyed live connection registry
-  - request/reply RPC handling
-- `client.py`
-  - the paired local companion process
-- `tools/local_companion.py`
-  - the local control tools exposed to bots/sessions
+| Policy | Meaning |
+|---|---|
+| `normal` | no extra runtime gate |
+| `interactive_user` | requires a live signed-in user with active presence |
+| `live_target_lease` | requires the above plus a valid session lease for a connected target |
 
-### 5. Companion client
+Current core machine tools:
 
-The companion is a small Python process running on the target machine.
+| Tool | Tier | Execution policy |
+|---|---|---|
+| `machine_status` | `readonly` | `interactive_user` |
+| `machine_inspect_command` | `readonly` | `live_target_lease` |
+| `machine_exec_command` | `exec_capable` | `live_target_lease` |
 
-It connects outbound to the server over WebSocket and identifies itself with:
+These are core tools in `app/tools/local/machine_control.py`. They are not owned by `local_companion`.
 
-- `target_id`
-- token
-- label / hostname / platform
-- capability list
+### 5. Core APIs and UI surfaces
 
-The current client supports two operations:
+Current core APIs:
 
-- `inspect_command`
-- `exec_command`
+- Session lease/state:
+  - `GET /api/v1/sessions/{id}/machine-target`
+  - `POST /api/v1/sessions/{id}/machine-target/lease`
+  - `DELETE /api/v1/sessions/{id}/machine-target/lease`
+- Admin machine center:
+  - `GET /api/v1/admin/machines`
+  - `POST /api/v1/admin/machines/providers/{provider_id}/enroll`
+  - `DELETE /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}`
 
-It also owns defense-in-depth configuration such as:
+Current core UI:
 
-- allowed roots
-- inspect command prefixes
-- blocked command patterns
-- timeout
-- max output size
+- `Admin > Machines` for provider/target management
+- transcript-native `core.machine_access_required` grant UI
+- transcript/native result views:
+  - `core.machine_target_status`
+  - `core.command_result`
+  - `core.machine_access_required`
+- a lightweight session-scoped `MachineTargetChip` in chat header chrome
 
-That means the server lease is not the only guardrail. The target machine can still locally restrict what the companion will do.
+### 6. `local_companion` as the first provider
 
----
+`integrations/local_companion/` is the first shipped provider.
 
-## Request flow in detail
+It owns:
 
-### Enroll
+- `machine_control.py` provider implementation
+- `bridge.py` live websocket bridge
+- `router.py` websocket endpoint at `/integrations/local_companion/ws`
+- `client.py` companion process run on the target machine
 
-1. Admin calls `POST /integrations/local_companion/admin/enroll`.
-2. Server creates a new target record with `target_id` + token.
-3. Server auto-enables the integration and loads/indexes its tools if needed.
-4. Response includes a launch command for the companion.
+It no longer owns:
 
-### Connect
+- the machine tools
+- the machine admin center
+- the session lease APIs
 
-1. Companion connects to `/integrations/local_companion/ws`.
-2. Server validates `target_id` + token.
-3. Companion sends a `hello` payload with metadata/capabilities.
-4. Server updates stored target metadata and registers a live bridge connection.
+The current provider uses `driver="companion"`.
 
-### Lease
+## Current request flow
 
-1. Live admin user opens a chat session.
-2. UI calls `POST /api/v1/sessions/{id}/machine-target/lease`.
-3. Server verifies:
-   - admin JWT user
+### Enroll a target
+
+1. Admin calls `POST /api/v1/admin/machines/providers/local_companion/enroll`.
+2. Core resolves the provider and asks it to enroll a target.
+3. The provider creates target state and returns launch information.
+4. The response includes the example companion launch command.
+
+### Connect the companion
+
+1. The user runs the companion on the target machine.
+2. The companion connects outbound to `/integrations/local_companion/ws`.
+3. The provider updates connection metadata for that `target_id`.
+4. Core machine status now reports the target as connected.
+
+### Grant a session lease
+
+1. A live signed-in admin chooses a connected target for a session.
+2. The session API stores a lease in `Session.metadata_`.
+3. Conflict checks ensure no other session already owns that target.
+
+### Execute a machine tool
+
+1. A chat or plan session calls `machine_inspect_command` or `machine_exec_command`.
+2. The execution-policy gate verifies:
+   - live signed-in user
    - active presence
-   - target exists
-   - target is connected
-   - target is not leased by another session
-4. Server writes the lease into session metadata.
-
-### Execute
-
-1. Session calls `local_inspect_command` or `local_exec_command`.
-2. Execution policy gate verifies:
-   - live user exists
-   - user is active
-   - user is admin
-   - session exists
-   - lease exists and is unexpired
-   - lease belongs to that user
-   - target is still connected
-3. Server sends RPC to the leased `target_id`.
-4. Companion validates and runs the operation locally.
-5. Result returns through the bridge into the tool result.
-
-### Revoke / expire
-
-Leases stop working when:
-
-- the user revokes them
-- the TTL expires
-- the target is removed
-- the target disconnects
-
-Revoking a target also clears any session lease that still points at it.
-
----
+   - current session id
+   - valid unexpired lease
+   - current leased target is connected
+3. Core dispatches the operation through the selected provider.
+4. The provider talks to its transport and returns the result.
+5. The tool emits a structured rich result envelope.
 
 ## How to use it now
 
-Current operator flow:
+### Operator flow
 
-1. Enroll a machine target from the local companion integration admin surface.
-2. Start the companion process on the target machine using the enrollment command returned by the server.
-3. Open the chat or plan session you want to use.
-4. Grant a lease for one connected target to that session.
-5. Use `local_status`, `local_inspect_command`, or `local_exec_command` from that session.
-6. Revoke the lease when you are done, or let it expire.
+1. Go to `Admin > Machines`.
+2. Enroll a target under the `Local Companion` provider.
+3. Copy the returned launch command.
+4. Run that command on the machine you want to control.
+5. Confirm the machine appears as connected in `Admin > Machines`.
 
-Important current UX caveat:
+### Session flow
 
-- the channel header only shows machine control when the session already has an active lease or there is at least one connected companion target
-- the header is no longer the setup/enrollment surface for brand-new machines
-- denied tool calls in chat now render an inline "Machine access required" card with grant/revoke actions
+1. Open the session you want to use.
+2. Call `machine_status` or let the transcript surface the inline access-required card.
+3. Grant a lease for the target you want to use.
+4. Use `machine_inspect_command` for discovery first.
+5. Use `machine_exec_command` when you really need execution on that machine.
+6. Revoke the lease or let it expire.
 
-So today the setup flow is:
+## Safety model
 
-- enroll in admin/integration UI
-- connect the companion
-- then use session-level lease controls
+Machine control is intentionally fail-closed.
 
-Transcript/result UX now includes:
+### Required by default
 
-- `local_status` renders a native machine-status card
-- `local_inspect_command` and `local_exec_command` render terminal-style command result cards
-- lease denials surface an inline grant/revoke card instead of raw JSON
-
----
-
-## Current safety model
-
-This feature is intentionally fail-closed.
-
-### Allowed by default
-
-The happy path is:
-
-- live JWT user
-- admin user
-- active web presence
-- active session
-- explicit target lease
-- connected target
+- a live signed-in admin user
+- active user presence
+- a valid session lease
+- a connected leased target
 
 ### Denied by default
 
-Machine-control tools are denied when any of those are missing.
+These origins do not get to use machine-control tools just because they can call tools:
 
-They are also denied for autonomous origins such as:
+- tasks
+- heartbeats
+- hygiene/background runs
+- subagents
+- bot-key `/api/v1/internal/tools/exec`
+- other non-interactive surfaces without a live user context
 
-- `heartbeat`
-- `task`
-- `subagent`
-- hygiene-style/background runs
+### Provider-side guardrails still matter
 
-### Why presence matters
+Core lease checks are not the only defense.
 
-Presence is the current proxy for "an explicit live user is here right now".
+For `local_companion`, the target-side process still enforces local limits such as:
 
-Without it, a remembered session or leaked context variable could look interactive when it is not.
+- allowed roots
+- inspect-command restrictions
+- blocked patterns
+- timeouts
+- output caps
 
-### Why bot/script surfaces are blocked
+That matters because the target machine remains the final trust boundary.
 
-Bot-authored scripts and other direct execution surfaces are not treated as live user intent.
+## Current limits
 
-So these paths hard-deny machine tools:
-
-- `POST /api/v1/internal/tools/exec`
-- `execute_tool_with_context()` callers such as admin tool execute / dashboard tool helpers
-
-This is deliberate. If the product wants a future exception, that exception should be explicit and separately designed.
-
----
-
-## UI model
-
-Current UI is split between transcript-native result cards and a lightweight `MachineTargetChip` in the channel header.
-
-The transcript/result layer handles:
-
-- status inspection
-- inline grant/revoke when a tool is denied for lack of lease
-- command output presentation
-
-The header chip shows:
-
-- current lease state
-- connected enrolled targets
-- quick lease/revoke actions
-
-Important UX choice:
-
-- machine control is session chrome, not a hidden background state
-
-That keeps the control surface close to the conversation that is using it.
-
-Current non-goal:
-
-- the channel header is not the machine-enrollment entrypoint for unconfigured sessions
-
----
-
-## What this architecture is not
-
-It is not:
-
-- a replacement for server-side command execution
-- a silent global localhost tunnel
-- a generic automation trigger for background jobs
-- an SSH manager
-- multi-worker-safe yet
-
-It is a v1 explicit-control path for one live session controlling one paired machine.
-
----
-
-## Current limitations
-
-### Transport limitations
-
-- bridge state is in-memory
-- current implementation assumes a single server process for the live bridge
-- multi-worker deployments would need an external connection broker
-
-### Capability limitations
-
-- shell only in v1
-- no first-class file sync / browser / desktop input yet
-- no SSH driver yet
-
-### UX limitations
-
-- machine control is exposed in the header chip, but denied tool results do not yet render a dedicated inline "Grant machine access" card
-- desktop-first UI; no mobile-first lease UX yet
-
----
-
-## Why the target abstraction matters
-
-The important design choice is not "companion vs SSH". It is the layer above that.
-
-By making **machine target** the core abstraction now:
-
-- local companion is the first driver
-- SSH can be the second driver later
-- browser/desktop/file capabilities can reuse the same lease contract
-- the user does not need a different consent model for every machine-adjacent feature
-
-That is the part meant to last.
-
----
+- `local_companion` is the only shipped provider.
+- The bridge is in-memory; multi-worker deployments need shared coordination before this becomes horizontally safe.
+- The current provider is shell-first.
+- `browser_live` has not yet been moved onto this same lease model.
+- SSH is not shipped yet.
 
 ## Planned next steps
 
-These are the natural next slices from the current architecture.
+- Add an SSH provider on the same machine-control contract.
+- Unify other machine-adjacent control surfaces such as `browser_live` onto the same live-user lease model where appropriate.
+- Expand provider capabilities beyond shell only after the provider/lease contract stays stable.
 
-### 1. Add `driver="ssh"`
+## Source map
 
-Use the same:
+Use these as the main code anchors for the current architecture:
 
-- target registry
-- lease semantics
-- session UI
-- execution policies
-
-But back the target with SSH for headless LAN/server machines.
-
-### 2. Move more of the lease UX into transcript-native surfaces
-
-The inline grant/revoke card now exists, but setup and longer-lived control flows can still become more transcript-native and less dependent on session chrome.
-
-### 3. Reuse the lease model for other live-control surfaces
-
-`browser_live` currently has its own pairing/selection model. It should eventually adopt the same live-user lease semantics rather than remaining a parallel exception.
-
-### 4. Expand companion capabilities carefully
-
-Possible additions:
-
-- file operations
-- browser launch/control on the paired machine
-- screenshots
-- desktop input automation
-
-But only on top of the same target + lease model.
-
-### 5. Decide whether any non-interactive pathway ever gets an exception
-
-Current answer is no. That should remain the default unless there is a very explicit, reviewable reason to widen it.
-
----
-
-## See also
-
-- [Browser Live](browser-live.md)
-- [Command Execution](command-execution.md)
-- [Programmatic Tool Calling](programmatic-tool-calling.md)
-- [`integrations/local_companion/README.md`](../../integrations/local_companion/README.md)
-- [`skills/machine_control.md`](../../skills/machine_control.md)
-- [Architecture](../reference/architecture.md)
+- `app/services/machine_control.py`
+- `app/tools/local/machine_control.py`
+- `app/routers/api_v1_admin/machines.py`
+- `app/routers/sessions.py`
+- `integrations/local_companion/machine_control.py`
+- `integrations/local_companion/router.py`
+- `integrations/local_companion/bridge.py`
+- `ui/app/(app)/admin/machines/index.tsx`
+- `ui/app/(app)/channels/[channelId]/MachineTargetChip.tsx`
+- `ui/src/components/chat/renderers/machineControl/`
