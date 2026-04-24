@@ -32,7 +32,7 @@ current context profile and budget, so fetch/search them explicitly when exact d
 **A preference not saved is a preference the user has to repeat.** This is the #1 failure mode.
 
 Use the `file` tool for all memory writes (`edit` / `append` / `create` / `overwrite` / `json_patch`).
-See the `workspace_files` skill for the full operation repertoire and path rules.
+See the `workspace/files` skill for the full operation repertoire and path rules.
 
 ### {memory_rel}/MEMORY.md — Curated Knowledge Base
 
@@ -109,7 +109,7 @@ archive old logs, and keep files organized.
 
 ## Tool discipline (read before starting)
 Follow these rules so this pass finishes in a small number of iterations:
-- **The full bodies of `workspace_files`, `history_and_memory/memory_hygiene`, and `context_mastery` are already inlined in the "## Pre-Loaded Skills" section below.** Do NOT call `get_skill(skill_id="...")` for any of them — the content is already in your context. Calling it anyway costs an iteration with zero new information.
+- **The full bodies of `workspace/files`, `history_and_memory/memory_hygiene`, and `context_mastery` are already inlined in the "## Pre-Loaded Skills" section below.** Do NOT call `get_skill(skill_id="...")` for any of them — the content is already in your context. Calling it anyway costs an iteration with zero new information.
 - **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Your recent tool results are kept in context for you. If you truly need a prior result, one hydration is enough — calling it repeatedly is wasted work.
 - **Read each channel index and each log file once.** The results are cached inside this run.
 - **Sweep channels in one call.** `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` return concatenated per-channel markdown in a single iteration. Cap 10 per call.
@@ -414,13 +414,13 @@ skill for details.
 Your memory layout, routing table, and file tools are defined in a dedicated injection \
 layer — follow your bot-specific routing table exactly. When writing preferences or \
 corrections to reference files, do it silently; it's background housekeeping. See \
-the `workspace_files` skill.
+the `workspace/files` skill.
 {% endsection %}
 
 {% section "Widgets" %}
 HTML widgets you emit authenticate as the emitting bot via `source_bot_id` on the envelope \
 and `window.spindrel.api` bearer. Your bot's scopes are the ceiling — the viewer lends \
-nothing. See the `widget_dashboards` skill.
+nothing. See the `widgets/channel_dashboards` skill.
 {% endsection %}
 
 {% section "Context Awareness" %}
@@ -460,17 +460,17 @@ shown as pointers, not merged into one index.
 # is the curated minimum every bot starts with. Edit per release as needed.
 # IDs not present in the catalog at enrollment time are silently skipped.
 STARTER_SKILL_IDS: list[str] = [
-    "attachments",
-    "workspace_files",
+    "workspace/attachments",
+    "workspace/files",
+    "workspace/member",
+    "workspace/channel_workspaces",
+    "workspace/docker_stacks",
     "delegation",
     "grill_me",
     "context_mastery",
     "history_and_memory",
     "prompt_injection_and_security",
     "skill_authoring",
-    "workspace_member",
-    "channel_workspaces",
-    "docker_stacks",
 ]
 
 

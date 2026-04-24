@@ -206,9 +206,30 @@ def test_render_events_widget_null_selected_event_when_unset():
 
 _CAMERAS_SAMPLE = {
     "cameras": [
-        {"name": "driveway", "enabled": True, "width": 1920, "height": 1080, "fps": 5},
-        {"name": "backyard", "enabled": True, "width": 2560, "height": 1440, "fps": 5},
-        {"name": "garage", "enabled": False, "width": 1920, "height": 1080, "fps": 5},
+        {
+            "name": "driveway",
+            "enabled": True,
+            "width": 1920,
+            "height": 1080,
+            "fps": 5,
+            "snapshot_url": "http://frigate:5000/api/driveway/latest.jpg",
+        },
+        {
+            "name": "backyard",
+            "enabled": True,
+            "width": 2560,
+            "height": 1440,
+            "fps": 5,
+            "snapshot_url": "http://frigate:5000/api/backyard/latest.jpg",
+        },
+        {
+            "name": "garage",
+            "enabled": False,
+            "width": 1920,
+            "height": 1080,
+            "fps": 5,
+            "snapshot_url": "http://frigate:5000/api/garage/latest.jpg",
+        },
     ],
 }
 
@@ -304,7 +325,41 @@ def test_render_cameras_widget_builds_status_and_tiles():
     assert comps[0]["text"] == "2 live · 1 disabled"
     assert comps[1]["type"] == "tiles"
     assert len(comps[1]["items"]) == 3
-    assert comps[1]["min_width"] == 220
+    assert comps[1]["min_width"] == 280
+
+
+def test_cameras_view_enabled_tiles_have_image_url():
+    res = cameras_view(json.dumps(_CAMERAS_SAMPLE), {})
+    by_label = {t["label"]: t for t in res["tiles"]}
+    driveway = by_label["driveway"]
+    assert driveway["image_url"].startswith("http://frigate:5000/api/driveway/latest.jpg?")
+    assert "bbox=1" in driveway["image_url"]
+    assert "t=" in driveway["image_url"]
+    assert driveway["image_aspect_ratio"] == "16 / 9"
+    assert driveway["image_auth"] == "none"
+
+
+def test_cameras_view_disabled_tile_has_no_image():
+    res = cameras_view(json.dumps(_CAMERAS_SAMPLE), {})
+    by_label = {t["label"]: t for t in res["tiles"]}
+    garage = by_label["garage"]
+    assert "image_url" not in garage
+    assert garage["status"] == "muted"
+
+
+def test_cameras_view_image_url_drops_bbox_when_show_bbox_false():
+    res = cameras_view(
+        json.dumps(_CAMERAS_SAMPLE), {"widget_config": {"show_bbox": False}}
+    )
+    by_label = {t["label"]: t for t in res["tiles"]}
+    assert "bbox=1" not in by_label["driveway"]["image_url"]
+
+
+def test_cameras_view_tile_without_snapshot_url_stays_text_mode():
+    res = cameras_view(
+        json.dumps({"cameras": [{"name": "x", "enabled": True}]}), {}
+    )
+    assert "image_url" not in res["tiles"][0]
 
 
 def test_render_cameras_widget_empty_case_is_muted_text():

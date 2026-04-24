@@ -1,6 +1,5 @@
 ---
 name: Widget Dashboards
-id: widget_dashboards
 description: How to read, propose, and modify widget dashboard layouts with describe_dashboard, pin_widget, move_pins, unpin_widget, promote_panel, demote_panel — zones (rail/header/dock/grid), chat view vs full dashboard, ASCII mockups, first-free-slot placement, panel mode
 triggers: widget dashboard, dashboard layout, pin widget, unpin widget, move widget, rearrange dashboard, dashboard rail, dashboard dock, dashboard zones, chat widgets, header chip, dashboard panel, panel mode, describe dashboard, show me the dashboard, where is this pinned, change layout
 category: widgets
@@ -167,5 +166,5 @@ For one-off inline widgets (no file on disk), there's currently no way for a bot
 
 ## See also
 
-- [HTML Widgets](widgets/index.md) — authoring the widgets you'll pin (decision tree + sub-skills: `widgets/html`, `widgets/sdk`, `widgets/dashboards`, `widgets/tool-dispatch`, `widgets/manifest`, `widgets/db`, `widgets/handlers`, `widgets/suites`, `widgets/styling`, `widgets/errors`)
-- [Knowledge Bases](knowledge_bases.md) — how auto-indexed widget frontmatter surfaces in search
+- [HTML Widgets](./index.md) — authoring the widgets you'll pin (decision tree + sub-skills: `widgets/html`, `widgets/sdk`, `widgets/dashboards`, `widgets/tool_dispatch`, `widgets/manifest`, `widgets/db`, `widgets/handlers`, `widgets/suites`, `widgets/styling`, `widgets/errors`)
+- [Knowledge Bases](../workspace/knowledge_bases.md) — how auto-indexed widget frontmatter surfaces in search

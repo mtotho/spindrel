@@ -21,6 +21,7 @@ import {
   isThreadParentPreviewMessage,
 } from "./threadPreview";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
+import { mergePersistedAndSyntheticMessages } from "./sessionMessageSync";
 
 export interface SessionChatViewProps {
   /** The session whose Messages we render (the pipeline run's sub-session). */
@@ -120,12 +121,13 @@ export function SessionChatView({
     });
   }, [pages]);
 
+  const storeMessages = chatState.messages.length > 0 ? chatState.messages : invertedData;
   const renderedData = useMemo<Message[]>(
     () =>
-      [...invertedData, ...syntheticMessages].sort(
+      [...storeMessages, ...syntheticMessages].sort(
         (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
       ),
-    [invertedData, syntheticMessages],
+    [storeMessages, syntheticMessages],
   );
 
   // Sync the DB → chat-store slot so live turns + persisted rows share a
@@ -134,7 +136,8 @@ export function SessionChatView({
   const turnsCount = Object.keys(chatState.turns).length;
   useEffect(() => {
     if (pages && turnsCount === 0 && !chatState.isProcessing) {
-      setMessages(sessionId, invertedData);
+      const current = useChatStore.getState().channels[sessionId]?.messages ?? [];
+      setMessages(sessionId, mergePersistedAndSyntheticMessages(invertedData, current));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, pages, invertedData]);

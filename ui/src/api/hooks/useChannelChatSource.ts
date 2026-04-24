@@ -10,6 +10,12 @@ import { extractDisplayText } from "@/src/components/chat/messageUtils";
 import type { ChatRequest, Message } from "../../types/api";
 import { mergePersistedAndSyntheticMessages } from "@/src/components/chat/sessionMessageSync";
 
+function makeClientLocalId(): string {
+  const cryptoObj = globalThis.crypto as Crypto | undefined;
+  if (cryptoObj?.randomUUID) return `web-${cryptoObj.randomUUID()}`;
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface UseChannelChatSourceReturn {
   channelId: string;
   bot_id: string | undefined;
@@ -147,6 +153,10 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   const syncCancelledState = useCallback(() => {
     const ch = useChatStore.getState().getChannel(channelId);
     for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().handleTurnEvent(channelId, turnId, {
+        event: "error",
+        data: { message: "cancelled" },
+      });
       useChatStore.getState().finishTurn(channelId, turnId);
     }
     useChatStore.getState().clearProcessing(channelId);
@@ -165,20 +175,37 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
     (text: string) => {
       if (!channel || !channelId) return;
       setSendError(null);
+      const clientLocalId = makeClientLocalId();
       addMessage(channelId, {
-        id: `msg-${Date.now()}`,
+        id: `msg-${clientLocalId}`,
         session_id: channel.active_session_id ?? "",
         role: "user",
         content: text,
         created_at: new Date().toISOString(),
+        metadata: {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+          local_status: "sending",
+        },
       });
       const req: ChatRequest = {
         message: text,
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
+        msg_metadata: {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+        },
       };
       submitChat.mutate(req, {
+        onSuccess: (result) => {
+          if (result.queued && result.task_id) {
+            useChatStore.getState().setProcessing(channelId, result.task_id);
+          }
+        },
         onError: (err) =>
           setSendError(err instanceof Error ? err.message : "Failed to send"),
       });

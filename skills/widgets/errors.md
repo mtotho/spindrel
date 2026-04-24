@@ -47,8 +47,8 @@ The widget loads, the tool call returns `{ok: true, envelope}`, and yet the DOM 
 |---|---|---|
 | `callTool` throws "tool not found" | Typo in tool name, or tool is not exposed to the bot | Check `list_api_endpoints()` or the admin Tools catalog; confirm the bot can call it from the chat first. |
 | `callTool` returns `{ok: false, error: "scope_denied: ..."}` (from a `widget.py` handler) | `permissions.tools` allowlist doesn't include the tool, OR the bot's own scopes don't cover it | Add the tool to `permissions.tools` in `widget.yaml`; then confirm the bot has the scope. See `widgets/handlers.md#manifest-allowlist`. |
-| Envelope body is `null` with `truncated: true` after a `callTool` | **This is a bug** — `callTool` bypasses the 4 KB cap. Report it. | Don't add defensive null-handling; file a bug. See `widgets/tool-dispatch.md#truncation---does-not-apply-to-calltool`. |
-| `JSON.parse(env.plain_body)` throws | `plain_body` is a short human preview (≤200 chars), not the full payload | Parse `env.body` instead. See `widgets/tool-dispatch.md#the-envelope-shape`. |
+| Envelope body is `null` with `truncated: true` after a `callTool` | **This is a bug** — `callTool` bypasses the 4 KB cap. Report it. | Don't add defensive null-handling; file a bug. See `widgets/tool_dispatch.md#truncation---does-not-apply-to-calltool`. |
+| `JSON.parse(env.plain_body)` throws | `plain_body` is a short human preview (≤200 chars), not the full payload | Parse `env.body` instead. See `widgets/tool_dispatch.md#the-envelope-shape`. |
 
 ## Envelope-shape index — canonical tool responses
 
@@ -163,6 +163,6 @@ Extraction against that is `env.attachment_id`, not `env.data.attachment_id`, no
 
 - `widgets/html.md` — sandbox, auth, path grammar
 - `widgets/sdk.md` — `window.spindrel` API surface
-- `widgets/tool-dispatch.md` — envelope shape, truncation, dispatch types
+- `widgets/tool_dispatch.md` — envelope shape, truncation, dispatch types
 - `widgets/db.md` + `widgets/handlers.md` — backend-capable widgets
 - `widgets/styling.md` — sd-* vocabulary and theme

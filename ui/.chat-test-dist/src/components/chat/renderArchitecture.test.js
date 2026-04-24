@@ -96,3 +96,13 @@ test("chat copy actions share one assistant-response bundle primitive for text a
     assert.match(messageBubble, /fullTurnMessages=\{fullTurnMessages\}/);
     assert.match(messageActions, /Copy JSON/);
 });
+test("chat sends thread a stable client-local id through optimistic rows and requests", () => {
+    const channelHook = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/useChannelChat.ts"), "utf8");
+    const channelEvents = readFileSync(resolve(process.cwd(), "src/api/hooks/useChannelEvents.ts"), "utf8");
+    const chatMessageArea = readChatFile("ChatMessageArea.tsx");
+    assert.match(channelHook, /client_local_id:\s*clientLocalId/);
+    assert.match(channelHook, /local_status:\s*"sending"/);
+    assert.match(channelHook, /local_status:\s*"queued"/);
+    assert.match(channelEvents, /incomingClientLocalId/);
+    assert.match(chatMessageArea, /meta\.client_local_id/);
+});

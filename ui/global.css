@@ -326,6 +326,17 @@ textarea::placeholder {
   to { opacity: 1; }
 }
 
+/* Sent-message entrance. The stable client-local key prevents this from
+   replaying when the server row replaces the optimistic row. */
+.msg-send-enter { animation: msg-send-enter 220ms cubic-bezier(0.2, 0.9, 0.2, 1) both; }
+@keyframes msg-send-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-send-enter { animation: chat-fade-in 120ms ease-out both; }
+}
+
 /* Scroll-to-bottom FAB entrance */
 .scroll-fab { animation: fab-in 0.15s ease-out; touch-action: manipulation; }
 @keyframes fab-in {

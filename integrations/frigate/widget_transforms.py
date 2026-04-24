@@ -11,12 +11,13 @@ Events timeline (``frigate_get_events``):
   - ``render_events_widget`` — initial render.
 
 Cameras grid (``frigate_list_cameras``):
-  - ``_reshape_cameras`` flattens the tool's camera records into ``tiles``
-    v2 items with a pre-computed ``status`` slot (enabled → ``success``,
-    disabled → ``muted``) and a click action that dispatches the per-camera
-    ``frigate_snapshot`` tool. No live thumbnails: the grid is a drill-down
-    index, not a monitor wall — pin N ``frigate_snapshot`` widgets on a
-    dashboard if you want the wall.
+  - ``_reshape_cameras`` turns each camera record into an image-first ``tiles``
+    v2 item — ``image_url`` points directly at Frigate's
+    ``/api/<camera>/latest.jpg`` (assumed browser-reachable on the same LAN as
+    Spindrel), with a cache-buster so state_poll refresh pulls a fresh frame
+    every cycle. A pre-computed ``status`` slot (enabled → ``success``,
+    disabled → ``muted``) sits in the tile corner; click dispatches
+    ``frigate_snapshot`` to open the authenticated full-size snapshot.
   - ``cameras_view`` — state-poll.
   - ``render_cameras_widget`` — initial render.
 """
@@ -24,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any
 
 from app.services.time_coercion import to_iso_z_or_none
@@ -151,18 +153,39 @@ def render_events_widget(data: dict, _components: list[dict]) -> list[dict]:
 # ── Cameras grid ──
 
 
+def _build_snapshot_url(base: str, *, show_bbox: bool, cache_bust: int) -> str:
+    """Attach bbox + cache-bust params to Frigate's ``/api/<camera>/latest.jpg``.
+
+    The cache-bust epoch changes each reshape so state_poll refresh forces
+    the browser to pull a fresh frame instead of reusing a cached response.
+    """
+    sep = "&" if "?" in base else "?"
+    parts = [f"t={cache_bust}"]
+    if show_bbox:
+        parts.append("bbox=1")
+    return f"{base}{sep}{'&'.join(parts)}"
+
+
 def _reshape_cameras(parsed: dict, widget_config: dict) -> dict:
     """Turn the raw ``frigate_list_cameras`` payload into tile-primitive shape.
 
-    One tile per camera. ``status`` is pre-computed so the template stays a
-    dumb skeleton (the template engine has no ternary). On-click dispatches
-    ``frigate_snapshot`` with the pin's current ``show_bbox`` flag baked in.
+    Image-first tiles: ``image_url`` is the camera's direct Frigate snapshot
+    URL (no server proxy — assumes the FRIGATE_URL the server is configured
+    with is also reachable from the user's browser, typical for a home LAN
+    deploy). ``image_auth: none`` because Frigate's ``/api/<camera>/latest.jpg``
+    endpoint is public by default. Clicking a tile still dispatches the
+    authenticated ``frigate_snapshot`` tool so the full-size lightbox goes
+    through the attachment flow.
     """
     raw_cams = parsed.get("cameras") if isinstance(parsed, dict) else None
     if not isinstance(raw_cams, list):
         raw_cams = []
 
     show_bbox = bool(widget_config.get("show_bbox", True))
+    # int() once per reshape — reused across tiles so the URLs don't drift
+    # inside a single refresh cycle (would cause every tile to refetch on
+    # every pass of a loop, not just across state_poll ticks).
+    cache_bust = int(time.time())
 
     tiles: list[dict[str, Any]] = []
     enabled_count = 0
@@ -181,7 +204,7 @@ def _reshape_cameras(parsed: dict, widget_config: dict) -> dict:
             caption_bits.append(f"{w}×{h}")
         if isinstance(fps, (int, float)):
             caption_bits.append(f"{fps:g}fps")
-        tiles.append({
+        tile: dict[str, Any] = {
             "label": name,
             "caption": " · ".join(caption_bits) or None,
             "status": "success" if enabled else "muted",
@@ -190,7 +213,19 @@ def _reshape_cameras(parsed: dict, widget_config: dict) -> dict:
                 "tool": "frigate_snapshot",
                 "args": {"camera": name, "bounding_box": show_bbox},
             },
-        })
+        }
+        snapshot_url = cam.get("snapshot_url")
+        # Only enabled cameras have a live frame — disabled cameras fall back
+        # to text-mode so the muted status is the sole visual signal.
+        if enabled and isinstance(snapshot_url, str) and snapshot_url:
+            tile["image_url"] = _build_snapshot_url(
+                snapshot_url,
+                show_bbox=show_bbox,
+                cache_bust=cache_bust,
+            )
+            tile["image_aspect_ratio"] = "16 / 9"
+            tile["image_auth"] = "none"
+        tiles.append(tile)
 
     count = len(tiles)
     disabled_count = count - enabled_count
@@ -243,5 +278,5 @@ def render_cameras_widget(data: dict, _components: list[dict]) -> list[dict]:
 
     return [
         {"type": "status", "text": shaped["summary"], "color": "info"},
-        {"type": "tiles", "items": shaped["tiles"], "min_width": 220},
+        {"type": "tiles", "items": shaped["tiles"], "min_width": 280},
     ]

@@ -231,6 +231,8 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
   const richEnvelope: ToolResultEnvelope | undefined = meta.envelope as ToolResultEnvelope | undefined;
   const msgToolCalls: ToolCall[] | undefined = message.tool_calls;
   const trigger = meta.trigger as string | undefined;
+  const localStatus = meta.local_status as string | undefined;
+  const turnCancelled = meta.turn_cancelled === true;
   const llmStatus = meta.llm_status as { retries?: number; fallback_model?: string; vision_fallback?: boolean } | undefined;
   const delegations = (meta.delegations as any[]) || [];
   const delegatedByDisplay = meta.delegated_by_display as string | undefined;
@@ -387,6 +389,17 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
         <AttachmentImages attachments={message.attachments} />
       )}
       {delegations.length > 0 && <DelegationCard delegations={delegations} t={t} />}
+      {turnCancelled && (
+        <div
+          className="mt-1 text-xs"
+          style={{
+            color: t.textDim,
+            fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
+          }}
+        >
+          Stopped by user
+        </div>
+      )}
     </>
   );
 
@@ -522,6 +535,20 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
           {sourceLabel && (
             <span style={{ fontSize: 11, color: t.textMuted, fontStyle: "italic" }}>
               {sourceLabel}
+            </span>
+          )}
+          {isUser && localStatus === "queued" && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 600,
+              color: t.warning,
+              background: `${t.warning}18`,
+              border: `1px solid ${t.warning}30`,
+              borderRadius: 10,
+              padding: "1px 6px",
+              letterSpacing: 0.3,
+            }}>
+              queued
             </span>
           )}
           {delegatedByDisplay && (

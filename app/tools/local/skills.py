@@ -70,6 +70,7 @@ async def get_skill(skill_id: str, refresh: bool = False) -> str:
             return json.dumps({"id": skill_id, "error": f"Skill '{skill_id}' is archived. Use manage_bot_skill(action='restore') to restore it."}, ensure_ascii=False)
 
         row_name = row.name
+        row_description = row.description
         row_content = row.content
         if bot_id:
             try:
@@ -100,6 +101,7 @@ async def get_skill(skill_id: str, refresh: bool = False) -> str:
                 {
                     "id": skill_id,
                     "name": row_name,
+                    **({"description": row_description} if row_description else {}),
                     "already_loaded": True,
                     "message": "Skill already resident in context. Use refresh=true to reload it.",
                 },
@@ -118,7 +120,15 @@ async def get_skill(skill_id: str, refresh: bool = False) -> str:
     })
     current_skills_in_context.set(_resident_skills)
 
-    return json.dumps({"id": skill_id, "name": row_name, "content": row_content}, ensure_ascii=False)
+    return json.dumps(
+        {
+            "id": skill_id,
+            "name": row_name,
+            **({"description": row_description} if row_description else {}),
+            "content": row_content,
+        },
+        ensure_ascii=False,
+    )
 
 
 _PRUNE_PROTECTION_DAYS = 7  # skills enrolled less than this many days ago are protected
@@ -303,7 +313,10 @@ async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] 
         removed = await unenroll_many(bot_id, allowed_ids)
     except Exception as exc:
         logger.exception("prune_enrolled_skills failed for bot %s", bot_id)
-        return f"Failed to prune enrollments: {exc}"
+        return json.dumps(
+            {"removed": 0, "archived": 0, "blocked": 0, "error": f"Failed to prune enrollments: {exc}"},
+            ensure_ascii=False,
+        )
 
     parts: list[str] = []
     if removed > 0:
@@ -314,8 +327,19 @@ async def prune_enrolled_skills(skill_ids: list[str], overrides: dict[str, str] 
         parts.append(f"{len(protected_ids)} skill(s) blocked (need override reason)")
 
     if not parts:
-        return f"No matching enrollments to remove ({len(skill_ids)} requested)."
-    return ". ".join(parts) + "."
+        message = f"No matching enrollments to remove ({len(skill_ids)} requested)."
+    else:
+        message = ". ".join(parts) + "."
+
+    return json.dumps(
+        {
+            "removed": removed,
+            "archived": len(archived_ids),
+            "blocked": len(protected_ids),
+            "message": message,
+        },
+        ensure_ascii=False,
+    )
 
 
 @register({

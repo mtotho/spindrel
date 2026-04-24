@@ -1,6 +1,5 @@
 ---
 name: Bot-callable widget handlers
-id: widgets/bot-callable-handlers
 description: "How HTML-widget @on_action handlers plug into the unified bot widget-action surface. Declare them in widget.yaml `handlers:`, set `bot_callable: true`, and the framework exposes declared schemas the bot can inspect before calling a widget action."
 triggers: "bot-callable handler, bot call widget, bot tool for widget, agent controls widget, widget__todo, widget__<slug>, handlers block, handler tool, bot mutate widget state, widget bot bridge, ask the bot to add a todo"
 category: core

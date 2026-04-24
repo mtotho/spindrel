@@ -293,6 +293,38 @@ def test_resolve_runtime_args_substitutes_config(monkeypatch):
     assert args == {}
 
 
+def test_resolve_runtime_args_binding_alias_resolves_against_config(monkeypatch):
+    """``{{binding.*}}`` in runtime.tool_args resolves to the resolved config.
+
+    The schema that drives the preset's form IS the binding schema; the
+    resolved form values land in ``config``. Without the binding→config
+    alias, ``{{binding.X}}`` silently resolves to None and the tool call
+    fires with nulls — caught in production as a Frigate 422 when every
+    preset arg was None.
+    """
+    manifest = _manifest()
+    preset_def = manifest["homeassistant"]["widget_presets"]["homeassistant-light-card"]
+    preset_def["runtime"]["tool_args"] = {
+        "entity_id": "{{binding.entity_id}}",
+        "mode": "{{config.preset_variant}}",
+    }
+    monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: manifest)
+    preset = list_widget_presets()[0]
+    args = resolve_runtime_args(
+        preset=preset,
+        config={
+            "entity_id": "light.office_desk_led_strip",
+            "preset_variant": "light_card",
+        },
+        source_bot_id="bot-1",
+        source_channel_id=None,
+    )
+    assert args == {
+        "entity_id": "light.office_desk_led_strip",
+        "mode": "light_card",
+    }
+
+
 @pytest.mark.asyncio
 async def test_preview_widget_preset_executes_underlying_tool(monkeypatch):
     monkeypatch.setattr("app.services.widget_presets.get_all_manifests", lambda: _manifest())

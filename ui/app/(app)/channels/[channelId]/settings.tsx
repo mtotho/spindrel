@@ -195,7 +195,7 @@ export default function ChannelSettingsScreen() {
         tags: settings.tags ?? [],
         category: settings.category ?? null,
         chat_mode: settings.chat_mode ?? "default",
-        header_backdrop_mode: settings.header_backdrop_mode ?? "default",
+        header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
         layout_mode: settings.layout_mode,
         widget_theme_ref: settings.widget_theme_ref,
         pipeline_mode: settings.pipeline_mode,

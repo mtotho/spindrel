@@ -152,10 +152,10 @@ class TestEnrollService:
 
         await _create_bot(db_session, "starter-backfill-a")
         await _create_bot(db_session, "starter-backfill-b")
-        for sid in ("workspace_files", "grill_me", "delegation"):
+        for sid in ("workspace/files", "grill_me", "delegation"):
             await _create_skill(db_session, sid)
 
-        await enroll("starter-backfill-a", "workspace_files", source="manual")
+        await enroll("starter-backfill-a", "workspace/files", source="manual")
         invalidate_enrolled_cache()
 
         inserted = await backfill_missing_starter_skills()
@@ -165,12 +165,12 @@ class TestEnrollService:
         assert sorted(await get_enrolled_skill_ids("starter-backfill-a")) == [
             "delegation",
             "grill_me",
-            "workspace_files",
+            "workspace/files",
         ]
         assert sorted(await get_enrolled_skill_ids("starter-backfill-b")) == [
             "delegation",
             "grill_me",
-            "workspace_files",
+            "workspace/files",
         ]
 
         inserted_again = await backfill_missing_starter_skills()
@@ -439,7 +439,7 @@ class TestEnrolledSkillsEndpoints:
         """
         from app.services.skill_enrollment import enroll, get_enrolled_skill_ids, invalidate_enrolled_cache
 
-        slashed_id = "shared/orchestrator/workspace-delegation"
+        slashed_id = "orchestrator/workspace_delegation"
         await _create_bot(db_session, "bot11")
         await _create_skill(db_session, slashed_id)
         await enroll("bot11", slashed_id, source="manual")

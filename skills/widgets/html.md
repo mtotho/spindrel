@@ -244,7 +244,7 @@ The widget runs in an iframe with `sandbox="allow-scripts allow-same-origin"` an
 - **Allowed**: inline `<script>` / `<style>`, same-origin `fetch("/api/v1/...")`, `data:` / `blob:` images.
 - **Blocked**: cross-origin network (`fetch("https://example.com/...")` will fail), popups, form submissions that navigate, top-level navigation.
 
-If you need external data, have a prior tool call fetch it and inline the JSON into the widget — or trigger `fetch_url` from the widget via the tool dispatcher (see `widgets/tool-dispatch.md`).
+If you need external data, have a prior tool call fetch it and inline the JSON into the widget — or trigger `fetch_url` from the widget via the tool dispatcher (see `widgets/tool_dispatch.md`).
 
 ### Loading third-party scripts / tiles / fonts (`extra_csp`)
 
@@ -331,7 +331,7 @@ The iframe auto-sizes to content height, capped at 800px. Taller content scrolls
 ## See also
 
 - `widgets/sdk.md` — the `window.spindrel` API surface (auth, workspace files, tool dispatch, streams, UI helpers)
-- `widgets/tool-dispatch.md` — `/api/v1/widget-actions` envelope + `callTool` pattern
+- `widgets/tool_dispatch.md` — `/api/v1/widget-actions` envelope + `callTool` pattern
 - `widgets/dashboards.md` — archetypes, `state.json` pattern, memory convention
 - `widgets/styling.md` — `sd-*` vocabulary + theme + dark mode
 - `widgets/manifest.md` — `widget.yaml` for backend-capable widgets

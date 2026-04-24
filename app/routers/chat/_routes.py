@@ -182,8 +182,9 @@ async def _enqueue_chat_turn(
     user = _extract_user(auth_result)
     bot = get_bot(req.bot_id)
 
-    if not req.msg_metadata and user is not None:
+    if user is not None:
         req.msg_metadata = {
+            **(req.msg_metadata or {}),
             "source": "web",
             "sender_type": "human",
             "sender_id": f"user:{user.id}",

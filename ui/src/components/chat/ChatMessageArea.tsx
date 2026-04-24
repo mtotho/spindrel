@@ -373,8 +373,16 @@ export function ChatMessageArea({
             {Array.from({ length: invertedData.length }, (_, i) => {
               const chronIdx = invertedData.length - 1 - i;
               const item = invertedData[chronIdx];
+              const meta = item.metadata ?? {};
+              const stableKey = typeof meta.client_local_id === "string" ? meta.client_local_id : item.id;
+              const localStatus = typeof meta.local_status === "string" ? meta.local_status : null;
               return (
-                <div key={item.id} data-message-id={item.id} style={{ userSelect: "text" }}>
+                <div
+                  key={stableKey}
+                  data-message-id={item.id}
+                  className={localStatus === "sending" || localStatus === "queued" ? "msg-send-enter" : undefined}
+                  style={{ userSelect: "text" }}
+                >
                   {renderMessage({ item, index: chronIdx })}
                 </div>
               );

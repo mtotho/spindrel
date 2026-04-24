@@ -405,13 +405,20 @@ export const useChatStore = create()((set, get) => ({
         const toolResults = turn.toolCalls.length > 0
             ? turn.toolCalls.map((tc) => tc.envelope)
             : undefined;
+        const wasCancelled = turn.error === "cancelled";
+        const hasPartialActivity = !!turn.streamingContent ||
+            !!turn.thinkingContent ||
+            (toolResults?.length ?? 0) > 0 ||
+            turn.toolCalls.length > 0 ||
+            turn.autoInjectedSkills.length > 0;
         const shouldMaterialize = !!turn.streamingContent ||
             !!turn.thinkingContent ||
-            !!turn.error ||
+            (!!turn.error && !wasCancelled) ||
+            (wasCancelled && hasPartialActivity) ||
             (toolResults?.length ?? 0) > 0 ||
             turn.autoInjectedSkills.length > 0;
         if (shouldMaterialize) {
-            const content = turn.streamingContent || (turn.error ? `Turn failed: ${turn.error}` : "");
+            const content = turn.streamingContent || (!wasCancelled && turn.error ? `Turn failed: ${turn.error}` : "");
             const toolsUsed = turn.toolCalls.length > 0
                 ? turn.toolCalls.map((tc) => tc.name)
                 : undefined;
@@ -428,7 +435,8 @@ export const useChatStore = create()((set, get) => ({
                 ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
                 ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),
                 ...(turn.autoInjectedSkills.length > 0 ? { auto_injected_skills: turn.autoInjectedSkills } : {}),
-                ...(turn.error ? { turn_error: true, turn_error_message: turn.error } : {}),
+                ...(wasCancelled ? { turn_cancelled: true } : {}),
+                ...(turn.error && !wasCancelled ? { turn_error: true, turn_error_message: turn.error } : {}),
             };
             const hasMetadata = Object.keys(metadata).length > 0;
             messages = [

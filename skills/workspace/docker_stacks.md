@@ -1,6 +1,5 @@
 ---
 name: Docker Stacks
-id: docker_stacks
 description: Create and manage Docker Compose stacks for databases, caches, and services
 triggers: docker stack, docker compose, postgres, redis, database, container, service stack
 category: workspace

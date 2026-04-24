@@ -193,7 +193,11 @@ widget_presets:
         tool: frigate_list_cameras
         args: {}
         transform: "integrations.frigate.bindings:label_options"
-    default_config: {}
+    # JSON-schema `default: 40` on `limit` does NOT flow into resolved
+    # config — only `default_config` does — so restate it here. Without
+    # this, `{{binding.limit}}` resolves to None and Frigate 422s.
+    default_config:
+      limit: 40
     runtime:
       tool_args:
         camera: "{{binding.camera}}"
@@ -406,7 +410,7 @@ tool_widgets:
             color: info
           - type: tiles
             when: "{{has_cameras}}"
-            min_width: 220
+            min_width: 280
             items: "{{tiles}}"
           - type: text
             when: "{{has_cameras | not}}"

@@ -45,8 +45,11 @@ interface Props {
   availableSlashCommands?: SlashCommandId[];
   /** Whether a message is queued behind the current response */
   isQueued?: boolean;
+  queuedMessageText?: string | null;
   /** Cancel a queued message */
   onCancelQueue?: () => void;
+  /** Recall a queued message into the editor for changes */
+  onEditQueue?: () => { text: string; files?: PendingFile[] } | null | void;
   /** Interrupt current response and send immediately */
   onSendNow?: (message: string, files?: PendingFile[]) => void;
   /** Config overhead (0-1) — tools/skills/system prompt cost as fraction of context window */
@@ -84,7 +87,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, onCancelQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -176,6 +179,37 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     channelId,
     clearDraft,
   ]);
+
+  const handleRecallQueued = useCallback(() => {
+    const recalled = onEditQueue?.();
+    if (!recalled) return false;
+    setText(recalled.text);
+    editorRef.current?.setMarkdown(recalled.text);
+    setPendingFiles(recalled.files ?? []);
+    editorRef.current?.focus();
+    return true;
+  }, [onEditQueue, setText, setPendingFiles]);
+
+  const handleEscapeEmpty = useCallback(() => {
+    if (showModelPicker || showPlanMenu) {
+      setShowModelPicker(false);
+      setShowPlanMenu(false);
+      return true;
+    }
+    if (isQueued) {
+      onCancelQueue?.();
+      return true;
+    }
+    if (pendingFiles.length > 0) {
+      setPendingFiles([]);
+      return true;
+    }
+    if (isStreaming) {
+      onCancel?.();
+      return true;
+    }
+    return false;
+  }, [showModelPicker, showPlanMenu, isQueued, onCancelQueue, pendingFiles.length, setPendingFiles, isStreaming, onCancel]);
 
   // --- Audio recording ---
   const handleMicToggle = useCallback(async () => {
@@ -577,22 +611,38 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               <>
                 <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
                   <Check size={12} color={t.success} />
-                  <span>Message queued</span>
+                  <span>{queuedMessageText ? `Queued: ${queuedMessageText.slice(0, 72)}${queuedMessageText.length > 72 ? "..." : ""}` : "Message queued"}</span>
                 </span>
-                <button
-                  onClick={onCancelQueue}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: t.textDim,
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                  }}
-                >
-                  Cancel
-                </button>
+                <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <button
+                    onClick={handleRecallQueued}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: t.accent,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={onCancelQueue}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: t.textDim,
+                      fontSize: 12,
+                      cursor: "pointer",
+                      padding: "2px 6px",
+                      borderRadius: 4,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </span>
               </>
             ) : (
               <>
@@ -699,6 +749,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   isMultiBot={isMultiBot}
                   placeholder={isTerminalMode ? terminalPlaceholder : undefined}
                   chatMode={chatMode}
+                  onEscapeDraft={() => {
+                    if (pendingFiles.length > 0) setPendingFiles([]);
+                  }}
+                  onEscapeEmpty={handleEscapeEmpty}
+                  onArrowUpEmpty={handleRecallQueued}
                 />
               )}
               {/* Collapsed mobile: inline compact mic so the one-row pill

@@ -33,7 +33,7 @@ Call from iframe JS via `window.spindrel.callHandler`:
 const result = await window.spindrel.callHandler("save_item", { text: "hello" });
 ```
 
-**Want bots to call this handler from chat?** Opt in via the `handlers:` block in `widget.yaml` — the framework then surfaces it as a `widget__<slug>__<name>` tool automatically. See `widgets/bot-callable-handlers.md`.
+**Want bots to call this handler from chat?** Opt in via the `handlers:` block in `widget.yaml` — the framework then surfaces it as a `widget__<slug>__<name>` tool automatically. See `widgets/bot_callable_handlers.md`.
 
 ## Identity and scope
 

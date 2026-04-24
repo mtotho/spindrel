@@ -262,8 +262,10 @@ export default function ChatScreen() {
     doSend,
     setError,
     isQueued,
+    queuedMessageText,
     handleSendNow,
     cancelQueue,
+    editQueue,
   } = useChannelChat({ channelId, channel, activeFile });
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
@@ -1105,7 +1107,9 @@ export default function ChatScreen() {
     channelId,
     onSlashCommand: handleSlashCommand,
     isQueued,
+    queuedMessageText,
     onCancelQueue: cancelQueue,
+    onEditQueue: editQueue,
     onSendNow: handleSendNow,
     configOverhead: configOverheadData?.overhead_pct ?? null,
     onConfigOverheadClick: () => setBotInfoBotId(channel?.bot_id || null),
@@ -1341,7 +1345,7 @@ export default function ChatScreen() {
         <div className="w-full">
           <ChannelHeaderChip
             channelId={channelId}
-            backdropMode={channel?.config?.header_backdrop_mode ?? "default"}
+            backdropMode={channel?.config?.header_backdrop_mode ?? "glass"}
           />
         </div>
       </div>

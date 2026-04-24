@@ -36,6 +36,15 @@ Use `PromptEditor` from `ui/src/components/shared/LlmPrompt.tsx`. `LlmPrompt` is
 - Generate actions are quiet text actions. No filled blue/green prompt buttons for routine generation or completion.
 - Workspace-backed prompt editors should reuse the same sizing/action language even when they need Save/Cancel/Unlink controls.
 
+## Source Text Editors
+
+Use `SourceTextEditor` from `ui/src/components/shared/SourceTextEditor.tsx` for literal source strings such as YAML, JSON, Python, Markdown, and plain text blobs.
+
+- Use it before creating page-local source/code textareas. Extend the shared component when syntax highlighting, line numbers, read-only display, validation status, search highlighting, or tab indentation needs to improve.
+- Keep file ownership separate: workspace/file inspectors own target props, fetching, loading/error state, preview toggles, fallback links, and chrome; `SourceTextEditor` owns rendering or editing the already-loaded text string.
+- Do not use `PromptEditor` or rich-text/Tiptap editors for YAML, JSON, manifests, or source files.
+- Do not auto-format YAML unless the workflow explicitly accepts comment/ordering loss. Prefer validation plus highlighted structure for hand-authored manifests.
+
 ## Date And Time
 
 Use `DateTimePicker` and `TimePicker` from `ui/src/components/shared/DateTimePicker.tsx`.
@@ -71,6 +80,7 @@ Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx
 
 - A dropdown or selector imports `SelectDropdown` or an approved wrapper.
 - A prompt imports `PromptEditor` or `LlmPrompt`.
+- A source/code/YAML textarea imports `SourceTextEditor` or a documented domain wrapper around it.
 - A date/time control imports `DateTimePicker` or `TimePicker`; no native browser date/time inputs in settings.
 - Widget, task, and prompt-template configuration surfaces do not ship native `<select>` or local portal dropdowns unless they are documented specialized controls.
 - Routine settings actions are not filled blue buttons.

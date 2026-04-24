@@ -68,7 +68,7 @@ export function resolveWidgetHostPolicy({
   widgetPresentation,
   runtimeRail = false,
   forceChip = false,
-  headerBackdropMode = "default",
+  headerBackdropMode = "glass",
 }: {
   layout?: WidgetLayout;
   chrome: DashboardChrome;

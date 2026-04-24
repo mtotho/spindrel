@@ -387,8 +387,8 @@ class ChannelSettingsOut(BaseModel):
     # channel.config["chat_mode"]; default "default".
     chat_mode: str = "default"
     # Header strip shell treatment for header-zone widgets. Stored in
-    # channel.config["header_backdrop_mode"]; default "default".
-    header_backdrop_mode: str = "default"
+    # channel.config["header_backdrop_mode"]; unset/default resolves to glass.
+    header_backdrop_mode: str = "glass"
     widget_theme_ref: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -457,7 +457,8 @@ class ChannelSettingsUpdate(BaseModel):
     # Chat presentation mode. "default" (default) | "terminal". Stored
     # inside channel.config JSONB.
     chat_mode: Optional[str] = None
-    # Header strip shell treatment. "default" (default) | "glass" | "clear".
+    # Header strip shell treatment. "glass" is the resolved default;
+    # "default" remains the solid Surface compatibility value.
     # Stored inside channel.config JSONB.
     header_backdrop_mode: Optional[str] = None
     widget_theme_ref: Optional[str] = None
@@ -623,7 +624,7 @@ async def admin_channel_settings(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
-    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "default"
+    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 
@@ -796,7 +797,7 @@ async def admin_channel_settings_update(
     out.pipeline_mode = (channel.config or {}).get("pipeline_mode") or "auto"
     out.layout_mode = (channel.config or {}).get("layout_mode") or "full"
     out.chat_mode = (channel.config or {}).get("chat_mode") or "default"
-    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "default"
+    out.header_backdrop_mode = (channel.config or {}).get("header_backdrop_mode") or "glass"
     out.widget_theme_ref = (channel.config or {}).get("widget_theme_ref")
     return out
 

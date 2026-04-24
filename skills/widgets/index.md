@@ -163,7 +163,7 @@ Also, avoid the "whole widget reload" feel:
 - Keep a local `state` object, mark only the clicked control busy, and re-render only the panel/card that changed.
 - Treat host-driven refreshes (`onToolResult`, `onReload`) as reconciliation, not as the primary click response.
 
-If you're building a live control surface, read `widgets/tool-dispatch.md` after this file. That's where the concrete click→state-update pattern lives.
+If you're building a live control surface, read `widgets/tool_dispatch.md` after this file. That's where the concrete click→state-update pattern lives.
 
 ## Native widgets — what bots should assume
 
@@ -233,4 +233,4 @@ So for a non-trivial widget build, the recommended loop is:
 
 ## See also
 
-- [Widget Dashboards](../widget_dashboards.md) — the `describe_dashboard` / `pin_widget` / `move_pins` / `unpin_widget` / `promote_panel` / `demote_panel` tool suite for reading, proposing, and modifying dashboard layouts. `emit_html_widget` shows a widget in chat; `pin_widget` places a library widget on the dashboard.
+- [Channel Dashboards](./channel_dashboards.md) — the `describe_dashboard` / `pin_widget` / `move_pins` / `unpin_widget` / `promote_panel` / `demote_panel` tool suite for reading, proposing, and modifying dashboard layouts. `emit_html_widget` shows a widget in chat; `pin_widget` places a library widget on the dashboard.

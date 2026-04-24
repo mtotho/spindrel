@@ -549,14 +549,14 @@ export function PresentationSection({
         </FormRow>
         <FormRow
           label="Header strip shell"
-          description="Controls the host shell behind top-center header widgets. Default keeps the current surfaced look, Glass adds translucency, and Clear removes the shell fill."
+          description="Controls the host shell behind top-center header widgets. Glass is the default; Surface uses the solid host shell, and Clear removes the shell fill."
         >
           <SelectInput
-            value={(form.header_backdrop_mode ?? "default") as string}
+            value={(form.header_backdrop_mode ?? "glass") as string}
             onChange={(v) => patch("header_backdrop_mode", v as ChannelSettings["header_backdrop_mode"])}
             options={[
-              { label: "Default", value: "default" },
               { label: "Glass", value: "glass" },
+              { label: "Surface", value: "default" },
               { label: "Clear", value: "clear" },
             ]}
           />

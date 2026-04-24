@@ -53,6 +53,12 @@ import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionP
 import { buildRecentHref, formatSessionRecentLabel } from "@/src/lib/recentPages";
 import { isTranscriptFlowComposer } from "./chatModes";
 
+function makeClientLocalId(): string {
+  const cryptoObj = globalThis.crypto as Crypto | undefined;
+  if (cryptoObj?.randomUUID) return `web-${cryptoObj.randomUUID()}`;
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface EphemeralContextPayload {
   page_name?: string;
   url?: string;
@@ -836,12 +842,31 @@ function EphemeralChatSession({
       }
 
       try {
+        const clientLocalId = makeClientLocalId();
+        useChatStore.getState().addMessage(activeSessionId, {
+          id: `msg-${clientLocalId}`,
+          session_id: activeSessionId,
+          role: "user",
+          content: message,
+          created_at: new Date().toISOString(),
+          metadata: {
+            source: "web",
+            sender_type: "human",
+            client_local_id: clientLocalId,
+            local_status: "sending",
+          },
+        });
         await submitChat.mutateAsync({
           message,
           bot_id: botId,
           client_id: "web",
           session_id: activeSessionId,
           channel_id: parentChannelId,
+          msg_metadata: {
+            source: "web",
+            sender_type: "human",
+            client_local_id: clientLocalId,
+          },
           ...(modelOverride ? {
             model_override: modelOverride,
             model_provider_id_override: modelProviderId,
@@ -861,6 +886,10 @@ function EphemeralChatSession({
     if (!sessionId) return;
     const ch = useChatStore.getState().getChannel(sessionId);
     for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().handleTurnEvent(sessionId, turnId, {
+        event: "error",
+        data: { message: "cancelled" },
+      });
       useChatStore.getState().finishTurn(sessionId, turnId);
     }
     useChatStore.getState().clearProcessing(sessionId);
@@ -1393,6 +1422,10 @@ function ThreadChatSession({
     if (!effectiveSessionId) return;
     const ch = useChatStore.getState().getChannel(storeKey);
     for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().handleTurnEvent(storeKey, turnId, {
+        event: "error",
+        data: { message: "cancelled" },
+      });
       useChatStore.getState().finishTurn(storeKey, turnId);
     }
     useChatStore.getState().clearProcessing(storeKey);
@@ -1443,12 +1476,31 @@ function ThreadChatSession({
           setLazySpawnedId(sid);
           onSessionSpawned?.(sid);
         }
+        const clientLocalId = makeClientLocalId();
+        useChatStore.getState().addMessage(sid, {
+          id: `msg-${clientLocalId}`,
+          session_id: sid,
+          role: "user",
+          content: message,
+          created_at: new Date().toISOString(),
+          metadata: {
+            source: "web",
+            sender_type: "human",
+            client_local_id: clientLocalId,
+            local_status: "sending",
+          },
+        });
         await submitChat.mutateAsync({
           message,
           bot_id: botId,
           client_id: "web",
           session_id: sid,
           channel_id: parentChannelId,
+          msg_metadata: {
+            source: "web",
+            sender_type: "human",
+            client_local_id: clientLocalId,
+          },
           ...(modelOverride
             ? {
                 model_override: modelOverride,

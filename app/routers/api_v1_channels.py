@@ -237,10 +237,10 @@ class ChannelConfigOut(BaseModel):
     chat_mode: str = "default"
     # Top-center chat header strip shell treatment. Stored in
     # ``Channel.config["header_backdrop_mode"]``.
-    #   ``default`` — current surfaced shell behavior
+    #   ``default`` — compatibility alias for the default glass shell
     #   ``glass``   — translucent/blurred shell for header-zone widgets
     #   ``clear``   — plain shell; header-zone widgets sit directly on page
-    header_backdrop_mode: str = "default"
+    header_backdrop_mode: str = "glass"
     widget_theme_ref: Optional[str] = None
     # Heartbeat (prefixed)
     heartbeat_enabled: bool = False
@@ -863,7 +863,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "model_tier_overrides": channel.model_tier_overrides or {},
         "layout_mode": (channel.config or {}).get("layout_mode", "full"),
         "chat_mode": (channel.config or {}).get("chat_mode", "default"),
-        "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "default"),
+        "header_backdrop_mode": (channel.config or {}).get("header_backdrop_mode", "glass"),
         "widget_theme_ref": (channel.config or {}).get("widget_theme_ref"),
         "created_at": channel.created_at,
         "updated_at": channel.updated_at,

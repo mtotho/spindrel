@@ -1021,9 +1021,7 @@ function HeaderCanvas({
                         resize={
                           editMode
                             ? {
-                                edges: chipLike
-                                  ? (["e", "w"] as ResizeEdge[])
-                                  : (["s", "e", "se", "w", "sw"] as ResizeEdge[]),
+                                edges: ["s", "e", "se", "w", "sw"] as ResizeEdge[],
                                 initial: { x: gl.x, y: gl.y, w: gl.w, h: gl.h },
                                 cellPx: {
                                   w:

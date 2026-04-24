@@ -62,10 +62,28 @@ export interface UseChannelChatReturn {
   setError: (channelId: string, error: string) => void;
   /** Queue state */
   isQueued: boolean;
+  queuedMessageText: string | null;
   /** Cancel + send immediately (interrupts current response) */
   handleSendNow: (text: string, files?: PendingFile[]) => void;
   /** Cancel queued message without sending */
   cancelQueue: () => void;
+  /** Recall queued message into the composer for editing */
+  editQueue: () => { text: string; files?: PendingFile[] } | null;
+}
+
+type PreparedChatSend = {
+  request: ChatRequest;
+  channelId: string;
+  optimisticMsgId: string;
+  clientLocalId: string;
+  text: string;
+  files?: PendingFile[];
+};
+
+function makeClientLocalId(): string {
+  const cryptoObj = globalThis.crypto as Crypto | undefined;
+  if (cryptoObj?.randomUUID) return `web-${cryptoObj.randomUUID()}`;
+  return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 export function useChannelChat({ channelId, channel, activeFile }: UseChannelChatOptions): UseChannelChatReturn {
@@ -128,8 +146,12 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     request: ChatRequest;
     channelId: string;
     optimisticMsgId: string;
+    clientLocalId: string;
+    text: string;
+    files?: PendingFile[];
   } | null>(null);
   const [isQueued, setIsQueued] = useState(false);
+  const [queuedMessageText, setQueuedMessageText] = useState<string | null>(null);
   // Ref for checking active state inside async callbacks (avoids stale closures).
   const isActiveRef = useRef(false);
   const turnsCount = Object.keys(chatState.turns).length;
@@ -262,6 +284,26 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   const cancelChat = useCancelChat();
   const lastRequestRef = useRef<Record<string, ChatRequest>>({});
 
+  const removeOptimisticMessage = useCallback((targetChannelId: string, optimisticMsgId: string) => {
+    const msgs = useChatStore.getState().channels[targetChannelId]?.messages ?? [];
+    setMessages(targetChannelId, msgs.filter((m) => m.id !== optimisticMsgId));
+  }, [setMessages]);
+
+  const submitPrepared = useCallback((prepared: PreparedChatSend) => {
+    lastRequestRef.current[prepared.channelId] = prepared.request;
+    submitChat.mutate(prepared.request, {
+      onSuccess: (result) => {
+        if (result.queued && result.task_id) {
+          useChatStore.getState().setProcessing(prepared.channelId, result.task_id);
+        }
+      },
+      onError: (err) => {
+        removeOptimisticMessage(prepared.channelId, prepared.optimisticMsgId);
+        setError(prepared.channelId, err instanceof Error ? err.message : "Failed to send message");
+      },
+    });
+  }, [removeOptimisticMessage, setError, submitChat]);
+
   // ---- Bus-driven queue advance ----
   // When the channel's turn count drops to zero AND there's a queued
   // request, fire it. This replaces the legacy `chatStream.onComplete`
@@ -276,10 +318,10 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       const queued = queuedRequestRef.current;
       queuedRequestRef.current = null;
       setIsQueued(false);
-      lastRequestRef.current[queued.channelId] = queued.request;
-      submitChat.mutate(queued.request);
+      setQueuedMessageText(null);
+      submitPrepared(queued);
     }
-  }, [turnsCount, chatState.isProcessing, submitChat]);
+  }, [turnsCount, chatState.isProcessing, submitPrepared]);
 
   // When background processing completes, clear state and refetch.
   useEffect(() => {
@@ -298,6 +340,10 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     if (!channelId) return;
     const ch = useChatStore.getState().getChannel(channelId);
     for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().handleTurnEvent(channelId, turnId, {
+        event: "error",
+        data: { message: "cancelled" },
+      });
       useChatStore.getState().finishTurn(channelId, turnId);
     }
     clearProcessing(channelId);
@@ -322,12 +368,12 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     if (queued) {
       queuedRequestRef.current = null;
       setIsQueued(false);
+      setQueuedMessageText(null);
       setTimeout(() => {
-        lastRequestRef.current[queued.channelId] = queued.request;
-        submitChat.mutate(queued.request);
+        submitPrepared(queued);
       }, 100);
     }
-  }, [channel, channelId, cancelChat, submitChat, syncCancelledState]);
+  }, [channel, channelId, cancelChat, submitPrepared, syncCancelledState]);
 
   const handleRetry = useCallback(() => {
     const req = channelId ? lastRequestRef.current[channelId] : undefined;
@@ -336,21 +382,29 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     submitChat.mutate(req);
   }, [channelId, setError, submitChat]);
 
-  const doSend = useCallback(
-    (text: string, files?: PendingFile[]) => {
-      if (!channelId || !channel) return;
+  const prepareSend = useCallback(
+    (text: string, files?: PendingFile[]): PreparedChatSend | null => {
+      if (!channelId || !channel) return null;
 
       // If viewing a file in non-split mode, auto-enable split.
       if (activeFile && !useUIStore.getState().fileExplorerSplit) {
         useUIStore.getState().toggleFileExplorerSplit();
       }
 
+      const clientLocalId = makeClientLocalId();
+      const optimisticMsgId = `msg-${clientLocalId}`;
       addMessage(channelId, {
-        id: `msg-${Date.now()}`,
+        id: optimisticMsgId,
         session_id: channel.active_session_id ?? "",
         role: "user",
         content: text,
         created_at: new Date().toISOString(),
+        metadata: {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+          local_status: "sending",
+        },
       });
 
       let attachments: ChatAttachment[] | undefined;
@@ -381,104 +435,84 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
         bot_id: channel.bot_id,
         client_id: channel.client_id ?? "",
         channel_id: channelId,
+        msg_metadata: {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+        },
         ...(attachments?.length ? { attachments } : {}),
         ...(file_metadata?.length ? { file_metadata } : {}),
       };
-      lastRequestRef.current[channelId] = request;
-      submitChat.mutate(request);
+      return {
+        request,
+        channelId,
+        optimisticMsgId,
+        clientLocalId,
+        text,
+        ...(files ? { files } : {}),
+      };
     },
-    [channelId, channel, activeFile, addMessage, submitChat]
+    [channelId, channel, activeFile, addMessage]
   );
 
-  /** Queue a message to send after the current stream/processing finishes. */
-  const queueMessage = useCallback(
+  const doSend = useCallback(
     (text: string, files?: PendingFile[]) => {
-      if (!channelId || !channel) return;
-
-      if (activeFile && !useUIStore.getState().fileExplorerSplit) {
-        useUIStore.getState().toggleFileExplorerSplit();
-      }
-
-      // If replacing an existing queued message, remove the old optimistic message.
-      if (queuedRequestRef.current) {
-        const oldId = queuedRequestRef.current.optimisticMsgId;
-        const oldCh = queuedRequestRef.current.channelId;
-        const msgs = useChatStore.getState().channels[oldCh]?.messages ?? [];
-        setMessages(oldCh, msgs.filter((m) => m.id !== oldId));
-      }
-
-      // Add optimistic user message.
-      const msgId = `msg-${Date.now()}`;
-      addMessage(channelId, {
-        id: msgId,
-        session_id: channel.active_session_id ?? "",
-        role: "user",
-        content: text,
-        created_at: new Date().toISOString(),
-      });
-
-      let attachments: ChatAttachment[] | undefined;
-      let file_metadata: ChatFileMetadata[] | undefined;
-      if (files && files.length > 0) {
-        attachments = [];
-        file_metadata = [];
-        for (const pf of files) {
-          if (pf.file.type.startsWith("image/")) {
-            attachments.push({
-              type: "image",
-              content: pf.base64,
-              mime_type: pf.file.type,
-              name: pf.file.name,
-            });
-          }
-          file_metadata.push({
-            filename: pf.file.name,
-            mime_type: pf.file.type,
-            size_bytes: pf.file.size,
-            file_data: pf.base64,
-          });
-        }
-      }
-
-      const request: ChatRequest = {
-        message: text,
-        bot_id: channel.bot_id,
-        client_id: channel.client_id ?? "",
-        channel_id: channelId,
-        ...(attachments?.length ? { attachments } : {}),
-        ...(file_metadata?.length ? { file_metadata } : {}),
-      };
-
-      queuedRequestRef.current = { request, channelId, optimisticMsgId: msgId };
-      setIsQueued(true);
+      const prepared = prepareSend(text, files);
+      if (!prepared) return;
+      submitPrepared(prepared);
     },
-    [channelId, channel, activeFile, addMessage, setMessages],
+    [prepareSend, submitPrepared]
   );
 
   const handleSend = useCallback(
     (text: string, files?: PendingFile[]) => {
       if (!channelId || !channel) return;
+      const prepared = prepareSend(text, files);
+      if (!prepared) return;
 
       secretCheck.mutate(text, {
         onSuccess: (result) => {
           if (result.has_secrets) {
+            removeOptimisticMessage(prepared.channelId, prepared.optimisticMsgId);
             setSecretWarning({ result, text, files });
           } else if (isActiveRef.current) {
-            queueMessage(text, files);
+            if (queuedRequestRef.current) {
+              removeOptimisticMessage(queuedRequestRef.current.channelId, queuedRequestRef.current.optimisticMsgId);
+            }
+            const msgs = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
+            setMessages(prepared.channelId, msgs.map((m) => (
+              m.id === prepared.optimisticMsgId
+                ? { ...m, metadata: { ...(m.metadata ?? {}), local_status: "queued" } }
+                : m
+            )));
+            queuedRequestRef.current = prepared;
+            setIsQueued(true);
+            setQueuedMessageText(text);
           } else {
-            doSend(text, files);
+            submitPrepared(prepared);
           }
         },
         onError: () => {
           if (isActiveRef.current) {
-            queueMessage(text, files);
+            if (queuedRequestRef.current) {
+              removeOptimisticMessage(queuedRequestRef.current.channelId, queuedRequestRef.current.optimisticMsgId);
+            }
+            const msgs = useChatStore.getState().channels[prepared.channelId]?.messages ?? [];
+            setMessages(prepared.channelId, msgs.map((m) => (
+              m.id === prepared.optimisticMsgId
+                ? { ...m, metadata: { ...(m.metadata ?? {}), local_status: "queued" } }
+                : m
+            )));
+            queuedRequestRef.current = prepared;
+            setIsQueued(true);
+            setQueuedMessageText(text);
           } else {
-            doSend(text, files);
+            submitPrepared(prepared);
           }
         },
       });
     },
-    [channelId, channel, doSend, queueMessage, secretCheck]
+    [channelId, channel, prepareSend, removeOptimisticMessage, secretCheck, setMessages, submitPrepared]
   );
 
   const handleSendAudio = useCallback(
@@ -517,6 +551,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       if (!channelId || !channel) return;
       queuedRequestRef.current = null;
       setIsQueued(false);
+      setQueuedMessageText(null);
       handleCancel();
       setTimeout(() => doSend(text, files), 50);
     },
@@ -529,14 +564,25 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     const { optimisticMsgId, channelId: qCh } = queuedRequestRef.current;
     queuedRequestRef.current = null;
     setIsQueued(false);
-    const msgs = useChatStore.getState().channels[qCh]?.messages ?? [];
-    setMessages(qCh, msgs.filter((m) => m.id !== optimisticMsgId));
-  }, [setMessages]);
+    setQueuedMessageText(null);
+    removeOptimisticMessage(qCh, optimisticMsgId);
+  }, [removeOptimisticMessage]);
+
+  const editQueue = useCallback(() => {
+    if (!queuedRequestRef.current) return null;
+    const queued = queuedRequestRef.current;
+    queuedRequestRef.current = null;
+    setIsQueued(false);
+    setQueuedMessageText(null);
+    removeOptimisticMessage(queued.channelId, queued.optimisticMsgId);
+    return { text: queued.text, files: queued.files };
+  }, [removeOptimisticMessage]);
 
   // Reset queue when channel changes.
   useEffect(() => {
     queuedRequestRef.current = null;
     setIsQueued(false);
+    setQueuedMessageText(null);
   }, [channelId]);
 
   const slashCatalog = useSlashCommandList();
@@ -682,7 +728,9 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     doSend,
     setError,
     isQueued,
+    queuedMessageText,
     handleSendNow,
     cancelQueue,
+    editQueue,
   };
 }

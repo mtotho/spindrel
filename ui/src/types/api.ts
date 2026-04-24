@@ -1139,6 +1139,7 @@ export interface ChatRequest {
   client_id: string;
   session_id?: string;
   channel_id?: string;
+  msg_metadata?: Record<string, unknown>;
   model_override?: string;
   model_provider_id_override?: string | null;
   attachments?: ChatAttachment[];

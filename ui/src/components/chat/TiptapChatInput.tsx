@@ -62,19 +62,23 @@ export interface TiptapChatInputProps {
   isMultiBot?: boolean;
   placeholder?: string;
   chatMode?: "default" | "terminal";
+  onEscapeDraft?: () => void;
+  onEscapeEmpty?: () => boolean | void;
+  onArrowUpEmpty?: () => boolean | void;
 }
 
 export interface TiptapChatInputHandle {
   focus: () => void;
   clear: () => void;
   getMarkdown: () => string;
+  setMarkdown: (text: string) => void;
   /** Insert a styled @mention node followed by a trailing space. `id` becomes the
    *  `@${id}` token on send (matches the regex in app/agent/tags.py). */
   insertMention: (id: string, label?: string) => void;
 }
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
-  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default" }, ref) {
+  function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default", onEscapeDraft, onEscapeEmpty, onArrowUpEmpty }, ref) {
     const slashCatalog = useSlashCommandList();
     const { data: modelGroups } = useModelGroups();
     const t = useThemeTokens();
@@ -95,7 +99,13 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     const onImagePasteRef = useRef(onImagePaste);
     onImagePasteRef.current = onImagePaste;
     const onSlashCommandRef = useRef(onSlashCommand);
+    const onEscapeDraftRef = useRef(onEscapeDraft);
+    const onEscapeEmptyRef = useRef(onEscapeEmpty);
+    const onArrowUpEmptyRef = useRef(onArrowUpEmpty);
     onSlashCommandRef.current = onSlashCommand;
+    onEscapeDraftRef.current = onEscapeDraft;
+    onEscapeEmptyRef.current = onEscapeEmpty;
+    onArrowUpEmptyRef.current = onArrowUpEmpty;
     const isMobileRef = useRef(isMobile);
     isMobileRef.current = isMobile;
     const initialTextRef = useRef(text);
@@ -382,6 +392,20 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
                 ed.commands.unsetAllMarks();
                 return true;
               }
+              const currentText = ((ed.storage as any).markdown.getMarkdown?.() ?? "").trim();
+              if (currentText) {
+                suppressUpdateRef.current = true;
+                ed.commands.clearContent(true);
+                ed.commands.unsetAllMarks();
+                suppressUpdateRef.current = false;
+                onTextChangeRef.current("");
+                initialTextRef.current = "";
+                onEscapeDraftRef.current?.();
+                return true;
+              }
+              if (!currentText && onEscapeEmptyRef.current) {
+                return onEscapeEmptyRef.current() !== false;
+              }
               return false;
             },
             ArrowDown: () => {
@@ -393,12 +417,16 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               }
               return false;
             },
-            ArrowUp: () => {
+            ArrowUp: ({ editor: ed }) => {
               if (showCmdMenuRef.current && cmdFilteredRef.current.length > 0) {
                 const next = Math.max(cmdActiveIdxRef.current - 1, 0);
                 setCmdActiveIdx(next);
                 cmdActiveIdxRef.current = next;
                 return true;
+              }
+              const currentText = ((ed.storage as any).markdown.getMarkdown?.() ?? "").trim();
+              if (!currentText && onArrowUpEmptyRef.current) {
+                return onArrowUpEmptyRef.current() !== false;
               }
               return false;
             },
@@ -612,6 +640,16 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         initialTextRef.current = "";
       },
       getMarkdown: () => (editor?.storage as any)?.markdown?.getMarkdown() ?? "",
+      setMarkdown: (text: string) => {
+        if (!editor) return;
+        suppressUpdateRef.current = true;
+        editor.commands.setContent(text || "", { emitUpdate: false });
+        editor.commands.unsetAllMarks();
+        suppressUpdateRef.current = false;
+        initialTextRef.current = text || "";
+        onTextChangeRef.current(text || "");
+        editor.commands.focus("end");
+      },
       insertMention: (id: string, label?: string) => {
         if (!editor) return;
         editor.chain().focus()

@@ -1,6 +1,5 @@
 ---
 name: Workspace Files
-id: workspace_files
 description: Guide for using the file tool vs exec_command for reading, writing, editing, and searching files
 triggers: file tool, read file, write file, append, edit file, grep, glob, search code, find files, exec_command, workspace files
 category: core

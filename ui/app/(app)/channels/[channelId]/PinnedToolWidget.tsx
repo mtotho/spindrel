@@ -116,7 +116,7 @@ export function PinnedToolWidget({
   borderless = false,
   hoverScrollbars = DEFAULT_CHROME.hoverScrollbars,
   hideTitles = false,
-  headerBackdropMode = "default",
+  headerBackdropMode = "glass",
   panelSurface = false,
   runtimeRail = false,
   externalDrag,

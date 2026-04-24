@@ -1,6 +1,5 @@
 ---
 name: Workspace Delegation
-id: shared/orchestrator/workspace-delegation
 description: >
   Delegation patterns and orchestration reference for shared-workspace bots. Load
   when choosing between bot delegation, Claude Code, and workflow steps.
@@ -80,7 +79,7 @@ Use a workflow when the same sequence will repeat.
 | Code editing and repo manipulation | `run_claude_code` |
 | Simple local coordination | direct tool use |
 
-For workflow design details, fetch `pipeline_creation` or `pipeline_authoring`.
+For workflow design details, fetch `pipelines/creation` or `pipelines/authoring`.
 
 ## Common mistakes
 

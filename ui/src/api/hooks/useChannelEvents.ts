@@ -381,17 +381,23 @@ export function useChannelEvents(
           // Direct-add avoids this race entirely.
           if (msg?.role === "user") {
             const existing = ch.messages;
+            const incomingClientLocalId = normalizedMessage?.metadata?.client_local_id;
             const isDuplicate = existing.some(
-              (m) => m.id === msg.id || (m.role === "user" && m.content === msg.content &&
+              (m) => m.id === msg.id ||
+                (incomingClientLocalId && m.metadata?.client_local_id === incomingClientLocalId) ||
+                (m.role === "user" && m.content === msg.content &&
                 Math.abs(new Date(m.created_at).getTime() - new Date(msg.created_at).getTime()) < 3000),
             );
             // Replace any optimistic user message (msg-*) created within 5s
-            // of the server message. Content may differ (e.g. typed text vs
-            // "[User sent attachment(s)]") so match on timestamp proximity.
+            // of the server message, preferring the stable client-local id.
+            // Content may differ (e.g. typed text vs "[User sent attachment(s)]")
+            // so timestamp proximity stays as a fallback.
             const serverTs = new Date(msg.created_at).getTime();
             const withoutOptimistic = existing.filter(
-              (m) => !(m.id.startsWith("msg-") && m.role === "user" &&
-                Math.abs(new Date(m.created_at).getTime() - serverTs) < 5000),
+              (m) => !(m.id.startsWith("msg-") && m.role === "user" && (
+                (incomingClientLocalId && m.metadata?.client_local_id === incomingClientLocalId) ||
+                Math.abs(new Date(m.created_at).getTime() - serverTs) < 5000
+              )),
             );
             if (withoutOptimistic.length < existing.length) {
               // Had an optimistic message — replace it with the server version
@@ -662,10 +668,12 @@ export function useChannelEvents(
                 event: "error",
                 data: { message: error },
               });
-              store.setError(storeKey, error);
+              if (error !== "cancelled") {
+                store.setError(storeKey, error);
+              }
             }
             store.finishTurn(storeKey, turnId);
-          } else if (payload?.error) {
+          } else if (payload?.error && String(payload.error) !== "cancelled") {
             // Slot may have been reaped early (e.g. snapshot ghost-kill)
             // but the error still needs to surface.
             store.setError(storeKey, String(payload.error));

@@ -259,6 +259,24 @@ class TestCategoryInSettings:
         assert public_cfg.status_code == 200
         assert public_cfg.json()["header_backdrop_mode"] == "glass"
 
+    async def test_header_backdrop_mode_defaults_to_glass(self, client):
+        """Unset header strip shell mode resolves to the glass presentation."""
+        _, data = await _create_channel(client, name="header-shell-default")
+
+        settings = await client.get(
+            f"/api/v1/admin/channels/{data['id']}/settings",
+            headers=AUTH_HEADERS,
+        )
+        assert settings.status_code == 200
+        assert settings.json()["header_backdrop_mode"] == "glass"
+
+        public_cfg = await client.get(
+            f"/api/v1/channels/{data['id']}/config",
+            headers=AUTH_HEADERS,
+        )
+        assert public_cfg.status_code == 200
+        assert public_cfg.json()["header_backdrop_mode"] == "glass"
+
     async def test_header_backdrop_mode_rejects_invalid_values(self, client):
         _, data = await _create_channel(client, name="bad-header-shell")
 

@@ -1,6 +1,5 @@
 ---
 name: Knowledge Bases
-id: knowledge_bases
 description: How to use the channel + bot knowledge-base folders and when to reach for the narrow search tools
 triggers: knowledge base, search_channel_knowledge, search_bot_knowledge, kb, lookup, facts, what do you know
 category: workspace

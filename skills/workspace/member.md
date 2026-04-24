@@ -1,6 +1,5 @@
 ---
 name: Workspace Member
-id: workspace_member
 description: Operating inside your container environment — filesystem layout, permissions, write protection, API access
 triggers: workspace, container, /workspace/bots, write protection, shared filesystem, call_api, list_api_endpoints
 category: workspace
@@ -70,7 +69,7 @@ Pre-installed in the workspace container:
 - **CLI**: git, curl, jq, ripgrep, fd, tree, sqlite3
 - **Python packages**: httpx, requests, pyyaml, toml, jinja2, beautifulsoup4, lxml, pandas, markdown, python-dotenv
 
-For file operations, prefer the `file` tool over shell commands — see the **workspace_files** skill. For channel workspace management, see the **channel_workspaces** skill.
+For file operations, prefer the `file` tool over shell commands — see the **workspace/files** skill. For channel workspace management, see the **workspace/channel_workspaces** skill.
 
 ---
 

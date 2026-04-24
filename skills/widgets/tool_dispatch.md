@@ -1,6 +1,5 @@
 ---
 name: Widget tool dispatch — /widget-actions + callTool
-id: widgets/tool-dispatch
 description: How widgets trigger backend work — `window.spindrel.callTool(name, args)` and the underlying `POST /api/v1/widget-actions` envelope. Covers three dispatch types (tool/api/widget_config), the envelope shape, truncation rules (callTool bypasses the 4KB cap), output-shape discovery, and when to reach for dispatch vs `spindrel.api`.
 triggers: /widget-actions, widget tool dispatch, widget envelope, widget callTool pattern, dispatch tool, dispatch api, dispatch widget_config, envelope body plain_body, widget truncation, sample_payload
 category: core

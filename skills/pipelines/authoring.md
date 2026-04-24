@@ -1,6 +1,5 @@
 ---
 name: Pipeline Authoring
-id: pipeline_authoring
 description: >
   Complete reference for authoring task pipeline steps — JSON schema, all five
   step types (exec / tool / agent / user_prompt / foreach), params + template
@@ -127,7 +126,7 @@ Spawns a child task that runs as an LLM conversation. Prior step results are aut
 | `prompt` | string | The prompt sent to the LLM. Prior results are auto-prepended |
 | `model` | string \| null | Model override (e.g. `"gpt-4o"`, `"claude-sonnet-4-20250514"`). Null = inherit from task. See Model Tiers below for guidance |
 | `tools` | string[] \| null | Extra tool names to **add** to what the bot already has. Additive, not a whitelist — the step still sees the bot's base tools + auto-discovered tools |
-| `skills` | string[] \| null | Skill IDs to ephemerally inject for this step only. Use for just-in-time expertise (e.g. load `pipeline_authoring` for a step that writes pipelines) without enrolling them on the bot permanently |
+| `skills` | string[] \| null | Skill IDs to ephemerally inject for this step only. Use for just-in-time expertise (e.g. load `pipelines/authoring` for a step that writes pipelines) without enrolling them on the bot permanently |
 | `timeout` | number \| null | Max seconds for the child task |
 
 **Example:**

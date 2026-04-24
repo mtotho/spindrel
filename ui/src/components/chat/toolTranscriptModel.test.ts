@@ -119,7 +119,7 @@ test("skill load results preserve useful preview text", () => {
           label: "Loaded skill",
           target_id: "workspace_files",
           target_label: "Workspace Files",
-          preview_text: "# Workspace Files",
+          preview_text: "Guide for using the file tool",
         },
         envelope: {
           content_type: "text/markdown",
@@ -137,7 +137,7 @@ test("skill load results preserve useful preview text", () => {
   assert.equal(items[0]?.kind, "transcript");
   if (items[0]?.kind !== "transcript") throw new Error("expected transcript item");
   assert.equal(items[0].entries[0]?.metaLabel, "(Workspace Files)");
-  assert.equal(items[0].entries[0]?.previewText, "# Workspace Files");
+  assert.equal(items[0].entries[0]?.previewText, "Guide for using the file tool");
   assert.equal(items[0].entries[0]?.detailKind, "expandable");
 });
 

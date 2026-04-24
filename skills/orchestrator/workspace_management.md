@@ -1,6 +1,5 @@
 ---
 name: Workspace Management
-id: shared/orchestrator/workspace-management
 description: >
   Channel and workspace operating conventions, including safe memory writes,
   workspace prompt overrides, and orchestration checklists.

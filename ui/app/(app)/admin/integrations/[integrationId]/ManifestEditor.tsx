@@ -12,12 +12,12 @@ import { useTestMCPServer } from "@/src/api/hooks/useMCPServers";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import {
   ActionButton,
-  InfoBanner,
   SettingsControlRow,
   SettingsGroupLabel,
   SettingsSegmentedControl,
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
+import { SourceTextEditor } from "@/src/components/shared/SourceTextEditor";
 
 type ViewMode = "visual" | "yaml";
 
@@ -101,41 +101,62 @@ function YamlEditorTab({ integrationId }: { integrationId: string }) {
   const [parseError, setParseError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const prevIdRef = useRef(integrationId);
+  const loadedYamlRef = useRef<string | null>(null);
   const validateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const readYamlError = useCallback((text: string) => {
+    try {
+      yaml.load(text);
+      return null;
+    } catch (error: any) {
+      return error.message || "Invalid YAML";
+    }
+  }, []);
+
+  const validateYaml = useCallback((text: string) => {
+    setParseError(readYamlError(text));
+  }, [readYamlError]);
 
   useEffect(() => {
     if (prevIdRef.current !== integrationId) {
       prevIdRef.current = integrationId;
+      loadedYamlRef.current = null;
       setDraft("");
       setParseError(null);
       setSaved(false);
     }
-    if (data?.yaml && draft === "") setDraft(data.yaml);
-  }, [data, integrationId, draft]);
+    if (data?.yaml != null && loadedYamlRef.current !== data.yaml) {
+      loadedYamlRef.current = data.yaml;
+      setDraft(data.yaml);
+      validateYaml(data.yaml);
+    }
+  }, [data, integrationId, validateYaml]);
+
+  useEffect(() => {
+    return () => {
+      if (validateTimer.current) clearTimeout(validateTimer.current);
+    };
+  }, []);
 
   const handleChange = useCallback((text: string) => {
     setDraft(text);
     setSaved(false);
     if (validateTimer.current) clearTimeout(validateTimer.current);
-    validateTimer.current = setTimeout(() => {
-      try {
-        yaml.load(text);
-        setParseError(null);
-      } catch (error: any) {
-        setParseError(error.message || "Invalid YAML");
-      }
-    }, 300);
-  }, []);
+    validateTimer.current = setTimeout(() => validateYaml(text), 300);
+  }, [validateYaml]);
 
   const handleSave = useCallback(() => {
-    if (parseError) return;
+    const currentError = readYamlError(draft);
+    setParseError(currentError);
+    if (currentError) return;
     updateMut.mutate(draft, {
       onSuccess: () => {
+        loadedYamlRef.current = draft;
         setSaved(true);
         window.setTimeout(() => setSaved(false), 2000);
       },
     });
-  }, [draft, parseError, updateMut]);
+  }, [draft, readYamlError, updateMut]);
 
   if (isLoading) {
     return (
@@ -157,16 +178,13 @@ function YamlEditorTab({ integrationId }: { integrationId: string }) {
         {saved && <StatusBadge label="Saved" variant="success" />}
         {updateMut.isError && <StatusBadge label="Failed to save" variant="danger" />}
       </div>
-      {parseError && (
-        <InfoBanner variant="danger" icon={<AlertTriangle size={14} />}>
-          {parseError}
-        </InfoBanner>
-      )}
-      <textarea
+      <SourceTextEditor
         value={draft}
-        onChange={(event) => handleChange(event.target.value)}
-        spellCheck={false}
-        className="min-h-[500px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 font-mono text-[12px] leading-relaxed text-text outline-none focus:border-accent focus:ring-2 focus:ring-accent/35"
+        language="yaml"
+        onChange={handleChange}
+        minHeight={500}
+        status={parseError ? { variant: "danger", label: parseError } : { variant: "success", label: "Valid YAML" }}
+        showLineNumbers
       />
     </div>
   );

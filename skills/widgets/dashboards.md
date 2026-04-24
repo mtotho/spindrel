@@ -152,7 +152,7 @@ document.querySelectorAll("button[data-tool]").forEach(btn => {
 </script>
 ```
 
-Use when: *"give me one-click access to X"*, *"I want buttons for my common Y"*. Pair with optimistic-update patterns (disable → "…" → show result). See `widgets/tool-dispatch.md` for the full `callTool` contract.
+Use when: *"give me one-click access to X"*, *"I want buttons for my common Y"*. Pair with optimistic-update patterns (disable → "…" → show result). See `widgets/tool_dispatch.md` for the full `callTool` contract.
 
 ### D. Embedded Knowledge-Base Reader
 
@@ -311,5 +311,5 @@ If the widget uses `state.json`, paste the schema here with field semantics.
 
 - `widgets/html.md` — bundle layout, `emit_html_widget` path grammar, sandbox
 - `widgets/sdk.md` — `spindrel.data`, `spindrel.state`, `spindrel.api`, `spindrel.stream`
-- `widgets/tool-dispatch.md` — `callTool` for the control-panel archetype
+- `widgets/tool_dispatch.md` — `callTool` for the control-panel archetype
 - `widgets/db.md` — server-side SQLite when JSON isn't enough

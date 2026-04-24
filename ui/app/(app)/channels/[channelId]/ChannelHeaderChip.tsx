@@ -47,7 +47,7 @@ interface Props {
   backdropMode?: HeaderBackdropMode;
 }
 
-export function ChannelHeaderChip({ channelId, backdropMode = "default" }: Props) {
+export function ChannelHeaderChip({ channelId, backdropMode = "glass" }: Props) {
   const { header: pins } = useChannelChatZones(channelId);
   const { allDashboards } = useDashboards();
   const unpin = useDashboardPinsStore((s) => s.unpinWidget);

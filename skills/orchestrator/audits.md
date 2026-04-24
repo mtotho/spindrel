@@ -1,6 +1,5 @@
 ---
 name: Bot Audits & Tuning
-id: shared/orchestrator/audits
 description: >
   Decision table for choosing the right audit pipeline when a user asks to evaluate,
   tune, or diagnose a bot's behavior.

@@ -60,7 +60,7 @@ async def test_persist_turn_normalizes_assistant_tool_calls_with_surface_and_sum
             "_tool_envelopes": [
                 {
                     "content_type": "application/json",
-                    "body": "{\"id\":\"widgets\",\"name\":\"Widgets\",\"content\":\"...\"}",
+                    "body": "{\"id\":\"widgets\",\"name\":\"Widgets\",\"description\":\"How to build widgets\",\"content\":\"# Widgets\"}",
                     "plain_body": "Loaded skill widgets",
                     "display": "badge",
                     "truncated": False,
@@ -114,6 +114,7 @@ async def test_persist_turn_normalizes_assistant_tool_calls_with_surface_and_sum
                 "label": "Loaded skill",
                 "target_id": "widgets",
                 "target_label": "Widgets",
+                "preview_text": "How to build widgets",
             },
         },
         {
@@ -122,7 +123,7 @@ async def test_persist_turn_normalizes_assistant_tool_calls_with_surface_and_sum
             "function": {"name": "file", "arguments": "{\"operation\":\"edit\",\"path\":\"index.html\"}"},
             "name": "file",
             "arguments": "{\"operation\":\"edit\",\"path\":\"index.html\"}",
-            "surface": "transcript",
+            "surface": "rich_result",
             "summary": {
                 "kind": "diff",
                 "subject_type": "file",

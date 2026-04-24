@@ -341,6 +341,7 @@ def resolve_runtime_args(
             config=config,
             source_bot_id=source_bot_id,
             source_channel_id=source_channel_id,
+            binding=config,
         ),
     )
 

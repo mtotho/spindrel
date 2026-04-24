@@ -38,7 +38,7 @@ window.spindrel.revokeAttachment(url)             // free the object URL
 // Rendering helpers
 window.spindrel.renderMarkdown(text)       // HTML-safe Markdown → HTML string (see "Markdown Rendering" below)
 
-// Tool dispatch — see widgets/tool-dispatch.md for full details
+// Tool dispatch — see widgets/tool_dispatch.md for full details
 window.spindrel.callTool(name, args, opts?) // run a backend tool; returns fresh envelope, throws on failure
 window.spindrel.toolSchema(name)            // → {name, kind, input_schema, returns_schema|null}. Look up a tool's expected return shape before writing extraction code. `returns_schema` is null for MCP tools — fall back to inspecting the real response via the Inspector / inspect_widget_pin (see "Inspecting a pinned widget" below).
 
@@ -174,7 +174,7 @@ off();
 
 Under the hood these attach to the `spindrel:toolresult` and `spindrel:theme` DOM events on `window`. `onConfig` is sugar over `toolresult` that debounces — your callback only fires when `window.spindrel.widgetConfig` actually changed (with `toolResult.config` kept as a compatibility alias), not on every envelope refresh.
 
-For control surfaces, don't treat `onToolResult` or `autoReload` as the primary click-response path. Keep local per-surface state and rerender only the touched row/card first; use subscriptions for later reconciliation. The concrete pattern lives in `widgets/tool-dispatch.md` under "Control dashboards — split state by surface, not by 'one big refresh'".
+For control surfaces, don't treat `onToolResult` or `autoReload` as the primary click-response path. Keep local per-surface state and rerender only the touched row/card first; use subscriptions for later reconciliation. The concrete pattern lives in `widgets/tool_dispatch.md` under "Control dashboards — split state by surface, not by 'one big refresh'".
 
 ## Bundled assets (images, icons, media)
 
@@ -624,13 +624,13 @@ Returns `""` for `null` / `undefined` input.
 | `GET /api/v1/admin/tasks?channel_id=...` | Tasks (filter by channel/status/bot) |
 | `GET /api/v1/admin/tool-calls/recent` | Recent tool-call envelopes |
 | `GET /api/v1/bots/me` | Bot's own config |
-| `POST /api/v1/widget-actions` | **Dispatch a tool / API call / config patch** — see `widgets/tool-dispatch.md` |
+| `POST /api/v1/widget-actions` | **Dispatch a tool / API call / config patch** — see `widgets/tool_dispatch.md` |
 
 For the exhaustive list filtered by your scopes, call `list_api_endpoints()`.
 
 ## See also
 
-- `widgets/tool-dispatch.md` — `/api/v1/widget-actions` envelope + `callTool` pattern
+- `widgets/tool_dispatch.md` — `/api/v1/widget-actions` envelope + `callTool` pattern
 - `widgets/html.md` — bundle layout, sandbox, auth
 - `widgets/dashboards.md` — archetypes, `state.json` pattern
 - `widgets/db.md` — `spindrel.db` server-side SQLite

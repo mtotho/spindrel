@@ -1454,7 +1454,7 @@ class TestCreateHygieneTaskPreloadsSkills:
         bot = build_bot(id="preload-bot-1", memory_scheme="workspace-files")
         db_session.add(bot)
         db_session.add(build_skill(
-            id="workspace_files", name="Workspace Files",
+            id="workspace/files", name="Workspace Files",
             content="WF body present",
         ))
         db_session.add(build_skill(

@@ -1,6 +1,5 @@
 ---
 name: Integration Builder
-id: shared/orchestrator/integration-builder
 description: >
   Creating custom integrations: scaffold, edit, reload, and verify. Load when
   building routers, tools, skills, workflows, or integration activation metadata.

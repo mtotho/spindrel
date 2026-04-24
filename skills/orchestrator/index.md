@@ -1,6 +1,5 @@
 ---
 name: Workspace Orchestrator
-id: shared/orchestrator
 description: >
   Core orchestrator context for the shared-workspace model. Load when coordinating
   multi-bot work, organizing workspace files, or choosing which deeper orchestration
@@ -40,16 +39,16 @@ results. Execute directly only for coordination, workspace setup, and final inte
 
 | When you need... | Fetch this skill |
 |---|---|
-| Delegation patterns, fan-out, Claude Code coordination | `get_skill('shared/orchestrator/workspace-delegation')` |
-| API endpoints, scopes, workspace and channel operations | `get_skill('shared/orchestrator/workspace-api-reference')` |
-| Memory write patterns, channels, workspace conventions | `get_skill('shared/orchestrator/workspace-management')` |
-| Integration scaffolding and reload flow | `get_skill('shared/orchestrator/integration-builder')` |
-| Audit pipelines and bot tuning | `get_skill('shared/orchestrator/audits')` |
-| Delegation cost and tier selection | `get_skill('shared/orchestrator/model-efficiency')` |
-| Pipeline design and step selection | `get_skill('pipeline_creation')` |
-| Pipeline JSON shape and authoring details | `get_skill('pipeline_authoring')` |
-| Workspace file semantics and safe edits | `get_skill('workspace_files')` |
-| Channel workspace conventions and schema behavior | `get_skill('channel_workspaces')` |
+| Delegation patterns, fan-out, Claude Code coordination | `get_skill('orchestrator/workspace_delegation')` |
+| API endpoints, scopes, workspace and channel operations | `get_skill('orchestrator/workspace_api_reference')` |
+| Memory write patterns, channels, workspace conventions | `get_skill('orchestrator/workspace_management')` |
+| Integration scaffolding and reload flow | `get_skill('orchestrator/integration_builder')` |
+| Audit pipelines and bot tuning | `get_skill('orchestrator/audits')` |
+| Delegation cost and tier selection | `get_skill('orchestrator/model_efficiency')` |
+| Pipeline design and step selection | `get_skill('pipelines/creation')` |
+| Pipeline JSON shape and authoring details | `get_skill('pipelines/authoring')` |
+| Workspace file semantics and safe edits | `get_skill('workspace/files')` |
+| Channel workspace conventions and schema behavior | `get_skill('workspace/channel_workspaces')` |
 | Context assembly, skill surfacing, and retrieval tuning | `get_skill('context_mastery')` |
 
 ## Tool Selection

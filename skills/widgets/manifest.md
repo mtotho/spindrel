@@ -116,4 +116,4 @@ The manifest is discovered via the same scanner that walks `.html` bundles — n
 - `widgets/db.md` — how `db.schema_version` + `db.migrations` drive the per-bundle SQLite DB
 - `widgets/handlers.md` — how `permissions.tools` + `permissions.events` gate what `widget.py` can do
 - `widgets/suites.md` — how `db.shared` opts a bundle into a suite's shared DB
-- `widgets/bot-callable-handlers.md` — making `@on_action` handlers invokable from a bot's turn via the `handlers:` block
+- `widgets/bot_callable_handlers.md` — making `@on_action` handlers invokable from a bot's turn via the `handlers:` block

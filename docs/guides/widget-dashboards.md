@@ -75,6 +75,7 @@ This matters because zone and presentation family are different:
 - `chip` is a presentation family, not a persisted zone
 - chip-family widgets are authored for that compact rail
 - card-family widgets can still be placed there, but they render as constrained short cards rather than automatically becoming chips
+- The floating header rail's unset shell mode resolves to Glass. Channel settings can still choose Surface or Clear explicitly.
 
 **Mobile note:** the channel side surfaces collapse into mobile-friendly sheets/drawers, but the underlying pin zones are still the same.
 

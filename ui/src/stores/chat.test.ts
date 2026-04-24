@@ -299,3 +299,41 @@ test("finishTurn keeps partial streamed text while tagging terminal errors", () 
     "InternalServerError: context window exceeded",
   );
 });
+
+test("finishTurn removes typing-only cancelled turns", () => {
+  useChatStore.setState({ channels: {} });
+  const store = useChatStore.getState();
+
+  store.startTurn("channel-1", "turn-cancel-empty", "bot-1", "Bot", true);
+  store.handleTurnEvent("channel-1", "turn-cancel-empty", {
+    event: "error",
+    data: { message: "cancelled" },
+  });
+  store.finishTurn("channel-1", "turn-cancel-empty");
+
+  const ch = useChatStore.getState().getChannel("channel-1");
+  assert.equal(ch.messages.length, 0);
+  assert.equal(Object.keys(ch.turns).length, 0);
+});
+
+test("finishTurn keeps partial cancelled responses without red error metadata", () => {
+  useChatStore.setState({ channels: {} });
+  const store = useChatStore.getState();
+
+  store.startTurn("channel-1", "turn-cancel-partial", "bot-1", "Bot", true);
+  store.handleTurnEvent("channel-1", "turn-cancel-partial", {
+    event: "text_delta",
+    data: { delta: "partial answer" },
+  });
+  store.handleTurnEvent("channel-1", "turn-cancel-partial", {
+    event: "error",
+    data: { message: "cancelled" },
+  });
+  store.finishTurn("channel-1", "turn-cancel-partial");
+
+  const messages = useChatStore.getState().getChannel("channel-1").messages;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0]?.content, "partial answer");
+  assert.equal(messages[0]?.metadata?.turn_cancelled, true);
+  assert.equal(messages[0]?.metadata?.turn_error, undefined);
+});

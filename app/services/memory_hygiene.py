@@ -41,7 +41,7 @@ JobType = Literal["memory_hygiene", "skill_review"]
 # every scheduled run for every bot. Only list skills the bot would
 # deterministically fetch anyway.
 _INJECTED_SKILLS_MEMORY_HYGIENE: tuple[str, ...] = (
-    "workspace_files",
+    "workspace/files",
     "history_and_memory/memory_hygiene",
     "context_mastery",
 )
