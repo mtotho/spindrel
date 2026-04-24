@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
 export interface BotDreamingStatus {
@@ -67,6 +67,55 @@ export interface LearningOverview {
   memory_activity: MemoryFileActivity[];
 }
 
+export type LearningSearchSource = "memory" | "bot_knowledge" | "channel_knowledge" | "history";
+
+export interface LearningSearchRequest {
+  query: string;
+  sources?: LearningSearchSource[];
+  bot_ids?: string[];
+  channel_ids?: string[];
+  days?: number;
+  top_k_per_source?: number;
+}
+
+export interface LearningSearchResult {
+  id: string;
+  source: LearningSearchSource;
+  title: string;
+  snippet: string;
+  score?: number | null;
+  bot_id?: string | null;
+  bot_name?: string | null;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  file_path?: string | null;
+  section?: number | null;
+  created_at?: string | null;
+  correlation_id?: string | null;
+  open_url?: string | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface LearningSearchResponse {
+  query: string;
+  results: LearningSearchResult[];
+}
+
+export interface KnowledgeLibraryItem {
+  source: "bot_knowledge" | "channel_knowledge";
+  owner_id: string;
+  owner_name: string;
+  path_prefix: string;
+  file_count: number;
+  chunk_count: number;
+  last_indexed_at?: string | null;
+  open_url?: string | null;
+}
+
+export interface KnowledgeLibraryResponse {
+  items: KnowledgeLibraryItem[];
+}
+
 export function useLearningOverview(days = 0) {
   return useQuery({
     queryKey: ["learning-overview", days],
@@ -88,6 +137,34 @@ export function useLearningActivity(days = 14) {
     queryKey: ["learning-activity", days],
     queryFn: () =>
       apiFetch<DailyActivityPoint[]>(`/api/v1/admin/learning/activity?days=${days}`),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useLearningSearch() {
+  return useMutation({
+    mutationFn: (body: LearningSearchRequest) =>
+      apiFetch<LearningSearchResponse>("/api/v1/admin/learning/search", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
+export function useLearningMemoryActivity(days = 30) {
+  return useQuery({
+    queryKey: ["learning-memory-activity", days],
+    queryFn: () =>
+      apiFetch<MemoryFileActivity[]>(`/api/v1/admin/learning/memory-activity?days=${days}`),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useKnowledgeLibrary() {
+  return useQuery({
+    queryKey: ["learning-knowledge-library"],
+    queryFn: () =>
+      apiFetch<KnowledgeLibraryResponse>("/api/v1/admin/learning/knowledge-library"),
     refetchInterval: 60_000,
   });
 }

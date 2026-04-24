@@ -1,5 +1,6 @@
 ---
 name: Pipeline Authoring
+id: pipeline_authoring
 description: >
   Complete reference for authoring task pipeline steps — JSON schema, all five
   step types (exec / tool / agent / user_prompt / foreach), params + template

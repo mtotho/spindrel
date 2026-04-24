@@ -10,7 +10,7 @@ import os
 from unittest.mock import patch
 
 from app.agent.skills import list_available_skills
-from app.services.file_sync import SOURCE_FILE, _collect_skill_files
+from app.services.file_sync import SOURCE_FILE, _collect_skill_files, _resolve_skill_id
 
 
 def _chdir_collect(tmp_path):
@@ -109,3 +109,36 @@ class TestListAvailableSkills:
 
     def test_missing_dir_returns_empty_list(self, tmp_path):
         assert list_available_skills(tmp_path / "does_not_exist") == []
+
+
+class TestSkillIdOverride:
+    """`id:` frontmatter override decouples skill ID from filesystem path.
+
+    Keeps enrollment FKs stable across file moves. Falls back to the
+    path-derived default for backward compatibility with every skill that
+    doesn't set the field.
+    """
+
+    def test_id_override_used_when_present(self):
+        assert _resolve_skill_id("workspace/files", {"id": "workspace_files"}) == "workspace_files"
+
+    def test_id_falls_back_to_path_when_absent(self):
+        assert _resolve_skill_id("foo/bar", {}) == "foo/bar"
+        assert _resolve_skill_id("foo/bar", {"name": "Foo"}) == "foo/bar"
+
+    def test_id_override_whitespace_stripped(self):
+        assert _resolve_skill_id("default", {"id": "  foo_bar  "}) == "foo_bar"
+
+    def test_id_override_invalid_chars_falls_back(self):
+        # Illegal path chars or uppercase → fall back to default
+        assert _resolve_skill_id("default", {"id": "../etc/passwd"}) == "default"
+        assert _resolve_skill_id("default", {"id": "Foo/Bar"}) == "default"
+        assert _resolve_skill_id("default", {"id": "foo bar"}) == "default"
+
+    def test_id_override_non_string_falls_back(self):
+        # Non-string (int, None, list) is ignored, default preserved
+        assert _resolve_skill_id("default", {"id": 42}) == "default"
+        assert _resolve_skill_id("default", {"id": None}) == "default"
+        assert _resolve_skill_id("default", {"id": ["a", "b"]}) == "default"
+        assert _resolve_skill_id("default", {"id": ""}) == "default"
+        assert _resolve_skill_id("default", {"id": "   "}) == "default"

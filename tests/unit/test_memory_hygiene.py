@@ -1352,3 +1352,175 @@ class TestWorkingSetSnapshotEnrichment:
         assert "category=" not in catalog_line
         assert "stale=" not in catalog_line
         assert "scripts=" not in catalog_line
+
+
+class TestInjectedSkillsSnapshot:
+    """The snapshot inlines stable core-skill bodies into the task prompt so
+    scheduled bots don't pay a full iteration re-hydrating them via
+    ``get_skill()``."""
+
+    @pytest.mark.asyncio
+    async def test_renders_loaded_skills_with_headers_and_do_not_refetch_note(
+        self, db_session,
+    ):
+        from app.services.memory_hygiene import _build_injected_skills_snapshot
+
+        db_session.add(build_skill(
+            id="workspace_files", name="Workspace Files",
+            content="# Workspace Files\n\nBody A.",
+        ))
+        db_session.add(build_skill(
+            id="context_mastery", name="Context Mastery",
+            content="# Context Mastery\n\nBody B.",
+        ))
+        await db_session.commit()
+
+        out = await _build_injected_skills_snapshot(
+            ("workspace_files", "context_mastery"), db_session,
+        )
+
+        assert out.startswith("## Pre-Loaded Skills")
+        assert "do NOT call `get_skill" in out
+        assert "### Workspace Files (`workspace_files`)" in out
+        assert "### Context Mastery (`context_mastery`)" in out
+        assert "Body A." in out
+        assert "Body B." in out
+
+    @pytest.mark.asyncio
+    async def test_missing_skill_is_skipped_without_breaking(
+        self, db_session,
+    ):
+        from app.services.memory_hygiene import _build_injected_skills_snapshot
+
+        db_session.add(build_skill(
+            id="workspace_files", name="Workspace Files",
+            content="present body",
+        ))
+        await db_session.commit()
+
+        out = await _build_injected_skills_snapshot(
+            ("workspace_files", "totally_missing_skill"), db_session,
+        )
+
+        assert "### Workspace Files (`workspace_files`)" in out
+        assert "totally_missing_skill" not in out
+        assert "present body" in out
+
+    @pytest.mark.asyncio
+    async def test_archived_skill_is_skipped(self, db_session):
+        from datetime import datetime, timezone
+
+        from app.services.memory_hygiene import _build_injected_skills_snapshot
+
+        db_session.add(build_skill(
+            id="was_retired", name="Retired Skill",
+            content="retired body",
+            archived_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        out = await _build_injected_skills_snapshot(
+            ("was_retired",), db_session,
+        )
+
+        assert out == ""
+
+    @pytest.mark.asyncio
+    async def test_empty_input_returns_empty_string(self, db_session):
+        from app.services.memory_hygiene import _build_injected_skills_snapshot
+        assert await _build_injected_skills_snapshot((), db_session) == ""
+
+    @pytest.mark.asyncio
+    async def test_all_missing_returns_empty_string(self, db_session):
+        """No loaded rows → no snapshot block. Caller can append unconditionally."""
+        from app.services.memory_hygiene import _build_injected_skills_snapshot
+        out = await _build_injected_skills_snapshot(
+            ("nope_a", "nope_b"), db_session,
+        )
+        assert out == ""
+
+
+class TestCreateHygieneTaskPreloadsSkills:
+    """create_hygiene_task must inline the configured skill bodies for each
+    job type, so the bot gets them at t=0 instead of spending iter 2 on
+    parallel get_skill() calls."""
+
+    @pytest.mark.asyncio
+    async def test_memory_hygiene_task_inlines_core_skills(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot = build_bot(id="preload-bot-1", memory_scheme="workspace-files")
+        db_session.add(bot)
+        db_session.add(build_skill(
+            id="workspace_files", name="Workspace Files",
+            content="WF body present",
+        ))
+        db_session.add(build_skill(
+            id="history_and_memory/memory_hygiene", name="Memory Hygiene",
+            content="MH body present",
+        ))
+        db_session.add(build_skill(
+            id="context_mastery", name="Context Mastery",
+            content="CM body present",
+        ))
+        await db_session.commit()
+
+        task_id = await create_hygiene_task(bot.id, db_session)
+
+        task = (await db_session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        assert "## Pre-Loaded Skills" in task.prompt
+        assert "WF body present" in task.prompt
+        assert "MH body present" in task.prompt
+        assert "CM body present" in task.prompt
+        # Injected skills sit before dynamic per-run snapshots.
+        assert task.prompt.index("## Pre-Loaded Skills") < task.prompt.index("## Channels")
+
+    @pytest.mark.asyncio
+    async def test_skill_review_task_inlines_authoring_and_hygiene(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot = build_bot(id="preload-bot-2", memory_scheme="workspace-files")
+        db_session.add(bot)
+        db_session.add(build_skill(
+            id="skill_authoring", name="Skill Authoring",
+            content="SA body present",
+        ))
+        db_session.add(build_skill(
+            id="history_and_memory/memory_hygiene", name="Memory Hygiene",
+            content="MH body present",
+        ))
+        await db_session.commit()
+
+        task_id = await create_hygiene_task(bot.id, db_session, job_type="skill_review")
+
+        task = (await db_session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        assert "## Pre-Loaded Skills" in task.prompt
+        assert "SA body present" in task.prompt
+        assert "MH body present" in task.prompt
+
+    @pytest.mark.asyncio
+    async def test_task_still_creates_when_core_skills_absent_from_db(
+        self, db_session, patched_async_sessions,
+    ):
+        """A fresh DB where the core skills haven't been seeded must not
+        break hygiene — the snapshot resolves to empty and the task is
+        created normally."""
+        from app.services.memory_hygiene import create_hygiene_task
+
+        bot = build_bot(id="preload-bot-3", memory_scheme="workspace-files")
+        db_session.add(bot)
+        await db_session.commit()
+
+        task_id = await create_hygiene_task(bot.id, db_session)
+
+        task = (await db_session.execute(select(Task).where(Task.id == task_id))).scalar_one()
+        assert task.status == "pending"
+        # The static prompt mentions "## Pre-Loaded Skills" in its tool-
+        # discipline bullet, so we can't assert on the header alone. The
+        # rendered snapshot's descriptive paragraph only appears when
+        # bodies actually load, so that's the clean signal.
+        assert "The full bodies of these skills are inlined below" not in task.prompt

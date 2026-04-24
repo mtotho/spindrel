@@ -1,5 +1,6 @@
 ---
 name: Workspace Orchestrator
+id: shared/orchestrator
 description: >
   Core orchestrator context for the shared-workspace model. Load when coordinating
   multi-bot work, organizing workspace files, or choosing which deeper orchestration
@@ -10,6 +11,7 @@ triggers:
   - delegate
   - multi-bot
   - workspace
+category: core
 ---
 
 # Workspace Orchestrator

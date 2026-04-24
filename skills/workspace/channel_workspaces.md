@@ -1,5 +1,6 @@
 ---
 name: Channel Workspace
+id: channel_workspaces
 description: How to use channel workspace files — active vs archived, workspace vs memory, cross-channel search
 triggers: workspace, channel files, archive, active files, data files, cross-channel search, workspace vs memory
 category: workspace

@@ -1,7 +1,10 @@
 ---
 name: Model Efficiency
+id: shared/orchestrator/model-efficiency
 description: >
   Cost-aware delegation guidance for choosing the right model tier for a task or bot.
+triggers: model tier, model efficiency, cheap model, expensive model, cost-aware, which model to use, delegation model, model selection
+category: core
 ---
 
 # Model Efficiency

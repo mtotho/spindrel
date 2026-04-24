@@ -42,10 +42,13 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-attachments", label: "Attachments", href: "/admin/attachments", icon: Paperclip, category: "Configure" },
   { id: "nav-docker", label: "Docker Stacks", href: "/admin/docker-stacks", icon: Boxes, category: "Configure" },
   // -- Automate --
-  { id: "nav-learning", label: "Learning Center", href: "/admin/learning", icon: Brain, category: "Automate" },
-  { id: "nav-learning-overview", label: "Learning: Overview", hint: "Learning Center", href: "/admin/learning#Overview", icon: Brain, category: "Automate" },
-  { id: "nav-learning-dreaming", label: "Learning: Dreaming", hint: "Learning Center", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
-  { id: "nav-learning-skills", label: "Learning: Skills", hint: "Learning Center", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
+  { id: "nav-learning", label: "Memory & Knowledge", href: "/admin/learning", icon: Brain, category: "Automate" },
+  { id: "nav-learning-overview", label: "Memory & Knowledge: Overview", hint: "Memory & Knowledge", href: "/admin/learning#Overview", icon: Brain, category: "Automate" },
+  { id: "nav-learning-memory", label: "Memory & Knowledge: Memory", hint: "Memory & Knowledge", href: "/admin/learning#Memory", icon: Brain, category: "Automate" },
+  { id: "nav-learning-knowledge", label: "Memory & Knowledge: Knowledge", hint: "Memory & Knowledge", href: "/admin/learning#Knowledge", icon: Brain, category: "Automate" },
+  { id: "nav-learning-history", label: "Memory & Knowledge: History", hint: "Memory & Knowledge", href: "/admin/learning#History", icon: Brain, category: "Automate" },
+  { id: "nav-learning-dreaming", label: "Memory & Knowledge: Dreaming", hint: "Memory & Knowledge", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
+  { id: "nav-learning-skills", label: "Memory & Knowledge: Skills", hint: "Memory & Knowledge", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
   { id: "nav-tasks", label: "Tasks", href: "/admin/tasks", icon: ClipboardList, category: "Automate" },
   { id: "nav-workflows", label: "Workflows", href: "/admin/workflows", icon: Zap, category: "Automate" },
   // -- Security --

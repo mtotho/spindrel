@@ -1,5 +1,6 @@
 ---
 name: Machine Control
+id: machine_control
 description: How to inspect or run commands on a leased machine target through local machine control
 triggers: local machine, my computer, local companion, machine target, local exec, remote execution on my machine
 category: tool-use

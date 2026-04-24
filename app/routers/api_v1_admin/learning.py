@@ -1,23 +1,38 @@
-"""Learning Center aggregate endpoints: /learning/overview, /learning/activity."""
+"""Memory & Knowledge aggregate endpoints: /learning/*.
+
+The route stays `/learning` for compatibility, but the admin UI now frames this
+as durable context: memory, knowledge bases, history, dreaming, and skills.
+"""
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import cast, func, select, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot as BotRow, BotSkillEnrollment, Skill as SkillRow, Task as TaskRow, ToolCall, TraceEvent
+from app.db.models import (
+    Bot as BotRow,
+    BotSkillEnrollment,
+    Channel,
+    ConversationSection,
+    FilesystemChunk,
+    Skill as SkillRow,
+    Task as TaskRow,
+    ToolCall,
+    TraceEvent,
+)
 from app.dependencies import get_db, require_scopes
 
 from ._helpers import build_tool_call_previews
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/learning", tags=["Learning Center"])
+router = APIRouter(prefix="/learning", tags=["Memory & Knowledge"])
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +84,50 @@ class MemoryFileActivity(BaseModel):
     correlation_id: Optional[str] = None
     job_type: Optional[str] = None  # memory_hygiene or skill_review when is_hygiene
 
+class LearningSearchRequest(BaseModel):
+    query: str
+    sources: list[Literal["memory", "bot_knowledge", "channel_knowledge", "history"]] = Field(
+        default_factory=lambda: ["memory", "bot_knowledge", "channel_knowledge", "history"]
+    )
+    bot_ids: Optional[list[str]] = None
+    channel_ids: Optional[list[str]] = None
+    days: int = 30
+    top_k_per_source: int = 6
+
+class LearningSearchResult(BaseModel):
+    id: str
+    source: str
+    title: str
+    snippet: str
+    score: Optional[float] = None
+    bot_id: Optional[str] = None
+    bot_name: Optional[str] = None
+    channel_id: Optional[str] = None
+    channel_name: Optional[str] = None
+    file_path: Optional[str] = None
+    section: Optional[int] = None
+    created_at: Optional[datetime] = None
+    correlation_id: Optional[str] = None
+    open_url: Optional[str] = None
+    metadata: dict = Field(default_factory=dict)
+
+class LearningSearchResponse(BaseModel):
+    query: str
+    results: list[LearningSearchResult] = []
+
+class KnowledgeLibraryItem(BaseModel):
+    source: Literal["bot_knowledge", "channel_knowledge"]
+    owner_id: str
+    owner_name: str
+    path_prefix: str
+    file_count: int = 0
+    chunk_count: int = 0
+    last_indexed_at: Optional[datetime] = None
+    open_url: Optional[str] = None
+
+class KnowledgeLibraryResponse(BaseModel):
+    items: list[KnowledgeLibraryItem] = []
+
 class LearningOverviewOut(BaseModel):
     total_bots: int = 0
     dreaming_enabled_count: int = 0
@@ -83,8 +142,422 @@ class LearningOverviewOut(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Endpoint
+# Helpers
 # ---------------------------------------------------------------------------
+
+def _trim_snippet(text: str | None, limit: int = 420) -> str:
+    snippet = (text or "").strip()
+    if snippet.startswith("# "):
+        first_nl = snippet.find("\n")
+        if first_nl > 0:
+            snippet = snippet[first_nl + 1:].strip()
+    if len(snippet) <= limit:
+        return snippet
+    return snippet[: limit - 1].rstrip() + "..."
+
+
+def _selected_ids(values: list[str] | None) -> set[str] | None:
+    cleaned = {str(v).strip() for v in values or [] if str(v or "").strip()}
+    return cleaned or None
+
+
+async def _bot_configs(selected: set[str] | None = None):
+    from app.agent.bots import list_bots
+
+    bots = [bot for bot in list_bots() if not selected or bot.id in selected]
+    return bots
+
+
+async def _search_memory_source(
+    query: str,
+    selected_bots: set[str] | None,
+    top_k: int,
+) -> list[LearningSearchResult]:
+    from pathlib import Path
+
+    from app.services.bot_indexing import resolve_for
+    from app.services.memory_scheme import get_memory_index_prefix
+    from app.services.memory_search import hybrid_memory_search
+
+    results: list[LearningSearchResult] = []
+    for bot in await _bot_configs(selected_bots):
+        if getattr(bot, "memory_scheme", None) != "workspace-files":
+            continue
+        try:
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                continue
+            hits = await hybrid_memory_search(
+                query,
+                bot.id,
+                roots=[str(Path(root).resolve()) for root in plan.roots],
+                memory_prefix=get_memory_index_prefix(bot),
+                embedding_model=plan.embedding_model,
+                top_k=top_k,
+            )
+        except Exception:
+            logger.debug("Admin memory search failed for bot %s", bot.id, exc_info=True)
+            continue
+        for hit in hits:
+            results.append(LearningSearchResult(
+                id=f"memory:{bot.id}:{hit.file_path}",
+                source="memory",
+                title=hit.file_path,
+                snippet=_trim_snippet(hit.content),
+                score=hit.score,
+                bot_id=bot.id,
+                bot_name=bot.name,
+                file_path=hit.file_path,
+                open_url=f"/admin/bots/{bot.id}#learning",
+            ))
+    results.sort(key=lambda item: item.score or 0, reverse=True)
+    return results[:top_k]
+
+
+async def _search_bot_knowledge_source(
+    query: str,
+    selected_bots: set[str] | None,
+    top_k: int,
+) -> list[LearningSearchResult]:
+    from app.services.bot_indexing import resolve_for
+    from app.services.memory_search import hybrid_memory_search
+    from app.services.workspace import workspace_service
+
+    results: list[LearningSearchResult] = []
+    for bot in await _bot_configs(selected_bots):
+        try:
+            if not bot.workspace.enabled or not bot.workspace.indexing.enabled:
+                continue
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                continue
+            hits = await hybrid_memory_search(
+                query=query,
+                bot_id=bot.id,
+                roots=list(plan.roots),
+                memory_prefix=workspace_service.get_bot_knowledge_base_index_prefix(bot),
+                embedding_model=plan.embedding_model,
+                top_k=top_k,
+            )
+        except Exception:
+            logger.debug("Admin bot knowledge search failed for bot %s", bot.id, exc_info=True)
+            continue
+        for hit in hits:
+            results.append(LearningSearchResult(
+                id=f"bot_knowledge:{bot.id}:{hit.file_path}",
+                source="bot_knowledge",
+                title=hit.file_path,
+                snippet=_trim_snippet(hit.content),
+                score=hit.score,
+                bot_id=bot.id,
+                bot_name=bot.name,
+                file_path=hit.file_path,
+                open_url=f"/admin/bots/{bot.id}#learning",
+            ))
+    results.sort(key=lambda item: item.score or 0, reverse=True)
+    return results[:top_k]
+
+
+async def _channels_for_search(
+    db: AsyncSession,
+    selected_channels: set[str] | None,
+    limit: int = 24,
+) -> list[Channel]:
+    stmt = select(Channel).order_by(Channel.name).limit(limit)
+    if selected_channels:
+        ids: list[uuid.UUID] = []
+        for raw in selected_channels:
+            try:
+                ids.append(uuid.UUID(raw))
+            except ValueError:
+                continue
+        if not ids:
+            return []
+        stmt = select(Channel).where(Channel.id.in_(ids)).order_by(Channel.name).limit(limit)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _search_channel_knowledge_source(
+    db: AsyncSession,
+    query: str,
+    selected_channels: set[str] | None,
+    top_k: int,
+) -> list[LearningSearchResult]:
+    from pathlib import Path
+
+    from app.agent.bots import get_bot
+    from app.services.bot_indexing import resolve_for
+    from app.services.channel_workspace import _get_ws_root, get_channel_knowledge_base_index_prefix
+    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.memory_search import hybrid_memory_search
+
+    results: list[LearningSearchResult] = []
+    for channel in await _channels_for_search(db, selected_channels):
+        try:
+            bot = get_bot(channel.bot_id)
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                continue
+            ch_id = str(channel.id)
+            hits = await hybrid_memory_search(
+                query=query,
+                bot_id=_get_channel_index_bot_id(ch_id),
+                roots=[str(Path(_get_ws_root(bot)).resolve())],
+                memory_prefix=get_channel_knowledge_base_index_prefix(ch_id),
+                embedding_model=plan.embedding_model,
+                top_k=top_k,
+            )
+        except Exception:
+            logger.debug("Admin channel knowledge search failed for channel %s", channel.id, exc_info=True)
+            continue
+        for hit in hits:
+            ch_id = str(channel.id)
+            results.append(LearningSearchResult(
+                id=f"channel_knowledge:{ch_id}:{hit.file_path}",
+                source="channel_knowledge",
+                title=hit.file_path,
+                snippet=_trim_snippet(hit.content),
+                score=hit.score,
+                channel_id=ch_id,
+                channel_name=channel.name,
+                bot_id=channel.bot_id,
+                file_path=hit.file_path,
+                open_url=f"/channels/{ch_id}/settings#Knowledge",
+            ))
+    results.sort(key=lambda item: item.score or 0, reverse=True)
+    return results[:top_k]
+
+
+async def _search_history_source(
+    db: AsyncSession,
+    query: str,
+    selected_channels: set[str] | None,
+    top_k: int,
+) -> list[LearningSearchResult]:
+    from app.tools.local.conversation_history import search_sections
+
+    results: list[LearningSearchResult] = []
+    for channel in await _channels_for_search(db, selected_channels, limit=18):
+        if not channel.active_session_id:
+            continue
+        try:
+            matches = await search_sections(channel.active_session_id, query)
+        except Exception:
+            logger.debug("Admin history search failed for channel %s", channel.id, exc_info=True)
+            continue
+        for match in matches:
+            section: ConversationSection = match["section"]
+            ch_id = str(channel.id)
+            results.append(LearningSearchResult(
+                id=f"history:{section.id}",
+                source="history",
+                title=section.title or f"Section #{section.sequence}",
+                snippet=_trim_snippet(match.get("snippet") or section.summary),
+                channel_id=ch_id,
+                channel_name=channel.name,
+                bot_id=channel.bot_id,
+                section=section.sequence,
+                created_at=section.created_at,
+                open_url=f"/channels/{ch_id}/settings#Memory",
+                metadata={
+                    "match_source": match.get("source"),
+                    "message_count": section.message_count,
+                    "tags": section.tags or [],
+                    "period_start": section.period_start.isoformat() if section.period_start else None,
+                },
+            ))
+    results.sort(key=lambda item: item.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+    return results[:top_k]
+
+
+async def _memory_activity(
+    db: AsyncSession,
+    *,
+    days: int = 30,
+    bot_ids: set[str] | None = None,
+    operations: set[str] | None = None,
+    job_types: set[str] | None = None,
+    limit: int = 100,
+) -> list[MemoryFileActivity]:
+    bot_rows = (await db.execute(select(BotRow.id, BotRow.name))).all()
+    bot_name_map = {row.id: row.name for row in bot_rows}
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
+    allowed_ops = operations or {"write", "append", "edit"}
+
+    task_rows = (await db.execute(
+        select(TaskRow.correlation_id, TaskRow.task_type)
+        .where(TaskRow.task_type.in_(("memory_hygiene", "skill_review")))
+    )).all()
+    corr_to_job = {str(row.correlation_id): row.task_type for row in task_rows if row.correlation_id}
+
+    stmt = (
+        select(ToolCall)
+        .where(
+            ToolCall.tool_name == "file",
+            ToolCall.arguments["operation"].astext.in_(list(allowed_ops)),
+        )
+        .order_by(ToolCall.created_at.desc())
+        .limit(limit)
+    )
+    if cutoff:
+        stmt = stmt.where(ToolCall.created_at >= cutoff)
+    if bot_ids:
+        stmt = stmt.where(ToolCall.bot_id.in_(bot_ids))
+
+    rows = (await db.execute(stmt)).scalars().all()
+    activity: list[MemoryFileActivity] = []
+    for tc in rows:
+        path = tc.arguments.get("path", "") if tc.arguments else ""
+        if "memory/" not in path:
+            continue
+        corr_str = str(tc.correlation_id) if tc.correlation_id else None
+        job_type = corr_to_job.get(corr_str or "")
+        if job_types and (job_type or "turn") not in job_types:
+            continue
+        idx = path.find("memory/")
+        short = path[idx:] if idx >= 0 else path
+        bot_id = tc.bot_id or ""
+        activity.append(MemoryFileActivity(
+            bot_id=bot_id,
+            bot_name=bot_name_map.get(bot_id, bot_id),
+            file_path=short,
+            operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
+            created_at=tc.created_at,
+            is_hygiene=job_type in {"memory_hygiene", "skill_review"},
+            correlation_id=corr_str,
+            job_type=job_type,
+        ))
+    return activity
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.post("/search", response_model=LearningSearchResponse)
+async def learning_search(
+    body: LearningSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Unified admin search over the durable context sources agents use."""
+    query = body.query.strip()
+    if not query:
+        return LearningSearchResponse(query=body.query, results=[])
+
+    top_k = max(1, min(body.top_k_per_source, 12))
+    selected_bots = _selected_ids(body.bot_ids)
+    selected_channels = _selected_ids(body.channel_ids)
+    sources = set(body.sources or ["memory", "bot_knowledge", "channel_knowledge", "history"])
+    results: list[LearningSearchResult] = []
+
+    if "memory" in sources:
+        results.extend(await _search_memory_source(query, selected_bots, top_k))
+    if "bot_knowledge" in sources:
+        results.extend(await _search_bot_knowledge_source(query, selected_bots, top_k))
+    if "channel_knowledge" in sources:
+        results.extend(await _search_channel_knowledge_source(db, query, selected_channels, top_k))
+    if "history" in sources:
+        results.extend(await _search_history_source(db, query, selected_channels, top_k))
+
+    source_order = {"memory": 0, "bot_knowledge": 1, "channel_knowledge": 2, "history": 3}
+    results.sort(key=lambda item: (source_order.get(item.source, 9), -(item.score or 0)))
+    return LearningSearchResponse(query=query, results=results[: top_k * max(1, len(sources))])
+
+
+@router.get("/memory-activity", response_model=list[MemoryFileActivity])
+async def learning_memory_activity(
+    days: int = Query(default=30, ge=0, le=365),
+    bot_id: list[str] | None = Query(default=None),
+    operation: list[str] | None = Query(default=None),
+    job_type: list[str] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Filtered memory-file change activity from existing tool-call events."""
+    return await _memory_activity(
+        db,
+        days=days,
+        bot_ids=_selected_ids(bot_id),
+        operations=_selected_ids(operation),
+        job_types=_selected_ids(job_type),
+        limit=limit,
+    )
+
+
+@router.get("/knowledge-library", response_model=KnowledgeLibraryResponse)
+async def learning_knowledge_library(
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("admin")),
+):
+    """Inventory convention-based bot and channel knowledge-base indexes."""
+    from app.agent.bots import get_bot, list_bots
+    from app.services.channel_workspace import get_channel_knowledge_base_index_prefix
+    from app.services.channel_workspace_indexing import _get_channel_index_bot_id
+    from app.services.workspace import workspace_service
+
+    items: list[KnowledgeLibraryItem] = []
+
+    for bot in list_bots():
+        prefix = workspace_service.get_bot_knowledge_base_index_prefix(bot)
+        row = (await db.execute(
+            select(
+                func.count(func.distinct(FilesystemChunk.file_path)),
+                func.count(FilesystemChunk.id),
+                func.max(FilesystemChunk.indexed_at),
+            )
+            .where(
+                FilesystemChunk.bot_id == bot.id,
+                FilesystemChunk.file_path.like(f"{prefix.rstrip('/')}/%"),
+            )
+        )).first()
+        items.append(KnowledgeLibraryItem(
+            source="bot_knowledge",
+            owner_id=bot.id,
+            owner_name=bot.name,
+            path_prefix=prefix,
+            file_count=int(row[0] or 0) if row else 0,
+            chunk_count=int(row[1] or 0) if row else 0,
+            last_indexed_at=row[2] if row else None,
+            open_url=f"/admin/bots/{bot.id}#learning",
+        ))
+
+    channels = (await db.execute(select(Channel).order_by(Channel.name))).scalars().all()
+    for channel in channels:
+        prefix = get_channel_knowledge_base_index_prefix(str(channel.id))
+        row = (await db.execute(
+            select(
+                func.count(func.distinct(FilesystemChunk.file_path)),
+                func.count(FilesystemChunk.id),
+                func.max(FilesystemChunk.indexed_at),
+            )
+            .where(
+                FilesystemChunk.bot_id == _get_channel_index_bot_id(str(channel.id)),
+                FilesystemChunk.file_path.like(f"{prefix.rstrip('/')}/%"),
+            )
+        )).first()
+        bot_name = channel.bot_id
+        try:
+            bot_name = get_bot(channel.bot_id).name
+        except Exception:
+            pass
+        items.append(KnowledgeLibraryItem(
+            source="channel_knowledge",
+            owner_id=str(channel.id),
+            owner_name=channel.name,
+            path_prefix=prefix,
+            file_count=int(row[0] or 0) if row else 0,
+            chunk_count=int(row[1] or 0) if row else 0,
+            last_indexed_at=row[2] if row else None,
+            open_url=f"/channels/{channel.id}/settings#Knowledge",
+            # Keep bot_name discoverable without adding another schema field.
+            # The UI primarily needs owner_name and source.
+        ))
+
+    items.sort(key=lambda item: (item.source, item.owner_name.lower()))
+    return KnowledgeLibraryResponse(items=items)
 
 @router.get("/overview", response_model=LearningOverviewOut)
 async def learning_overview(
@@ -376,7 +849,7 @@ async def learning_activity(
     db: AsyncSession = Depends(get_db),
     _scopes=Depends(require_scopes("admin")),
 ):
-    """Daily skill activity time-series for the Learning Center charts."""
+    """Daily skill activity time-series for Memory & Knowledge charts."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     day_col = cast(TraceEvent.created_at, Date)
     tc_day_col = cast(ToolCall.created_at, Date)

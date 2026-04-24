@@ -76,7 +76,7 @@ export function DateSeparator({ label }: { label: string }) {
 export interface ChatMessageAreaProps {
   invertedData: Message[];
   renderMessage: (info: { item: Message; index: number }) => React.JSX.Element;
-  chatState: { turns: Record<string, TurnState> };
+  chatState: { turns: Record<string, TurnState>; error?: string | null };
   bot: { name?: string } | undefined;
   botId?: string;
   isLoading: boolean;
@@ -272,8 +272,24 @@ export function ChatMessageArea({
     return s;
   }, [chatState.turns]);
   const isTerminalMode = chatMode === "terminal";
+  const errorBanner = chatState.error ? (
+    <div
+      role="status"
+      className="rounded-md px-3 py-2 text-xs"
+      style={{
+        backgroundColor: t.dangerSubtle,
+        border: `1px solid ${t.dangerBorder}`,
+        color: t.danger,
+        marginBottom: 8,
+        overflowWrap: "anywhere",
+      }}
+    >
+      {chatState.error}
+    </div>
+  ) : null;
   const terminalFooterContent = (
     <>
+      {errorBanner}
       {pendingApprovalsSlot?.(liveApprovalIds)}
       {turnIndicators}
       {processingIndicator}
@@ -282,6 +298,7 @@ export function ChatMessageArea({
   );
   const defaultFooterContent = (
     <>
+      {errorBanner}
       {bottomSlot}
       {pendingApprovalsSlot?.(liveApprovalIds)}
       {turnIndicators}

@@ -1,8 +1,11 @@
 ---
 name: Workspace Delegation
+id: shared/orchestrator/workspace-delegation
 description: >
   Delegation patterns and orchestration reference for shared-workspace bots. Load
   when choosing between bot delegation, Claude Code, and workflow steps.
+triggers: delegate_to_agent, bot delegation, sub-agent, orchestrator delegation, workspace delegation, claude code delegation, fan out, multi-bot coordination
+category: core
 ---
 
 # Workspace Delegation

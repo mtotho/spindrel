@@ -38,6 +38,7 @@ def _empty_ctx() -> BotContext:
         messages=[],
         system_preamble=None,
         model_override=None,
+        provider_id_override=None,
         raw_snapshot=[],
         extracted_user_prompt="",
         is_primary=True,
@@ -155,7 +156,10 @@ class TestTurnWorker:
             raise RuntimeError("agent loop blew up")
             yield  # pragma: no cover
 
-        with patch("app.services.turn_worker.run_stream", side_effect=_boom):
+        with (
+            patch("app.services.turn_worker.run_stream", side_effect=_boom),
+            patch("app.services.turn_worker.persist_turn", new_callable=AsyncMock) as mock_persist,
+        ):
             await run_turn(
                 handle,
                 bot=_bot(),
@@ -171,9 +175,49 @@ class TestTurnWorker:
             )
 
         assert not session_locks.is_active(handle.session_id)
+        mock_persist.assert_awaited_once()
+        persisted_messages = mock_persist.await_args.args[3]
+        assistant = next(m for m in persisted_messages if m.get("role") == "assistant")
+        assert assistant["_turn_error"] is True
+        assert assistant["_turn_error_message"] == "RuntimeError: agent loop blew up"
+        assert "The turn failed before producing a response." in assistant["content"]
         # TURN_ENDED still published with error info
         kinds = _bus_kinds_for(handle.channel_id)
         assert ChannelEventKind.TURN_ENDED.value in kinds
+
+    async def test_run_stream_exception_persists_partial_streamed_text_with_error(self):
+        handle = _handle()
+        session_locks.acquire(handle.session_id)
+
+        async def _stream(*args, **kwargs):
+            yield {"type": "text_delta", "delta": "partial answer"}
+            raise RuntimeError("context window exceeded")
+
+        with (
+            patch("app.services.turn_worker.run_stream", side_effect=_stream),
+            patch("app.services.turn_worker.persist_turn", new_callable=AsyncMock) as mock_persist,
+        ):
+            await run_turn(
+                handle,
+                bot=_bot(),
+                primary_bot_id="test-bot",
+                messages=[],
+                user_message="hi",
+                ctx=_empty_ctx(),
+                req=ChatRequest(message="hi", bot_id="test-bot"),
+                user=None,
+                audio_data=None,
+                audio_format=None,
+                att_payload=None,
+            )
+
+        mock_persist.assert_awaited_once()
+        persisted_messages = mock_persist.await_args.args[3]
+        assistant = next(m for m in persisted_messages if m.get("role") == "assistant")
+        assert assistant["_turn_error"] is True
+        assert assistant["_turn_error_message"] == "RuntimeError: context window exceeded"
+        assert assistant["content"].startswith("partial answer")
+        assert "[Turn failed: RuntimeError: context window exceeded]" in assistant["content"]
 
     async def test_cancelled_turn_still_persists_stop_markers(self):
         """Regression: Phase E initially guarded persist_turn with

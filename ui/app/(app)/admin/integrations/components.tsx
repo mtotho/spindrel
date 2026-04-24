@@ -1,123 +1,52 @@
-import { useThemeTokens } from "@/src/theme/tokens";
-import type { IntegrationEnvVar } from "@/src/api/hooks/useIntegrations";
 import { Check, X } from "lucide-react";
+import type { IntegrationEnvVar } from "@/src/api/hooks/useIntegrations";
+import { QuietPill, StatusBadge as SharedStatusBadge } from "@/src/components/shared/SettingsControls";
 
-// ---------------------------------------------------------------------------
-// Status
-// ---------------------------------------------------------------------------
-
-export const STATUS_COLORS: Record<string, { dot: string; label: string; bg: string }> = {
-  enabled: { dot: "#22c55e", label: "Enabled", bg: "rgba(34,197,94,0.12)" },
-  needs_setup: { dot: "#eab308", label: "Needs Setup", bg: "rgba(234,179,8,0.12)" },
-  available: { dot: "#6b7280", label: "Available", bg: "rgba(107,114,128,0.12)" },
-};
-
-/** Accepts the lifecycle status (``available``/``enabled``) and, for enabled,
- *  the derived ``needs_setup`` flag — choose the display bucket here instead
- *  of at every call site. */
-export function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] || STATUS_COLORS.available;
-  return (
-    <span
-      style={{
-        display: "inline-flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        padding: "2px 10px",
-        borderRadius: 4,
-        fontSize: 11,
-        fontWeight: 600,
-        background: c.bg,
-        color: c.dot,
-      }}
-    >
-      <span
-        style={{
-          width: 7,
-          height: 7,
-          borderRadius: 4,
-          background: c.dot,
-          flexShrink: 0,
-        }}
-      />
-      {c.label}
-    </span>
-  );
+export function integrationStatusInfo(status: string): {
+  label: string;
+  variant: "success" | "warning" | "neutral";
+} {
+  if (status === "enabled") return { label: "Enabled", variant: "success" };
+  if (status === "needs_setup") return { label: "Needs setup", variant: "warning" };
+  return { label: "Available", variant: "neutral" };
 }
 
-// ---------------------------------------------------------------------------
-// Capability badge
-// ---------------------------------------------------------------------------
+export function StatusBadge({ status }: { status: string }) {
+  const info = integrationStatusInfo(status);
+  return <SharedStatusBadge label={info.label} variant={info.variant} />;
+}
 
 export function CapBadge({ label, active }: { label: string; active: boolean }) {
-  const t = useThemeTokens();
   return (
-    <span
-      style={{
-        fontSize: 10,
-        fontWeight: 600,
-        padding: "1px 6px",
-        borderRadius: 3,
-        background: active ? t.accentSubtle : "transparent",
-        color: active ? t.accent : t.surfaceBorder,
-        border: `1px solid ${active ? t.accentSubtle : t.surfaceBorder}`,
-      }}
-    >
-      {label}
-    </span>
+    <QuietPill
+      label={label}
+      className={active ? "bg-accent/10 text-accent" : "bg-surface-overlay/25 text-text-dim"}
+      maxWidthClass="max-w-[140px]"
+    />
   );
 }
 
-// ---------------------------------------------------------------------------
-// Env var pill
-// ---------------------------------------------------------------------------
-
 export function EnvVarPill({ v }: { v: IntegrationEnvVar }) {
-  const t = useThemeTokens();
-  const isGreen = v.is_set;
-  const isRed = !v.is_set && v.required;
-  const bg = isGreen
-    ? "rgba(34,197,94,0.1)"
-    : isRed
-      ? "rgba(239,68,68,0.1)"
-      : "rgba(107,114,128,0.08)";
-  const fg = isGreen ? "#22c55e" : isRed ? "#ef4444" : "#6b7280";
-
+  const variant = v.is_set ? "success" : v.required ? "danger" : "neutral";
   return (
     <span
       title={v.description + (v.default ? ` (default: ${v.default})` : "")}
-      style={{
-        display: "inline-flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        padding: "2px 8px",
-        borderRadius: 4,
-        fontSize: 11,
-        fontWeight: 500,
-        background: bg,
-        color: fg,
-        fontFamily: "monospace",
-      }}
+      className={
+        `inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold ` +
+        (variant === "success"
+          ? "bg-success/10 text-success"
+          : variant === "danger"
+            ? "bg-danger/10 text-danger"
+            : "bg-surface-overlay text-text-muted")
+      }
     >
-      {isGreen ? <Check size={10} /> : isRed ? <X size={10} /> : null}
+      {v.is_set ? <Check size={10} /> : v.required ? <X size={10} /> : null}
       {v.key}
-      {v.default && !isRed && (
-        <span style={{ fontSize: 9, color: t.textDim, fontFamily: "sans-serif" }}>
-          {v.default}
-        </span>
-      )}
-      {!v.required && !v.default && (
-        <span style={{ fontSize: 9, color: t.textDim, fontFamily: "sans-serif" }}>
-          opt
-        </span>
-      )}
+      {v.default && !v.required && <span className="font-sans text-[9px] text-text-dim">{v.default}</span>}
+      {!v.required && !v.default && <span className="font-sans text-[9px] text-text-dim">opt</span>}
     </span>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 export function formatUptime(seconds: number | null): string {
   if (seconds == null) return "";

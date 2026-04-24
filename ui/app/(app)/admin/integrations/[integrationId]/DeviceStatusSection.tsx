@@ -1,32 +1,6 @@
 import { AlertTriangle, Wifi, WifiOff } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
-import {
-  useDeviceStatus,
-  type DeviceStatusInfo,
-} from "@/src/api/hooks/useIntegrations";
-
-const STATUS_COLORS: Record<string, string> = {
-  connected: "#22c55e",
-  disconnected: "#6b7280",
-  connecting: "#eab308",
-  error: "#ef4444",
-};
-
-function StatusDot({ status }: { status: string }) {
-  const color = STATUS_COLORS[status] || "#6b7280";
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 8,
-        height: 8,
-        borderRadius: "50%",
-        background: color,
-        flexShrink: 0,
-      }}
-    />
-  );
-}
+import { useDeviceStatus, type DeviceStatusInfo } from "@/src/api/hooks/useIntegrations";
+import { InfoBanner, SettingsControlRow, SettingsGroupLabel, StatusBadge } from "@/src/components/shared/SettingsControls";
 
 function formatTimeAgo(iso: string | null): string {
   if (!iso) return "";
@@ -40,157 +14,52 @@ function formatTimeAgo(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function variantFor(status: DeviceStatusInfo["status"]): "success" | "warning" | "danger" | "neutral" {
+  if (status === "connected") return "success";
+  if (status === "connecting") return "warning";
+  if (status === "error") return "danger";
+  return "neutral";
+}
+
 function DeviceRow({ device }: { device: DeviceStatusInfo }) {
-  const t = useThemeTokens();
-  const isUp = device.status === "connected";
+  const up = device.status === "connected";
   return (
-    <div
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 0",
-        borderBottom: `1px solid ${t.surfaceRaised}`,
-        fontSize: 12,
-      }}
-    >
-      <StatusDot status={device.status} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, color: t.text }}>{device.label}</div>
-        <div
-          style={{
-            fontSize: 10,
-            color: t.textDim,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {device.protocol} &middot; {device.uri}
-          {device.detail && (
-            <span style={{ color: "#ef4444", marginLeft: 6 }}>
-              {device.detail}
-            </span>
-          )}
-        </div>
-      </div>
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 4,
-          fontSize: 11,
-          color: STATUS_COLORS[device.status] || t.textMuted,
-          fontWeight: 600,
-          flexShrink: 0,
-        }}
-      >
-        {isUp ? <Wifi size={12} /> : <WifiOff size={12} />}
-        {device.status}
-      </div>
-      {device.last_activity && (
-        <span
-          style={{
-            fontSize: 10,
-            color: t.textDim,
-            fontFamily: "monospace",
-            flexShrink: 0,
-            minWidth: 60,
-            textAlign: "right",
-          }}
-        >
-          {formatTimeAgo(device.last_activity)}
+    <SettingsControlRow
+      leading={up ? <Wifi size={14} /> : <WifiOff size={14} />}
+      title={device.label}
+      description={
+        <span className="space-y-0.5">
+          <span className="block truncate">{device.protocol} · {device.uri}</span>
+          {device.detail && <span className="block text-danger">{device.detail}</span>}
         </span>
-      )}
-    </div>
+      }
+      meta={
+        <span className="inline-flex items-center gap-1.5">
+          <StatusBadge label={device.status} variant={variantFor(device.status)} />
+          {device.last_activity && <span>{formatTimeAgo(device.last_activity)}</span>}
+        </span>
+      }
+    />
   );
 }
 
-export function DeviceStatusSection({
-  integrationId,
-}: {
-  integrationId: string;
-}) {
-  const t = useThemeTokens();
+export function DeviceStatusSection({ integrationId }: { integrationId: string }) {
   const { data } = useDeviceStatus(integrationId);
-
   if (!data || data.devices.length === 0) return null;
 
-  const connectedCount = data.devices.filter(
-    (d) => d.status === "connected"
-  ).length;
+  const connectedCount = data.devices.filter((device) => device.status === "connected").length;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        padding: 14,
-        background: t.inputBg,
-        borderRadius: 8,
-        border: `1px solid ${t.surfaceRaised}`,
-      }}
-    >
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            color: t.textDim,
-            textTransform: "uppercase",
-            letterSpacing: 0.6,
-          }}
-        >
-          Connected Devices
-        </span>
-        <span
-          style={{
-            fontSize: 10,
-            color: t.textMuted,
-            fontFamily: "monospace",
-          }}
-        >
-          {connectedCount}/{data.devices.length} online
-        </span>
-      </div>
-
+    <div className="flex flex-col gap-3">
+      <SettingsGroupLabel label="Connected Devices" count={data.devices.length} />
+      <div className="text-[11px] text-text-dim">{connectedCount}/{data.devices.length} online</div>
       {data.stale && (
-        <div
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            padding: "4px 8px",
-            borderRadius: 5,
-            background: "rgba(234,179,8,0.08)",
-            border: "1px solid rgba(234,179,8,0.2)",
-            fontSize: 11,
-            color: "#ca8a04",
-          }}
-        >
-          <AlertTriangle size={12} />
-          Status data is stale — process may not be running
-        </div>
+        <InfoBanner variant="warning" icon={<AlertTriangle size={14} />}>
+          Status data is stale. The integration process may not be running.
+        </InfoBanner>
       )}
-
-      <div
-        style={{
-          borderRadius: 6,
-          background: t.surface,
-          border: `1px solid ${t.surfaceBorder}`,
-          padding: "0 10px",
-        }}
-      >
-        {data.devices.map((device) => (
-          <DeviceRow key={device.device_id} device={device} />
-        ))}
+      <div className="flex flex-col gap-1.5">
+        {data.devices.map((device) => <DeviceRow key={device.device_id} device={device} />)}
       </div>
     </div>
   );

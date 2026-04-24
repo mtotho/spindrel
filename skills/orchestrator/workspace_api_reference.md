@@ -1,8 +1,11 @@
 ---
 name: Workspace API Reference
+id: shared/orchestrator/workspace-api-reference
 description: >
   Server API endpoints, permissions, and scopes reference for workspace orchestration.
   Load when calling admin or workspace endpoints from the in-process API tools.
+triggers: call_api, list_api_endpoints, server API, admin endpoint, workspace endpoint, API scope, API permission, in-process API
+category: core
 ---
 
 # Workspace API Reference

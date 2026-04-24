@@ -1,5 +1,6 @@
 ---
 name: Search History
+id: search_history
 description: Raw message search across a channel's sessions. Use this when you need exact older messages across primary, scratch, thread, or other sub-sessions rather than the current session's structured archive.
 triggers: search history, what did we talk about, find messages, look back, past conversations, exact old message, cross-session search, scratch session history, older conversation
 category: core

@@ -1,5 +1,6 @@
 ---
 name: Attachments & Files
+id: attachments
 description: Sending files, finding uploads, image generation/editing, and delegation with attachments
 triggers: image, attachment, upload, file, send_file, generate_image, list_attachments, get_attachment, photo, picture
 category: core

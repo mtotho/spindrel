@@ -208,6 +208,21 @@ export function InfoBanner({
   );
 }
 
+export function EmptyState({
+  message,
+  action,
+}: {
+  message: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-md bg-surface-overlay/25 px-4 py-5 text-[13px] leading-relaxed text-text-muted">
+      <div>{message}</div>
+      {action && <div className="mt-3">{action}</div>}
+    </div>
+  );
+}
+
 export type SaveStatusTone = "idle" | "dirty" | "pending" | "saved" | "error";
 
 const PILL_CLASSES: Record<

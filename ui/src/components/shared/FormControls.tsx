@@ -72,18 +72,20 @@ export function FormRow({ label, description, children }: {
 // ---------------------------------------------------------------------------
 // Text / number input
 // ---------------------------------------------------------------------------
-export function TextInput({ value, onChangeText, placeholder, type = "text", style, className }: {
+export function TextInput({ value, onChangeText, placeholder, type = "text", style, className, disabled }: {
   value: string;
   onChangeText: (t: string) => void;
   placeholder?: string;
   type?: string;
   style?: React.CSSProperties;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <input
       type={type}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChangeText(e.target.value)}
       placeholder={placeholder}
       style={style}

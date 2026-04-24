@@ -655,6 +655,12 @@ async def persist_turn(
         # Carry forward LLM retry/fallback info for UI display on persisted messages
         if msg.get("_llm_status"):
             meta = {**meta, "llm_status": msg["_llm_status"]}
+        # Carry forward terminal turn failures so refreshed clients can render
+        # an explicit failed-turn row instead of a silent empty assistant turn.
+        if msg.get("_turn_error"):
+            meta = {**meta, "turn_error": True}
+            if msg.get("_turn_error_message"):
+                meta = {**meta, "turn_error_message": str(msg["_turn_error_message"])}
         # Extract delegation info from delegate_to_agent tool calls
         if msg.get("role") == "assistant" and msg.get("tool_calls"):
             _delegations = []

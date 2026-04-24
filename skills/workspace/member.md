@@ -1,5 +1,6 @@
 ---
 name: Workspace Member
+id: workspace_member
 description: Operating inside your container environment — filesystem layout, permissions, write protection, API access
 triggers: workspace, container, /workspace/bots, write protection, shared filesystem, call_api, list_api_endpoints
 category: workspace

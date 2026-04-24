@@ -21,16 +21,21 @@ from app.agent.loop_dispatch import (
     dispatch_iteration_tool_calls,
 )
 from app.agent.loop_helpers import (
-    _CORRECTION_RE,
+    _CORRECTION_RE,  # noqa: F401 — re-exported
     _EMPTY_RESPONSE_GENERIC_FALLBACK,  # noqa: F401 — re-exported
     _append_transcript_text_entry,
     _append_transcript_tool_entry,  # noqa: F401 — re-exported
     _collapse_final_assistant_tool_turn,  # noqa: F401 — re-exported
-    _extract_last_user_text,
+    _extract_last_user_text,  # noqa: F401 — re-exported
     _extract_usage_extras,
     _finalize_response,
+    _inject_opening_skill_nudges,
+    _merge_activated_tools_into_param,
+    _recover_tool_calls_from_text,
     _record_fallback_event,
-    _resolve_effective_provider,
+    _resolve_effective_provider,  # noqa: F401 — re-exported
+    _resolve_loop_config,
+    _resolve_loop_tools,
     _sanitize_llm_text,
     _sanitize_messages,
     _synthesize_empty_response_fallback,
@@ -86,85 +91,35 @@ async def run_agent_tool_loop(
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
-    from app.agent.context_profiles import get_context_profile
-    _in_loop_keep_iterations = settings.IN_LOOP_PRUNING_KEEP_ITERATIONS
-    if context_profile_name:
-        _profile_override = get_context_profile(context_profile_name).keep_iterations_override
-        if _profile_override is not None:
-            _in_loop_keep_iterations = _profile_override
-    # Resolve the per-turn tool-call cap. Channel override wins; bot-level
-    # override is the middle fallback; global settings default is the floor.
-    # ``max_iterations`` passed in from the caller already reflects the
-    # channel override (context_assembly sets it from Channel.max_iterations).
-    effective_max_iterations = (
-        max_iterations
-        or getattr(bot, "max_iterations", None)
-        or settings.AGENT_MAX_ITERATIONS
+    _loop_config = _resolve_loop_config(
+        bot,
+        max_iterations=max_iterations,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
+        context_profile_name=context_profile_name,
     )
-    model = model_override or bot.model
-    provider_id = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
+    effective_max_iterations = _loop_config.effective_max_iterations
+    model = _loop_config.model
+    provider_id = _loop_config.provider_id
+    _effective_model_params = _loop_config.effective_model_params
+    summarize_settings = _loop_config.summarize_settings
+    _in_loop_keep_iterations = _loop_config.in_loop_keep_iterations
 
-    # Overlay `/effort` ContextVar (set by run_stream from channel.config) onto
-    # the bot's baseline model_params. The ContextVar wins because "this turn
-    # was explicitly told to reason harder" beats the bot's configured default.
-    from app.agent.context import current_effort_override as _effort_ctx_rat
-    _effective_model_params = dict(bot.model_params or {})
-    _effort_now = _effort_ctx_rat.get()
-    if _effort_now:
-        _effective_model_params["effort"] = _effort_now
-
-    trc = bot.tool_result_config or {}
-    summarize_settings = SummarizeSettings(
-        enabled=trc["enabled"] if "enabled" in trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED,
-        threshold=trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD,
-        model=trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model,
-        max_tokens=trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
-        exclude=frozenset(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS) | frozenset(trc.get("exclude_tools") or []),
+    _tool_state = await _resolve_loop_tools(
+        bot,
+        pre_selected_tools=pre_selected_tools,
+        authorized_tool_names=authorized_tool_names,
+        compaction=compaction,
+        get_local_tool_schemas_fn=get_local_tool_schemas,
+        fetch_mcp_tools_fn=fetch_mcp_tools,
+        get_client_tool_schemas_fn=get_client_tool_schemas,
+        merge_tool_schemas_fn=_merge_tool_schemas,
     )
-
-    if pre_selected_tools is not None:
-        all_tools = _merge_tool_schemas(pre_selected_tools)
-    else:
-        local_schemas = get_local_tool_schemas(list(bot.local_tools))
-        mcp_schemas = await fetch_mcp_tools(bot.mcp_servers)
-        client_schemas = get_client_tool_schemas(bot.client_tools)
-        all_tools = local_schemas + mcp_schemas + client_schemas
-        # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
-        _existing_names = {t.get("function", {}).get("name") for t in all_tools}
-        _skill_tools_to_add = [
-            n for n in ("get_skill", "get_skill_list")
-            if n not in _existing_names
-        ]
-        if _skill_tools_to_add:
-            all_tools = all_tools + get_local_tool_schemas(_skill_tools_to_add)
-        # Merge dynamically injected tools (e.g. heartbeat_post_to_thread)
-        from app.agent.context import current_injected_tools
-        _injected = current_injected_tools.get()
-        if _injected:
-            _existing = {t["function"]["name"] for t in all_tools}
-            for t in _injected:
-                if t["function"]["name"] not in _existing:
-                    all_tools.append(t)
-    tools_param = all_tools if all_tools else None
-    tool_choice = "auto" if tools_param else None
-
-    # Build effective authorized tool set for dispatch enforcement.
-    # Copy the caller-provided set so we can extend it with mid-loop
-    # get_tool_info activations without mutating the caller's state.
-    if authorized_tool_names:
-        _effective_allowed = set(authorized_tool_names)
-    elif all_tools:
-        _effective_allowed = {t["function"]["name"] for t in all_tools}
-    else:
-        _effective_allowed = None
-
-    # Initialize mid-loop activation list. get_tool_info appends schemas here
-    # when the LLM looks up a tool from the "available tools (not yet loaded)"
-    # hint; the iteration loop below merges new entries into tools_param so the
-    # tool becomes callable on the next LLM call.
-    from app.agent.context import current_activated_tools as _activated_ctx
-    _activated_list: list[dict] = []
-    _activated_ctx.set(_activated_list)
+    all_tools = _tool_state.all_tools
+    tools_param = _tool_state.tools_param
+    tool_choice = _tool_state.tool_choice
+    _effective_allowed = _tool_state.effective_allowed
+    _activated_list = _tool_state.activated_list
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
@@ -199,43 +154,14 @@ async def run_agent_tool_loop(
         if effective_provider_id is None:
             effective_provider_id = resolve_provider_for_model(model)
 
-        # --- Correction-driven skill nudge (one-shot, before first LLM call) ---
-        _has_manage_bot_skill = (
-            not compaction
-            and bot.memory_scheme == "workspace-files"
-            and any(t["function"]["name"] == "manage_bot_skill" for t in all_tools or [])
+        # --- Opening-turn skill nudges (one-shot, before first LLM call) ---
+        _has_manage_bot_skill = _tool_state.has_manage_bot_skill
+        await _inject_opening_skill_nudges(
+            bot=bot,
+            messages=messages,
+            has_manage_bot_skill=_has_manage_bot_skill,
+            correlation_id=correlation_id,
         )
-        if settings.SKILL_CORRECTION_NUDGE_ENABLED and _has_manage_bot_skill:
-            _user_text = _extract_last_user_text(messages)
-            if _user_text and _CORRECTION_RE.search(_user_text):
-                from app.config import DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT
-                messages.append({
-                    "role": "system",
-                    "content": DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT,
-                })
-
-        # --- Repeated-lookup skill nudge (one-shot, before first LLM call) ---
-        if settings.SKILL_REPEATED_LOOKUP_NUDGE_ENABLED and _has_manage_bot_skill and bot.id:
-            from app.agent.repeated_lookup_detection import find_repeated_lookups
-            from app.config import (
-                DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT,
-                SKILL_REPEATED_LOOKUP_MIN_RUNS,
-                SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
-            )
-            _repeated = await find_repeated_lookups(
-                bot_id=bot.id,
-                correlation_id=str(correlation_id) if correlation_id else None,
-                min_runs=SKILL_REPEATED_LOOKUP_MIN_RUNS,
-                window_days=SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
-            )
-            if _repeated:
-                _topics_list = "\n".join(f"- \"{q}\"" for q in _repeated)
-                messages.append({
-                    "role": "system",
-                    "content": DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT.format(
-                        topics=_topics_list,
-                    ),
-                })
 
         for iteration in range(effective_max_iterations):
             # Cancellation checkpoint: before LLM call
@@ -245,38 +171,14 @@ async def run_agent_tool_loop(
                 return
 
             # Merge any tools activated mid-loop by get_tool_info into tools_param
-            # so the LLM can actually invoke them on this iteration. Without this,
-            # the schema returned by get_tool_info is purely informational and the
-            # LLM has no way to call the tool it just looked up.
-            if _activated_list:
-                _existing_names = (
-                    {(t.get("function") or {}).get("name") for t in tools_param}
-                    if tools_param
-                    else set()
-                )
-                _new_activated = [
-                    t for t in _activated_list
-                    if (t.get("function") or {}).get("name") not in _existing_names
-                ]
-                if _new_activated:
-                    tools_param = (tools_param or []) + _new_activated
-                    tool_choice = "auto"
-                    # Expand the authorization set so dispatch accepts the
-                    # newly-activated names. For declared tools this is already
-                    # a superset; for fully-discovered tools (tool_discovery=True
-                    # misses that still resolve via direct DB lookup), this is
-                    # what grants dispatch permission.
-                    if _effective_allowed is not None:
-                        for _at in _new_activated:
-                            _an = (_at.get("function") or {}).get("name")
-                            if _an:
-                                _effective_allowed.add(_an)
-                    logger.info(
-                        "Iteration %d: merged %d tools activated via get_tool_info: %s",
-                        iteration + 1,
-                        len(_new_activated),
-                        [(t.get("function") or {}).get("name") for t in _new_activated],
-                    )
+            # so the LLM can actually invoke them on this iteration.
+            tools_param, tool_choice = _merge_activated_tools_into_param(
+                _activated_list,
+                tools_param,
+                tool_choice,
+                _effective_allowed,
+                iteration=iteration,
+            )
 
             logger.debug("--- Iteration %d ---", iteration + 1)
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
@@ -589,28 +491,11 @@ async def run_agent_tool_loop(
                     compaction,
                 )
 
-            if not accumulated_msg.tool_calls:
-                # Try to recover JSON tool calls from text (local model compat)
-                _json_tcs, _remaining = extract_json_tool_calls(
-                    accumulated_msg.content or "", _effective_allowed or set()
-                )
-                if _json_tcs:
-                    logger.info("Recovered %d JSON tool call(s) from text content", len(_json_tcs))
-                    accumulated_msg.tool_calls = _json_tcs
-                    accumulated_msg.content = _remaining or None
-                    # Update the eagerly-appended message in conversation history
-                    messages[-1] = accumulated_msg.to_msg_dict()
-
-            if not accumulated_msg.tool_calls and accumulated_msg.suppressed_xml_blocks:
-                # Try to recover tool calls from XML blocks suppressed during
-                # streaming (e.g. MiniMax emitting <invoke> as text content).
-                _xml_tcs = extract_xml_tool_calls(
-                    accumulated_msg.suppressed_xml_blocks, _effective_allowed or set()
-                )
-                if _xml_tcs:
-                    logger.info("Recovered %d XML tool call(s) from suppressed streaming content", len(_xml_tcs))
-                    accumulated_msg.tool_calls = _xml_tcs
-                    messages[-1] = accumulated_msg.to_msg_dict()
+            # Recover tool calls from JSON-in-text (local model compat) or
+            # suppressed XML blocks (MiniMax and siblings emit <invoke> as text).
+            _recover_tool_calls_from_text(
+                accumulated_msg, messages, _effective_allowed,
+            )
 
             if not accumulated_msg.tool_calls:
                 text = _sanitize_llm_text(accumulated_msg.content or "")

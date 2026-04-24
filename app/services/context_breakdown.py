@@ -5,7 +5,6 @@ Used by the admin UI to show what goes into each agent turn.
 from __future__ import annotations
 
 import logging
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -15,6 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.agent.prompt_sizing import message_prompt_chars
 from app.db.models import (
     Channel,
     ConversationSection,
@@ -127,10 +127,7 @@ def _chars_to_tokens(chars: int) -> int:
 
 
 def _row_prompt_chars(content: Any, tool_calls: Any) -> int:
-    chars = len(content or "")
-    if tool_calls:
-        chars += len(json.dumps(tool_calls, separators=(",", ":"), default=str))
-    return chars
+    return message_prompt_chars({"content": content, "tool_calls": tool_calls})
 
 
 async def fetch_latest_context_budget(
@@ -770,6 +767,11 @@ async def compute_context_breakdown(
                 )
             )).one()
             _tool_count, _tool_chars = _tool_msg_stats
+            from app.agent.context_pruning import (
+                build_pruned_tool_result_marker,
+                estimate_tool_call_argument_pruning,
+            )
+
             _arg_rows = (await db.execute(
                 select(Message.tool_calls).where(
                     Message.session_id == target_session_pk,
@@ -783,46 +785,15 @@ async def compute_context_breakdown(
             _arg_chars = 0
             _arg_marker_chars = 0
             for _tool_calls in _arg_rows:
-                if not isinstance(_tool_calls, list):
-                    continue
-                for _tc in _tool_calls:
-                    if not isinstance(_tc, dict):
-                        continue
-                    _fn = _tc.get("function") or {}
-                    if not isinstance(_fn, dict):
-                        continue
-                    _args = _fn.get("arguments", "")
-                    if not isinstance(_args, str):
-                        _args = json.dumps(_args)
-                    if len(_args) < _min_len:
-                        continue
-                    try:
-                        _parsed = json.loads(_args)
-                        if isinstance(_parsed, dict) and _parsed.get("_spindrel_pruned_tool_args"):
-                            continue
-                    except (TypeError, ValueError):
-                        pass
-                    _name = str(_fn.get("name") or "tool")
-                    _marker = json.dumps({
-                        "_spindrel_pruned_tool_args": True,
-                        "tool": _name,
-                        "original_chars": len(_args),
-                        "note": "Historical tool-call arguments were compacted for context replay.",
-                    }, separators=(",", ":"))
-                    _arg_count += 1
-                    _arg_chars += len(_args)
-                    _arg_marker_chars += len(_marker)
+                _stats = estimate_tool_call_argument_pruning(_tool_calls, _min_len)
+                _arg_count += _stats["count"]
+                _arg_chars += _stats["chars"]
+                _arg_marker_chars += _stats["marker_chars"]
             if _tool_count > 0 or _arg_count > 0:
-                # Compute marker length from a representative sample so the
-                # estimate stays in sync if the marker format in
-                # context_pruning.py changes.  New messages get retrieval
-                # pointers (~140 chars); legacy messages get dead markers
-                # (~45 chars).  We use the retrieval pointer length as the
-                # conservative (smaller) savings estimate.
-                _sample_marker = (
-                    f"[Tool output from generic_tool (10,000 chars)"
-                    f" — use read_conversation_history(section='tool:00000000-0000-0000-0000-000000000000')"
-                    f" to retrieve]"
+                _sample_marker = build_pruned_tool_result_marker(
+                    "generic_tool",
+                    10_000,
+                    record_id="00000000-0000-0000-0000-000000000000",
                 )
                 _marker_chars = _tool_count * len(_sample_marker)
                 _est_savings = max(0, _tool_chars - _marker_chars) + max(0, _arg_chars - _arg_marker_chars)

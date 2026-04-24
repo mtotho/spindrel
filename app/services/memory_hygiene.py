@@ -29,6 +29,27 @@ logger = logging.getLogger(__name__)
 # The two job types supported by the hygiene scheduler.
 JobType = Literal["memory_hygiene", "skill_review"]
 
+# Skills whose bodies are stable between runs and always relevant to the
+# task at hand. Pre-injecting them into the task prompt avoids the "iter 2
+# parallel get_skill hydration" pattern seen in every scheduled-task trace:
+# the bot fetches the same 2-3 core skills on every run, burning a full
+# iteration of tool calls + latency before it can do real work. These
+# bodies are appended via ``_build_injected_skills_snapshot`` so the bot
+# gets them at t=0 and the prompt tells it not to re-fetch.
+#
+# Keep these lists TIGHT. Every skill injected pays its token cost on
+# every scheduled run for every bot. Only list skills the bot would
+# deterministically fetch anyway.
+_INJECTED_SKILLS_MEMORY_HYGIENE: tuple[str, ...] = (
+    "workspace_files",
+    "history_and_memory/memory_hygiene",
+    "context_mastery",
+)
+_INJECTED_SKILLS_SKILL_REVIEW: tuple[str, ...] = (
+    "skill_authoring",
+    "history_and_memory/memory_hygiene",
+)
+
 # Column name prefixes and setting name prefixes for each job type.
 _JOB_META = {
     "memory_hygiene": {
@@ -51,6 +72,7 @@ _JOB_META = {
         "setting_target_hour": "MEMORY_HYGIENE_TARGET_HOUR",
         "default_prompt": DEFAULT_MEMORY_HYGIENE_PROMPT,
         "task_title": "Memory maintenance",
+        "inject_skills": _INJECTED_SKILLS_MEMORY_HYGIENE,
     },
     "skill_review": {
         "col_enabled": "skill_review_enabled",
@@ -72,6 +94,7 @@ _JOB_META = {
         "setting_target_hour": "SKILL_REVIEW_TARGET_HOUR",
         "default_prompt": DEFAULT_SKILL_REVIEW_PROMPT,
         "task_title": "Skill review",
+        "inject_skills": _INJECTED_SKILLS_SKILL_REVIEW,
     },
 }
 
@@ -637,6 +660,61 @@ async def _build_channel_snapshot(bot_id: str, db: AsyncSession) -> str:
     return "\n".join(lines)
 
 
+async def _build_injected_skills_snapshot(
+    skill_ids: tuple[str, ...] | list[str],
+    db: AsyncSession,
+) -> str:
+    """Render stable core-skill bodies as a single markdown block.
+
+    The scheduled-task runtime counterpart of the ``get_skill`` tool:
+    instead of letting every hygiene / skill-review bot spend iteration 2
+    hydrating the same 2-3 core skills in parallel, we inline them into
+    the task prompt at dispatch time. The bot gets the full content at
+    t=0 and the prompt tells it not to re-fetch.
+
+    Contract:
+    - Input is a stable list of skill IDs (catalog or authored).
+    - Missing or archived skills are logged and silently dropped so a typo
+      or recently-renamed skill can't break a hygiene run.
+    - Returns an empty string when nothing loads; the caller appends
+      unconditionally and the empty case produces no prompt noise.
+    - The rendered block is self-describing — it carries its own "do not
+      re-fetch" instruction so the behaviour survives prompt overrides.
+    """
+    from app.db.models import Skill as SkillRow
+    if not skill_ids:
+        return ""
+    loaded: list[tuple[str, str, str]] = []
+    for sid in skill_ids:
+        row = await db.get(SkillRow, sid)
+        if row is None or row.archived_at is not None:
+            logger.warning(
+                "Injected-skill unavailable (missing or archived): %s", sid,
+            )
+            continue
+        loaded.append((row.id, row.name or row.id, row.content or ""))
+    if not loaded:
+        return ""
+    parts = [
+        "## Pre-Loaded Skills",
+        "",
+        (
+            "The full bodies of these skills are inlined below. You already "
+            "have everything they contain — do NOT call "
+            "`get_skill(skill_id=\"...\")` for any of them. Calling it for a "
+            "pre-loaded skill wastes an iteration; the content is already in "
+            "your context window."
+        ),
+        "",
+    ]
+    for sid, name, content in loaded:
+        parts.append(f"### {name} (`{sid}`)")
+        parts.append("")
+        parts.append(content.rstrip())
+        parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
+
+
 async def _build_recent_activity_snapshot(bot_id: str, db: AsyncSession) -> str:
     """Build a snapshot of recent user messages per channel.
 
@@ -772,6 +850,22 @@ async def create_hygiene_task(
     # Append extra instructions if present
     if cfg.extra_instructions:
         prompt = f"{prompt}\n\n## Additional Instructions\n{cfg.extra_instructions}"
+
+    # Inject stable core-skill bodies BEFORE the dynamic snapshots. This is
+    # static task context (same content every run), so it belongs with the
+    # prompt body, not the per-run data. Bot gets the skill bodies at t=0
+    # instead of spending iter 2 on parallel `get_skill(...)` hydration.
+    inject_ids = meta.get("inject_skills") or ()
+    if inject_ids:
+        try:
+            injected = await _build_injected_skills_snapshot(inject_ids, db)
+            if injected:
+                prompt = f"{prompt}\n\n{injected}"
+        except Exception:
+            logger.warning(
+                "Failed to build injected-skills snapshot for %s %s",
+                job_type, bot_id, exc_info=True,
+            )
 
     # Append live snapshots — both job types get the channel snapshot
     try:

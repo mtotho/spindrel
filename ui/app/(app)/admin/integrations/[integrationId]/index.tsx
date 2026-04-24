@@ -1,776 +1,417 @@
 import { useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { useNavigate, useParams } from "react-router-dom";
 import {
-  Check, X, Copy, ChevronDown, ChevronRight,
-  RotateCcw, Play, Square, RefreshCw, Download, Key, Trash2, Power,
-  Link, Unlink,
+  Check,
+  CheckCircle2,
+  Copy,
+  Download,
+  ExternalLink,
+  Key,
+  Link,
+  Play,
+  Power,
+  RefreshCw,
+  RotateCcw,
+  Square,
+  Trash2,
+  Unlink,
+  X,
 } from "lucide-react";
+
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { writeToClipboard } from "@/src/utils/clipboard";
-import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { Section, TextInput, Toggle } from "@/src/components/shared/FormControls";
 import {
-  useIntegrations,
-  useIntegrationSettings,
-  useUpdateIntegrationSettings,
-  useDeleteIntegrationSetting,
-  useStartProcess,
-  useStopProcess,
-  useRestartProcess,
+  ActionButton,
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  StatusBadge as SharedStatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { writeToClipboard } from "@/src/utils/clipboard";
+import { useAuthStore } from "@/src/stores/auth";
+import {
   useAutoStart,
-  useSetAutoStart,
+  useDeleteIntegrationSetting,
   useInstallDeps,
   useInstallNpmDeps,
   useInstallSystemDep,
   useIntegrationApiKey,
-  useProvisionIntegrationApiKey,
-  useRevokeIntegrationApiKey,
-  useSetIntegrationStatus,
-  useOAuthStatus,
+  useIntegrationSettings,
+  useIntegrations,
   useOAuthDisconnect,
+  useOAuthStatus,
+  useProvisionIntegrationApiKey,
+  useRestartProcess,
+  useRevokeIntegrationApiKey,
+  useSetAutoStart,
+  useSetIntegrationStatus,
+  useStartProcess,
+  useStopProcess,
+  useUpdateIntegrationSettings,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
-import { useAuthStore } from "@/src/stores/auth";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { useConfirm } from "@/src/components/shared/ConfirmDialog";
-import { StatusBadge, CapBadge, EnvVarPill, formatUptime } from "../components";
+import { CapBadge, EnvVarPill, StatusBadge, formatUptime } from "../components";
+import { DeviceStatusSection } from "./DeviceStatusSection";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
+import { MachineControlSetupSection } from "./MachineControlSetupSection";
 import { ManifestEditor } from "./ManifestEditor";
 import { ProcessLogsSection } from "./ProcessLogsSection";
-import { DeviceStatusSection } from "./DeviceStatusSection";
-import { MachineControlSetupSection } from "./MachineControlSetupSection";
 
-// ---------------------------------------------------------------------------
-// Section wrapper
-// ---------------------------------------------------------------------------
-
-export function SectionBox({ title, children }: { title: string; children: React.ReactNode }) {
-  const t = useThemeTokens();
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        padding: 14,
-        background: t.inputBg,
-        borderRadius: 8,
-        border: `1px solid ${t.surfaceRaised}`,
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: t.textDim,
-          textTransform: "uppercase",
-          letterSpacing: 0.6,
-        }}
-      >
-        {title}
-      </div>
-      {children}
-    </div>
-  );
+function sourceBadgeVariant(source: string): "info" | "purple" | "neutral" {
+  if (source === "db") return "info";
+  if (source === "env") return "purple";
+  return "neutral";
 }
-
-// ---------------------------------------------------------------------------
-// Source badge
-// ---------------------------------------------------------------------------
-
-function SourceBadge({ source }: { source: "db" | "env" | "default" }) {
-  const colors: Record<string, { bg: string; color: string }> = {
-    db: { bg: "rgba(59,130,246,0.12)", color: "#3b82f6" },
-    env: { bg: "rgba(168,85,247,0.12)", color: "#a855f7" },
-    default: { bg: "rgba(107,114,128,0.08)", color: "#6b7280" },
-  };
-  const c = colors[source] || colors.default;
-  return (
-    <span
-      style={{
-        fontSize: 9,
-        fontWeight: 600,
-        padding: "1px 5px",
-        borderRadius: 3,
-        background: c.bg,
-        color: c.color,
-        textTransform: "uppercase",
-        letterSpacing: 0.3,
-      }}
-    >
-      {source}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Webhook row (copyable)
-// ---------------------------------------------------------------------------
 
 function WebhookRow({ webhook }: { webhook: IntegrationItem["webhook"] }) {
-  const t = useThemeTokens();
   const [copied, setCopied] = useState(false);
   if (!webhook) return null;
-
   const handleCopy = async () => {
     await writeToClipboard(webhook.url);
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    window.setTimeout(() => setCopied(false), 1500);
   };
-
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 12 }}>
-      <span style={{ color: t.textDim }}>Webhook:</span>
-      <code style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>
-        {webhook.path}
-      </code>
-      <button
-        onClick={handleCopy}
-        style={{
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: 2,
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-        }}
-        title="Copy full URL"
-      >
-        {copied ? <Check size={12} color="#22c55e" /> : <Copy size={12} color={t.textDim} />}
-      </button>
-    </div>
+    <SettingsControlRow
+      title="Webhook"
+      description={<code className="break-all font-mono">{webhook.path}</code>}
+      action={
+        <ActionButton
+          label={copied ? "Copied" : "Copy URL"}
+          onPress={() => void handleCopy()}
+          variant="secondary"
+          size="small"
+          icon={<Copy size={12} />}
+        />
+      }
+    />
   );
 }
 
-// ---------------------------------------------------------------------------
-// Settings form
-// ---------------------------------------------------------------------------
-
 function SettingsForm({ integrationId }: { integrationId: string }) {
-  const t = useThemeTokens();
   const { data, isLoading } = useIntegrationSettings(integrationId);
   const updateMut = useUpdateIntegrationSettings(integrationId);
   const deleteMut = useDeleteIntegrationSetting(integrationId);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [initialized, setInitialized] = useState(false);
-
   const settings = data?.settings ?? [];
 
   if (settings.length > 0 && !initialized) {
     const initial: Record<string, string> = {};
-    for (const s of settings) {
-      initial[s.key] = s.secret && s.is_set ? "" : (s.value ?? "");
+    for (const setting of settings) {
+      initial[setting.key] = setting.secret && setting.is_set ? "" : (setting.value ?? "");
     }
     setDraft(initial);
     setInitialized(true);
   }
 
-  if (isLoading) {
-    return <div style={{ padding: 12, fontSize: 12, color: t.textDim }}>Loading settings...</div>;
-  }
-
-  if (settings.length === 0) {
-    return <div style={{ fontSize: 12, color: t.textDim }}>No configurable settings.</div>;
-  }
+  if (isLoading) return <div className="text-[12px] text-text-dim">Loading settings...</div>;
+  if (settings.length === 0) return <EmptyState message="No configurable settings." />;
 
   const handleSave = () => {
     const updates: Record<string, string> = {};
-    for (const s of settings) {
-      const val = draft[s.key] ?? "";
-      if (s.secret && s.is_set && val === "") continue;
-      if (!s.secret && val === (s.value ?? "")) continue;
-      if (val !== "" || s.source === "db") {
-        updates[s.key] = val;
-      }
+    for (const setting of settings) {
+      const value = draft[setting.key] ?? "";
+      if (setting.secret && setting.is_set && value === "") continue;
+      if (!setting.secret && value === (setting.value ?? "")) continue;
+      if (value !== "" || setting.source === "db") updates[setting.key] = value;
     }
-    if (Object.keys(updates).length > 0) {
-      updateMut.mutate(updates);
-    }
+    if (Object.keys(updates).length > 0) updateMut.mutate(updates);
   };
 
   const handleReset = (key: string) => {
     deleteMut.mutate(key);
-    setDraft((prev) => ({ ...prev, [key]: "" }));
+    setDraft((current) => ({ ...current, [key]: "" }));
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {settings.map((s) => (
-        <div key={s.key} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <label style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, fontFamily: "monospace" }}>
-              {s.key}
-            </label>
-            <SourceBadge source={s.source} />
-            {!s.required && <span style={{ fontSize: 9, color: t.textDim }}>optional</span>}
-            {s.source === "db" && (
+    <div className="flex flex-col gap-4">
+      {settings.map((setting) => (
+        <div key={setting.key} className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label className="font-mono text-[12px] font-semibold text-text-muted">{setting.key}</label>
+            <SharedStatusBadge label={setting.source} variant={sourceBadgeVariant(setting.source)} />
+            {!setting.required && <QuietPill label="optional" />}
+            {setting.source === "db" && (
               <button
-                onClick={() => handleReset(s.key)}
+                type="button"
+                onClick={() => handleReset(setting.key)}
                 title="Reset to env/default"
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", flexDirection: "row", alignItems: "center" }}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
               >
-                <RotateCcw size={11} color={t.textDim} />
+                <RotateCcw size={12} />
               </button>
             )}
           </div>
-          {s.type === "model_selection" ? (
+          {setting.type === "model_selection" ? (
             <LlmModelDropdown
-              value={draft[s.key] ?? ""}
-              onChange={(modelId) => setDraft((prev) => ({ ...prev, [s.key]: modelId }))}
-              placeholder={s.description || "Select model..."}
+              value={draft[setting.key] ?? ""}
+              onChange={(modelId) => setDraft((current) => ({ ...current, [setting.key]: modelId }))}
+              placeholder={setting.description || "Select model..."}
               allowClear
             />
-          ) : s.type === "boolean" ? (
-            <button
-              onClick={() => {
-                const current = (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase();
-                setDraft((prev) => ({ ...prev, [s.key]: current === "true" ? "false" : "true" }));
-              }}
-              style={{
-                display: "flex", flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 10px",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              <div style={{
-                width: 36,
-                height: 20,
-                borderRadius: 10,
-                backgroundColor: (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true"
-                  ? t.accent : t.surfaceOverlay,
-                position: "relative",
-                transition: "background-color 0.15s",
-              }}>
-                <div style={{
-                  width: 16,
-                  height: 16,
-                  borderRadius: 8,
-                  backgroundColor: "#fff",
-                  position: "absolute",
-                  top: 2,
-                  left: (draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true" ? 18 : 2,
-                  transition: "left 0.15s",
-                }} />
-              </div>
-              <span style={{ fontSize: 12, color: t.text }}>
-                {(draft[s.key] ?? s.value ?? s.default ?? "true").toLowerCase() === "true" ? "Enabled" : "Disabled"}
-              </span>
-            </button>
+          ) : setting.type === "boolean" ? (
+            <Toggle
+              value={(draft[setting.key] ?? setting.value ?? setting.default ?? "true").toLowerCase() === "true"}
+              onChange={(next) => setDraft((current) => ({ ...current, [setting.key]: String(next) }))}
+              label={(draft[setting.key] ?? setting.value ?? setting.default ?? "true").toLowerCase() === "true" ? "Enabled" : "Disabled"}
+            />
           ) : (
-            <input
-              type={s.secret ? "password" : "text"}
-              value={draft[s.key] ?? ""}
-              onChange={(e) => setDraft((prev) => ({ ...prev, [s.key]: e.target.value }))}
-              placeholder={s.secret && s.is_set ? "\u2022\u2022\u2022\u2022\u2022 (unchanged)" : s.description}
-              style={{
-                background: t.surface,
-                border: `1px solid ${t.inputBorder}`,
-                borderRadius: 6,
-                padding: "6px 10px",
-                color: t.inputText,
-                fontSize: 13,
-                width: "100%",
-                outline: "none",
-              }}
-              onFocus={(e) => { e.target.style.borderColor = t.inputBorderFocus; }}
-              onBlur={(e) => { e.target.style.borderColor = t.inputBorder; }}
+            <TextInput
+              type={setting.secret ? "password" : "text"}
+              value={draft[setting.key] ?? ""}
+              onChangeText={(next) => setDraft((current) => ({ ...current, [setting.key]: next }))}
+              placeholder={setting.secret && setting.is_set ? "••••• (unchanged)" : setting.description}
             />
           )}
-          {s.description && <div style={{ fontSize: 11, color: t.textDim }}>{s.description}</div>}
+          {setting.description && <div className="text-[11px] leading-snug text-text-dim">{setting.description}</div>}
         </div>
       ))}
-      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginTop: 4 }}>
-        <button
-          onClick={handleSave}
+      <div className="flex flex-wrap items-center gap-2">
+        <ActionButton
+          label={updateMut.isPending ? "Saving..." : "Save settings"}
+          onPress={handleSave}
           disabled={updateMut.isPending}
-          style={{
-            padding: "6px 16px",
-            borderRadius: 6,
-            border: "none",
-            background: t.accent,
-            color: "#fff",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: updateMut.isPending ? "wait" : "pointer",
-            opacity: updateMut.isPending ? 0.6 : 1,
-          }}
-        >
-          {updateMut.isPending ? "Saving..." : "Save"}
-        </button>
-        {updateMut.isSuccess && <span style={{ fontSize: 12, color: "#22c55e", alignSelf: "center" }}>Saved</span>}
-        {updateMut.isError && <span style={{ fontSize: 12, color: "#ef4444", alignSelf: "center" }}>Error saving</span>}
+          size="small"
+        />
+        {updateMut.isSuccess && <SharedStatusBadge label="Saved" variant="success" />}
+        {updateMut.isError && <SharedStatusBadge label="Error saving" variant="danger" />}
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Process controls
-// ---------------------------------------------------------------------------
-
 function ProcessControls({ integrationId }: { integrationId: string }) {
-  const t = useThemeTokens();
   const startMut = useStartProcess(integrationId);
   const stopMut = useStopProcess(integrationId);
   const restartMut = useRestartProcess(integrationId);
   const { data: autoStartData } = useAutoStart(integrationId, true);
   const setAutoStartMut = useSetAutoStart(integrationId);
   const { data: integrations } = useIntegrations();
-
-  const item = integrations?.integrations?.find((i) => i.id === integrationId);
+  const item = integrations?.integrations?.find((integration) => integration.id === integrationId);
   const ps = item?.process_status;
-  const isRunning = ps?.status === "running";
-  const anyPending = startMut.isPending || stopMut.isPending || restartMut.isPending;
+  const running = ps?.status === "running";
+  const pending = startMut.isPending || stopMut.isPending || restartMut.isPending;
+  const err = startMut.error || stopMut.error || restartMut.error;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: isRunning ? "#22c55e" : "#6b7280", flexShrink: 0 }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>{isRunning ? "Running" : "Stopped"}</span>
-          {isRunning && ps?.pid && (
-            <span style={{ fontSize: 11, color: t.textDim, fontFamily: "monospace" }}>pid {ps.pid}</span>
-          )}
-          {isRunning && ps?.uptime_seconds != null && (
-            <span style={{ fontSize: 11, color: t.textDim }}>{formatUptime(ps.uptime_seconds)}</span>
-          )}
-          {!isRunning && ps?.exit_code != null && ps.exit_code !== 0 && (
-            <span style={{ fontSize: 11, color: "#ef4444" }}>exit {ps.exit_code}</span>
-          )}
-        </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 4, marginLeft: "auto" }}>
-          {!isRunning && (
-            <button
-              onClick={() => startMut.mutate()}
-              disabled={anyPending}
-              title="Start"
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                padding: "3px 10px", borderRadius: 4, border: "none",
-                background: "rgba(34,197,94,0.15)", color: "#22c55e",
-                fontSize: 11, fontWeight: 600,
-                cursor: anyPending ? "wait" : "pointer",
-                opacity: anyPending ? 0.5 : 1,
-              }}
-            >
-              <Play size={10} /> Start
-            </button>
-          )}
-          {isRunning && (
-            <>
-              <button
-                onClick={() => stopMut.mutate()}
-                disabled={anyPending}
-                title="Stop"
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  padding: "3px 10px", borderRadius: 4, border: "none",
-                  background: "rgba(239,68,68,0.15)", color: "#ef4444",
-                  fontSize: 11, fontWeight: 600,
-                  cursor: anyPending ? "wait" : "pointer",
-                  opacity: anyPending ? 0.5 : 1,
-                }}
-              >
-                <Square size={10} /> Stop
-              </button>
-              <button
-                onClick={() => restartMut.mutate()}
-                disabled={anyPending}
-                title="Restart"
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  padding: "3px 10px", borderRadius: 4, border: "none",
-                  background: "rgba(59,130,246,0.15)", color: "#3b82f6",
-                  fontSize: 11, fontWeight: 600,
-                  cursor: anyPending ? "wait" : "pointer",
-                  opacity: anyPending ? 0.5 : 1,
-                }}
-              >
-                <RefreshCw size={10} /> Restart
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-      {(startMut.isError || stopMut.isError || restartMut.isError) && (
-        <div style={{
-          fontSize: 11, color: "#ef4444", padding: "4px 8px",
-          background: "rgba(239,68,68,0.1)", borderRadius: 4,
-        }}>
-          {(() => {
-            const err = startMut.error || stopMut.error || restartMut.error;
-            if (!err) return "Process action failed";
-            const body = (err as any)?.body;
-            if (body) {
-              try { return JSON.parse(body)?.detail || body; } catch { return body; }
-            }
-            return err.message || "Process action failed";
-          })()}
-        </div>
+    <div className="flex flex-col gap-3">
+      <SettingsControlRow
+        leading={<Power size={14} />}
+        title={running ? "Running" : "Stopped"}
+        description={
+          <span>
+            {running && ps?.pid ? `pid ${ps.pid}` : "Background process"}
+            {running && ps?.uptime_seconds != null ? ` · ${formatUptime(ps.uptime_seconds)}` : ""}
+            {!running && ps?.exit_code != null && ps.exit_code !== 0 ? ` · exit ${ps.exit_code}` : ""}
+          </span>
+        }
+        meta={<SharedStatusBadge label={running ? "running" : "stopped"} variant={running ? "success" : "neutral"} />}
+        action={
+          <div className="flex flex-wrap items-center gap-1.5">
+            {!running ? (
+              <ActionButton
+                label="Start"
+                onPress={() => startMut.mutate()}
+                disabled={pending}
+                size="small"
+                icon={<Play size={12} />}
+              />
+            ) : (
+              <>
+                <ActionButton
+                  label="Stop"
+                  onPress={() => stopMut.mutate()}
+                  disabled={pending}
+                  variant="danger"
+                  size="small"
+                  icon={<Square size={12} />}
+                />
+                <ActionButton
+                  label="Restart"
+                  onPress={() => restartMut.mutate()}
+                  disabled={pending}
+                  variant="secondary"
+                  size="small"
+                  icon={<RefreshCw size={12} />}
+                />
+              </>
+            )}
+          </div>
+        }
+      />
+      {err && (
+        <InfoBanner variant="danger">
+          {(err as any)?.message || "Process action failed"}
+        </InfoBanner>
       )}
-      <label style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim, cursor: "pointer" }}>
-        <input
-          type="checkbox"
-          checked={autoStartData?.auto_start ?? true}
-          onChange={(e) => setAutoStartMut.mutate(e.target.checked)}
-          style={{ margin: 0 }}
-        />
-        Auto-start on server startup
-      </label>
+      <Toggle
+        value={autoStartData?.auto_start ?? true}
+        onChange={(next) => setAutoStartMut.mutate(next)}
+        label="Auto-start on server startup"
+      />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Dependency section
-// ---------------------------------------------------------------------------
+function DependencySection({ item, kind }: { item: IntegrationItem; kind: "python" | "npm" | "system" }) {
+  const installPython = useInstallDeps(item.id);
+  const installNpm = useInstallNpmDeps(item.id);
+  const installSystem = useInstallSystemDep(item.id);
+  const deps =
+    kind === "python"
+      ? item.python_dependencies?.map((dep) => ({ name: dep.package, installed: dep.installed, install: dep.package }))
+      : kind === "npm"
+        ? item.npm_dependencies?.map((dep) => ({ name: dep.package, installed: dep.installed, install: dep.package }))
+        : item.system_dependencies?.map((dep) => ({ name: dep.binary, installed: dep.installed, install: dep.apt_package }));
 
-function DependencySection({ item }: { item: IntegrationItem }) {
-  const t = useThemeTokens();
-  const installMut = useInstallDeps(item.id);
-
-  const deps = item.python_dependencies;
   if (!deps || deps.length === 0) return null;
+  const allInstalled = deps.every((dep) => dep.installed);
+  const pending = installPython.isPending || installNpm.isPending || installSystem.isPending;
+  const failed = installPython.isError || installNpm.isError || installSystem.isError;
 
-  const allInstalled = deps.every((d) => d.installed);
+  const handleInstall = () => {
+    if (kind === "python") installPython.mutate();
+    else if (kind === "npm") installNpm.mutate();
+    else deps.filter((dep) => !dep.installed).forEach((dep) => installSystem.mutate(dep.install));
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {deps.map((d) => (
-          <span
-            key={d.package}
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
-              background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-              color: d.installed ? "#22c55e" : "#ef4444",
-              fontFamily: "monospace",
-            }}
-          >
-            {d.installed ? <Check size={10} /> : <X size={10} />}
-            {d.package}
-          </span>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1.5">
+        {deps.map((dep) => (
+          <SharedStatusBadge
+            key={dep.name}
+            label={dep.name}
+            variant={dep.installed ? "success" : "danger"}
+          />
         ))}
       </div>
-      {!allInstalled && (
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => installMut.mutate()}
-            disabled={installMut.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "5px 14px", borderRadius: 5, border: "none",
-              background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
-              cursor: installMut.isPending ? "wait" : "pointer",
-              opacity: installMut.isPending ? 0.6 : 1,
-            }}
-          >
-            <Download size={12} />
-            {installMut.isPending ? "Installing..." : "Install Dependencies"}
-          </button>
-          {installMut.isSuccess && <span style={{ fontSize: 11, color: "#22c55e" }}>Installed — restart server to activate tools</span>}
-          {installMut.isError && <span style={{ fontSize: 11, color: "#ef4444" }}>Install failed</span>}
+      {!allInstalled ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <ActionButton
+            label={pending ? "Installing..." : `Install ${kind === "npm" ? "npm packages" : kind === "system" ? "system dependencies" : "dependencies"}`}
+            onPress={handleInstall}
+            disabled={pending}
+            size="small"
+            icon={<Download size={12} />}
+          />
+          {failed && <SharedStatusBadge label="Install failed" variant="danger" />}
         </div>
+      ) : (
+        <SharedStatusBadge label="All dependencies available" variant="success" />
       )}
-      {allInstalled && <span style={{ fontSize: 11, color: "#22c55e" }}>All dependencies installed</span>}
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// npm dependency section
-// ---------------------------------------------------------------------------
-
-function NpmDependencySection({ item }: { item: IntegrationItem }) {
-  const t = useThemeTokens();
-  const installMut = useInstallNpmDeps(item.id);
-
-  const deps = item.npm_dependencies;
-  if (!deps || deps.length === 0) return null;
-
-  const allInstalled = deps.every((d) => d.installed);
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {deps.map((d) => (
-          <span
-            key={d.package}
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
-              background: d.installed ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
-              color: d.installed ? "#22c55e" : "#ef4444",
-              fontFamily: "monospace",
-            }}
-          >
-            {d.installed ? <Check size={10} /> : <X size={10} />}
-            {d.package}
-          </span>
-        ))}
-      </div>
-      {!allInstalled && (
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() => installMut.mutate()}
-            disabled={installMut.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "5px 14px", borderRadius: 5, border: "none",
-              background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
-              cursor: installMut.isPending ? "wait" : "pointer",
-              opacity: installMut.isPending ? 0.6 : 1,
-            }}
-          >
-            <Download size={12} />
-            {installMut.isPending ? "Installing..." : "Install npm Packages"}
-          </button>
-          {installMut.isSuccess && <span style={{ fontSize: 11, color: "#22c55e" }}>Installed</span>}
-          {installMut.isError && <span style={{ fontSize: 11, color: "#ef4444" }}>Install failed</span>}
-        </div>
-      )}
-      {allInstalled && <span style={{ fontSize: 11, color: "#22c55e" }}>All npm packages installed</span>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// System dependency section (binaries like chromium)
-// ---------------------------------------------------------------------------
-
-function SystemDependencySection({ item }: { item: IntegrationItem }) {
-  const t = useThemeTokens();
-  const installMut = useInstallSystemDep(item.id);
-  const deps = item.system_dependencies;
-  if (!deps || deps.length === 0) return null;
-
-  const allInstalled = deps.every((d) => d.installed);
-  const missing = deps.filter((d) => !d.installed);
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-row flex-wrap gap-1.5">
-        {deps.map((d) => (
-          <span
-            key={d.binary}
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium font-mono ${
-              d.installed
-                ? "bg-green-500/10 text-green-500"
-                : "bg-red-500/10 text-red-500"
-            }`}
-          >
-            {d.installed ? <Check size={10} /> : <X size={10} />}
-            {d.binary}
-          </span>
-        ))}
-      </div>
-      {!allInstalled && (
-        <div className="flex flex-row items-center gap-2 flex-wrap">
-          <button
-            onClick={() => {
-              for (const d of missing) {
-                installMut.mutate(d.apt_package);
-              }
-            }}
-            disabled={installMut.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "5px 14px", borderRadius: 5, border: "none",
-              background: t.accent, color: "#fff", fontSize: 12, fontWeight: 600,
-              cursor: installMut.isPending ? "wait" : "pointer",
-              opacity: installMut.isPending ? 0.6 : 1,
-            }}
-          >
-            <Download size={12} />
-            {installMut.isPending ? "Installing..." : "Install System Dependencies"}
-          </button>
-          {installMut.isSuccess && <span className="text-[11px] text-green-500">Installed</span>}
-          {installMut.isError && <span className="text-[11px] text-red-500">Install failed</span>}
-        </div>
-      )}
-      {allInstalled && <span className="text-[11px] text-green-500">All system dependencies available</span>}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// OAuth section
-// ---------------------------------------------------------------------------
 
 function OAuthSection({ item }: { item: IntegrationItem }) {
-  const t = useThemeTokens();
   const oauth = item.oauth;
   if (!oauth) return null;
-
-  // Gate: required env vars must be configured before OAuth is available
-  const requiredVarsSet = item.env_vars
-    .filter((v) => v.required)
-    .every((v) => v.is_set);
-
+  const requiredVarsSet = item.env_vars.filter((envVar) => envVar.required).every((envVar) => envVar.is_set);
   const { data: status, isLoading } = useOAuthStatus(item.id, oauth.status);
   const disconnectMut = useOAuthDisconnect(item.id, oauth.disconnect);
   const { confirm, ConfirmDialogSlot } = useConfirm();
-  const [selectedScopes, setSelectedScopes] = useState<string[]>(
-    oauth.scope_services.slice(0, 3)
-  );
+  const [selectedScopes, setSelectedScopes] = useState<string[]>(oauth.scope_services.slice(0, 3));
+
+  if (!requiredVarsSet) {
+    return <div className="text-[12px] text-text-dim">Save the required credentials above first, then connect your account here.</div>;
+  }
+  if (isLoading) return <div className="text-[12px] text-text-dim">Checking connection...</div>;
+
+  const toggleScope = (scope: string) => {
+    setSelectedScopes((current) =>
+      current.includes(scope) ? current.filter((item) => item !== scope) : [...current, scope],
+    );
+  };
 
   const handleConnect = () => {
     const { serverUrl } = useAuthStore.getState();
-    const scopeParam = selectedScopes.join(",");
-    window.open(`${serverUrl}${oauth.auth_start}?scopes=${scopeParam}`, "_blank");
+    window.open(`${serverUrl}${oauth.auth_start}?scopes=${selectedScopes.join(",")}`, "_blank");
   };
-
-  const toggleScope = (scope: string) => {
-    setSelectedScopes((prev) =>
-      prev.includes(scope) ? prev.filter((s) => s !== scope) : [...prev, scope]
-    );
-  };
-
-  if (!requiredVarsSet) {
-    return (
-      <div style={{ fontSize: 12, color: t.textDim }}>
-        Save the required credentials above first, then connect your Google account here.
-      </div>
-    );
-  }
-
-  if (isLoading) {
-    return <div style={{ fontSize: 12, color: t.textDim }}>Checking connection...</div>;
-  }
 
   if (status?.connected) {
     return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
-              background: "rgba(34,197,94,0.1)", color: "#22c55e",
-            }}
-          >
-            <Link size={10} />
-            Connected{status.email ? ` as ${status.email}` : ""}
-          </span>
-          <button
-            onClick={async () => {
-              const ok = await confirm(
-                "Disconnect Google account? Bots will lose access to Google services.",
-                { title: "Disconnect", confirmLabel: "Disconnect", variant: "danger" },
-              );
-              if (ok) disconnectMut.mutate();
-            }}
-            disabled={disconnectMut.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "3px 10px", borderRadius: 4, border: "none",
-              background: "rgba(239,68,68,0.15)", color: "#ef4444",
-              fontSize: 11, fontWeight: 600,
-              cursor: disconnectMut.isPending ? "wait" : "pointer",
-              opacity: disconnectMut.isPending ? 0.5 : 1,
-            }}
-          >
-            <Unlink size={10} /> Disconnect
-          </button>
-        </div>
+      <div className="flex flex-col gap-3">
+        <SettingsControlRow
+          leading={<Link size={14} />}
+          title={status.email ? `Connected as ${status.email}` : "Connected"}
+          meta={<SharedStatusBadge label="connected" variant="success" />}
+          action={
+            <ActionButton
+              label={disconnectMut.isPending ? "Disconnecting..." : "Disconnect"}
+              onPress={async () => {
+                const ok = await confirm(
+                  "Disconnect account? Bots will lose access to this integration's OAuth services.",
+                  { title: "Disconnect", confirmLabel: "Disconnect", variant: "danger" },
+                );
+                if (ok) disconnectMut.mutate();
+              }}
+              disabled={disconnectMut.isPending}
+              variant="danger"
+              size="small"
+              icon={<Unlink size={12} />}
+            />
+          }
+        />
         {status.scopes && status.scopes.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-            {status.scopes.map((s) => (
-              <span
-                key={s}
-                style={{
-                  fontSize: 10, fontFamily: "monospace",
-                  padding: "1px 6px", borderRadius: 3,
-                  background: "rgba(107,114,128,0.08)", color: t.textMuted,
-                }}
-              >
-                {s}
-              </span>
-            ))}
+          <div className="flex flex-wrap gap-1.5">
+            {status.scopes.map((scope) => <QuietPill key={scope} label={scope} maxWidthClass="max-w-[220px]" />)}
           </div>
         )}
+        <ConfirmDialogSlot />
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ fontSize: 12, color: t.textDim }}>
-        Select services to authorize, then connect your Google account.
-      </div>
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        {oauth.scope_services.map((svc) => {
-          const active = selectedScopes.includes(svc);
+    <div className="flex flex-col gap-3">
+      <div className="text-[12px] text-text-dim">Select services to authorize, then connect your account.</div>
+      <div className="flex flex-wrap gap-1.5">
+        {oauth.scope_services.map((scope) => {
+          const active = selectedScopes.includes(scope);
           return (
             <button
-              key={svc}
-              onClick={() => toggleScope(svc)}
-              style={{
-                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                padding: "3px 10px", borderRadius: 4, border: "none",
-                background: active ? "rgba(59,130,246,0.15)" : "rgba(107,114,128,0.08)",
-                color: active ? "#3b82f6" : t.textDim,
-                fontSize: 11, fontWeight: 500, cursor: "pointer",
-              }}
+              key={scope}
+              type="button"
+              onClick={() => toggleScope(scope)}
+              className={
+                `inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold transition-colors ` +
+                (active ? "bg-accent/[0.08] text-accent" : "bg-surface-raised/40 text-text-dim hover:bg-surface-overlay/50")
+              }
             >
               {active ? <Check size={10} /> : <X size={10} />}
-              {svc}
+              {scope}
             </button>
           );
         })}
       </div>
-      <button
-        onClick={handleConnect}
+      <ActionButton
+        label="Connect account"
+        onPress={handleConnect}
         disabled={selectedScopes.length === 0}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start",
-          padding: "6px 16px", borderRadius: 6, border: "none",
-          background: selectedScopes.length > 0 ? t.accent : t.surfaceOverlay,
-          color: selectedScopes.length > 0 ? "#fff" : t.textDim,
-          fontSize: 12, fontWeight: 600,
-          cursor: selectedScopes.length > 0 ? "pointer" : "not-allowed",
-          opacity: selectedScopes.length > 0 ? 1 : 0.6,
-        }}
-      >
-        <Link size={13} />
-        Connect Google Account
-      </button>
-      <ConfirmDialogSlot />
+        size="small"
+        icon={<Link size={13} />}
+      />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// API key section
-// ---------------------------------------------------------------------------
-
 function ApiKeySection({ integrationId }: { integrationId: string }) {
-  const t = useThemeTokens();
   const { data, isLoading } = useIntegrationApiKey(integrationId, true);
   const provisionMut = useProvisionIntegrationApiKey(integrationId);
   const revokeMut = useRevokeIntegrationApiKey(integrationId);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-
-  const newKey = provisionMut.data?.key_value ?? null;
-  const displayKey = revealedKey ?? newKey;
-
-  const handleCopyKey = async () => {
-    if (displayKey) {
-      await writeToClipboard(displayKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const displayKey = revealedKey ?? provisionMut.data?.key_value ?? null;
 
   const handleProvision = () => {
     setRevealedKey(null);
@@ -781,150 +422,95 @@ function ApiKeySection({ integrationId }: { integrationId: string }) {
     });
   };
 
+  const handleCopyKey = async () => {
+    if (!displayKey) return;
+    await writeToClipboard(displayKey);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (isLoading) return <div className="text-[12px] text-text-dim">Loading...</div>;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {isLoading ? (
-        <span style={{ fontSize: 12, color: t.textDim }}>Loading...</span>
-      ) : data?.provisioned ? (
-        <>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span
-              style={{
-                display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500,
-                background: "rgba(34,197,94,0.1)", color: "#22c55e", fontFamily: "monospace",
-              }}
-            >
-              <Key size={10} />
-              {data.key_prefix}...
-            </span>
-            {data.scopes && (
-              <span style={{ fontSize: 10, color: t.textDim }}>
-                {data.scopes.length} scope{data.scopes.length !== 1 ? "s" : ""}
-              </span>
-            )}
-            <div style={{ display: "flex", flexDirection: "row", gap: 4, marginLeft: "auto" }}>
-              <button
-                onClick={handleProvision}
+    <div className="flex flex-col gap-3">
+      {data?.provisioned ? (
+        <SettingsControlRow
+          leading={<Key size={14} />}
+          title={`${data.key_prefix}...`}
+          description={data.scopes ? `${data.scopes.length} scope${data.scopes.length !== 1 ? "s" : ""}` : undefined}
+          meta={<SharedStatusBadge label="provisioned" variant="success" />}
+          action={
+            <div className="flex flex-wrap items-center gap-1.5">
+              <ActionButton
+                label="Regenerate"
+                onPress={handleProvision}
                 disabled={provisionMut.isPending}
-                title="Regenerate key"
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  padding: "3px 10px", borderRadius: 4, border: "none",
-                  background: "rgba(59,130,246,0.15)", color: "#3b82f6",
-                  fontSize: 11, fontWeight: 600,
-                  cursor: provisionMut.isPending ? "wait" : "pointer",
-                  opacity: provisionMut.isPending ? 0.5 : 1,
-                }}
-              >
-                <RefreshCw size={10} /> Regenerate
-              </button>
-              <button
-                onClick={() => revokeMut.mutate()}
+                variant="secondary"
+                size="small"
+                icon={<RefreshCw size={12} />}
+              />
+              <ActionButton
+                label="Revoke"
+                onPress={() => revokeMut.mutate()}
                 disabled={revokeMut.isPending}
-                title="Revoke key"
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                  padding: "3px 10px", borderRadius: 4, border: "none",
-                  background: "rgba(239,68,68,0.15)", color: "#ef4444",
-                  fontSize: 11, fontWeight: 600,
-                  cursor: revokeMut.isPending ? "wait" : "pointer",
-                  opacity: revokeMut.isPending ? 0.5 : 1,
-                }}
-              >
-                <Trash2 size={10} /> Revoke
-              </button>
+                variant="danger"
+                size="small"
+                icon={<Trash2 size={12} />}
+              />
             </div>
-          </div>
-          {data.scopes && data.scopes.length > 0 && (
-            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-              {data.scopes.map((s) => (
-                <span
-                  key={s}
-                  style={{
-                    fontSize: 10, fontFamily: "monospace",
-                    padding: "1px 6px", borderRadius: 3,
-                    background: "rgba(107,114,128,0.08)", color: t.textMuted,
-                  }}
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-          )}
-        </>
+          }
+        />
       ) : (
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: t.textDim }}>No key provisioned</span>
-          <button
-            onClick={handleProvision}
-            disabled={provisionMut.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "4px 12px", borderRadius: 5, border: "none",
-              background: t.accent, color: "#fff", fontSize: 11, fontWeight: 600,
-              cursor: provisionMut.isPending ? "wait" : "pointer",
-              opacity: provisionMut.isPending ? 0.6 : 1,
-            }}
-          >
-            <Key size={11} />
-            {provisionMut.isPending ? "Generating..." : "Generate Key"}
-          </button>
+        <SettingsControlRow
+          title="No key provisioned"
+          description="Generate a scoped key for this integration."
+          action={
+            <ActionButton
+              label={provisionMut.isPending ? "Generating..." : "Generate key"}
+              onPress={handleProvision}
+              disabled={provisionMut.isPending}
+              size="small"
+              icon={<Key size={12} />}
+            />
+          }
+        />
+      )}
+      {data?.scopes && data.scopes.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {data.scopes.map((scope) => <QuietPill key={scope} label={scope} maxWidthClass="max-w-[220px]" />)}
         </div>
       )}
-
       {displayKey && (
-        <div
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-            padding: "6px 10px", background: "rgba(234,179,8,0.08)",
-            borderRadius: 6, border: "1px solid rgba(234,179,8,0.2)",
-          }}
-        >
-          <code style={{ flex: 1, fontSize: 11, fontFamily: "monospace", color: t.text, wordBreak: "break-all" }}>
-            {displayKey}
-          </code>
-          <button
-            onClick={handleCopyKey}
-            style={{ background: "none", border: "none", cursor: "pointer", padding: 2, display: "flex", flexDirection: "row", alignItems: "center", flexShrink: 0 }}
-            title="Copy key"
-          >
-            {copied ? <Check size={14} color="#22c55e" /> : <Copy size={14} color={t.textDim} />}
-          </button>
-        </div>
+        <InfoBanner variant="warning">
+          <div className="flex min-w-0 items-center gap-2">
+            <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-text">{displayKey}</code>
+            <button
+              type="button"
+              onClick={() => void handleCopyKey()}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-text"
+              title="Copy key"
+            >
+              {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
+            </button>
+          </div>
+        </InfoBanner>
       )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// README section (collapsible)
-// ---------------------------------------------------------------------------
-
 function ReadmeSection({ content }: { content: string }) {
-  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
-
   return (
-    <div>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-          background: "none", border: "none", cursor: "pointer", padding: 0,
-          fontSize: 12, fontWeight: 600, color: t.accent,
-        }}
-      >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        Setup Instructions
-      </button>
+    <div className="flex flex-col gap-2">
+      <ActionButton
+        label={expanded ? "Hide setup instructions" : "Setup instructions"}
+        onPress={() => setExpanded((current) => !current)}
+        variant="secondary"
+        size="small"
+      />
       {expanded && (
-        <div
-          style={{
-            marginTop: 8, background: t.surface, borderRadius: 6,
-            border: `1px solid ${t.surfaceBorder}`, overflow: "auto", maxHeight: 400,
-          }}
-        >
+        <div className="max-h-[420px] overflow-auto rounded-md bg-surface-raised/35">
           <MarkdownViewer content={content} />
         </div>
       )}
@@ -932,438 +518,251 @@ function ReadmeSection({ content }: { content: string }) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Disable/Enable toggle
-// ---------------------------------------------------------------------------
-
 function StatusControl({ item }: { item: IntegrationItem }) {
-  const t = useThemeTokens();
-  const mut = useSetIntegrationStatus(item.id);
+  const mutation = useSetIntegrationStatus(item.id);
   const { confirm, ConfirmDialogSlot } = useConfirm();
-  const isEnabled = item.lifecycle_status === "enabled";
-  const missingRequired = item.env_vars.filter((v) => v.required && !v.is_set);
-  const needsSetup = isEnabled && missingRequired.length > 0;
-
-  const meta = !isEnabled
-    ? { bg: "rgba(107,114,128,0.08)", border: "rgba(107,114,128,0.2)", color: t.textMuted, label: "Available — not adopted" }
-    : needsSetup
-      ? { bg: "rgba(234,179,8,0.08)", border: "rgba(234,179,8,0.25)", color: "#eab308", label: "Enabled · Needs Setup" }
-      : { bg: "rgba(34,197,94,0.06)", border: "rgba(34,197,94,0.15)", color: "#22c55e", label: "Enabled" };
-
-  const onRemove = async () => {
-    const ok = await confirm(
-      "Remove from Active? The process will stop and tools will unload. Your settings are preserved — re-adding is instant.",
-      { title: "Remove from Active", confirmLabel: "Remove", variant: "warning" },
-    );
-    if (!ok) return;
-    mut.mutate("available");
-  };
-  const onEnable = () => mut.mutate("enabled");
+  const enabled = item.lifecycle_status === "enabled";
+  const missingRequired = item.env_vars.filter((envVar) => envVar.required && !envVar.is_set);
+  const needsSetup = enabled && missingRequired.length > 0;
 
   return (
     <div className="flex flex-col gap-2">
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 10,
-          padding: "8px 14px",
-          borderRadius: 8,
-          background: meta.bg,
-          border: `1px solid ${meta.border}`,
-        }}
-      >
-        <Power size={14} color={meta.color} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: meta.color, flex: 1 }}>
-          {meta.label}
-        </span>
-        {!isEnabled ? (
-          <button
-            onClick={onEnable}
-            disabled={mut.isPending}
-            style={{
-              padding: "4px 14px",
-              borderRadius: 5,
-              border: "none",
-              background: t.accent,
-              color: "#fff",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: mut.isPending ? "wait" : "pointer",
-              opacity: mut.isPending ? 0.5 : 1,
-            }}
-          >
-            {mut.isPending ? "..." : "Enable"}
-          </button>
-        ) : (
-          <button
-            onClick={onRemove}
-            disabled={mut.isPending}
-            style={{
-              padding: "4px 14px",
-              borderRadius: 5,
-              border: "none",
-              background: "rgba(239,68,68,0.15)",
-              color: "#ef4444",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: mut.isPending ? "wait" : "pointer",
-              opacity: mut.isPending ? 0.5 : 1,
-            }}
-          >
-            {mut.isPending ? "..." : "Disable"}
-          </button>
-        )}
-      </div>
-
-      {needsSetup && (
-        <div
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "flex-start",
-            gap: 8,
-            padding: "8px 14px",
-            borderRadius: 8,
-            background: "rgba(234,179,8,0.08)",
-            border: "1px solid rgba(234,179,8,0.2)",
-          }}
-        >
-          <span style={{ fontSize: 11, color: "#eab308", lineHeight: "18px", flex: 1 }}>
-            Fill {missingRequired.length} required setting{missingRequired.length === 1 ? "" : "s"} to activate:{" "}
-            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>
-              {missingRequired.map((v) => v.key).join(", ")}
-            </span>
-            . Integration will enable automatically once complete.
-          </span>
-        </div>
-      )}
+      <SettingsControlRow
+        leading={<Power size={14} />}
+        title={!enabled ? "Available - not adopted" : needsSetup ? "Enabled - needs setup" : "Enabled"}
+        description={
+          needsSetup
+            ? `Fill ${missingRequired.length} required setting${missingRequired.length === 1 ? "" : "s"} to activate: ${missingRequired.map((envVar) => envVar.key).join(", ")}.`
+            : enabled
+              ? "This integration is active."
+              : "Settings are preserved when you remove an integration from Active."
+        }
+        meta={<StatusBadge status={needsSetup ? "needs_setup" : item.lifecycle_status} />}
+        action={
+          !enabled ? (
+            <ActionButton
+              label={mutation.isPending ? "Enabling..." : "Enable"}
+              onPress={() => mutation.mutate("enabled")}
+              disabled={mutation.isPending}
+              size="small"
+            />
+          ) : (
+            <ActionButton
+              label={mutation.isPending ? "Disabling..." : "Disable"}
+              onPress={async () => {
+                const ok = await confirm(
+                  "Remove from Active? The process will stop and tools will unload. Settings are preserved.",
+                  { title: "Remove from Active", confirmLabel: "Remove", variant: "warning" },
+                );
+                if (ok) mutation.mutate("available");
+              }}
+              disabled={mutation.isPending}
+              variant="danger"
+              size="small"
+            />
+          )
+        }
+      />
       <ConfirmDialogSlot />
     </div>
   );
 }
 
-// ===========================================================================
-// Main detail screen
-// ===========================================================================
+function AssetList({ title, items, tone = "neutral" }: { title: string; items?: string[]; tone?: "neutral" | "info" | "purple" }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SettingsGroupLabel label={title} count={items.length} />
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => (
+          <SharedStatusBadge key={item} label={item} variant={tone} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function IntegrationDetailScreen() {
-  const t = useThemeTokens();
   const { integrationId } = useParams<{ integrationId: string }>();
   const navigate = useNavigate();
   const { data, isLoading } = useIntegrations();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowSize();
-  const isWide = width >= 768;
-
-  const item = data?.integrations?.find((i) => i.id === integrationId);
+  const item = data?.integrations?.find((integration) => integration.id === integrationId);
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
-        <Spinner color={t.accent} />
+      <div className="flex flex-1 items-center justify-center bg-surface">
+        <Spinner />
       </div>
     );
   }
 
   if (!item) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-          <div style={{ color: t.textDim, fontSize: 13 }}>Integration not found.</div>
-          <button
-            onClick={() => navigate("/admin/integrations")}
-            style={{
-              padding: "6px 16px", borderRadius: 6, border: "none",
-              background: t.accent, color: "#fff", fontSize: 12,
-              fontWeight: 600, cursor: "pointer",
-            }}
-          >
-            Back to Integrations
-          </button>
+      <div className="flex flex-1 items-center justify-center bg-surface">
+        <div className="flex flex-col items-center gap-3">
+          <div className="text-[13px] text-text-dim">Integration not found.</div>
+          <ActionButton label="Back to Integrations" onPress={() => navigate("/admin/integrations")} />
         </div>
       </div>
     );
   }
 
-  const envSetCount = item.env_vars.filter((v) => v.is_set).length;
+  const envSetCount = item.env_vars.filter((envVar) => envVar.is_set).length;
+  const headerStatus = item.lifecycle_status === "enabled" && item.env_vars.some((envVar) => envVar.required && !envVar.is_set)
+    ? "needs_setup"
+    : item.lifecycle_status;
+  const liveToolNames = item.tool_names && item.tool_names.length > 0 ? item.tool_names : item.tool_files ?? [];
+  const hasAssets = liveToolNames.length > 0 || (item.skill_files?.length ?? 0) > 0 || (item.tool_widget_names?.length ?? 0) > 0;
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader variant="detail"
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="detail"
         parentLabel="Integrations"
         backTo="/admin/integrations"
         title={item.name}
-        right={<StatusBadge status={item.lifecycle_status === "enabled" && item.env_vars.some((v) => v.required && !v.is_set) ? "needs_setup" : item.lifecycle_status} />}
+        subtitle={item.id}
+        right={<StatusBadge status={headerStatus} />}
       />
-      <RefreshableScrollView
-        refreshing={refreshing}
-        onRefresh={onRefresh}
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: isWide ? 20 : 12, gap: 14, maxWidth: 720 }}
-      >
-        {/* Lifecycle status control */}
-        <StatusControl item={item} />
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="min-h-0 flex-1">
+        <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-4 py-5 md:px-6">
+          <StatusControl item={item} />
 
-        {/* Sections — dimmed when not yet adopted */}
-        <div style={{ opacity: item.lifecycle_status === "available" ? 0.6 : 1, display: "flex", flexDirection: "column", gap: 14 }}>
-
-        {/* Overview */}
-        <SectionBox title="Overview">
-          <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap" }}>
-            <CapBadge label="router" active={item.has_router} />
-            <CapBadge label="renderer" active={item.has_renderer} />
-            <CapBadge label="hooks" active={item.has_hooks} />
-            <CapBadge label="tools" active={item.has_tools} />
-            <CapBadge label="skills" active={item.has_skills} />
-            <CapBadge label="widgets" active={item.has_tool_widgets} />
-            <CapBadge label="process" active={item.has_process} />
-          </div>
-          <WebhookRow webhook={item.webhook} />
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textDim }}>
-            <span>Source:</span>
-            <span
-              style={{
-                fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 3,
-                background: "rgba(107,114,128,0.08)", color: t.textMuted,
-                textTransform: "uppercase", letterSpacing: 0.3,
-              }}
-            >
-              {item.source}
-            </span>
-          </div>
-        </SectionBox>
-
-        {/* Device / connection status (generic — shown when process reports devices) */}
-        <DeviceStatusSection integrationId={item.id} />
-
-        {/* Manifest editor — Visual/YAML toggle with MCP server status */}
-        <ManifestEditor integrationId={item.id} />
-
-        {/* Declared events */}
-        {item.events && item.events.length > 0 && (
-          <SectionBox title={`Events (${item.events.length})`}>
-            <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
-              Events this integration can emit. Use in task triggers or channel binding filters.
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {item.events.map((ev) => (
-                <div
-                  key={ev.type}
-                  style={{
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                    padding: "6px 10px", borderRadius: 6,
-                    background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-                  }}
-                >
-                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "monospace", color: t.accent, minWidth: 120 }}>
-                    {ev.type}
-                  </span>
-                  <span style={{ fontSize: 11, color: t.text, flex: 1 }}>
-                    {ev.label}
-                  </span>
-                  {ev.category && (
-                    <span style={{
-                      fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5,
-                      padding: "2px 6px", borderRadius: 4,
-                      background: ev.category === "webhook" ? "rgba(59,130,246,0.15)" :
-                                  ev.category === "message" ? "rgba(34,197,94,0.15)" :
-                                  ev.category === "poll" ? "rgba(234,179,8,0.15)" :
-                                  "rgba(168,85,247,0.15)",
-                      color: ev.category === "webhook" ? "#3b82f6" :
-                             ev.category === "message" ? "#22c55e" :
-                             ev.category === "poll" ? "#eab308" :
-                             "#a855f7",
-                    }}>
-                      {ev.category}
-                    </span>
-                  )}
-                  {ev.description && (
-                    <span style={{ fontSize: 10, color: t.textDim, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {ev.description}
-                    </span>
-                  )}
+          <div className={item.lifecycle_status === "available" ? "flex flex-col gap-7 opacity-70" : "flex flex-col gap-7"}>
+            <Section title="Overview" description="Declared surfaces and runtime identity for this integration.">
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-1.5">
+                  <CapBadge label="router" active={item.has_router} />
+                  <CapBadge label="renderer" active={item.has_renderer} />
+                  <CapBadge label="hooks" active={item.has_hooks} />
+                  <CapBadge label="tools" active={item.has_tools} />
+                  <CapBadge label="skills" active={item.has_skills} />
+                  <CapBadge label="widgets" active={item.has_tool_widgets} />
+                  <CapBadge label="process" active={item.has_process} />
+                  <CapBadge label="machines" active={Boolean(item.machine_control)} />
                 </div>
-              ))}
-            </div>
-          </SectionBox>
-        )}
+                <WebhookRow webhook={item.webhook} />
+                <SettingsControlRow
+                  title="Source"
+                  description={item.source}
+                  meta={<SharedStatusBadge label={item.source} variant="neutral" />}
+                />
+              </div>
+            </Section>
 
-        {/* Detected tools / skills / widgets */}
-        {((item.tool_names && item.tool_names.length > 0) ||
-          (item.tool_files && item.tool_files.length > 0) ||
-          (item.skill_files && item.skill_files.length > 0) ||
-          (item.tool_widget_names && item.tool_widget_names.length > 0)) && (
-          <SectionBox title="Detected Assets">
-            {/* Tools — prefer live registered names, fall back to file names */}
-            {(() => {
-              const names = item.tool_names && item.tool_names.length > 0
-                ? item.tool_names
-                : item.tool_files && item.tool_files.length > 0
-                  ? item.tool_files
-                  : null;
-              if (!names) return null;
-              const isLive = !!(item.tool_names && item.tool_names.length > 0);
-              return (
-                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                    Tools ({names.length}){!isLive && " — files on disk, not yet loaded"}
-                  </span>
-                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                    {names.map((n) => (
-                      <span
-                        key={n}
-                        style={{
-                          fontSize: 11, fontFamily: "monospace",
-                          padding: "2px 8px", borderRadius: 4,
-                          background: isLive ? "rgba(59,130,246,0.1)" : "rgba(107,114,128,0.08)",
-                          color: isLive ? "#3b82f6" : t.textMuted,
-                        }}
-                      >
-                        {n}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-            {item.skill_files && item.skill_files.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  Skills ({item.skill_files.length})
-                </span>
-                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                  {item.skill_files.map((n) => (
-                    <span
-                      key={n}
-                      style={{
-                        fontSize: 11, fontFamily: "monospace",
-                        padding: "2px 8px", borderRadius: 4,
-                        background: "rgba(168,85,247,0.1)", color: "#a855f7",
-                      }}
-                    >
-                      {n}
-                    </span>
+            <DeviceStatusSection integrationId={item.id} />
+
+            <Section title="Manifest" description="Inspect and edit the integration manifest.">
+              <ManifestEditor integrationId={item.id} />
+            </Section>
+
+            {item.events && item.events.length > 0 && (
+              <Section title={`Events (${item.events.length})`} description="Events this integration can emit for task triggers and binding filters.">
+                <div className="flex flex-col gap-1.5">
+                  {item.events.map((event) => (
+                    <SettingsControlRow
+                      key={event.type}
+                      title={<code className="font-mono">{event.type}</code>}
+                      description={event.description || event.label}
+                      meta={event.category ? <SharedStatusBadge label={event.category} variant="info" /> : undefined}
+                    />
                   ))}
                 </div>
-              </div>
+              </Section>
             )}
-            {item.tool_widget_names && item.tool_widget_names.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: t.textDim, textTransform: "uppercase", letterSpacing: 0.5 }}>
-                  Tool Widgets ({item.tool_widget_names.length})
-                </span>
-                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                  {item.tool_widget_names.map((n) => (
-                    <span
-                      key={n}
-                      style={{
-                        fontSize: 11, fontFamily: "monospace",
-                        padding: "2px 8px", borderRadius: 4,
-                        background: "rgba(168,85,247,0.1)", color: "#a855f7",
-                      }}
-                    >
-                      {n}
-                    </span>
-                  ))}
+
+            {hasAssets && (
+              <Section title="Detected Assets" description="Live registered assets and manifest-discovered files.">
+                <div className="flex flex-col gap-4">
+                  <AssetList title={`Tools${item.tool_names?.length ? "" : " - files on disk"}`} items={liveToolNames} tone={item.tool_names?.length ? "info" : "neutral"} />
+                  <AssetList title="Skills" items={item.skill_files} tone="purple" />
+                  <AssetList title="Tool Widgets" items={item.tool_widget_names} tone="purple" />
                 </div>
-              </div>
+              </Section>
             )}
-          </SectionBox>
-        )}
 
-        {item.machine_control && (
-          <SectionBox title="Machine Setup">
-            <MachineControlSetupSection
-              integrationId={item.id}
-              machineControl={item.machine_control}
-              enableRemoteProvisioning={Boolean(item.api_permissions)}
-            />
-          </SectionBox>
-        )}
-
-        {/* README — show early so users see setup instructions before config */}
-        {item.readme && <ReadmeSection content={item.readme} />}
-
-        {/* Environment variables */}
-        {item.env_vars.length > 0 && (
-          <SectionBox title={`Environment Variables (${envSetCount}/${item.env_vars.length} set)`}>
-            <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-              {item.env_vars.map((v) => (
-                <EnvVarPill key={v.key} v={v} />
-              ))}
-            </div>
-          </SectionBox>
-        )}
-
-        {/* Configuration */}
-        {item.env_vars.length > 0 && (
-          <SectionBox title="Configuration">
-            <SettingsForm integrationId={item.id} />
-          </SectionBox>
-        )}
-
-        {/* Python dependencies */}
-        {item.python_dependencies && item.python_dependencies.length > 0 && (
-          <SectionBox title="Python Dependencies">
-            <DependencySection item={item} />
-          </SectionBox>
-        )}
-
-        {/* npm dependencies */}
-        {item.npm_dependencies && item.npm_dependencies.length > 0 && (
-          <SectionBox title="npm Dependencies">
-            <NpmDependencySection item={item} />
-          </SectionBox>
-        )}
-
-        {/* System dependencies */}
-        {item.system_dependencies && item.system_dependencies.length > 0 && (
-          <SectionBox title="System Dependencies">
-            <SystemDependencySection item={item} />
-          </SectionBox>
-        )}
-
-        {/* OAuth connection */}
-        {item.oauth && (
-          <SectionBox title="OAuth Connection">
-            <OAuthSection item={item} />
-          </SectionBox>
-        )}
-
-        {/* Process */}
-        {item.has_process && (
-          <SectionBox title="Process">
-            {item.process_launchable !== false ? (
-              <ProcessControls integrationId={item.id} />
-            ) : (
-              <div style={{ fontSize: 12, color: t.textDim }}>
-                {item.process_description || "Background process disabled (no CMD defined)."}
-              </div>
+            {item.machine_control && (
+              <Section title="Machine Setup" description="Provider-wide status for this machine-control integration.">
+                <MachineControlSetupSection
+                  integrationId={item.id}
+                  machineControl={item.machine_control}
+                  enableRemoteProvisioning={Boolean(item.api_permissions)}
+                />
+              </Section>
             )}
-          </SectionBox>
-        )}
 
-        {/* Process logs (generic — shown for any integration with a process) */}
-        {item.has_process && (
-          <ProcessLogsSection
-            integrationId={item.id}
-            processRunning={item.process_status?.status === "running"}
-          />
-        )}
+            {item.readme && (
+              <Section title="Documentation">
+                <ReadmeSection content={item.readme} />
+              </Section>
+            )}
 
-        {/* API key */}
-        {item.api_permissions && !item.machine_control && (
-          <SectionBox title="API Key">
-            <ApiKeySection integrationId={item.id} />
-          </SectionBox>
-        )}
+            {item.env_vars.length > 0 && (
+              <Section title={`Environment Variables (${envSetCount}/${item.env_vars.length} set)`}>
+                <div className="flex flex-wrap gap-1.5">
+                  {item.env_vars.map((envVar) => <EnvVarPill key={envVar.key} v={envVar} />)}
+                </div>
+              </Section>
+            )}
 
-        {/* Activity & Debug */}
-        <IntegrationDebugSection
-          integrationId={item.id}
-          debugActions={item.debug_actions}
-        />
+            {item.env_vars.length > 0 && (
+              <Section title="Configuration">
+                <SettingsForm integrationId={item.id} />
+              </Section>
+            )}
 
-        </div>{/* end disabled wrapper */}
+            {item.python_dependencies && item.python_dependencies.length > 0 && (
+              <Section title="Python Dependencies">
+                <DependencySection item={item} kind="python" />
+              </Section>
+            )}
+
+            {item.npm_dependencies && item.npm_dependencies.length > 0 && (
+              <Section title="npm Dependencies">
+                <DependencySection item={item} kind="npm" />
+              </Section>
+            )}
+
+            {item.system_dependencies && item.system_dependencies.length > 0 && (
+              <Section title="System Dependencies">
+                <DependencySection item={item} kind="system" />
+              </Section>
+            )}
+
+            {item.oauth && (
+              <Section title="OAuth Connection">
+                <OAuthSection item={item} />
+              </Section>
+            )}
+
+            {item.has_process && (
+              <Section title="Process">
+                {item.process_launchable !== false ? (
+                  <ProcessControls integrationId={item.id} />
+                ) : (
+                  <EmptyState message={item.process_description || "Background process disabled. No command is defined."} />
+                )}
+              </Section>
+            )}
+
+            {item.has_process && (
+              <Section title="Process Logs">
+                <ProcessLogsSection integrationId={item.id} processRunning={item.process_status?.status === "running"} />
+              </Section>
+            )}
+
+            {item.api_permissions && !item.machine_control && (
+              <Section title="API Key">
+                <ApiKeySection integrationId={item.id} />
+              </Section>
+            )}
+
+            <Section title="Activity & Debug">
+              <IntegrationDebugSection integrationId={item.id} debugActions={item.debug_actions} />
+            </Section>
+          </div>
+        </div>
       </RefreshableScrollView>
     </div>
   );

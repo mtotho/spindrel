@@ -441,7 +441,7 @@ async def _increment_auto_inject_count(skill_id: str, bot_id: str) -> None:
                     auto_inject_count=BotSkillEnrollment.auto_inject_count + 1,
                 )
             )
-            # Update global last_surfaced_at so Learning Center "Last Active"
+            # Update global last_surfaced_at so Memory & Knowledge "Last Active"
             # reflects any activity, not just get_skill() calls.
             await db.execute(
                 update(SkillRow)

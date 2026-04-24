@@ -1,6 +1,6 @@
 /**
- * Shared per-bot dreaming table — used by Learning Center > Overview
- * (read-only) and Learning Center > Dreaming (manage mode with toggle + Run).
+ * Shared per-bot dreaming table — used by Memory & Knowledge > Dreaming
+ * and the global Memory & Learning settings surface.
  *
  * Displays dual job types: Memory Maintenance (amber) and Skill Review (purple).
  */
@@ -87,7 +87,7 @@ export interface DreamingBotTableProps {
    * "view" — Bot / Jobs / Last Run / Result / Next Run. Click navigates
    *   to the bot's Memory tab.
    * "manage" — adds Maint + Skills dot toggles + Run dropdown. Used in the
-   *   canonical Learning Center > Dreaming surface.
+   *   canonical Memory & Knowledge > Dreaming surface.
    */
   mode: "view" | "manage";
   /** Required in "manage" mode to read each bot's current toggle value. */

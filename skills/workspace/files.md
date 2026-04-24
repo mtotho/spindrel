@@ -1,5 +1,6 @@
 ---
 name: Workspace Files
+id: workspace_files
 description: Guide for using the file tool vs exec_command for reading, writing, editing, and searching files
 triggers: file tool, read file, write file, append, edit file, grep, glob, search code, find files, exec_command, workspace files
 category: core
@@ -19,6 +20,9 @@ You have a `file` tool for direct file operations inside your workspace. It bypa
 | Write/create a file | `file(write, path, content)` | — |
 | Append to a file | `file(append, path, content)` | — |
 | Find-and-replace in a file | `file(edit, path, find, replace)` | — |
+| Replace a markdown section by heading | `file(replace_section, path, heading, content)` | — |
+| Archive old entries from a log | `file(archive_older_than, path, older_than)` | — |
+| Bundle multiple ops atomically | `file(batch, ops=[...])` | — |
 | List directory contents | `file(list, path)` | — |
 | Delete a file | `file(delete, path)` | — |
 | Create directories | `file(mkdir, path)` | — |
@@ -77,8 +81,61 @@ operations. Example: `[{"op": "replace", "path": "/shows/tt123/state", "value": 
 The tool reads, applies the patch, and writes — so keys you didn't mention survive untouched.
 This is how you update `data/tracked-*.json` and similar files safely.
 
+### Replace a markdown section by its heading
+
+When you need to rewrite a whole section of a markdown file, don't send the old contents as
+the `find` string — use `replace_section`, which bounds the edit by heading level:
+
+```
+file(
+  operation="replace_section",
+  path="memory/MEMORY.md",
+  heading="## Reflections",
+  content="- New reflection 1\n- New reflection 2\n",
+)
+```
+
+It replaces everything under `## Reflections` up to the next heading of the same or higher
+level (or end of file). Idempotent — running it twice is safe. If the heading doesn't exist
+and `create_if_missing=True` (default), the section is appended.
+
+Why prefer it over `edit`: `edit` needs a `find` string that matches verbatim, and a
+JSON-escaped `\n` in that string silently fails to match real newlines. `replace_section`
+takes a heading name instead, sidestepping the trap entirely.
+
+### Archive old log entries in place
+
+```
+file(operation="archive_older_than", path="memory/logs/activity.md", older_than="14d")
+```
+
+The tool parses dated `### YYYY-MM-DD` headers, moves everything older than the window
+to a sibling archive file (e.g. `memory/logs/activity.archive.md`), and leaves the newer
+entries in place. Idempotent; safe to run repeatedly.
+
+### Bundle multiple ops into one transaction
+
+When you have a group of related edits, wrap them in `batch` so they run as one iteration:
+
+```
+file(operation="batch", ops=[
+  {"operation": "append", "path": "memory/logs/2026-04-24.md", "content": "..."},
+  {"operation": "replace_section", "path": "memory/MEMORY.md", "heading": "## Today", "content": "..."},
+  {"operation": "archive_older_than", "path": "memory/logs/activity.md", "older_than": "30d"},
+])
+```
+
+`archive_older_than` is batch-eligible — bundle it with the log-promotion edits in a
+hygiene pass. Nested `batch` is rejected.
+
+For hygiene-specific patterns (JSON-escape trap on `find`, why batching archive with
+log-promotion matters, multi-channel sweep discipline), see
+[`history_and_memory/memory_hygiene`](../history_and_memory/memory_hygiene.md).
+
 Full list of write-family ops: `create` (new file), `overwrite` (full rewrite after
-`read`), `edit` (find/replace), `append` (add to end), `json_patch` (RFC 6902 on JSON).
+`read`), `edit` (find/replace), `append` (add to end), `json_patch` (RFC 6902 on JSON),
+`replace_section` (heading-bounded markdown edits), `archive_older_than` (age-based log
+archive), `batch` (atomic multi-op).
 
 ---
 

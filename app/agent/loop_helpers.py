@@ -1,7 +1,8 @@
 import logging
 import re
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, TYPE_CHECKING
 
 from app.agent.bots import BotConfig
 from app.agent.hooks import HookContext, fire_hook
@@ -14,6 +15,9 @@ from app.agent.message_utils import (
 from app.agent.recording import _record_trace_event
 from app.agent.tracing import _trace
 from app.utils import safe_create_task
+
+if TYPE_CHECKING:
+    from app.agent.loop_dispatch import SummarizeSettings
 
 logger = logging.getLogger(__name__)
 
@@ -351,3 +355,295 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
                 continue
         index += 1
     return messages
+
+
+# ---------------------------------------------------------------------------
+# run_agent_tool_loop setup helpers (Cluster 6a extraction)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class LoopRunConfig:
+    effective_max_iterations: int
+    model: str
+    provider_id: str | None
+    effective_model_params: dict[str, Any]
+    summarize_settings: "SummarizeSettings"
+    in_loop_keep_iterations: int
+
+
+def _resolve_loop_config(
+    bot: BotConfig,
+    *,
+    max_iterations: int | None,
+    model_override: str | None,
+    provider_id_override: str | None,
+    context_profile_name: str | None,
+) -> LoopRunConfig:
+    """Resolve per-run config: iterations, model, provider, effort overlay, summarize settings."""
+    from app.agent.context import current_effort_override
+    from app.agent.context_profiles import get_context_profile
+    from app.agent.loop_dispatch import SummarizeSettings
+    from app.config import settings
+
+    in_loop_keep_iterations = settings.IN_LOOP_PRUNING_KEEP_ITERATIONS
+    if context_profile_name:
+        profile_override = get_context_profile(context_profile_name).keep_iterations_override
+        if profile_override is not None:
+            in_loop_keep_iterations = profile_override
+
+    effective_max_iterations = (
+        max_iterations
+        or getattr(bot, "max_iterations", None)
+        or settings.AGENT_MAX_ITERATIONS
+    )
+    model = model_override or bot.model
+    provider_id = _resolve_effective_provider(
+        model_override, provider_id_override, bot.model_provider_id,
+    )
+
+    effective_model_params = dict(bot.model_params or {})
+    effort_now = current_effort_override.get()
+    if effort_now:
+        effective_model_params["effort"] = effort_now
+
+    trc = bot.tool_result_config or {}
+    summarize_settings = SummarizeSettings(
+        enabled=trc["enabled"] if "enabled" in trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED,
+        threshold=trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD,
+        model=trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model,
+        max_tokens=trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
+        exclude=frozenset(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS)
+              | frozenset(trc.get("exclude_tools") or []),
+    )
+    return LoopRunConfig(
+        effective_max_iterations=effective_max_iterations,
+        model=model,
+        provider_id=provider_id,
+        effective_model_params=effective_model_params,
+        summarize_settings=summarize_settings,
+        in_loop_keep_iterations=in_loop_keep_iterations,
+    )
+
+
+@dataclass
+class LoopToolState:
+    all_tools: list[dict[str, Any]]
+    tools_param: list[dict[str, Any]] | None
+    tool_choice: str | None
+    effective_allowed: set[str] | None
+    has_manage_bot_skill: bool
+    activated_list: list[dict]
+
+
+async def _resolve_loop_tools(
+    bot: BotConfig,
+    *,
+    pre_selected_tools: list[dict[str, Any]] | None,
+    authorized_tool_names: set[str] | None,
+    compaction: bool,
+    get_local_tool_schemas_fn: Any,
+    fetch_mcp_tools_fn: Any,
+    get_client_tool_schemas_fn: Any,
+    merge_tool_schemas_fn: Any,
+) -> LoopToolState:
+    """Assemble tool schemas + authorization set + mid-loop activation slot.
+
+    Schema-fetch callables are injected rather than imported directly so tests
+    that patch them on ``app.agent.loop`` continue to intercept (same pattern
+    as Cluster 5's ``dispatch_tool_call_fn`` injection).
+
+    Handles: pre-selected-tools passthrough, bot-tool fetch + auto-inject of
+    ``get_skill``/``get_skill_list``, ContextVar-injected dynamic tools (e.g.
+    ``heartbeat_post_to_thread``), and ``current_activated_tools`` seeding for
+    downstream ``get_tool_info`` mid-loop activations.
+    """
+    from app.agent.context import current_activated_tools, current_injected_tools
+
+    if pre_selected_tools is not None:
+        all_tools = merge_tool_schemas_fn(pre_selected_tools)
+    else:
+        local_schemas = get_local_tool_schemas_fn(list(bot.local_tools))
+        mcp_schemas = await fetch_mcp_tools_fn(bot.mcp_servers)
+        client_schemas = get_client_tool_schemas_fn(bot.client_tools)
+        all_tools = local_schemas + mcp_schemas + client_schemas
+        existing_names = {t.get("function", {}).get("name") for t in all_tools}
+        skill_tools_to_add = [
+            n for n in ("get_skill", "get_skill_list")
+            if n not in existing_names
+        ]
+        if skill_tools_to_add:
+            all_tools = all_tools + get_local_tool_schemas_fn(skill_tools_to_add)
+        injected = current_injected_tools.get()
+        if injected:
+            existing = {t["function"]["name"] for t in all_tools}
+            for t in injected:
+                if t["function"]["name"] not in existing:
+                    all_tools.append(t)
+
+    tools_param = all_tools if all_tools else None
+    tool_choice = "auto" if tools_param else None
+
+    if authorized_tool_names:
+        effective_allowed: set[str] | None = set(authorized_tool_names)
+    elif all_tools:
+        effective_allowed = {t["function"]["name"] for t in all_tools}
+    else:
+        effective_allowed = None
+
+    activated_list: list[dict] = []
+    current_activated_tools.set(activated_list)
+
+    has_manage_bot_skill = (
+        not compaction
+        and bot.memory_scheme == "workspace-files"
+        and any(t["function"]["name"] == "manage_bot_skill" for t in all_tools or [])
+    )
+
+    return LoopToolState(
+        all_tools=all_tools,
+        tools_param=tools_param,
+        tool_choice=tool_choice,
+        effective_allowed=effective_allowed,
+        has_manage_bot_skill=has_manage_bot_skill,
+        activated_list=activated_list,
+    )
+
+
+async def _inject_opening_skill_nudges(
+    *,
+    bot: BotConfig,
+    messages: list[dict],
+    has_manage_bot_skill: bool,
+    correlation_id: uuid.UUID | None,
+) -> None:
+    """Append opening-turn skill nudges (one-shot) to the message stream.
+
+    Two independent nudges, both gated on ``has_manage_bot_skill``:
+    - Correction-driven: fires when the last user message matches
+      ``_CORRECTION_RE`` (the user pushed back on a prior turn).
+    - Repeated-lookup: fires when ``find_repeated_lookups`` detects the bot
+      has resolved the same topic N+ times within the window.
+    """
+    from app.config import settings
+
+    if not has_manage_bot_skill:
+        return
+
+    if settings.SKILL_CORRECTION_NUDGE_ENABLED:
+        user_text = _extract_last_user_text(messages)
+        if user_text and _CORRECTION_RE.search(user_text):
+            from app.config import DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT
+            messages.append({
+                "role": "system",
+                "content": DEFAULT_SKILL_CORRECTION_NUDGE_PROMPT,
+            })
+
+    if settings.SKILL_REPEATED_LOOKUP_NUDGE_ENABLED and bot.id:
+        from app.agent.repeated_lookup_detection import find_repeated_lookups
+        from app.config import (
+            DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT,
+            SKILL_REPEATED_LOOKUP_MIN_RUNS,
+            SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
+        )
+        repeated = await find_repeated_lookups(
+            bot_id=bot.id,
+            correlation_id=str(correlation_id) if correlation_id else None,
+            min_runs=SKILL_REPEATED_LOOKUP_MIN_RUNS,
+            window_days=SKILL_REPEATED_LOOKUP_WINDOW_DAYS,
+        )
+        if repeated:
+            topics_list = "\n".join(f"- \"{q}\"" for q in repeated)
+            messages.append({
+                "role": "system",
+                "content": DEFAULT_SKILL_REPEATED_LOOKUP_NUDGE_PROMPT.format(
+                    topics=topics_list,
+                ),
+            })
+
+
+def _merge_activated_tools_into_param(
+    activated_list: list[dict],
+    tools_param: list[dict[str, Any]] | None,
+    tool_choice: str | None,
+    effective_allowed: set[str] | None,
+    *,
+    iteration: int,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """Merge mid-loop ``get_tool_info`` activations into ``tools_param``.
+
+    Also widens the ``effective_allowed`` set in place so dispatch accepts
+    newly-activated names that weren't in the caller-provided authorization
+    set. Returns the updated ``(tools_param, tool_choice)`` pair.
+    """
+    if not activated_list:
+        return tools_param, tool_choice
+    existing_names = (
+        {(t.get("function") or {}).get("name") for t in tools_param}
+        if tools_param
+        else set()
+    )
+    new_activated = [
+        t for t in activated_list
+        if (t.get("function") or {}).get("name") not in existing_names
+    ]
+    if not new_activated:
+        return tools_param, tool_choice
+    tools_param = (tools_param or []) + new_activated
+    tool_choice = "auto"
+    if effective_allowed is not None:
+        for at in new_activated:
+            an = (at.get("function") or {}).get("name")
+            if an:
+                effective_allowed.add(an)
+    logger.info(
+        "Iteration %d: merged %d tools activated via get_tool_info: %s",
+        iteration + 1,
+        len(new_activated),
+        [(t.get("function") or {}).get("name") for t in new_activated],
+    )
+    return tools_param, tool_choice
+
+
+def _recover_tool_calls_from_text(
+    accumulated_msg: Any,
+    messages: list[dict],
+    effective_allowed: set[str] | None,
+) -> None:
+    """Recover tool calls from JSON-in-text or suppressed XML blocks.
+
+    Local models sometimes emit tool calls as serialized text alongside or
+    instead of the native tool-calls channel. This helper looks for two shapes:
+    1. JSON objects in ``accumulated_msg.content`` matching an allowed tool
+       (replaces the whole content with the remaining non-JSON text).
+    2. XML ``<invoke>`` blocks captured in ``accumulated_msg.suppressed_xml_blocks``
+       during streaming (MiniMax and siblings).
+
+    Mutates ``accumulated_msg.tool_calls`` / ``content`` and updates the
+    eagerly-appended ``messages[-1]`` in place. No return value.
+    """
+    from app.agent.llm import extract_json_tool_calls, extract_xml_tool_calls
+
+    if accumulated_msg.tool_calls:
+        return
+    json_tcs, remaining = extract_json_tool_calls(
+        accumulated_msg.content or "", effective_allowed or set()
+    )
+    if json_tcs:
+        logger.info("Recovered %d JSON tool call(s) from text content", len(json_tcs))
+        accumulated_msg.tool_calls = json_tcs
+        accumulated_msg.content = remaining or None
+        messages[-1] = accumulated_msg.to_msg_dict()
+        return
+
+    if accumulated_msg.suppressed_xml_blocks:
+        xml_tcs = extract_xml_tool_calls(
+            accumulated_msg.suppressed_xml_blocks, effective_allowed or set()
+        )
+        if xml_tcs:
+            logger.info(
+                "Recovered %d XML tool call(s) from suppressed streaming content",
+                len(xml_tcs),
+            )
+            accumulated_msg.tool_calls = xml_tcs
+            messages[-1] = accumulated_msg.to_msg_dict()

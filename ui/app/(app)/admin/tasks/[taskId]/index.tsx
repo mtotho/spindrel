@@ -613,7 +613,7 @@ function SystemManagedOverview({ task, label }: { task: TaskDetail; label: strin
       <div className="text-center">
         <h3 className="text-base font-bold text-text m-0 mb-1">System-Managed Task</h3>
         <p className="text-sm text-text-muted m-0">
-          This <span className="font-semibold">{label}</span> task is automatically configured from the Learning Center.
+          This <span className="font-semibold">{label}</span> task is automatically configured from Memory &amp; Knowledge.
           To change its schedule, prompt, or bot settings, edit them there.
         </p>
       </div>
@@ -623,7 +623,7 @@ function SystemManagedOverview({ task, label }: { task: TaskDetail; label: strin
         className="flex flex-row items-center gap-2 px-5 py-2.5 text-sm font-semibold border-none rounded-lg bg-accent text-white cursor-pointer hover:bg-accent-hover transition-colors"
       >
         <BookOpen size={16} />
-        Open Learning Center
+        Open Memory &amp; Knowledge
       </button>
 
       {/* Read-only summary */}

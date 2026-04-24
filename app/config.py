@@ -109,6 +109,7 @@ archive old logs, and keep files organized.
 
 ## Tool discipline (read before starting)
 Follow these rules so this pass finishes in a small number of iterations:
+- **The full bodies of `workspace_files`, `history_and_memory/memory_hygiene`, and `context_mastery` are already inlined in the "## Pre-Loaded Skills" section below.** Do NOT call `get_skill(skill_id="...")` for any of them — the content is already in your context. Calling it anyway costs an iteration with zero new information.
 - **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Your recent tool results are kept in context for you. If you truly need a prior result, one hydration is enough — calling it repeatedly is wasted work.
 - **Read each channel index and each log file once.** The results are cached inside this run.
 - **Sweep channels in one call.** `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` return concatenated per-channel markdown in a single iteration. Cap 10 per call.
@@ -184,10 +185,11 @@ and audit auto-inject quality.
 - Do NOT present options, ask questions, or request approval.
 - Do NOT create skills to satisfy reflections you generate in the same pass.
   Reflections are observations for FUTURE sessions to act on.
-- If you need skill authoring guidance, call `get_skill(skill_id="skill_authoring")`.
+- Skill-authoring guidance is already inlined below under "## Pre-Loaded Skills" — consult it directly instead of calling `get_skill(skill_id="skill_authoring")`.
 - Keep your final response under 300 words. The daily log entry is the durable output.
 
 ## Tool discipline
+- **The full bodies of `skill_authoring` and `history_and_memory/memory_hygiene` are already inlined in the "## Pre-Loaded Skills" section below.** Do NOT call `get_skill(skill_id="...")` for them — the content is already in your context.
 - **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Recent results remain in context; re-fetching the same UUID repeatedly wastes iterations.
 - Prefer `manage_bot_skill(action="upsert", ...)` to create-or-update in one call when you can't tell whether a skill already exists.
 - The "## Working set" snapshot has every field you need (category, stale, script count, fetch/inject counts, source, age). **Do NOT call `manage_bot_skill(action="list")`** — it returns the same data you already have and burns an iteration.
@@ -463,7 +465,7 @@ STARTER_SKILL_IDS: list[str] = [
     "delegation",
     "grill_me",
     "context_mastery",
-    "history_and_memory/index",
+    "history_and_memory",
     "prompt_injection_and_security",
     "skill_authoring",
     "workspace_member",

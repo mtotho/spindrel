@@ -5,6 +5,7 @@ Every test (unit or integration) gets real SQLite-in-memory via ``db_session``
 fixture — pytest fixtures are lazy.
 """
 import os
+import sys
 import uuid as _uuid_mod
 
 # Set required env vars before any app imports trigger Settings() instantiation.
@@ -12,9 +13,11 @@ os.environ.setdefault("API_KEY", "test-key")
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("TOOL_POLICY_ENABLED", "false")
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.dialects.postgresql import (
     JSONB,
     UUID as PG_UUID,
@@ -119,13 +122,40 @@ _SQLITE_DATETIME.result_processor = _patched_sqlite_dt_result_processor
 from app.db.models import Base  # noqa: E402
 
 
+def _skip_if_local_aiosqlite_is_known_broken() -> None:
+    """Skip fast instead of letting DB-backed tests hang forever.
+
+    The repo's supported test runtime is Dockerfile.test (Python 3.12). On the
+    current local Python 3.14 runtime, aiosqlite 0.22.x can consume its worker
+    queue item and never wake the awaiting event loop when a sqlite object
+    crosses the worker-thread boundary. That presents as a pytest fixture hang
+    before the test body runs, so make the runtime mismatch explicit without
+    failing unrelated local test slices.
+    """
+    if sys.version_info >= (3, 14):
+        import aiosqlite
+
+        if tuple(int(part) for part in aiosqlite.__version__.split(".")[:2]) <= (0, 22):
+            pytest.skip(
+                "DB-backed async SQLite tests require the supported Python 3.12 "
+                "test runtime; local Python 3.14 with aiosqlite<=0.22 hangs in "
+                "fixture startup. Run via Dockerfile.test or a Python 3.12 venv.",
+            )
+
+
 # ---------------------------------------------------------------------------
 # Database fixtures (shared across unit + integration)
 # ---------------------------------------------------------------------------
 @pytest_asyncio.fixture
 async def engine():
+    _skip_if_local_aiosqlite_is_known_broken()
 
-    eng = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    eng = create_async_engine(
+        "sqlite+aiosqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        echo=False,
+    )
 
     from sqlalchemy import event, text as sa_text
     from sqlalchemy.schema import DefaultClause

@@ -113,8 +113,8 @@ Phase 1 done (bus carries data + seq numbers + replay). Phase 2 folded into Inte
 ### Code Quality & Refactoring
 Ousterhout depth audit clusters 1–5 shipped 2026-04-23 → 2026-04-24 (indexing boundary, dashboard router split + preset drift, HTTPException boundary-bypass, cross-surface drift guards across event bus / widget boundary / theme tokens / inline-hex ratchet, tool_dispatch deepening 686→310 LOC via 7 cohesive helpers). 6 bugs from 156-file audit landed. `assemble_context` extracted (~1400→~990 lines). Remaining: `assemble_context` (1500) + `run_agent_tool_loop` (883) as Cluster 6+; widget envelope triple-rebuild reconciliation as its own cluster; loop, file_sync, tasks, compaction god-function splits queued behind. See [[Track - Code Quality]].
 
-### Learning Center Enhancements (2026-04-15)
-Time-windowed metrics, skill activity chart, activity heatmap, skill ring. Dreaming job split (Maintenance + Skill Review) with per-bot config.
+### Memory & Knowledge admin reframe (2026-04-24)
+`/admin/learning` is now framed as Memory & Knowledge: overview + memory activity + knowledge inventory + conversation-history search + existing dreaming/skills surfaces. The first implementation adds read-first unified search across bot memory, bot KB, channel KB, and archived sections, plus admin APIs for memory activity and knowledge inventory.
 
 ### Wyoming Voice Integration
 Phase 1 scaffold + Phase 3 ESPHome + Phase 4 satellite shipped. **Remaining**: wake word routing, streaming TTS, ESPHome wake word support.
@@ -192,12 +192,15 @@ Discord audit next (following the playbook), then BlueBubbles, then GitHub's dis
 - Trust the pipeline — fix mechanisms, don't add config knobs
 
 ## Canonical Guides
-Index: `agent-server/docs/guides/index.md`. These win against other docs when they disagree.
-- `agent-server/docs/guides/context-management.md` — context admission + history profiles
-- `agent-server/docs/guides/discovery-and-enrollment.md` — tool / skill / MCP residency + enrollment
-- `agent-server/docs/guides/widget-system.md` — widget contracts, origins, presentation, host policy
-- `agent-server/docs/guides/ui-design.md` — UI archetypes, design tokens, anti-patterns
-- `agent-server/docs/guides/integrations.md` — integration contract + responsibility boundary
+Index: `agent-server/docs/guides/index.md`. These win against other docs when they disagree. Update the matching guide in the same pass as any architectural change — drift is the enemy.
+- `development-process.md` — review triage, Agent Briefs, contract/red-line review, out-of-scope decisions
+- `context-management.md` — context admission + history profiles
+- `discovery-and-enrollment.md` — tool / skill / MCP residency + enrollment
+- `widget-system.md` — widget contracts, origins, presentation, host policy
+- `ui-design.md` — UI archetypes, design tokens, anti-patterns
+- `ui-components.md` — shared dropdowns, prompt editors, settings rows, component usage catalog
+- `integrations.md` — integration contract + responsibility boundary
+- `ubiquitous-language.md` — canonical glossary + flagged ambiguities
 
 ## Related
 - [[Architecture]] — subsystem map and request flow

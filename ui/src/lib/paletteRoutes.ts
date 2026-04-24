@@ -80,7 +80,7 @@ const STATIC_ROUTES = new Map<string, StaticRouteMeta>([
   ["/admin/diagnostics", { pageType: "Diagnostics", category: "Monitor", icon: HardDrive, label: "Diagnostics", hint: "Monitor" }],
   ["/admin/docker-stacks", { pageType: "Docker Stacks", category: "Configure", icon: Boxes, label: "Docker Stacks", hint: "Configure" }],
   ["/admin/integrations", { pageType: "Integrations", category: "Configure", icon: Plug, label: "Integrations", hint: "Configure" }],
-  ["/admin/learning", { pageType: "Learning", category: "Automate", icon: Brain, label: "Learning Center", hint: "Automate" }],
+  ["/admin/learning", { pageType: "Memory & Knowledge", category: "Automate", icon: Brain, label: "Memory & Knowledge", hint: "Automate" }],
   ["/admin/logs", { pageType: "Logs", category: "Monitor", icon: ScrollText, label: "Logs", hint: "Monitor" }],
   ["/admin/logs/fallbacks", { pageType: "Logs", category: "Monitor", icon: ScrollText, label: "Logs · Fallbacks", hint: "Monitor" }],
   ["/admin/logs/server", { pageType: "Logs", category: "Monitor", icon: ScrollText, label: "Logs · Server", hint: "Monitor" }],

@@ -33,6 +33,75 @@ STICKY_TOOL_NAMES: frozenset[str] = frozenset({
 _PRUNED_ARGS_SENTINEL = "_spindrel_pruned_tool_args"
 
 
+def build_pruned_tool_call_arguments_marker(tool_name: str, original_chars: int) -> str:
+    """Return the JSON marker used when compacting historical tool-call args."""
+    return json.dumps({
+        _PRUNED_ARGS_SENTINEL: True,
+        "tool": tool_name,
+        "original_chars": original_chars,
+        "note": "Historical tool-call arguments were compacted for context replay.",
+    }, separators=(",", ":"))
+
+
+def tool_call_arguments_are_pruned(args: object) -> bool:
+    if not isinstance(args, str):
+        return False
+    try:
+        parsed = json.loads(args)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(parsed, dict) and bool(parsed.get(_PRUNED_ARGS_SENTINEL))
+
+
+def estimate_tool_call_argument_pruning(tool_calls: object, min_content_length: int) -> dict[str, int]:
+    """Estimate savings from compacting oversized assistant tool-call arguments."""
+    if not isinstance(tool_calls, list):
+        return {"count": 0, "chars": 0, "marker_chars": 0, "chars_saved": 0}
+
+    count = 0
+    chars = 0
+    marker_chars = 0
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        fn = tc.get("function")
+        if not isinstance(fn, dict):
+            continue
+        args = fn.get("arguments", "")
+        if not isinstance(args, str):
+            args = json.dumps(args)
+        if len(args) < min_content_length or tool_call_arguments_are_pruned(args):
+            continue
+        marker = build_pruned_tool_call_arguments_marker(
+            str(fn.get("name") or "tool"),
+            len(args),
+        )
+        count += 1
+        chars += len(args)
+        marker_chars += len(marker)
+    return {
+        "count": count,
+        "chars": chars,
+        "marker_chars": marker_chars,
+        "chars_saved": max(0, chars - marker_chars),
+    }
+
+
+def build_pruned_tool_result_marker(
+    tool_name: str,
+    original_length: int,
+    *,
+    record_id: str | None = None,
+) -> str:
+    if record_id:
+        return (
+            f"[Tool output from {tool_name} ({original_length:,} chars)"
+            f" — use read_conversation_history(section='tool:{record_id}')"
+            f" to retrieve]"
+        )
+    return f"[Tool result pruned — {tool_name}: {original_length} chars]"
+
+
 def _empty_turn_stats() -> dict:
     return {
         "pruned_count": 0,
@@ -85,13 +154,10 @@ def _compact_tool_call_arguments(msg: dict, min_content_length: int) -> dict[str
         except (TypeError, ValueError):
             pass
 
-        name = str(fn.get("name") or "tool")
-        marker = json.dumps({
-            _PRUNED_ARGS_SENTINEL: True,
-            "tool": name,
-            "original_chars": len(args),
-            "note": "Historical tool-call arguments were compacted for context replay.",
-        }, separators=(",", ":"))
+        marker = build_pruned_tool_call_arguments_marker(
+            str(fn.get("name") or "tool"),
+            len(args),
+        )
         new_tool_calls.append({
             **tc,
             "function": {
@@ -191,14 +257,11 @@ def prune_tool_results(
             tool_call_id = msg.get("tool_call_id", "")
             tool_name = tool_name_map.get(tool_call_id, "unknown")
             original_length = len(content)
-            if record_id:
-                marker = (
-                    f"[Tool output from {tool_name} ({original_length:,} chars)"
-                    f" — use read_conversation_history(section='tool:{record_id}')"
-                    f" to retrieve]"
-                )
-            else:
-                marker = f"[Tool result pruned — {tool_name}: {original_length} chars]"
+            marker = build_pruned_tool_result_marker(
+                tool_name,
+                original_length,
+                record_id=record_id,
+            )
             msg["content"] = marker
             pruned_count += 1
             chars_saved += original_length - len(marker)

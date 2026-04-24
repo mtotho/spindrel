@@ -1,4 +1,5 @@
-import type { ThemeTokens } from "@/src/theme/tokens";
+import { FormRow, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
 import type { MachineControlEnrollField } from "@/src/api/hooks/useMachineTargets";
 
 export type MachineEnrollDraft = Record<string, string | boolean>;
@@ -47,120 +48,83 @@ export function MachineEnrollFields({
   draft,
   onChange,
   disabled,
-  t,
 }: {
   fields?: MachineControlEnrollField[] | null;
   draft: MachineEnrollDraft;
   onChange: (key: string, value: string | boolean) => void;
   disabled?: boolean;
-  t: ThemeTokens;
 }) {
   const usableFields = fields ?? [];
   if (!usableFields.length) return null;
 
   return (
-    <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", width: "100%" }}>
+    <div className="grid w-full gap-3 md:grid-cols-2">
       {usableFields.map((field) => {
         const key = field.key;
         const value = draft[key];
-        const label = field.label || key;
-        const description = field.description || null;
+        const label = `${field.label || key}${field.required ? " *" : ""}`;
+        const description = field.description || undefined;
 
         if (field.type === "boolean") {
           return (
-            <label
-              key={key}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                minHeight: 36,
-                color: t.text,
-                fontSize: 12,
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(value)}
-                disabled={disabled}
-                onChange={(event) => onChange(key, event.target.checked)}
+            <div key={key} className="md:col-span-2">
+              <Toggle
+                value={Boolean(value)}
+                onChange={(next) => onChange(key, next)}
+                label={label}
+                description={description}
               />
-              <span>
-                {label}
-                {description ? <span style={{ color: t.textDim }}> · {description}</span> : null}
-              </span>
-            </label>
+            </div>
           );
         }
 
-        return (
-          <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: t.textDim }}>
-              {label}
-              {field.required ? " *" : ""}
-            </span>
-            {field.type === "select" && field.options?.length ? (
-              <select
+        if (field.type === "select" && field.options?.length) {
+          return (
+            <FormRow key={key} label={label} description={description}>
+              <SelectDropdown
                 value={String(value ?? "")}
+                onChange={(next) => onChange(key, next)}
+                options={[
+                  { value: "", label: "Select..." },
+                  ...field.options.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                    searchText: `${option.label} ${option.value}`,
+                  })),
+                ]}
                 disabled={disabled}
-                onChange={(event) => onChange(key, event.target.value)}
-                style={{
-                  minHeight: 36,
-                  borderRadius: 6,
-                  border: `1px solid ${t.inputBorder}`,
-                  background: t.inputBg,
-                  color: t.text,
-                  padding: "8px 10px",
-                  fontSize: 12,
-                }}
-              >
-                <option value="">Select…</option>
-                {field.options.map((option) => (
-                  <option key={`${key}:${option.value}`} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : field.multiline ? (
+                searchable={field.options.length > 8}
+                popoverWidth="content"
+              />
+            </FormRow>
+          );
+        }
+
+        if (field.multiline) {
+          return (
+            <FormRow key={key} label={label} description={description}>
               <textarea
                 value={String(value ?? "")}
                 disabled={disabled}
                 onChange={(event) => onChange(key, event.target.value)}
                 placeholder={field.description || ""}
                 rows={5}
-                style={{
-                  borderRadius: 6,
-                  border: `1px solid ${t.inputBorder}`,
-                  background: t.inputBg,
-                  color: t.text,
-                  padding: "8px 10px",
-                  fontSize: 12,
-                  resize: "vertical",
-                  minHeight: 100,
-                }}
+                className="min-h-[120px] w-full resize-y rounded-md border border-input-border bg-input px-3 py-2 text-sm text-text placeholder:text-text-dim focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:cursor-default disabled:opacity-50"
               />
-            ) : (
-              <input
-                type={field.type === "number" ? "number" : field.secret ? "password" : "text"}
-                value={String(value ?? "")}
-                disabled={disabled}
-                onChange={(event) => onChange(key, event.target.value)}
-                placeholder={field.description || ""}
-                style={{
-                  minHeight: 36,
-                  borderRadius: 6,
-                  border: `1px solid ${t.inputBorder}`,
-                  background: t.inputBg,
-                  color: t.text,
-                  padding: "8px 10px",
-                  fontSize: 12,
-                }}
-              />
-            )}
-            {description ? (
-              <span style={{ fontSize: 11, color: t.textDim }}>{description}</span>
-            ) : null}
-          </label>
+            </FormRow>
+          );
+        }
+
+        return (
+          <FormRow key={key} label={label} description={description}>
+            <TextInput
+              type={field.type === "number" ? "number" : field.secret ? "password" : "text"}
+              value={String(value ?? "")}
+              onChangeText={(next) => onChange(key, next)}
+              placeholder={field.description || ""}
+              disabled={disabled}
+            />
+          </FormRow>
         );
       })}
     </div>

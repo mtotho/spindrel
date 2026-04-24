@@ -41,6 +41,9 @@ def _sha256(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+_SKILL_ID_PATTERN = re.compile(r"^[a-z0-9_/-]+$")
+
+
 def _parse_frontmatter(content: str) -> tuple[dict, str]:
     match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
     if not match:
@@ -51,6 +54,30 @@ def _parse_frontmatter(content: str) -> tuple[dict, str]:
     except Exception:
         meta = {}
     return meta, content[match.end():]
+
+
+def _resolve_skill_id(default_id: str, meta: dict) -> str:
+    """Return frontmatter `id:` if present and valid; else path-derived default.
+
+    An `id:` override lets a skill keep a stable logical ID across filesystem
+    moves — without it, moving a file cascades enrollment rows via the
+    bot_skill_enrollment / channel_skill_enrollment FKs. The override must
+    match ``^[a-z0-9_/-]+$`` after stripping whitespace; otherwise we fall
+    back to the default and log a warning so bad overrides are visible.
+    """
+    raw = meta.get("id")
+    if not isinstance(raw, str):
+        return default_id
+    candidate = raw.strip()
+    if not candidate:
+        return default_id
+    if not _SKILL_ID_PATTERN.match(candidate):
+        logger.warning(
+            "file_sync: invalid skill id override %r — falling back to %r",
+            raw, default_id,
+        )
+        return default_id
+    return candidate
 
 
 def _extract_skill_metadata(raw: str, skill_id: str) -> dict[str, Any]:
@@ -243,14 +270,28 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
         "files_on_disk": [{"id": sid, "path": str(p), "source_type": st} for p, sid, st in skill_files],
     }
 
-    for path, skill_id, source_type in skill_files:
-        seen_skill_ids.add(skill_id)
+    for path, default_skill_id, source_type in skill_files:
         try:
             raw = path.read_text(encoding="utf-8")
         except Exception:
             logger.exception("Cannot read skill file %s", path)
             counts["errors"].append(f"Cannot read {path}")
+            # Protect the existing DB row from orphan deletion when read fails
+            seen_skill_ids.add(default_skill_id)
             continue
+
+        meta, _ = _parse_frontmatter(raw)
+        skill_id = _resolve_skill_id(default_skill_id, meta)
+
+        if skill_id in seen_skill_ids:
+            logger.warning(
+                "file_sync: duplicate skill id '%s' — second occurrence at %s skipped "
+                "(check for conflicting `id:` frontmatter override)",
+                skill_id, path,
+            )
+            counts["errors"].append(f"Duplicate skill id '{skill_id}' at {path}")
+            continue
+        seen_skill_ids.add(skill_id)
 
         content_hash = _sha256(raw)
         skill_meta = _extract_skill_metadata(raw, skill_id)

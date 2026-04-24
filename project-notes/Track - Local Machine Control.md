@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-24 (phase 9 provider profiles shipped)
+updated: 2026-04-24 (admin machine-center UI refreshed)
 ---
 # Track — Local Machine Control
 
@@ -36,6 +36,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 7 | Provider-generic readiness contract, SSH provider, probe UX | ✅ shipped 2026-04-24 |
 | 8 | Transcript-first UX, header chrome removal, optional native widget | ✅ shipped 2026-04-24 |
 | 9 | Generic provider profiles, SSH-first adoption, machine-center profile UI | ✅ shipped 2026-04-24 |
+| 10 | Admin machine-center UI refresh against canonical control-surface standards | ✅ shipped 2026-04-24 |
 
 ## What Shipped
 
@@ -146,6 +147,12 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - no provider-global ambient credential fallback remains
 - Profiles and targets persist in provider-owned app settings, so SSH setup survives container rebuilds without requiring new core tables.
 
+### Phase 10 — Admin machine-center UI refresh
+
+- `/admin/machines` now uses the canonical low-chrome control-surface language from `docs/guides/ui-design.md`.
+- Provider/profile/enroll/target groups moved onto shared Tailwind token controls; the route no longer uses `useThemeTokens()` or inline color styling.
+- `Admin > Integrations > <machine provider>` remains summary/link-only, preserving Admin > Machines as the canonical profile/target lifecycle surface.
+
 ## Current Architecture Shape
 
 - Core:
@@ -169,6 +176,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Richer machine capabilities beyond shell once the provider contract settles.
 - Multi-worker/shared-broker support for live provider connection state.
 - Better pytest reliability around the `test_machine_admin_routes_drift.py` stall pattern so router-level machine-profile tests can be left in the normal aggregate slice instead of file-by-file verification.
+- Browser visual review of the refreshed `/admin/machines` surface in light and dark mode.
 
 ## Verification
 
@@ -182,3 +190,4 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `cd agent-server/ui && node --test src/lib/machineControlSetup.test.ts`
 - `cd agent-server/ui && node --test src/lib/machineControlApiPaths.test.ts`
 - `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false`
+- `cd agent-server/ui && npx tsc --noEmit` after the admin machine-center UI refresh.

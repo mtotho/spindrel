@@ -10,6 +10,28 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Skill ID is decoupled from filesystem path via frontmatter `id:` override
+**Decided 2026-04-24.** Skill IDs used to be strictly derived from the filesystem path (`skills/foo/bar.md` → id `foo/bar`), which meant any file rename or folder move CASCADE-deleted `bot_skill_enrollment` and `channel_skill_enrollment` rows via their FKs to `skills.id` and orphaned RAG chunks in `documents` (source `skill:foo/bar`). This coupling blocked organizational passes — every move was a migration event.
+
+**What changed.**
+- `_resolve_skill_id(default_id, meta) -> str` in `app/services/file_sync.py` returns `meta.get("id")` when present, stripped, non-empty, and matching `^[a-z0-9_/-]+$`. Falls back to the path-derived default otherwise.
+- `sync_all_files` applies the override at Skill-row PK assignment time, and tracks effective (post-override) IDs for both orphan-detection and explicit duplicate-ID warnings.
+- No schema change, no migration. Existing skills that don't set `id:` keep their path-derived IDs (100% backward compatible).
+
+**Why this contract, not the alternatives.**
+- A `deprecated_id` DB column + alias lookup would have added a permanent backward-compat layer that decayed with every future move.
+- A one-time SQL remap migration would have solved this reorg but required a new migration for every future reorg.
+- Frontmatter `id:` is the minimal change that decouples logical ID from physical path _forever_ — future moves cost zero migration.
+
+**Defaults.**
+- Skills without `id:` frontmatter: ID is derived from the filesystem path (unchanged behavior).
+- Skills with `id:`: that exact string is the Skill row PK. Illegal overrides log a warning and fall back.
+
+**Constraints.**
+- Override characters must match `^[a-z0-9_/-]+$` — same class the path-derived IDs produce.
+- Duplicates (two files claiming the same ID) log a warning and the second occurrence is skipped, so silent collisions are impossible.
+- Bot-scoped `bots/{id}/skills/*.md` and integration-shipped `integrations/{id}/skills/*.md` loaders also honor the override.
+
 ### Widget pins persist canonical origin metadata, and runtime config is `widget_config`
 **Decided 2026-04-23.** Dashboard/widget pins are no longer treated as envelopes that the runtime re-interprets later. They now persist canonical origin metadata plus contract/schema snapshots, and the runtime config namespace is explicitly `widget_config`.
 

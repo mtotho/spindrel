@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-24 (shared select dropdown + prompt editor catalog)
+updated: 2026-04-24 (admin machines + integrations UI refresh)
 ---
 # Track — UI Polish
 
@@ -21,6 +21,10 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Completed a channel-settings consistency sweep: Sessions, Logs, Context preview, Knowledge workspace controls, Tasks filters, Pipeline subscriptions, integration add-ons/bindings, and integration picker rows now use shared low-chrome primitives where the old one-off controls were visually inconsistent.
 - [x] Corrected the banner rule: semantic left-border alert stripes are now banned in `ui-design.md` / `spindrel-ui`, and shared `InfoBanner` renders tonal notes without side borders.
 - [x] Added the load-stability rule: settings loading states must reserve the final layout footprint instead of using spinner-only swaps that make tabs bounce; Heartbeat now uses a stable low-chrome loading shell.
+- [x] Reframed `/admin/learning` as Memory & Knowledge with Overview, Memory, Knowledge, History, Dreaming, and Skills tabs; added read-first unified search across bot memory, bot KB, channel KB, and archived conversation history.
+- [x] Refreshed `/admin/machines` and `/admin/integrations` against the canonical control-surface standard: shared token/Tailwind controls, no route-level `useThemeTokens()`, no inline hex/RGBA, lower-chrome rows/sections, and machine-control provider detail kept summary/link-only.
+- [x] Added shared `EmptyState` for low-chrome empty surfaces and moved the new Memory & Knowledge page onto existing shared controls instead of one-off dropdowns/buttons.
+- [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
 - [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.
@@ -74,7 +78,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 
 ### Memory Hygiene UI — Steps 4-6 (deferred from 2026-04-11)
 - [ ] **Step 4**: global "next dreaming window" summary card on Overview + effective-schedule preview under Interval/Target Hour fields
-- [ ] **Step 5**: cross-link InfoBanners between Settings ↔ Learning Center ↔ Bot admin dreaming surfaces
+- [ ] **Step 5**: cross-link InfoBanners between Settings ↔ Memory & Knowledge ↔ Bot admin dreaming surfaces
 - [ ] **Step 6**: cadence drift health check (compares expected vs actual interval; would have auto-caught the 48h cadence bug)
 
 ### Not Yet Done

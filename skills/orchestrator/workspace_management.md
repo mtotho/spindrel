@@ -1,8 +1,11 @@
 ---
 name: Workspace Management
+id: shared/orchestrator/workspace-management
 description: >
   Channel and workspace operating conventions, including safe memory writes,
   workspace prompt overrides, and orchestration checklists.
+triggers: channel management, workspace management, safe memory writes, workspace prompt override, channel conventions, orchestration checklist
+category: core
 ---
 
 # Workspace Management

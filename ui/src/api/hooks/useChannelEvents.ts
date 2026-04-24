@@ -657,7 +657,12 @@ export function useChannelEvents(
           // Finalize the turn (materialize content as a synthetic message).
           if (store.getChannel(storeKey).turns[turnId]) {
             if (payload?.error) {
-              store.setError(storeKey, String(payload.error));
+              const error = String(payload.error);
+              store.handleTurnEvent(storeKey, turnId, {
+                event: "error",
+                data: { message: error },
+              });
+              store.setError(storeKey, error);
             }
             store.finishTurn(storeKey, turnId);
           } else if (payload?.error) {

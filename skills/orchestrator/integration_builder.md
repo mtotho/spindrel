@@ -1,8 +1,11 @@
 ---
 name: Integration Builder
+id: shared/orchestrator/integration-builder
 description: >
   Creating custom integrations: scaffold, edit, reload, and verify. Load when
   building routers, tools, skills, workflows, or integration activation metadata.
+triggers: integration, custom integration, scaffold integration, build integration, integration router, integration reload, integration tool, integration skill
+category: core
 ---
 
 # Integration Builder Guide

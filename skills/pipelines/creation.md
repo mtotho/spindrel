@@ -1,5 +1,6 @@
 ---
 name: Pipeline Creation
+id: pipeline_creation
 description: >
   Decision guide for creating task pipelines. When to use a pipeline vs work
   inline, how to use schedule_task with steps, step type selection across all

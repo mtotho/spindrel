@@ -10,11 +10,12 @@ Keep public, reusable process in `docs/guides/`. Local workspace state and priva
 
 Index: [`docs/guides/index.md`](docs/guides/index.md). Read the matching guide before touching these areas — they win against every other doc when they disagree.
 
-- [`docs/guides/context-management.md`](docs/guides/context-management.md) — context admission + history profiles
 - [`docs/guides/development-process.md`](docs/guides/development-process.md) — review triage, Agent Briefs, contract/red-line review, out-of-scope decisions
+- [`docs/guides/context-management.md`](docs/guides/context-management.md) — context admission + history profiles
 - [`docs/guides/discovery-and-enrollment.md`](docs/guides/discovery-and-enrollment.md) — tool / skill / MCP residency + enrollment
 - [`docs/guides/widget-system.md`](docs/guides/widget-system.md) — widget contracts, origins, presentation, host policy
 - [`docs/guides/ui-design.md`](docs/guides/ui-design.md) — UI archetypes, design tokens, anti-patterns
+- [`docs/guides/ui-components.md`](docs/guides/ui-components.md) — shared dropdowns, prompt editors, settings rows, component usage catalog
 - [`docs/guides/integrations.md`](docs/guides/integrations.md) — integration contract + responsibility boundary
 - [`docs/guides/ubiquitous-language.md`](docs/guides/ubiquitous-language.md) — canonical glossary; open when naming a new concept, reviewing UI copy, or resolving a terminology disagreement
 

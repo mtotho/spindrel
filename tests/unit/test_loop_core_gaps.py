@@ -274,6 +274,21 @@ def _prior_iter_messages():
 class TestInLoopPruning:
     """Verify the in-loop pruning gate (iteration > 0) and context_pruning event."""
 
+    @staticmethod
+    async def _fake_dispatch_iteration_tool_calls(*, accumulated_tool_calls, state, compaction, **kwargs):
+        for tc in accumulated_tool_calls:
+            state.messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": "X" * 300,
+            })
+            yield {
+                "type": "tool_result",
+                "tool": tc["function"]["name"],
+                "result": '{"ok": true}',
+                "tool_call_id": tc["id"],
+            }
+
     @pytest.mark.asyncio
     async def test_pruning_event_emitted_when_enabled(self):
         """context_pruning with scope=in_loop is emitted when IN_LOOP_PRUNING_ENABLED=True."""
@@ -287,11 +302,7 @@ class TestInLoopPruning:
         events = []
         with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_final)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
-             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
-             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
-             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
              patch("app.agent.loop.settings") as ms:
             _base_loop_settings(ms, pruning_enabled=True)
@@ -320,11 +331,7 @@ class TestInLoopPruning:
         events = []
         with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_final)), \
              patch("app.services.providers.check_rate_limit", return_value=0), \
-             patch("app.agent.tool_dispatch.is_client_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.is_local_tool", return_value=True), \
-             patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
-             patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
-             patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
              patch("app.agent.loop.settings") as ms:
             _base_loop_settings(ms, pruning_enabled=False)

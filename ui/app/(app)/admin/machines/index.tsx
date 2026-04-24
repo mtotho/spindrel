@@ -3,7 +3,16 @@ import { Copy, ExternalLink, KeyRound, Monitor, Pencil, Plug, RefreshCw, SearchC
 
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { Section, TextInput } from "@/src/components/shared/FormControls";
+import {
+  ActionButton,
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import {
   useAdminMachines,
@@ -26,25 +35,6 @@ import {
   type MachineEnrollDraft,
 } from "@/src/components/machineControl/MachineEnrollFields";
 
-function SectionCard({ children }: { children: React.ReactNode }) {
-  const t = useThemeTokens();
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        padding: 16,
-        borderRadius: 10,
-        border: `1px solid ${t.surfaceBorder}`,
-        background: t.inputBg,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
 function formatDateTime(value?: string | null): string | null {
   if (!value) return null;
   const parsed = new Date(value);
@@ -54,6 +44,13 @@ function formatDateTime(value?: string | null): string | null {
 
 function targetStateText(target: MachineTarget): string {
   return target.status_label || (target.ready ? "Ready" : "Unavailable");
+}
+
+function targetStatusVariant(target: MachineTarget): "success" | "warning" | "danger" | "neutral" {
+  if (target.ready) return "success";
+  if (target.status === "error") return "danger";
+  if (target.status === "probing" || target.status === "connecting") return "warning";
+  return "neutral";
 }
 
 function initialDraft(fields?: MachineControlEnrollField[] | null): MachineEnrollDraft {
@@ -66,7 +63,6 @@ function profileConfiguredSecrets(profile: MachineProviderProfile): string[] {
 }
 
 function ProviderSection({ provider }: { provider: MachineProviderState }) {
-  const t = useThemeTokens();
   const { confirm, ConfirmDialogSlot } = useConfirm();
   const enroll = useEnrollMachineTarget(provider.provider_id);
   const remove = useDeleteMachineTarget(provider.provider_id);
@@ -78,7 +74,6 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   const [labelDraft, setLabelDraft] = useState("");
   const [configDraft, setConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.enroll_fields));
   const [copied, setCopied] = useState(false);
-
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileLabelDraft, setProfileLabelDraft] = useState("");
   const [profileConfigDraft, setProfileConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.profile_fields));
@@ -91,7 +86,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
         key: "profile_id",
         type: "select",
         label: "Profile",
-        description: "Choose the credentials/trust profile for this target",
+        description: "Credentials and trust profile for this target.",
         required: true,
         options: profiles.map((profile) => ({ value: profile.profile_id, label: profile.label })),
       });
@@ -115,19 +110,14 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   const targetConfig = normalizeMachineEnrollConfig(effectiveEnrollFields, configDraft);
   const profileConfig = normalizeMachineEnrollConfig(provider.profile_fields, profileConfigDraft);
   const canEnrollTargets = provider.config_ready && (!provider.supports_profiles || profiles.length > 0);
+  const editingProfile = editingProfileId
+    ? profiles.find((profile) => profile.profile_id === editingProfileId) ?? null
+    : null;
 
   async function handleCopy(command: string) {
     await writeToClipboard(command);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1200);
-  }
-
-  function handleConfigChange(key: string, value: string | boolean) {
-    setConfigDraft((current) => ({ ...current, [key]: value }));
-  }
-
-  function handleProfileConfigChange(key: string, value: string | boolean) {
-    setProfileConfigDraft((current) => ({ ...current, [key]: value }));
   }
 
   function handleStartEditProfile(profile: MachineProviderProfile) {
@@ -145,25 +135,16 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   async function handleRemove(targetId: string, label: string) {
     const accepted = await confirm(
       `Remove ${label} from ${provider.label}? This revokes any active lease and disconnects the target until it is enrolled again.`,
-      {
-        title: "Remove machine target?",
-        confirmLabel: "Remove",
-        variant: "danger",
-      },
+      { title: "Remove machine target?", confirmLabel: "Remove", variant: "danger" },
     );
-    if (!accepted) return;
-    await remove.mutateAsync(targetId);
+    if (accepted) await remove.mutateAsync(targetId);
   }
 
   async function handleDeleteProfile(profile: MachineProviderProfile) {
     if (profile.target_count > 0) return;
     const accepted = await confirm(
       `Delete profile ${profile.label}? Targets using this profile will no longer be able to connect until a replacement profile is assigned.`,
-      {
-        title: "Delete machine profile?",
-        confirmLabel: "Delete",
-        variant: "danger",
-      },
+      { title: "Delete machine profile?", confirmLabel: "Delete", variant: "danger" },
     );
     if (!accepted) return;
     await deleteProfile.mutateAsync(profile.profile_id);
@@ -174,10 +155,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
     if (editingProfileId) {
       await updateProfile.mutateAsync({
         profileId: editingProfileId,
-        body: {
-          label: profileLabelDraft || null,
-          config: profileConfig,
-        },
+        body: { label: profileLabelDraft || null, config: profileConfig },
       });
     } else {
       await createProfile.mutateAsync({
@@ -188,551 +166,294 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
     handleCancelEditProfile();
   }
 
-  const editingProfile = editingProfileId
-    ? profiles.find((profile) => profile.profile_id === editingProfileId) ?? null
-    : null;
-
   return (
     <>
       <ConfirmDialogSlot />
-      <SectionCard>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 16, fontWeight: 700, color: t.text }}>{provider.label}</span>
-              <span style={{ fontSize: 11, color: t.textDim }}>
-                {provider.ready_target_count}/{provider.target_count} ready
-              </span>
-              {provider.supports_profiles ? (
-                <span style={{ fontSize: 11, color: t.textDim }}>
-                  {profiles.length} profile{profiles.length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </div>
-            <div style={{ fontSize: 12, color: t.textDim }}>
-              Driver: {provider.driver} · Integration: {provider.integration_name} · Status: {provider.integration_status}
-            </div>
-          </div>
+      <Section
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>{provider.label}</span>
+            <StatusBadge
+              label={`${provider.ready_target_count}/${provider.target_count} ready`}
+              variant={provider.ready_target_count > 0 ? "success" : "neutral"}
+            />
+            {provider.supports_profiles && <QuietPill label={`${profiles.length} profiles`} />}
+          </span>
+        }
+        description={`Driver ${provider.driver} from ${provider.integration_name}. Session-level machine leases are granted from chat; profiles and targets are managed here.`}
+        action={
           <a
             href={provider.integration_admin_href}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              fontWeight: 600,
-              color: t.accent,
-              textDecoration: "none",
-            }}
+            className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
           >
             Integration settings
             <ExternalLink size={12} />
           </a>
-        </div>
+        }
+      >
+        <div className="flex flex-col gap-5">
+          {!provider.config_ready && (
+            <InfoBanner variant="warning">
+              Provider setup is incomplete. Configure required provider-wide settings on the integration page, then return here.
+            </InfoBanner>
+          )}
 
-        {!provider.config_ready ? (
-          <div
-            style={{
-              padding: 12,
-              borderRadius: 8,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-              fontSize: 12,
-              color: t.textDim,
-            }}
-          >
-            Provider setup is incomplete. Configure the required provider-wide settings on the integration page, then return here to manage profiles and targets.
-          </div>
-        ) : null}
+          {provider.supports_profiles && (
+            <div className="flex flex-col gap-3">
+              <SettingsGroupLabel label="Profiles" count={profiles.length} icon={<KeyRound size={13} className="text-text-dim" />} />
+              {profiles.length === 0 ? (
+                <EmptyState message="No profiles exist yet. Create one before enrolling targets for this provider." />
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {profiles.map((profile) => {
+                    const configuredSecrets = profileConfiguredSecrets(profile);
+                    return (
+                      <SettingsControlRow
+                        key={`${provider.provider_id}:${profile.profile_id}`}
+                        leading={<KeyRound size={14} />}
+                        title={profile.label}
+                        description={
+                          <span className="space-y-0.5">
+                            <span className="block">{profile.summary || "No summary available"}</span>
+                            {configuredSecrets.length > 0 && (
+                              <span className="block">Secrets: {configuredSecrets.join(", ")}</span>
+                            )}
+                            <span className="block">
+                              Created {formatDateTime(profile.created_at) ?? "unknown"}
+                              {profile.updated_at ? ` · Updated ${formatDateTime(profile.updated_at) ?? profile.updated_at}` : ""}
+                            </span>
+                          </span>
+                        }
+                        meta={<QuietPill label={`${profile.target_count} targets`} />}
+                        action={
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <ActionButton
+                              label="Edit"
+                              onPress={() => handleStartEditProfile(profile)}
+                              variant="secondary"
+                              size="small"
+                              disabled={pending}
+                              icon={<Pencil size={12} />}
+                            />
+                            <ActionButton
+                              label="Delete"
+                              onPress={() => void handleDeleteProfile(profile)}
+                              variant="danger"
+                              size="small"
+                              disabled={pending || profile.target_count > 0}
+                              icon={<Trash2 size={12} />}
+                            />
+                          </div>
+                        }
+                      />
+                    );
+                  })}
+                </div>
+              )}
 
-        {provider.supports_profiles ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-              padding: 12,
-              borderRadius: 8,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <KeyRound size={14} color={t.accent} />
-              <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Profiles</div>
-            </div>
-
-            {profiles.length === 0 ? (
-              <div style={{ fontSize: 12, color: t.textDim }}>
-                No profiles exist yet. Create one before enrolling targets for this provider.
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                {profiles.map((profile, index) => (
-                  <div
-                    key={`${provider.provider_id}:${profile.profile_id}`}
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "12px 0",
-                      borderTop: index === 0 ? "none" : `1px solid ${t.surfaceBorder}`,
-                    }}
-                  >
-                    <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{profile.label}</span>
-                        <span style={{ fontSize: 11, color: t.textDim }}>
-                          {profile.target_count} target{profile.target_count === 1 ? "" : "s"}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 11, color: t.textDim }}>
-                        {profile.summary || "No summary available"}
-                      </div>
-                      {profileConfiguredSecrets(profile).length ? (
-                        <div style={{ fontSize: 11, color: t.textDim }}>
-                          Secrets: {profileConfiguredSecrets(profile).join(", ")}
-                        </div>
-                      ) : null}
-                      <div style={{ fontSize: 11, color: t.textDim }}>
-                        Created {formatDateTime(profile.created_at) ?? "unknown"}
-                        {profile.updated_at ? ` · Updated ${formatDateTime(profile.updated_at) ?? profile.updated_at}` : ""}
-                      </div>
+              <div className="rounded-md bg-surface-raised/35 p-3.5">
+                <div className="mb-3 text-[12px] font-semibold text-text">
+                  {editingProfile ? `Edit profile: ${editingProfile.label}` : "Create profile"}
+                </div>
+                <div className="flex flex-col gap-3">
+                  <TextInput
+                    value={profileLabelDraft}
+                    onChangeText={setProfileLabelDraft}
+                    placeholder="Profile label"
+                  />
+                  <MachineEnrollFields
+                    fields={provider.profile_fields}
+                    draft={profileConfigDraft}
+                    onChange={(key, value) => setProfileConfigDraft((current) => ({ ...current, [key]: value }))}
+                    disabled={pending || !provider.config_ready}
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-[11px] leading-snug text-text-dim">
+                      {editingProfile
+                        ? "Leave secret fields blank to preserve their current values."
+                        : "Profiles carry provider-specific credentials and trust material."}
                     </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <button
-                        type="button"
-                        onClick={() => handleStartEditProfile(profile)}
-                        disabled={pending}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          borderRadius: 6,
-                          border: `1px solid ${t.surfaceBorder}`,
-                          background: "transparent",
-                          color: t.text,
-                          padding: "6px 10px",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          opacity: pending ? 0.7 : 1,
-                        }}
-                      >
-                        <Pencil size={12} />
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteProfile(profile)}
-                        disabled={pending || profile.target_count > 0}
-                        title={profile.target_count > 0 ? "Move or remove the targets using this profile before deleting it." : undefined}
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          borderRadius: 6,
-                          border: `1px solid ${t.danger}`,
-                          background: t.dangerSubtle,
-                          color: t.danger,
-                          padding: "6px 10px",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          opacity: pending || profile.target_count > 0 ? 0.55 : 1,
-                        }}
-                      >
-                        <Trash2 size={12} />
-                        Delete
-                      </button>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {editingProfile && (
+                        <ActionButton
+                          label="Cancel"
+                          onPress={handleCancelEditProfile}
+                          variant="secondary"
+                          size="small"
+                          disabled={pending}
+                        />
+                      )}
+                      <ActionButton
+                        label={editingProfile ? (updateProfile.isPending ? "Saving..." : "Save profile") : (createProfile.isPending ? "Creating..." : "Create profile")}
+                        onPress={() => void handleSubmitProfile()}
+                        disabled={pending || !provider.config_ready}
+                        size="small"
+                        icon={<KeyRound size={13} />}
+                      />
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {provider.supports_enroll && (
+            <div className="flex flex-col gap-3">
+              <SettingsGroupLabel label="Enroll target" icon={<Plug size={13} className="text-text-dim" />} />
+              <div className="rounded-md bg-surface-raised/35 p-3.5">
+                <div className="flex flex-col gap-3">
+                  <TextInput
+                    value={labelDraft}
+                    onChangeText={setLabelDraft}
+                    placeholder="Optional machine label"
+                  />
+                  <MachineEnrollFields
+                    fields={effectiveEnrollFields}
+                    draft={configDraft}
+                    onChange={(key, value) => setConfigDraft((current) => ({ ...current, [key]: value }))}
+                    disabled={pending || !canEnrollTargets}
+                  />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-[11px] leading-snug text-text-dim">
+                      {!provider.config_ready
+                        ? "Provider setup is incomplete."
+                        : provider.supports_profiles && profiles.length === 0
+                          ? "Create a profile before enrolling targets for this provider."
+                          : effectiveEnrollFields.length
+                            ? "Enter provider-specific target details, then enroll the machine."
+                            : "Enroll a new machine target for this provider."}
+                    </div>
+                    <ActionButton
+                      label={enroll.isPending ? "Enrolling..." : "Enroll machine"}
+                      onPress={() => enroll.mutate({ label: labelDraft || null, config: targetConfig })}
+                      disabled={pending || !canEnrollTargets}
+                      size="small"
+                      icon={<Plug size={13} />}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {launch?.example_command && (
+            <div className="flex flex-col gap-2 rounded-md bg-surface-raised/35 p-3.5">
+              <SettingsGroupLabel label="Launch command" />
+              <code className="block break-words rounded-md bg-surface-overlay/35 px-3 py-2 font-mono text-[12px] text-text">
+                {launch.example_command}
+              </code>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-[11px] text-text-dim">
+                  Run this on the target machine to finish provider-specific setup.
+                </div>
+                <ActionButton
+                  label={copied ? "Copied" : "Copy command"}
+                  onPress={() => void handleCopy(launch.example_command || "")}
+                  variant="secondary"
+                  size="small"
+                  icon={<Copy size={12} />}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <SettingsGroupLabel label="Targets" count={provider.targets.length} icon={<Monitor size={13} className="text-text-dim" />} />
+            {provider.targets.length === 0 ? (
+              <EmptyState message="No enrolled machine targets yet." />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                {provider.targets.map((target) => (
+                  <SettingsControlRow
+                    key={`${target.provider_id}:${target.target_id}`}
+                    leading={<Monitor size={14} />}
+                    title={
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate">{target.label}</span>
+                        <StatusBadge label={targetStateText(target)} variant={targetStatusVariant(target)} />
+                      </span>
+                    }
+                    description={
+                      <span className="space-y-0.5">
+                        <span className="block">{[target.hostname, target.platform].filter(Boolean).join(" · ") || target.target_id}</span>
+                        {target.profile_label && <span className="block">Profile: {target.profile_label}</span>}
+                        {target.reason && <span className="block">{target.reason}</span>}
+                        <span className="block">Capabilities: {target.capabilities.join(", ") || "none"}</span>
+                        <span className="block">
+                          Enrolled {formatDateTime(target.enrolled_at) ?? "unknown"}
+                          {target.checked_at ? ` · Checked ${formatDateTime(target.checked_at) ?? target.checked_at}` : ""}
+                          {target.last_seen_at ? ` · Last success ${formatDateTime(target.last_seen_at) ?? target.last_seen_at}` : ""}
+                        </span>
+                      </span>
+                    }
+                    action={
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <ActionButton
+                          label="Probe"
+                          onPress={() => probe.mutate(target.target_id)}
+                          variant="secondary"
+                          size="small"
+                          disabled={pending || !provider.config_ready}
+                          icon={<SearchCheck size={12} />}
+                        />
+                        {provider.supports_remove_target && (
+                          <ActionButton
+                            label="Remove"
+                            onPress={() => void handleRemove(target.target_id, target.label)}
+                            variant="danger"
+                            size="small"
+                            disabled={pending}
+                            icon={<Trash2 size={12} />}
+                          />
+                        )}
+                      </div>
+                    }
+                  />
                 ))}
               </div>
             )}
-
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                padding: 12,
-                borderRadius: 8,
-                border: `1px solid ${t.surfaceBorder}`,
-                background: t.inputBg,
-              }}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>
-                {editingProfile ? `Edit Profile: ${editingProfile.label}` : "Create profile"}
-              </div>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: t.textDim }}>Label</span>
-                <input
-                  value={profileLabelDraft}
-                  onChange={(event) => setProfileLabelDraft(event.target.value)}
-                  placeholder="Profile label"
-                  style={{
-                    minHeight: 36,
-                    borderRadius: 6,
-                    border: `1px solid ${t.inputBorder}`,
-                    background: t.inputBg,
-                    color: t.text,
-                    padding: "8px 10px",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-              <MachineEnrollFields
-                fields={provider.profile_fields}
-                draft={profileConfigDraft}
-                onChange={handleProfileConfigChange}
-                disabled={pending || !provider.config_ready}
-                t={t}
-              />
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <div style={{ fontSize: 11, color: t.textDim }}>
-                  {editingProfile
-                    ? "Leave any secret field blank to preserve its current value."
-                    : "Profiles provide provider-specific credentials and trust data for targets."}
-                </div>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {editingProfile ? (
-                    <button
-                      type="button"
-                      onClick={handleCancelEditProfile}
-                      disabled={pending}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        borderRadius: 6,
-                        border: `1px solid ${t.surfaceBorder}`,
-                        background: "transparent",
-                        color: t.text,
-                        padding: "8px 12px",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        opacity: pending ? 0.7 : 1,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void handleSubmitProfile()}
-                    disabled={pending || !provider.config_ready}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      borderRadius: 6,
-                      border: `1px solid ${t.accentBorder}`,
-                      background: t.accentSubtle,
-                      color: t.accent,
-                      padding: "8px 12px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      opacity: pending || !provider.config_ready ? 0.7 : 1,
-                    }}
-                  >
-                    <KeyRound size={14} />
-                    {editingProfile ? (updateProfile.isPending ? "Saving..." : "Save profile") : (createProfile.isPending ? "Creating..." : "Create profile")}
-                  </button>
-                </div>
-              </div>
-            </div>
           </div>
-        ) : null}
-
-        {provider.supports_enroll ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-              padding: 12,
-              borderRadius: 8,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-            }}
-          >
-            <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", width: "100%" }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: t.textDim }}>Label</span>
-                <input
-                  value={labelDraft}
-                  onChange={(event) => setLabelDraft(event.target.value)}
-                  placeholder="Optional machine label"
-                  style={{
-                    minHeight: 36,
-                    borderRadius: 6,
-                    border: `1px solid ${t.inputBorder}`,
-                    background: t.inputBg,
-                    color: t.text,
-                    padding: "8px 10px",
-                    fontSize: 12,
-                  }}
-                />
-              </label>
-            </div>
-            <MachineEnrollFields
-              fields={effectiveEnrollFields}
-              draft={configDraft}
-              onChange={handleConfigChange}
-              disabled={pending || !canEnrollTargets}
-              t={t}
-            />
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <div style={{ fontSize: 11, color: t.textDim }}>
-                {!provider.config_ready
-                  ? "Provider setup is incomplete."
-                  : provider.supports_profiles && profiles.length === 0
-                    ? "Create a profile before enrolling targets for this provider."
-                    : effectiveEnrollFields.length
-                      ? "Enter provider-specific target details, then enroll the machine."
-                      : "Enroll a new machine target for this provider."}
-              </div>
-              <button
-                type="button"
-                onClick={() => enroll.mutate({ label: labelDraft || null, config: targetConfig })}
-                disabled={pending || !canEnrollTargets}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  borderRadius: 6,
-                  border: `1px solid ${t.accentBorder}`,
-                  background: t.accentSubtle,
-                  color: t.accent,
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  opacity: pending || !canEnrollTargets ? 0.7 : 1,
-                }}
-              >
-                <Plug size={14} />
-                {enroll.isPending ? "Enrolling..." : "Enroll machine"}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {launch?.example_command ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              padding: 12,
-              borderRadius: 8,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Launch command</div>
-            <code
-              style={{
-                display: "block",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                fontSize: 12,
-                color: t.text,
-              }}
-            >
-              {launch.example_command}
-            </code>
-            <div>
-              <button
-                type="button"
-                onClick={() => void handleCopy(launch.example_command || "")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  borderRadius: 6,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  background: "transparent",
-                  color: copied ? t.success : t.text,
-                  padding: "6px 10px",
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
-              >
-                <Copy size={12} />
-                {copied ? "Copied" : "Copy command"}
-              </button>
-            </div>
-            <div style={{ fontSize: 11, color: t.textDim }}>
-              Run that on the target machine to finish provider-specific setup for this target.
-            </div>
-          </div>
-        ) : null}
-
-        {provider.targets.length === 0 ? (
-          <div style={{ fontSize: 12, color: t.textDim }}>
-            No enrolled machine targets yet.
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-            {provider.targets.map((target, index) => (
-              <div
-                key={`${target.provider_id}:${target.target_id}`}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "12px 0",
-                  borderTop: index === 0 ? "none" : `1px solid ${t.surfaceBorder}`,
-                }}
-              >
-                <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <Monitor size={14} color={target.ready ? t.accent : t.textDim} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{target.label}</span>
-                    <span style={{ fontSize: 11, color: target.ready ? t.success : t.textDim }}>
-                      {targetStateText(target)}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 11, color: t.textDim }}>
-                    {[target.hostname, target.platform].filter(Boolean).join(" · ") || target.target_id}
-                  </div>
-                  {target.profile_label ? (
-                    <div style={{ fontSize: 11, color: t.textDim }}>
-                      Profile: {target.profile_label}
-                    </div>
-                  ) : null}
-                  {target.reason ? (
-                    <div style={{ fontSize: 11, color: t.textDim }}>
-                      {target.reason}
-                    </div>
-                  ) : null}
-                  <div style={{ fontSize: 11, color: t.textDim }}>
-                    Capabilities: {target.capabilities.join(", ") || "none"}
-                  </div>
-                  <div style={{ fontSize: 11, color: t.textDim }}>
-                    Enrolled {formatDateTime(target.enrolled_at) ?? "unknown"}
-                    {target.checked_at ? ` · Checked ${formatDateTime(target.checked_at) ?? target.checked_at}` : ""}
-                    {target.last_seen_at ? ` · Last success ${formatDateTime(target.last_seen_at) ?? target.last_seen_at}` : ""}
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <button
-                    type="button"
-                    onClick={() => probe.mutate(target.target_id)}
-                    disabled={pending || !provider.config_ready}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      borderRadius: 6,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      background: "transparent",
-                      color: t.text,
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      opacity: pending || !provider.config_ready ? 0.7 : 1,
-                    }}
-                  >
-                    <SearchCheck size={12} />
-                    Probe
-                  </button>
-                  {provider.supports_remove_target ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleRemove(target.target_id, target.label)}
-                      disabled={pending}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        borderRadius: 6,
-                        border: `1px solid ${t.danger}`,
-                        background: t.dangerSubtle,
-                        color: t.danger,
-                        padding: "6px 10px",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        opacity: pending ? 0.7 : 1,
-                      }}
-                    >
-                      <Trash2 size={12} />
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </SectionCard>
+        </div>
+      </Section>
     </>
   );
 }
 
 export default function AdminMachinesPage() {
-  const t = useThemeTokens();
   const { data, isLoading, refetch, isFetching } = useAdminMachines(true);
   const providers = useMemo(() => data?.providers ?? [], [data]);
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
       <PageHeader
-        variant="detail"
+        variant="list"
         title="Machines"
-        right={(
-          <button
-            type="button"
-            onClick={() => void refetch()}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              borderRadius: 6,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: "transparent",
-              color: t.text,
-              padding: "8px 12px",
-              fontSize: 12,
-              fontWeight: 700,
-            }}
-          >
-            <RefreshCw size={14} />
-            {isFetching ? "Refreshing" : "Refresh"}
-          </button>
-        )}
+        subtitle="Manage provider profiles, target enrollment, and readiness probes."
+        right={
+          <ActionButton
+            label={isFetching ? "Refreshing" : "Refresh"}
+            onPress={() => void refetch()}
+            variant="secondary"
+            size="small"
+            icon={<RefreshCw size={14} />}
+          />
+        }
       />
 
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-            padding: 24,
-            maxWidth: 1040,
-            margin: "0 auto",
-            width: "100%",
-            boxSizing: "border-box",
-          }}
-        >
-          <div style={{ fontSize: 13, color: t.textDim, lineHeight: "20px" }}>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
+          <div className="max-w-[72ch] text-[13px] leading-relaxed text-text-dim">
             Machine profile management, target enrollment, probing, and removal live here. Session-level lease grant and revoke remain chat-scoped.
           </div>
 
           {isLoading ? (
-            <div style={{ padding: 24 }}>
+            <div className="flex min-h-[180px] items-center justify-center">
               <Spinner />
             </div>
           ) : providers.length === 0 ? (
-            <SectionCard>
-              <div style={{ fontSize: 13, color: t.textDim }}>
-                No machine-control providers are available.
-              </div>
-            </SectionCard>
+            <EmptyState message="No machine-control providers are available." />
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="flex flex-col gap-7">
               {providers.map((provider) => (
                 <ProviderSection key={provider.provider_id} provider={provider} />
               ))}

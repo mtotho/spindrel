@@ -1,5 +1,6 @@
 ---
 name: Standing Orders
+id: standing_orders
 description: Plant live, cancellable dashboard tiles that tick on a schedule and ping back when a condition fires
 triggers: watch this, poll until, wait for, remind me when, keep an eye on, standing order, reminder, monitor this
 category: automation

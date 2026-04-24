@@ -65,6 +65,20 @@ from app.utils import safe_create_task
 logger = logging.getLogger(__name__)
 
 
+def _format_turn_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    if not message:
+        return type(exc).__name__
+    return f"{type(exc).__name__}: {message[:500]}"
+
+
+def _build_turn_failure_message(error_text: str, partial_text: str = "") -> str:
+    marker = f"[Turn failed: {error_text}]"
+    if partial_text.strip():
+        return f"{partial_text.rstrip()}\n\n{marker}"
+    return f"The turn failed before producing a response.\n\n{marker}"
+
+
 async def run_turn(
     handle: TurnHandle,
     *,
@@ -108,6 +122,8 @@ async def run_turn(
     error_text: str | None = None
     pre_user_msg_id: uuid.UUID | None = None
     persisted_turn = False
+    from_index: int | None = None
+    streamed_text_parts: list[str] = []
 
     try:
         # Per-task ContextVars — safe because asyncio tasks each see their
@@ -270,6 +286,12 @@ async def run_turn(
                     "similarity": event.get("similarity", 0.0),
                     "source": event.get("source", ""),
                 })
+                continue
+
+            if etype == "text_delta":
+                delta = event.get("delta", "")
+                if delta:
+                    streamed_text_parts.append(delta)
                 continue
 
             if etype == "active_skills":
@@ -491,7 +513,33 @@ async def run_turn(
             "turn_worker: turn %s failed for session %s",
             turn_id, session_id,
         )
-        error_text = f"{type(exc).__name__}: {str(exc)[:500]}"
+        error_text = _format_turn_exception(exc)
+        if from_index is not None and not persisted_turn:
+            messages.append({
+                "role": "assistant",
+                "content": _build_turn_failure_message(
+                    error_text,
+                    "".join(streamed_text_parts),
+                ),
+                "_turn_error": True,
+                "_turn_error_message": error_text,
+            })
+            try:
+                async with async_session() as db:
+                    await persist_turn(
+                        db, session_id, bot, messages, from_index,
+                        correlation_id=correlation_id,
+                        msg_metadata=req.msg_metadata,
+                        channel_id=channel_id,
+                        pre_user_msg_id=pre_user_msg_id,
+                        suppress_outbox=session_scoped or not has_channel,
+                    )
+                    persisted_turn = True
+            except Exception:
+                logger.exception(
+                    "turn_worker: failed to persist turn error row for session %s",
+                    session_id,
+                )
     finally:
         # 9. Always publish TURN_ENDED. Subscribers (renderers + UI) rely
         #    on it to finalize their per-turn state.
