@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, Channel, ChannelIntegration
+from app.schemas.binding_suggestions import BindingSuggestion
 
 logger = logging.getLogger(__name__)
 
@@ -95,8 +96,8 @@ async def wyoming_config(request: Request):
     return {"devices": devices}
 
 
-@router.get("/binding-suggestions")
-async def binding_suggestions():
+@router.get("/binding-suggestions", response_model=list[BindingSuggestion])
+async def binding_suggestions() -> list[BindingSuggestion]:
     """Discover Wyoming satellites on the network via Zeroconf."""
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
@@ -110,17 +111,17 @@ async def binding_suggestions():
 
     # Fallback: no satellites found, return placeholder
     return [
-        {
-            "client_id": "wyoming:satellite",
-            "display_name": "Manual Entry",
-            "description": "Enter the satellite URI manually in the config field below",
-        },
+        BindingSuggestion(
+            client_id="wyoming:satellite",
+            display_name="Manual Entry",
+            description="Enter the satellite URI manually in the config field below",
+        ),
     ]
 
 
-def _scan_for_satellites(timeout: float = 3.0) -> list[dict]:
+def _scan_for_satellites(timeout: float = 3.0) -> list[BindingSuggestion]:
     """Scan for Wyoming satellites via Zeroconf (blocking, run in executor)."""
-    results: list[dict] = []
+    results: list[BindingSuggestion] = []
     try:
         from zeroconf import ServiceBrowser, Zeroconf, ServiceStateChange
 
@@ -155,12 +156,12 @@ def _scan_for_satellites(timeout: float = 3.0) -> list[dict]:
 
         for sat_name, uri in found:
             device_id = sat_name.replace(" ", "-").lower()
-            results.append({
-                "client_id": f"wyoming:{device_id}",
-                "display_name": sat_name,
-                "description": uri,
-                "config_values": {"satellite_uri": uri},
-            })
+            results.append(BindingSuggestion(
+                client_id=f"wyoming:{device_id}",
+                display_name=sat_name,
+                description=uri,
+                config_values={"satellite_uri": uri},
+            ))
     except ImportError:
         logger.debug("zeroconf not installed, skipping satellite discovery")
     except Exception:

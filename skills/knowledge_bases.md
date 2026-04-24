@@ -84,6 +84,21 @@ file(operation="write", path="channels/<channel_id>/knowledge-base/shopping.md",
 Keep `memory.md` for short, high-signal behavioral notes. Keep knowledge-bases for
 browsable reference material.
 
+### Shared-understanding briefs
+
+When the conversation starts with an interview / clarification pass, the default durable
+home for that shared understanding is:
+
+- `channels/<channel_id>/knowledge-base/project-brief.md`
+
+Use that file for the current room's objective, success criteria, constraints, non-goals,
+decisions, and open questions.
+
+Only use the bot-wide KB when the user explicitly wants the brief to travel across channels:
+
+- `knowledge-base/briefs/<slug>.md`
+- for shared-workspace bots, the equivalent bot-root path under `bots/<bot_id>/knowledge-base/briefs/<slug>.md`
+
 ---
 
 ## Discoverability guardrails

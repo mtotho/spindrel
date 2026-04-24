@@ -197,6 +197,7 @@ def _entry_from_metadata(
         "theme_support": "html",
         "group_kind": group_kind,
         "group_ref": group_ref,
+        "context_export": meta.get("context_export") if isinstance(meta.get("context_export"), dict) else None,
     }
 
 
@@ -287,6 +288,8 @@ def _scan_metadata_for(
                 meta["panel_title"] = manifest.panel_title
             if manifest.show_panel_title is not None:
                 meta["show_panel_title"] = manifest.show_panel_title
+            if manifest.context_export is not None:
+                meta["context_export"] = manifest.context_export
             meta["__has_manifest"] = True
             if manifest.extra_csp:
                 meta["extra_csp"] = manifest.extra_csp

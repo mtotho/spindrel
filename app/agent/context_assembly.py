@@ -2339,12 +2339,21 @@ async def assemble_context(
         if _ch_row is not None and context_profile.allow_pinned_widgets:
             from app.db.engine import async_session as _pw_session
             from app.services.widget_context import (
-                build_widget_context_block, fetch_channel_pin_dicts,
+                build_widget_context_block,
+                enrich_pins_for_context_export,
+                fetch_channel_pin_dicts,
             )
             async with _pw_session() as _pw_db:
                 _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
             if _pins:
-                _widget_block = build_widget_context_block(_pins, bot_id=bot.id)
+                async with _pw_session() as _pw_db:
+                    _enriched_pins = await enrich_pins_for_context_export(
+                        _pw_db,
+                        _pins,
+                        bot_id=bot.id,
+                        channel_id=str(_ch_row.id),
+                    )
+                _widget_block = build_widget_context_block(_enriched_pins, bot_id=bot.id)
                 if _widget_block and _budget_can_afford(_widget_block):
                     messages.append({"role": "system", "content": _widget_block})
                     _budget_consume("pinned_widgets", _widget_block)

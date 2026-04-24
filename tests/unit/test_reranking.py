@@ -8,6 +8,10 @@ import pytest
 from app.agent.rag_formatting import (
     BOT_KNOWLEDGE_BASE_RAG_PREFIX,
     CHANNEL_INDEX_SEGMENTS_RAG_PREFIX,
+    MEMORY_BOOTSTRAP_PREFIX,
+    MEMORY_REFERENCE_INDEX_PREFIX,
+    MEMORY_TODAY_LOG_PREFIX,
+    MEMORY_YESTERDAY_LOG_PREFIX,
     WORKSPACE_RAG_PREFIX,
 )
 from app.services.reranking import (
@@ -85,6 +89,17 @@ class TestIdentifyRagMessages:
             {"role": "system", "content": "Tagged skill context (explicitly requested):\n\nSome content"},
             {"role": "system", "content": "Tagged knowledge (explicitly requested):\n\nSome knowledge"},
         ]
+        result = _identify_rag_messages(messages)
+        assert len(result) == 0
+
+    def test_memory_bootstrap_and_logs_are_excluded_via_shared_prefix_contract(self):
+        messages = [
+            {"role": "system", "content": f"{MEMORY_BOOTSTRAP_PREFIX}memory/MEMORY.md — curated stable facts):\n\nfacts"},
+            {"role": "system", "content": f"{MEMORY_TODAY_LOG_PREFIX}memory/logs/2026-04-23.md):\n\nlog"},
+            {"role": "system", "content": f"{MEMORY_YESTERDAY_LOG_PREFIX}memory/logs/2026-04-22.md):\n\nolder log"},
+            {"role": "system", "content": f"{MEMORY_REFERENCE_INDEX_PREFIX}memory/reference/ (use get_memory_file to read):\n  - foo.md"},
+        ]
+
         result = _identify_rag_messages(messages)
         assert len(result) == 0
 

@@ -257,53 +257,7 @@ export interface IntegrationBinding {
   updated_at: string;
 }
 
-// Chat HUD — integration-declared widgets in chat view
-export interface HudOnClick {
-  type: "link" | "action" | "refresh";
-  href?: string;
-  endpoint?: string;
-  method?: string;
-  body?: Record<string, any>;
-  confirm?: string;
-}
-
-export interface HudItem {
-  type: "badge" | "action" | "divider" | "text" | "progress" | "group";
-  label?: string;
-  value?: string;
-  icon?: string;
-  variant?: "default" | "success" | "warning" | "danger" | "accent" | "muted";
-  on_click?: HudOnClick;
-  max?: number; // for progress items
-  items?: HudItem[]; // for group items
-}
-
-export interface HudData {
-  visible: boolean;
-  items: HudItem[];
-}
-
-export interface ChatHudWidget {
-  id: string;
-  style: "status_strip" | "side_panel" | "input_bar" | "floating_action";
-  endpoint?: string;
-  iframe_path?: string;
-  poll_interval?: number;
-  label?: string;
-  icon?: string;
-  width?: number;
-  collapsed_by_default?: boolean;
-  on_click?: HudOnClick;
-  badge_endpoint?: string;
-}
-
 // Integration activation
-export interface ChatHudPreset {
-  label: string;
-  widgets: string[];
-  description?: string;
-}
-
 export interface ConfigField {
   key: string;
   type: "string" | "boolean" | "number" | "select" | "multiselect" | "browse";
@@ -324,8 +278,6 @@ export interface ActivatableIntegration {
   has_system_prompt: boolean;
   version?: string | null;
   includes: string[];
-  chat_hud?: ChatHudWidget[];
-  chat_hud_presets?: Record<string, ChatHudPreset>;
   activation_config?: Record<string, any>;
   config_fields?: ConfigField[];
   included_by?: string[];
@@ -398,6 +350,10 @@ export interface Channel {
     header_backdrop_mode?: "default" | "glass" | "clear";
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
+    /** Per-channel reasoning/effort override, set by the `/effort` slash
+     *  command. Resolved at run_stream entry into a ContextVar that the
+     *  agent loop merges into `bot.model_params`. */
+    effort_override?: "off" | "low" | "medium" | "high";
   };
   category?: string | null;
   tags?: string[];
@@ -846,8 +802,9 @@ export interface CompletionItem {
   description?: string;
 }
 
-export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch" | "plan";
+export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch" | "plan" | "effort";
 export type SlashCommandSurface = "channel" | "session";
+export type EffortLevel = "off" | "low" | "medium" | "high";
 
 export interface SlashCommandResult {
   command_id: string;
@@ -857,7 +814,7 @@ export interface SlashCommandResult {
 }
 
 export interface SlashCommandSideEffectPayload {
-  effect: "stop" | "compact" | "plan";
+  effect: "stop" | "compact" | "plan" | "effort";
   scope_kind: "channel" | "session";
   scope_id: string;
   title: string;

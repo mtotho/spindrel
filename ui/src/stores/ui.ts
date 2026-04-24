@@ -106,12 +106,6 @@ interface UIState {
    *  ⌘⇧B or the browse-files header button). The FilesTabPanel listens to
    *  this tick and auto-opens + focuses its filter input. */
   filesFocusTick: number;
-  hudCollapsedChannels: string[];
-  /** Channels where the user has explicitly opted to expand the HUD on
-   *  mobile. On small viewports the HUD defaults to collapsed; this tracks
-   *  the per-channel override. Ignored on desktop — desktop uses
-   *  `hudCollapsedChannels` exclusively. */
-  hudExpandedOnMobile: string[];
   recentPages: RecentPage[];
   toggleSidebar: () => void;
   setSidebarWidth: (width: number) => void;
@@ -150,8 +144,6 @@ interface UIState {
    *  persisted tab when closing — hamburger still reopens wherever the user
    *  last explicitly navigated. */
   toggleDrawerToWidgets: () => void;
-  toggleHudCollapsed: (channelId: string) => void;
-  toggleHudExpandedOnMobile: (channelId: string) => void;
   recordPageVisit: (href: string) => void;
   enrichRecentPage: (href: string, patch: string | Partial<RecentPage>) => void;
 }
@@ -170,8 +162,6 @@ export const useUIStore = create<UIState>()(
       omniPanelTab: "widgets",
       channelPanelPrefs: {},
       filesFocusTick: 0,
-      hudCollapsedChannels: [],
-      hudExpandedOnMobile: [],
       recentPages: [],
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -293,18 +283,6 @@ export const useUIStore = create<UIState>()(
           }
           return { fileExplorerOpen: true, omniPanelTab: "widgets" };
         }),
-      toggleHudCollapsed: (channelId) =>
-        set((s) => ({
-          hudCollapsedChannels: s.hudCollapsedChannels.includes(channelId)
-            ? s.hudCollapsedChannels.filter((id) => id !== channelId)
-            : [...s.hudCollapsedChannels, channelId],
-        })),
-      toggleHudExpandedOnMobile: (channelId) =>
-        set((s) => ({
-          hudExpandedOnMobile: s.hudExpandedOnMobile.includes(channelId)
-            ? s.hudExpandedOnMobile.filter((id) => id !== channelId)
-            : [...s.hudExpandedOnMobile, channelId],
-        })),
       recordPageVisit: (href) =>
         set((s) => {
           const canonicalHref = canonicalizePaletteHref(href);
@@ -350,8 +328,6 @@ export const useUIStore = create<UIState>()(
         rightDockHidden: state.rightDockHidden,
         omniPanelTab: state.omniPanelTab,
         channelPanelPrefs: state.channelPanelPrefs,
-        hudCollapsedChannels: state.hudCollapsedChannels,
-        hudExpandedOnMobile: state.hudExpandedOnMobile,
         recentPages: state.recentPages,
       }),
       // Migrate old string[] format to RecentPage[]

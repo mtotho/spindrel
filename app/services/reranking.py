@@ -17,7 +17,11 @@ import math
 import re
 from dataclasses import dataclass, field
 
-from app.agent.rag_formatting import CHUNK_SEPARATOR, RERANKABLE_RAG_PREFIXES
+from app.agent.rag_formatting import (
+    CHUNK_SEPARATOR,
+    NON_RERANKABLE_SYSTEM_PREFIXES,
+    RERANKABLE_RAG_PREFIXES,
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -29,16 +33,7 @@ logger = logging.getLogger(__name__)
 _RAG_PREFIXES: list[tuple[str, str]] = list(RERANKABLE_RAG_PREFIXES)
 
 # Prefixes that are NEVER re-ranked (pinned content, user explicitly requested, or structural)
-_EXCLUDED_PREFIXES: list[str] = [
-    "Pinned skill context",
-    "Pinned knowledge",
-    "Tagged skill context",
-    "Tagged knowledge",
-    "Your persistent memory (memory/MEMORY.md",
-    "Today's daily log (memory/logs/",
-    "Yesterday's daily log (memory/logs/",
-    "Reference documents in memory/reference/",
-]
+_EXCLUDED_PREFIXES: list[str] = list(NON_RERANKABLE_SYSTEM_PREFIXES)
 
 @dataclass
 class RerankResult:

@@ -19,6 +19,7 @@ from app.services.dashboard_pins import (
     update_pin_envelope,
 )
 from app.services.native_app_widgets import build_native_widget_preview_envelope
+from tests.factories import build_channel
 
 
 def _env(label: str = "Light 1") -> dict:
@@ -192,7 +193,10 @@ async def test_delete_missing_raises_404(db_session):
 
 @pytest.mark.asyncio
 async def test_delete_pinned_files_pin_clears_widget_state(db_session):
-    channel_id = uuid.uuid4()
+    channel = build_channel()
+    db_session.add(channel)
+    await db_session.commit()
+    channel_id = channel.id
     pin = await create_pin(
         db_session,
         dashboard_key=f"channel:{channel_id}",

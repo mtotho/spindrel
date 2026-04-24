@@ -14,7 +14,7 @@
  *   application/vnd.spindrel.diff+text      → DiffRenderer
  *   application/vnd.spindrel.file-listing+json → FileListingRenderer
  *   application/vnd.spindrel.components+json → ComponentRenderer
- *   application/vnd.spindrel.native-app+json → NativeAppRenderer
+ *   application/vnd.spindrel.native-app+json → renderNativeWidget (nativeApps registry)
  *
  * Truncated envelopes (body=null, truncated=true, record_id set) render a
  * "Show full output" button. On click, the full body is fetched from the
@@ -39,7 +39,7 @@ import {
 import { DiffRenderer } from "./renderers/DiffRenderer";
 import { FileListingRenderer } from "./renderers/FileListingRenderer";
 import { ComponentRenderer } from "./renderers/ComponentRenderer";
-import { NativeAppRenderer } from "./renderers/NativeAppRenderer";
+import { renderNativeWidget } from "./renderers/nativeApps/registry";
 import { PlanResultRenderer } from "./renderers/PlanResultRenderer";
 import {
   DefaultSearchResultsRenderer,
@@ -259,16 +259,18 @@ function renderNativeAppView({
   t,
 }: RichResultViewProps) {
   return (
-    <NativeAppRenderer
-      envelope={envelope}
-      sessionId={sessionId}
-      dashboardPinId={dashboardPinId}
-      channelId={channelId}
-      gridDimensions={gridDimensions}
-      layout={layout}
-      hostSurface={hostSurface}
-      t={t}
-    />
+    <>
+      {renderNativeWidget({
+        envelope,
+        sessionId,
+        dashboardPinId,
+        channelId,
+        gridDimensions,
+        layout,
+        hostSurface,
+        t,
+      })}
+    </>
   );
 }
 

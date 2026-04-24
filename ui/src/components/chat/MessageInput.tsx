@@ -37,7 +37,7 @@ interface Props {
   /** Channel ID for persisting drafts across navigation */
   channelId?: string;
   /** Handler for slash commands typed in the input */
-  onSlashCommand?: (id: string) => void;
+  onSlashCommand?: (id: string, args?: string[]) => void;
   slashSurface?: SlashCommandSurface;
   availableSlashCommands?: SlashCommandId[];
   /** Whether a message is queued behind the current response */
@@ -136,7 +136,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if ((!message && pendingFiles.length === 0) || disabled) return;
     const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
-      onSlashCommand?.(slashCommand);
+      onSlashCommand?.(slashCommand.id, slashCommand.args);
       if (channelId) clearDraft(channelId);
       else { setLocalText(""); setLocalFiles([]); }
       editorRef.current?.clear();
@@ -413,7 +413,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     if ((!message && pendingFiles.length === 0) || disabled) return;
     const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
-      onSlashCommand?.(slashCommand);
+      onSlashCommand?.(slashCommand.id, slashCommand.args);
       if (channelId) clearDraft(channelId);
       else { setLocalText(""); setLocalFiles([]); }
       editorRef.current?.clear();

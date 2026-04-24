@@ -45,7 +45,7 @@ them, so explicitly read/search when exact file content matters.
 
 **File writing rules:**
 - Use the `file` tool for all text file operations — it bypasses shell quoting issues entirely
-- Use relative paths — they resolve to the channel workspace automatically
+- Use paths relative to your workspace root. For channel-local KB or workspace files from the bot root, include `channels/<channel_id>/...` explicitly.
 - Write clean, structured markdown — these files are candidates for future admission into context
 - Keep files focused. One concern per file. Do not create catch-all files.
 - After writing, do not summarize what you wrote back to the user unless they asked — just confirm the action briefly.

@@ -36,17 +36,5 @@ activation:
   description: "Content feed health monitoring and status strip"
   requires_workspace: false
 
-chat_hud:
-  - id: feed-status
-    style: status_strip
-    endpoint: /hud/status
-    poll_interval: 60
-    label: Feed Health
-    icon: Rss
-
-chat_hud_presets:
-  default: { label: "Feed Status Strip", widgets: [feed-status] }
-  none: { label: "No HUD", widgets: [] }
-
 provides:
   - router

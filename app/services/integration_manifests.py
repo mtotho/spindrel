@@ -29,7 +29,7 @@ _KNOWN_KEYS = {
     "id", "name", "icon", "description", "version", "enabled", "includes",
     "mcp_servers", "settings", "activation", "oauth", "webhook",
     "binding", "dependencies", "docker_compose", "web_ui",
-    "chat_hud", "chat_hud_presets", "sidebar_section",
+    "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
     "target", "process", "capabilities", "provides", "events",
     "tool_widgets", "widget_presets", "tool_families", "machine_control",
@@ -39,8 +39,8 @@ _KNOWN_KEYS = {
 # Used by _manifest_to_setup() in integrations/__init__.py.
 PASSTHROUGH_KEYS = (
     "activation", "oauth", "webhook", "binding", "includes",
-    "mcp_servers", "docker_compose", "web_ui", "chat_hud",
-    "chat_hud_presets", "sidebar_section", "debug_actions",
+    "mcp_servers", "docker_compose", "web_ui",
+    "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
     "target", "process", "capabilities", "provides", "events", "machine_control",
 )

@@ -165,14 +165,23 @@ class TestEstimateCompat:
 
         tokens = tokenization.estimate_content_tokens(content)
         assert tokens > tokenization.estimate_tokens("hello world")
-        assert tokens == tokenization.estimate_tokens("hello world") + 512
+        assert tokens == tokenization.estimate_tokens("hello world") + 768
 
     def test_estimate_content_tokens_avoids_base64_overcount(self):
         content = [
             {"type": "image_url", "image_url": {"url": "data:image/png;base64," + ("x" * 5000)}},
         ]
 
-        assert tokenization.estimate_content_tokens(content) == 256
+        assert tokenization.estimate_content_tokens(content) == 512
+
+    def test_estimate_content_tokens_respects_image_detail_hint(self):
+        content = [
+            {"type": "image_url", "image_url": {"url": "https://example.com/a.png", "detail": "low"}},
+            {"type": "image_url", "image_url": {"url": "https://example.com/b.png", "detail": "high"}},
+            {"type": "input_image", "image_url": "https://example.com/c.png", "detail": "auto"},
+        ]
+
+        assert tokenization.estimate_content_tokens(content) == 256 + 1024 + 512
 
     def test_context_budget_re_export(self):
         # context_budget.py re-exports estimate_tokens — keep the import alive.

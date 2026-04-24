@@ -488,6 +488,16 @@ async def lifespan(application: FastAPI):
     logger.info("Loading skills from DB...")
     await load_skills()
     _t = _tlog("Load skills (embedding check)", _t)
+    from app.services.skill_enrollment import backfill_missing_starter_skills
+    try:
+        starter_backfilled = await backfill_missing_starter_skills()
+        if starter_backfilled:
+            logger.info(
+                "Ensured %d missing starter skill enrollment(s) for existing bots",
+                starter_backfilled,
+            )
+    except Exception:
+        logger.warning("Starter-skill backfill failed", exc_info=True)
     # Workflow YAML seeding is handled by sync_all_files() above; just load registry.
     from app.services.workflows import load_workflows
     logger.info("Loading workflows from DB...")

@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { apiFetch } from "../client";
+import {
+  adminMachineEnrollPath,
+  adminMachineTargetPath,
+  adminMachinesPath,
+  sessionMachineTargetLeasePath,
+  sessionMachineTargetPath,
+} from "@/src/lib/machineControlApiPaths";
 
 export interface MachineTarget {
   provider_id: string;
@@ -72,7 +79,7 @@ export interface MachineTargetEnrollment {
 export function useSessionMachineTarget(sessionId: string | null | undefined, enabled = true) {
   return useQuery({
     queryKey: ["session-machine-target", sessionId ?? null],
-    queryFn: () => apiFetch<SessionMachineTargetState>(`/sessions/${sessionId}/machine-target`),
+    queryFn: () => apiFetch<SessionMachineTargetState>(sessionMachineTargetPath(String(sessionId))),
     enabled: enabled && !!sessionId,
     staleTime: 15_000,
     refetchOnWindowFocus: false,
@@ -83,7 +90,7 @@ export function useGrantSessionMachineTargetLease(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: { provider_id: string; target_id: string; ttl_seconds?: number }) =>
-      apiFetch<SessionMachineTargetState>(`/sessions/${sessionId}/machine-target/lease`, {
+      apiFetch<SessionMachineTargetState>(sessionMachineTargetLeasePath(sessionId), {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -98,7 +105,7 @@ export function useClearSessionMachineTargetLease(sessionId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiFetch<SessionMachineTargetState>(`/sessions/${sessionId}/machine-target/lease`, {
+      apiFetch<SessionMachineTargetState>(sessionMachineTargetLeasePath(sessionId), {
         method: "DELETE",
       }),
     onSuccess: () => {
@@ -111,7 +118,7 @@ export function useClearSessionMachineTargetLease(sessionId: string) {
 export function useAdminMachines(enabled = true) {
   return useQuery({
     queryKey: ["admin-machines"],
-    queryFn: () => apiFetch<MachineProviderListResponse>("/admin/machines"),
+    queryFn: () => apiFetch<MachineProviderListResponse>(adminMachinesPath()),
     enabled,
     staleTime: 10_000,
     refetchOnWindowFocus: false,
@@ -122,7 +129,7 @@ export function useEnrollMachineTarget(providerId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body?: { label?: string | null }) =>
-      apiFetch<MachineTargetEnrollment>(`/admin/machines/providers/${encodeURIComponent(providerId)}/enroll`, {
+      apiFetch<MachineTargetEnrollment>(adminMachineEnrollPath(providerId), {
         method: "POST",
         body: JSON.stringify(body ?? {}),
       }),
@@ -137,10 +144,9 @@ export function useDeleteMachineTarget(providerId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (targetId: string) =>
-      apiFetch<{ status: string; provider_id: string; target_id: string }>(
-        `/admin/machines/providers/${encodeURIComponent(providerId)}/targets/${encodeURIComponent(targetId)}`,
-        { method: "DELETE" },
-      ),
+      apiFetch<{ status: string; provider_id: string; target_id: string }>(adminMachineTargetPath(providerId, targetId), {
+        method: "DELETE",
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-machines"] });
       qc.invalidateQueries({ queryKey: ["session-machine-target"] });

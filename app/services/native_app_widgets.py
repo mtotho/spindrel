@@ -55,6 +55,7 @@ class NativeWidgetSpec:
     layout_hints: dict[str, Any] | None = None
     default_state: dict[str, Any] = field(default_factory=dict)
     actions: tuple[NativeWidgetActionSpec, ...] = ()
+    context_export: dict[str, Any] | None = None
     presentation_family: str = "card"
     panel_title: str | None = None
     show_panel_title: bool | None = None
@@ -93,8 +94,10 @@ class NativeWidgetSpec:
                 actions=[action.as_dict() for action in self.actions],
                 supported_scopes=self.supported_scopes,
                 layout_hints=self.layout_hints,
+                context_export=self.context_export,
                 instantiation_kind="native_catalog",
             ),
+            "context_export": copy.deepcopy(self.context_export),
         }
 
 
@@ -371,6 +374,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=_NOTES_ACTIONS,
+        context_export={"enabled": True, "summary_kind": "native_state", "hint_kind": "invoke_widget_action"},
         panel_title="Notes",
         show_panel_title=True,
     ),
@@ -388,6 +392,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=_TODO_ACTIONS,
+        context_export={"enabled": True, "summary_kind": "native_state", "hint_kind": "invoke_widget_action"},
         panel_title="Todo",
         show_panel_title=True,
     ),
@@ -404,6 +409,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=(),
+        context_export={"enabled": True, "summary_kind": "server_provider", "hint_kind": "none"},
         panel_title="Context tracker",
         show_panel_title=True,
     ),
@@ -420,6 +426,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=(),
+        context_export={"enabled": True, "summary_kind": "server_provider", "hint_kind": "none"},
         panel_title="Usage forecast",
         show_panel_title=True,
     ),
@@ -436,6 +443,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=(),
+        context_export={"enabled": False, "summary_kind": "server_provider", "hint_kind": "none"},
         panel_title="Channel files",
         show_panel_title=True,
     ),
@@ -454,6 +462,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=_PINNED_FILES_ACTIONS,
+        context_export={"enabled": True, "summary_kind": "native_state", "hint_kind": "invoke_widget_action"},
         panel_title="Pinned files",
         show_panel_title=True,
         catalog_visible=False,
@@ -471,6 +480,7 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
             "updated_at": "",
         },
         actions=(),
+        context_export={"enabled": True, "summary_kind": "server_provider", "hint_kind": "none"},
         panel_title="Upcoming activity",
         show_panel_title=True,
     ),

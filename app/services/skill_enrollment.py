@@ -23,7 +23,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import async_session
-from app.db.models import BotSkillEnrollment, Skill
+from app.db.models import Bot as BotRow, BotSkillEnrollment, Skill
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +282,75 @@ async def enroll_starter_pack(
 
     inserted = await enroll_many(bot_id, valid, source="starter", db=db)
     logger.info("Enrolled %d/%d starter skills for bot %s", inserted, len(valid), bot_id)
+    return inserted
+
+
+async def backfill_missing_starter_skills(
+    *,
+    db: AsyncSession | None = None,
+) -> int:
+    """Ensure existing bots have every current starter skill enrolled.
+
+    This is an idempotent startup backfill for releases that add a new starter
+    skill after bots already exist. Existing enrollments are preserved as-is;
+    only missing starter rows are inserted with source='starter'.
+    """
+    from app.config import STARTER_SKILL_IDS
+
+    starter = list(STARTER_SKILL_IDS)
+    if not starter:
+        return 0
+
+    async def _run(session: AsyncSession) -> int:
+        existing = (await session.execute(
+            select(Skill.id).where(Skill.id.in_(starter))
+        )).scalars().all()
+        existing_set = set(existing)
+        valid = [sid for sid in starter if sid in existing_set]
+        if not valid:
+            logger.warning(
+                "Starter-skill backfill skipped: none of %d declared skills exist in catalog",
+                len(starter),
+            )
+            return 0
+
+        bot_ids = list((await session.execute(select(BotRow.id))).scalars().all())
+        if not bot_ids:
+            return 0
+
+        enrolled_rows = (await session.execute(
+            select(BotSkillEnrollment.bot_id, BotSkillEnrollment.skill_id)
+            .where(BotSkillEnrollment.bot_id.in_(bot_ids))
+            .where(BotSkillEnrollment.skill_id.in_(valid))
+        )).all()
+
+        enrolled_by_bot: dict[str, set[str]] = {}
+        for bot_id, skill_id in enrolled_rows:
+            enrolled_by_bot.setdefault(bot_id, set()).add(skill_id)
+
+        inserted = 0
+        touched_bots = 0
+        for bot_id in bot_ids:
+            missing = [sid for sid in valid if sid not in enrolled_by_bot.get(bot_id, set())]
+            if not missing:
+                continue
+            touched_bots += 1
+            inserted += await enroll_many(bot_id, missing, source="starter", db=session)
+
+        if inserted:
+            logger.info(
+                "Backfilled %d missing starter-skill enrollment(s) across %d existing bot(s)",
+                inserted,
+                touched_bots,
+            )
+        return inserted
+
+    if db is not None:
+        return await _run(db)
+
+    async with async_session() as own_db:
+        inserted = await _run(own_db)
+        await own_db.commit()
     return inserted
 
 

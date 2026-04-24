@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.schemas.binding_suggestions import BindingSuggestion
 from integrations import utils
 from integrations.sdk import (
     get_db, verify_admin_auth, verify_auth_or_user,
@@ -413,8 +414,8 @@ _suggestions_cache: dict[str, object] = {"data": [], "ts": 0.0}
 _SUGGESTIONS_CACHE_TTL = 300  # 5 minutes
 
 
-@router.get("/binding-suggestions")
-async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
+@router.get("/binding-suggestions", response_model=list[BindingSuggestion])
+async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[BindingSuggestion]:
     """Return the most recent BB chats as binding suggestions for the admin UI.
 
     Controlled by three settings:
@@ -432,14 +433,15 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
     count = bb_settings.BB_SUGGEST_COUNT
     show_preview = bb_settings.BB_SUGGEST_PREVIEW
 
+    def _strip_previews(suggestions: list[BindingSuggestion]) -> list[BindingSuggestion]:
+        return [s.model_copy(update={"description": ""}) for s in suggestions]
+
     # Return cached results if fresh
     now = time.monotonic()
     if _suggestions_cache["data"] and (now - _suggestions_cache["ts"]) < _SUGGESTIONS_CACHE_TTL:
-        cached = _suggestions_cache["data"]
+        cached: list[BindingSuggestion] = _suggestions_cache["data"]
         result = cached[:count]
-        if not show_preview:
-            return [{k: v for k, v in s.items() if k != "description"} for s in result]
-        return result
+        return _strip_previews(result) if not show_preview else result
 
     server_url = _get_server_url()
     password = _get_password()
@@ -473,7 +475,7 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
     chats.sort(key=_last_msg_ts, reverse=True)
 
     # Build full suggestions list (cache with previews; strip on output if disabled)
-    all_suggestions: list[dict] = []
+    all_suggestions: list[BindingSuggestion] = []
     for chat in chats[:50]:
         guid = chat.get("guid", "")
         if not guid:
@@ -492,19 +494,17 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
             if text:
                 description = text
 
-        all_suggestions.append({
-            "client_id": f"bb:{guid}",
-            "display_name": display_name,
-            "description": description,
-        })
+        all_suggestions.append(BindingSuggestion(
+            client_id=f"bb:{guid}",
+            display_name=display_name,
+            description=description,
+        ))
 
     _suggestions_cache["data"] = all_suggestions
     _suggestions_cache["ts"] = now
 
     result = all_suggestions[:count]
-    if not show_preview:
-        return [{k: v for k, v in s.items() if k != "description"} for s in result]
-    return result
+    return _strip_previews(result) if not show_preview else result
 
 
 @router.get("/status")
@@ -731,249 +731,6 @@ async def echo_state(_auth=Depends(verify_admin_auth)) -> dict:
         "paused": _paused,
         "chats": chats,
     }
-
-
-@router.get("/hud/status")
-async def hud_status(_auth=Depends(verify_auth_or_user)) -> dict:
-    """Return HudData for the chat status strip — connection + pause state."""
-    server_url = _get_server_url()
-    password = _get_password()
-
-    items: list[dict] = []
-
-    # Connection status badge
-    if not server_url or not password:
-        items.append({
-            "type": "badge",
-            "label": "Server",
-            "value": "Not Configured",
-            "icon": "AlertTriangle",
-            "variant": "warning",
-            "on_click": {"type": "link", "href": "/admin/integrations"},
-        })
-    else:
-        connected = False
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(
-                    f"{server_url}/api/v1/server/info",
-                    params={"password": password},
-                )
-                connected = r.status_code == 200
-        except Exception:
-            pass
-
-        if connected:
-            items.append({
-                "type": "badge",
-                "label": "iMessage",
-                "value": "Connected",
-                "icon": "MessageCircle",
-                "variant": "success",
-            })
-        else:
-            items.append({
-                "type": "badge",
-                "label": "iMessage",
-                "value": "Disconnected",
-                "icon": "MessageCircle",
-                "variant": "danger",
-            })
-
-    # Pause state + toggle action
-    if _paused:
-        items.append({
-            "type": "action",
-            "label": "Resume",
-            "icon": "Play",
-            "variant": "success",
-            "on_click": {
-                "type": "action",
-                "endpoint": "/integrations/bluebubbles/resume",
-                "method": "POST",
-            },
-        })
-    else:
-        items.append({
-            "type": "action",
-            "label": "Pause",
-            "icon": "Pause",
-            "variant": "warning",
-            "on_click": {
-                "type": "action",
-                "endpoint": "/integrations/bluebubbles/pause",
-                "method": "POST",
-                "confirm": "Pause all incoming BlueBubbles messages?",
-            },
-        })
-
-    return {"visible": True, "items": items}
-
-
-@router.get("/hud/echo-diagnostics")
-async def hud_echo_diagnostics(_auth=Depends(verify_auth_or_user)) -> dict:
-    """Return HudData for the echo diagnostics side panel.
-
-    Shows summary badges, per-chat breakdown with cooldown/suppress timers,
-    and footer actions. Reads from in-memory echo tracker state — no external calls.
-    """
-    from integrations.bluebubbles.echo_tracker import (
-        _REPLY_COOLDOWN, _CIRCUIT_BREAKER_MAX, _CIRCUIT_BREAKER_WINDOW,
-        _ECHO_SUPPRESS_WINDOW,
-    )
-
-    # Evict expired entries before reading state — without this,
-    # phantom chats and stale hash counts would appear in diagnostics.
-    shared_tracker._evict()
-
-    now = time.time()
-    items: list[dict] = []
-
-    # Collect all chat GUIDs from both data structures
-    all_guids = set(shared_tracker._chat_replies.keys()) | set(shared_tracker._sent_content.keys())
-
-    # Compute summary stats
-    circuit_open_count = 0
-    suppress_active_count = 0
-    for chat_guid in all_guids:
-        replies = shared_tracker._chat_replies.get(chat_guid, [])
-        recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
-        if len(recent) >= _CIRCUIT_BREAKER_MAX:
-            circuit_open_count += 1
-        if any(now - ts < _ECHO_SUPPRESS_WINDOW for ts in replies):
-            suppress_active_count += 1
-
-    # Summary badges
-    items.append({
-        "type": "badge",
-        "label": "Webhooks",
-        "value": "Paused" if _paused else "Active",
-        "icon": "Pause" if _paused else "Activity",
-        "variant": "warning" if _paused else "success",
-    })
-    items.append({
-        "type": "badge",
-        "label": "Tracked Chats",
-        "value": str(len(all_guids)),
-        "icon": "MessageSquare",
-        "variant": "muted" if len(all_guids) == 0 else "accent",
-    })
-    if circuit_open_count > 0:
-        items.append({
-            "type": "badge",
-            "label": "Circuit Breakers",
-            "value": f"{circuit_open_count} open",
-            "icon": "AlertOctagon",
-            "variant": "danger",
-        })
-    if suppress_active_count > 0:
-        items.append({
-            "type": "badge",
-            "label": "Suppress Windows",
-            "value": f"{suppress_active_count} active",
-            "icon": "ShieldAlert",
-            "variant": "warning",
-        })
-
-    # Divider or empty state
-    if all_guids:
-        items.append({"type": "divider"})
-    else:
-        items.append({
-            "type": "text",
-            "value": "No active echo tracking — all quiet",
-            "variant": "muted",
-        })
-
-    # Per-chat breakdown (sorted by most recent activity)
-    def _last_activity(guid: str) -> float:
-        replies = shared_tracker._chat_replies.get(guid, [])
-        return max(replies) if replies else 0.0
-
-    for chat_guid in sorted(all_guids, key=_last_activity, reverse=True):
-        replies = shared_tracker._chat_replies.get(chat_guid, [])
-        content = shared_tracker._sent_content.get(chat_guid, {})
-        recent = [ts for ts in replies if now - ts < _CIRCUIT_BREAKER_WINDOW]
-        cooldown_remaining = max(0, max((ts + _REPLY_COOLDOWN - now for ts in replies), default=0))
-        suppress_remaining = max(0, max((ts + _ECHO_SUPPRESS_WINDOW - now for ts in replies), default=0))
-        breaker_open = len(recent) >= _CIRCUIT_BREAKER_MAX
-
-        # Short label — last segment of GUID for readability
-        short_label = chat_guid.split(";")[-1] if ";" in chat_guid else chat_guid[-12:]
-
-        chat_parts: list[dict] = []
-        chat_parts.append({
-            "type": "badge",
-            "label": "Replies",
-            "value": f"{len(recent)}/{_CIRCUIT_BREAKER_MAX}",
-            "variant": "danger" if breaker_open else ("warning" if len(recent) > 0 else "muted"),
-        })
-        if cooldown_remaining > 0:
-            chat_parts.append({
-                "type": "badge",
-                "label": "Cooldown",
-                "value": f"{cooldown_remaining:.0f}s",
-                "icon": "Clock",
-                "variant": "warning",
-            })
-        if suppress_remaining > 0:
-            chat_parts.append({
-                "type": "badge",
-                "label": "Suppress",
-                "value": f"{suppress_remaining:.0f}s",
-                "icon": "ShieldAlert",
-                "variant": "warning",
-            })
-        if content:
-            chat_parts.append({
-                "type": "badge",
-                "label": "Hashes",
-                "value": str(len(content)),
-                "variant": "muted",
-            })
-
-        items.append({
-            "type": "group",
-            "label": short_label,
-            "items": chat_parts,
-        })
-
-    # Divider + footer
-    items.append({"type": "divider"})
-    items.append({
-        "type": "action",
-        "label": "Admin Integrations",
-        "icon": "Settings",
-        "variant": "muted",
-        "on_click": {"type": "link", "href": "/admin/integrations"},
-    })
-    if _paused:
-        items.append({
-            "type": "action",
-            "label": "Resume Webhooks",
-            "icon": "Play",
-            "variant": "success",
-            "on_click": {
-                "type": "action",
-                "endpoint": "/integrations/bluebubbles/resume",
-                "method": "POST",
-            },
-        })
-    else:
-        items.append({
-            "type": "action",
-            "label": "Pause Webhooks",
-            "icon": "Pause",
-            "variant": "warning",
-            "on_click": {
-                "type": "action",
-                "endpoint": "/integrations/bluebubbles/pause",
-                "method": "POST",
-                "confirm": "Pause all incoming BlueBubbles messages?",
-            },
-        })
-
-    return {"visible": True, "items": items}
 
 
 @router.post("/webhook")

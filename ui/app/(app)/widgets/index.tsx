@@ -544,7 +544,6 @@ export default function WidgetsDashboardPage() {
           pinCount={pins.length}
           scratchSessionId={activeScratchSessionId}
           scratchHref={scratchChatHref}
-          onOpenManage={() => setManageSlug(slug)}
           right={actions}
         />
       ) : (

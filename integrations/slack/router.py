@@ -12,6 +12,7 @@ from sqlalchemy import select
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, Channel, ChannelIntegration
 from app.dependencies import verify_admin_auth
+from app.schemas.binding_suggestions import BindingSuggestion
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +115,8 @@ def _get_slack_setting(key: str, default: str = "") -> str:
         return os.environ.get(key, default)
 
 
-@router.get("/binding-suggestions")
-async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
+@router.get("/binding-suggestions", response_model=list[BindingSuggestion])
+async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[BindingSuggestion]:
     """Return Slack channels the bot can see, formatted as binding suggestions.
 
     Controlled by:
@@ -154,7 +155,7 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
     # Use 'updated' timestamp if available, else 'created'.
     channels.sort(key=lambda c: c.get("updated", c.get("created", 0)), reverse=True)
 
-    all_suggestions: list[dict] = []
+    all_suggestions: list[BindingSuggestion] = []
     for ch in channels:
         ch_id = ch.get("id", "")
         if not ch_id:
@@ -166,11 +167,11 @@ async def binding_suggestions(_auth=Depends(verify_admin_auth)) -> list[dict]:
         purpose = (ch.get("purpose") or {}).get("value", "")
         description = topic or purpose
 
-        all_suggestions.append({
-            "client_id": f"slack:{ch_id}",
-            "display_name": f"{prefix}{name}",
-            "description": description[:80] if description else "",
-        })
+        all_suggestions.append(BindingSuggestion(
+            client_id=f"slack:{ch_id}",
+            display_name=f"{prefix}{name}",
+            description=description[:80] if description else "",
+        ))
 
     _suggestions_cache["data"] = all_suggestions
     _suggestions_cache["ts"] = now

@@ -82,6 +82,28 @@ The folder names are fixed conventions:
 
 Subfolders are only organizational. Indexing is recursive.
 
+## Shared Brief Convention
+
+When the bot runs an upfront clarification or interview pass, the default durable brief
+belongs in the channel KB:
+
+- `channels/<channel_id>/knowledge-base/project-brief.md`
+
+That file is the canonical place for:
+
+- objective
+- success criteria
+- constraints
+- non-goals
+- decisions
+- open questions
+
+If the user explicitly wants the same brief to be reusable across channels, store it in
+the bot-wide KB instead:
+
+- `knowledge-base/briefs/<slug>.md`
+- shared-workspace equivalent: `bots/<bot_id>/knowledge-base/briefs/<slug>.md`
+
 ## Search Tools
 
 - `search_channel_knowledge(query)` for room-specific curated facts

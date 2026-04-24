@@ -40,7 +40,10 @@ nav:
     - Migration: migration.md
     - Backup & Restore: backup.md
   - Guides:
+    - Overview: guides/index.md
     - How Spindrel Works: guides/how-spindrel-works.md
+    - UI Design: guides/ui-design.md
+    - Integrations: guides/integrations.md
     - Programmatic Tool Calling: guides/programmatic-tool-calling.md
     - Workspace Templates & Activation: guides/templates-and-activation.md
     - Pipelines: guides/pipelines.md

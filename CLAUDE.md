@@ -6,6 +6,16 @@ Detailed project knowledge lives in an Obsidian vault at `../vault/Projects/agen
 
 **Cleanup is same-edit, not later.** When you fix a bug from Loose Ends → move it to Fix Log in the same edit. When all track phases ship → close the track immediately. See `dotfiles/claude/rules/vault-updates.md` for the full vault organization system (document taxonomy, track lifecycle, cleanup discipline).
 
+## Canonical Guides
+
+Index: [`docs/guides/index.md`](docs/guides/index.md). Read the matching guide before touching these areas — they win against every other doc when they disagree.
+
+- [`docs/guides/context-management.md`](docs/guides/context-management.md) — context admission + history profiles
+- [`docs/guides/discovery-and-enrollment.md`](docs/guides/discovery-and-enrollment.md) — tool / skill / MCP residency + enrollment
+- [`docs/guides/widget-system.md`](docs/guides/widget-system.md) — widget contracts, origins, presentation, host policy
+- [`docs/guides/ui-design.md`](docs/guides/ui-design.md) — UI archetypes, design tokens, anti-patterns
+- [`docs/guides/integrations.md`](docs/guides/integrations.md) — integration contract + responsibility boundary
+
 ## Commands
 
 ```bash

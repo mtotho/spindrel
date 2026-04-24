@@ -15,7 +15,7 @@ function AdminWidgetPackageRedirect() {
 function ChannelDashboardSettingsRedirect() {
   const { channelId } = useParams<{ channelId: string }>();
   if (!channelId) return <Navigate to="/widgets" replace />;
-  return <Navigate to={`/channels/${channelId}/settings?from=dashboard#presentation`} replace />;
+  return <Navigate to={`/channels/${channelId}/settings?from=dashboard#dashboard`} replace />;
 }
 
 // ---------------------------------------------------------------------------

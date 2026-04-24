@@ -319,6 +319,8 @@ class TestPinWidget:
         notes_pin = next(p for p in described["pins"] if p["id"] == pin["pin_id"])
         assert any(a["id"] == "replace_body" for a in notes_pin["available_actions"])
         assert notes_pin["envelope"]["body"]["state"]["body"] == "Buy milk"
+        assert notes_pin["context_summary"].startswith("Buy milk")
+        assert "invoke_widget_action" in notes_pin["context_hint"]
 
     @pytest.mark.asyncio
     async def test_invoke_widget_action_updates_native_todo(
@@ -362,6 +364,8 @@ class TestPinWidget:
         assert len(items) == 1
         assert items[0]["title"] == "Buy milk"
         assert items[0]["done"] is True
+        assert todo_pin["context_summary"] == "0 open, 1 done"
+        assert "invoke_widget_action" in todo_pin["context_hint"]
 
     @pytest.mark.asyncio
     async def test_auth_scope_bot_stamps_source_bot_id(

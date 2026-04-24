@@ -41,7 +41,7 @@ export interface UseChannelChatReturn {
   handleSendAudio: (audioBase64: string, audioFormat: string, message?: string) => void;
   handleCancel: () => void;
   handleRetry: () => void;
-  handleSlashCommand: (id: string) => Promise<void>;
+  handleSlashCommand: (id: string, args?: string[]) => Promise<void>;
   handleLoadMore: () => void;
   handleListLayout: (e: any) => void;
   handleContentSizeChange: (w: number, h: number) => void;
@@ -536,7 +536,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
   }, [channelId]);
 
   const handleSlashCommand = useSlashCommandExecutor({
-    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
+    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan", "effort"],
     surface: "channel",
     channelId: channelId ?? undefined,
     sessionId: channel?.active_session_id ?? undefined,

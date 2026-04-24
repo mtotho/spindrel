@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Trash2, AlertTriangle, X } from "lucide-react";
 
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { useDeleteChannel, useChannelCategories } from "@/src/api/hooks/useChannels";
 import { useWidgetThemes } from "@/src/api/hooks/useWidgetThemes";
@@ -34,7 +33,6 @@ function TagEditor({
   tags: string[];
   onChange: (tags: string[]) => void;
 }) {
-  const t = useThemeTokens();
   const [input, setInput] = useState("");
 
   const addTag = (raw: string) => {
@@ -54,39 +52,20 @@ function TagEditor({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center", minHeight: 40 }}>
+    <div className="flex flex-row flex-wrap items-center gap-2 min-h-[40px]">
       {tags.map((tag) => (
         <div
           key={tag}
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            padding: "4px 9px",
-            borderRadius: 6,
-            backgroundColor: t.surfaceRaised,
-            border: `1px solid ${t.surfaceBorder}`,
-          }}
+          className="inline-flex items-center gap-1 rounded-full bg-surface-overlay px-2.5 py-0.5 text-[11px] text-text-muted"
         >
-          <span style={{ fontSize: 11, color: t.textMuted }}>{tag}</span>
+          <span>{tag}</span>
           <button
             type="button"
             onClick={() => onChange(tags.filter((x) => x !== tag))}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              width: 16,
-              height: 16,
-              borderRadius: 6,
-              border: "none",
-              background: "transparent",
-              cursor: "pointer",
-              padding: 0,
-            }}
+            aria-label={`Remove tag ${tag}`}
+            className="inline-flex items-center justify-center w-4 h-4 rounded-full border-none bg-transparent p-0 text-text-dim hover:text-text transition-colors"
           >
-            <X size={11} color={t.textDim} />
+            <X size={11} />
           </button>
         </div>
       ))}
@@ -98,16 +77,7 @@ function TagEditor({
           if (input.trim()) addTag(input);
         }}
         placeholder={tags.length === 0 ? "Add tags..." : ""}
-        style={{
-          flex: 1,
-          minWidth: 80,
-          border: "none",
-          outline: "none",
-          background: "transparent",
-          color: t.text,
-          fontSize: 12,
-          padding: "4px 0",
-        }}
+        className="flex-1 min-w-[80px] border-none outline-none bg-transparent text-text text-xs py-1"
       />
     </div>
   );
@@ -120,7 +90,6 @@ function DangerZoneSection({
   form: Partial<ChannelSettings>;
   channelId: string;
 }) {
-  const t = useThemeTokens();
   const navigate = useNavigate();
   const deleteMutation = useDeleteChannel();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -143,12 +112,12 @@ function DangerZoneSection({
       title="Danger Zone"
       description="Destructive channel actions live here."
     >
-      <div style={{ border: `1px solid ${t.dangerBorder}`, borderRadius: 6, background: t.dangerSubtle, padding: 14 }}>
+      <div className="rounded-md border border-danger/40 bg-danger/10 p-3.5">
         {!showDeleteConfirm ? (
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            <div style={{ flex: 1, minWidth: 180 }}>
-              <span style={{ display: "block", fontSize: 13, color: t.text, fontWeight: "600" }}>Delete this channel</span>
-              <span style={{ display: "block", fontSize: 11, color: t.textMuted, marginTop: 3, lineHeight: 1.5 }}>
+          <div className="flex flex-row items-center justify-between flex-wrap gap-3">
+            <div className="flex-1 min-w-[180px]">
+              <span className="block text-[13px] font-semibold text-text">Delete this channel</span>
+              <span className="block text-[11px] text-text-muted mt-0.5 leading-snug">
                 Permanently removes the channel, its integrations, and heartbeat config. Sessions and tasks will be unlinked.
               </span>
             </div>
@@ -161,43 +130,29 @@ function DangerZoneSection({
             />
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 8,
-                padding: "10px 14px",
-                background: t.dangerSubtle,
-                borderRadius: 6,
-                border: `1px solid ${t.dangerBorder}`,
-              }}
-            >
-              <AlertTriangle size={16} color={t.danger} />
-              <span style={{ fontSize: 12, color: t.danger, fontWeight: "600" }}>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-row items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3.5 py-2.5">
+              <AlertTriangle size={16} className="text-danger" />
+              <span className="text-xs font-semibold text-danger">
                 This action cannot be undone.
               </span>
             </div>
-            <span style={{ fontSize: 12, color: t.textMuted }}>
-              Type <span style={{ fontFamily: "monospace", color: t.danger, fontWeight: "600" }}>delete</span> to confirm:
+            <span className="text-xs text-text-muted">
+              Type <span className="font-mono font-semibold text-danger">delete</span> to confirm:
             </span>
             <input
               type="text"
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder="delete"
-              style={{
-                padding: "8px 12px",
-                fontSize: 13,
-                background: t.inputBg,
-                border: `1px solid ${deleteConfirmText === "delete" ? t.dangerBorder : t.surfaceBorder}`,
-                borderRadius: 6,
-                color: t.text,
-                outline: "none",
-              }}
+              className={
+                "rounded-md bg-input px-3 py-2 text-[13px] text-text outline-none border "
+                + (deleteConfirmText === "delete"
+                  ? "border-danger/40"
+                  : "border-surface-border")
+              }
             />
-            <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+            <div className="flex flex-row flex-wrap gap-2">
               <ActionButton
                 label={deleteMutation.isPending ? "Deleting..." : "Permanently Delete"}
                 onPress={handleDelete}
@@ -217,7 +172,7 @@ function DangerZoneSection({
               />
             </div>
             {deleteMutation.isError && (
-              <span style={{ fontSize: 11, color: t.danger }}>
+              <span className="text-[11px] text-danger">
                 {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete channel"}
               </span>
             )}
@@ -235,7 +190,6 @@ export function ChannelIdentitySection({
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
 }) {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const { data: existingCategories } = useChannelCategories();
 
@@ -264,21 +218,15 @@ export function ChannelIdentitySection({
               placeholder="e.g. Work, Personal"
             />
             {categorySuggestions.length > 0 && categoryValue.length > 0 && (
-              <div className="flex flex-row flex-wrap gap-1" style={{ marginTop: 4 }}>
+              <div className="flex flex-row flex-wrap gap-1 mt-1">
                 {categorySuggestions.slice(0, 4).map((cat) => (
                   <button
                     type="button"
                     key={cat}
                     onClick={() => patch("category", cat as ChannelSettings["category"])}
-                    style={{
-                      backgroundColor: t.surfaceRaised,
-                      padding: "3px 8px",
-                      borderRadius: 6,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      cursor: "pointer",
-                    }}
+                    className="rounded-full bg-surface-overlay px-2 py-0.5 text-[10px] text-text-muted hover:bg-surface-overlay/80 transition-colors"
                   >
-                    <span style={{ fontSize: 10, color: t.textMuted }}>{cat}</span>
+                    {cat}
                   </button>
                 ))}
               </div>
@@ -304,7 +252,6 @@ export function PrivacyOwnershipSection({
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
 }) {
-  const t = useThemeTokens();
   const isAdmin = useIsAdmin();
   const currentUserId = useAuthStore((s) => s.user?.id);
   const isOwner = !!form.user_id && form.user_id === currentUserId;
@@ -332,7 +279,7 @@ export function PrivacyOwnershipSection({
         </FormRow>
       ) : form.user_id ? (
         <FormRow label="Owner">
-          <div style={{ fontSize: 12, color: t.textMuted }}>
+          <div className="text-xs text-text-muted">
             {ownerName ?? (isOwner ? "You" : form.user_id)}
           </div>
         </FormRow>
@@ -362,7 +309,7 @@ export function AgentIdentitySection({
         />
       </FormRow>
       {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
-        <InfoBanner variant="warning" icon={<AlertTriangle size={14} color="#f59e0b" />}>
+        <InfoBanner variant="warning" icon={<AlertTriangle size={14} className="text-warning-muted" />}>
           <strong>Switching bots.</strong> Existing conversation history sections belong to the previous bot&apos;s workspace and won&apos;t be accessible to the new bot. To rebuild history for the new bot, go to <strong>Memory</strong> and re-run <strong>Backfill</strong> after saving.
         </InfoBanner>
       )}
@@ -674,10 +621,8 @@ export function ChannelMetadataFooter({
 }: {
   settings: ChannelSettings;
 }) {
-  const t = useThemeTokens();
-
   return (
-    <div style={{ opacity: 0.4, fontSize: 11, color: t.textDim, display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+    <div className="flex flex-row flex-wrap gap-2 text-[11px] text-text-dim opacity-40">
       <span>ID: {settings.id}</span>
       {settings.client_id && <span>client_id: {settings.client_id}</span>}
       {settings.integration && <span>integration: {settings.integration}</span>}
@@ -741,7 +686,18 @@ export function PresentationTabSections({
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
 }) {
-  return <PresentationSection form={form} patch={patch} channelId={channelId} />;
+  return (
+    <>
+      <div className="rounded-md bg-surface-overlay p-3 text-xs text-text-muted">
+        Widget grid layout moved to the{" "}
+        <a href="#dashboard" className="text-accent hover:underline">
+          Dashboard
+        </a>{" "}
+        tab.
+      </div>
+      <PresentationSection form={form} patch={patch} channelId={channelId} />
+    </>
+  );
 }
 
 export function AutomationTabSections({
@@ -761,13 +717,10 @@ export function DashboardSettingsLink({
   channelId: string;
   label?: string;
 }) {
-  const t = useThemeTokens();
-
   return (
     <Link
       to={`/channels/${channelId}/settings?from=dashboard#presentation`}
-      className="inline-flex items-center gap-1.5 rounded-[6px] border border-surface-border px-2.5 py-1.5 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
-      style={{ color: t.textMuted, textDecoration: "none" }}
+      className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2.5 py-1.5 text-[12px] font-medium text-text-muted no-underline transition-colors hover:bg-surface-overlay hover:text-text"
     >
       {label}
     </Link>

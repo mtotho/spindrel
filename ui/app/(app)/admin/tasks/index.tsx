@@ -11,7 +11,7 @@ import { useRunTaskNow } from "@/src/api/hooks/useTasks";
 import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
 import { apiFetch } from "@/src/api/client";
 import { useBots } from "@/src/api/hooks/useBots";
-import { TaskCreateModal } from "@/src/components/shared/TaskCreateModal";
+import { TaskCreateWizard } from "@/src/components/shared/task/TaskCreateWizard";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatDate } from "@/src/utils/time";
@@ -617,13 +617,13 @@ export default function TasksScreen() {
 
       {/* Task Create modal (create / clone) */}
       {editorState.mode === "create" && (
-        <TaskCreateModal
+        <TaskCreateWizard
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}
         />
       )}
       {editorState.mode === "clone" && (
-        <TaskCreateModal
+        <TaskCreateWizard
           cloneFromId={editorCloneFromId}
           onClose={handleEditorClose}
           onSaved={handleEditorSaved}

@@ -69,7 +69,7 @@ class SlashCommandResult(BaseModel):
 
 
 class SideEffectPayload(BaseModel):
-    effect: Literal["stop", "compact", "plan"]
+    effect: Literal["stop", "compact", "plan", "effort"]
     scope_kind: Literal["channel", "session"]
     scope_id: str
     title: str
@@ -92,27 +92,72 @@ class _ContextDebugOut(BaseModel):
     messages: list[_ContextDebugMessage]
 
 
-def list_supported_slash_commands() -> list[dict[str, str]]:
+EFFORT_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
+
+
+def list_supported_slash_commands() -> list[dict]:
+    """Canonical slash-command registry.
+
+    The frontend mirrors this list at load time so both surfaces agree on
+    which commands exist, whether they take args, and what local-only
+    commands (clear / scratch) the UI should skip POSTing for.
+    """
     return [
         {
             "id": "context",
             "label": "/context",
             "description": "Show a compact summary of the current context",
+            "local_only": False,
+            "accepts_args": False,
+            "arg_enum": None,
         },
         {
             "id": "stop",
             "label": "/stop",
             "description": "Stop the current response",
+            "local_only": False,
+            "accepts_args": False,
+            "arg_enum": None,
         },
         {
             "id": "compact",
             "label": "/compact",
             "description": "Compress conversation",
+            "local_only": False,
+            "accepts_args": False,
+            "arg_enum": None,
         },
         {
             "id": "plan",
             "label": "/plan",
             "description": "Toggle plan mode",
+            "local_only": False,
+            "accepts_args": False,
+            "arg_enum": None,
+        },
+        {
+            "id": "effort",
+            "label": "/effort",
+            "description": "Set reasoning effort for this channel (off / low / medium / high)",
+            "local_only": False,
+            "accepts_args": True,
+            "arg_enum": list(EFFORT_LEVELS),
+        },
+        {
+            "id": "clear",
+            "label": "/clear",
+            "description": "Start fresh (local)",
+            "local_only": True,
+            "accepts_args": False,
+            "arg_enum": None,
+        },
+        {
+            "id": "scratch",
+            "label": "/scratch",
+            "description": "Open the scratch pad (local)",
+            "local_only": True,
+            "accepts_args": False,
+            "arg_enum": None,
         },
     ]
 
@@ -370,6 +415,54 @@ async def _compact_session(
     return _side_effect_result(payload, command_id="compact")
 
 
+async def _set_channel_effort(
+    *,
+    channel: Channel,
+    channel_id: uuid.UUID,
+    args: list[str],
+    db: AsyncSession,
+) -> SlashCommandResult:
+    """Persist `channel.config['effort_override']` based on `/effort <level>`.
+
+    Level `off` clears the override so the bot falls back to its configured
+    default. Any other level must be one of the canonical EFFORT_LEVELS.
+    """
+    import copy as _copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    level = (args[0].strip().lower() if args else "").strip()
+    if not level:
+        raise ValueError(
+            f"/effort requires one argument: {'/'.join(EFFORT_LEVELS)}"
+        )
+    if level not in EFFORT_LEVELS:
+        raise ValueError(
+            f"Unknown effort level {level!r}. Must be one of: {', '.join(EFFORT_LEVELS)}"
+        )
+
+    cfg = _copy.deepcopy(channel.config or {})
+    if level == "off":
+        cfg.pop("effort_override", None)
+        detail = "Reasoning effort cleared. Bot will use its configured default."
+        title = "Effort cleared"
+    else:
+        cfg["effort_override"] = level
+        detail = f"Reasoning effort set to {level} for this channel."
+        title = f"Effort: {level}"
+    channel.config = cfg
+    flag_modified(channel, "config")
+    await db.commit()
+
+    payload = SideEffectPayload(
+        effect="effort",
+        scope_kind="channel",
+        scope_id=str(channel_id),
+        title=title,
+        detail=detail,
+    )
+    return _side_effect_result(payload, command_id="effort")
+
+
 async def _toggle_plan_mode(
     *,
     session: Session,
@@ -421,9 +514,11 @@ async def execute_slash_command(
     channel_id: uuid.UUID | None,
     session_id: uuid.UUID | None,
     db: AsyncSession,
+    args: list[str] | None = None,
 ) -> SlashCommandResult:
     if bool(channel_id) == bool(session_id):
         raise ValueError("Exactly one of channel_id or session_id is required")
+    args = list(args or [])
 
     if channel_id is not None:
         channel = await db.get(Channel, channel_id)
@@ -460,6 +555,13 @@ async def execute_slash_command(
                 scope_kind="channel",
                 scope_id=channel_id,
                 channel=channel,
+                db=db,
+            )
+        if command_id == "effort":
+            return await _set_channel_effort(
+                channel=channel,
+                channel_id=channel_id,
+                args=args,
                 db=db,
             )
         raise ValueError(f"Unsupported slash command: {command_id}")

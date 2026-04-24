@@ -35,7 +35,7 @@ export function useSlashCommandExecutor({
   onSideEffect,
 }: Options) {
   return useCallback(
-    async (id: string) => {
+    async (id: string, args: string[] = []) => {
       if (!availableCommands.includes(id as SlashCommandId)) return;
       switch (id as SlashCommandId) {
         case "clear":
@@ -47,35 +47,43 @@ export function useSlashCommandExecutor({
         case "context":
         case "stop":
         case "compact":
-        case "plan": {
+        case "plan":
+        case "effort": {
           const body = buildSlashCommandExecuteBody({
             commandId: id as SlashCommandId,
             surface,
             channelId,
             sessionId,
+            args,
           });
           if (!body) return;
-          const result = await apiFetch<SlashCommandResult>("/api/v1/slash-commands/execute", {
-            method: "POST",
-            body: JSON.stringify(body),
-          });
-          if (result.result_type === "side_effect") {
-            const payload = result.payload as SlashCommandSideEffectPayload;
-            if (payload.effect !== "compact") {
-              toast({
-                kind: "info",
-                message: payload.detail || result.fallback_text,
-              });
+          try {
+            const result = await apiFetch<SlashCommandResult>("/api/v1/slash-commands/execute", {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+            if (result.result_type === "side_effect") {
+              const payload = result.payload as SlashCommandSideEffectPayload;
+              if (payload.effect !== "compact") {
+                toast({
+                  kind: "info",
+                  message: payload.detail || result.fallback_text,
+                });
+              }
+              await onSideEffect?.(result);
+              return;
             }
-            await onSideEffect?.(result);
+            const resolvedSessionId = sessionId ?? (result.payload.session_id as string | undefined) ?? "";
+            if (!resolvedSessionId) return;
+            onSyntheticMessage?.(
+              buildSlashCommandResultMessage(result, resolvedSessionId, channelId),
+            );
+            return;
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            toast({ kind: "error", message });
             return;
           }
-          const resolvedSessionId = sessionId ?? (result.payload.session_id as string | undefined) ?? "";
-          if (!resolvedSessionId) return;
-          onSyntheticMessage?.(
-            buildSlashCommandResultMessage(result, resolvedSessionId, channelId),
-          );
-          return;
         }
       }
     },

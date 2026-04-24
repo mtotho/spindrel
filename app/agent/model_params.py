@@ -24,23 +24,86 @@ _HEURISTIC_NO_TOOLS_PATTERNS: list[str] = [
 
 # Which OpenAI-style params each provider family supports.
 #
-# `thinking_budget` is a universal per-bot knob (integer token budget for
-# extended thinking / reasoning). `_prepare_call_params` is responsible for
-# translating it into the provider-specific request shape (Anthropic `thinking`
-# block, Gemini `thinking_config`, LiteLLM `reasoning_effort`, etc.) — the raw
-# value is NOT forwarded as a kwarg to the underlying SDK client.
+# `effort` is the user-facing reasoning knob (enum: off / low / medium / high).
+# `translate_effort` resolves it into the provider-native request shape — the
+# raw `effort` value is NOT forwarded as a kwarg to the underlying SDK client.
+# `thinking_budget` remains as an advanced power-user override (integer token
+# budget) for folks who want finer control than the enum gives; it only applies
+# to families whose native API is budget-shaped (Anthropic, Gemini).
 MODEL_PARAM_SUPPORT: dict[str, set[str]] = {
-    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
-    "anthropic": {"temperature", "max_tokens", "thinking_budget"},
-    "google": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "thinking_budget"},
-    "gemini": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "thinking_budget"},
+    "openai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "effort", "reasoning_effort", "thinking_budget"},
+    "anthropic": {"temperature", "max_tokens", "effort", "thinking_budget"},
+    "google": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "effort", "thinking_budget"},
+    "gemini": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "effort", "thinking_budget"},
     "mistral": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
-    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
+    "deepseek": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "effort", "reasoning_effort", "thinking_budget"},
     "groq": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
     "ollama": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty"},
-    "xai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "reasoning_effort", "thinking_budget"},
+    "xai": {"temperature", "max_tokens", "frequency_penalty", "presence_penalty", "effort", "reasoning_effort", "thinking_budget"},
     "_default": {"temperature", "max_tokens"},
 }
+
+
+# Canonical effort enum. "off" disables reasoning entirely; the rest map
+# per family in `translate_effort`.
+EFFORT_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
+
+# Anthropic / Gemini use an integer token budget. These are the default
+# thinking_budget values for each enum level; if the user set an explicit
+# `thinking_budget` in bot.model_params it overrides these for their family.
+_EFFORT_BUDGET_TOKENS: dict[str, int] = {
+    "off": 0,
+    "low": 2048,
+    "medium": 8192,
+    "high": 16384,
+}
+
+
+def translate_effort(model: str, effort: str | None, *, explicit_budget: int | None = None) -> dict:
+    """Translate the user-facing `effort` enum into provider-native kwargs.
+
+    Single source of truth for reasoning translation — ``_prepare_call_params``
+    must not re-branch on provider family.
+
+    Returns a dict of kwargs to merge into the outgoing request. Empty dict
+    means "no reasoning config" (either because effort is unset/off or because
+    the model's family doesn't support it).
+
+    `explicit_budget` is the advanced-user `thinking_budget` override from
+    ``bot.model_params``. For budget-shaped families (anthropic, gemini) it
+    wins over the enum-derived default so power users keep their precision.
+    For effort-shaped families (openai, xai, deepseek) it is ignored — the
+    enum drives the effort string directly.
+    """
+    if not effort or effort not in EFFORT_LEVELS or effort == "off":
+        return {}
+
+    family = get_provider_family(model)
+    if "effort" not in MODEL_PARAM_SUPPORT.get(family, MODEL_PARAM_SUPPORT["_default"]):
+        return {}
+
+    if family == "anthropic":
+        budget = explicit_budget if explicit_budget is not None and explicit_budget > 0 else _EFFORT_BUDGET_TOKENS[effort]
+        return {"thinking_budget": budget}
+
+    if family in ("gemini", "google"):
+        budget = explicit_budget if explicit_budget is not None and explicit_budget > 0 else _EFFORT_BUDGET_TOKENS[effort]
+        return {
+            "extra_body": {
+                "thinking_config": {
+                    "include_thoughts": True,
+                    "thinking_budget": budget,
+                },
+            },
+        }
+
+    if family in ("openai", "xai", "deepseek"):
+        # Both chat.completions reasoning models and the OpenAI Responses API
+        # (Codex/gpt-5-*) accept `reasoning_effort`. The Responses adapter
+        # translates it into `body.reasoning.effort` on the wire.
+        return {"reasoning_effort": effort}
+
+    return {}
 
 
 def get_provider_family(model: str) -> str:
@@ -109,21 +172,31 @@ PARAM_DEFINITIONS: list[dict] = [
         "default": 0,
     },
     {
-        "name": "reasoning_effort",
+        "name": "effort",
         "label": "Reasoning effort",
-        "description": "How much effort the model spends thinking before responding (o-series, DeepSeek R1)",
+        "description": "How hard the model thinks. Applies to Claude, Gemini 2.5, o-series, DeepSeek R1, Codex / gpt-5 — translated per provider.",
         "type": "select",
-        "options": ["low", "medium", "high"],
+        "options": ["off", "low", "medium", "high"],
         "default": None,
     },
     {
+        "name": "reasoning_effort",
+        "label": "Reasoning effort (raw, advanced)",
+        "description": "Direct pass-through of the OpenAI-style reasoning_effort string. Prefer the Reasoning effort enum above — this field is kept so bots with existing reasoning_effort values in their config keep working.",
+        "type": "select",
+        "options": ["low", "medium", "high"],
+        "default": None,
+        "advanced": True,
+    },
+    {
         "name": "thinking_budget",
-        "label": "Thinking budget",
-        "description": "Token budget for extended thinking. 0 disables. Applies to Claude (4.x/3.7), Gemini 2.5, and other reasoning-capable models.",
+        "label": "Thinking budget (advanced)",
+        "description": "Override the effort enum with an explicit token budget. Only applies to budget-shaped families (Claude, Gemini). Leave blank to use the effort preset.",
         "type": "number",
         "min": 0,
         "max": 32000,
         "step": 256,
         "default": None,
+        "advanced": True,
     },
 ]

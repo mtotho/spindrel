@@ -38,10 +38,7 @@ _TIKTOKEN_KINDS = {
 _CACHE_TTL_SECONDS = 60.0
 _CACHE_MAX_ENTRIES = 1024
 _FALLBACK_CHARS_PER_TOKEN = 3.5
-_NON_TEXT_PART_TOKEN_ESTIMATES: dict[str, int] = {
-    "image_url": 256,
-    "input_audio": 256,
-}
+_GENERIC_NON_TEXT_PART_FALLBACK_TOKENS = 64
 
 # Cache: key → (expires_at_monotonic, value)
 _cache: dict[tuple, tuple[float, int]] = {}
@@ -154,7 +151,7 @@ def estimate_content_tokens(content: Any) -> int:
             if part_type in {"text", "input_text"}:
                 total += estimate_tokens(str(part.get("text") or ""))
                 continue
-            total += _NON_TEXT_PART_TOKEN_ESTIMATES.get(part_type, 64)
+            total += _estimate_non_text_part_tokens(part)
         return total
     return estimate_tokens(str(content))
 
@@ -162,6 +159,33 @@ def estimate_content_tokens(content: Any) -> int:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _estimate_non_text_part_tokens(part: dict[str, Any]) -> int:
+    """Heuristic token estimate for non-text multimodal parts.
+
+    This is intentionally conservative but still cheap enough for hot-path
+    prompt budgeting. It is not provider-accurate accounting.
+    """
+    part_type = str(part.get("type") or "")
+
+    if part_type in {"image_url", "input_image"}:
+        detail = "auto"
+        image_payload = part.get("image_url")
+        if isinstance(image_payload, dict):
+            detail = str(image_payload.get("detail") or "auto").lower()
+        else:
+            detail = str(part.get("detail") or "auto").lower()
+        if detail == "low":
+            return 256
+        if detail == "high":
+            return 1024
+        return 512
+
+    if part_type == "input_audio":
+        return 256
+
+    return _GENERIC_NON_TEXT_PART_FALLBACK_TOKENS
 
 
 def _resolve_kind(provider_type: str | None, provider_id: str | None) -> str:

@@ -1835,8 +1835,6 @@ class AvailableIntegrationOut(BaseModel):
     has_system_prompt: bool = False
     version: Optional[str] = None
     includes: list[str] = []
-    chat_hud: list[dict] = []
-    chat_hud_presets: dict[str, dict] = {}
     activation_config: dict = {}
     config_fields: list[dict] = []
     included_by: list[str] = []
@@ -2093,15 +2091,13 @@ async def list_available_integrations(
     _auth=Depends(require_scopes("channels.integrations:read")),
 ):
     """List all integrations that declare activation blocks, with current status."""
-    from integrations import get_activation_manifests, get_chat_huds, get_chat_hud_presets
+    from integrations import get_activation_manifests
 
     channel = await db.get(Channel, channel_id)
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
     manifests = get_activation_manifests()
-    huds = get_chat_huds()
-    hud_presets = get_chat_hud_presets()
 
     # Load full ChannelIntegration rows to get activated status + activation_config
     ci_result = await db.execute(
@@ -2129,8 +2125,6 @@ async def list_available_integrations(
             has_system_prompt=has_system_prompt,
             version=manifest.get("version"),
             includes=manifest.get("includes", []),
-            chat_hud=huds.get(itype, []),
-            chat_hud_presets=hud_presets.get(itype, {}),
             activation_config=activation_config,
             config_fields=manifest.get("config_fields", []),
         ))

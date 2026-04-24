@@ -144,17 +144,7 @@ async def estimate_bot_context(
     dt_chars = 72
     lines.append(EstimateLine("sys:datetime", dt_chars, "timezone + local/utc line"))
 
-    # --- pinned widgets (channel-scoped, injected just after datetime) ---
     pinned_widgets = list(draft.get("pinned_widgets") or [])
-    if pinned_widgets:
-        from app.services.widget_context import build_widget_context_block
-        _pw_block = build_widget_context_block(pinned_widgets, bot_id=bot_id)
-        if _pw_block:
-            lines.append(EstimateLine(
-                "sys:pinned_widgets",
-                len(_pw_block),
-                f"{len(pinned_widgets)} pinned widget(s)",
-            ))
 
     # --- system prompt (may be duplicated in some clients; count once) ---
     sp_chars = len(system_prompt)
@@ -164,6 +154,25 @@ async def estimate_bot_context(
         lines.append(EstimateLine("sys:persona", len("[PERSONA]\n") + len(persona_content), "injected in session bootstrap"))
 
     async with async_session() as db:
+        # --- pinned widgets (channel-scoped, injected just after datetime) ---
+        if pinned_widgets:
+            from app.services.widget_context import (
+                build_widget_context_block,
+                enrich_pins_for_context_export,
+            )
+            _enriched_pins = await enrich_pins_for_context_export(
+                db,
+                pinned_widgets,
+                bot_id=bot_id,
+            )
+            _pw_block = build_widget_context_block(_enriched_pins, bot_id=bot_id)
+            if _pw_block:
+                lines.append(EstimateLine(
+                    "sys:pinned_widgets",
+                    len(_pw_block),
+                    f"{len(pinned_widgets)} pinned widget(s)",
+                ))
+
         # Skills (all on-demand): index only
         _all_skill_ids = [
             (e["id"] if isinstance(e, dict) else e) for e in skills_raw

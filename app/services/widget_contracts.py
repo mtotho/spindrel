@@ -13,6 +13,9 @@ JsonSchema = dict[str, Any]
 WidgetOrigin = dict[str, Any]
 WidgetPresentation = dict[str, Any]
 
+_VALID_CONTEXT_EXPORT_SUMMARY_KINDS = frozenset({"plain_body", "native_state", "server_provider"})
+_VALID_CONTEXT_EXPORT_HINT_KINDS = frozenset({"none", "invoke_widget_action", "handler_tools", "custom"})
+
 
 def normalize_config_schema(schema: object) -> JsonSchema | None:
     if not isinstance(schema, dict):
@@ -86,6 +89,43 @@ def normalize_presentation_family(value: object) -> str:
     return "card"
 
 
+def normalize_context_export(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    enabled = value.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
+        return None
+    summary_kind = value.get("summary_kind")
+    if summary_kind is None:
+        summary_kind = "plain_body"
+    elif not isinstance(summary_kind, str):
+        return None
+    else:
+        summary_kind = summary_kind.strip()
+    if summary_kind not in _VALID_CONTEXT_EXPORT_SUMMARY_KINDS:
+        return None
+    hint_kind = value.get("hint_kind")
+    if hint_kind is None:
+        hint_kind = "none"
+    elif not isinstance(hint_kind, str):
+        return None
+    else:
+        hint_kind = hint_kind.strip()
+    if hint_kind not in _VALID_CONTEXT_EXPORT_HINT_KINDS:
+        return None
+    out: dict[str, Any] = {
+        "enabled": True if enabled is None else enabled,
+        "summary_kind": summary_kind,
+        "hint_kind": hint_kind,
+    }
+    hint_text = value.get("hint_text")
+    if isinstance(hint_text, str):
+        cleaned = hint_text.strip()
+        if cleaned:
+            out["hint_text"] = cleaned
+    return out
+
+
 def build_widget_presentation(
     *,
     presentation_family: object = None,
@@ -132,6 +172,7 @@ def build_tool_widget_contract(
     widget_def: dict[str, Any] | None = None,
     actions: object = None,
     supported_scopes: object = None,
+    context_export: object = None,
     instantiation_kind: str = "direct_tool_call",
 ) -> WidgetContract:
     widget_def = widget_def or {}
@@ -147,6 +188,7 @@ def build_tool_widget_contract(
         "supported_scopes": _copy_supported_scopes(supported_scopes),
         "actions": _copy_actions(actions or widget_def.get("actions")),
         "layout_hints": normalize_layout_hints(widget_def.get("layout_hints")),
+        "context_export": normalize_context_export(context_export or widget_def.get("context_export")),
     }
 
 
@@ -156,6 +198,7 @@ def build_html_widget_contract(
     actions: object = None,
     supported_scopes: object = None,
     theme_support: str | None = "html",
+    context_export: object = None,
     instantiation_kind: str = "library_pin",
 ) -> WidgetContract:
     return {
@@ -168,6 +211,7 @@ def build_html_widget_contract(
         "theme_model": _html_theme_model(theme_support),
         "supported_scopes": _copy_supported_scopes(supported_scopes),
         "actions": _copy_actions(actions),
+        "context_export": normalize_context_export(context_export),
     }
 
 
@@ -176,6 +220,7 @@ def build_native_widget_contract(
     actions: object = None,
     supported_scopes: object = None,
     layout_hints: object = None,
+    context_export: object = None,
     instantiation_kind: str = "native_catalog",
 ) -> WidgetContract:
     action_list = _copy_actions(actions)
@@ -190,6 +235,7 @@ def build_native_widget_contract(
         "supported_scopes": _copy_supported_scopes(supported_scopes),
         "actions": action_list,
         "layout_hints": normalize_layout_hints(layout_hints),
+        "context_export": normalize_context_export(context_export),
     }
 
 
@@ -214,6 +260,7 @@ def build_public_contract_fields_for_catalog_entry(
                 actions=entry.get("actions"),
                 supported_scopes=entry.get("supported_scopes"),
                 layout_hints=entry.get("layout_hints"),
+                context_export=entry.get("context_export"),
                 instantiation_kind="native_catalog",
             ),
         }
@@ -225,6 +272,7 @@ def build_public_contract_fields_for_catalog_entry(
                 widget_def=entry,
                 actions=entry.get("actions"),
                 supported_scopes=entry.get("supported_scopes"),
+                context_export=entry.get("context_export"),
                 instantiation_kind="direct_tool_call",
             ),
         }
@@ -236,6 +284,7 @@ def build_public_contract_fields_for_catalog_entry(
             actions=entry.get("actions"),
             supported_scopes=entry.get("supported_scopes"),
             theme_support=entry.get("theme_support"),
+            context_export=entry.get("context_export"),
             instantiation_kind="library_pin",
         ),
     }
@@ -266,6 +315,7 @@ def build_public_fields_for_tool_widget(
             widget_def=entry,
             supported_scopes=entry.get("supported_scopes"),
             actions=entry.get("actions"),
+            context_export=entry.get("context_export"),
             instantiation_kind=instantiation_kind,
         ),
     }
@@ -294,6 +344,7 @@ def build_public_fields_for_native_widget(
             actions=[action.as_dict() for action in spec.actions],
             supported_scopes=spec.supported_scopes,
             layout_hints=spec.layout_hints,
+            context_export=spec.context_export,
             instantiation_kind=instantiation_kind,
         ),
     }
@@ -316,6 +367,7 @@ def resolve_html_widget_manifest_for_pin(
         "actions": [spec.as_dict() for spec in manifest.handlers if spec.bot_callable],
         "supported_scopes": [],
         "theme_support": "html",
+        "context_export": normalize_context_export(manifest.context_export),
         "widget_presentation": build_widget_presentation(
             presentation_family=manifest.presentation_family,
             panel_title=manifest.panel_title,
@@ -602,6 +654,7 @@ def build_public_fields_from_origin(
             actions=html_meta.get("actions"),
             supported_scopes=html_meta.get("supported_scopes"),
             theme_support=html_meta.get("theme_support") or "html",
+            context_export=html_meta.get("context_export"),
             instantiation_kind=instantiation_kind,
         ),
     }

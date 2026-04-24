@@ -4,7 +4,6 @@ import { prettyIntegrationName } from "@/src/utils/format";
 import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { ActivatableIntegration } from "@/src/types/api";
 import { ActivationConfigFields } from "./ActivationConfigFields";
-import { HudPresetPicker } from "./HudPresetPicker";
 
 function InjectionSummaryLine({ ig }: { ig: ActivatableIntegration }) {
   const parts: string[] = [];
@@ -132,7 +131,6 @@ export function ActivationCard({
         <div style={{ padding: "0 14px 12px" }}>
           <InjectionDetails ig={ig} t={t} />
           <ActivationConfigFields ig={ig} channelId={channelId} />
-          <HudPresetPicker ig={ig} channelId={channelId} />
         </div>
       )}
     </div>

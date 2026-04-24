@@ -442,6 +442,7 @@ STARTER_SKILL_IDS: list[str] = [
     "attachments",
     "workspace_files",
     "delegation",
+    "grill_me",
     "context_mastery",
     "history_and_memory/index",
     "prompt_injection_and_security",

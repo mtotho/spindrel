@@ -47,11 +47,37 @@ _MODULE_LEVEL_ALIASES = (
     "app.services.workflows.async_session",
     "app.services.task_run_anchor.async_session",
     "app.services.skill_enrollment.async_session",
+    "app.services.channel_skill_enrollment.async_session",
+    "app.agent.tool_dispatch.async_session",
     "app.services.turn_supervisors.async_session",
     "app.agent.tasks.async_session",
     "app.agent.recording.async_session",
     "app.services.sessions.async_session",
     "app.db.engine.async_session",
+)
+
+
+_PATCH_TARGETS = (
+    "app.tools.local.tasks.async_session",
+    "app.tools.local.pipelines.async_session",
+    "app.tools.local.sub_sessions.async_session",
+    "app.tools.local.get_trace.async_session",
+    "app.tools.local.skills.async_session",
+    "app.services.workflow_executor.async_session",
+    "app.services.compaction.async_session",
+    "app.services.bot_hooks.async_session",
+    "app.services.file_sync.async_session",
+    "app.services.attachments.async_session",
+    "app.services.workflows.async_session",
+    "app.services.task_run_anchor.async_session",
+    "app.services.skill_enrollment.async_session",
+    "app.services.channel_skill_enrollment.async_session",
+    "app.agent.tool_dispatch.async_session",
+    "app.services.turn_supervisors.async_session",
+    "app.agent.tasks.async_session",
+    "app.agent.recording.async_session",
+    "app.services.sessions.async_session",
+    "app.tools.local.todos.async_session",
 )
 
 
@@ -62,43 +88,18 @@ async def patched_async_sessions(engine):
     Service modules that open their own session inside a function (via
     ``async with async_session() as db:``) will transparently use the
     SQLite-in-memory test DB for the duration of the test.
+
+    Uses ``ExitStack`` so new patch targets can be appended to
+    ``_PATCH_TARGETS`` without bumping Python's 20-block nested-``with``
+    limit.
     """
+    from contextlib import ExitStack
+
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    with patch.multiple(
-        "app.db.engine", async_session=factory
-    ), patch("app.tools.local.tasks.async_session", factory), patch(
-        "app.tools.local.pipelines.async_session", factory
-    ), patch(
-        "app.tools.local.sub_sessions.async_session", factory
-    ), patch(
-        "app.tools.local.get_trace.async_session", factory
-    ), patch(
-        "app.tools.local.skills.async_session", factory
-    ), patch(
-        "app.services.workflow_executor.async_session", factory
-    ), patch(
-        "app.services.compaction.async_session", factory
-    ), patch(
-        "app.services.bot_hooks.async_session", factory
-    ), patch(
-        "app.services.file_sync.async_session", factory
-    ), patch(
-        "app.services.attachments.async_session", factory
-    ), patch(
-        "app.services.workflows.async_session", factory
-    ), patch(
-        "app.services.task_run_anchor.async_session", factory
-    ), patch(
-        "app.services.skill_enrollment.async_session", factory
-    ), patch(
-        "app.services.turn_supervisors.async_session", factory
-    ), patch("app.agent.tasks.async_session", factory), patch(
-        "app.agent.recording.async_session", factory
-    ), patch(
-        "app.services.sessions.async_session", factory
-    ), patch(
-        "app.tools.local.todos.async_session", factory
-    ):
+    with ExitStack() as stack:
+        stack.enter_context(patch.multiple("app.db.engine", async_session=factory))
+        for target in _PATCH_TARGETS:
+            stack.enter_context(patch(target, factory))
         yield factory
 
 

@@ -1,21 +1,40 @@
 import asyncio
 import json
 import logging
-import re
 import traceback
 import uuid
 
 from app.utils import safe_create_task
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
-from app.agent.context_pruning import STICKY_TOOL_NAMES, prune_in_loop_tool_results
+from app.agent.context_pruning import prune_in_loop_tool_results
+from app.agent.loop_dispatch import (
+    LoopDispatchState,
+    SummarizeSettings,
+    _resolve_approval_verdict,  # noqa: F401 — re-exported
+    dispatch_iteration_tool_calls,
+)
+from app.agent.loop_helpers import (
+    _CORRECTION_RE,
+    _EMPTY_RESPONSE_GENERIC_FALLBACK,  # noqa: F401 — re-exported
+    _append_transcript_text_entry,
+    _append_transcript_tool_entry,  # noqa: F401 — re-exported
+    _collapse_final_assistant_tool_turn,  # noqa: F401 — re-exported
+    _extract_last_user_text,
+    _extract_usage_extras,
+    _finalize_response,
+    _record_fallback_event,
+    _resolve_effective_provider,
+    _sanitize_llm_text,
+    _sanitize_messages,
+    _synthesize_empty_response_fallback,
+)
 from app.agent.message_utils import (
     _event_with_compaction_tag,
     _extract_client_actions,
@@ -24,451 +43,15 @@ from app.agent.message_utils import (
 )
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
-from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle, make_signature
-from app.agent.tool_dispatch import ToolCallResult, dispatch_tool_call, enforce_turn_aggregate_cap
+from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle
+from app.agent.tool_dispatch import dispatch_tool_call  # noqa: F401 — re-exported
 from app.agent.tracing import _CLASSIFY_SYS_MSG, _SYS_MSG_PREFIXES, _trace  # noqa: F401 — re-exported
 from app.config import settings
-from app.tools.client_tools import get_client_tool_schemas, is_client_tool
+from app.tools.client_tools import get_client_tool_schemas, is_client_tool  # noqa: F401 — re-exported
 from app.tools.mcp import fetch_mcp_tools
 from app.tools.registry import get_local_tool_schemas
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_effective_provider(
-    model_override: str | None,
-    provider_id_override: str | None,
-    bot_model_provider_id: str | None,
-) -> str | None:
-    """Resolve the effective provider for the current call.
-
-    When a model_override is set without an explicit provider_id_override,
-    auto-resolve the provider from the model rather than falling back to the
-    bot's default provider (which may be a completely different service).
-    """
-    if provider_id_override:
-        return provider_id_override
-    if model_override:
-        from app.services.providers import resolve_provider_for_model
-        return resolve_provider_for_model(model_override) or bot_model_provider_id
-    return bot_model_provider_id
-
-# Regex for detecting user corrections.
-# First branch: anchored to start of message (low false-positive).
-# Second branch: non-anchored patterns for mid-message corrections.
-# Uses negative lookahead to avoid false positives like "no problem", "no worries".
-_CORRECTION_RE = re.compile(
-    r"^(no[,.]?\s(?!problem|worries|thanks|thank|need|rush|idea)"
-    r"|wrong|that'?s not"
-    r"|actually[,.]?\s(?!thanks|thank|great|good|perfect|nice|fine)"
-    r"|incorrect|not quite|you should)"
-    r"|(?:\bthat'?s\s+(?:wrong|incorrect))|(?:\byou\s+misunderstood)|(?:\bi\s+(?:said|meant)\b)",
-    re.IGNORECASE,
-)
-
-
-def _extract_last_user_text(messages: list[dict]) -> str | None:
-    """Extract text content of the last user message in the list."""
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        return part["text"]
-                    if isinstance(part, str):
-                        return part
-            return None
-    return None
-
-
-def _sanitize_llm_text(raw: str) -> str:
-    """Apply all sanitization passes to raw LLM text output."""
-    return strip_malformed_tool_calls(strip_silent_tags(strip_think_tags(raw)))
-
-
-async def _record_fallback_event(
-    fb_info: FallbackInfo,
-    *,
-    session_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
-    bot_id: str | None,
-) -> None:
-    """Write a ModelFallbackEvent row to the DB (fire-and-forget)."""
-    try:
-        from app.agent.llm import get_cooldown_expiry
-        from app.db.engine import async_session
-        from app.db.models import ModelFallbackEvent
-
-        cooldown_until = get_cooldown_expiry(fb_info.original_model)
-
-        async with async_session() as db:
-            db.add(ModelFallbackEvent(
-                model=fb_info.original_model,
-                fallback_model=fb_info.fallback_model,
-                reason=fb_info.reason,
-                error_message=(fb_info.original_error or "")[:2000] or None,
-                session_id=session_id,
-                channel_id=channel_id,
-                bot_id=bot_id,
-                cooldown_until=cooldown_until,
-            ))
-            await db.commit()
-    except Exception:
-        logger.warning("Failed to record fallback event", exc_info=True)
-
-
-def _extract_usage_extras(response: Any) -> dict[str, Any]:
-    """Extract cached_tokens and response_cost from a raw OpenAI/LiteLLM response.
-
-    These fields are hidden in different places depending on the provider.
-    Centralizes the fragile getattr chains so they exist in one place.
-    """
-    extras: dict[str, Any] = {}
-    usage = response.usage
-    if not usage:
-        return extras
-
-    # cached_tokens: nested in prompt_tokens_details
-    details = getattr(usage, "prompt_tokens_details", None)
-    if details:
-        cached = getattr(details, "cached_tokens", None)
-        if cached is not None:
-            extras["cached_tokens"] = cached
-
-    # response_cost: hidden in LiteLLM's _hidden_params
-    cost = None
-    if hasattr(response, "_hidden_params"):
-        cost = getattr(response, "_hidden_params", {}).get("response_cost")
-    if cost is None and hasattr(response, "model_extra"):
-        hidden = (response.model_extra or {}).get("_hidden_params", {})
-        if isinstance(hidden, dict):
-            cost = hidden.get("response_cost")
-    if cost is not None:
-        extras["response_cost"] = cost
-
-    return extras
-
-
-_EMPTY_RESPONSE_GENERIC_FALLBACK = (
-    "I had trouble generating a response. Could you try again?"
-)
-
-
-def _synthesize_empty_response_fallback(
-    tool_calls_made: list[str],
-    messages: list[dict],
-) -> str:
-    """Build the user-facing text when both LLM iterations return 0 tokens.
-
-    When the model produces no text but the agent loop *did* execute tool
-    calls, the generic "I had trouble generating a response" string discards
-    real progress.  Surface the names of the tools that ran plus the most
-    recent tool result so the user (and assertions like delegation_basic)
-    can see what work was done.
-
-    When no tools ran, fall back to the generic message.
-    """
-    if not tool_calls_made:
-        return _EMPTY_RESPONSE_GENERIC_FALLBACK
-
-    # Dedupe preserving order
-    _seen = list(dict.fromkeys(tool_calls_made))
-    _tool_list = ", ".join(_seen)
-
-    # Find the most recent tool-result message with text content
-    _last_tool_text: str | None = None
-    for _m in reversed(messages):
-        if _m.get("role") != "tool":
-            continue
-        _content = _m.get("content")
-        if isinstance(_content, list):
-            # Some providers return content as a list of parts
-            _content = " ".join(
-                p.get("text", "") for p in _content
-                if isinstance(p, dict) and p.get("type") == "text"
-            )
-        if isinstance(_content, str) and _content.strip():
-            _last_tool_text = _content.strip()[:500]
-        break
-
-    if _last_tool_text:
-        return f"I completed {_tool_list}. Result: {_last_tool_text}"
-    return f"I completed {_tool_list} but couldn't generate a summary."
-
-
-def _append_transcript_text_entry(entries: list[dict], text: str) -> None:
-    if not text:
-        return
-    if entries and entries[-1].get("kind") == "text":
-        entries[-1]["text"] = f'{entries[-1].get("text", "")}{text}'
-        return
-    entries.append({
-        "id": f"text:{len(entries) + 1}",
-        "kind": "text",
-        "text": text,
-    })
-
-
-def _append_transcript_tool_entry(entries: list[dict], tool_call_id: str) -> None:
-    entries.append({
-        "id": f"tool:{tool_call_id}",
-        "kind": "tool_call",
-        "toolCallId": tool_call_id,
-    })
-
-
-def _collapse_final_assistant_tool_turn(messages: list[dict], *, turn_start: int) -> None:
-    """Move current-turn assistant tool_calls onto the final assistant row.
-
-    The loop can accumulate multiple assistant messages in one turn:
-    intermediate assistant content with tool_calls, then a final assistant
-    response after tool execution. The settled chat model expects the final
-    visible assistant row to own both the transcript ordering and the canonical
-    tool_calls used to resolve transcript tool slots.
-
-    Mark current-turn intermediate assistant tool-call rows hidden for
-    persistence/UI filtering and merge only current-turn tool_calls onto the
-    final assistant row. Previous turns are intentionally ignored.
-    """
-    assistant_indices = [
-        index for index, msg in enumerate(messages)
-        if index >= turn_start and msg.get("role") == "assistant"
-    ]
-    if not assistant_indices:
-        return
-
-    final_idx = assistant_indices[-1]
-    final_msg = messages[final_idx]
-    tool_call_by_id: dict[str, dict] = {}
-    ordered_tool_call_ids: list[str] = []
-    anonymous_tool_calls: list[dict] = []
-
-    for index in assistant_indices:
-        msg = messages[index]
-        tool_calls = msg.get("tool_calls")
-        if not tool_calls:
-            continue
-        for tool_call in tool_calls:
-            if not isinstance(tool_call, dict):
-                continue
-            tool_call_id = tool_call.get("id")
-            if isinstance(tool_call_id, str) and tool_call_id:
-                if tool_call_id not in tool_call_by_id:
-                    ordered_tool_call_ids.append(tool_call_id)
-                tool_call_by_id[tool_call_id] = tool_call
-            else:
-                anonymous_tool_calls.append(tool_call)
-        if index != final_idx:
-            msg["_hidden"] = True
-
-    if not tool_call_by_id and not anonymous_tool_calls:
-        return
-
-    ordered_tool_calls: list[dict] = []
-    seen_tool_call_ids: set[str] = set()
-    assistant_turn_body = final_msg.get("_assistant_turn_body")
-    items = assistant_turn_body.get("items") if isinstance(assistant_turn_body, dict) else None
-    if isinstance(items, list):
-        for item in items:
-            if not isinstance(item, dict) or item.get("kind") != "tool_call":
-                continue
-            tool_call_id = item.get("toolCallId")
-            if not isinstance(tool_call_id, str) or not tool_call_id or tool_call_id in seen_tool_call_ids:
-                continue
-            tool_call = tool_call_by_id.get(tool_call_id)
-            if tool_call is None:
-                continue
-            ordered_tool_calls.append(tool_call)
-            seen_tool_call_ids.add(tool_call_id)
-
-    for tool_call_id in ordered_tool_call_ids:
-        if tool_call_id in seen_tool_call_ids:
-            continue
-        ordered_tool_calls.append(tool_call_by_id[tool_call_id])
-        seen_tool_call_ids.add(tool_call_id)
-
-    ordered_tool_calls.extend(anonymous_tool_calls)
-    final_msg["tool_calls"] = ordered_tool_calls
-
-
-def _finalize_response(
-    text: str,
-    *,
-    messages: list[dict],
-    bot: BotConfig,
-    session_id: uuid.UUID | None,
-    client_id: str | None,
-    correlation_id: uuid.UUID | None,
-    channel_id: uuid.UUID | None,
-    compaction: bool,
-    native_audio: bool,
-    user_msg_index: int | None,
-    transcript_emitted: bool,
-    tool_calls_made: list[str],
-    tool_envelopes_made: list[dict],
-    transcript_entries: list[dict],
-    thinking_content_buf: str,
-    turn_start: int,
-    embedded_client_actions: list[dict],
-) -> tuple[list[dict], bool]:
-    """Shared response finalization: transcript, tracing, hooks, tools_used, response event.
-
-    Returns ``(events_to_yield, transcript_emitted)`` — caller is responsible for
-    yielding the events (since this is not an async generator itself).
-    """
-    events: list[dict] = []
-
-    if native_audio and user_msg_index is not None and not transcript_emitted:
-        transcript, text = _extract_transcript(text)
-        messages[-1]["content"] = text
-        events.append(_event_with_compaction_tag({"type": "transcript", "text": transcript}, compaction))
-        if transcript:
-            messages[user_msg_index] = {"role": "user", "content": transcript}
-        else:
-            messages[user_msg_index] = {"role": "user", "content": "[inaudible]"}
-        transcript_emitted = True
-
-    # Final safety net: never emit an empty response to the UI — unless the
-    # bot intentionally said nothing after completing tool work (silent completion).
-    if not text.strip() and not tool_calls_made:
-        logger.warning("_finalize_response received empty text with no tool calls — applying fallback.")
-        text = "I had trouble generating a response. Could you try again?"
-        # Update persisted messages so the fallback survives a page refresh.
-        if messages and messages[-1].get("role") == "assistant":
-            messages[-1]["content"] = text
-
-    _trace("✓ response (%d chars)", len(text))
-    logger.info("Final response (%d chars): %r", len(text), text[:120])
-
-    if correlation_id is not None and not compaction:
-        safe_create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
-            event_type="response",
-            data={"text": text[:500], "full_length": len(text)},
-        ))
-
-    # Fire after_response lifecycle hook (fire-and-forget)
-    from app.agent.hooks import fire_hook, HookContext
-    safe_create_task(fire_hook("after_response", HookContext(
-        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-        client_id=client_id, correlation_id=correlation_id,
-        extra={"response_length": len(text), "tool_calls_made": list(tool_calls_made)},
-    )))
-
-    # Inject tools_used + tool envelopes into the final assistant message for
-    # persist_turn. The envelopes carry per-call rendered output (mimetype,
-    # body, plain_body, display, truncated, record_id) which the web UI
-    # consumes from message.metadata.tool_results to render rich tool views
-    # without per-tool knowledge.
-    if tool_calls_made and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_tools_used"] = list(tool_calls_made)
-        if tool_envelopes_made:
-            messages[-1]["_tool_envelopes"] = list(tool_envelopes_made)
-
-    # Attach accumulated thinking to the LAST assistant message on the turn so
-    # persist_turn can stash it in message metadata. We only surface the final
-    # iteration's thinking on the user-facing message — intermediate thinking
-    # lives in transcript events but isn't persisted per-row today.
-    if (
-        thinking_content_buf
-        and messages
-        and messages[-1].get("role") == "assistant"
-    ):
-        messages[-1]["_thinking_content"] = thinking_content_buf
-
-    if transcript_entries and messages and messages[-1].get("role") == "assistant":
-        messages[-1]["_assistant_turn_body"] = {
-            "version": 1,
-            "items": list(transcript_entries),
-        }
-
-    if messages and messages[-1].get("role") == "assistant":
-        _collapse_final_assistant_tool_turn(messages, turn_start=turn_start)
-
-    events.append(_event_with_compaction_tag({
-        "type": "response",
-        "text": text,
-        "tools_used": list(tool_calls_made) if tool_calls_made else None,
-        "client_actions": (
-            _extract_client_actions(messages, turn_start) + embedded_client_actions
-        ),
-        **({"correlation_id": str(correlation_id)} if correlation_id else {}),
-    }, compaction))
-
-    return events, transcript_emitted
-
-
-def _sanitize_messages(messages: list[dict]) -> list[dict]:
-    """Ensure no message has null/missing content — some models reject it.
-
-    Also removes orphaned tool-result messages whose tool_call_id doesn't
-    match any tool_call in the conversation (e.g. after compaction strips
-    the assistant message with tool_calls but leaves the tool results).
-
-    Mutates *messages* in-place (replacing individual dicts where needed)
-    so that callers holding a reference to the same list see the changes.
-    Returning the same list keeps the API unchanged for call-sites that
-    reassign: ``messages = _sanitize_messages(messages)``.
-    """
-    # Collect all valid tool_call IDs from assistant messages
-    valid_tc_ids: set[str] = set()
-    for m in messages:
-        if m.get("role") == "assistant" and m.get("tool_calls"):
-            for tc in m["tool_calls"]:
-                tc_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                if tc_id:
-                    valid_tc_ids.add(tc_id)
-
-    # Remove orphaned tool results and fix null content
-    i = 0
-    while i < len(messages):
-        m = messages[i]
-        if "content" not in m or m["content"] is None:
-            messages[i] = {**m, "content": ""}
-        # Drop tool results with no matching tool_call
-        if m.get("role") == "tool" and m.get("tool_call_id"):
-            if m["tool_call_id"] not in valid_tc_ids:
-                messages.pop(i)
-                continue
-        i += 1
-    return messages
-
-
-async def _resolve_approval_verdict(
-    approval_id: str,
-    *,
-    timeout_seconds: int,
-) -> str:
-    """Await approval resolution, expiring pending rows and reconciling DB truth."""
-    from app.agent.approval_pending import cancel_approval, create_approval_pending
-    from app.db.engine import async_session as _ap_session
-    from app.db.models import ToolApproval as _TA, ToolCall as _TC
-
-    future = create_approval_pending(approval_id)
-    try:
-        return await asyncio.wait_for(future, timeout=timeout_seconds)
-    except asyncio.TimeoutError:
-        cancel_approval(approval_id)
-        async with _ap_session() as _ap_db:
-            _ap_row = await _ap_db.get(_TA, uuid.UUID(approval_id))
-            if _ap_row is None:
-                return "expired"
-            if _ap_row.status == "pending":
-                _ap_row.status = "expired"
-                if _ap_row.tool_call_id:
-                    _tc_row = await _ap_db.get(_TC, _ap_row.tool_call_id)
-                    if _tc_row and _tc_row.status == "awaiting_approval":
-                        _tc_row.status = "expired"
-                        _tc_row.completed_at = datetime.now(timezone.utc)
-                await _ap_db.commit()
-                return "expired"
-            return str(_ap_row.status)
 
 
 @dataclass
@@ -513,13 +96,23 @@ async def run_agent_tool_loop(
     model = model_override or bot.model
     provider_id = _resolve_effective_provider(model_override, provider_id_override, bot.model_provider_id)
 
-    # Effective tool result summarization settings (bot-level overrides global)
-    _trc = bot.tool_result_config or {}
-    _eff_summarize_enabled: bool = _trc["enabled"] if "enabled" in _trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED
-    _eff_summarize_threshold: int = _trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD
-    _eff_summarize_model: str = _trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model
-    _eff_summarize_max_tokens: int = _trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS
-    _eff_summarize_exclude: set[str] = set(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS) | set(_trc.get("exclude_tools") or [])
+    # Overlay `/effort` ContextVar (set by run_stream from channel.config) onto
+    # the bot's baseline model_params. The ContextVar wins because "this turn
+    # was explicitly told to reason harder" beats the bot's configured default.
+    from app.agent.context import current_effort_override as _effort_ctx_rat
+    _effective_model_params = dict(bot.model_params or {})
+    _effort_now = _effort_ctx_rat.get()
+    if _effort_now:
+        _effective_model_params["effort"] = _effort_now
+
+    trc = bot.tool_result_config or {}
+    summarize_settings = SummarizeSettings(
+        enabled=trc["enabled"] if "enabled" in trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED,
+        threshold=trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD,
+        model=trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model,
+        max_tokens=trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
+        exclude=frozenset(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS) | frozenset(trc.get("exclude_tools") or []),
+    )
 
     if pre_selected_tools is not None:
         all_tools = _merge_tool_schemas(pre_selected_tools)
@@ -577,6 +170,15 @@ async def run_agent_tool_loop(
     _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
     _detected_cycle_len: int = 0  # populated when cycle detected
+    dispatch_state = LoopDispatchState(
+        messages=messages,
+        transcript_entries=transcript_entries,
+        tool_calls_made=tool_calls_made,
+        tool_envelopes_made=tool_envelopes_made,
+        embedded_client_actions=embedded_client_actions,
+        tool_call_trace=tool_call_trace,
+        tools_to_enroll=_tools_to_enroll,
+    )
 
     def _est_msg_chars(m: dict) -> int:
         content = m.get("content") or ""
@@ -785,7 +387,7 @@ async def run_agent_tool_loop(
             _llm_cancelled = False
             async for item in _llm_call_stream(
                 effective_model, messages, tools_param, tool_choice,
-                provider_id=effective_provider_id, model_params=bot.model_params,
+                provider_id=effective_provider_id, model_params=_effective_model_params,
                 fallback_models=fallback_models,
             ):
                 if isinstance(item, AccumulatedMessage):
@@ -1092,379 +694,29 @@ async def run_agent_tool_loop(
 
             _acc_tool_calls = accumulated_msg.tool_calls
             logger.info("LLM requested %d tool call(s)", len(_acc_tool_calls))
-            _iteration_injected_images: list[dict] = []
-
-            _has_client_tool = any(
-                is_client_tool(tc["function"]["name"]) for tc in _acc_tool_calls
-            )
-            _use_parallel = (
-                settings.PARALLEL_TOOL_EXECUTION
-                and len(_acc_tool_calls) >= 2
-                and not _has_client_tool
-            )
-
-            if _use_parallel:
-                # --- Parallel tool dispatch ---
-                # Check cancellation once before the whole batch
-                if session_id and session_locks.is_cancel_requested(session_id):
-                    logger.info("Cancellation requested for session %s (before parallel batch)", session_id)
-                    for remaining_tc in _acc_tool_calls:
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": remaining_tc["id"],
-                            "content": "[Cancelled by user]",
-                        })
-                    yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
+            async for _dispatch_event in dispatch_iteration_tool_calls(
+                accumulated_tool_calls=_acc_tool_calls,
+                state=dispatch_state,
+                bot=bot,
+                session_id=session_id,
+                client_id=client_id,
+                correlation_id=correlation_id,
+                channel_id=channel_id,
+                iteration=iteration,
+                provider_id=effective_provider_id,
+                summarize_settings=summarize_settings,
+                compaction=compaction,
+                skip_tool_policy=skip_tool_policy,
+                effective_allowed=_effective_allowed,
+                settings_obj=settings,
+                session_lock_manager=session_locks,
+                dispatch_tool_call_fn=dispatch_tool_call,
+                is_client_tool_fn=is_client_tool,
+            ):
+                yield _dispatch_event
+                if _dispatch_event.get("type") == "cancelled":
                     return
-
-                # Emit all tool_start events upfront
-                for tc in _acc_tool_calls:
-                    _p_name = tc["function"]["name"]
-                    _p_args = tc["function"]["arguments"]
-                    _append_transcript_tool_entry(transcript_entries, tc["id"])
-                    logger.info("Tool call: %s", _p_name)
-                    logger.debug("Tool call %s args: %s", _p_name, _p_args)
-                    _trace("→ %s", _p_name)
-                    yield _event_with_compaction_tag({
-                        "type": "tool_start",
-                        "tool": _p_name,
-                        "args": _p_args,
-                        "tool_call_id": tc["id"],
-                    }, compaction)
-
-                # Dispatch all tool calls concurrently
-                _sem = asyncio.Semaphore(settings.PARALLEL_TOOL_MAX_CONCURRENT)
-
-                async def _dispatch_one(tc: dict) -> tuple[dict, ToolCallResult, bool]:
-                    """Dispatch a single tool call under semaphore. Returns (tc, result, was_cancelled)."""
-                    async with _sem:
-                        # Check cancellation before each dispatch
-                        if session_id and session_locks.is_cancel_requested(session_id):
-                            return (tc, ToolCallResult(
-                                result_for_llm="[Cancelled by user]",
-                                tool_event={"type": "tool_result", "tool": tc["function"]["name"], "result": "[Cancelled by user]"},
-                            ), True)
-                        try:
-                            return (tc, await dispatch_tool_call(
-                                name=tc["function"]["name"],
-                                args=tc["function"]["arguments"],
-                                tool_call_id=tc["id"],
-                                bot_id=bot.id,
-                                bot_memory=bot.memory,
-                                session_id=session_id,
-                                client_id=client_id,
-                                correlation_id=correlation_id,
-                                channel_id=channel_id,
-                                iteration=iteration,
-                                provider_id=effective_provider_id,
-                                summarize_enabled=_eff_summarize_enabled,
-                                summarize_threshold=_eff_summarize_threshold,
-                                summarize_model=_eff_summarize_model,
-                                summarize_max_tokens=_eff_summarize_max_tokens,
-                                summarize_exclude=_eff_summarize_exclude,
-                                compaction=compaction,
-                                skip_policy=skip_tool_policy,
-                                allowed_tool_names=_effective_allowed,
-                            ), False)
-                        except Exception:
-                            _tc_name = tc["function"]["name"]
-                            logger.exception("Unhandled error dispatching tool %s in parallel batch", _tc_name)
-                            _err_msg = json.dumps({"error": f"Internal error dispatching {_tc_name}"})
-                            return (tc, ToolCallResult(
-                                result=_err_msg,
-                                result_for_llm=_err_msg,
-                                tool_event={"type": "tool_result", "tool": _tc_name, "error": f"Internal error dispatching {_tc_name}"},
-                            ), False)
-
-                _parallel_results: list[tuple[dict, ToolCallResult, bool]] = await asyncio.gather(
-                    *[_dispatch_one(tc) for tc in _acc_tool_calls],
-                )
-
-                # Aggregate turn-level cap: after per-tool hard caps, verify the
-                # combined tool-result payload doesn't blow a configured ceiling.
-                # Shrinks the largest result_for_llm strings proportionally.
-                _agg_cap = getattr(settings, "TOOL_TURN_AGGREGATE_CAP_CHARS", 0)
-                if isinstance(_agg_cap, (int, float)) and _agg_cap > 0:
-                    _agg_trim_targets = [
-                        r for _tc, r, was_cancelled in _parallel_results if not was_cancelled
-                    ]
-                    _agg_trimmed = enforce_turn_aggregate_cap(_agg_trim_targets, _agg_cap)
-                    if _agg_trimmed:
-                        logger.warning(
-                            "turn_aggregate_cap_hit bot=%s session=%s trimmed_chars=%d cap=%d tools=%s",
-                            bot.id, session_id, _agg_trimmed, _agg_cap,
-                            [tc["function"]["name"] for tc, _, _ in _parallel_results],
-                        )
-
-                # Process results in original order (approval gates, message assembly, events)
-                _cancelled_during_parallel = False
-                for tc, tc_result, was_cancelled in _parallel_results:
-                    if was_cancelled:
-                        _cancelled_during_parallel = True
-
-                    name = tc["function"]["name"]
-                    args = tc["function"]["arguments"]
-
-                    if _cancelled_during_parallel:
-                        # Stub remaining results for well-formed history
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "[Cancelled by user]",
-                        })
-                        continue
-
-                    # --- Approval gate (sequential — requires user interaction) ---
-                    if tc_result.needs_approval:
-                        _approval_event = {
-                            "type": "approval_request",
-                            "approval_id": tc_result.approval_id,
-                            "tool": name,
-                            "arguments": args,
-                            "reason": tc_result.approval_reason,
-                        }
-                        _cap_meta = tc_result.tool_event.get("_capability") if tc_result.tool_event else None
-                        if _cap_meta:
-                            _approval_event["capability"] = _cap_meta
-                        yield _event_with_compaction_tag(_approval_event, compaction)
-                        try:
-                            verdict = await _resolve_approval_verdict(
-                                tc_result.approval_id,
-                                timeout_seconds=tc_result.approval_timeout,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to reconcile approval %s after timeout",
-                                tc_result.approval_id,
-                                exc_info=True,
-                            )
-                            verdict = "expired"
-                        if verdict == "approved":
-                            tc_result = await dispatch_tool_call(
-                                name=name,
-                                args=args,
-                                tool_call_id=tc["id"],
-                                bot_id=bot.id,
-                                bot_memory=bot.memory,
-                                session_id=session_id,
-                                client_id=client_id,
-                                correlation_id=correlation_id,
-                                channel_id=channel_id,
-                                iteration=iteration,
-                                provider_id=effective_provider_id,
-                                summarize_enabled=_eff_summarize_enabled,
-                                summarize_threshold=_eff_summarize_threshold,
-                                summarize_model=_eff_summarize_model,
-                                summarize_max_tokens=_eff_summarize_max_tokens,
-                                summarize_exclude=_eff_summarize_exclude,
-                                compaction=compaction,
-                                skip_policy=True,
-                                allowed_tool_names=_effective_allowed,
-                                existing_record_id=tc_result.record_id,
-                            )
-                        else:
-                            tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
-                            tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
-                        yield _event_with_compaction_tag({
-                            "type": "approval_resolved",
-                            "approval_id": tc_result.approval_id,
-                            "tool": name,
-                            "verdict": verdict,
-                        }, compaction)
-
-                    tool_calls_made.append(name)
-                    tc_result.envelope.tool_call_id = tc["id"]
-                    tool_envelopes_made.append(tc_result.envelope.compact_dict())
-                    tool_call_trace.append(make_signature(name, args))
-                    for pre_event in tc_result.pre_events:
-                        yield pre_event
-                    if tc_result.embedded_client_action is not None:
-                        embedded_client_actions.append(tc_result.embedded_client_action)
-                    if tc_result.injected_images:
-                        _iteration_injected_images.extend(tc_result.injected_images)
-
-                    _tool_msg: dict = {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tc_result.result_for_llm,
-                    }
-                    if tc_result.record_id is not None:
-                        _tool_msg["_tool_record_id"] = str(tc_result.record_id)
-                    if name in STICKY_TOOL_NAMES:
-                        _tool_msg["_no_prune"] = True
-                    messages.append(_tool_msg)
-                    yield _event_with_compaction_tag(tc_result.tool_event, compaction)
-
-                    # Promote successfully-called tools to the bot's persistent working set
-                    if (
-                        bot.id
-                        and name not in STICKY_TOOL_NAMES
-                        and not tc_result.needs_approval
-                        and not tc_result.tool_event.get("error")
-                    ):
-                        _tools_to_enroll.append(name)
-
-                    # Fire after_tool_call lifecycle hook (fire-and-forget)
-                    safe_create_task(fire_hook("after_tool_call", HookContext(
-                        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                        client_id=client_id, correlation_id=correlation_id,
-                        extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
-                    )))
-
-                if _cancelled_during_parallel:
-                    yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
-                    return
-
-            else:
-                # --- Sequential tool dispatch (single tool or parallel disabled) ---
-                for tc_idx, tc in enumerate(_acc_tool_calls):
-                    # Cancellation checkpoint: before each tool dispatch
-                    if session_id and session_locks.is_cancel_requested(session_id):
-                        logger.info("Cancellation requested for session %s (before tool %s)", session_id, tc["function"]["name"])
-                        # Append stub tool results for remaining tool calls to keep
-                        # conversation history well-formed (assistant references these IDs).
-                        for remaining_tc in _acc_tool_calls[tc_idx:]:
-                            messages.append({
-                                "role": "tool",
-                                "tool_call_id": remaining_tc["id"],
-                                "content": "[Cancelled by user]",
-                            })
-                        yield _event_with_compaction_tag({"type": "cancelled"}, compaction)
-                        return
-
-                    name = tc["function"]["name"]
-                    args = tc["function"]["arguments"]
-                    _append_transcript_tool_entry(transcript_entries, tc["id"])
-                    logger.info("Tool call: %s", name)
-                    logger.debug("Tool call %s args: %s", name, args)
-
-                    _trace("→ %s", name)
-                    yield _event_with_compaction_tag({
-                        "type": "tool_start",
-                        "tool": name,
-                        "args": args,
-                        "tool_call_id": tc["id"],
-                    }, compaction)
-
-                    tc_result = await dispatch_tool_call(
-                        name=name,
-                        args=args,
-                        tool_call_id=tc["id"],
-                        bot_id=bot.id,
-                        bot_memory=bot.memory,
-                        session_id=session_id,
-                        client_id=client_id,
-                        correlation_id=correlation_id,
-                        channel_id=channel_id,
-                        iteration=iteration,
-                        provider_id=effective_provider_id,
-                        summarize_enabled=_eff_summarize_enabled,
-                        summarize_threshold=_eff_summarize_threshold,
-                        summarize_model=_eff_summarize_model,
-                        summarize_max_tokens=_eff_summarize_max_tokens,
-                        summarize_exclude=_eff_summarize_exclude,
-                        compaction=compaction,
-                        skip_policy=skip_tool_policy,
-                        allowed_tool_names=_effective_allowed,
-                    )
-
-                    # --- Approval gate ---
-                    if tc_result.needs_approval:
-                        _approval_event_seq = {
-                            "type": "approval_request",
-                            "approval_id": tc_result.approval_id,
-                            "tool": name,
-                            "arguments": args,
-                            "reason": tc_result.approval_reason,
-                        }
-                        _cap_meta_seq = tc_result.tool_event.get("_capability") if tc_result.tool_event else None
-                        if _cap_meta_seq:
-                            _approval_event_seq["capability"] = _cap_meta_seq
-                        yield _event_with_compaction_tag(_approval_event_seq, compaction)
-                        try:
-                            verdict = await _resolve_approval_verdict(
-                                tc_result.approval_id,
-                                timeout_seconds=tc_result.approval_timeout,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to reconcile approval %s after timeout",
-                                tc_result.approval_id,
-                                exc_info=True,
-                            )
-                            verdict = "expired"
-                        if verdict == "approved":
-                            tc_result = await dispatch_tool_call(
-                                name=name,
-                                args=args,
-                                tool_call_id=tc["id"],
-                                bot_id=bot.id,
-                                bot_memory=bot.memory,
-                                session_id=session_id,
-                                client_id=client_id,
-                                correlation_id=correlation_id,
-                                channel_id=channel_id,
-                                iteration=iteration,
-                                provider_id=effective_provider_id,
-                                summarize_enabled=_eff_summarize_enabled,
-                                summarize_threshold=_eff_summarize_threshold,
-                                summarize_model=_eff_summarize_model,
-                                summarize_max_tokens=_eff_summarize_max_tokens,
-                                summarize_exclude=_eff_summarize_exclude,
-                                compaction=compaction,
-                                skip_policy=True,
-                                allowed_tool_names=_effective_allowed,
-                                existing_record_id=tc_result.record_id,
-                            )
-                        else:
-                            tc_result.result_for_llm = json.dumps({"error": f"Tool call {verdict} by admin"})
-                            tc_result.tool_event = {"type": "tool_result", "tool": name, "error": f"Tool call {verdict}"}
-                        yield _event_with_compaction_tag({
-                            "type": "approval_resolved",
-                            "approval_id": tc_result.approval_id,
-                            "tool": name,
-                            "verdict": verdict,
-                        }, compaction)
-
-                    tool_calls_made.append(name)
-                    tc_result.envelope.tool_call_id = tc["id"]
-                    tool_envelopes_made.append(tc_result.envelope.compact_dict())
-                    tool_call_trace.append(make_signature(name, args))
-                    for pre_event in tc_result.pre_events:
-                        yield pre_event
-                    if tc_result.embedded_client_action is not None:
-                        embedded_client_actions.append(tc_result.embedded_client_action)
-                    if tc_result.injected_images:
-                        _iteration_injected_images.extend(tc_result.injected_images)
-
-                    _tool_msg: dict = {
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tc_result.result_for_llm,
-                    }
-                    if tc_result.record_id is not None:
-                        _tool_msg["_tool_record_id"] = str(tc_result.record_id)
-                    if name in STICKY_TOOL_NAMES:
-                        _tool_msg["_no_prune"] = True
-                    messages.append(_tool_msg)
-                    yield _event_with_compaction_tag(tc_result.tool_event, compaction)
-
-                    # Promote successfully-called tools to the bot's persistent working set
-                    if (
-                        bot.id
-                        and name not in STICKY_TOOL_NAMES
-                        and not tc_result.needs_approval
-                        and not tc_result.tool_event.get("error")
-                    ):
-                        _tools_to_enroll.append(name)
-
-                    # Fire after_tool_call lifecycle hook (fire-and-forget)
-                    safe_create_task(fire_hook("after_tool_call", HookContext(
-                        bot_id=bot.id, session_id=session_id, channel_id=channel_id,
-                        client_id=client_id, correlation_id=correlation_id,
-                        extra={"tool_name": name, "tool_args": args, "duration_ms": tc_result.duration_ms},
-                    )))
-                # --- end sequential ---
+            _iteration_injected_images = list(dispatch_state.iteration_injected_images)
 
             # Inject images as synthetic user message so LLM sees them natively
             if _iteration_injected_images:
@@ -1763,6 +1015,24 @@ async def run_stream(
     current_injected_tools.set(injected_tools)
     native_audio = audio_data is not None
     turn_start = len(messages)
+
+    # Channel-persisted `/effort` override. Read from channel.config once per
+    # outermost turn and set the ContextVar so nested run_stream / delegation
+    # children inherit via snapshot/restore. Nested calls skip the DB hit —
+    # they read the ContextVar already set by the outermost caller.
+    from app.agent.context import current_effort_override as _effort_ctx
+    if _effort_ctx.get() is None and channel_id is not None:
+        try:
+            from app.db.engine import async_session as _effort_session_factory
+            from app.db.models import Channel as _EffortChannel
+            async with _effort_session_factory() as _effort_db:
+                _ch = await _effort_db.get(_EffortChannel, channel_id)
+                if _ch is not None:
+                    _override = (_ch.config or {}).get("effort_override")
+                    if _override in ("off", "low", "medium", "high"):
+                        _effort_ctx.set(_override)
+        except Exception:
+            logger.debug("effort override lookup failed", exc_info=True)
 
     from app.agent.context import current_run_origin
     from app.agent.context_profiles import resolve_context_profile

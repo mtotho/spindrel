@@ -29,17 +29,12 @@ import { usePaletteActions, type PaletteAction } from "@/src/stores/paletteActio
 import { FolderOpen, Cog, Settings as SettingsIcon, PanelLeft as PanelLeftIcon, PanelRight as PanelRightIcon, LayoutDashboard as LayoutDashboardIcon, Layers, Search } from "lucide-react";
 import { SecretWarningDialog } from "@/src/components/chat/SecretWarningDialog";
 import { ActiveBadgeBar } from "./ActiveBadgeBar";
-import { useIntegrationHuds } from "@/src/api/hooks/useChatHud";
-import { HudStatusStrip } from "./hud/HudStatusStrip";
-import { HudSidePanel } from "./hud/HudSidePanel";
-import { HudInputBar } from "./hud/HudInputBar";
-import { HudFloatingAction } from "./hud/HudFloatingAction";
 import { ErrorBanner, SecretWarningBanner } from "./ChatBanners";
 import { BotInfoPanel } from "@/src/components/chat/BotInfoPanel";
 import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCard";
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
-import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
+import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
@@ -83,8 +78,6 @@ import {
 } from "@/src/api/hooks/useThreads";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
-
-import type { ActiveHud } from "@/src/api/hooks/useChatHud";
 
 function readLegacyRightDockWidth(): number {
   if (typeof window === "undefined") return CHANNEL_PANEL_DEFAULT_WIDTH;
@@ -165,95 +158,6 @@ function CollapsedPanelSpine({
   );
 }
 
-/** Collapsible wrapper around HUD status strips with a toggle icon.
- *
- * On mobile (`compact`), the HUD defaults to collapsed — it's channel chrome
- * the user can opt into, not something we shove above every conversation.
- * On desktop the legacy expanded-by-default behavior is preserved. The
- * `hudCollapsedChannels` store value records the user's *explicit* toggle,
- * so a tap to collapse on desktop also persists to mobile and vice versa.
- */
-function HudStripBar({
-  statusStrips,
-  channelId,
-  compact,
-}: {
-  statusStrips: ActiveHud[];
-  channelId: string;
-  compact: boolean;
-}) {
-  const t = useThemeTokens();
-  const explicitlyCollapsed = useUIStore((s) => s.hudCollapsedChannels.includes(channelId));
-  const explicitlyExpanded = useUIStore((s) => s.hudExpandedOnMobile.includes(channelId));
-  const toggleHud = useUIStore((s) => s.toggleHudCollapsed);
-  const toggleMobileExpand = useUIStore((s) => s.toggleHudExpandedOnMobile);
-  const hudCollapsed = compact
-    ? (!explicitlyExpanded || explicitlyCollapsed)
-    : explicitlyCollapsed;
-  const handleToggle = () => {
-    if (compact) toggleMobileExpand(channelId);
-    else toggleHud(channelId);
-  };
-
-  if (hudCollapsed) {
-    return (
-      <button
-        onClick={handleToggle}
-        aria-label="Expand HUD"
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 4,
-          padding: "10px 0",
-          minHeight: 28,
-          border: "none",
-          borderBottom: `1px solid ${t.surfaceBorder}`,
-          background: t.surfaceRaised,
-          cursor: "pointer",
-          width: "100%",
-          opacity: 0.6,
-        }}
-      >
-        <ChevronDown size={12} color={t.textDim} />
-        <span style={{ fontSize: 10, color: t.textDim }}>HUD</span>
-      </button>
-    );
-  }
-
-  return (
-    <div style={{ position: "relative" }}>
-      {statusStrips.map((h) => (
-        <HudStatusStrip key={h.key} hud={h} compact={compact} />
-      ))}
-      <button
-        onClick={handleToggle}
-        className="header-icon-btn"
-        style={{
-          position: "absolute",
-          right: 0,
-          top: 0,
-          width: 32,
-          height: 32,
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: 0,
-          borderRadius: 4,
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "center",
-          opacity: 0.4,
-        }}
-        title="Collapse HUD"
-        aria-label="Collapse HUD"
-      >
-        <ChevronUp size={12} color={t.textDim} />
-      </button>
-    </div>
-  );
-}
-
 export default function ChatScreen() {
   const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack("/");
@@ -271,8 +175,6 @@ export default function ChatScreen() {
   const { width: viewportWidth } = useWindowSize();
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
-
-  const { statusStrips, sidePanels, inputBars, floatingActions } = useIntegrationHuds(channelId);
 
   const showHamburger = columns === "single" || sidebarCollapsed;
   const t = useThemeTokens();
@@ -1249,9 +1151,6 @@ export default function ChatScreen() {
           }))}
         />
       )}
-      {inputBars.map((h) => (
-        <HudInputBar key={h.key} hud={h} />
-      ))}
       <ChatComposerShell chatMode={chatMode}>
         <MessageInput {...messageInputProps} />
       </ChatComposerShell>
@@ -1403,14 +1302,6 @@ export default function ChatScreen() {
             Mobile: retain the compact scrolling bar (no subtitle row to inline into). */}
         {channelId && isMobile && <ActiveBadgeBar channelId={channelId} compact />}
 
-      {statusStrips.length > 0 && (
-        <HudStripBar
-          statusStrips={statusStrips}
-          channelId={channelId!}
-          compact={isMobile}
-        />
-      )}
-
       {launchpadVisible && channelId && (
         <OrchestratorLaunchpad
           channelId={channelId}
@@ -1474,9 +1365,6 @@ export default function ChatScreen() {
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
             <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
               <ChatMessageArea {...messageAreaProps} bottomSlot={terminalBottomSlot} scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)} />
-              {floatingActions.map((h) => (
-                <HudFloatingAction key={h.key} hud={h} />
-              ))}
             </div>
             {chatMode !== "terminal" && (
             <div
@@ -1494,9 +1382,6 @@ export default function ChatScreen() {
                   }))}
                 />
               )}
-              {inputBars.map((h) => (
-                <HudInputBar key={h.key} hud={h} />
-              ))}
               <ChatComposerShell chatMode={chatMode}>
                 <MessageInput {...messageInputProps} />
               </ChatComposerShell>
@@ -1673,9 +1558,6 @@ export default function ChatScreen() {
                       scrollPaddingTop={0}
                       scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 48}
                     />
-                    {floatingActions.map((h) => (
-                      <HudFloatingAction key={h.key} hud={h} />
-                    ))}
                   </div>
                   {chatMode !== "terminal" && (
                   <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
@@ -1690,9 +1572,6 @@ export default function ChatScreen() {
                         }))}
                       />
                     )}
-                    {inputBars.map((h) => (
-                      <HudInputBar key={h.key} hud={h} />
-                    ))}
                     <ChatComposerShell chatMode={chatMode}>
                       <MessageInput {...messageInputProps} />
                     </ChatComposerShell>
@@ -1723,11 +1602,6 @@ export default function ChatScreen() {
               </div>
             )}
           </div>
-
-          {/* HUD side panels */}
-          {!isMobile && sidePanels.map((h) => (
-            <HudSidePanel key={h.key} hud={h} />
-          ))}
 
           {!isMobile && channelId && !isSystemChannel && showDockZone && dockPins.length > 0 && (panelLayout.right.mode === "closed" || dockBlockedByFileViewer) && (
             <CollapsedPanelSpine

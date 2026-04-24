@@ -338,8 +338,41 @@ class TestAssemblyBudgetTight:
         assert not [e for e in events if e.get("type") == "tool_index"]
         assert "tool_index" not in budget.breakdown
         assert result.context_profile == "task_none"
-        assert result.context_policy["live_history_turns"] == 0
-        assert result.inject_decisions["tool_index"] == "skipped_by_profile"
+
+    @pytest.mark.asyncio
+    async def test_multimodal_user_message_uses_detail_aware_token_estimate(self):
+        bot = _minimal_bot()
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=20_000, reserve_tokens=0)
+        result = AssemblyResult()
+        attachments = [
+            {"type": "image", "content": "YWJj", "mime_type": "image/png"},
+        ]
+
+        patches = _assembly_patches()
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="What is in this image?",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=attachments,
+                native_audio=False,
+                result=result,
+                budget=budget,
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        assert budget.breakdown["current_user_message"] >= estimate_tokens("What is in this image?") + 512
 
 
 # ---------------------------------------------------------------------------

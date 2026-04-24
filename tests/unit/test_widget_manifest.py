@@ -108,6 +108,28 @@ class TestHappyPath:
             },
         }
 
+    def test_context_export_is_parsed(self, tmp_path):
+        p = write_yaml(
+            tmp_path,
+            """\
+            name: Home control
+            version: 1.0.0
+            description: A test
+            context_export:
+              enabled: true
+              summary_kind: plain_body
+              hint_kind: custom
+              hint_text: Use the widget__home_control__toggle tool.
+            """,
+        )
+        m = parse_manifest(p)
+        assert m.context_export == {
+            "enabled": True,
+            "summary_kind": "plain_body",
+            "hint_kind": "custom",
+            "hint_text": "Use the widget__home_control__toggle tool.",
+        }
+
     def test_full_manifest(self, tmp_path, monkeypatch):
         monkeypatch.setattr("app.services.cron_utils.validate_cron", lambda _expr: None)
         p = write_yaml(

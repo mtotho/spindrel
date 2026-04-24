@@ -43,7 +43,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - session lease grant/revoke
   - execution-policy validation
   - machine-access-required payloads
-- `local_machine_control.py` is now just a compatibility shim.
+- `local_machine_control.py` compatibility shim **deleted 2026-04-23** (Ousterhout housekeeping — zero importers). All code lives in `app/services/machine_control.py`.
 - `integrations/local_companion/` now supplies:
   - `machine_control.py` provider implementation
   - `bridge.py` websocket bridge
@@ -87,6 +87,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - integration discovery now exposes machine-control provider metadata to the generic integration detail page
   - `Admin > Integrations > Local Companion` now has a provider-aware quick-setup card that calls the same core enroll API and can generate a ready launch command
   - `/admin/machines` was moved onto the normal padded admin content width instead of rendering edge-to-edge
+  - corrected a UI API regression where machine-control hooks were calling `/admin/machines` directly instead of `/api/v1/admin/machines`, which caused real browser 404s on enroll; paths are now centralized in a tested helper
 
 ## Current Architecture Shape
 

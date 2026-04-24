@@ -436,6 +436,12 @@ def _build_request_body(
     reasoning_cfg = body.get("reasoning")
     if not isinstance(reasoning_cfg, dict):
         reasoning_cfg = {}
+    # Translate the flat `reasoning_effort` kwarg (emitted by
+    # ``translate_effort`` for openai-family models) into the nested
+    # ``reasoning.effort`` key that the Responses API expects. Without this
+    # the effort knob is silently dropped at the adapter boundary.
+    if extra.get("reasoning_effort"):
+        reasoning_cfg.setdefault("effort", extra["reasoning_effort"])
     reasoning_cfg.setdefault("summary", "auto")
     body["reasoning"] = reasoning_cfg
 

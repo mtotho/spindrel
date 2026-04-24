@@ -49,7 +49,7 @@ export interface TiptapChatInputProps {
   onTextChange: (markdown: string) => void;
   onSubmit: () => void;
   onImagePaste?: (files: File[]) => void;
-  onSlashCommand?: (id: string) => void;
+  onSlashCommand?: (id: string, args?: string[]) => void;
   slashSurface?: SlashCommandSurface;
   availableSlashCommands?: SlashCommandId[];
   disabled?: boolean;

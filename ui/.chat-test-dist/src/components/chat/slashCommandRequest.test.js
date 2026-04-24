@@ -12,6 +12,7 @@ test("channel surface prefers channel scope even when a session id is present", 
         channel_id: "channel-1",
         session_id: null,
         surface: "web",
+        args: [],
     });
 });
 test("session surface prefers session scope even when a channel id is present", () => {
@@ -25,6 +26,21 @@ test("session surface prefers session scope even when a channel id is present", 
         channel_id: null,
         session_id: "session-1",
         surface: "web",
+        args: [],
+    });
+});
+test("args are forwarded when provided (e.g. /effort high)", () => {
+    assert.deepEqual(buildSlashCommandExecuteBody({
+        commandId: "effort",
+        surface: "channel",
+        channelId: "channel-1",
+        args: ["high"],
+    }), {
+        command_id: "effort",
+        channel_id: "channel-1",
+        session_id: null,
+        surface: "web",
+        args: ["high"],
     });
 });
 test("returns null when the requested surface has no matching scope id", () => {

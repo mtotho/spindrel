@@ -1370,8 +1370,10 @@ async def _create_approval_state(
     extra_metadata: dict | None = None,
 ) -> tuple[uuid.UUID, str]:
     """Atomically create the awaiting-approval ToolCall and ToolApproval rows."""
+    from datetime import datetime, timezone
+
     from app.agent.context import current_dispatch_config, current_dispatch_type
-    from app.db.models import ToolApproval
+    from app.db.models import ToolApproval, ToolCall
 
     dispatch_type = current_dispatch_type.get(None)
     dispatch_config = current_dispatch_config.get(None)

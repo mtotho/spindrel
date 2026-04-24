@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-23 (channel settings consistency pass: unified control chrome, quieter integrations/automation/drawer surfaces)
+updated: 2026-04-23 (Pass 4a: agent/channel tab supplements — ParticipantsTab + ToolsOverrideTab migrated)
 ---
 # Track — UI Polish
 
@@ -268,3 +268,59 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_loop_helpers.py -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 60s npx tsc --noEmit`
 - [ ] `cd /home/mtoth/personal/agent-server && timeout 30s pytest tests/unit/test_persisted_tool_call_presentation.py -q` remained wrapper-limited in this sandbox shell without surfacing a pytest summary line; rerun once in a normal repo shell to capture the clean pass/fail output for the new `tool_call_id` ownership regression.
+
+## Pass 3: Channel Dashboard + Settings SKILL Adoption + Two-Gear Unification (2026-04-23)
+
+First application of `spindrel-ui` SKILL (shipped same day) to a real screen. Structural + visual in one commit.
+
+### Shipped — structural
+- [x] **Two-gear unification on channel dashboard** — removed the left gear from `ChannelDashboardBreadcrumb.tsx`. Channel-scoped dashboards now show exactly one gear (right, Channel Settings). Non-channel (user/global) dashboards still use `DashboardTabs` with its own gear to open `EditDashboardDrawer`.
+- [x] **New "Dashboard" tab in channel settings** — added between Presentation and Knowledge. Wraps extracted `<DashboardConfigForm>` so users configure grid preset / rail pin / borderless / hover scrollbars / hide-titles / icon without leaving settings.
+- [x] **Shared `DashboardConfigForm`** — form body extracted from `EditDashboardDrawer`. Drawer becomes a thin shell around it; the Settings Dashboard tab renders the same form inline. One save path, one state machine.
+- [x] **Router redirect** — `/widgets/channel/:id/settings` now lands on `#dashboard` (was `#presentation`). The right gear on the dashboard still goes to the same URL, just lands on the new tab.
+- [x] **Cross-link callout in Presentation tab** — short note at the top pointing at the Dashboard tab so users with `#presentation` muscle memory find the moved controls.
+
+### Shipped — visual (SKILL adoption)
+- [x] **`ChannelDashboardBreadcrumb.tsx`** — dropped `useThemeTokens()`; scratch-session chip now uses `border-surface-border` / `bg-surface-overlay` / `text-text-dim` Tailwind classes.
+- [x] **`channels/[channelId]/settings.tsx` header (lines ~271-331)** — dropped `backdropFilter: blur(12px)`, dropped `border-b` between header and tab strip (per SKILL §6), migrated all inline `style={{}}` + `useThemeTokens()` to Tailwind. `header-icon-btn` class retained. Spacing + `bg-surface` now separates the header from the tab strip.
+- [x] **`channels/[channelId]/settings.tsx` tab strip (lines ~336-440)** — dropped `border-b`, migrated to Tailwind with `data-active` attribute driving the underline via `after:` pseudo-element (no more absolute-positioned child div). Edge fades now use Tailwind `from-surface to-transparent` gradients.
+- [x] **`ChannelSettingsSections.tsx` first-landing sections** — TagEditor chips migrated to `rounded-full bg-surface-overlay text-text-muted`. Category suggestion chips migrated. Owner row migrated. `ChannelMetadataFooter` migrated. `DashboardSettingsLink` drops inline style override. `DangerZoneSection` migrated to `bg-danger/10` / `border-danger/40` / `bg-input` tokens. `AgentIdentitySection` AlertTriangle `color="#f59e0b"` → `className="text-warning-muted"`. File no longer imports `useThemeTokens`.
+- [x] **Spinner in loading state** — dropped `color={t.accent}` override; uses default (visually indistinguishable accent blue).
+
+### Invariants established
+- Every channel dashboard page shows exactly ONE gear.
+- Migrated files (`settings.tsx`, `ChannelDashboardBreadcrumb.tsx`, `ChannelSettingsSections.tsx`, `DashboardConfigForm.tsx`, `EditDashboardDrawer.tsx`, `DashboardTab.tsx`) have 0 `useThemeTokens()` callers, 0 inline hex literals, 0 `border-b` between stacked bars.
+
+### Deferred to next opportunistic pass (still in SKILL §8)
+- `ChannelHeader.tsx` (chat-view header) inline hex at lines ~219 (`#f87171`, `#fbbf24`) + `animate-pulse` at ~495.
+- Deeper tab panels: `HeartbeatTab`, `PipelinesTab`, `TasksTab`, `ToolsOverrideTab`, `AttachmentsTab`, `IntegrationsTab`, `HistoryTab`, `ChannelWorkspaceTab`, `ChannelFileBrowser`, `ContextTab`, `LogsTab`, `AutomationTabSections`, `AgentTabSections` — all still on `useThemeTokens()`. Migrate on next touch.
+- Other SKILL §8 debt entries (`MarkdownContent`, `StepsJsonEditor`, `SystemPauseBanner`, `ApprovalToast`, `MemoryHygieneGroupBanner`, `DelegationCard`, `IndexStatusBadge`, `ToolsInContextPanel`, `TaskConstants`, `TaskStepEditor`).
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
+- [x] `grep -n "useThemeTokens" settings.tsx ChannelDashboardBreadcrumb.tsx ChannelSettingsSections.tsx DashboardConfigForm.tsx DashboardTab.tsx EditDashboardDrawer.tsx` — 0 hits.
+- [ ] Visual dark/light toggle pass (manual, by user).
+
+## Pass 4a: Agent/Channel tab supplements (2026-04-23)
+
+Finishes the first-landing continuity started in Pass 3 — when a user opens settings and lands on the Channel or Agent tab, the panels above and below the first-landing sections now share the same visual vocabulary.
+
+### Shipped
+- [x] **`ParticipantsTab.tsx`** — dropped `useThemeTokens()`; all inline `style={{}}` migrated. Member badges use `rounded-full bg-surface-overlay text-text-dim` uppercase chip per SKILL §4. `BotPicker` lost `boxShadow: "0 4px 16px rgba(0,0,0,0.15)"` (SKILL §3 shadow = "almost never") — uses `border + bg-surface-raised` tonal lift instead. MemberCard collapsed header now a single `<button>` with full-row hover, accessibility preserved. Remove (X) icon uses `text-text-dim hover:text-danger`. Input fields unified via shared `INPUT_CLASS` constant (`bg-input border-input-border rounded-md focus:border-accent focus:ring-2 focus:ring-accent/40`).
+- [x] **`ToolsOverrideTab.tsx`** — dropped `useThemeTokens()` from all 4 call sites (SectionLabel, ToolChip, SkillChip, main). `SectionLabel` uses canonical `uppercase text-[10px] tracking-[0.08em] text-text-dim/70` per SKILL §3; dropped the hairline filler line after the label (was `flex-1 h-px bg-surface-border` — admin-chrome noise). Tool/MCP chips migrated to `rounded-full bg-surface-overlay text-text-muted font-mono` per SKILL §4 badges. `SkillChip` uses `bg-accent/[0.08]` fill per SKILL §4 low-opacity accent pattern; dashed bottom-borders on preview triggers dropped. Search input uses `bg-input border-input-border` with `focus-within:` ring. Addable-skill rows use `rounded-md bg-surface-raised hover:bg-surface-overlay/60` card pattern.
+- [x] **`IntegrationsTab.tsx`** — verified already clean (5-line re-export wrapper; real chrome lives in `integrations/BindingsSection.tsx`, deferred).
+
+### Invariants established
+- Channel tab (`ChannelTabSections` + `ParticipantsTab` + `IntegrationsTab`) renders with one visual voice top-to-bottom.
+- Agent tab (`AgentTabSections` + `ToolsOverrideTab`) likewise.
+- 0 `useThemeTokens()` callers and 0 inline hex in `ParticipantsTab.tsx`, `ToolsOverrideTab.tsx`, `IntegrationsTab.tsx`.
+
+### Deferred (updated)
+Pass 4b candidates (Automation + Memory block): `HistoryTab`, `HeartbeatTab` (+ `HeartbeatHistoryList`, `HeartbeatContextPreview`), `PipelinesTab` (+ `PipelineRunLive`, `PipelineRunPreRun`), `TasksTab`, `QuietHoursPicker`.
+Pass 4c candidate (dirtiest, 10 hex): `ContextTab.tsx`.
+Pass 4d (multi-session, own plan): `ChannelWorkspaceTab` + `AttachmentsTab` + file-browser trio.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean (exit 0).
+- [x] 0 `useThemeTokens` / 0 `style={{` / 0 inline hex in the 3 touched files.
+- [ ] Visual dark/light toggle pass (manual, by user).

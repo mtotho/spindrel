@@ -456,6 +456,56 @@ class TestSkillInjection:
         assert index_events[0]["count"] == 1
 
     @pytest.mark.asyncio
+    async def test_on_demand_skill_index_surfaces_grill_me_trigger(self, engine, db_session):
+        """A 'grill me' request should surface the grill_me skill in the index."""
+        from app.db.models import Skill
+
+        db_session.add(Skill(
+            id="grill_me",
+            name="Grill Me",
+            content="Interview-first workflow.",
+            source_type="file",
+        ))
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="grill_me", mode="on_demand")])
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_retrieve = AsyncMock(return_value=[{"skill_id": "grill_me", "similarity": 0.91}])
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="grill me on this feature before you build it",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+            ))
+
+        index_msgs = [m for m in messages if "get_skill" in m.get("content", "")]
+        assert len(index_msgs) >= 1
+        assert "grill_me" in index_msgs[0]["content"]
+
+        index_events = [e for e in events if e.get("type") == "skill_index"]
+        assert len(index_events) == 1
+        assert index_events[0]["count"] == 1
+
+    @pytest.mark.asyncio
     @pytest.mark.skip(reason="pgvector <=> cosine distance operator unsupported on SQLite test backend")
     async def test_pinned_skills_inject_content(self, engine):
         """Pinned skills should inject full content via fetch_skill_chunks_by_id."""

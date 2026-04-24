@@ -25,6 +25,7 @@ class SlashCommandExecuteRequest(BaseModel):
     channel_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
     surface: str = "web"
+    args: list[str] = []
 
 
 def _auth_has_scope(auth, scope: str) -> bool:
@@ -77,6 +78,7 @@ async def run_slash_command(
             channel_id=body.channel_id,
             session_id=body.session_id,
             db=db,
+            args=list(body.args or []),
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))

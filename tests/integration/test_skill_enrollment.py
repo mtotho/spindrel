@@ -126,7 +126,8 @@ class TestEnrollService:
         from app.config import STARTER_SKILL_IDS
 
         await _create_bot(db_session, "bot4")
-        # Seed only 2 of the 5 starter skills — the rest should be silently skipped
+        assert "grill_me" in STARTER_SKILL_IDS
+        # Seed only 2 starter skills — the rest should be silently skipped
         await _create_skill(db_session, STARTER_SKILL_IDS[0])
         await _create_skill(db_session, STARTER_SKILL_IDS[1])
         invalidate_enrolled_cache()
@@ -137,6 +138,43 @@ class TestEnrollService:
         invalidate_enrolled_cache()
         ids = await get_enrolled_skill_ids("bot4")
         assert sorted(ids) == sorted([STARTER_SKILL_IDS[0], STARTER_SKILL_IDS[1]])
+
+    async def test_backfill_missing_starter_skills_is_idempotent(self, patched_session, db_session):
+        from app.config import STARTER_SKILL_IDS
+        from app.services.skill_enrollment import (
+            backfill_missing_starter_skills,
+            enroll,
+            get_enrolled_skill_ids,
+            invalidate_enrolled_cache,
+        )
+
+        assert "grill_me" in STARTER_SKILL_IDS
+
+        await _create_bot(db_session, "starter-backfill-a")
+        await _create_bot(db_session, "starter-backfill-b")
+        for sid in ("workspace_files", "grill_me", "delegation"):
+            await _create_skill(db_session, sid)
+
+        await enroll("starter-backfill-a", "workspace_files", source="manual")
+        invalidate_enrolled_cache()
+
+        inserted = await backfill_missing_starter_skills()
+        assert inserted == 5
+
+        invalidate_enrolled_cache()
+        assert sorted(await get_enrolled_skill_ids("starter-backfill-a")) == [
+            "delegation",
+            "grill_me",
+            "workspace_files",
+        ]
+        assert sorted(await get_enrolled_skill_ids("starter-backfill-b")) == [
+            "delegation",
+            "grill_me",
+            "workspace_files",
+        ]
+
+        inserted_again = await backfill_missing_starter_skills()
+        assert inserted_again == 0
 
 
 # ---------------------------------------------------------------------------
@@ -445,4 +483,3 @@ class TestBotDeleteCascade:
         fk = fks[0]
         assert fk.column.table.name == "skills"
         assert fk.ondelete == "CASCADE"
-

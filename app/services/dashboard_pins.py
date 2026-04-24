@@ -300,11 +300,22 @@ async def _sync_native_pin_envelopes(
         if instance is None or instance.widget_kind != "native_app":
             continue
         display_label = row.display_label or (row.envelope or {}).get("display_label")
-        envelope = build_envelope_for_native_instance(
-            instance,
-            display_label=display_label,
-            source_bot_id=row.source_bot_id,
-        )
+        try:
+            envelope = build_envelope_for_native_instance(
+                instance,
+                display_label=display_label,
+                source_bot_id=row.source_bot_id,
+            )
+        except HTTPException:
+            # Spec removed/renamed between deploy versions. Leave the cached
+            # envelope alone so the rest of the dashboard still renders —
+            # identical failure mode to the ``instance is None`` branch above.
+            logger.warning(
+                "native envelope repair skipped: widget_ref=%s on pin=%s no longer "
+                "registered; serving cached envelope",
+                instance.widget_ref, row.id,
+            )
+            continue
         if row.envelope != envelope:
             row.envelope = envelope
             row.display_label = envelope.get("display_label") or row.display_label

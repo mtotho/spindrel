@@ -2,10 +2,74 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
+updated: 2026-04-23
 ---
 # Track — Code Quality & Refactoring
 
 Systematic audit of core agent-server files. 156 files, ~50K lines across `app/agent/`, `app/services/`, `app/tools/`. Findings organized by priority.
+
+## Ousterhout depth audit (2026-04-23)
+
+Audit lens: Ousterhout's "deep module" heuristic (lots of functionality behind a simple interface, hides complexity) vs "shallow module" (not much functionality, complex interface, surfaces complexity). Workflow: Matt Pocock's `improve-codebase-architecture` skill — friction → clusters → parallel interface designs → RFC. Two peer-review rounds shaped the ranking. Full plan: `~/.claude/plans/nifty-hatching-book.md`.
+
+### Depth clusters (ranked)
+
+1. **Indexing abstraction leak at callers** — `workspace_indexing.resolve_indexing()` / `get_all_roots()` are called directly from `app/main.py`, `app/agent/fs_watcher.py`, `app/agent/context_assembly.py:791`, `app/tools/local/channel_workspace.py`, and 4 routers. The flavored wrappers (`memory_indexing`, `channel_workspace_indexing`) encode real policy differences (memory patterns, sentinel bot ids, segment handling, stale-cleanup, bypass semantics) — the problem is caller sites reaching past them. Deepening direction: audit which callers actually need indexing vs. just workspace-root resolution; pull indexing-relevant callers behind the flavor boundary.
+
+2. **Dashboard surface + source-of-truth drift** — `app/routers/api_v1_dashboard.py` (~1,742 LOC, 40+ endpoints on `/widgets` prefix) is fake-deep: 40+ endpoints whose concerns don't share hidden state. Coupled services: `dashboard_pins`, `widget_themes`, `widget_contracts`, `widget_context`, `widget_manifest`, `widget_templates`, `native_app_widgets`, `html_widget_scanner`, `grid_presets`. **Deeper issue**: source-of-truth drift — `GRID_PRESETS` logic appears in more than one place. Router split without unifying preset/theme truth would miss the Ousterhout point. Deepening direction, two-part sequenced: (a) unify preset source of truth across backend + frontend, then (b) split into four-to-five thematic sub-routers paired with their service modules (pattern: `app/routers/api_v1_admin/`).
+
+3. **Boundary-bypass smell — PROMOTED (2026-04-23 scan)** — services / agent / tools raising HTTP-layer errors from non-HTTP contexts. Scan found **118 `raise HTTPException` sites** across 14+ non-router modules. Includes `app/services/machine_control.py` taking `request: Request` as a function parameter — the wrapper receives HTTP objects directly, not just raises HTTP errors. Callers: routers, tasks, background workers, tools. Consumers end up catching or swallowing errors the wrapper wasn't designed to surface correctly. Depth direction: introduce a domain-exception layer (e.g., `DomainError` subclasses in `app/domain/`); HTTP-adapter layer at the router boundary converts to `HTTPException`. Services stop importing from `fastapi`. This is the largest of the three clusters in surface area but can be migrated incrementally.
+
+### Deep modules to preserve (emulation targets, do not split reflexively)
+
+| Module | LOC | Why exemplary |
+|---|---|---|
+| `app/services/session_plan_mode.py` | 2,180 | Plan-mode as first-class runtime object |
+| `app/services/compaction.py` | 2,653 | Watermark/section/summary pipeline |
+| `app/services/step_executor.py` | 1,530 | Pipeline execution state machine |
+| `app/services/sessions.py` | 1,310 | Session lifecycle + persistence |
+| `app/agent/context_assembly.py` | 2,717 | RAG admission control |
+| `app/agent/llm.py` | 1,705 | Streaming / classification / fallback |
+| `app/agent/tool_dispatch.py` | 1,551 | Execution + approval + truncation |
+| `app/agent/tokenization.py` | 481 | Model-family dispatch + fallback |
+| `ui/src/components/chat/renderers/InteractiveHtmlRenderer.tsx` | 3,389 | Iframe pool + theme + CSP |
+| `ui/app/(app)/widgets/ChannelDashboardMultiCanvas.tsx` | 1,810 | Four-canvas DnD grid |
+| `ui/src/components/chat/ChatSession.tsx` | 1,638 | Ephemeral + channel chat |
+| `ui/src/api/hooks/useChannelEvents.ts` | 756 | SSE subscription state machine |
+
+Several have god functions inside (separate from depth — see existing table below).
+
+### Rejected from the depth queue (documented so they don't get revived)
+
+- **Presence → push merge** — presence is shared infrastructure (sessions, turn_worker, machine_control, push); folding into push widens coupling.
+- **Bot/channel visibility unification** — different policies (public/private vs owner/grants); common shape ≠ common policy. Would produce a shallow abstraction.
+- **Generic `index_for(target)` dispatcher** — flavor modules encode real policy differences; a dispatcher loses type-safety for negligible gain.
+- **Reverting `loop_dispatch.py` / `loop_helpers.py`** — deliberate decomposition shipped April-23; keep.
+- **Consolidating UI Card/Badge variants** — semantically distinct, different data + interactions.
+
+### Housekeeping shipped (2026-04-23)
+
+- ✅ Deleted `ui/app/(app)/channels/[channelId]/ChatMessageArea.tsx` (4-LOC re-export shim). Sole importer in `channels/[channelId]/index.tsx` retargeted to canonical `@/src/components/chat/ChatMessageArea`.
+- ✅ Deleted `ui/app/(app)/channels/[channelId]/IntegrationsTab.tsx` (5-LOC single-child wrapper). Sole importer in `settings.tsx` now renders `BindingsSection` directly.
+- ✅ Deleted `ui/src/components/chat/renderers/NativeAppRenderer.tsx` (6-LOC passthrough). `RichToolResult.tsx` now calls `renderNativeWidget()` from `./renderers/nativeApps/registry` directly.
+- ✅ Deleted `ui/src/components/shared/TaskCreateModal.tsx` (multi-symbol compat shim). Dead `ChipPicker` re-export removed; `admin/tasks/index.tsx` renamed to use canonical `TaskCreateWizard` from `@/src/components/shared/task/TaskCreateWizard`.
+- ✅ Deleted `app/services/local_machine_control.py` (1-LOC `from machine_control import *` alias). Zero importers; safe delete.
+- ✅ Added `ui/src/components/shared/PlaceholderPage.tsx`; consolidated `admin/delegations.tsx`, `admin/memories.tsx`, `admin/sandboxes.tsx`, `admin/sessions/index.tsx` (4 identical "Coming soon" boilerplates) into `<PlaceholderPage title="..." />` instances.
+- Verification: `cd ui && npx tsc --noEmit` exits 0.
+
+### Housekeeping deferred (not free cleanup)
+
+- ❌ **`app/services/workflow_hooks.py` — deferred**. Looked like dead weight at first glance (24 LOC registering a no-op hook). But `tests/unit/test_workflow_advancement.py:127-136` treats the no-op as a **defensive regression test** — it verifies the hook system does *not* double-fire workflow step completion (since `_fire_task_complete` now advances workflow state directly). Deletion is only safe once it's confirmed that the hook-system's `after_task_complete` firing path is unused or that double-fire is otherwise impossible. Needs its own investigation session.
+- `app/services/grid_presets.py` — moved into Cluster 2 depth queue. Question isn't "is the file used," it's "where does preset truth live, and is there more than one copy?"
+
+### Verify-first small files (Ousterhout uncertain)
+
+Claimed shallow by one explore agent but unverified. Future session: `wc -l`, `grep ^def`, grep importers for each.
+- `app/agent/pending.py`, `app/agent/tracing.py`, `app/agent/hybrid_search.py`, `app/agent/persona.py`, `app/agent/vector_ops.py`, `app/agent/approval_pending.py`.
+
+### Why this matters (architectural read)
+
+The three promoted clusters share a theme: **caller-side knowledge that should live in one module**. Indexing callers duplicate resolution logic. Dashboard callers and services duplicate preset truth. Service callers duplicate HTTP error handling that the service shouldn't own. Each cluster, when deepened, reduces the number of places that need to understand a given policy.
 
 ## Actual Bugs
 
@@ -38,7 +102,7 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 | File | Function | Lines | Concern count |
 |------|----------|-------|---------------|
 | context_assembly.py | `assemble_context()` | ~~1400~~ **~990** | ~20 pipeline stages (5 extracted so far) |
-| loop.py | `run_agent_tool_loop()` | ~~960~~ **~1030** (file: **1684**) | LLM call, streaming, tool dispatch, approval, cycle detection, etc. — **re-bloated**, plan parked |
+| loop.py | `run_agent_tool_loop()` | ~~960~~ **~1030** (file: ~~**1684**~~ **1358**) | LLM call, streaming, tool dispatch, approval, cycle detection, etc. Dispatch/helpers split shipped; remaining iteration / retry / post-loop seams still inline |
 | file_sync.py | `sync_all_files()` | ~518 | 5 resource types × collect-upsert-orphan-delete |
 | tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
 | tool_dispatch.py | `dispatch_tool_call()` | ~385 | auth, policy, approval, routing, recording, redaction, summarization |
@@ -54,6 +118,14 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 - `recording.py` now reports zero-row completion/status writes as real failures (`False` by default, raise in `strict=True`) so callers can detect lifecycle drift instead of committing a quiet no-op.
 - `loop.py` now reconciles approval timeout verdicts against DB truth via a shared helper, removing the duplicated timeout branch that could locally decide `"expired"` even after another actor had already approved/denied the request.
 - The large loop split is still not finished, but the approval timeout duplication was reduced and the risky state machine is materially smaller than before this pass.
+
+### 2026-04-23 focused loop dispatch extraction
+
+- Added `app/agent/loop_helpers.py` and moved the pure helper surface out of `loop.py` (`_sanitize_messages`, transcript-entry helpers, response finalization, fallback helpers, provider resolution).
+- Added `app/agent/loop_dispatch.py` and made it the single owner of iteration-time tool dispatch. Parallel and sequential execution now share one `dispatch_iteration_tool_calls()` path plus a common `_process_tool_call_result()` for approval reconciliation, message assembly, tool-result envelopes, client actions, image injection, and `after_tool_call` hooks.
+- `run_agent_tool_loop()` no longer contains separate parallel and sequential post-processing branches; it builds `SummarizeSettings` / `LoopDispatchState` once and streams dispatch events from the shared helper.
+- Backwards-compat was preserved intentionally at the `app.agent.loop` module boundary. The moved helper names plus the patch-targeted runtime dependencies (`dispatch_tool_call`, `is_client_tool`, `_resolve_approval_verdict`) are still re-exported so existing tests and callers do not need to switch imports.
+- Verification surface this session: `python -m py_compile` clean on `loop.py`, `loop_helpers.py`, `loop_dispatch.py`; `tests/unit/test_loop_helpers.py` now passes (`25 passed`). The full `tests/unit/test_parallel_tool_execution.py` file still stalls in the local harness after the first passing case, with aiosqlite worker-thread "event loop is closed" warnings during teardown. Single-test runs such as `test_single_tool_uses_sequential_path` pass, so the remaining issue looks like harness teardown noise rather than an immediate dispatch-order regression.
 
 ### loop.py refactor — parked plan (April 11)
 
@@ -87,13 +159,11 @@ Update 2026-04-23: the approval-timeout sub-branch was extracted into a shared h
 
 ## Major Duplication (collapse into shared helpers)
 
-### loop.py:858-1176 — Parallel vs sequential tool dispatch
-~320 lines of near-identical logic across the parallel branch (858–1038) and sequential branch (1040–1176). Approval gate handling (~60 lines each), post-dispatch bookkeeping, `_tool_msg` assembly, `after_tool_call` hook firing — all copy-pasted with trivial variable name differences.
-- **Fix**: Step 5 of the parked refactor plan above. Extract `dispatch_iteration_tool_calls()` + shared `_process_tool_call_result()`.
+### ~~loop.py:858-1176 — Parallel vs sequential tool dispatch~~ FIXED April 23
+Shipped as `app/agent/loop_dispatch.py`. One `dispatch_iteration_tool_calls()` path now owns both execution modes and a shared `_process_tool_call_result()` owns approval/result bookkeeping.
 
-### loop.py:894-997, 1065-1138 — `dispatch_tool_call` invoked 4x with identical 16+ kwargs
-Any parameter addition requires updating all four call sites. A `SummarizeSettings` dataclass would collapse 5 of those kwargs alone.
-- **Fix**: Bundle into kwargs dict + `SummarizeSettings`. Covered by Step 5 above.
+### ~~loop.py:894-997, 1065-1138 — `dispatch_tool_call` invoked 4x with identical 16+ kwargs~~ FIXED April 23
+Collapsed behind `_make_dispatch_kwargs()` in `loop_dispatch.py` plus the `SummarizeSettings` dataclass. Initial dispatch and approval re-dispatch now use the same argument builder.
 
 ### llm.py:1071-1226 — Streaming vs non-streaming factory closures
 6 near-identical closures (`_make_attempt`, `_make_no_tools`, `_make_no_images` × 2). Same kwargs construction repeated 6 times.

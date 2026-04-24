@@ -7,7 +7,6 @@ import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { ArrowLeft, ExternalLink, Zap } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelSettings,
   useUpdateChannelSettings,
@@ -24,7 +23,7 @@ import { SaveStatusPill, type SaveStatusTone } from "@/src/components/shared/Set
 import { HistoryTab } from "./HistoryTab";
 import { ContextTab } from "./ContextTab";
 import { ToolsOverrideTab } from "./ToolsOverrideTab";
-import { IntegrationsTab } from "./IntegrationsTab";
+import { BindingsSection } from "./integrations/BindingsSection";
 import { HeartbeatTab } from "./HeartbeatTab";
 import { TasksTab } from "./TasksTab";
 import { LogsTab } from "./LogsTab";
@@ -32,6 +31,7 @@ import { AttachmentsTab } from "./AttachmentsTab";
 import { ChannelWorkspaceTab } from "./ChannelWorkspaceTab";
 import { PipelinesTab } from "./PipelinesTab";
 import { ParticipantsTab } from "./ParticipantsTab";
+import { DashboardTab } from "./DashboardTab";
 import {
   ChannelTabSections,
   AgentTabSections,
@@ -56,6 +56,7 @@ const ALL_TABS: TabDef[] = [
   { key: "channel", label: "Channel" },
   { key: "agent", label: "Agent" },
   { key: "presentation", label: "Presentation" },
+  { key: "dashboard", label: "Dashboard" },
   { key: "knowledge", label: "Knowledge" },
   { key: "memory", label: "Memory" },
   { key: "automation", label: "Automation" },
@@ -67,7 +68,6 @@ const ALL_TABS: TabDef[] = [
 // Main component
 // ---------------------------------------------------------------------------
 export default function ChannelSettingsScreen() {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
   const location = useLocation();
@@ -194,6 +194,7 @@ export default function ChannelSettingsScreen() {
         tags: settings.tags ?? [],
         category: settings.category ?? null,
         chat_mode: settings.chat_mode ?? "default",
+        header_backdrop_mode: settings.header_backdrop_mode ?? "default",
         layout_mode: settings.layout_mode,
         widget_theme_ref: settings.widget_theme_ref,
         pipeline_mode: settings.pipeline_mode,
@@ -269,55 +270,48 @@ export default function ChannelSettingsScreen() {
 
   if (isLoading || !settings) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", backgroundColor: t.surface }}>
-        <Spinner color={t.accent} />
+      <div className="flex-1 flex flex-col items-center justify-center bg-surface">
+        <Spinner />
       </div>
     );
   }
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: t.surface }}>
-      {/* Header */}
-      <div
-        style={{
-          flexShrink: 0,
-          paddingTop: 12,
-          borderBottom: `1px solid ${t.surfaceBorder}`,
-          backdropFilter: "blur(12px)",
-          WebkitBackdropFilter: "blur(12px)",
-          backgroundColor: `${t.surface}e6`,
-        }}
-      >
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: isMobile ? 8 : 12, padding: isMobile ? "0 12px" : "0 16px", minHeight: 52 }}>
+    <div className="flex-1 flex flex-col overflow-hidden bg-surface">
+      {/* Header — no border-bottom. Tonal separation via spacing + the tab
+          strip below. Per spindrel-ui SKILL §6: no border-b between stacked
+          bars. */}
+      <div className="shrink-0 bg-surface">
+        <div className={`flex items-center ${isMobile ? "gap-2 px-3" : "gap-3 px-4"} min-h-[52px]`}>
           <button
-            className="header-icon-btn"
+            className={`header-icon-btn shrink-0 ${isMobile ? "w-9 h-9" : "w-11 h-11"}`}
             onClick={goBack}
-            style={{ width: isMobile ? 36 : 44, height: isMobile ? 36 : 44, flexShrink: 0 }}
+            aria-label="Back"
           >
-            <ArrowLeft size={isMobile ? 18 : 20} color={t.textMuted} />
+            <ArrowLeft size={isMobile ? 18 : 20} className="text-text-muted" />
           </button>
-          <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <div className="flex-1 min-w-0 py-2">
+            <h1 className="text-base font-bold text-text truncate">
               {channel?.display_name || channel?.name || channel?.client_id || "Channel"}
-            </div>
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, color: t.textDim }}>
-                Settings
-              </span>
+            </h1>
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              <span className="text-xs text-text-dim">Settings</span>
               {settings?.bot_id && (
                 <a
-                  className="header-bot-link"
+                  className="header-bot-link inline-flex items-center gap-0.5 text-[11px] text-accent hover:underline"
                   href={`/admin/bots/${settings.bot_id}`}
                   onClick={(e) => { e.preventDefault(); navigate(`/admin/bots/${settings.bot_id}`); }}
-                  style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.accent, textDecoration: "none", cursor: "pointer" }}
                 >
-                  <ExternalLink size={10} color={t.accent} />
+                  <ExternalLink size={10} className="text-accent" />
                   {currentBot?.name || settings.bot_id}
                 </a>
               )}
               {activatable?.filter(ig => ig.activated).map(ig => (
-                <span key={ig.integration_type} style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.success }}>
-                  <Zap size={10} color={t.success} fill={t.success} />
+                <span
+                  key={ig.integration_type}
+                  className="inline-flex items-center gap-0.5 text-[11px] text-success"
+                >
+                  <Zap size={10} className="text-success fill-current" />
                   {prettyIntegrationName(ig.integration_type)}
                 </span>
               ))}
@@ -332,74 +326,29 @@ export default function ChannelSettingsScreen() {
           No "More" dropdown — every tab is reachable in one place.
           Vertical mouse wheel is translated into horizontal scroll, and
           edge fades indicate when more tabs are off-screen. */}
-      <div style={{ flexShrink: 0, width: "100%", minWidth: 0, position: "relative" }}>
+      <div className="shrink-0 w-full min-w-0 relative">
         <div
           ref={tabBarRef}
-          className="hide-scrollbar"
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "stretch",
-            gap: 0,
-            overflowX: "auto",
-            WebkitOverflowScrolling: "touch",
-            scrollbarWidth: "none",
-            borderBottom: `1px solid ${t.surfaceBorder}`,
-            padding: `0 ${isMobile ? 8 : 12}px`,
-            maxWidth: "100%",
-            minWidth: 0,
-          }}
+          className={`hide-scrollbar flex items-stretch overflow-x-auto ${isMobile ? "px-2" : "px-3"} max-w-full min-w-0`}
+          style={{ WebkitOverflowScrolling: "touch" }}
         >
           {visibleTabs.map((tb) => {
             const isActive = tb.key === tab;
             return (
-              <div key={tb.key} style={{ display: "flex", flexDirection: "row", alignItems: "stretch", flexShrink: 0 }}>
+              <div key={tb.key} className="flex items-stretch shrink-0">
                 {tb.separator && (
                   <div
                     aria-hidden
-                    style={{
-                      width: 1,
-                      background: t.surfaceBorder,
-                      margin: "10px 8px",
-                      flexShrink: 0,
-                    }}
+                    className="w-px bg-surface-border my-2.5 mx-2 shrink-0"
                   />
                 )}
                 <button
                   ref={(el) => { tabButtonRefs.current[tb.key] = el; }}
                   onClick={() => setTab(tb.key)}
-                  style={{
-                    position: "relative",
-                    padding: "12px 14px 11px",
-                    fontSize: 13,
-                    fontWeight: isActive ? 600 : 500,
-                    background: "transparent",
-                    border: "none",
-                    color: isActive ? t.text : t.textDim,
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    transition: "color 0.15s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.color = t.textMuted;
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) e.currentTarget.style.color = t.textDim;
-                  }}
+                  data-active={isActive ? "true" : "false"}
+                  className="relative px-3.5 pt-3 pb-[11px] text-[13px] whitespace-nowrap bg-transparent border-none cursor-pointer transition-colors text-text-dim hover:text-text-muted data-[active=true]:text-text data-[active=true]:font-semibold font-medium data-[active=true]:after:content-[''] data-[active=true]:after:absolute data-[active=true]:after:left-2.5 data-[active=true]:after:right-2.5 data-[active=true]:after:-bottom-px data-[active=true]:after:h-0.5 data-[active=true]:after:bg-accent data-[active=true]:after:rounded-t-sm"
                 >
                   {tb.label}
-                  {isActive && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: 10,
-                        right: 10,
-                        bottom: -1,
-                        height: 2,
-                        background: t.accent,
-                        borderRadius: "2px 2px 0 0",
-                      }}
-                    />
-                  )}
                 </button>
               </div>
             );
@@ -409,29 +358,13 @@ export default function ChannelSettingsScreen() {
         {tabOverflow.left && (
           <div
             aria-hidden
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              bottom: 1,
-              width: 24,
-              pointerEvents: "none",
-              background: `linear-gradient(to right, ${t.surface}, ${t.surface}00)`,
-            }}
+            className="pointer-events-none absolute left-0 top-0 bottom-px w-6 bg-gradient-to-r from-surface to-transparent"
           />
         )}
         {tabOverflow.right && (
           <div
             aria-hidden
-            style={{
-              position: "absolute",
-              right: 0,
-              top: 0,
-              bottom: 1,
-              width: 24,
-              pointerEvents: "none",
-              background: `linear-gradient(to left, ${t.surface}, ${t.surface}00)`,
-            }}
+            className="pointer-events-none absolute right-0 top-0 bottom-px w-6 bg-gradient-to-l from-surface to-transparent"
           />
         )}
       </div>
@@ -448,7 +381,7 @@ export default function ChannelSettingsScreen() {
           <>
             <ChannelTabSections form={form} patch={patch} channelId={channelId!} settings={settings} />
             <ParticipantsTab channelId={channelId!} primaryBotId={settings?.bot_id ?? ""} />
-            {isAdmin && <IntegrationsTab channelId={channelId!} />}
+            {isAdmin && <BindingsSection channelId={channelId!} />}
           </>
         )}
         {tab === "agent" && (
@@ -466,6 +399,9 @@ export default function ChannelSettingsScreen() {
         )}
         {tab === "presentation" && (
           <PresentationTabSections form={form} patch={patch} channelId={channelId!} />
+        )}
+        {tab === "dashboard" && (
+          <DashboardTab channelId={channelId!} />
         )}
         {tab === "knowledge" && (
           <>

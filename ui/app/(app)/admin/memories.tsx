@@ -1,13 +1,5 @@
-
-import { PageHeader } from "@/src/components/layout/PageHeader";
+import { PlaceholderPage } from "@/src/components/shared/PlaceholderPage";
 
 export default function MemoriesScreen() {
-  return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader variant="list" title="Memories" />
-      <div className="p-6">
-        <span className="text-text-muted text-sm">Coming soon</span>
-      </div>
-    </div>
-  );
+  return <PlaceholderPage title="Memories" />;
 }

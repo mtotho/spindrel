@@ -1,16 +1,12 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Hash, LayoutDashboard, Settings, StickyNote } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { ArrowLeft, Hash, LayoutDashboard, StickyNote } from "lucide-react";
 
 interface Props {
   channelId: string;
   channelName: string | undefined;
   railCount: number;
   pinCount: number;
-  /** Opens the dashboard settings drawer (preset / grid config / etc).
-   *  Opens the quick layout-controls drawer for the channel dashboard. */
-  onOpenManage?: () => void;
   /** When present, the dashboard chat dock is bound to a scratch sub-session
    *  instead of the parent channel chat. Widgets and layout stay channel-
    *  scoped; this banner exists to make that split explicit before typing. */
@@ -24,21 +20,22 @@ interface Props {
 }
 
 /** Single-row top bar that replaces `DashboardTabs` for channel dashboards.
- *  Carries breadcrumb (back to channel + dashboard label), a gear for
- *  dashboard settings, the rail/total counts, and a `right` slot for
- *  page actions. Uses the same subtle shadow as `DashboardTabs` for
- *  separation from the grid below — no border. */
+ *  Carries breadcrumb (back to channel + dashboard label), the rail/total
+ *  counts, and a `right` slot for page actions. Uses the same subtle shadow
+ *  as `DashboardTabs` for separation from the grid below — no border.
+ *
+ *  Dashboard layout configuration (grid preset, rail pin, tile chrome) lives
+ *  in the channel settings "Dashboard" tab — reachable via the settings gear
+ *  on the right of this bar. There is no dedicated layout gear here. */
 export function ChannelDashboardBreadcrumb({
   channelId,
   channelName,
   railCount,
   pinCount,
-  onOpenManage,
   scratchSessionId,
   scratchHref,
   right,
 }: Props) {
-  const t = useThemeTokens();
   return (
     <div
       className="relative flex items-center gap-1.5 sm:gap-2 bg-surface px-2 sm:px-3 py-1.5 text-[12px] shadow-[0_1px_3px_-1px_rgba(0,0,0,0.22)]"
@@ -65,17 +62,6 @@ export function ChannelDashboardBreadcrumb({
         <LayoutDashboard size={13} className="text-accent" />
         <span className="hidden sm:inline font-semibold">Channel dashboard</span>
       </span>
-      {onOpenManage && (
-        <button
-          type="button"
-          onClick={onOpenManage}
-          title="Dashboard layout controls"
-          aria-label="Dashboard layout controls"
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-overlay hover:text-text transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-        >
-          <Settings size={13} />
-        </button>
-      )}
       {/* Rail/total chip — compact tabular count, md+ only. Full breakdown
           lives in the tooltip; the bar stays visually tight. */}
       <span
@@ -86,26 +72,15 @@ export function ChannelDashboardBreadcrumb({
       </span>
       {scratchSessionId && (
         <div
-          className="ml-1 hidden shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] xl:flex"
-          style={{
-            border: `1px solid ${t.surfaceBorder}`,
-            background: t.surfaceOverlay,
-            color: t.textDim,
-          }}
+          className="ml-1 hidden shrink-0 items-center gap-1.5 rounded-full border border-surface-border bg-surface-overlay px-2.5 py-1 text-[11px] text-text-dim xl:flex"
           title="Chat replies on this dashboard go to the current session. Widgets and dashboard layout still belong to the parent channel."
         >
-          <StickyNote size={12} className="shrink-0" style={{ color: t.textDim }} />
-          <span className="font-medium">
-            Session chat
-          </span>
+          <StickyNote size={12} className="shrink-0 text-text-dim" />
+          <span className="font-medium">Session chat</span>
           {scratchHref && (
             <Link
               to={scratchHref}
-              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] transition-colors"
-              style={{
-                border: `1px solid ${t.surfaceBorder}`,
-                color: t.textDim,
-              }}
+              className="shrink-0 rounded-full border border-surface-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-text-dim transition-colors hover:bg-surface-overlay"
             >
               Open
             </Link>

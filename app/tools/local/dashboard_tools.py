@@ -949,6 +949,17 @@ async def describe_dashboard(
         return json.dumps({"error": str(exc), "llm": f"describe_dashboard failed: {exc}"})
 
     enriched = await _enriched_pins(pin_dicts)
+    if key.startswith("channel:"):
+        from app.db.engine import async_session
+        from app.services.widget_context import enrich_pins_for_context_export
+
+        async with async_session() as db:
+            enriched = await enrich_pins_for_context_export(
+                db,
+                enriched,
+                bot_id=current_bot_id.get() or "",
+                channel_id=key.split(":", 1)[1],
+            )
 
     from app.services.dashboard_ascii import render_layout
     v = view if view in ("chat", "full", "both") else "both"

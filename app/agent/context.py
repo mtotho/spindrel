@@ -82,6 +82,14 @@ current_system_prompt_override: ContextVar[str | None] = ContextVar(
     "current_system_prompt_override", default=None,
 )
 
+# Per-turn reasoning/effort override, set by the ``/effort`` slash command for
+# the current session. Resolution order inside ``run_stream`` is:
+# ContextVar → ``channel.config.effort_override`` → ``bot.model_params``.
+# Values: "off" | "low" | "medium" | "high".
+current_effort_override: ContextVar[str | None] = ContextVar(
+    "current_effort_override", default=None,
+)
+
 # Per-request task creation counter (capped to prevent runaway loops)
 task_creation_count: ContextVar[int] = ContextVar("task_creation_count", default=0)
 
@@ -204,6 +212,7 @@ class AgentContextSnapshot:
     skills_in_context: list[dict] | None
     turn_responded_bots: set | None
     run_origin: str | None
+    effort_override: str | None
 
 
 def snapshot_agent_context() -> AgentContextSnapshot:
@@ -234,6 +243,7 @@ def snapshot_agent_context() -> AgentContextSnapshot:
         skills_in_context=current_skills_in_context.get(),
         turn_responded_bots=current_turn_responded_bots.get(),
         run_origin=current_run_origin.get(),
+        effort_override=current_effort_override.get(),
     )
 
 
@@ -264,3 +274,4 @@ def restore_agent_context(snap: AgentContextSnapshot) -> None:
     current_skills_in_context.set(snap.skills_in_context)
     current_turn_responded_bots.set(snap.turn_responded_bots)
     current_run_origin.set(snap.run_origin)
+    current_effort_override.set(snap.effort_override)

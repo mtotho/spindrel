@@ -64,6 +64,10 @@ test("EditPinDrawer keeps its hooks above the open-state early return", () => {
     assert.notEqual(earlyReturn, -1);
     assert.ok(schemaHooks < earlyReturn);
 });
+test("channel settings form hydrates header strip shell from saved settings", () => {
+    const channelSettings = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/settings.tsx"), "utf8");
+    assert.match(channelSettings, /header_backdrop_mode:\s*settings\.header_backdrop_mode\s*\?\?\s*"default"/);
+});
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");
     const machineStatusRenderer = readFileSync(resolve(CHAT_DIR, "renderers/machineControl/MachineTargetStatusRenderer.tsx"), "utf8");

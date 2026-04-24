@@ -6,7 +6,6 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useCallback } from "react";
 import { Bot, ChevronDown, ChevronRight, Plus, X, ExternalLink } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelBotMembers,
   useAddBotMember,
@@ -22,16 +21,16 @@ import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import type { ChannelBotMember, ChannelBotMemberConfig } from "@/src/types/api";
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+const INPUT_CLASS =
+  "w-full bg-input border border-input-border rounded-md px-3 py-2 text-[13px] text-text " +
+  "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/40 transition-colors";
+
 interface Props {
   channelId: string;
   primaryBotId: string;
 }
 
 export function ParticipantsTab({ channelId, primaryBotId }: Props) {
-  const t = useThemeTokens();
   const { data: members = [], isLoading } = useChannelBotMembers(channelId);
   const addMember = useAddBotMember(channelId);
   const removeMember = useRemoveBotMember(channelId);
@@ -48,8 +47,8 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
 
   if (isLoading) {
     return (
-      <div style={{ padding: 32, display: "flex", flexDirection: "row", justifyContent: "center" }}>
-        <Spinner color={t.accent} />
+      <div className="flex justify-center p-8">
+        <Spinner />
       </div>
     );
   }
@@ -58,14 +57,17 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
     <>
       {/* Primary bot */}
       <Section title="Participants">
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, padding: "8px 0" }}>
-          <Bot size={16} color={t.accent} />
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text, flex: 1 }}>
+        <div className="flex items-center gap-2.5 py-2">
+          <Bot size={16} className="text-accent shrink-0" />
+          <span className="flex-1 min-w-0 truncate text-[13px] font-semibold text-text">
             {primaryBot?.name || primaryBotId}
           </span>
-          <Link to={`/admin/bots/${primaryBotId}`} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, textDecoration: "none" }}>
-            <ExternalLink size={10} color={t.accent} />
-            <span style={{ fontSize: 11, color: t.accent }}>config</span>
+          <Link
+            to={`/admin/bots/${primaryBotId}`}
+            className="inline-flex items-center gap-0.5 text-[11px] text-accent hover:underline"
+          >
+            <ExternalLink size={10} />
+            <span>config</span>
           </Link>
           <StatusBadge label="primary" variant="info" />
         </div>
@@ -78,20 +80,9 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
         action={
           availableBots.length > 0 && !showPicker ? (
             <button
+              type="button"
               onClick={() => setShowPicker(true)}
-              style={{
-                display: "flex", flexDirection: "row",
-                alignItems: "center",
-                gap: 5,
-                padding: "5px 10px",
-                fontSize: 12,
-                fontWeight: 500,
-                border: `1px solid ${t.surfaceBorder}`,
-                borderRadius: 6,
-                background: "transparent",
-                color: t.accent,
-                cursor: "pointer",
-              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-surface-border bg-transparent px-2.5 py-1 text-[12px] font-medium text-accent hover:bg-surface-overlay/60 transition-colors"
             >
               <Plus size={12} />
               Add Bot
@@ -99,7 +90,6 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
           ) : undefined
         }
       >
-        {/* Bot picker dropdown */}
         {showPicker && (
           <BotPicker
             bots={availableBots}
@@ -112,7 +102,6 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
           />
         )}
 
-        {/* Member list */}
         {members.length === 0 && !showPicker && (
           <EmptyState message="Add bots to this channel. Members respond when @-mentioned in chat." />
         )}
@@ -130,7 +119,6 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
         ))}
       </Section>
 
-      {/* Confirm remove dialog */}
       <ConfirmDialog
         open={confirmRemove !== null}
         title="Remove member bot"
@@ -161,55 +149,24 @@ function BotPicker({
   onCancel: () => void;
   isPending: boolean;
 }) {
-  const t = useThemeTokens();
   return (
-    <div
-      style={{
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 8,
-        background: t.surfaceRaised,
-        overflow: "hidden",
-        boxShadow: "0 4px 16px rgba(0,0,0,0.15)",
-      }}
-    >
+    <div className="overflow-hidden rounded-md border border-surface-border bg-surface-raised">
       {bots.map((b) => (
         <button
           key={b.id}
+          type="button"
           onClick={() => onSelect(b.id)}
           disabled={isPending}
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            width: "100%",
-            padding: "8px 12px",
-            border: "none",
-            background: "transparent",
-            cursor: isPending ? "wait" : "pointer",
-            fontSize: 13,
-            color: t.text,
-            textAlign: "left",
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = `${t.accent}10`; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-text hover:bg-accent/[0.08] disabled:cursor-wait transition-colors"
         >
-          <Bot size={14} color={t.textDim} />
+          <Bot size={14} className="text-text-dim" />
           {b.name}
         </button>
       ))}
       <button
+        type="button"
         onClick={onCancel}
-        style={{
-          width: "100%",
-          padding: "6px 12px",
-          border: "none",
-          borderTop: `1px solid ${t.surfaceBorder}`,
-          background: "transparent",
-          cursor: "pointer",
-          fontSize: 11,
-          color: t.textDim,
-          textAlign: "center",
-        }}
+        className="w-full px-3 py-1.5 text-center text-[11px] text-text-dim hover:bg-surface-overlay/60 transition-colors"
       >
         Cancel
       </button>
@@ -231,11 +188,9 @@ function MemberCard({
   isRemoving: boolean;
   onUpdateConfig: (config: Partial<ChannelBotMemberConfig>) => void;
 }) {
-  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   const cfg = member.config || {};
 
-  // Build summary badges
   const badges: string[] = [];
   if (cfg.auto_respond) badges.push("auto-respond");
   if (cfg.response_style) badges.push(cfg.response_style);
@@ -243,87 +198,63 @@ function MemberCard({
   if (cfg.max_rounds) badges.push(`${cfg.max_rounds} rounds`);
 
   return (
-    <div
-      style={{
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 8,
-        background: t.surface,
-        overflow: "hidden",
-      }}
-    >
-      {/* Collapsed header */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          padding: "8px 12px",
-          cursor: "pointer",
-        }}
+    <div className="overflow-hidden rounded-md border border-surface-border bg-surface-raised">
+      <button
+        type="button"
         onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-overlay/60 transition-colors"
       >
         {expanded ? (
-          <ChevronDown size={12} color={t.textDim} />
+          <ChevronDown size={12} className="text-text-dim shrink-0" />
         ) : (
-          <ChevronRight size={12} color={t.textDim} />
+          <ChevronRight size={12} className="text-text-dim shrink-0" />
         )}
-        <Bot size={14} color={t.textDim} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: t.text, flex: 1, minWidth: 0 }}>
+        <Bot size={14} className="text-text-dim shrink-0" />
+        <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-text">
           {member.bot_name || member.bot_id}
         </span>
-        {/* Config badges */}
         {!expanded && badges.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap" }}>
+          <div className="flex flex-wrap items-center gap-1">
             {badges.map((b) => (
               <span
                 key={b}
-                style={{
-                  fontSize: 10,
-                  color: t.textDim,
-                  background: `${t.textDim}15`,
-                  borderRadius: 4,
-                  padding: "1px 6px",
-                }}
+                className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim"
               >
                 {b}
               </span>
             ))}
           </div>
         )}
-        {/* Bot config link */}
         <Link
           to={`/admin/bots/${member.bot_id}`}
           onClick={(e) => e.stopPropagation()}
-          style={{ display: "flex", flexDirection: "row", alignItems: "center", padding: 4, flexShrink: 0 }}
+          className="inline-flex shrink-0 items-center p-1 text-accent hover:text-accent-hover transition-colors"
           title="Bot settings"
         >
-          <ExternalLink size={12} color={t.accent} />
+          <ExternalLink size={12} />
         </Link>
-        <button
+        <span
+          role="button"
+          tabIndex={0}
           onClick={(e) => {
             e.stopPropagation();
-            onRemove();
+            if (!isRemoving) onRemove();
           }}
-          disabled={isRemoving}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isRemoving) onRemove();
+            }
+          }}
           title="Remove from channel"
-          style={{
-            border: "none",
-            background: "transparent",
-            cursor: "pointer",
-            padding: 4,
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            opacity: 0.5,
-            flexShrink: 0,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.5"; }}
+          aria-disabled={isRemoving}
+          className="inline-flex shrink-0 cursor-pointer items-center p-1 text-text-dim hover:text-danger aria-disabled:pointer-events-none aria-disabled:opacity-50 transition-colors"
         >
-          <X size={14} color={t.danger} />
-        </button>
-      </div>
+          <X size={14} />
+        </span>
+      </button>
 
-      {/* Expanded config form — key forces remount when config changes from server */}
       {expanded && (
         <MemberConfigForm
           key={JSON.stringify(cfg)}
@@ -345,8 +276,6 @@ function MemberConfigForm({
   config: ChannelBotMemberConfig;
   onUpdate: (patch: Partial<ChannelBotMemberConfig>) => void;
 }) {
-  const t = useThemeTokens();
-
   const handleBlurNumber = useCallback(
     (field: "max_rounds" | "priority", raw: string) => {
       const trimmed = raw.trim();
@@ -362,28 +291,8 @@ function MemberConfigForm({
     [onUpdate]
   );
 
-  const inputStyle: React.CSSProperties = {
-    background: t.surface,
-    border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: 8,
-    padding: "8px 12px",
-    color: t.text,
-    fontSize: 13,
-    width: "100%",
-    outline: "none",
-    boxSizing: "border-box",
-  };
-
   return (
-    <div
-      style={{
-        padding: "8px 12px 12px",
-        borderTop: `1px solid ${t.surfaceBorder}`,
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-      }}
-    >
+    <div className="flex flex-col gap-3 border-t border-surface-border px-3 pt-2 pb-3">
       <FormRow label="Auto-respond" description="Respond to all messages, not just @-mentions">
         <Toggle
           value={!!config.auto_respond}
@@ -409,12 +318,8 @@ function MemberConfigForm({
           type="number"
           defaultValue={config.max_rounds != null ? String(config.max_rounds) : ""}
           placeholder="Inherit"
-          style={inputStyle}
-          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
-          onBlur={(e) => {
-            e.target.style.borderColor = t.surfaceBorder;
-            handleBlurNumber("max_rounds", e.target.value);
-          }}
+          className={INPUT_CLASS}
+          onBlur={(e) => handleBlurNumber("max_rounds", e.target.value)}
         />
       </FormRow>
 
@@ -423,17 +328,13 @@ function MemberConfigForm({
           type="number"
           defaultValue={config.priority != null ? String(config.priority) : ""}
           placeholder="0"
-          style={inputStyle}
-          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
-          onBlur={(e) => {
-            e.target.style.borderColor = t.surfaceBorder;
-            handleBlurNumber("priority", e.target.value);
-          }}
+          className={INPUT_CLASS}
+          onBlur={(e) => handleBlurNumber("priority", e.target.value)}
         />
       </FormRow>
 
       <AdvancedSection>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="flex flex-col gap-3">
           <FormRow label="Model override">
             <LlmModelDropdown
               value={config.model_override ?? ""}
@@ -446,18 +347,10 @@ function MemberConfigForm({
           <FormRow label="System prompt addon" description="Extra instructions appended to this bot's system prompt">
             <textarea
               defaultValue={config.system_prompt_addon ?? ""}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = t.surfaceBorder;
-                onUpdate({ system_prompt_addon: e.target.value || null });
-              }}
+              onBlur={(e) => onUpdate({ system_prompt_addon: e.target.value || null })}
               placeholder="Additional instructions for this member in this channel..."
               rows={3}
-              style={{
-                ...inputStyle,
-                fontFamily: "inherit",
-                resize: "vertical",
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = t.accent; }}
+              className={`${INPUT_CLASS} font-[inherit] resize-y`}
             />
           </FormRow>
         </div>

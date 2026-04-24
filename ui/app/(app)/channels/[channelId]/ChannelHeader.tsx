@@ -436,6 +436,16 @@ export function ChannelHeader({
               {ownerName ?? "owner"}
             </span>
           )}
+          {channelData?.config?.effort_override && channelData.config.effort_override !== "off" && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
+                         bg-surface-overlay text-text-muted text-[10px] uppercase tracking-wider
+                         shrink-0"
+              title={`Reasoning effort set to ${channelData.config.effort_override}. Use /effort off to clear.`}
+            >
+              effort: {channelData.config.effort_override}
+            </span>
+          )}
           {isMobile && !isSystemChannel && resolvedMetrics.hasTokenMetrics && (resolvedMetrics.utilization ?? 0) > 0.5 && (
             <span
               style={{

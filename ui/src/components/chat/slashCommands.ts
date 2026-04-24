@@ -11,16 +11,35 @@ export interface SlashCommandItem {
   label: string;
   description: string;
   surfaces: SlashCommandSurface[];
+  /** If true, the UI handles this command locally and does not POST to the backend. */
+  localOnly?: boolean;
+  /** If true, `/command arg` is parsed and arg is forwarded to the backend. */
+  acceptsArgs?: boolean;
+  /** Allowed arg values, for UX hints and client-side validation. */
+  argEnum?: string[];
 }
 
 export const SLASH_COMMANDS: SlashCommandItem[] = [
   { id: "stop", label: "/stop", description: "Stop the current response", surfaces: ["channel", "session"] },
   { id: "context", label: "/context", description: "View current context", surfaces: ["channel", "session"] },
-  { id: "scratch", label: "/scratch", description: "Open the scratch pad", surfaces: ["channel"] },
-  { id: "clear", label: "/clear", description: "Start fresh", surfaces: ["channel"] },
+  { id: "scratch", label: "/scratch", description: "Open the scratch pad", surfaces: ["channel"], localOnly: true },
+  { id: "clear", label: "/clear", description: "Start fresh", surfaces: ["channel"], localOnly: true },
   { id: "compact", label: "/compact", description: "Compress conversation", surfaces: ["channel"] },
   { id: "plan", label: "/plan", description: "Toggle plan mode", surfaces: ["channel", "session"] },
+  {
+    id: "effort",
+    label: "/effort",
+    description: "Set reasoning effort (off / low / medium / high)",
+    surfaces: ["channel"],
+    acceptsArgs: true,
+    argEnum: ["off", "low", "medium", "high"],
+  },
 ];
+
+export interface ResolvedSlashCommand {
+  id: SlashCommandId;
+  args: string[];
+}
 
 /** Filter slash commands by query string and return as CompletionItems. */
 export function filterSlashCommands(
@@ -45,10 +64,17 @@ export function resolveSlashCommand(
   raw: string,
   surface: SlashCommandSurface,
   availableIds?: SlashCommandId[],
-): SlashCommandId | null {
+): ResolvedSlashCommand | null {
   const trimmed = raw.trim();
-  if (!trimmed.startsWith("/") || trimmed.includes(" ") || trimmed.includes("\n")) return null;
-  const query = trimmed.slice(1).toLowerCase();
+  if (!trimmed.startsWith("/") || trimmed.includes("\n")) return null;
+  // Split on whitespace — first token is the command id, rest are args.
+  // Commands without `acceptsArgs` still accept no-arg input; if extra tokens
+  // appear for such commands we return null so submit falls through to normal
+  // message send (no accidental silent discard).
+  const tokens = trimmed.slice(1).split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  const query = tokens[0].toLowerCase();
+  const args = tokens.slice(1);
   const allow = availableIds ? new Set<SlashCommandId>(availableIds) : null;
   const match = SLASH_COMMANDS.find(
     (cmd) =>
@@ -56,7 +82,9 @@ export function resolveSlashCommand(
       (!allow || allow.has(cmd.id)) &&
       cmd.id === query,
   );
-  return match?.id ?? null;
+  if (!match) return null;
+  if (args.length > 0 && !match.acceptsArgs) return null;
+  return { id: match.id, args };
 }
 
 export function buildSlashCommandResultMessage(

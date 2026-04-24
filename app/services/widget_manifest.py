@@ -106,6 +106,8 @@ class LayoutHints:
 
 
 VALID_LAYOUT_ZONES: frozenset[str] = frozenset({"chip", "rail", "header", "dock", "grid"})
+VALID_CONTEXT_EXPORT_SUMMARY_KINDS: frozenset[str] = frozenset({"plain_body", "native_state", "server_provider"})
+VALID_CONTEXT_EXPORT_HINT_KINDS: frozenset[str] = frozenset({"none", "invoke_widget_action", "handler_tools", "custom"})
 
 
 @dataclass
@@ -141,6 +143,8 @@ class WidgetManifest:
     handlers: list[HandlerSpec] = field(default_factory=list)
     # Optional JSON-Schema for the widget_config editor path.
     config_schema: dict | None = None
+    # Optional chat-profile context export contract for pinned widgets.
+    context_export: dict | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +447,37 @@ def _validate_config_schema(raw: object) -> dict | None:
     return raw
 
 
+def _validate_context_export(raw: object) -> dict | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ManifestError("context_export must be a mapping")
+    enabled = raw.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise ManifestError("context_export.enabled must be a boolean when provided")
+    summary_kind = raw.get("summary_kind", "plain_body")
+    if not isinstance(summary_kind, str) or summary_kind not in VALID_CONTEXT_EXPORT_SUMMARY_KINDS:
+        raise ManifestError(
+            f"context_export.summary_kind must be one of {sorted(VALID_CONTEXT_EXPORT_SUMMARY_KINDS)}"
+        )
+    hint_kind = raw.get("hint_kind", "none")
+    if not isinstance(hint_kind, str) or hint_kind not in VALID_CONTEXT_EXPORT_HINT_KINDS:
+        raise ManifestError(
+            f"context_export.hint_kind must be one of {sorted(VALID_CONTEXT_EXPORT_HINT_KINDS)}"
+        )
+    hint_text = raw.get("hint_text")
+    if hint_text is not None and not isinstance(hint_text, str):
+        raise ManifestError("context_export.hint_text must be a string when provided")
+    out = {
+        "enabled": True if enabled is None else enabled,
+        "summary_kind": summary_kind,
+        "hint_kind": hint_kind,
+    }
+    if isinstance(hint_text, str) and hint_text.strip():
+        out["hint_text"] = hint_text.strip()
+    return out
+
+
 def _validate_permissions(raw: dict) -> Permissions:
     if not isinstance(raw, dict):
         raise ManifestError("permissions must be a mapping")
@@ -565,6 +600,7 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
     raw_handlers = raw.get("handlers", [])
     handlers = _validate_handlers(raw_handlers) if raw_handlers else []
     config_schema = _validate_config_schema(raw.get("config_schema"))
+    context_export = _validate_context_export(raw.get("context_export"))
 
     return WidgetManifest(
         name=name.strip(),
@@ -584,4 +620,5 @@ def parse_manifest(path: str | Path) -> WidgetManifest:
         layout_hints=layout_hints,
         handlers=handlers,
         config_schema=config_schema,
+        context_export=context_export,
     )

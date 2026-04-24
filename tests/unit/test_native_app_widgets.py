@@ -178,6 +178,11 @@ def test_native_catalog_entries_expose_contract():
         "max_cells": {"w": 12, "h": 8},
     }
     assert todo["widget_contract"]["layout_hints"] == todo["layout_hints"]
+    assert todo["widget_contract"]["context_export"] == {
+        "enabled": True,
+        "summary_kind": "native_state",
+        "hint_kind": "invoke_widget_action",
+    }
     context = next(entry for entry in entries if entry["name"] == "context_tracker")
     assert context["format"] == "native_app"
     assert context["widget_ref"] == "core/context_tracker"
@@ -195,6 +200,11 @@ def test_native_catalog_entries_expose_contract():
         "preferred_zone": "header",
         "min_cells": {"w": 6, "h": 2},
         "max_cells": {"w": 12, "h": 2},
+    }
+    assert context["widget_contract"]["context_export"] == {
+        "enabled": True,
+        "summary_kind": "server_provider",
+        "hint_kind": "none",
     }
     usage = next(entry for entry in entries if entry["name"] == "usage_forecast_native")
     assert usage["supported_scopes"] == ["channel", "dashboard"]

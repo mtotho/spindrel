@@ -169,6 +169,7 @@ def _register_widgets(
             "state_poll": expanded.get("state_poll"),
             "default_config": expanded.get("default_config") or {},
             "config_schema": expanded.get("config_schema"),
+            "context_export": expanded.get("context_export"),
             "source": source,
         }
         count += 1

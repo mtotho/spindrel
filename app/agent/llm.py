@@ -1183,7 +1183,7 @@ def _prepare_call_params(
     force_no_tools: bool = False,
 ) -> _CallParams:
     """Shared model preparation: client, param filtering, message folding, tool stripping."""
-    from app.agent.model_params import filter_model_params
+    from app.agent.model_params import filter_model_params, translate_effort
     from app.services.providers import get_llm_client, model_supports_tools, model_supports_vision, requires_system_message_folding, resolve_provider_for_model
 
     # Auto-resolve provider when caller didn't specify one and the model is
@@ -1194,44 +1194,24 @@ def _prepare_call_params(
     client = get_llm_client(provider_id)
     filtered = filter_model_params(model, model_params or {})
 
-    # Translate the universal `thinking_budget` knob into each provider's
-    # request-side shape. The raw int is NOT forwarded as a kwarg to the SDK
-    # client — in-process adapters (AnthropicOpenAIAdapter, OpenAIResponses)
-    # pop their flavor from kwargs; AsyncOpenAI (LiteLLM passthrough) gets
-    # provider-specific translation baked into `extra_body`.
+    # Translate the user-facing `effort` enum into each provider's request
+    # shape via a single helper (see ``translate_effort`` in model_params).
+    # The enum is NOT forwarded as a kwarg to the SDK client. ``thinking_budget``
+    # is an advanced-user override that wins on budget-shaped families.
+    _effort = filtered.pop("effort", None)
     _tb = filtered.pop("thinking_budget", None)
-    if _tb is not None:
-        try:
-            _tb_int = int(_tb)
-        except (TypeError, ValueError):
-            _tb_int = 0
-        if _tb_int > 0:
-            from app.agent.model_params import get_provider_family
-            fam = get_provider_family(model)
-            if fam == "anthropic":
-                # Consumed by AnthropicOpenAIAdapter._Completions.create
-                filtered["thinking_budget"] = _tb_int
-            elif fam in ("gemini", "google"):
-                # LiteLLM OpenAI-compat passthrough: extra_body is merged into
-                # the JSON body sent to the proxy, which forwards thinking_config
-                # to the underlying Gemini API.
-                eb = dict(filtered.get("extra_body") or {})
-                eb["thinking_config"] = {
-                    "include_thoughts": True,
-                    "thinking_budget": _tb_int,
-                }
-                filtered["extra_body"] = eb
-            elif fam in ("openai", "xai", "deepseek"):
-                # Reasoning families on chat/completions use `reasoning_effort`.
-                # Map budget → effort bucket so the knob has *some* effect.
-                # OpenAI Responses adapter already forces `reasoning.summary=auto`
-                # regardless; this purely controls depth.
-                if "reasoning_effort" not in filtered:
-                    filtered["reasoning_effort"] = (
-                        "high" if _tb_int >= 8000 else
-                        "medium" if _tb_int >= 2000 else
-                        "low"
-                    )
+    try:
+        _tb_int = int(_tb) if _tb is not None else None
+    except (TypeError, ValueError):
+        _tb_int = None
+    effort_kwargs = translate_effort(model, _effort, explicit_budget=_tb_int)
+    # `extra_body` may already be populated by the caller; merge instead of
+    # overwrite so the translator's thinking_config doesn't clobber user keys.
+    if "extra_body" in effort_kwargs and filtered.get("extra_body"):
+        merged = dict(filtered["extra_body"])
+        merged.update(effort_kwargs["extra_body"])
+        effort_kwargs["extra_body"] = merged
+    filtered.update(effort_kwargs)
 
     # Strip internal _-prefixed keys (e.g. _tool_record_id, _tools_used)
     # before sending to the LLM API — some providers reject unknown fields.

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { BookOpen, Check, Search, Server, Wrench, X } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelEffectiveTools,
   useChannelEnrolledSkills,
@@ -13,39 +12,25 @@ import { HoverPopover, SkillPreview, ToolPreview } from "@/src/components/shared
 import { ActivationsSection } from "./integrations/ActivationsSection";
 
 function SectionLabel({ icon, label, count }: { icon: React.ReactNode; label: string; count?: number }) {
-  const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "14px 0 6px" }}>
+    <div className="flex items-center gap-1.5 pt-3.5 pb-1.5">
       {icon}
-      <span style={{ fontSize: 11, fontWeight: 700, color: t.textMuted, textTransform: "uppercase", letterSpacing: 0.8 }}>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
         {label}
       </span>
       {count != null && (
-        <span style={{ fontSize: 10, fontWeight: 600, color: t.textDim, background: t.surfaceOverlay, borderRadius: 4, padding: "0 6px" }}>
+        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-dim">
           {count}
         </span>
       )}
-      <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
     </div>
   );
 }
 
 function ToolChip({ name }: { name: string }) {
-  const t = useThemeTokens();
   return (
     <HoverPopover content={<ToolPreview data={{ name }} />}>
-      <span
-        style={{
-          fontSize: 10,
-          fontFamily: "monospace",
-          padding: "1px 6px",
-          borderRadius: 4,
-          background: t.surfaceOverlay,
-          color: t.textMuted,
-          cursor: "help",
-          borderBottom: `1px dashed ${t.textDim}40`,
-        }}
-      >
+      <span className="inline-flex cursor-help items-center rounded-full bg-surface-overlay px-2 py-0.5 font-mono text-[10px] text-text-muted">
         {name}
       </span>
     </HoverPopover>
@@ -67,44 +52,30 @@ function SkillChip({
   preview?: { id: string; name: string; description?: string | null; source_type?: string };
   badge?: string;
 }) {
-  const t = useThemeTokens();
   const nameEl = (
-    <span style={{
-      fontSize: 11,
-      color: t.accent,
-      fontWeight: 500,
-      cursor: preview ? "help" : undefined,
-      borderBottom: preview ? `1px dashed ${t.accent}40` : undefined,
-    }}>
+    <span
+      className={`text-[11px] font-medium text-accent${preview ? " cursor-help" : ""}`}
+    >
       {name}
     </span>
   );
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        padding: "4px 8px",
-        borderRadius: 4,
-        background: t.accentSubtle,
-      }}
-    >
-      <div style={{ flex: 1, minWidth: 0 }}>
+    <div className="flex items-center gap-1.5 rounded-md bg-accent/[0.08] px-2 py-1">
+      <div className="flex-1 min-w-0">
         {preview ? <HoverPopover content={<SkillPreview data={preview} />}>{nameEl}</HoverPopover> : nameEl}
-        <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace", marginLeft: 6 }}>{id}</span>
+        <span className="ml-1.5 font-mono text-[9px] text-text-dim">{id}</span>
       </div>
       {badge && (
-        <span style={{ fontSize: 9, fontWeight: 600, color: t.textDim, background: t.surfaceOverlay, borderRadius: 4, padding: "1px 6px" }}>
+        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-dim">
           {badge}
         </span>
       )}
       {removable && onRemove && (
         <button
+          type="button"
           onClick={onRemove}
           title="Remove from this channel"
-          style={{ display: "flex", border: "none", background: "transparent", cursor: "pointer", color: t.textDim, padding: 0 }}
+          className="inline-flex items-center p-0 text-text-dim hover:text-text transition-colors"
         >
           <X size={11} />
         </button>
@@ -114,7 +85,6 @@ function SkillChip({
 }
 
 export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
-  const t = useThemeTokens();
   const { data: effective } = useChannelEffectiveTools(channelId);
   const { data: editorData, isLoading: editorLoading } = useBotEditorData(botId);
   const { data: enrolled = [] } = useChannelEnrolledSkills(channelId);
@@ -155,12 +125,13 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
     <div>
       <ActivationsSection channelId={channelId} />
 
-      <SectionLabel icon={<BookOpen size={12} color={t.accent} />} label="Channel Skills" count={enrolled.length} />
-      <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8 }}>
-        Channel-level skill enrollment augments the bot&apos;s normal working set for this channel only. Skills remain fetch-on-demand via <code style={{ fontSize: 10 }}>get_skill()</code>.
-      </div>
+      <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Channel Skills" count={enrolled.length} />
+      <p className="mb-2 text-[11px] text-text-dim leading-snug">
+        Channel-level skill enrollment augments the bot&apos;s normal working set for this channel only. Skills remain fetch-on-demand via{" "}
+        <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">get_skill()</code>.
+      </p>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div className="flex flex-col gap-1">
         {enrolled.map((skill) => (
           <SkillChip
             key={skill.skill_id}
@@ -173,72 +144,54 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
           />
         ))}
         {enrolled.length === 0 && (
-          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", padding: "4px 0" }}>
+          <div className="py-1 text-[11px] italic text-text-dim">
             No channel-specific skills enrolled.
           </div>
         )}
       </div>
 
-      <SectionLabel icon={<Search size={12} color={t.textDim} />} label="Add Skills" count={addableSkills.length} />
-      <div style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        background: t.inputBg,
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 6,
-        padding: "6px 10px",
-        marginBottom: 8,
-      }}>
-        <Search size={13} color={t.textDim} />
+      <SectionLabel icon={<Search size={12} className="text-text-dim" />} label="Add Skills" count={addableSkills.length} />
+      <div className="mb-2 flex items-center gap-1.5 rounded-md border border-input-border bg-input px-3 py-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/40 transition-colors">
+        <Search size={13} className="text-text-dim shrink-0" />
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Filter skills..."
-          style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 12 }}
+          className="flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-dim"
         />
         {search && (
-          <button onClick={() => setSearch("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-            <X size={10} color={t.textDim} />
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            className="inline-flex items-center p-0 text-text-dim hover:text-text transition-colors"
+          >
+            <X size={10} />
           </button>
         )}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 240, overflow: "auto" }}>
+      <div className="flex max-h-60 flex-col gap-1 overflow-auto">
         {addableSkills.slice(0, 80).map((skill) => (
           <button
             key={skill.id}
+            type="button"
             onClick={() => enrollMut.mutate({ skillId: skill.id })}
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              width: "100%",
-              textAlign: "left",
-              padding: "6px 8px",
-              borderRadius: 4,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-              cursor: "pointer",
-              color: t.text,
-            }}
+            className="flex w-full items-center gap-1.5 rounded-md border border-surface-border bg-surface-raised px-2 py-1.5 text-left text-text hover:bg-surface-overlay/60 transition-colors"
           >
-            <Check size={11} color={t.accent} />
-            <span style={{ fontSize: 11, fontWeight: 500 }}>{skill.name}</span>
-            <span style={{ fontSize: 9, color: t.textDim, fontFamily: "monospace" }}>{skill.id}</span>
+            <Check size={11} className="text-accent shrink-0" />
+            <span className="text-[11px] font-medium">{skill.name}</span>
+            <span className="font-mono text-[9px] text-text-dim">{skill.id}</span>
           </button>
         ))}
         {addableSkills.length === 0 && (
-          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", padding: "4px 0" }}>
+          <div className="py-1 text-[11px] italic text-text-dim">
             No matching skills available.
           </div>
         )}
       </div>
 
-      <SectionLabel icon={<BookOpen size={12} color={t.accent} />} label="Resolved Skills" count={effective?.skills.length ?? 0} />
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Resolved Skills" count={effective?.skills.length ?? 0} />
+      <div className="flex flex-col gap-1">
         {(effective?.skills ?? []).map((skill) => (
           <SkillChip
             key={skill.id}
@@ -250,15 +203,18 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         ))}
       </div>
 
-      <SectionLabel icon={<Wrench size={12} color={t.textDim} />} label="Resolved Tools" count={effective?.local_tools.length ?? 0} />
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+      <SectionLabel icon={<Wrench size={12} className="text-text-dim" />} label="Resolved Tools" count={effective?.local_tools.length ?? 0} />
+      <div className="flex flex-wrap gap-1">
         {(effective?.local_tools ?? []).map((name) => <ToolChip key={name} name={name} />)}
       </div>
 
-      <SectionLabel icon={<Server size={12} color={t.textDim} />} label="MCP Servers" count={effective?.mcp_servers.length ?? 0} />
-      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
+      <SectionLabel icon={<Server size={12} className="text-text-dim" />} label="MCP Servers" count={effective?.mcp_servers.length ?? 0} />
+      <div className="flex flex-wrap gap-1">
         {(effective?.mcp_servers ?? []).map((name) => (
-          <span key={name} style={{ fontSize: 10, fontFamily: "monospace", padding: "1px 6px", borderRadius: 4, background: t.surfaceOverlay, color: t.textMuted }}>
+          <span
+            key={name}
+            className="inline-flex items-center rounded-full bg-surface-overlay px-2 py-0.5 font-mono text-[10px] text-text-muted"
+          >
             {name}
           </span>
         ))}

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-23 (compression pass — in-place Active-entry shrink; tracks retain living status)
+updated: 2026-04-23 (added Integration Contract + Canonical Guide track)
 ---
 # Agent Server — Roadmap
 
@@ -34,11 +34,17 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 
 ## Active
 
+### Integration Contract + Canonical Guide (2026-04-23)
+New north-star guide at `docs/guides/integrations.md` (mirroring `widget-system.md`'s authority model), a central canonical-guides index at `docs/guides/index.md`, retirement of the legacy `chat_hud` / `chat_hud_presets` surface in favor of dashboard widgets, `binding.suggestions_endpoint` shape standardization, three `integration_id == "x"` boundary fixes in `app/` via a new hook registry, and a pytest drift gate. See [[Track - Integration Contract]]. Plan: `~/.claude/plans/so-currently-our-wiggly-teapot.md`.
+
 ### `browser_live` integration — v0.1 shipped 2026-04-19
 MV3 Chrome-extension bridge drives the user's real logged-in session. Five tools: `browser_goto/act/eval/screenshot/status`. Pairing via a single `BROWSER_LIVE_PAIRING_TOKEN` admin setting. See `integrations/browser_live/README.md`.
 
 ### Local machine control — core provider architecture shipped 2026-04-23
 Machine control is now a core subsystem with pluggable providers. Targets addressed as `(provider_id, target_id)`; session leases enforce one-session-one-target. `local_companion` is the first provider; SSH provider + shared broker pending. See [[Track - Local Machine Control]].
+
+### Provider Refactor — Phase 1 in-flight 2026-04-23
+Unified reasoning/effort knob + `/effort <off|low|medium|high>` slash command, single slash-command registry source of truth, canonical `docs/guides/providers.md`. Fixes a silent Codex `reasoning_effort` drop. Phases 2–4 (capability flag column, adapter dedup, prompt-dialect polish) queued. See [[Track - Provider Refactor]]. Plan: `~/.claude/plans/id-like-a-strong-polymorphic-hippo.md`.
 
 ### Provider-dialect prompt templating — v1 shipped 2026-04-19
 `prompt_style` capability flag on `ProviderModel` (markdown/xml/structured). Framework prompts use `{% section %}` markers rewritten per model. **Open question**: does XML wrapping on Anthropic move any metric? No eval data yet — hook into [[Track - Experiments]]. Plan: `~/.claude/plans/swirling-plotting-biscuit.md`.
@@ -82,8 +88,8 @@ Organic ambient-chat path for fixing bot / channel / integration config. Folder-
 ### Automations (Task Pipelines) — Phases 1–5 shipped (2026-04-17)
 Per-channel pipeline subscriptions, cron scheduling, `fail_if` step-failure signaling, `pipeline_mode` channel override, channel-settings `PipelinesTab`, admin "Used by" + "Subscribed channels" views. See [[Track - Automations]].
 
-### Test Quality (2026-04-19)
-Phases 0–4 + A + B–L + M all shipped. 655+ tests. See [[Track - Test Quality]].
+### Test Quality (2026-04-23)
+Phases 0–4 + A + B–N all shipped (~1055 tests). 9 real bugs fixed in code — most recent N.6 surfaced **TWO production-breaking NameErrors in `_create_approval_state`** (`ToolCall` + `datetime` missing from the 2a4ce9f0 extraction; `except Exception` in `dispatch_tool_call` had been silently converting every approval gate to "Tool call denied: approval state could not be created" since that commit). 4 pinned + logged to [[Loose Ends]] (L.1 heartbeat crash-gap, J.5 widget JWT `jti`, I.5 double-attribution, N.3 channel-skill cache staleness). Phase N (widget presets + native envelope repair + channel-skill enrollment + session_plan_mode + rerank header-prefix + approval lifecycle) closed with 55 new tests + 2 revived pre-existing broken tests. Audit siblings consolidated to [[Test Audit - Coverage Gaps]] + [[Test Audit - Mock Session Refactor]]. See [[Track - Test Quality]].
 
 ### Experiments / Autoresearch (2026-04-18)
 Pipeline-layer optimization harness — knob → apply → evaluate → score → record → propose → loop. Phase 1a + 1b shipped (real `bot_invoke` evaluator via task-scoped `current_system_prompt_override` ContextVar, eval child Tasks, outcome capture via correlation_id). Phase 2 next: `experiment.iterate.yaml` + first hill-climb spec. See [[Track - Experiments]].
@@ -152,8 +158,11 @@ Tools-only integration for hand-drawn diagrams. Shipped 2026-04-12. **Remaining*
 ### Google Workspace
 Token refresh + Drive folder done. Pending: hard folder enforcement, retry/backoff. Direction shift to community MCP server. See [[Track - Google Workspace]].
 
+### UI Design — canonical spec shipped 2026-04-23
+`agent-server/docs/guides/ui-design.md` is the target spec for all UI work. Two surface archetypes (command / content), one token system, canonical active-row pill, documented anti-patterns, known-debt appendix. Adoption + debt migration tracked in [[Track - UI Vision]]. Cross-referenced from `feedback_no_gratuitous_borders`, `feedback_no_left_colored_borders`, `feedback_tailwind_not_inline`, `feedback_widgets_use_app_theme`.
+
 ### UI Polish
-Pass 1 done. **Per-channel terminal chat mode shipped 2026-04-21** — channel setting flips the main feed/composer into a command-first Codex/Claude-style presentation without changing approvals/widgets/tool plumbing. Rich tool-result rendering and broader polish history live in [[Track - UI Polish]].
+Pass 1 done. **Per-channel terminal chat mode shipped 2026-04-21** — channel setting flips the main feed/composer into a command-first Codex/Claude-style presentation without changing approvals/widgets/tool plumbing. Rich tool-result rendering and broader polish history live in [[Track - UI Polish]]. Target spec lives in `agent-server/docs/guides/ui-design.md` ([[Track - UI Vision]]).
 
 ### PWA & Push Notifications (2026-04-19)
 Icons, favicon, service worker, Web Push end-to-end. Bot-callable `send_push_notification` tool (HomeAssistant-notify style, not auto-push on every message) + `POST /api/v1/push/send` scoped endpoint. See [[Track - PWA & Push]].
@@ -176,11 +185,17 @@ Discord audit next (following the playbook), then BlueBubbles, then GitHub's dis
 - Composition over configuration
 - Trust the pipeline — fix mechanisms, don't add config knobs
 
-## See Also
+## Canonical Guides
+Index: `agent-server/docs/guides/index.md`. These win against other docs when they disagree.
+- `agent-server/docs/guides/context-management.md` — context admission + history profiles
+- `agent-server/docs/guides/discovery-and-enrollment.md` — tool / skill / MCP residency + enrollment
+- `agent-server/docs/guides/widget-system.md` — widget contracts, origins, presentation, host policy
+- `agent-server/docs/guides/ui-design.md` — UI archetypes, design tokens, anti-patterns
+- `agent-server/docs/guides/integrations.md` — integration contract + responsibility boundary
+
+## Related
 - [[Architecture]] — subsystem map and request flow
 - [[Architecture Decisions]] — load-bearing decisions
-- `agent-server/docs/guides/context-management.md` — canonical context admission + history profiles
-- `agent-server/docs/guides/discovery-and-enrollment.md` — canonical discovery, enrollment, and residency model
 - [[Loose Ends]] — bugs, gotchas, things to verify
 - [[Open Issues]] — untriaged review findings (accumulative)
 - [[Ideas & Investigations]] — parking lot

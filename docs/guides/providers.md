@@ -177,6 +177,80 @@ If you only need occasional Claude access, `openai-compatible` with `base_url=ht
 
 ---
 
+## Reasoning / effort
+
+Spindrel exposes a single user-facing reasoning knob: **`effort`**, an enum `off | low | medium | high`. It lives in three places with a strict resolution order:
+
+| Layer | Storage | Set by |
+|---|---|---|
+| Turn override | `current_effort_override` ContextVar | Inherited from channel by `run_stream`; propagated to delegation/pipeline children |
+| Channel override | `channel.config.effort_override` (JSONB) | `/effort <level>` slash command |
+| Bot default | `bots.model_params.effort` (JSONB) | Bot editor UI |
+
+Resolution order: **ContextVar > channel.config > bot.model_params**. `run_stream` reads `channel.config.effort_override` once at entry and sets the ContextVar so nested runs inherit via `snapshot_agent_context` / `restore_agent_context`.
+
+The single source of truth for the wire shape is `translate_effort(model, effort, *, explicit_budget=None)` in `app/agent/model_params.py`. Call sites must not re-branch on provider family — if you're tempted to write `if family == "anthropic"` to build a request payload, add the case to `translate_effort` instead.
+
+| Family | Wire shape |
+|---|---|
+| `anthropic` | `thinking_budget=<int>` kwarg (consumed by `AnthropicOpenAIAdapter`) |
+| `gemini` / `google` | `extra_body.thinking_config.{thinking_budget, include_thoughts}` |
+| `openai` / `xai` / `deepseek` chat.completions | `reasoning_effort="<level>"` kwarg |
+| `openai` Responses API (Codex / gpt-5-*) | `body.reasoning.effort = "<level>"` (adapter translates the flat kwarg) |
+| `mistral` / `groq` / `ollama` | Empty dict (reasoning not supported) |
+
+Enum → default budget mapping for budget-shaped families: `off=0`, `low=2048`, `medium=8192`, `high=16384` tokens.
+
+### Advanced: explicit `thinking_budget`
+
+Power users can set a numeric `thinking_budget` under the Advanced disclosure in the bot editor. For budget-shaped families (Anthropic, Gemini) this wins over the enum-derived default — useful when you want a precise budget instead of the 2048 / 8192 / 16384 steps. For effort-shaped families (OpenAI / xAI / DeepSeek) the advanced field is ignored; the enum drives `reasoning_effort` directly.
+
+### `/effort` slash command
+
+```
+/effort off       # clear the override; fall back to bot default
+/effort low
+/effort medium
+/effort high
+```
+
+The command persists `channel.config.effort_override` (or removes the key on `off`). The channel header shows an `effort: <level>` pill while the override is active. The slash-command registry is backend-owned (`list_supported_slash_commands` in `app/services/slash_commands.py`); the frontend mirrors it at load. Each entry carries `accepts_args`, `arg_enum`, and `local_only` flags so both surfaces agree on the contract.
+
+---
+
+## Prompt dialect (`prompt_style`)
+
+Framework prompts use a single `{% section "Title" %} ... {% endsection %}` marker. `app/services/prompt_dialect.py::render(canonical, style)` rewrites the markers per-model based on the `prompt_style` column on `provider_models`:
+
+- `markdown` → `## Title\n...` (default — works everywhere OpenAI-shaped).
+- `xml` → `<title>\n...\n</title>` (native Anthropic prefers XML framing).
+- `structured` → currently aliased to markdown; reserved for a future JSON-sectioned variant.
+
+Body content is preserved verbatim; only the envelope flips. Unknown styles fall through to markdown. Unmarked prompts pass through unchanged.
+
+---
+
+## Adapter architecture
+
+Adapters exist to bridge an OpenAI-shaped call into a backend that isn't natively OpenAI-shaped. They expose the same chat-completion surface the rest of the codebase assumes (`.chat.completions.create(model=..., messages=..., tools=..., stream=...)`) and translate in both directions:
+
+- **Outbound**: OpenAI-style messages + tools → provider-native request body.
+- **Inbound**: provider-native stream events → OpenAI-style chunks (plus a `reasoning_content` channel for the UI's thinking panel).
+
+Today two adapters exist: `AnthropicOpenAIAdapter` (`app/services/anthropic_adapter.py`) and `OpenAIResponsesAdapter` (`app/services/openai_responses_adapter.py`). Both re-implement tool-shape translation from scratch — the shared helpers will be extracted into `app/services/provider_translation.py` in Phase 3 of the Provider Refactor track so drift can't happen.
+
+### Known limits and rough edges
+
+- **Codex tool-call ID truncation** (`openai_responses_adapter.py::_normalize_call_id`): tool-call IDs longer than 64 chars are replaced with a deterministic hash. Logged as a warning; authors with long bot_id + tool_name combinations should keep identifiers short.
+- **Codex OAuth `client_id`** (`openai_subscription_driver.py`): a public constant borrowed from OpenAI's own Codex CLI — not a secret.
+- **Codex `reasoning.summary` default**: set unconditionally to `"auto"` so the thinking stream flows; callers can still override via model_params.
+- **Anthropic `thinking` constraints**: when `thinking_budget > 0`, the adapter forces `temperature=1` and strips `top_p`/`top_k` (Anthropic SDK requires this for extended thinking).
+- **Fallback model lists** in the Anthropic and OpenAI-subscription drivers are hardcoded today and will decay as new models ship. Phase 3 removes them in favor of the admin refresh flow.
+- **`test_connection()` is a no-op on Anthropic today** — it returns "Credentials OK" without probing the endpoint. Phase 3 fixes this.
+- **`anthropic-subscription` provider_type** currently maps to the plain `AnthropicDriver`. There is no real OAuth driver. Treat that row in `DRIVER_REGISTRY` as unfinished scaffolding; Phase 3 either builds the driver or removes the type.
+
+---
+
 ## Testing + diagnostics
 
 - **Test connection** button on the edit page hits `driver.test_connection(...)`. The OAuth provider's test confirms the issuer is reachable (it doesn't try to mint tokens — use the Connect flow for that).
@@ -197,7 +271,10 @@ If you only need occasional Claude access, `openai-compatible` with `base_url=ht
 | LiteLLM | `litellm_driver.py` |
 | OAuth device-code flow | `app/services/openai_oauth.py` + `app/routers/api_v1_admin/openai_oauth.py` |
 | Responses-API adapter | `app/services/openai_responses_adapter.py` |
-| Anthropic → OpenAI adapter | `app/services/anthropic_openai_adapter.py` |
+| Anthropic → OpenAI adapter | `app/services/anthropic_adapter.py` |
+| Effort translator | `app/agent/model_params.py::translate_effort` |
+| Prompt dialect rewrite | `app/services/prompt_dialect.py` |
+| Slash command registry | `app/services/slash_commands.py::list_supported_slash_commands` |
 
 ## See also
 

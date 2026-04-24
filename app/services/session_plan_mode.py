@@ -181,7 +181,10 @@ def _dedupe_recent_items(items: list[dict[str, Any]], *, key: str = "text", limi
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for item in reversed(items):
-        value = str(item.get(key) or item.get("label") or item).strip().lower()
+        # Prefer the canonical key, then the human label. Falling through to
+        # ``item`` itself would stringify the whole dict (e.g. ``{"text": ""}``
+        # becomes a non-empty unique key and bypasses the empty-value filter).
+        value = str(item.get(key) or item.get("label") or "").strip().lower()
         if not value or value in seen:
             continue
         seen.add(value)
