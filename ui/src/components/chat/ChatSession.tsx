@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useBots, useBot } from "@/src/api/hooks/useBots";
-import { useSubmitChat } from "@/src/api/hooks/useChat";
+import { useCancelChat, useSubmitChat } from "@/src/api/hooks/useChat";
 import { apiFetch } from "@/src/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -104,9 +104,19 @@ function formatHeaderTurnMeta(stats: {
  *     navigates to the full channel screen.
  *   - ``ephemeral`` — bot-agnostic ad-hoc chat. Session spawns lazily on
  *     first send. Picker visible, locks once the session exists. Legacy
- *     behavior from the original EphemeralSession component. */
+ *     behavior from the original EphemeralSession component.
+ *   - ``session`` — fixed existing channel session, used by split panels.
+ *     Sends are web-only unless the caller explicitly opts into channel
+ *     delivery. */
 export type ChatSource =
   | { kind: "channel"; channelId: string }
+  | {
+      kind: "session";
+      sessionId: string;
+      parentChannelId: string;
+      botId?: string;
+      externalDelivery?: "channel" | "none";
+    }
   | {
       kind: "ephemeral";
       sessionStorageKey: string;
@@ -187,6 +197,9 @@ function getDockStorageKey(source: ChatSource): string {
   if (source.kind === "thread") {
     return `thread:${source.parentChannelId}:${source.parentMessageId}`;
   }
+  if (source.kind === "session") {
+    return `session:${source.parentChannelId}:${source.sessionId}`;
+  }
   return [
     "ephemeral",
     source.sessionStorageKey,
@@ -233,6 +246,9 @@ export function ChatSession(props: ChatSessionProps) {
   }
   if (props.source.kind === "thread") {
     return <ThreadChatSession {...props} source={props.source} />;
+  }
+  if (props.source.kind === "session") {
+    return <FixedSessionChatSession {...props} source={props.source} />;
   }
   return <EphemeralChatSession {...props} source={props.source} />;
 }
@@ -665,6 +681,267 @@ function ChannelChatSession({
       {body}
     </ChatSessionDock>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Fixed existing-session mode
+// ---------------------------------------------------------------------------
+
+interface FixedSessionChatSessionProps extends Omit<ChatSessionProps, "source"> {
+  source: Extract<ChatSource, { kind: "session" }>;
+}
+
+function FixedSessionChatSession({
+  source,
+  shape,
+  open,
+  onClose,
+  title = "Session",
+  emptyState,
+  initiallyExpanded,
+  onOpenSessions,
+  chatMode = "default",
+}: FixedSessionChatSessionProps) {
+  const t = useThemeTokens();
+  const composerInTranscriptFlow = isTranscriptFlowComposer(chatMode);
+  const qc = useQueryClient();
+  const { data: bots } = useBots();
+  const { data: sessionModelGroups } = useModelGroups();
+  const submitChat = useSubmitChat();
+  const cancelChat = useCancelChat();
+  const sessionId = source.sessionId;
+  const parentChannelId = source.parentChannelId;
+  const botId = source.botId ?? bots?.[0]?.id ?? "";
+  const chatState = useChatStore((s) => s.getChannel(sessionId));
+  const turnActive = selectIsStreaming(chatState);
+  const isSending = submitChat.isPending || turnActive;
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [modelOverride, setModelOverrideState] = useState<string | undefined>(undefined);
+  const [modelProviderId, setModelProviderId] = useState<string | null>(null);
+  const { data: overheadData } = useSessionConfigOverhead(sessionId);
+  const overheadPct = overheadData?.overhead_pct ?? null;
+  const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(sessionId);
+  const [slashSyntheticMessages, setSlashSyntheticMessages] = useState<Message[]>([]);
+
+  const [dockExpanded, setDockExpanded] = useState(
+    shape === "dock" && (initiallyExpanded ?? false),
+  );
+  const inputOverlayRef = useRef<HTMLDivElement>(null);
+  const [inputOverlayHeight, setInputOverlayHeight] = useState(96);
+  useEffect(() => {
+    if (!inputOverlayRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h) setInputOverlayHeight(Math.ceil(h));
+    });
+    ro.observe(inputOverlayRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const setModelOverride = useCallback((m: string | undefined, pid?: string | null) => {
+    setModelOverrideState(m);
+    setModelProviderId(m ? (pid ?? null) : null);
+  }, []);
+
+  const syncCancelledState = useCallback(() => {
+    const ch = useChatStore.getState().getChannel(sessionId);
+    for (const turnId of Object.keys(ch.turns)) {
+      useChatStore.getState().handleTurnEvent(sessionId, turnId, {
+        event: "error",
+        data: { message: "cancelled" },
+      });
+      useChatStore.getState().finishTurn(sessionId, turnId);
+    }
+    useChatStore.getState().clearProcessing(sessionId);
+    qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+  }, [qc, sessionId]);
+
+  const handleSend = useCallback(async (message: string) => {
+    if (!botId) {
+      setSendError("Pick a bot first.");
+      return;
+    }
+    setSendError(null);
+    const clientLocalId = makeClientLocalId();
+    useChatStore.getState().addMessage(sessionId, {
+      id: `msg-${clientLocalId}`,
+      session_id: sessionId,
+      role: "user",
+      content: message,
+      created_at: new Date().toISOString(),
+      metadata: {
+        source: "web",
+        sender_type: "human",
+        client_local_id: clientLocalId,
+        local_status: "sending",
+      },
+    });
+    try {
+      const result = await submitChat.mutateAsync({
+        message,
+        bot_id: botId,
+        client_id: "web",
+        channel_id: parentChannelId,
+        session_id: sessionId,
+        external_delivery: source.externalDelivery ?? "none",
+        msg_metadata: {
+          source: "web",
+          sender_type: "human",
+          client_local_id: clientLocalId,
+        },
+        ...(modelOverride ? {
+          model_override: modelOverride,
+          model_provider_id_override: modelProviderId,
+        } : {}),
+      });
+      if (result.queued && result.task_id) {
+        useChatStore.getState().setProcessing(sessionId, result.task_id);
+      }
+      qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to send message");
+    }
+  }, [botId, modelOverride, modelProviderId, parentChannelId, qc, sessionId, source.externalDelivery, submitChat]);
+
+  const handleCancel = useCallback(() => {
+    cancelChat.mutate({
+      client_id: "web",
+      bot_id: botId,
+      session_id: sessionId,
+      channel_id: parentChannelId,
+    });
+    syncCancelledState();
+  }, [botId, cancelChat, parentChannelId, sessionId, syncCancelledState]);
+
+  const slashCatalog = useSlashCommandList();
+  const availableSlashCommands = useMemo(
+    () => resolveAvailableSlashCommandIds({
+      catalog: slashCatalog,
+      surface: "session",
+      enabled: !!sessionId,
+      capabilities: onOpenSessions
+        ? ["model", "theme", "sessions"]
+        : ["model", "theme"],
+    }),
+    [onOpenSessions, sessionId, slashCatalog],
+  );
+  const localHandlers = useMemo(
+    () => ({
+      model: (args: string[]) => {
+        if (!args[0]) return;
+        const providerId = resolveProviderForModel(args[0], sessionModelGroups);
+        setModelOverride(args[0], providerId ?? null);
+      },
+      theme: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const store = useThemeStore.getState();
+        if (arg === "light" || arg === "dark") {
+          store.setMode(arg);
+        } else {
+          store.toggle();
+        }
+      },
+      sessions: () => onOpenSessions?.(),
+    }),
+    [onOpenSessions, sessionModelGroups, setModelOverride],
+  );
+  const handleSlashCommand = useSlashCommandExecutor({
+    availableCommands: availableSlashCommands,
+    catalog: slashCatalog,
+    surface: "session",
+    sessionId,
+    onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
+    localHandlers,
+    onSideEffect: async (result) => {
+      if (result.command_id === "stop") syncCancelledState();
+      if (result.command_id === "compact") {
+        qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+      }
+    },
+  });
+
+  const composer = (
+    <>
+      {sendError && (
+        <div className="px-4 py-1.5 text-[11px] text-danger bg-danger/5">
+          {sendError}
+        </div>
+      )}
+      <ChatComposerShell chatMode={chatMode}>
+        <MessageInput
+          onSend={handleSend}
+          onCancel={handleCancel}
+          disabled={!botId}
+          isStreaming={isSending}
+          currentBotId={botId || undefined}
+          channelId={sessionId}
+          onSlashCommand={handleSlashCommand}
+          slashSurface="session"
+          availableSlashCommands={availableSlashCommands}
+          modelOverride={modelOverride}
+          modelProviderIdOverride={modelProviderId}
+          onModelOverrideChange={setModelOverride}
+          defaultModel={bots?.find((b) => b.id === botId)?.model}
+          configOverhead={overheadPct}
+          compact
+          chatMode={chatMode}
+          planMode={sessionPlan.mode}
+          hasPlan={sessionPlan.hasPlan}
+          planBusy={planBusy}
+          canTogglePlanMode={!!sessionId}
+          onTogglePlanMode={handleTogglePlanMode}
+          onApprovePlan={sessionPlan.mode === "planning" && sessionPlan.data ? () => sessionPlan.approvePlan.mutate() : undefined}
+        />
+      </ChatComposerShell>
+    </>
+  );
+
+  const body = (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="relative min-h-0 flex-1">
+        <SessionChatView
+          sessionId={sessionId}
+          parentChannelId={parentChannelId}
+          botId={botId}
+          emptyStateComponent={emptyState}
+          scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
+          chatMode={chatMode}
+          syntheticMessages={slashSyntheticMessages}
+          bottomSlot={composerInTranscriptFlow ? composer : undefined}
+        />
+        {!composerInTranscriptFlow && (
+          <div ref={inputOverlayRef} className="absolute bottom-0 left-0 right-0 z-[4]">
+            {composer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  if (shape === "modal") {
+    return (
+      <ChatSessionModal open={open} onClose={onClose} title={title}>
+        {body}
+      </ChatSessionModal>
+    );
+  }
+
+  if (shape === "dock") {
+    return (
+      <ChatSessionDock
+        open={open}
+        expanded={dockExpanded}
+        onExpandedChange={setDockExpanded}
+        title={title}
+        storageKey={getDockStorageKey(source)}
+        chatMode={chatMode}
+      >
+        {body}
+      </ChatSessionDock>
+    );
+  }
+
+  return <div className="flex h-full min-h-0 w-full flex-col">{body}</div>;
 }
 
 // ---------------------------------------------------------------------------

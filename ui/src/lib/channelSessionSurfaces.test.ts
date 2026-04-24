@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   addChannelSessionPanel,
+  buildChannelSessionChatSource,
   buildChannelSessionPickerEntries,
   buildChannelSessionRoute,
   buildScratchChatSource,
@@ -13,34 +14,39 @@ import {
 assert.deepEqual(normalizeChannelSessionPanels(null), []);
 assert.deepEqual(normalizeChannelSessionPanels([
   { kind: "scratch", sessionId: "a" },
+  { kind: "channel", sessionId: "old" },
   { kind: "thread", sessionId: "b" },
   { kind: "scratch", sessionId: "" },
   { kind: "scratch", sessionId: "c" },
   { kind: "scratch", sessionId: "d" },
 ]), [
   { kind: "scratch", sessionId: "a" },
-  { kind: "scratch", sessionId: "c" },
+  { kind: "channel", sessionId: "old" },
 ]);
 
-assert.deepEqual(addChannelSessionPanel([], "a"), [{ kind: "scratch", sessionId: "a" }]);
+assert.deepEqual(addChannelSessionPanel([], { kind: "scratch", sessionId: "a" }), [{ kind: "scratch", sessionId: "a" }]);
 assert.deepEqual(addChannelSessionPanel([
   { kind: "scratch", sessionId: "a" },
   { kind: "scratch", sessionId: "b" },
-], "a"), [
+], { kind: "scratch", sessionId: "a" }), [
   { kind: "scratch", sessionId: "b" },
   { kind: "scratch", sessionId: "a" },
 ]);
 assert.deepEqual(addChannelSessionPanel([
   { kind: "scratch", sessionId: "a" },
   { kind: "scratch", sessionId: "b" },
-], "c"), [
+], { kind: "channel", sessionId: "c" }), [
   { kind: "scratch", sessionId: "b" },
-  { kind: "scratch", sessionId: "c" },
+  { kind: "channel", sessionId: "c" },
 ]);
 assert.deepEqual(removeChannelSessionPanel([
+  { kind: "channel", sessionId: "a" },
   { kind: "scratch", sessionId: "a" },
   { kind: "scratch", sessionId: "b" },
-], "a"), [{ kind: "scratch", sessionId: "b" }]);
+], { kind: "scratch", sessionId: "a" }), [
+  { kind: "channel", sessionId: "a" },
+  { kind: "scratch", sessionId: "b" },
+]);
 
 assert.equal(buildChannelSessionRoute("chan", { kind: "primary" }), "/channels/chan");
 assert.equal(buildChannelSessionRoute("chan", { kind: "channel", sessionId: "old" }), "/channels/chan");
@@ -60,6 +66,14 @@ assert.deepEqual(buildScratchChatSource({ channelId: "chan", botId: "bot", sessi
   },
   scratchBoundChannelId: "chan",
   pinnedSessionId: "session",
+});
+
+assert.deepEqual(buildChannelSessionChatSource({ channelId: "chan", botId: "bot", sessionId: "session" }), {
+  kind: "session",
+  sessionId: "session",
+  parentChannelId: "chan",
+  botId: "bot",
+  externalDelivery: "none",
 });
 
 assert.equal(getScratchSessionLabel({ title: "  Title  ", summary: "Summary", preview: "Preview" }), "Title");

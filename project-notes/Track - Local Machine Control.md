@@ -156,6 +156,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 ### Follow-up fix — Local Companion bootstrap URL
 
 - The downloaded `local_companion` client now derives its WebSocket endpoint from the HTTP(S) `--server-url` emitted by the setup command, mapping `http -> ws` and `https -> wss` while preserving path prefixes. This keeps the `curl` bootstrap command copyable as-is and avoids passing an `http://.../ws` URI into `websockets.connect`.
+- Startup tool discovery now loads `app/tools/local/machine_control.py` without a `ToolResultEnvelope` circular import while `app.agent.tool_dispatch` is still initializing; the machine-control tool lazily imports the envelope class inside its builder like the other envelope-producing tools.
 
 ## Current Architecture Shape
 
@@ -197,3 +198,5 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `cd agent-server/ui && npx tsc --noEmit` after the admin machine-center UI refresh.
 - `pytest tests/unit/test_local_companion_provider.py -q`
 - `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile integrations/local_companion/client.py`
+- `pytest tests/unit/test_local_machine_control_phase5a.py -q`
+- `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/tools/local/machine_control.py tests/unit/test_local_machine_control_phase5a.py`

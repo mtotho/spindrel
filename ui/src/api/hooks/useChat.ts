@@ -6,6 +6,8 @@ import type { ChatRequest } from "../../types/api";
 interface CancelRequest {
   client_id: string;
   bot_id: string;
+  session_id?: string;
+  channel_id?: string;
 }
 
 interface CancelResponse {
@@ -40,6 +42,7 @@ export interface ChatSubmitResponse {
   turn_id?: string;
   queued?: boolean;
   task_id?: string;
+  session_scoped?: boolean;
 }
 
 /**

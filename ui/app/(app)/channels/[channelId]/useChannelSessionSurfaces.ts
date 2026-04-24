@@ -9,6 +9,7 @@ import {
   buildChannelSessionRoute,
   removeChannelSessionPanel,
   type ChannelSessionActivationIntent,
+  type ChannelSessionPanel,
   type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
 
@@ -30,9 +31,9 @@ export function useChannelSessionSurfaces({
     intent: ChannelSessionActivationIntent,
   ) => {
     if (!channelId) return;
-    if (intent === "split" && surface.kind === "scratch") {
+    if (intent === "split" && (surface.kind === "scratch" || surface.kind === "channel")) {
       patchChannelPanelPrefs(channelId, (current) => ({
-        sessionPanels: addChannelSessionPanel(current.sessionPanels, surface.sessionId),
+        sessionPanels: addChannelSessionPanel(current.sessionPanels, surface),
       }));
       return;
     }
@@ -59,10 +60,10 @@ export function useChannelSessionSurfaces({
     navigate(buildChannelSessionRoute(channelId, surface));
   }, [channelId, navigate, onLeaveScratchSurface, patchChannelPanelPrefs, queryClient]);
 
-  const removePanel = useCallback((sessionId: string) => {
+  const removePanel = useCallback((panel: ChannelSessionPanel | string) => {
     if (!channelId) return;
     patchChannelPanelPrefs(channelId, (current) => ({
-      sessionPanels: removeChannelSessionPanel(current.sessionPanels, sessionId),
+      sessionPanels: removeChannelSessionPanel(current.sessionPanels, panel),
     }));
   }, [channelId, patchChannelPanelPrefs]);
 

@@ -8,12 +8,98 @@ titles keep reruns dedupe-safe.
 """
 from __future__ import annotations
 
+import json
+
 from . import StagedState
 from . import bots as bot_scenarios
 from . import dashboards as dashboard_scenarios
 from . import pipelines as pipeline_scenarios
 from .._exec import run_server_helper
 from ..client import SpindrelClient
+
+
+# State bundles per widget_ref. Native widgets render from
+# ``WidgetInstance.state`` on the server, not envelope.state, so we seed this
+# directly after pins land.
+WIDGET_STATE_SEEDS: dict[str, dict] = {
+    "core/notes_native": {
+        "body": (
+            "# Evening check-in\n\n"
+            "- Overnight alerts: 3 resolved, 1 open (camera 4 offline)\n"
+            "- Shipped: screenshot pipeline, docs refresh Phase A\n"
+            "- Tomorrow: flagship 8 review with the team\n"
+        ),
+        "updated_at": "2026-04-24T20:15:00Z",
+    },
+    "core/todo_native": {
+        "items": [
+            {"id": "t1", "text": "Review overnight alerts", "done": True},
+            {"id": "t2", "text": "Bring camera 4 back online", "done": False},
+            {"id": "t3", "text": "Ship docs refresh Phase A", "done": False},
+            {"id": "t4", "text": "Send ops status to #team", "done": False},
+        ],
+        "updated_at": "2026-04-24T20:15:00Z",
+    },
+    "core/standing_order_native": {
+        "goal": "Watch for package delivery (Amazon)",
+        "status": "running",
+        "strategy": "poll_url",
+        "strategy_args": {
+            "url": "https://www.amazon.com/gp/your-account/order-history",
+            "interval_seconds": 900,
+        },
+        "strategy_state": {"last_status": "Out for delivery"},
+        "interval_seconds": 900,
+        "iterations": 3,
+        "max_iterations": 96,
+        "completion": {},
+        "log": [
+            {"at": "2026-04-24T17:00:00Z", "level": "info", "text": "Started watching order #112-4587"},
+            {"at": "2026-04-24T17:45:00Z", "level": "info", "text": "Status: In transit (Portland, OR)"},
+            {"at": "2026-04-24T19:30:00Z", "level": "info", "text": "Status: Out for delivery"},
+        ],
+        "message_on_complete": "Package delivered — ping the bot.",
+        "owning_bot_id": "screenshot-orchestrator",
+        "owning_channel_id": "",
+        "next_tick_at": "2026-04-24T20:30:00Z",
+        "last_tick_at": "2026-04-24T20:15:00Z",
+        "terminal_reason": None,
+        "updated_at": "2026-04-24T20:15:00Z",
+    },
+}
+
+
+def _seed_widget_states_for_channel(
+    channel_id: str,
+    *,
+    ssh_alias: str,
+    ssh_container: str,
+    dry_run: bool = False,
+) -> None:
+    """Best-effort seeding; missing WidgetInstance rows are skipped silently.
+
+    Only native widgets whose WidgetInstance was created on this channel
+    (via pin create) will seed — the helper exits non-zero when the row is
+    absent, which is fine if e.g. standing_order_native wasn't pinned here.
+    """
+    import subprocess
+
+    for widget_ref, state in WIDGET_STATE_SEEDS.items():
+        try:
+            run_server_helper(
+                ssh_alias=ssh_alias,
+                container=ssh_container,
+                helper_name="seed_widget_instance_state",
+                args=[channel_id, widget_ref, json.dumps(state)],
+                dry_run=dry_run,
+            )
+        except RuntimeError as e:
+            # Only swallow "not found" — everything else should surface.
+            if "not found" in str(e).lower():
+                continue
+            raise
+        except subprocess.CalledProcessError:
+            continue
 
 
 HOME_CHANNEL_CLIENT_IDS = [
@@ -64,6 +150,17 @@ def stage_flagship(
     dashboard_scenarios.pin_chat_rail_widgets(
         client, channel_id=chat_main_id, source_bot_id=primary_bot
     )
+    _seed_widget_states_for_channel(
+        chat_main_id, ssh_alias=ssh_alias, ssh_container=ssh_container, dry_run=dry_run
+    )
+    # Fake chat history so the channel isn't empty on capture.
+    run_server_helper(
+        ssh_alias=ssh_alias,
+        container=ssh_container,
+        helper_name="seed_chat_messages",
+        args=[chat_main_id, primary_bot],
+        dry_run=dry_run,
+    )
 
     # 4. Demo dashboard (6 pins for widget-dashboard.png)
     demo_dashboard = client.ensure_channel(
@@ -75,6 +172,9 @@ def stage_flagship(
     state.channels["demo_dashboard"] = demo_dashboard_id
     dashboard_scenarios.pin_full_dashboard(
         client, channel_id=demo_dashboard_id, source_bot_id=primary_bot
+    )
+    _seed_widget_states_for_channel(
+        demo_dashboard_id, ssh_alias=ssh_alias, ssh_container=ssh_container, dry_run=dry_run
     )
 
     # 5. Mid-run pipeline channel + task

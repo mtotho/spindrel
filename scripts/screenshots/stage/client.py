@@ -39,6 +39,8 @@ class SpindrelClient:
             logger.info("DRY-RUN POST %s json=%s", path, json)
             return httpx.Response(200, json={"id": "dry-run", "dry_run": True})
         r = self._http.post(path, json=json, **kw)
+        if r.status_code >= 400:
+            logger.error("POST %s -> %s body=%s", path, r.status_code, r.text[:500])
         r.raise_for_status()
         return r
 

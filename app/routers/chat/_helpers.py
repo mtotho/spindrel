@@ -3,10 +3,11 @@ import logging
 import uuid
 from dataclasses import dataclass
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Message as MessageModel
+from app.db.models import Channel, Message as MessageModel, Session
 from app.services.channels import (
     get_or_create_channel,
     ensure_active_session,
@@ -131,8 +132,29 @@ async def _resolve_channel_and_session(
         **extra_kwargs,
     )
 
-    # Resolve session: explicit session_id takes precedence
+    # Resolve session: explicit session_id takes precedence. Explicit channel
+    # sessions may target historical/secondary sessions, but those sends must
+    # be web-only unless the target is the channel's active primary session.
     resolved_session_id = req.session_id
+    if resolved_session_id is not None:
+        explicit_session = await db.get(Session, resolved_session_id)
+        if explicit_session is not None and explicit_session.channel_id != channel.id:
+            raise HTTPException(
+                status_code=404,
+                detail="Session does not belong to this channel.",
+            )
+        if (
+            req.external_delivery == "channel"
+            and explicit_session is not None
+            and resolved_session_id != channel.active_session_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Only the primary session can mirror to channel integrations. "
+                    "Send with external_delivery='none' or make the session primary first."
+                ),
+            )
     if resolved_session_id is None:
         resolved_session_id = await ensure_active_session(db, channel)
         await db.commit()

@@ -117,6 +117,14 @@ class ChatRequest(BaseModel):
     dispatch_config: Optional[dict] = None  # type-specific routing config
     model_override: Optional[str] = None  # Per-turn model override (highest priority)
     model_provider_id_override: Optional[str] = None  # Per-turn provider override (paired with model_override)
+    external_delivery: Literal["channel", "none"] = Field(
+        default="channel",
+        description=(
+            "Controls integration fanout for explicit channel-session sends. "
+            "'channel' is the normal primary-session behavior; 'none' keeps "
+            "the turn web-only for split/secondary sessions."
+        ),
+    )
     passive: bool = False  # If True, store message but skip agent run
     msg_metadata: Optional[dict] = Field(
         default=None,
@@ -132,6 +140,8 @@ class ChatRequest(BaseModel):
 class CancelRequest(BaseModel):
     client_id: str
     bot_id: str
+    session_id: Optional[uuid.UUID] = None
+    channel_id: Optional[uuid.UUID] = None
 
 
 class CancelResponse(BaseModel):

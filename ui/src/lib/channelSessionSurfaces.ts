@@ -3,10 +3,7 @@ export type ChannelSessionSurface =
   | { kind: "channel"; sessionId: string }
   | { kind: "scratch"; sessionId: string };
 
-export interface ChannelSessionPanel {
-  kind: "scratch";
-  sessionId: string;
-}
+export type ChannelSessionPanel = Extract<ChannelSessionSurface, { kind: "channel" | "scratch" }>;
 
 export type ChannelSessionActivationIntent = "switch" | "split";
 
@@ -85,30 +82,44 @@ export type ChannelSessionPickerEntry =
 export function normalizeChannelSessionPanels(value: unknown): ChannelSessionPanel[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((panel): panel is ChannelSessionPanel =>
-      !!panel
-      && panel.kind === "scratch"
-      && typeof panel.sessionId === "string"
-      && panel.sessionId.length > 0,
-    )
+    .filter(isChannelSessionPanel)
     .slice(0, MAX_CHANNEL_SESSION_PANELS);
+}
+
+function isChannelSessionPanel(panel: unknown): panel is ChannelSessionPanel {
+  return !!panel
+    && typeof panel === "object"
+    && "kind" in panel
+    && "sessionId" in panel
+    && (panel.kind === "scratch" || panel.kind === "channel")
+    && typeof panel.sessionId === "string"
+    && panel.sessionId.length > 0;
 }
 
 export function addChannelSessionPanel(
   current: readonly ChannelSessionPanel[],
-  sessionId: string,
+  surface: ChannelSessionPanel,
 ): ChannelSessionPanel[] {
+  const { kind, sessionId } = surface;
   if (!sessionId) return normalizeChannelSessionPanels(current);
-  const existing = normalizeChannelSessionPanels(current).filter((panel) => panel.sessionId !== sessionId);
-  const next: ChannelSessionPanel[] = [...existing, { kind: "scratch", sessionId }];
+  const existing = normalizeChannelSessionPanels(current).filter(
+    (panel) => panel.kind !== kind || panel.sessionId !== sessionId,
+  );
+  const next: ChannelSessionPanel[] = [...existing, { kind, sessionId }];
   return next.slice(-MAX_CHANNEL_SESSION_PANELS);
 }
 
 export function removeChannelSessionPanel(
   current: readonly ChannelSessionPanel[],
-  sessionId: string,
+  target: ChannelSessionPanel | string,
 ): ChannelSessionPanel[] {
-  return normalizeChannelSessionPanels(current).filter((panel) => panel.sessionId !== sessionId);
+  return current
+    .filter(isChannelSessionPanel)
+    .filter((panel) => {
+      if (typeof target === "string") return panel.sessionId !== target;
+      return panel.kind !== target.kind || panel.sessionId !== target.sessionId;
+    })
+    .slice(0, MAX_CHANNEL_SESSION_PANELS);
 }
 
 export function buildChannelSessionRoute(channelId: string, surface: ChannelSessionSurface): string {
@@ -137,6 +148,24 @@ export function buildScratchChatSource({
     },
     scratchBoundChannelId: channelId,
     pinnedSessionId: sessionId ?? undefined,
+  };
+}
+
+export function buildChannelSessionChatSource({
+  channelId,
+  botId,
+  sessionId,
+}: {
+  channelId: string;
+  botId?: string | null;
+  sessionId: string;
+}) {
+  return {
+    kind: "session" as const,
+    sessionId,
+    parentChannelId: channelId,
+    botId: botId ?? undefined,
+    externalDelivery: "none" as const,
   };
 }
 

@@ -1265,7 +1265,7 @@ export default function ChatScreen() {
     !isMobile && channelId && !dashboardOnly && !showFileViewer
       ? panelPrefs.sessionPanels.map((panel) => (
           <ChannelSessionSplitPanel
-            key={panel.sessionId}
+            key={`${panel.kind}:${panel.sessionId}`}
             panel={panel}
             channelId={channelId}
             botId={channel?.bot_id}

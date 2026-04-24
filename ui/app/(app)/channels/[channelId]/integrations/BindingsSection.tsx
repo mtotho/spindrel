@@ -72,6 +72,9 @@ export function BindingsSection({ channelId }: { channelId: string }) {
           />
         ) : undefined}
       >
+        <div className="mb-3 rounded-md border border-surface-border bg-surface-raised/30 px-3 py-2 text-[12px] text-text-dim">
+          Only the primary session mirrors to these integrations. Split sessions stay web-only until made primary.
+        </div>
         {visibleBindings.length === 0 ? (
           <EmptyState message="No integrations bound to this channel" />
         ) : (

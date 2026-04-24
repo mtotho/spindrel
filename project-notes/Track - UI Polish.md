@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-24 (Memory & Knowledge dreaming cleanup)
+updated: 2026-04-24 (Usage anomaly dashboard)
 ---
 # Track — UI Polish
 
@@ -22,7 +22,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Corrected the banner rule: semantic left-border alert stripes are now banned in `ui-design.md` / `spindrel-ui`, and shared `InfoBanner` renders tonal notes without side borders.
 - [x] Added the load-stability rule: settings loading states must reserve the final layout footprint instead of using spinner-only swaps that make tabs bounce; Heartbeat now uses a stable low-chrome loading shell.
 - [x] Reframed `/admin/learning` as Memory & Knowledge with Overview, Memory, Knowledge, History, Dreaming, and Skills tabs; added read-first unified search across bot memory, bot KB, channel KB, and archived conversation history.
-- [x] Cleaned up the missed Dreaming tab/table path: `DreamingBotTable` now uses shared low-chrome empty/pill/badge primitives, Tailwind design tokens, no `useThemeTokens()` / inline hex/RGBA, unclipped run menus, and clear amber vs purple job-type signaling for maintenance vs skill review.
+- [x] Cleaned up the missed Dreaming tab/table path: `DreamingBotTable` now uses shared low-chrome empty/pill/badge/action primitives, Tailwind design tokens, no `useThemeTokens()` / inline hex/RGBA, and clear amber vs purple job-type signaling for maintenance vs skill review. Follow-up pattern check replaced the dense table with per-bot rows containing two job lanes; if this survives review, extract a generic grouped control-row/list primitive instead of canonizing a traditional table.
 - [x] Refreshed `/admin/machines` and `/admin/integrations` against the canonical control-surface standard: shared token/Tailwind controls, no route-level `useThemeTokens()`, no inline hex/RGBA, lower-chrome rows/sections, and machine-control provider detail kept summary/link-only.
 - [x] Added shared `EmptyState` for low-chrome empty surfaces and moved the new Memory & Knowledge page onto existing shared controls instead of one-off dropdowns/buttons.
 - [x] Added shared read-only `SourceFileInspector` and wired Memory & Knowledge file-backed memory/KB rows to open their actual workspace source file in-page; non-file fallbacks now say `Open location`, not `Open source`.
@@ -30,6 +30,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Started the post-theme integration detail density pass: high-volume detected asset/env-var chip groups now collapse behind overflow controls, and capability chips read as metadata instead of accent-colored state.
 - [x] Added shared `SourceTextEditor` for literal YAML/JSON/code strings and moved the integration manifest YAML tab off its raw textarea while keeping file-inspector ownership separate.
 - [x] Rebuilt `/admin/skills` as the canonical fleet-wide skill library: shared low-chrome controls, source-grouped folder tree, advisory frontmatter warnings, read-first detail preview, shared `SourceTextEditor` source inspection, and read-only script summaries from the admin skills API.
+- [x] Reframed `/admin/usage` around anomaly investigation instead of billing-only reporting: stat health strip, token timeline markers, trace-burst/top-contributor signals, source/channel filters, shared `TraceInspector` drilldowns, and low-chrome trend charts.
+- [x] Added canonical `TraceInspector` and token-driven chart guidance to `ui-components.md` so usage, task, heartbeat, and debugging drilldowns have one shared trace preview path.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
@@ -186,6 +188,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **`/sessions` search now has an async deep-search lane** — the picker still filters locally immediately, then debounces a public channel-session search that ranks sessions by live message matches plus archived-section matches. Results stay session-oriented: matching rows move up and show message/section snippets, while inactive channel sessions activate through the existing switch-session endpoint.
 - [x] **Session split and slash discovery tightened** — the picker now exposes `Split` as a visible row-level action, and channel-bound session surfaces (scratch route, mini session, split panels, and threads) can open the same `/sessions` picker. Session slash lists now use the backend-supported session command set instead of the old reduced subset.
 - [x] **Header sessions button now uses the unified picker** — the top-right `Sessions` button and mobile overflow action open `SessionPickerOverlay` directly instead of the legacy scratch-session menu.
+- [x] **Session switching boundary hardening** — slash-command availability now resolves through one pure surface helper, channel-session activation lives behind a route-local controller hook, channel/scratch session API hooks have a dedicated module, and backend channel-session catalog/search construction moved out of the channel router into a service.
+- [x] **Generic session split panels are writable and web-only** — the split panel model now accepts both scratch and channel-session surfaces, `ChatSession` has a fixed-session source for historical/non-primary channel sessions, and secondary sends use `external_delivery: none` so only the primary session mirrors to integrations. Channel settings now calls out that dispatcher bindings mirror the primary session only.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -234,6 +238,11 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --noEmit`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/services/slash_commands.py`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after header Sessions button unification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json` after writable generic session split panels
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --outDir /tmp/agent-chat-test-dist && node /tmp/agent-chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+- [x] `cd /home/mtoth/personal/agent-server && python -m py_compile app/routers/chat/_schemas.py app/routers/chat/_helpers.py app/routers/chat/_routes.py app/agent/tasks.py`
+- [ ] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` still blocked by unrelated `UsageCharts.tsx` / `LineChartProps` prop mismatch in the dirty tree.
+- [ ] `cd /home/mtoth/personal/agent-server && pytest tests/integration/test_chat_202.py -q` skipped all 11 tests in this local harness; focused secondary-session delivery assertions are in place for a normal integration run.
 - [ ] `pytest tests/integration/test_api_search_history.py -q -k 'session_search or session_catalog'` skipped in this local SQLite-backed harness; the file is PostgreSQL-only because it relies on `ILIKE`.
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.

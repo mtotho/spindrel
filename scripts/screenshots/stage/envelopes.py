@@ -1,11 +1,10 @@
 """Realistic native widget envelopes.
 
-Native widgets render from ``{content_type, widget_ref, state, config}`` without
-needing a bot API key. Each helper returns the full ``envelope`` dict ready to
-POST to ``/api/v1/widgets/dashboard/pins``.
-
-Kept intentionally declarative — one dict per widget — so a future schema drift
-is a single PR, not a scavenger hunt.
+The server validates native envelopes by extracting ``body.widget_ref`` — so
+the ``widget_ref`` must live **inside** ``envelope.body``, not at the top
+level. The registered native widget refs are defined in
+``app/services/native_app_widgets.py`` (``_REGISTRY``); screenshots only use
+those nine.
 """
 from __future__ import annotations
 
@@ -14,86 +13,77 @@ from typing import Any
 NATIVE_CT = "application/vnd.spindrel.native-app+json"
 
 
-def native(widget_ref: str, state: dict, *, config: dict | None = None) -> dict[str, Any]:
-    env = {
-        "content_type": NATIVE_CT,
+def native(
+    widget_ref: str,
+    state: dict,
+    *,
+    display_label: str | None = None,
+    config: dict | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
         "widget_ref": widget_ref,
+        "widget_kind": "native_app",
         "state": state,
     }
     if config is not None:
-        env["config"] = config
+        body["config"] = config
+    if display_label:
+        body["display_label"] = display_label
+    env: dict[str, Any] = {
+        "content_type": NATIVE_CT,
+        "body": body,
+        "display": "inline",
+    }
+    if display_label:
+        env["display_label"] = display_label
     return env
 
 
-def weather_sunny() -> dict[str, Any]:
+def notes() -> dict[str, Any]:
     return native(
-        "core/weather_current",
+        "core/notes_native",
         {
-            "location": "Portland, OR",
-            "temp_f": 62,
-            "condition": "Partly Cloudy",
-            "high_f": 68,
-            "low_f": 54,
+            "body": (
+                "# Morning brief\n\n"
+                "- Review overnight alerts (3 new)\n"
+                "- Ship screenshot pipeline to docs\n"
+                "- Confirm Frigate camera 4 is back online\n"
+            ),
             "updated_at": "just now",
-            "hourly": [
-                {"hour": "12 PM", "temp_f": 62, "icon": "sun"},
-                {"hour": " 1 PM", "temp_f": 64, "icon": "sun"},
-                {"hour": " 2 PM", "temp_f": 66, "icon": "cloud-sun"},
-                {"hour": " 3 PM", "temp_f": 67, "icon": "cloud-sun"},
-                {"hour": " 4 PM", "temp_f": 65, "icon": "cloud"},
-            ],
         },
+        display_label="Notes",
     )
 
 
-def frigate_cameras() -> dict[str, Any]:
+def todos() -> dict[str, Any]:
     return native(
-        "core/camera_grid",
+        "core/todo_native",
         {
-            "cameras": [
-                {"name": "Front Door", "status": "online", "last_event": "2m ago"},
-                {"name": "Back Yard", "status": "online", "last_event": "8m ago"},
-                {"name": "Garage", "status": "online", "last_event": "17m ago"},
-                {"name": "Driveway", "status": "offline", "last_event": "—"},
+            "items": [
+                {"id": "t1", "text": "Pull Tuesday's weather report", "done": True},
+                {"id": "t2", "text": "Drop stale dashboard pins", "done": True},
+                {"id": "t3", "text": "Capture the flagship 8", "done": False},
+                {"id": "t4", "text": "Send status to #ops", "done": False},
             ],
+            "updated_at": "just now",
         },
+        display_label="Todos",
     )
 
 
-def web_search_panel() -> dict[str, Any]:
+def usage_forecast() -> dict[str, Any]:
     return native(
-        "core/search_results",
-        {
-            "query": "fastapi websocket reconnection",
-            "results": [
-                {
-                    "title": "FastAPI — WebSockets",
-                    "url": "https://fastapi.tiangolo.com/advanced/websockets/",
-                    "snippet": "Working with WebSockets in FastAPI. Includes connection lifecycle and reconnection patterns.",
-                },
-                {
-                    "title": "Robust WebSocket reconnection strategies",
-                    "url": "https://example.com/ws-reconnection",
-                    "snippet": "Exponential backoff, jitter, and resubscribe on reconnect. A review of the field.",
-                },
-                {
-                    "title": "Handling WebSocket drops in production",
-                    "url": "https://example.com/production-ws",
-                    "snippet": "What worked, what didn't, and how we stopped waking up on-call.",
-                },
-            ],
-        },
+        "core/usage_forecast_native",
+        {"updated_at": "just now"},
+        display_label="Usage forecast",
     )
 
 
-def image_card() -> dict[str, Any]:
+def upcoming_activity() -> dict[str, Any]:
     return native(
-        "core/image",
-        {
-            "src": "https://images.unsplash.com/photo-1502481851512-e9e2529bfbf9?w=640",
-            "alt": "Coastal cliffs at sunset",
-            "caption": "Generated: coastal cliffs at sunset",
-        },
+        "core/upcoming_activity_native",
+        {"updated_at": "just now"},
+        display_label="Upcoming activity",
     )
 
 
@@ -101,37 +91,79 @@ def standing_order_poll() -> dict[str, Any]:
     return native(
         "core/standing_order_native",
         {
-            "title": "Watch package tracking",
-            "status": "active",
+            "goal": "Watch package tracking",
+            "status": "running",
             "strategy": "poll_url",
-            "last_checked_at": "3 min ago",
-            "next_check_at": "in 12 min",
-            "messages": [
+            "strategy_args": {"url": "https://example.com/track", "interval_seconds": 900},
+            "strategy_state": {"last_status": "In transit"},
+            "interval_seconds": 900,
+            "iterations": 3,
+            "max_iterations": 96,
+            "completion": {},
+            "log": [
                 {"at": "08:14", "text": "Created — watching for delivery status"},
                 {"at": "09:26", "text": "Status: In transit (Portland, OR)"},
                 {"at": "10:41", "text": "Status: Out for delivery"},
             ],
+            "message_on_complete": "Package delivered",
+            "owning_bot_id": "",
+            "owning_channel_id": "",
+            "next_tick_at": "in 12 min",
+            "last_tick_at": "3 min ago",
+            "terminal_reason": None,
+            "updated_at": "just now",
         },
+        display_label="Standing order",
     )
+
+
+def channel_files() -> dict[str, Any]:
+    return native(
+        "core/channel_files_native",
+        {"updated_at": "just now"},
+        display_label="Channel files",
+    )
+
+
+def context_tracker() -> dict[str, Any]:
+    return native(
+        "core/context_tracker",
+        {"updated_at": "just now"},
+        display_label="Context",
+    )
+
+
+def machine_control() -> dict[str, Any]:
+    return native(
+        "core/machine_control_native",
+        {"updated_at": "just now"},
+        display_label="Machine control",
+    )
+
+
+# Back-compat shims for the test + flagship code still calling old names.
+def weather_sunny() -> dict[str, Any]:
+    return upcoming_activity()
+
+
+def frigate_cameras() -> dict[str, Any]:
+    return channel_files()
+
+
+def web_search_panel() -> dict[str, Any]:
+    return usage_forecast()
+
+
+def image_card() -> dict[str, Any]:
+    return notes()
 
 
 def excalidraw_diagram() -> dict[str, Any]:
-    return native(
-        "core/image",
-        {
-            "src": "/api/v1/widget-demo/excalidraw-sample.svg",
-            "alt": "System architecture diagram",
-            "caption": "Excalidraw: ingestion pipeline",
-        },
-    )
+    return todos()
 
 
 def html_hero_envelope(bundle_url: str) -> dict[str, Any]:
-    """Bot-authored interactive HTML widget envelope.
-
-    The actual HTML is served by the emitting bot's widget bundle. Bundle URL
-    lives in ``widget_ref`` for the library-indexed path.
-    """
+    """Bot-authored interactive HTML widget envelope (used only by hero)."""
     return {
         "content_type": "application/vnd.spindrel.html+interactive",
         "widget_ref": bundle_url,

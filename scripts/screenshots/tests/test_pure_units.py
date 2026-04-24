@@ -23,18 +23,20 @@ from scripts.screenshots.stage import envelopes
 
 def test_native_content_type_on_every_helper():
     helpers = [
-        envelopes.weather_sunny,
-        envelopes.frigate_cameras,
-        envelopes.web_search_panel,
-        envelopes.image_card,
+        envelopes.notes,
+        envelopes.todos,
+        envelopes.usage_forecast,
+        envelopes.upcoming_activity,
         envelopes.standing_order_poll,
-        envelopes.excalidraw_diagram,
+        envelopes.machine_control,
+        envelopes.context_tracker,
     ]
     for fn in helpers:
         env = fn()
         assert env["content_type"] == envelopes.NATIVE_CT, f"{fn.__name__} drifted"
-        assert env["widget_ref"].startswith("core/"), f"{fn.__name__} widget_ref"
-        assert isinstance(env["state"], dict), f"{fn.__name__} state"
+        body = env["body"]
+        assert body["widget_ref"].startswith("core/"), f"{fn.__name__} widget_ref"
+        assert isinstance(body["state"], dict), f"{fn.__name__} state"
 
 
 def test_html_hero_envelope_marks_interactive_html():
@@ -54,7 +56,7 @@ def test_resolve_specs_substitutes_placeholders():
     names_to_routes = {s.name: s.route for s in resolved}
     assert names_to_routes["chat-main"] == "/channels/abc-chat"
     assert names_to_routes["widget-dashboard"] == "/widgets/channel/abc-dash"
-    assert names_to_routes["chat-pipeline-live"] == "/channels/abc-pipe?run=task-xyz"
+    assert names_to_routes["chat-pipeline-live"] == "/channels/abc-pipe/runs/task-xyz"
 
 
 def test_resolve_specs_raises_on_missing_placeholder():
@@ -70,9 +72,10 @@ def test_resolve_specs_preserves_wait_strategy():
         "pipeline_live": "t",
     }
     resolved = {s.name: s for s in resolve_specs(FLAGSHIP_SPECS, staged)}
-    assert resolved["home"].wait_kind == "selector"
+    assert resolved["home"].wait_kind == "function"
+    assert 'channel-row' in str(resolved["home"].wait_arg)
     assert resolved["widget-dashboard"].wait_kind == "function"
-    assert resolved["chat-pipeline-live"].wait_arg == '[data-status="running"]'
+    assert resolved["chat-pipeline-live"].wait_kind == "function"
 
 
 def test_config_rejects_production_looking_url(tmp_path):

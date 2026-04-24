@@ -218,6 +218,7 @@ export function SessionPickerOverlay({
           {!isLoading && !catalogLoading && !error && !catalogError && entries.map((entry, index) => {
             const active = index === activeIndex;
             const scratch = entry.kind === "scratch" ? entry : null;
+            const splitEligible = allowSplit && (entry.kind === "scratch" || entry.kind === "channel");
             const editing = scratch && editingId === scratch.id;
             return (
               <div
@@ -283,13 +284,13 @@ export function SessionPickerOverlay({
                             Current
                           </span>
                         )}
-                        {scratch && allowSplit && (
+                        {splitEligible && (
                           <button
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
                               onClose();
-                              onActivateSurface(scratch.surface, "split");
+                              onActivateSurface(entry.surface, "split");
                             }}
                             className="inline-flex h-7 items-center gap-1 rounded-md border border-surface-border px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
                             title="Open this session as a split panel"

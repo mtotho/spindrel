@@ -104,6 +104,78 @@ class TestChat202:
         assert body.get("queued") is True
         assert "task_id" in body
 
+    async def test_secondary_channel_session_requires_web_only_delivery(self, client, db_session):
+        from app.db.models import Channel, Session
+
+        channel_id = uuid.uuid4()
+        primary = Session(
+            id=uuid.uuid4(), client_id="web", bot_id="test-bot",
+            channel_id=channel_id, session_type="channel",
+        )
+        secondary = Session(
+            id=uuid.uuid4(), client_id="web", bot_id="test-bot",
+            channel_id=channel_id, session_type="channel",
+        )
+        channel = Channel(
+            id=channel_id, client_id="web", bot_id="test-bot",
+            name="session split", active_session_id=primary.id,
+        )
+        db_session.add_all([channel, primary, secondary])
+        await db_session.flush()
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "secondary visible only in web",
+                "bot_id": "test-bot",
+                "channel_id": str(channel_id),
+                "session_id": str(secondary.id),
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 409
+        assert self._mock.await_count == 0
+
+    async def test_secondary_channel_session_can_send_web_only(self, client, db_session):
+        from app.db.models import Channel, Session
+
+        channel_id = uuid.uuid4()
+        primary = Session(
+            id=uuid.uuid4(), client_id="web", bot_id="test-bot",
+            channel_id=channel_id, session_type="channel",
+        )
+        secondary = Session(
+            id=uuid.uuid4(), client_id="web", bot_id="test-bot",
+            channel_id=channel_id, session_type="channel",
+        )
+        channel = Channel(
+            id=channel_id, client_id="web", bot_id="test-bot",
+            name="session split", active_session_id=primary.id,
+        )
+        db_session.add_all([channel, primary, secondary])
+        await db_session.flush()
+
+        resp = await client.post(
+            "/chat",
+            json={
+                "message": "secondary visible only in web",
+                "bot_id": "test-bot",
+                "channel_id": str(channel_id),
+                "session_id": str(secondary.id),
+                "external_delivery": "none",
+            },
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 202, resp.text
+        assert resp.json().get("session_scoped") is True
+        assert self._mock.await_count == 1
+        kwargs = self._mock.await_args.kwargs
+        assert kwargs["session_id"] == secondary.id
+        assert kwargs["channel_id"] == channel_id
+        assert kwargs["session_scoped"] is True
+
 
 # ---------------------------------------------------------------------------
 # Sub-session follow-up (Phase A of Track - Task Sub-Sessions continuation)

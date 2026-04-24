@@ -521,6 +521,18 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Demoted former-primary sessions become scratch rows owned by the acting user (`parent_channel_id=<channel>`, `owner_user_id=<user>`, `is_current=True`); the promoted session clears scratch ownership fields and becomes the normal channel primary.
 - Reply threads stay out of this product flow. They remain separate thread sub-sessions and do not participate in scratch naming/promotion UX.
 
+### Secondary channel-session panels are web-only unless made primary
+**Decided 2026-04-24.** Channel split panels can mount historical/non-primary channel sessions as writable chat surfaces, but integration delivery remains attached only to the channel's primary session.
+
+- Web clients targeting an explicit secondary channel session must send `external_delivery: "none"`; the backend rejects mirrored delivery for non-primary channel sessions.
+- Session-scoped secondary turns still publish typed events on the parent channel bus tagged with `session_id`, so the split panel can stream them while the primary channel transcript ignores them.
+- Queued secondary turns carry the same session-scoped execution flag so task-worker persistence suppresses outbox rows after the lock releases.
+- Channel settings should make this explicit: dispatcher bindings mirror only the primary session; split sessions are web-only until promoted/switched primary.
+
+Rationale:
+- This keeps Slack/Discord/iMessage integrations from receiving replies from multiple visible web panels at once.
+- The UI can evolve toward a canvas/split-screen model without inventing a second delivery system or weakening the existing `channel.active_session_id` contract.
+
 ### Native app widgets are a first-party third lane on the unified widget interface
 **Decided 2026-04-21.** The widget product now has three runtime kinds:
 

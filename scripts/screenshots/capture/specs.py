@@ -32,8 +32,16 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         name="home",
         route="/",
         viewport={"width": 1440, "height": 900},
-        wait_kind="selector",
-        wait_arg='[data-testid="channel-row"]:nth-of-type(4)',
+        wait_kind="function",
+        # Primary signal is the data-testid I added to HomeGridTile /
+        # HomeChannelsList. Until the e2e instance rebuilds with those
+        # attributes, fall back to the stable role="gridcell" or the
+        # seeded channel names.
+        wait_arg=(
+            '(document.querySelectorAll(\'[data-testid="channel-row"]\').length >= 4)'
+            ' || (document.querySelectorAll(\'[role="gridcell"]\').length >= 4)'
+            ' || /Evening check-in/.test(document.body.innerText)'
+        ),
         output="home.png",
     ),
     ScreenshotSpec(
@@ -54,10 +62,10 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="chat-pipeline-live",
-        route="/channels/{pipeline}?run={pipeline_live}",
+        route="/channels/{pipeline}/runs/{pipeline_live}",
         viewport={"width": 1440, "height": 900},
-        wait_kind="selector",
-        wait_arg='[data-status="running"]',
+        wait_kind="function",
+        wait_arg='!!document.querySelector(\'header [class*="Workflow"], .lucide-workflow, [aria-label="Close"]\') || /running|pending|complete/.test(document.body.innerText)',
         output="chat-pipeline-live.png",
     ),
     # html-widget-hero reuses the demo dashboard with a focused interactive
@@ -74,35 +82,74 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
     ),
     ScreenshotSpec(
         name="dev-panel-tools",
-        route="/widgets/dev",
+        route="/widgets/dev#tools",
         viewport={"width": 1440, "height": 900},
-        wait_kind="selector",
-        wait_arg='[data-testid="rendered-envelope"], [data-testid="raw-result"]',
+        wait_kind="function",
+        # The sandbox's "Rendered widget" + "Raw result" panes only mount after
+        # a tool run — that requires bot/channel selection + Run click, which
+        # is too complex for this spec. For flagship we settle for the tool
+        # picker + arg form, which is itself a representative shot. Wait for
+        # the search input (confirms the route mounted) and a tool row.
+        wait_arg=(
+            '!!document.querySelector(\'input[placeholder="Search tools\\u2026"]\')'
+            ' && document.querySelectorAll(\'button\').length > 10'
+        ),
         output="dev-panel-tools.png",
     ),
     ScreenshotSpec(
         name="omnipanel-mobile",
         route="/channels/{chat_main}",
         viewport={"width": 375, "height": 812},
-        wait_kind="selector",
-        wait_arg='[data-testid="channel-row"], [data-pin-id]',
-        pre_capture_js="""
-        (async () => {
-          const btn = document.querySelector('[data-testid="mobile-menu"], button[aria-label*="menu" i]');
-          if (btn) btn.click();
-        })()
-        """,
+        wait_kind="function",
+        # Drawer renders via ReactDOM.createPortal with role="dialog" and
+        # aria-label="Channel menu". Wait for that portal to mount.
+        wait_arg='!!document.querySelector(\'[role="dialog"][aria-label="Channel menu"]\')',
         output="omnipanel-mobile.png",
+        # Init script is parameterized at resolve time with the chat_main
+        # channel id so the Zustand ui store hydrates with mobileDrawerOpen=true
+        # and leftTab="widgets" for that channel.
+        extra_init_scripts=[
+            "OMNIPANEL_MOBILE_INIT"  # placeholder — resolved in resolve_specs
+        ],
     ),
     ScreenshotSpec(
         name="admin-bots-list",
         route="/admin/bots",
         viewport={"width": 1440, "height": 900},
-        wait_kind="selector",
-        wait_arg='[data-testid="bot-row"]:nth-of-type(3)',
+        wait_kind="function",
+        # data-testid lands post-rebuild; fall back to the seeded bot names
+        # (Orion/Vega/Lyra) which we know are unique to the screenshot bots.
+        wait_arg=(
+            '(document.querySelectorAll(\'[data-testid="bot-row"]\').length >= 3)'
+            ' || (/Orion/.test(document.body.innerText) && /Vega/.test(document.body.innerText) && /Lyra/.test(document.body.innerText))'
+        ),
         output="admin-bots-list.png",
     ),
 ]
+
+
+def _omnipanel_mobile_init_script(chat_main_id: str) -> str:
+    """Seed localStorage["spindrel-ui"] so the channel mounts with drawer open.
+
+    Written as a single IIFE injected via Playwright's ``add_init_script`` so
+    the Zustand ``persist`` middleware reads our seeded state on first hydrate
+    — no reload dance required.
+    """
+    return (
+        "(() => {\n"
+        "  const KEY = 'spindrel-ui';\n"
+        "  let raw = localStorage.getItem(KEY);\n"
+        "  let obj = raw ? JSON.parse(raw) : { state: {}, version: 0 };\n"
+        "  obj.state = obj.state || {};\n"
+        "  obj.state.channelPanelPrefs = obj.state.channelPanelPrefs || {};\n"
+        f"  obj.state.channelPanelPrefs[{chat_main_id!r}] = Object.assign(\n"
+        f"    obj.state.channelPanelPrefs[{chat_main_id!r}] || {{}},\n"
+        "    { leftTab: 'widgets', mobileDrawerOpen: true, leftOpen: true, rightOpen: true }\n"
+        "  );\n"
+        "  obj.state.omniPanelTab = 'widgets';\n"
+        "  localStorage.setItem(KEY, JSON.stringify(obj));\n"
+        "})();"
+    )
 
 
 def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[ScreenshotSpec]:
@@ -120,6 +167,20 @@ def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[S
                 f"spec {s.name!r} references unstaged placeholder: {e}. "
                 f"Did you run `stage --only flagship` first?"
             ) from None
+
+        # Per-spec init-script placeholder resolution.
+        init_scripts: list[str] = []
+        for js in s.extra_init_scripts:
+            if js == "OMNIPANEL_MOBILE_INIT":
+                chat_main_id = staged.get("chat_main")
+                if not chat_main_id:
+                    raise KeyError(
+                        f"spec {s.name!r} needs chat_main in staged state"
+                    )
+                init_scripts.append(_omnipanel_mobile_init_script(chat_main_id))
+            else:
+                init_scripts.append(js)
+
         out.append(
             ScreenshotSpec(
                 name=s.name,
@@ -130,7 +191,7 @@ def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[S
                 output=s.output,
                 color_scheme=s.color_scheme,
                 pre_capture_js=s.pre_capture_js,
-                extra_init_scripts=s.extra_init_scripts,
+                extra_init_scripts=init_scripts,
                 full_page=s.full_page,
             )
         )

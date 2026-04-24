@@ -77,6 +77,11 @@ async def capture_batch(
                 out_path = output_root / spec.output
                 try:
                     page = await context.new_page()
+                    # Per-spec init scripts run before navigation so any
+                    # localStorage seeding (e.g. mobile drawer state) hydrates
+                    # stores on first mount — no reload dance required.
+                    for js in spec.extra_init_scripts:
+                        await page.add_init_script(js)
                     await page.goto(spec.route, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
                     try:
                         await _wait_for(page, spec)

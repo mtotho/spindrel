@@ -26,6 +26,7 @@ export const HomeGridTile = forwardRef<HTMLAnchorElement, HomeGridTileProps>(
         to={item.href}
         role="gridcell"
         aria-label={item.label}
+        data-testid="channel-row"
         onMouseEnter={onHover}
         onFocus={onHover}
         onClick={onClick}

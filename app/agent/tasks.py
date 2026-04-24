@@ -78,6 +78,7 @@ async def _publish_turn_ended(
     """
     channel_id = getattr(task, "channel_id", None)
     is_pipeline_child = _is_pipeline_child(task)
+    is_session_scoped = bool((getattr(task, "execution_config", None) or {}).get("session_scoped"))
 
     # Sub-session pipeline children: publish on the parent channel's bus so
     # the run-view modal receives the event. Tag the payload with the
@@ -87,6 +88,8 @@ async def _publish_turn_ended(
     sub_session_id: uuid.UUID | None = None
     if is_pipeline_child and channel_id is None:
         channel_id = await _resolve_sub_session_bus_channel(task)
+        sub_session_id = getattr(task, "session_id", None)
+    elif is_session_scoped:
         sub_session_id = getattr(task, "session_id", None)
     # Inline pipeline children keep the old suppression (parent envelope
     # renders step status from step_states, not from a standalone turn).
@@ -883,6 +886,7 @@ async def run_task(task: Task) -> None:
     # pipeline agent-step children — the parent pipeline's envelope
     # shows the step's progress instead.
     _suppress_channel = _is_pipeline_child(task)
+    _session_scoped_task = bool((task.execution_config or {}).get("session_scoped"))
     # For sub-session pipeline children, route TURN_STARTED to the parent
     # channel's bus so the run-view modal sees the event. Inline pipeline
     # children stay suppressed (the parent envelope renders step status
@@ -893,6 +897,8 @@ async def run_task(task: Task) -> None:
     # UI subscribers can filter the event out (otherwise the child's bot
     # would show up as a phantom streaming indicator in the parent channel).
     _publish_session_id: uuid.UUID | None = None
+    if _session_scoped_task:
+        _publish_session_id = getattr(task, "session_id", None)
     if _suppress_channel and task.channel_id is None:
         _publish_channel_id = await _resolve_sub_session_bus_channel(task)
         _suppress_channel = _publish_channel_id is None
@@ -1224,6 +1230,7 @@ async def run_task(task: Task) -> None:
                 msg_metadata=_task_meta,
                 pre_user_msg_id=_pre_user_msg_id,
                 hide_messages=_suppress_channel,
+                suppress_outbox=_session_scoped_task,
             )
 
         # Dispatch result (including any generated images)

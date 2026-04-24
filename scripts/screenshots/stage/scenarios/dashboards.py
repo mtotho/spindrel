@@ -28,12 +28,12 @@ def pin_full_dashboard(
     existing = {p.get("display_label"): p for p in client.list_pins(dashboard_key=dashboard_key)}
 
     specs = [
-        ("Weather",            env.weather_sunny(),      {"x": 0, "y": 0, "w": 4, "h": 3}),
-        ("Cameras",            env.frigate_cameras(),    {"x": 4, "y": 0, "w": 4, "h": 3}),
-        ("Web search",         env.web_search_panel(),   {"x": 8, "y": 0, "w": 4, "h": 3}),
-        ("Image",              env.image_card(),         {"x": 0, "y": 3, "w": 4, "h": 3}),
+        ("Notes",              env.notes(),              {"x": 0, "y": 0, "w": 4, "h": 3}),
+        ("Todos",              env.todos(),              {"x": 4, "y": 0, "w": 4, "h": 3}),
+        ("Usage forecast",     env.usage_forecast(),     {"x": 8, "y": 0, "w": 4, "h": 3}),
+        ("Upcoming activity",  env.upcoming_activity(),  {"x": 0, "y": 3, "w": 4, "h": 3}),
         ("Standing order",     env.standing_order_poll(),{"x": 4, "y": 3, "w": 4, "h": 3}),
-        ("Architecture diagram", env.excalidraw_diagram(),{"x": 8, "y": 3, "w": 4, "h": 3}),
+        ("Machine control",    env.machine_control(),    {"x": 8, "y": 3, "w": 4, "h": 3}),
     ]
 
     ids: list[str] = []
@@ -43,7 +43,7 @@ def pin_full_dashboard(
             continue
         pin = client.create_pin(
             dashboard_key=dashboard_key,
-            tool_name=envelope["widget_ref"].split("/", 1)[-1],
+            tool_name=envelope["body"]["widget_ref"].split("/", 1)[-1],
             envelope=envelope,
             source_kind="channel",
             source_channel_id=channel_id,
@@ -67,8 +67,8 @@ def pin_chat_rail_widgets(
     existing = {p.get("display_label"): p for p in client.list_pins(dashboard_key=dashboard_key)}
 
     specs = [
-        ("Rail weather", env.weather_sunny(),   {"x": 0, "y": 0, "w": 3, "h": 3}),
-        ("Rail cameras", env.frigate_cameras(), {"x": 0, "y": 3, "w": 3, "h": 3}),
+        ("Rail notes", env.notes(), {"x": 0, "y": 0, "w": 3, "h": 3}),
+        ("Rail todos", env.todos(), {"x": 0, "y": 3, "w": 3, "h": 3}),
     ]
     ids: list[str] = []
     for label, envelope, grid in specs:
@@ -77,7 +77,7 @@ def pin_chat_rail_widgets(
             continue
         pin = client.create_pin(
             dashboard_key=dashboard_key,
-            tool_name=envelope["widget_ref"].split("/", 1)[-1],
+            tool_name=envelope["body"]["widget_ref"].split("/", 1)[-1],
             envelope=envelope,
             source_kind="channel",
             source_channel_id=channel_id,

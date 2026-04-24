@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.bots import get_bot, list_bots
 from app.agent.pending import resolve_pending
 from app.config import settings as _settings
-from app.db.models import Bot as BotRow, Message as MessageModel, Task as TaskModel, User
+from app.db.models import Bot as BotRow, Message as MessageModel, Session, Task as TaskModel, User
 from app.dependencies import get_db, require_scopes
 from app.services.bots_visibility import apply_bot_visibility
 from app.services import session_locks
@@ -271,10 +271,13 @@ async def _enqueue_chat_turn(
         channel, session_id, messages, _is_integration = await _resolve_channel_and_session(
             db, req, user=user, preserve_metadata=True,
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Session error: {e}")
 
     channel_id = channel.id
+    session_scoped_delivery = req.external_delivery == "none"
 
     # Multi-bot channel: if user @-tagged a member bot, route to that bot.
     _primary_bot_id = bot.id
@@ -336,6 +339,8 @@ async def _enqueue_chat_turn(
             prompt=message,
             status="pending",
             created_at=datetime.now(timezone.utc),
+            execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
+            if session_scoped_delivery else None,
         )
         db.add(queued_task)
         await db.commit()
@@ -347,6 +352,7 @@ async def _enqueue_chat_turn(
                 "queued": True,
                 "task_id": str(queued_task.id),
                 "reason": "system_paused",
+                "session_scoped": session_scoped_delivery,
             },
             status_code=202,
         )
@@ -423,6 +429,7 @@ async def _enqueue_chat_turn(
             audio_data=audio_data,
             audio_format=audio_format,
             att_payload=att_payload,
+            session_scoped=session_scoped_delivery,
         )
     except SessionBusyError:
         # Session has an in-flight turn — queue this message as a Task so
@@ -435,6 +442,8 @@ async def _enqueue_chat_turn(
             prompt=message,
             status="pending",
             created_at=datetime.now(timezone.utc),
+            execution_config={"session_scoped": True, "external_delivery": req.external_delivery}
+            if session_scoped_delivery else None,
         )
         db.add(queued_task)
         # Persist the user message so the UI's DB refetch sees it
@@ -464,6 +473,7 @@ async def _enqueue_chat_turn(
                 "session_id": str(session_id),
                 "queued": True,
                 "task_id": str(queued_task.id),
+                "session_scoped": session_scoped_delivery,
             },
             status_code=202,
         )
@@ -473,6 +483,7 @@ async def _enqueue_chat_turn(
             "session_id": str(handle.session_id),
             "channel_id": str(handle.channel_id),
             "turn_id": str(handle.turn_id),
+            "session_scoped": session_scoped_delivery,
         },
         status_code=202,
     )
@@ -635,12 +646,24 @@ async def chat_cancel(
     _auth=Depends(require_scopes("chat")),
 ):
     """Cancel an in-progress agent loop and any queued tasks for the session."""
-    from sqlalchemy import select, update
+    from sqlalchemy import update
     from app.services.channels import ensure_active_session, get_or_create_channel
 
-    channel = await get_or_create_channel(db, client_id=req.client_id, bot_id=req.bot_id)
-    session_id = await ensure_active_session(db, channel)
-    await db.commit()
+    if req.session_id is not None:
+        session_id = req.session_id
+        if req.channel_id is not None:
+            session = await db.get(Session, session_id)
+            if session is not None and session.channel_id not in (None, req.channel_id):
+                raise HTTPException(status_code=404, detail="Session does not belong to this channel.")
+    else:
+        channel = await get_or_create_channel(
+            db,
+            channel_id=req.channel_id,
+            client_id=req.client_id,
+            bot_id=req.bot_id,
+        )
+        session_id = await ensure_active_session(db, channel)
+        await db.commit()
 
     cancelled = session_locks.request_cancel(session_id)
 
