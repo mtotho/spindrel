@@ -81,8 +81,9 @@ Current fields include:
 - `show_panel_title`
 - `layout_hints` — authored placement defaults and host-size bounds:
   - `preferred_zone` seeds initial placement when the pin call does not pass an explicit zone
-  - `min_cells` / `max_cells` clamp default tile size and editor resize bounds
-  - these do not forbid moving a widget to another zone
+  - `min_cells` / `max_cells` clamp the seeded default size only while the pin is created in the hinted zone
+  - editor resize bounds come from the current host zone, so moving a chip-family widget to the grid does not trap it at chip size
+  - these do not forbid moving or resizing a widget in another zone
   - they do not replace renderer-native responsiveness, which still depends on measured host size
 
 ### `resolved_host_policy`

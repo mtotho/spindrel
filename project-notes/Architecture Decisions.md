@@ -10,6 +10,19 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Light mode uses neutral surface depth, not extra accent color
+**Decided 2026-04-24.** Light mode should not solve flatness by adding decorative color to individual screens or by introducing a second global accent. Spindrel keeps one primary accent, and light-mode hierarchy comes from a cooler neutral surface ladder plus shared component primitives.
+
+**What changed.**
+- The light `surface` / `surface-overlay` / `surface-border` / muted text / input-border tokens were retuned globally.
+- The legacy `useThemeTokens()` light mirror was updated to match while that hook remains tolerated debt.
+- The component catalog now records that repeated washout should be fixed in shared primitives, not route-level styling.
+
+**Load-bearing invariants.**
+- Dark-mode tokens remain their own baseline and are not retuned as part of light-mode contrast work.
+- Accent color is for focus, active state, and semantic interaction, not ambient page decoration.
+- If many settings/admin rows look flat, tune `SettingsControls` / `FormControls` recipes once before adding local chrome.
+
 ### Skill ID is decoupled from filesystem path via frontmatter `id:` override
 **Decided 2026-04-24.** Skill IDs used to be strictly derived from the filesystem path (`skills/foo/bar.md` → id `foo/bar`), which meant any file rename or folder move CASCADE-deleted `bot_skill_enrollment` and `channel_skill_enrollment` rows via their FKs to `skills.id` and orphaned RAG chunks in `documents` (source `skill:foo/bar`). This coupling blocked organizational passes — every move was a migration event.
 

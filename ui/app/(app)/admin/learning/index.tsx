@@ -7,6 +7,7 @@ import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Section } from "@/src/components/shared/FormControls";
 import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
+import { SourceFileInspector } from "@/src/components/shared/SourceFileInspector";
 import {
   ActionButton,
   EmptyState,
@@ -150,6 +151,18 @@ function DetailPane({ result, onClose }: { result: LearningSearchResult | null; 
       </aside>
     );
   }
+  if (result.source_file) {
+    return (
+      <SourceFileInspector
+        target={result.source_file}
+        title={result.title}
+        subtitle={result.snippet}
+        fallbackUrl={result.open_url}
+        onOpenFallback={(url) => navigate(url)}
+        onClose={onClose}
+      />
+    );
+  }
   return (
     <aside className="flex flex-col gap-3 xl:w-[360px] xl:shrink-0">
       <div className="rounded-md bg-surface-raised/45 px-4 py-3">
@@ -177,7 +190,7 @@ function DetailPane({ result, onClose }: { result: LearningSearchResult | null; 
         </div>
         {result.open_url && (
           <div className="mt-3">
-            <ActionButton label="Open source" size="small" onPress={() => navigate(result.open_url!)} />
+            <ActionButton label="Open location" size="small" onPress={() => navigate(result.open_url!)} />
           </div>
         )}
       </div>
@@ -264,9 +277,30 @@ function SearchWorkbench({
         </div>
       )}
 
+      {searchMutation.isPending && !searchMutation.data && (
+        <div className="flex flex-col gap-2">
+          <SettingsGroupLabel label="Search Results" />
+          <div className="flex flex-col gap-1.5">
+            {[0, 1, 2].map((item) => (
+              <div key={item} className="h-16 rounded-md bg-surface-raised/35" />
+            ))}
+          </div>
+        </div>
+      )}
+
       {searchMutation.data && (
         <div className="flex flex-col gap-2">
-          <SettingsGroupLabel label="Search Results" count={searchMutation.data.results.length} />
+          <div className="flex items-center justify-between gap-3">
+            <SettingsGroupLabel
+              label={searchMutation.isPending ? "Refreshing Results" : "Search Results"}
+              count={searchMutation.data.results.length}
+            />
+            {searchMutation.isPending && (
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-dim">
+                Searching
+              </span>
+            )}
+          </div>
           {searchMutation.data.results.length === 0 ? (
             <EmptyState message="No matching durable context found." />
           ) : (
@@ -355,6 +389,7 @@ function MemoryActivityPreview({
               correlation_id: row.correlation_id,
               metadata: { operation: row.operation, job_type: row.job_type, is_hygiene: row.is_hygiene },
               open_url: row.bot_id ? `/admin/bots/${row.bot_id}#learning` : undefined,
+              source_file: row.source_file,
             };
             return (
               <SettingsControlRow

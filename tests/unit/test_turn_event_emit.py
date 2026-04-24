@@ -138,7 +138,7 @@ class TestEmitRunStreamEvents:
             "subject_type": "skill",
             "label": "Loaded skill",
             "target_id": "widgets",
-            "target_label": "widgets/INDEX.md",
+            "target_label": "widgets",
         }
 
     async def test_when_tool_result_with_error_field_then_is_error_true(self):

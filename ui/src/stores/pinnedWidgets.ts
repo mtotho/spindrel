@@ -24,7 +24,11 @@ import { buildWidgetSyncSignature } from "../lib/widgetEnvelopeSync";
  * WidgetCards, OmniPanel rail widgets, and dashboard tiles can all subscribe
  * to the same state.
  */
-export function envelopeIdentityKey(toolName: string, envelope: ToolResultEnvelope): string {
+export function envelopeIdentityKey(
+  toolName: string,
+  envelope: ToolResultEnvelope,
+  widgetConfig?: Record<string, unknown> | null,
+): string {
   const prefix = toolName.includes("-") ? toolName.split("-")[0] : toolName;
   // HTML widgets loaded from a workspace file have an empty `body`; their
   // identity is the path within the channel's workspace. Without this, two
@@ -34,11 +38,21 @@ export function envelopeIdentityKey(toolName: string, envelope: ToolResultEnvelo
     const ch = envelope.source_channel_id ?? "";
     return `${prefix}::path:${ch}:${envelope.source_path}`;
   }
+  const bindingKey = extractConfigBinding(widgetConfig);
+  if (bindingKey) return `${prefix}::${bindingKey}`;
   const entities = extractEntities(envelope.body);
   if (entities.size > 0) return `${prefix}::${[...entities].sort().join("|")}`;
   if (envelope.display_label) return `${prefix}::${envelope.display_label.toLowerCase()}`;
   if (envelope.record_id) return `${prefix}::rec:${envelope.record_id}`;
   return `${prefix}::${toolName}::${envelope.record_id ?? "anon"}`;
+}
+
+function extractConfigBinding(widgetConfig?: Record<string, unknown> | null): string | null {
+  const entityId = widgetConfig?.entity_id;
+  if (typeof entityId === "string" && entityId.trim()) {
+    return `entity:${entityId.trim().toLowerCase()}`;
+  }
+  return null;
 }
 
 interface PinnedWidgetsState {
@@ -128,7 +142,7 @@ export const usePinnedWidgetsStore = create<PinnedWidgetsState>()(
         set((s) => ({ widgetsSectionCollapsed: !s.widgetsSectionCollapsed })),
 
       broadcastEnvelope: (channelId, toolName, envelope, opts) => {
-        const key = `${channelId}::${envelopeIdentityKey(toolName, envelope)}`;
+        const key = `${channelId}::${envelopeIdentityKey(toolName, envelope, opts?.widgetConfig)}`;
         const update: SharedEnvelopeUpdate = {
           kind: opts?.kind ?? "tool_result",
           sourceToolName: toolName,

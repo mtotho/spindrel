@@ -22,7 +22,7 @@ def test_get_skill_presentation_is_transcript_read_skill():
         "subject_type": "skill",
         "label": "Loaded skill",
         "target_id": "widgets",
-        "target_label": "widgets/INDEX.md",
+        "target_label": "Widgets",
         "preview_text": "# Widgets",
     }
 
@@ -49,9 +49,39 @@ def test_get_skill_presentation_shows_already_loaded_result():
         "subject_type": "skill",
         "label": "Skill already loaded",
         "target_id": "widgets",
-        "target_label": "widgets/INDEX.md",
+        "target_label": "Widgets",
         "preview_text": "Skill already resident in context.",
     }
+
+
+def test_get_skill_presentation_extracts_name_from_raw_markdown_body():
+    # Auto-injected synthetic get_skill() calls pass the skill body as raw
+    # markdown (not JSON). Loader convention is ``# Name\n\nbody``, so the
+    # presentation layer recovers the display name from the first heading.
+    surface, summary = derive_tool_presentation(
+        tool_name="get_skill",
+        arguments={"skill_id": "workspace_files"},
+        result="# Workspace Files\n\nGuide for using the file tool...",
+        envelope=None,
+    )
+
+    assert surface == "transcript"
+    assert summary["subject_type"] == "skill"
+    assert summary["target_id"] == "workspace_files"
+    assert summary["target_label"] == "Workspace Files"
+
+
+def test_get_skill_presentation_falls_back_to_id_when_no_name_anywhere():
+    surface, summary = derive_tool_presentation(
+        tool_name="get_skill",
+        arguments={"skill_id": "workspace_files"},
+        result="plain body with no leading heading",
+        envelope=None,
+    )
+
+    assert surface == "transcript"
+    assert summary["target_id"] == "workspace_files"
+    assert summary["target_label"] == "workspace_files"
 
 
 def test_file_edit_presentation_uses_diff_summary():

@@ -62,13 +62,21 @@ def _normalize_label(label: str | None) -> str | None:
     return clean.replace("−", "-")
 
 
-def _format_skill_ref(skill_id: str) -> str:
-    clean = skill_id.strip()
-    if not clean:
-        return "skill"
-    if "/" in clean:
-        return f"{clean}.md"
-    return f"{clean}/INDEX.md"
+def _skill_name_from_markdown_body(result: str | None) -> str | None:
+    """Extract the skill name from a raw markdown tool result starting with ``# Name``.
+
+    Auto-injected synthetic get_skill results pass raw markdown (not JSON) —
+    the body always starts with ``# <Name>`` by convention. This recovers the
+    display name so the transcript shows ``Loaded skill (Workspace Files)``
+    instead of ``Loaded skill (workspace_files)`` in that path too.
+    """
+    if not isinstance(result, str):
+        return None
+    first = _first_meaningful_line(result)
+    if not first or not first.startswith("# "):
+        return None
+    candidate = first[2:].strip()
+    return candidate or None
 
 
 def _first_nonempty(*values: Any) -> str | None:
@@ -265,7 +273,10 @@ def derive_tool_presentation(
             args.get("skill_id"),
             args.get("skill_name"),
             result_json.get("id") if isinstance(result_json, dict) else None,
+        )
+        skill_name = _first_nonempty(
             result_json.get("name") if isinstance(result_json, dict) else None,
+            _skill_name_from_markdown_body(result),
         )
         already_loaded = bool(result_json.get("already_loaded")) if isinstance(result_json, dict) else False
         summary: ToolSummary = {
@@ -275,7 +286,10 @@ def derive_tool_presentation(
         }
         if skill_id:
             summary["target_id"] = skill_id
-            summary["target_label"] = _format_skill_ref(skill_id)
+        if skill_name:
+            summary["target_label"] = skill_name
+        elif skill_id:
+            summary["target_label"] = skill_id
         preview_text = _normalize_label(
             result_json.get("message") if already_loaded and isinstance(result_json, dict) else None,
         ) or _preview_text(envelope=envelope, result=result)

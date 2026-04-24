@@ -117,6 +117,7 @@ def _seed_layout_from_hints(
     layout_hints: object,
     channel: bool = False,
     preset_name: str = _DASHBOARD_PRESET_DEFAULT,
+    apply_size_hints: bool = True,
 ) -> dict[str, int]:
     preferred_zone = (
         layout_hints.get("preferred_zone").strip()
@@ -129,7 +130,11 @@ def _seed_layout_from_hints(
         base = dict(_HEADER_CHIP_LAYOUT)
     else:
         base = _default_layout_for_zone(position, resolved_zone, channel=channel)
-    clamped = clamp_layout_size_to_hints(base, layout_hints=layout_hints)
+    clamped = (
+        clamp_layout_size_to_hints(base, layout_hints=layout_hints)
+        if apply_size_hints
+        else base
+    )
     return _normalize_coords_for_zone(clamped, resolved_zone, preset_name=preset_name)
 
 
@@ -452,7 +457,8 @@ async def create_pin(
         if isinstance(widget_presentation, dict)
         else None
     )
-    resolved_zone = zone or resolve_zone_from_layout_hints(layout_hints) or "grid"
+    hinted_zone = resolve_zone_from_layout_hints(layout_hints)
+    resolved_zone = zone or hinted_zone or "grid"
     if resolved_zone not in VALID_ZONES:
         raise ValidationError(f"Invalid zone: {resolved_zone}")
     pin = WidgetDashboardPin(
@@ -485,6 +491,7 @@ async def create_pin(
                 layout_hints=layout_hints,
                 channel=is_channel,
                 preset_name=preset_name,
+                apply_size_hints=zone is None or zone == hinted_zone,
             )
         ),
         zone=resolved_zone,

@@ -109,7 +109,7 @@ test("skill load results preserve useful preview text", () => {
                     subject_type: "skill",
                     label: "Loaded skill",
                     target_id: "workspace_files",
-                    target_label: "workspace_files/INDEX.md",
+                    target_label: "Workspace Files",
                     preview_text: "# Workspace Files",
                 },
                 envelope: {
@@ -127,7 +127,7 @@ test("skill load results preserve useful preview text", () => {
     assert.equal(items[0]?.kind, "transcript");
     if (items[0]?.kind !== "transcript")
         throw new Error("expected transcript item");
-    assert.equal(items[0].entries[0]?.metaLabel, "(workspace_files/INDEX.md)");
+    assert.equal(items[0].entries[0]?.metaLabel, "(Workspace Files)");
     assert.equal(items[0].entries[0]?.previewText, "# Workspace Files");
     assert.equal(items[0].entries[0]?.detailKind, "expandable");
 });
@@ -350,7 +350,7 @@ test("persisted tool results resolve by tool_call_id before index position", () 
                     subject_type: "skill",
                     label: "Loaded skill",
                     target_id: "workspace_files",
-                    target_label: "workspace_files/INDEX.md",
+                    target_label: "Workspace Files",
                 },
             },
             {

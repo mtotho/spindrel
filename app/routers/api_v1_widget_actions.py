@@ -155,7 +155,7 @@ async def dispatch_widget_action(req: WidgetActionRequest, db: AsyncSession = De
     """Dispatch a widget action — tool call or API proxy."""
 
     if req.dispatch == "tool":
-        return await _dispatch_tool(req)
+        return await _dispatch_tool(req, db)
     elif req.dispatch == "api":
         return await _dispatch_api(req)
     elif req.dispatch == "widget_config":
@@ -213,7 +213,7 @@ async def widget_event_stream_endpoint(
     )
 
 
-async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
+async def _dispatch_tool(req: WidgetActionRequest, db: AsyncSession) -> WidgetActionResponse:
     """Call a tool and return its envelope."""
     if not req.tool:
         return WidgetActionResponse(ok=False, error="Missing 'tool' field for tool dispatch")
@@ -283,10 +283,67 @@ async def _dispatch_tool(req: WidgetActionRequest) -> WidgetActionResponse:
         name, resolved_name, args_str, req.channel_id, result or "",
     )
 
-    # If the tool has a state_poll, the state on the external system just
-    # changed. Invalidate the cached poll result so subsequent refreshes hit
-    # the real service, and try to fetch fresh polled state now — the polled
-    # envelope is authoritative, the action envelope often is not.
+    # Dashboard pins render the enclosing widget, not the action tool. After
+    # a mutation, refresh and persist the pin's own state_poll so the UI does
+    # not briefly swap to a stateless action envelope.
+    if req.dashboard_pin_id is not None:
+        from app.services.dashboard_pins import get_pin, update_pin_envelope
+
+        try:
+            pin = await get_pin(db, req.dashboard_pin_id)
+        except Exception:
+            logger.warning(
+                "Widget action pin lookup failed: pin=%s",
+                req.dashboard_pin_id,
+                exc_info=True,
+            )
+        else:
+            pin_tool_name = _resolve_tool_name(pin.tool_name)
+            pin_poll_cfg = get_state_poll_config(pin_tool_name)
+            if pin_poll_cfg:
+                invalidate_poll_cache_for(pin_poll_cfg)
+                settle_ms = int(pin_poll_cfg.get("post_action_settle_ms", 500))
+                if settle_ms > 0:
+                    await asyncio.sleep(settle_ms / 1000.0)
+                pin_channel_id = pin.source_channel_id or req.channel_id
+                pin_config = pin.widget_config or req.widget_config
+                polled = await _do_state_poll(
+                    tool_name=pin_tool_name,
+                    display_label=(
+                        req.display_label
+                        or pin.display_label
+                        or (pin.envelope or {}).get("display_label")
+                        or ""
+                    ),
+                    poll_cfg=pin_poll_cfg,
+                    widget_config=pin_config,
+                    bot_id=pin.source_bot_id or req.bot_id,
+                    channel_id=pin_channel_id,
+                )
+                if polled is not None:
+                    env_dict = polled.compact_dict()
+                    if pin.source_bot_id is not None:
+                        env_dict["source_bot_id"] = pin.source_bot_id
+                    else:
+                        env_dict.pop("source_bot_id", None)
+                    if pin_channel_id is not None:
+                        env_dict["source_channel_id"] = str(pin_channel_id)
+                    else:
+                        env_dict.pop("source_channel_id", None)
+                    try:
+                        await update_pin_envelope(db, pin.id, env_dict)
+                    except Exception:
+                        logger.warning(
+                            "Dashboard pin envelope write-back failed after action: pin=%s",
+                            pin.id,
+                            exc_info=True,
+                        )
+                    return WidgetActionResponse(ok=True, envelope=env_dict)
+                return WidgetActionResponse(ok=True, envelope=None)
+
+    # If the action tool itself has a state_poll, invalidate and try to fetch
+    # fresh state now. This is the legacy inline-widget path; dashboard pins
+    # are handled above using the enclosing pin's tool/config instead.
     poll_cfg = get_state_poll_config(resolved_name)
     if poll_cfg:
         invalidate_poll_cache_for(poll_cfg)

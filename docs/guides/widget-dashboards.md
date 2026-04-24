@@ -90,9 +90,9 @@ Under the hood the grid is `react-grid-layout` — drag to move, corner-handle t
 **Authored layout defaults:**
 
 - `widget_presentation.layout_hints.preferred_zone` seeds the initial zone when a pin is created without an explicit placement.
-- `min_cells` / `max_cells` clamp the initial tile size and later resize bounds in the dashboard editors.
-- These are defaults, not locks: users can still drag any widget into another zone. The host then constrains the tile by that zone's own invariants.
-- Native/component responsiveness still comes from measured host geometry; `layout_hints` tells the host how large the tile should start and how far it may be stretched.
+- `min_cells` / `max_cells` clamp the seeded default size only when the pin is created in the hinted zone.
+- These are defaults, not locks: users can still drag any widget into another zone. The editor then uses that zone's resize bounds, so a chip moved to the main grid can grow like a grid tile.
+- Native/component responsiveness still comes from measured host geometry; `layout_hints` tells the host how large the tile should start, not how the tile must be stretched forever.
 
 **Grid presets:**
 

@@ -208,8 +208,8 @@ export function PinnedToolWidget({
   // currentEnvelope change, an incoming broadcast (e.g., chat message) and
   // our own state_poll output could drift to different keys and miss updates.
   const identity = useMemo(
-    () => envelopeIdentityKey(widget.tool_name, widget.envelope),
-    [widget.tool_name, widget.envelope],
+    () => envelopeIdentityKey(widget.tool_name, widget.envelope, widgetConfig),
+    [widget.tool_name, widget.envelope, widgetConfig],
   );
   const channelEnvelopeKey = useMemo(
     () => (channelId ? `${channelId}::${identity}` : null),

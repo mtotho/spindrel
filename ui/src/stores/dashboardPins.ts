@@ -17,8 +17,12 @@ interface LayoutUpdateItem extends GridLayoutItem {
 }
 
 /** Matching key for a dashboard pin — `${prefix}::${identity}`. */
-function dashboardEnvelopeKey(toolName: string, envelope: ToolResultEnvelope): string {
-  return envelopeIdentityKey(toolName, envelope);
+function dashboardEnvelopeKey(
+  toolName: string,
+  envelope: ToolResultEnvelope,
+  widgetConfig?: Record<string, unknown> | null,
+): string {
+  return envelopeIdentityKey(toolName, envelope, widgetConfig);
 }
 
 interface DashboardPinsState {
@@ -403,7 +407,7 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
   },
 
   broadcastEnvelope: (toolName, envelope, opts) => {
-    const key = dashboardEnvelopeKey(toolName, envelope);
+    const key = dashboardEnvelopeKey(toolName, envelope, opts?.widgetConfig);
     const update: SharedEnvelopeUpdate = {
       kind: opts?.kind ?? "tool_result",
       sourceToolName: toolName,
@@ -413,7 +417,7 @@ export const useDashboardPinsStore = create<DashboardPinsState>()((set, get) => 
     set((s) => ({
       widgetEnvelopes: { ...s.widgetEnvelopes, [key]: update },
       pins: s.pins.map((p) => {
-        if (dashboardEnvelopeKey(p.tool_name, p.envelope) !== key) return p;
+        if (dashboardEnvelopeKey(p.tool_name, p.envelope, p.widget_config ?? null) !== key) return p;
         return { ...p, envelope };
       }),
     }));

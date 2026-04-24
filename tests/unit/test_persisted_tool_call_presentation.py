@@ -113,7 +113,7 @@ async def test_persist_turn_normalizes_assistant_tool_calls_with_surface_and_sum
                 "subject_type": "skill",
                 "label": "Loaded skill",
                 "target_id": "widgets",
-                "target_label": "widgets/INDEX.md",
+                "target_label": "Widgets",
             },
         },
         {

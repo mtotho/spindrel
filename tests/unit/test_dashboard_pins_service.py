@@ -143,7 +143,7 @@ async def test_create_pin_explicit_zone_beats_layout_hint_zone(db_session):
         zone="grid",
     )
     assert pin.zone == "grid"
-    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 2}
+    assert pin.grid_layout == {"x": 0, "y": 0, "w": 6, "h": 10}
 
 
 @pytest.mark.asyncio

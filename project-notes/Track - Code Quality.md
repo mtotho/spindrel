@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (context replay sizing guard fixed — tool-call args now pruned/accounted)
+updated: 2026-04-24 (Cluster 6b shipped — run_agent_tool_loop now 591 LOC, -36% from 929)
 ---
 # Track — Code Quality & Refactoring
 
@@ -309,7 +309,7 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 | File | Function | Lines | Concern count |
 |------|----------|-------|---------------|
 | context_assembly.py | `assemble_context()` | ~~1400~~ **~990** | ~20 pipeline stages (5 extracted so far) |
-| loop.py | `run_agent_tool_loop()` | ~~960~~ **~1030** (file: ~~**1684**~~ **1358**) | LLM call, streaming, tool dispatch, approval, cycle detection, etc. Dispatch/helpers split shipped; remaining iteration / retry / post-loop seams still inline |
+| loop.py | `run_agent_tool_loop()` | ~~960~~ ~~1030~~ ~~809~~ **591** (file: ~~**1684**~~ ~~1358~~ **1136**) | Clusters 6a+6b shipped. 929 → 591 LOC (-36%). Remaining 591 LOC is cohesive per-iteration orchestration (cancellation checks, LLM streaming, dispatch, image injection, skill-nudge, cycle detection) — further reduction needs cross-iteration state objects, not more extractions. |
 | file_sync.py | `sync_all_files()` | ~518 | 5 resource types × collect-upsert-orphan-delete |
 | tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
 | tool_dispatch.py | `dispatch_tool_call()` | ~385 | auth, policy, approval, routing, recording, redaction, summarization |
@@ -535,7 +535,7 @@ Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clu
 **Out of scope (parked for future clusters):**
 - **Cluster 5 — tool_dispatch deepening — ✅ shipped 2026-04-24.** See RFC below.
 - **Cluster 6a — `run_agent_tool_loop` setup/recovery helpers — ✅ shipped 2026-04-24.** Five extractions (`_resolve_loop_config`, `_resolve_loop_tools`, `_inject_opening_skill_nudges`, `_merge_activated_tools_into_param`, `_recover_tool_calls_from_text`) into `loop_helpers.py`. 929 → 809 LOC on the orchestrator (~13%). Same-file size net-zero (helpers moved from one file to its sibling). Behavior-preserving: 87 pass / 12 fail matches baseline exactly. Dependency-injection pattern on schema-fetch callables preserves test-time patchability on `app.agent.loop.*`. See RFC below.
-- **Cluster 6b — `run_agent_tool_loop` fat-block extractions.** `_check_prompt_budget_guard` (~55 LOC — context-window + TPM gate returning a `PromptBudgetGate`), `_handle_no_tool_calls_path` (~115 LOC async generator — empty-response retry + finalize), `_handle_loop_exit_forced_response` (~130 LOC async generator — cycle/max-iter forced LLM call + finalize). Queued because (a) all three are async-generator extractions requiring careful behavior-preservation verification, (b) the H14 error-path signals termination to the caller via a mutable `out_state` dict (new contract), (c) best done fresh when the test harness runs fast. Expected final reduction: 929 → ~430 LOC (~54%, on par with Cluster 5).
+- **Cluster 6b — `run_agent_tool_loop` fat-block extractions — ✅ shipped 2026-04-24.** Three extractions into `loop_helpers.py`: `_check_prompt_budget_guard` (sync, returns `PromptBudgetGate(events, should_return, wait_seconds)` dataclass — context-window hard block + TPM rate-limit wait), `_handle_no_tool_calls_path` (async generator — empty-response retry + `_finalize_response`), `_handle_loop_exit_forced_response` (async generator with mutable `out_state` dict — cycle/max-iter forced LLM call + `_finalize_response`, signals `out_state["terminated"]=True` on LLM failure so caller skips tool-enrollment flush and exits the outer generator, preserving the original `return` semantics). 809 → 591 LOC on the orchestrator (-218 LOC, 27%). Combined Cluster 6a+6b: 929 → 591 LOC (-36%). Behavior-preserving: 87 pass / 12 fail matches baseline exactly; neighbor sweep 63 passed + 4 pre-existing fails unchanged. `_llm_call` injected as `llm_call_fn` kwarg (Cluster 5/6a DI pattern) so test patches on `app.agent.loop._llm_call` still intercept. See RFC below.
 - **Cluster 7 — `assemble_context` (1500 LOC) in `context_assembly.py`.** Highest remaining payoff, highest effort.
 - **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — touches cross-module pin semantics; deserves its own focused cluster.
 - **Terminal chat mode as CSS archetype** — currently a render-code fork (`chatMode` prop); works. Punt until a third archetype appears.
@@ -598,7 +598,65 @@ Post-refactor, the pre-iteration setup reads as `_loop_config = _resolve_loop_co
 - No test changes. The pre-existing 12 baseline failures are Test Quality track items, not Cluster 6a's scope.
 - No behavioural deltas: opening-nudge firing order, ContextVar seed timing (`current_activated_tools.set(activated_list)` still happens before the `logger.debug("Tools available...")` line), `logger.info` payload shape for activated-tool merges, tool-call recovery precedence (JSON before XML) are all byte-identical.
 
-**Out of scope (parked as Cluster 6b):**
+**Out of scope (parked as Cluster 6b — shipped 2026-04-24, see RFC below):**
 - `_check_prompt_budget_guard` (~55 LOC) — combined context-window exceeded + TPM rate-limit gate. The helper would return a `PromptBudgetGate(events, should_return, wait_seconds)` dataclass so the caller can sequentially yield events, check the return flag, then optionally `await asyncio.sleep(wait_seconds)`. Mutates `messages` to append the error-assistant turn on window exceeded.
 - `_handle_no_tool_calls_path` (~115 LOC) — async-generator extraction of the terminal no-tool-calls branch, including the forced-response retry path, secret redaction, `_synthesize_empty_response_fallback`, and `_finalize_response` delegation. Caller pattern: `async for _evt in _handle_no_tool_calls_path(...): yield _evt; return`.
 - `_handle_loop_exit_forced_response` (~130 LOC) — async-generator extraction of the post-loop cycle/max-iterations forced-response branch. Needs a mutable `out_state: dict` parameter to signal "LLM errored during forced response, skip tool-enrollment flush" because the original code `return`s from `run_agent_tool_loop` entirely on that error — a contract that must be preserved.
+
+### RFC — Cluster 6b — run_agent_tool_loop fat-block extractions (2026-04-24)
+
+**Target**: The three Cluster 6a deferrals inside `run_agent_tool_loop` — pre-LLM budget gate (~63 LOC), terminal no-tool-calls branch (~111 LOC), post-loop forced-response branch (~125 LOC).
+
+**Diagnosis**: Cluster 6a reached a clean seam after setup/recovery extraction but stopped at the three regions where extracting required async-generator helpers and (for the H14 error-path) a new termination contract. Each of the three blocks mixed LLM orchestration, event emission, `messages` mutation, trace recording, and in one case an error-path `return` that bypasses the post-loop tool-enrollment flush.
+
+**Refactor** (one commit, behaviour-identical):
+
+1. **`_check_prompt_budget_guard` → `PromptBudgetGate` sync helper**. Sync returns `PromptBudgetGate(events: list[dict], should_return: bool, wait_seconds: int)`. Events are already `_event_with_compaction_tag`-wrapped so the caller can `for _evt in gate.events: yield _evt` without re-wrapping. Context-window overage appends the refusal assistant turn to `messages` and fires the `ContextWindowExceeded` trace event *inside the helper* (mutation), then flags `should_return=True`. TPM wait sets `wait_seconds` > 0 and caller does `await asyncio.sleep(_gate.wait_seconds)`. Caller-side shape: 4 lines (loop-yield events → return-on-flag → sleep). The compound state flag (`should_return` + `wait_seconds`) was picked over an async-generator because the sole await in the block is the final `asyncio.sleep`, and the caller *has* to be the awaiter so the outer generator stays cooperative with cancellation.
+
+2. **`_handle_no_tool_calls_path` → async generator**. Takes everything the no-tool-calls branch touched (22 kwargs including `accumulated_msg`, `messages`, buffers, bot/session context, `tools_param`, `fallback_models`, and most critically `llm_call_fn=_llm_call`). Yields `warning` / `error` / `response` events, delegates to `_finalize_response` and re-yields its returned events. Caller pattern is the planned `async for _evt in _handle_no_tool_calls_path(...): yield _evt; return`.
+
+3. **`_handle_loop_exit_forced_response` → async generator + `out_state` termination signal**. Same kwarg pattern plus `out_state: dict` and `llm_call_fn`. On the LLM error branch, after yielding the error + response events, sets `out_state["terminated"] = True` and `return`s from the helper (only exits the inner generator). Caller checks `if _forced_out_state.get("terminated"): return` before the tool-enrollment flush at the end of the outer `try:` block. The `out_state` dict is the minimum-surface signal for "LLM errored during forced response" — a dataclass would have been clearer for a multi-flag contract, but the one-bit termination flag doesn't pay the abstraction cost.
+
+Post-refactor, the three call sites in `run_agent_tool_loop` read as:
+
+```python
+# Pre-LLM budget gate (was ~63 LOC)
+_budget_gate = _check_prompt_budget_guard(messages=messages, tools_param=tools_param, ...)
+for _evt in _budget_gate.events:
+    yield _evt
+if _budget_gate.should_return:
+    return
+if _budget_gate.wait_seconds:
+    await asyncio.sleep(_budget_gate.wait_seconds)
+
+# No-tool-calls terminal branch (was ~111 LOC)
+if not accumulated_msg.tool_calls:
+    async for _evt in _handle_no_tool_calls_path(..., llm_call_fn=_llm_call):
+        yield _evt
+    return
+
+# Post-loop forced response (was ~125 LOC)
+_forced_out_state: dict = {}
+async for _evt in _handle_loop_exit_forced_response(..., out_state=_forced_out_state, llm_call_fn=_llm_call):
+    yield _evt
+if _forced_out_state.get("terminated"):
+    return
+```
+
+**Why dependency injection for `_llm_call`**: tests patch `app.agent.loop._llm_call` (3 patches in `test_agent_loop.py`: forced-final-call tests). If the helper did `from app.agent.llm import _llm_call` internally, the patches would be bypassed. Injecting `llm_call_fn=_llm_call` (passing the module-level `loop.py` reference) means patches continue to intercept. Same pattern as Cluster 5's `dispatch_tool_call_fn=dispatch_tool_call` and Cluster 6a's schema-fetch callables. Verified by running the 3 affected tests and confirming they still pass (they're in the 87 passing / 12 baseline-failing split).
+
+**Verification (what ran):**
+- `python -c "from app.agent.loop import run_agent_tool_loop"` — clean (the pre-existing `ToolResultEnvelope` circular warning is unchanged).
+- `ast.parse` on both files — clean.
+- Focused suite `test_agent_loop + test_loop_helpers + test_loop_cycle_detection + test_loop_tool_dedup` via Docker: **12 failed, 87 passed** — identical to Cluster 6a baseline (and to clean HEAD). The 12 pre-existing fails are the same cycle-detection + zero-completion-retry tests flagged in Cluster 6a's session log; fixing them is a Test Quality item, not Cluster 6b's scope.
+- Neighbor sweep `test_loop_core_gaps + test_loop_max_iterations_chain + test_loop_approval_race + test_loop_dispatch_sticky + test_cancellation + test_parallel_tool_execution`: **4 failed, 63 passed**. The 4 fails (`TestActivatedToolMerging` x3, `TestInLoopPruning` x1) are pre-existing on HEAD — verified via Cluster 6a session log which already identified them as baseline.
+
+**Non-goals (explicit):**
+- No signature changes to `run_agent_tool_loop`.
+- No test changes. No behaviour changes beyond the dataclass/out_state plumbing that is itself internal.
+- No behavioural deltas: event-ordering (warning before response → error → response), `messages.pop()` / `messages.append()` sequencing for the empty-response branch, trace-event firing order, post-loop tool-enrollment flush gating (only runs on success path) are all byte-identical.
+
+**Out of scope (parked for future clusters):**
+- Further shrinking `run_agent_tool_loop` below 591 LOC. What's left is cohesive per-iteration orchestration (cancellation checks, LLM streaming with retry/fallback events, AccumulatedMessage persistence, token-usage tracing, thinking-content buffering, tool-call recovery + dispatch, iteration-injected-image handling, skill-nudge, cycle detection). Further reduction would either mean cross-iteration state objects (LoopIterationState, LoopOutputState) — which is Ousterhout-orthogonal deepening — or splitting the single-LLM-call per iteration into its own helper, which drags in too many locals.
+- **Cluster 7 — `assemble_context` (1500 LOC) in `context_assembly.py`**. Next highest payoff, now that loop.py is materially smaller.
+- **Test Quality Track item**: the 12 baseline failures in `test_agent_loop.py` have now survived through Clusters 5, 6a, and 6b — they're pre-existing on HEAD and warrant a focused investigation session.

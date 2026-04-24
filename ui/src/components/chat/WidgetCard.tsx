@@ -77,7 +77,7 @@ export function WidgetCard({
     if (!channelId) return false;
     if (s.currentSlug !== `channel:${channelId}`) return false;
     return s.pins.some(
-      (w) => envelopeIdentityKey(w.tool_name, w.envelope) === thisKey,
+      (w) => envelopeIdentityKey(w.tool_name, w.envelope, w.widget_config ?? null) === thisKey,
     );
   });
 

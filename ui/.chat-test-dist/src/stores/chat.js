@@ -407,9 +407,11 @@ export const useChatStore = create()((set, get) => ({
             : undefined;
         const shouldMaterialize = !!turn.streamingContent ||
             !!turn.thinkingContent ||
+            !!turn.error ||
             (toolResults?.length ?? 0) > 0 ||
             turn.autoInjectedSkills.length > 0;
         if (shouldMaterialize) {
+            const content = turn.streamingContent || (turn.error ? `Turn failed: ${turn.error}` : "");
             const toolsUsed = turn.toolCalls.length > 0
                 ? turn.toolCalls.map((tc) => tc.name)
                 : undefined;
@@ -426,6 +428,7 @@ export const useChatStore = create()((set, get) => ({
                 ...(turn.botId ? { sender_id: `bot:${turn.botId}` } : {}),
                 ...(turn.isPrimary ? {} : { trigger: "member_mention", sender_type: "bot" }),
                 ...(turn.autoInjectedSkills.length > 0 ? { auto_injected_skills: turn.autoInjectedSkills } : {}),
+                ...(turn.error ? { turn_error: true, turn_error_message: turn.error } : {}),
             };
             const hasMetadata = Object.keys(metadata).length > 0;
             messages = [
@@ -434,7 +437,7 @@ export const useChatStore = create()((set, get) => ({
                     id: `turn-${turnId}`,
                     session_id: "",
                     role: "assistant",
-                    content: turn.streamingContent,
+                    content,
                     created_at: new Date().toISOString(),
                     ...(toolCalls ? { tool_calls: toolCalls } : {}),
                     ...(turn.correlationId ? { correlation_id: turn.correlationId } : {}),

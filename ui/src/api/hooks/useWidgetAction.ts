@@ -78,6 +78,7 @@ export function useWidgetAction(
       if (action.dispatch === "tool") {
         req.tool = action.tool;
         req.args = args;
+        if (dashboardPinId) req.dashboard_pin_id = dashboardPinId;
       } else if (action.dispatch === "native_widget") {
         req.action = action.action;
         req.args = args;

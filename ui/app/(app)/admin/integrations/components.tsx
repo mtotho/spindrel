@@ -20,8 +20,25 @@ export function CapBadge({ label, active }: { label: string; active: boolean }) 
   return (
     <QuietPill
       label={label}
-      className={active ? "bg-accent/10 text-accent" : "bg-surface-overlay/25 text-text-dim"}
+      className={active ? "bg-surface-overlay/65 text-text-muted" : "bg-surface-overlay/25 text-text-dim/80"}
       maxWidthClass="max-w-[140px]"
+    />
+  );
+}
+
+export function AssetPill({ label, tone = "neutral" }: { label: string; tone?: "neutral" | "info" | "purple" }) {
+  const toneClass = tone === "info"
+    ? "bg-accent/[0.07] text-accent"
+    : tone === "purple"
+      ? "bg-purple/10 text-purple"
+      : "bg-surface-overlay/55 text-text-muted";
+
+  return (
+    <QuietPill
+      label={label}
+      title={label}
+      className={toneClass}
+      maxWidthClass="max-w-[260px]"
     />
   );
 }

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-24 (admin machines + integrations UI refresh)
+updated: 2026-04-24 (Memory & Knowledge source inspection)
 ---
 # Track — UI Polish
 
@@ -24,6 +24,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Reframed `/admin/learning` as Memory & Knowledge with Overview, Memory, Knowledge, History, Dreaming, and Skills tabs; added read-first unified search across bot memory, bot KB, channel KB, and archived conversation history.
 - [x] Refreshed `/admin/machines` and `/admin/integrations` against the canonical control-surface standard: shared token/Tailwind controls, no route-level `useThemeTokens()`, no inline hex/RGBA, lower-chrome rows/sections, and machine-control provider detail kept summary/link-only.
 - [x] Added shared `EmptyState` for low-chrome empty surfaces and moved the new Memory & Knowledge page onto existing shared controls instead of one-off dropdowns/buttons.
+- [x] Added shared read-only `SourceFileInspector` and wired Memory & Knowledge file-backed memory/KB rows to open their actual workspace source file in-page; non-file fallbacks now say `Open location`, not `Open source`.
+- [x] Retuned global light-mode neutral tokens so low-chrome shared controls read with more surface depth without adding a second accent or page-local decorative fills.
+- [x] Started the post-theme integration detail density pass: high-volume detected asset/env-var chip groups now collapse behind overflow controls, and capability chips read as metadata instead of accent-colored state.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.

@@ -103,12 +103,12 @@ const DARK: ThemeTokens = {
 };
 
 const LIGHT: ThemeTokens = {
-  surface: "#f8f9fc",
+  surface: "#f3f6fb",
   surfaceRaised: "#ffffff",
-  surfaceOverlay: "#f3f4f6",
-  surfaceBorder: "#e5e7eb",
+  surfaceOverlay: "#e8eef8",
+  surfaceBorder: "#d3dbe7",
   text: "#171717",
-  textMuted: "#737373",
+  textMuted: "#5b6474",
   textDim: "#6b7280",
   accent: "#3b82f6",
   accentHover: "#2563eb",
@@ -131,7 +131,7 @@ const LIGHT: ThemeTokens = {
   purpleSubtle: "#f5f3ff",
   purpleBorder: "#ddd6fe",
   inputBg: "#ffffff",
-  inputBorder: "#d1d5db",
+  inputBorder: "#c6cfdc",
   inputText: "#171717",
   inputBorderFocus: "#3b82f6",
   botMessageBg: "rgba(124,58,237,0.03)",

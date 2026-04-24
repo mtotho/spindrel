@@ -194,7 +194,7 @@ export default function AddFromChannelSheet({
   }, [open]);
 
   const existingIdentities = useMemo(
-    () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope))),
+    () => new Set(pins.map((p) => envelopeIdentityKey(p.tool_name, p.envelope, p.widget_config ?? null))),
     [pins],
   );
 
@@ -637,7 +637,7 @@ function ChannelSection({
       </div>
       <ul className="mt-1 space-y-1 px-3">
         {group.pins.map((p) => {
-          const identity = envelopeIdentityKey(p.tool_name, p.envelope);
+          const identity = envelopeIdentityKey(p.tool_name, p.envelope, p.widget_config ?? null);
           const already = existingIdentities.has(identity);
           const selected = selectedId === p.id;
           return (

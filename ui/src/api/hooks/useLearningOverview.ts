@@ -52,6 +52,7 @@ export interface MemoryFileActivity {
   is_hygiene: boolean;
   correlation_id?: string | null;
   job_type?: string | null;
+  source_file?: SourceFileTarget | null;
 }
 
 export interface LearningOverview {
@@ -68,6 +69,16 @@ export interface LearningOverview {
 }
 
 export type LearningSearchSource = "memory" | "bot_knowledge" | "channel_knowledge" | "history";
+
+export interface SourceFileTarget {
+  kind: "workspace_file";
+  workspace_id: string;
+  path: string;
+  display_path: string;
+  owner_type: "bot" | "channel";
+  owner_id: string;
+  owner_name: string;
+}
 
 export interface LearningSearchRequest {
   query: string;
@@ -93,6 +104,7 @@ export interface LearningSearchResult {
   created_at?: string | null;
   correlation_id?: string | null;
   open_url?: string | null;
+  source_file?: SourceFileTarget | null;
   metadata: Record<string, unknown>;
 }
 

@@ -42,6 +42,7 @@
 - **Never introduce a new color token inside a component.** If you need one, add it to `global.css` (both the `:root` light branch and the `.dark` branch) and to `tailwind.config.cjs`. In that order.
 - **`useThemeTokens()` is debt.** Do not use it in new code. Existing callers are tolerated; do not expand them.
 - **Dark mode flips via the `.dark` class on the root.** Components do not branch on mode — the tokens swap for free.
+- **Light-mode depth comes from the neutral surface ladder, not extra accent color.** Keep blue reserved for focus, active state, and primary interactive affordances. If light mode feels flat, retune `surface`, `surface-raised`, `surface-overlay`, `surface-border`, and shared component opacity recipes before adding another color.
 
 ### Canonical token names
 
@@ -316,7 +317,7 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 
 ### Reference values
 
-- Light (`global.css:24-44`): surfaces are light neutrals (`248 249 252` → `229 231 235` border). Text near-black.
+- Light (`global.css:24-44`): surfaces are cool light neutrals (`243 246 251` canvas, white raised surfaces, `232 238 248` overlay, `211 219 231` border). Text near-black.
 - Dark (`global.css:46-66`): surfaces are navy-tinged (`15 17 23` → `46 48 59` border). Text near-white.
 
 ---

@@ -150,8 +150,7 @@ function extractArgValue(args: string | undefined, ...keys: string[]): string | 
 function formatSkillRef(skillId: string): string {
   const clean = skillId.trim();
   if (!clean) return "skill";
-  if (clean.includes("/")) return `${clean}.md`;
-  return `${clean}/INDEX.md`;
+  return clean;
 }
 
 function shortToolName(name: string): string {
@@ -441,6 +440,8 @@ function resolveSkillRef(
   const shortName = shortToolName(toolName);
   if (shortName !== "get_skill" && shortName !== "load_skill") return null;
   const resultJson = parseEnvelopeJson(result);
+  const skillName = formatValue(resultJson?.name);
+  if (skillName) return skillName;
   const skillId = formatValue(resultJson?.id)
     || extractArgValue(args, "skill_id", "skill_name", "skillId", "name", "id");
   if (skillId) return formatSkillRef(skillId);

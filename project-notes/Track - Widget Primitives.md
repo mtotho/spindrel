@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, yaml, integrations]
 status: active
-updated: 2026-04-24 (Phases 1–5 shipped; presets deferred)
+updated: 2026-04-24 (Phases 1–5 shipped including preset promotion)
 ---
 
 # Track — Widget Primitives
@@ -22,7 +22,7 @@ Integration-owned widgets should default to declarative YAML. The YAML component
 | 2 | `tiles` v2 — image-first mode, per-item action, status chip | ✅ shipped 2026-04-24 |
 | 3 | `timeline` primitive — SVG lane-based event renderer | ✅ shipped 2026-04-24 |
 | 4 | ISO-8601 canonicalization — server-side coercion helper, doc policy | ✅ shipped 2026-04-24 |
-| 5 | Port frigate to YAML — three `template:` widgets; delete HTML files (preset promotion split out) | ✅ shipped 2026-04-24 (all three widgets + HTML deletions; `widget_presets` + `bindings.py` deferred) |
+| 5 | Port frigate to YAML — three `template:` widgets + `widget_presets` + `bindings.py`; delete HTML files | ✅ shipped 2026-04-24 (Phase 5a–5c: all three widgets ported, HTML deleted, presets + bindings wired so widgets appear in the Presets tab) |
 | 6 | Audit remaining integration HTML (openweather, browser_live, excalidraw) — port what fits, keep bespoke HTML where truly custom | 📋 queued |
 | 7 | Flip `widget-system.md` decision table — YAML default for integration-owned; HTML first-class for bot-authored (unchanged) | 📋 rides Phase 5 |
 
@@ -146,7 +146,21 @@ Replace the three HTML files with YAML widgets that compose from the new primiti
 - Deleted all three: `frigate_snapshot.html`, `frigate_events_timeline.html`, `frigate_list_cameras.html`. `integrations/frigate/widgets/` now empty (directory kept; scanner no-ops on empty).
 - Tests: `tests/unit/test_frigate_widget_transforms.py` — 35 tests (17 events + 18 cameras) covering reshape cores, state-poll/initial-render parity, error passthrough, empty payloads, widget_config threading, drop-on-missing-name / drop-on-unparseable-start_time, label→color mapping, summary pluralization. Smoke-tested both initial render + state_poll refresh via `apply_widget_template` / `apply_state_poll`: envelopes produce correct component trees with bounding-box flag correctly reflecting `widget_config.show_bbox`. `test_widget_flagship_catalog.TestFrigateListCamerasWidget` updated for components+json content type. Full regression: 228 widget-adjacent tests pass.
 
-**Deferred — preset promotion + bindings:**
+**Also shipped 2026-04-24 (Phase 5c — preset promotion):**
+
+The three ported tool_widgets only render envelopes on tool calls. To appear in the widget builder's Presets tab (same surface as HA's Entity Chip / Light Card / Sensor Card), each needed a `widget_presets:` entry with a `binding_schema` + `binding_sources` + `default_config`. Without this, Library → Integrations showed "0 widgets" because the scanner explicitly excludes `tool_widgets` and the widgets dir was empty after Phase 5a/5b.
+
+- **`integrations/frigate/bindings.py`** (new): `camera_options(raw, context)` turns `frigate_list_cameras` output into picker options (label/description/group with `enabled_only` param to hide disabled cams for snapshot bindings); `label_options(raw, context)` returns a curated set of Frigate detection labels matching `_LABEL_COLOR` in `widget_transforms`. Docstring notes the two must evolve together.
+- **`integration.yaml` → `tool_families: frigate`** declared so preset dependency validation stays inside one family.
+- **`integration.yaml` → `widget_presets:`** three entries:
+  - `frigate-camera` — binds one camera + `show_bbox`, wraps `frigate_snapshot`. Picker source `frigate.cameras` → `camera_options` with `enabled_only: true`.
+  - `frigate-events` — optional camera / label filters + `limit`, wraps `frigate_get_events`. Two binding sources (`frigate.cameras` + `frigate.labels`). `label_options` ignores `raw_result` but the field is required by the binding-source shape; noted in the docstring.
+  - `frigate-cameras-grid` — wraps `frigate_list_cameras`, only `show_bbox` default (no required config). `binding_sources: {}`.
+- Each preset declares `tool_family: frigate` + `tool_dependencies:` matching the underlying runtime tools. `runtime.tool_args` references `{{binding.*}}` so preview + first render use the user-selected values.
+- Tests: new `tests/unit/test_frigate_bindings.py` — 7 tests (grouping, enabled_only filtering, description formatting, non-JSON handling, row-drop on missing name, label set). All 251 in the widget-adjacent sweep (preset + drift + manifest + flagship + scanner + templates + frigate pair) pass in Docker.
+- Pre-existing failures outside my scope: `test_presets_list_can_inline_binding_options` + `test_bluebubbles_sender_metadata::test_one_to_one_still_uses_binding_fallback` fail with OR without my changes (verified by stashing yaml + re-running) — left as-is.
+
+**Deferred (genuinely out of this phase):**
 - The original spec called for `frigate_get_events` + `frigate_list_cameras` to move out of `tool_widgets:` into `widget_presets:` with `binding_sources`. Not done this session — the primary value of Phase 5 is the primitive port and HTML deletion, and the preset promotion changes the *activation surface* (users pin presets differently than tool widget results) which is a separate UX shift worth its own phase. `integrations/frigate/bindings.py` therefore not created yet.
 
 ### Phase 6 — Audit remaining integration HTML widgets

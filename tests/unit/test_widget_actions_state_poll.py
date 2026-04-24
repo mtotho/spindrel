@@ -515,3 +515,78 @@ class TestRefreshIdentityGuard:
         assert resp.ok is True
         assert "source_bot_id" not in captured["env_dict"]
         assert "source_channel_id" not in captured["env_dict"]
+
+
+class TestDashboardPinnedToolActionRefresh:
+    @pytest.mark.asyncio
+    async def test_tool_action_refreshes_enclosing_pin_not_action_tool(self):
+        """Dashboard-pinned actions should return the pin's state_poll output.
+
+        A Home Assistant toggle action is rendered inside the GetLiveContext
+        pin. Returning the action tool's envelope makes the tile briefly swap
+        identity or disappear; the authoritative post-action envelope is the
+        enclosing pin's poll result.
+        """
+        from app.services import dashboard_pins as pins_mod
+
+        pin_id = uuid.uuid4()
+        channel_id = uuid.uuid4()
+        poll_cfg = {"tool": "get_live_context", "args": {}, "post_action_settle_ms": 0}
+
+        class _FakePin:
+            id = pin_id
+            tool_name = "homeassistant-GetLiveContext"
+            display_label = "Kitchen light"
+            envelope = {"display_label": "Old Kitchen light"}
+            widget_config = {"entity_id": "light.kitchen"}
+            source_bot_id = "ha-bot"
+            source_channel_id = channel_id
+
+        captured: dict = {}
+
+        async def _fake_get_pin(_db, _pin_id):
+            captured["pin_id"] = _pin_id
+            return _FakePin()
+
+        async def _fake_update_pin_envelope(_db, _pin_id, env_dict):
+            captured["persisted"] = env_dict
+            return _FakePin()
+
+        async def _fake_state_poll(**kwargs):
+            captured["poll_kwargs"] = kwargs
+            return router_mod.ToolResultEnvelope(
+                content_type="application/vnd.spindrel.components+json",
+                body=json.dumps({"v": 1, "components": [{"type": "status", "text": "On"}]}),
+                display="inline",
+                display_label="Kitchen light",
+                tool_name=kwargs["tool_name"],
+            )
+
+        req = router_mod.WidgetActionRequest(
+            dispatch="tool",
+            tool="homeassistant-HassTurnOn",
+            args={"name": "Kitchen light"},
+            dashboard_pin_id=pin_id,
+            display_label="Kitchen light",
+            widget_config={"entity_id": "light.kitchen"},
+        )
+
+        with patch.object(router_mod, "_resolve_tool_name", side_effect=lambda n: n), \
+             patch.object(router_mod, "is_local_tool", return_value=True), \
+             patch.object(router_mod, "call_local_tool", AsyncMock(return_value="{}")), \
+             patch.object(router_mod, "get_state_poll_config", return_value=poll_cfg), \
+             patch.object(router_mod, "_do_state_poll", side_effect=_fake_state_poll), \
+             patch.object(pins_mod, "get_pin", side_effect=_fake_get_pin), \
+             patch.object(pins_mod, "update_pin_envelope", side_effect=_fake_update_pin_envelope):
+            resp = await router_mod._dispatch_tool(req, db=object())
+
+        assert resp.ok is True
+        assert resp.envelope is not None
+        assert resp.envelope["display_label"] == "Kitchen light"
+        assert captured["pin_id"] == pin_id
+        assert captured["poll_kwargs"]["tool_name"] == "homeassistant-GetLiveContext"
+        assert captured["poll_kwargs"]["widget_config"] == {"entity_id": "light.kitchen"}
+        assert captured["poll_kwargs"]["bot_id"] == "ha-bot"
+        assert captured["poll_kwargs"]["channel_id"] == channel_id
+        assert captured["persisted"]["source_bot_id"] == "ha-bot"
+        assert captured["persisted"]["source_channel_id"] == str(channel_id)

@@ -647,3 +647,415 @@ def _recover_tool_calls_from_text(
             )
             accumulated_msg.tool_calls = xml_tcs
             messages[-1] = accumulated_msg.to_msg_dict()
+
+
+# ===== run_agent_tool_loop per-iteration + post-loop helpers (Cluster 6b extraction) =====
+
+
+@dataclass
+class PromptBudgetGate:
+    """Result from _check_prompt_budget_guard.
+
+    events: already compaction-tagged events the caller yields in order.
+    should_return: caller must exit the outer generator (context-window exceeded).
+    wait_seconds: caller must `await asyncio.sleep(wait_seconds)` before the LLM call.
+    """
+    events: list[dict]
+    should_return: bool
+    wait_seconds: int
+
+
+def _check_prompt_budget_guard(
+    *,
+    messages: list[dict],
+    tools_param: list[dict[str, Any]] | None,
+    model: str,
+    effective_provider_id: str | None,
+    iteration: int,
+    correlation_id: uuid.UUID | None,
+    session_id: uuid.UUID | None,
+    bot: BotConfig,
+    client_id: str | None,
+    turn_start: int,
+    embedded_client_actions: list[dict],
+    compaction: bool,
+) -> PromptBudgetGate:
+    """Pre-LLM-call budget gates: context-window hard block + TPM rate-limit wait.
+
+    Context-window overage: appends a refusal assistant message to `messages`,
+    fires a trace event, and returns gate.should_return=True so the caller
+    exits the outer generator after yielding the gate events.
+
+    TPM wait: returns gate.wait_seconds > 0 so the caller sleeps before the
+    LLM call.
+    """
+    import json
+    from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_chars
+    from app.config import settings
+    from app.services.providers import check_rate_limit
+
+    events: list[dict] = []
+    est_tokens = sum(estimate_chars_to_tokens(message_prompt_chars(m)) for m in messages)
+    if tools_param:
+        est_tokens += estimate_chars_to_tokens(len(json.dumps(tools_param, default=str)))
+    window = 0
+    try:
+        from app.agent.context_budget import get_model_context_window
+        window = get_model_context_window(model, effective_provider_id)
+    except Exception:
+        window = 0
+    if window > 0:
+        available = max(0, window - int(window * settings.CONTEXT_BUDGET_RESERVE_RATIO))
+        if available > 0 and est_tokens > available:
+            msg = (
+                "The assembled prompt is still too large for this model after "
+                "context pruning. Please compact the conversation or switch to a "
+                "larger-context model."
+            )
+            logger.error(
+                "Context window guard blocked LLM call: estimated=%d available=%d model=%s provider=%s",
+                est_tokens, available, model, effective_provider_id,
+            )
+            messages.append({"role": "assistant", "content": msg})
+            if correlation_id is not None:
+                safe_create_task(_record_trace_event(
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    bot_id=bot.id,
+                    client_id=client_id,
+                    event_type="error",
+                    event_name="ContextWindowExceeded",
+                    data={
+                        "estimated_prompt_tokens": est_tokens,
+                        "available_tokens": available,
+                        "model": model,
+                        "provider_id": effective_provider_id,
+                        "iteration": iteration + 1,
+                    },
+                ))
+            events.append(_event_with_compaction_tag({
+                "type": "error",
+                "code": "context_window_exceeded",
+                "message": msg,
+                "estimated_prompt_tokens": est_tokens,
+                "available_tokens": available,
+            }, compaction))
+            events.append(_event_with_compaction_tag({
+                "type": "response",
+                "text": msg,
+                "client_actions": (
+                    _extract_client_actions(messages, turn_start) + embedded_client_actions
+                ),
+                **({"correlation_id": str(correlation_id)} if correlation_id else {}),
+            }, compaction))
+            return PromptBudgetGate(events=events, should_return=True, wait_seconds=0)
+
+    wait = check_rate_limit(effective_provider_id, est_tokens)
+    if wait:
+        logger.info("Provider TPM limit: waiting %ds before LLM call", wait)
+        events.append(_event_with_compaction_tag(
+            {"type": "rate_limit_wait", "wait_seconds": wait, "provider_id": effective_provider_id or ""},
+            compaction,
+        ))
+    return PromptBudgetGate(events=events, should_return=False, wait_seconds=wait or 0)
+
+
+async def _handle_no_tool_calls_path(
+    *,
+    accumulated_msg: Any,
+    messages: list[dict],
+    tool_calls_made: list[str],
+    tool_envelopes_made: list[dict],
+    transcript_entries: list[dict],
+    thinking_content_buf: str,
+    transcript_emitted: bool,
+    iteration: int,
+    bot: BotConfig,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    model: str,
+    tools_param: list[dict[str, Any]] | None,
+    effective_provider_id: str | None,
+    fallback_models: list[dict] | None,
+    compaction: bool,
+    native_audio: bool,
+    user_msg_index: int | None,
+    turn_start: int,
+    embedded_client_actions: list[dict],
+    llm_call_fn: Any,
+) -> Any:  # AsyncGenerator[dict, None]
+    """Handle the branch when the LLM returned no tool calls: sanitize text, force-retry on empty, finalize.
+
+    Terminal: caller `return`s after this completes. Yields response/warning/error
+    events plus the final `_finalize_response` stream.
+    """
+    from app.services.secret_registry import redact as _redact_secrets
+
+    text = _sanitize_llm_text(accumulated_msg.content or "")
+    text = _redact_secrets(text)
+
+    # Update persisted message with sanitized content so [silent] tags /
+    # malformed tool calls don't leak into DB history.
+    if text != (accumulated_msg.content or ""):
+        messages[-1] = {**messages[-1], "content": text}
+
+    if not text.strip():
+        # Distinguish genuine silent completion from model API failures.
+        # 0 completion tokens means the model didn't generate anything at all —
+        # almost certainly a model glitch, not intentional silence.
+        zero_tokens = (
+            accumulated_msg.usage is not None
+            and accumulated_msg.usage.completion_tokens == 0
+        )
+        if tool_calls_made and not zero_tokens:
+            # Silent completion: bot did work via tool calls, nothing to say.
+            logger.info(
+                "LLM completed silently after %d tool call(s) — accepting empty response.",
+                len(tool_calls_made),
+            )
+            messages.pop()
+        else:
+            # Genuine failure — either no tool calls at all, or 0 completion
+            # tokens (model API glitch, not intentional silence). Force retry.
+            reason = "0 completion tokens" if zero_tokens else "no tool calls"
+            if accumulated_msg.suppressed_xml_blocks:
+                reason += f"; {len(accumulated_msg.suppressed_xml_blocks)} XML block(s) suppressed but unrecoverable"
+                logger.warning(
+                    "Suppressed XML blocks (no matching tools): %s",
+                    [b[:200] for b in accumulated_msg.suppressed_xml_blocks],
+                )
+            empty_msg = (
+                f"LLM returned empty response after {iteration + 1} iteration(s) "
+                f"({len(tool_calls_made)} tool calls, {reason}). Forcing retry."
+            )
+            logger.warning("LLM response was empty (%s). Forcing a response...", reason)
+            yield _event_with_compaction_tag({
+                "type": "warning",
+                "code": "empty_response",
+                "message": empty_msg,
+            }, compaction)
+            messages.pop()
+            messages.append({
+                "role": "system",
+                "content": "You must respond to the user. Write a response now."
+            })
+            try:
+                retry = await llm_call_fn(
+                    model, messages,
+                    tools_param,
+                    "none" if tools_param is not None else None,
+                    provider_id=effective_provider_id,
+                    fallback_models=fallback_models,
+                )
+                text = _sanitize_llm_text(retry.choices[0].message.content or "")
+                text = _redact_secrets(text)
+                if not text.strip():
+                    logger.warning("Forced-response retry also returned empty — using fallback.")
+                    text = _synthesize_empty_response_fallback(tool_calls_made, messages)
+                retry_msg = retry.choices[0].message.model_dump(exclude_none=True)
+                retry_msg["content"] = text
+                messages.append(retry_msg)
+            except Exception as exc:
+                logger.error("Forced-response retry failed: %s", exc)
+                if correlation_id is not None:
+                    safe_create_task(_record_trace_event(
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        bot_id=bot.id,
+                        client_id=client_id,
+                        event_type="llm_error",
+                        event_name="forced_response_retry",
+                        data={"message": str(exc)[:2000]},
+                    ))
+                text = f"[Error: {empty_msg} Retry also failed: {type(exc).__name__}]"
+                messages.append({"role": "assistant", "content": text})
+                yield _event_with_compaction_tag({
+                    "type": "error",
+                    "code": "llm_error",
+                    "message": text,
+                }, compaction)
+
+    _append_transcript_text_entry(transcript_entries, text)
+    fin_events, _ = _finalize_response(
+        text,
+        messages=messages, bot=bot, session_id=session_id,
+        client_id=client_id, correlation_id=correlation_id,
+        channel_id=channel_id, compaction=compaction,
+        native_audio=native_audio, user_msg_index=user_msg_index,
+        transcript_emitted=transcript_emitted,
+        tool_calls_made=tool_calls_made,
+        tool_envelopes_made=tool_envelopes_made,
+        transcript_entries=transcript_entries,
+        thinking_content_buf=thinking_content_buf,
+        turn_start=turn_start,
+        embedded_client_actions=embedded_client_actions,
+    )
+    for evt in fin_events:
+        yield evt
+
+
+async def _handle_loop_exit_forced_response(
+    *,
+    loop_broken_reason: str | None,
+    detected_cycle_len: int,
+    iteration: int,
+    tool_call_trace: list,
+    effective_max_iterations: int,
+    messages: list[dict],
+    tools_param: list[dict[str, Any]] | None,
+    model: str,
+    effective_provider_id: str | None,
+    fallback_models: list[dict] | None,
+    bot: BotConfig,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    compaction: bool,
+    transcript_entries: list[dict],
+    thinking_content_buf: str,
+    transcript_emitted: bool,
+    tool_calls_made: list[str],
+    tool_envelopes_made: list[dict],
+    turn_start: int,
+    embedded_client_actions: list[dict],
+    native_audio: bool,
+    user_msg_index: int | None,
+    out_state: dict,
+    llm_call_fn: Any,
+) -> Any:  # AsyncGenerator[dict, None]
+    """Post-loop forced-response handler: warn, call LLM with tool_choice=none, finalize.
+
+    On LLM failure, sets out_state["terminated"] = True so the caller skips
+    the post-loop tool-enrollment flush and exits the outer generator —
+    preserving the original `return` semantics of this error path.
+    """
+    from app.services.secret_registry import redact as _redact_secrets
+
+    if loop_broken_reason == "cycle":
+        break_msg = (
+            f"Tool loop detected (cycle of {detected_cycle_len} call(s) repeating) "
+            f"after {len(tool_call_trace)} tool calls. Breaking cycle."
+        )
+        break_code = "tool_loop_detected"
+        system_prompt = (
+            "You are stuck in a loop — you have been making the same tool calls "
+            "with the same arguments repeatedly. Stop calling tools and respond now."
+        )
+    else:
+        break_msg = (
+            f"Max iterations reached ({effective_max_iterations} tool calls). "
+            "Generating final response without tools."
+        )
+        break_code = "max_iterations"
+        system_prompt = (
+            "You have used too many tool calls. Please respond to the user now "
+            "without using any tools."
+        )
+
+    logger.warning("Agent loop ended: %s", break_code)
+    if correlation_id is not None:
+        safe_create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="warning",
+            event_name=break_code,
+            data={"iterations": iteration + 1, "total_tool_calls": len(tool_call_trace), "message": break_msg},
+        ))
+    yield _event_with_compaction_tag({
+        "type": "warning",
+        "code": break_code,
+        "message": break_msg,
+    }, compaction)
+
+    messages.append({
+        "role": "system",
+        "content": system_prompt,
+    })
+    try:
+        # Route through _llm_call so NO_SYSTEM_MESSAGE_PROVIDERS folding,
+        # retry logic, and fallback all apply.
+        response = await llm_call_fn(
+            model, messages,
+            tools_param,
+            "none" if tools_param is not None else None,
+            provider_id=effective_provider_id,
+            fallback_models=fallback_models,
+        )
+        msg = response.choices[0].message
+    except Exception as exc:
+        logger.error("Post-loop final LLM call failed: %s", exc)
+        fallback_text = f"[Error: {break_msg} Final response generation also failed: {type(exc).__name__}]"
+        messages.append({"role": "assistant", "content": fallback_text})
+        yield _event_with_compaction_tag({
+            "type": "error",
+            "code": "llm_error",
+            "message": fallback_text,
+        }, compaction)
+        yield _event_with_compaction_tag({
+            "type": "response",
+            "text": fallback_text,
+            "client_actions": (
+                _extract_client_actions(messages, turn_start) + embedded_client_actions
+            ),
+            **({"correlation_id": str(correlation_id)} if correlation_id else {}),
+        }, compaction)
+        out_state["terminated"] = True
+        return
+
+    text = _sanitize_llm_text(msg.content or "")
+    text = _redact_secrets(text)
+    post_loop_msg = msg.model_dump(exclude_none=True)
+    post_loop_msg["content"] = text
+    messages.append(post_loop_msg)
+    if response.usage and correlation_id is not None:
+        usage_extras2 = _extract_usage_extras(response)
+        gross_prompt_tokens2 = response.usage.prompt_tokens
+        cached_prompt_tokens2 = usage_extras2.get("cached_tokens")
+        current_prompt_tokens2 = gross_prompt_tokens2
+        if cached_prompt_tokens2 is not None:
+            current_prompt_tokens2 = max(0, gross_prompt_tokens2 - cached_prompt_tokens2)
+        usage_data2 = {
+            "prompt_tokens": gross_prompt_tokens2,
+            "gross_prompt_tokens": gross_prompt_tokens2,
+            "current_prompt_tokens": current_prompt_tokens2,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+            "consumed_tokens": gross_prompt_tokens2,
+            "iteration": iteration + 2,
+            "model": model,
+            "provider_id": effective_provider_id,
+            "channel_id": str(channel_id) if channel_id else None,
+            **usage_extras2,
+        }
+        if cached_prompt_tokens2 is not None:
+            usage_data2["cached_prompt_tokens"] = cached_prompt_tokens2
+        safe_create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="token_usage",
+            data=usage_data2,
+        ))
+    _append_transcript_text_entry(transcript_entries, text)
+    fin_events, _ = _finalize_response(
+        text,
+        messages=messages, bot=bot, session_id=session_id,
+        client_id=client_id, correlation_id=correlation_id,
+        channel_id=channel_id, compaction=compaction,
+        native_audio=native_audio, user_msg_index=user_msg_index,
+        transcript_emitted=transcript_emitted,
+        tool_calls_made=tool_calls_made,
+        tool_envelopes_made=tool_envelopes_made,
+        transcript_entries=transcript_entries,
+        thinking_content_buf=thinking_content_buf,
+        turn_start=turn_start,
+        embedded_client_actions=embedded_client_actions,
+    )
+    for evt in fin_events:
+        yield evt

@@ -56,6 +56,16 @@ Use `FormControls.tsx` and `SettingsControls.tsx`.
 - `EmptyState`: dashed low-chrome placeholder.
 - `StatusBadge`, `InfoBanner`, and `SaveStatusPill`: semantic state only, not decoration.
 - `QuietPill`: low-emphasis metadata tags inside dense rows. Use this for archived-section tags, compact row labels, and other metadata that should not compete with the row title.
+- Light-mode contrast for these controls is owned by the global surface tokens first. If many shared controls look washed out, tune the shared opacity recipes here once instead of adding page-local backgrounds, borders, or extra accent colors.
+
+## Source File Inspection
+
+Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx` when a row, search result, or activity item opens a workspace-backed source file.
+
+- File-backed actions should open the file in place instead of navigating to a broad owner page and calling it "Open source".
+- The inspector is read-only today: source/preview toggle, in-file find, copy, owner metadata, and a fallback "Open location" action for rows that cannot resolve a file target.
+- Pages should pass an explicit `workspace_id` and workspace-relative `path`. Do not infer paths client-side from display text.
+- Do not create one-off drawers for memory logs, knowledge files, prompt files, or history sources. Extend this shared component once if richer file previews, diffs, edits, or history are needed.
 
 ## Review Checklist
 
@@ -65,5 +75,6 @@ Use `FormControls.tsx` and `SettingsControls.tsx`.
 - Widget, task, and prompt-template configuration surfaces do not ship native `<select>` or local portal dropdowns unless they are documented specialized controls.
 - Routine settings actions are not filled blue buttons.
 - Dense-row metadata uses `QuietPill`; reserve `StatusBadge` for actual state.
+- File-backed source links use `SourceFileInspector`; non-file fallbacks say "Open location", not "Open source".
 - Popovers are not page-wide and do not use shadow stacks.
 - Knowledge/help copy is typography-led; do not turn every explanatory sentence into a faded panel.

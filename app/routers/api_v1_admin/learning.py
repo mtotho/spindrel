@@ -74,6 +74,15 @@ class RecentHygieneRun(BaseModel):
     skill_overrides: list[dict] = []  # [{skill_id, source, reason, age_days, archived}]
     job_type: str = "memory_hygiene"
 
+class SourceFileTarget(BaseModel):
+    kind: Literal["workspace_file"] = "workspace_file"
+    workspace_id: str
+    path: str
+    display_path: str
+    owner_type: Literal["bot", "channel"]
+    owner_id: str
+    owner_name: str
+
 class MemoryFileActivity(BaseModel):
     bot_id: str
     bot_name: str
@@ -83,6 +92,7 @@ class MemoryFileActivity(BaseModel):
     is_hygiene: bool = False
     correlation_id: Optional[str] = None
     job_type: Optional[str] = None  # memory_hygiene or skill_review when is_hygiene
+    source_file: Optional[SourceFileTarget] = None
 
 class LearningSearchRequest(BaseModel):
     query: str
@@ -109,6 +119,7 @@ class LearningSearchResult(BaseModel):
     created_at: Optional[datetime] = None
     correlation_id: Optional[str] = None
     open_url: Optional[str] = None
+    source_file: Optional[SourceFileTarget] = None
     metadata: dict = Field(default_factory=dict)
 
 class LearningSearchResponse(BaseModel):
@@ -161,6 +172,27 @@ def _selected_ids(values: list[str] | None) -> set[str] | None:
     return cleaned or None
 
 
+def _workspace_source_file(
+    *,
+    workspace_id: str | None,
+    path: str | None,
+    display_path: str | None = None,
+    owner_type: Literal["bot", "channel"],
+    owner_id: str,
+    owner_name: str,
+) -> SourceFileTarget | None:
+    if not workspace_id or not path:
+        return None
+    return SourceFileTarget(
+        workspace_id=str(workspace_id),
+        path=path,
+        display_path=display_path or path,
+        owner_type=owner_type,
+        owner_id=owner_id,
+        owner_name=owner_name,
+    )
+
+
 async def _bot_configs(selected: set[str] | None = None):
     from app.agent.bots import list_bots
 
@@ -209,6 +241,13 @@ async def _search_memory_source(
                 bot_name=bot.name,
                 file_path=hit.file_path,
                 open_url=f"/admin/bots/{bot.id}#learning",
+                source_file=_workspace_source_file(
+                    workspace_id=getattr(bot, "shared_workspace_id", None),
+                    path=hit.file_path,
+                    owner_type="bot",
+                    owner_id=bot.id,
+                    owner_name=bot.name,
+                ),
             ))
     results.sort(key=lambda item: item.score or 0, reverse=True)
     return results[:top_k]
@@ -253,6 +292,13 @@ async def _search_bot_knowledge_source(
                 bot_name=bot.name,
                 file_path=hit.file_path,
                 open_url=f"/admin/bots/{bot.id}#learning",
+                source_file=_workspace_source_file(
+                    workspace_id=getattr(bot, "shared_workspace_id", None),
+                    path=hit.file_path,
+                    owner_type="bot",
+                    owner_id=bot.id,
+                    owner_name=bot.name,
+                ),
             ))
     results.sort(key=lambda item: item.score or 0, reverse=True)
     return results[:top_k]
@@ -323,6 +369,13 @@ async def _search_channel_knowledge_source(
                 bot_id=channel.bot_id,
                 file_path=hit.file_path,
                 open_url=f"/channels/{ch_id}/settings#Knowledge",
+                source_file=_workspace_source_file(
+                    workspace_id=getattr(bot, "shared_workspace_id", None),
+                    path=hit.file_path,
+                    owner_type="channel",
+                    owner_id=ch_id,
+                    owner_name=channel.name,
+                ),
             ))
     results.sort(key=lambda item: item.score or 0, reverse=True)
     return results[:top_k]
@@ -379,8 +432,11 @@ async def _memory_activity(
     job_types: set[str] | None = None,
     limit: int = 100,
 ) -> list[MemoryFileActivity]:
+    from app.agent.bots import list_bots
+
     bot_rows = (await db.execute(select(BotRow.id, BotRow.name))).all()
     bot_name_map = {row.id: row.name for row in bot_rows}
+    bot_config_map = {bot.id: bot for bot in list_bots()}
     cutoff = datetime.now(timezone.utc) - timedelta(days=days) if days > 0 else None
     allowed_ops = operations or {"write", "append", "edit"}
 
@@ -417,15 +473,24 @@ async def _memory_activity(
         idx = path.find("memory/")
         short = path[idx:] if idx >= 0 else path
         bot_id = tc.bot_id or ""
+        bot_name = bot_name_map.get(bot_id, bot_id)
+        bot_config = bot_config_map.get(bot_id)
         activity.append(MemoryFileActivity(
             bot_id=bot_id,
-            bot_name=bot_name_map.get(bot_id, bot_id),
+            bot_name=bot_name,
             file_path=short,
             operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
             created_at=tc.created_at,
             is_hygiene=job_type in {"memory_hygiene", "skill_review"},
             correlation_id=corr_str,
             job_type=job_type,
+            source_file=_workspace_source_file(
+                workspace_id=getattr(bot_config, "shared_workspace_id", None),
+                path=short,
+                owner_type="bot",
+                owner_id=bot_id,
+                owner_name=bot_name,
+            ),
         ))
     return activity
 
@@ -566,6 +631,7 @@ async def learning_overview(
     _auth=Depends(require_scopes("bots:read")),
 ):
     """Aggregate learning/dreaming dashboard data across all bots."""
+    from app.agent.bots import list_bots
     from app.services.memory_hygiene import resolve_config
 
     # 1. All bots with workspace-files memory
@@ -576,6 +642,7 @@ async def learning_overview(
     bot_statuses: list[BotDreamingStatus] = []
     enabled_count = 0
     bot_name_map: dict[str, str] = {}
+    bot_config_map = {bot.id: bot for bot in list_bots()}
     bot_ids = [bot.id for bot in all_bots]
 
     for bot in all_bots:
@@ -807,15 +874,25 @@ async def learning_overview(
         short = path[idx:] if idx >= 0 else path
         corr_str = str(tc.correlation_id) if tc.correlation_id else None
         is_hygiene = corr_str in hygiene_corr_ids if corr_str else False
+        bot_id = tc.bot_id or ""
+        bot_name = bot_name_map.get(bot_id, bot_id)
+        bot_config = bot_config_map.get(bot_id)
         memory_activity.append(MemoryFileActivity(
-            bot_id=tc.bot_id or "",
-            bot_name=bot_name_map.get(tc.bot_id or "", tc.bot_id or ""),
+            bot_id=bot_id,
+            bot_name=bot_name,
             file_path=short,
             operation=tc.arguments.get("operation", "write") if tc.arguments else "write",
             created_at=tc.created_at,
             is_hygiene=is_hygiene,
             correlation_id=corr_str,
             job_type=corr_to_job_type.get(corr_str) if is_hygiene and corr_str else None,
+            source_file=_workspace_source_file(
+                workspace_id=getattr(bot_config, "shared_workspace_id", None),
+                path=short,
+                owner_type="bot",
+                owner_id=bot_id,
+                owner_name=bot_name,
+            ),
         ))
 
     return LearningOverviewOut(

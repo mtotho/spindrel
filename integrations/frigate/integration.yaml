@@ -93,6 +93,138 @@ provides:
   - tools
   - skills
 
+tool_families:
+  frigate:
+    label: Frigate NVR
+    tools: [frigate_snapshot, frigate_get_events, frigate_list_cameras]
+
+# Widget presets — guided binding flows exposed in the Presets tab of the
+# widget builder. Each preset wraps one tool_widget below; the preset layer
+# handles camera/label selection + default_config seeding, while the runtime
+# (rendering on tool call / state_poll refresh) stays on tool_widgets.
+widget_presets:
+  frigate-camera:
+    name: Camera Snapshot
+    description: Live snapshot from one Frigate camera, auto-refreshing.
+    icon: Camera
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 4}
+    tool_name: frigate_snapshot
+    tool_family: frigate
+    tool_dependencies: [frigate_snapshot, frigate_list_cameras]
+    binding_schema:
+      type: object
+      required: [camera]
+      properties:
+        camera:
+          type: string
+          title: Camera
+          description: Pick a Frigate camera.
+          ui:
+            control: picker
+            source: frigate.cameras
+        show_bbox:
+          type: boolean
+          title: Show bounding boxes
+          description: Overlay Frigate detection boxes on the snapshot.
+          default: true
+          ui:
+            control: switch
+    binding_sources:
+      frigate.cameras:
+        tool: frigate_list_cameras
+        args: {}
+        transform: "integrations.frigate.bindings:camera_options"
+        params:
+          enabled_only: true
+    default_config:
+      show_bbox: true
+    runtime:
+      # Tool args flow into the initial frigate_snapshot call for preview +
+      # first render. state_poll then takes over with its own args template.
+      tool_args:
+        camera: "{{binding.camera}}"
+        bounding_box: "{{binding.show_bbox}}"
+
+  frigate-events:
+    name: Events Timeline
+    description: Detection events across cameras, grouped into per-camera lanes.
+    icon: Activity
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 6, h: 4}
+    tool_name: frigate_get_events
+    tool_family: frigate
+    tool_dependencies: [frigate_get_events]
+    binding_schema:
+      type: object
+      properties:
+        camera:
+          type: string
+          title: Camera filter
+          description: Limit the timeline to one camera (leave empty for all).
+          ui:
+            control: picker
+            source: frigate.cameras
+        label:
+          type: string
+          title: Object filter
+          description: Limit the timeline to one object type (leave empty for all).
+          ui:
+            control: picker
+            source: frigate.labels
+        limit:
+          type: integer
+          title: Max events
+          description: Cap on events returned per refresh.
+          default: 40
+          minimum: 1
+          maximum: 200
+    binding_sources:
+      frigate.cameras:
+        tool: frigate_list_cameras
+        args: {}
+        transform: "integrations.frigate.bindings:camera_options"
+      frigate.labels:
+        # label_options ignores its input — no upstream tool call needed,
+        # but binding_sources requires a tool field. frigate_list_cameras
+        # is cheap and already cached for the camera picker in most flows.
+        tool: frigate_list_cameras
+        args: {}
+        transform: "integrations.frigate.bindings:label_options"
+    default_config: {}
+    runtime:
+      tool_args:
+        camera: "{{binding.camera}}"
+        label: "{{binding.label}}"
+        limit: "{{binding.limit}}"
+
+  frigate-cameras-grid:
+    name: Cameras Grid
+    description: All Frigate cameras as a grid; click a tile to open its snapshot.
+    icon: LayoutGrid
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 6, h: 4}
+    tool_name: frigate_list_cameras
+    tool_family: frigate
+    tool_dependencies: [frigate_list_cameras, frigate_snapshot]
+    binding_schema:
+      type: object
+      properties:
+        show_bbox:
+          type: boolean
+          title: Show bounding boxes on opened snapshots
+          default: true
+          ui:
+            control: switch
+    binding_sources: {}
+    default_config:
+      show_bbox: true
+    runtime:
+      tool_args: {}
+
 # Tool widgets — YAML component templates using canonical primitives.
 # See docs/widget-templates.md for the primitive reference.
 tool_widgets:

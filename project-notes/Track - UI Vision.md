@@ -26,7 +26,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 |---|---|---|
 | Canonical spec doc | ✅ shipped 2026-04-23 | `agent-server/docs/guides/ui-design.md`, linked from mkdocs Guides nav |
 | Surface taxonomy | ✅ reset 2026-04-24 | Command, app-shell/content, and control surfaces. Existing sidebar/rail/channel header/terminal mini-chat are reference surfaces; settings/admin controls get stricter chrome-budget rules plus UX-flow checks for mixed current/available catalogs. |
-| Token system spec | ✅ documented | `bg-surface*`, `border-surface-border`, `text-text*`, `bg-accent*`, semantic color set all named |
+| Token system spec | ✅ refreshed 2026-04-24 | `bg-surface*`, `border-surface-border`, `text-text*`, `bg-accent*`, semantic color set all named; light mode now uses a cooler neutral surface ladder instead of extra accent color. |
 | Active-row pill canonicalized | ✅ documented | `.sidebar-item-active` in `ui/global.css:11-13` is the one canonical active-state signal |
 | Radius scale | ✅ documented | 0 / 2 / 4 / 6 / 10 / full — command surfaces go square, content surfaces default to 6px |
 | Dark + light parity rules | ✅ documented | No mode branching in JSX; verify both before claiming done |
@@ -43,7 +43,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Integration control proof path | ✅ migrated 2026-04-24 (Pass 4b) | `ActivationsSection`, `ActivationCard`, `ActivationConfigFields`, `BindingsSection`, `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker` now use token/Tailwind control-surface chrome; activation add-ons split Added vs Available with a quiet filter; no `useThemeTokens()` in the integration settings flow. |
 | `IntegrationsTab` wrapper | ✅ clean 2026-04-23 (Pass 4a) | 5-line re-export already token-free. |
 | Channel Tasks tab | ✅ migrated 2026-04-24 (Pass 4c start) | `TasksTab`, `TaskCardRow`, `TaskConstants`, and `Spinner` now use grouped control flow, quiet segmented filters, borderless tonal rows, semantic token badges, and no `useThemeTokens()` in the visible task list path. |
-| Admin Memory & Knowledge | ✅ first pass 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, and lower-chrome Dreaming/Skills tabs. |
+| Admin Memory & Knowledge | ✅ first pass 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, file-backed in-page source inspection, and lower-chrome Dreaming/Skills tabs. |
 | Admin Machines + Integrations | ✅ migrated 2026-04-24 | `/admin/machines`, `/admin/integrations`, integration detail, and route-owned integration subcomponents now use shared control-surface primitives, Tailwind tokens, no `useThemeTokens()`, and no inline hex/RGBA in the refreshed paths. Machine-control integration detail remains summary/link-only, with Admin > Machines as the canonical lifecycle surface. |
 | Deeper settings tab panels | ⏳ deferred | **Pass 4c remaining candidates**: HeartbeatTab (+ HeartbeatHistoryList, HeartbeatContextPreview), PipelinesTab (+ PipelineRunLive/PreRun), HistoryTab, QuietHoursPicker. **Pass 4d**: ContextTab (dirtiest — 10 inline hex). **Pass 4e (own plan)**: ChannelWorkspaceTab, AttachmentsTab, ChannelFileBrowser/Viewer/ExplorerParts. |
 
@@ -64,6 +64,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 ## Key invariants
 
 - **There is one token system.** If a color does not have a token, it does not exist.
+- **Light-mode depth is neutral.** Do not fix washed-out light screens by adding page-local accent washes; tune global surface tokens or shared primitive opacity recipes.
 - **There are three archetypes.** Command surfaces (monospace, square chrome), app-shell/content surfaces (low-chrome navigation/header/content), and control surfaces (settings/admin/config forms with a strict chrome budget). Archetype is a font-and-density choice, not a theme choice.
 - **Archetype is scoped.** The terminal vibe lives on the chat screen (and its dock / command surfaces). It is not the site-wide style.
 - **Preserve the good header.** The existing channel header is a reference surface for the target low-chrome direction, not a redesign target.

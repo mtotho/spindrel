@@ -238,3 +238,37 @@ test("upsertMessage replaces an existing persisted row in place", () => {
     assert.equal(messages[0]?.metadata?.compaction_status, "completed");
     assert.equal(messages[0]?.metadata?.compaction_summary_text, "Updated summary");
 });
+test("finishTurn materializes an error-only turn", () => {
+    useChatStore.setState({ channels: {} });
+    const store = useChatStore.getState();
+    store.startTurn("channel-1", "turn-err", "bot-1", "Bot", true);
+    store.handleTurnEvent("channel-1", "turn-err", {
+        event: "error",
+        data: { message: "InternalServerError: context window exceeded" },
+    });
+    store.finishTurn("channel-1", "turn-err");
+    const messages = useChatStore.getState().getChannel("channel-1").messages;
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.content, "Turn failed: InternalServerError: context window exceeded");
+    assert.equal(messages[0]?.metadata?.turn_error, true);
+    assert.equal(messages[0]?.metadata?.turn_error_message, "InternalServerError: context window exceeded");
+});
+test("finishTurn keeps partial streamed text while tagging terminal errors", () => {
+    useChatStore.setState({ channels: {} });
+    const store = useChatStore.getState();
+    store.startTurn("channel-1", "turn-partial", "bot-1", "Bot", true);
+    store.handleTurnEvent("channel-1", "turn-partial", {
+        event: "text_delta",
+        data: { delta: "partial answer" },
+    });
+    store.handleTurnEvent("channel-1", "turn-partial", {
+        event: "error",
+        data: { message: "InternalServerError: context window exceeded" },
+    });
+    store.finishTurn("channel-1", "turn-partial");
+    const messages = useChatStore.getState().getChannel("channel-1").messages;
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0]?.content, "partial answer");
+    assert.equal(messages[0]?.metadata?.turn_error, true);
+    assert.equal(messages[0]?.metadata?.turn_error_message, "InternalServerError: context window exceeded");
+});

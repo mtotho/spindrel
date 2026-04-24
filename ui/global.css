@@ -22,13 +22,13 @@
 /* ── Theme variables ──────────────────────────────────── */
 
 :root {
-  --color-surface: 248 249 252;
+  --color-surface: 243 246 251;
   --color-surface-raised: 255 255 255;
-  --color-surface-overlay: 243 244 246;
-  --color-surface-border: 229 231 235;
+  --color-surface-overlay: 232 238 248;
+  --color-surface-border: 211 219 231;
   --color-text: 23 23 23;
-  --color-text-muted: 115 115 115;
-  --color-text-dim: 163 163 163;
+  --color-text-muted: 91 100 116;
+  --color-text-dim: 107 114 128;
   --color-accent: 59 130 246;
   --color-accent-hover: 37 99 235;
   --color-accent-muted: 219 234 254;
@@ -38,7 +38,7 @@
   --color-purple: 168 85 247;
   --color-skeleton: 0 0 0;
   --color-input-bg: 255 255 255;
-  --color-input-border: 209 213 219;
+  --color-input-border: 198 207 220;
   --color-warning-muted: 180 83 9;
   --color-danger-muted: 248 113 113;
 }

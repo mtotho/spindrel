@@ -221,7 +221,7 @@ class TestListMessages:
                 "subject_type": "skill",
                 "label": "Loaded skill",
                 "target_id": "widgets",
-                "target_label": "widgets/INDEX.md",
+                "target_label": "Widgets",
             },
         }]
         correlation_id = uuid.uuid4()

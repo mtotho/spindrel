@@ -58,7 +58,7 @@ import {
   useUpdateIntegrationSettings,
   type IntegrationItem,
 } from "@/src/api/hooks/useIntegrations";
-import { CapBadge, EnvVarPill, StatusBadge, formatUptime } from "../components";
+import { AssetPill, CapBadge, EnvVarPill, StatusBadge, formatUptime } from "../components";
 import { DeviceStatusSection } from "./DeviceStatusSection";
 import { IntegrationDebugSection } from "./IntegrationDebugSection";
 import { MachineControlSetupSection } from "./MachineControlSetupSection";
@@ -568,16 +568,49 @@ function StatusControl({ item }: { item: IntegrationItem }) {
   );
 }
 
+function DenseChipGroup<T>({
+  items,
+  initialLimit = 18,
+  getKey,
+  renderItem,
+}: {
+  items: T[];
+  initialLimit?: number;
+  getKey: (item: T) => string;
+  renderItem: (item: T) => React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleItems = expanded ? items : items.slice(0, initialLimit);
+  const hiddenCount = items.length - visibleItems.length;
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {visibleItems.map((item) => (
+        <span key={getKey(item)}>{renderItem(item)}</span>
+      ))}
+      {items.length > initialLimit && (
+        <button
+          type="button"
+          onClick={() => setExpanded((current) => !current)}
+          className="inline-flex shrink-0 items-center rounded-full bg-surface-overlay/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.05em] text-text-muted transition-colors hover:bg-surface-overlay/60 hover:text-text"
+        >
+          {expanded ? "Show fewer" : `+${hiddenCount} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function AssetList({ title, items, tone = "neutral" }: { title: string; items?: string[]; tone?: "neutral" | "info" | "purple" }) {
   if (!items || items.length === 0) return null;
   return (
     <div className="flex flex-col gap-1.5">
       <SettingsGroupLabel label={title} count={items.length} />
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <SharedStatusBadge key={item} label={item} variant={tone} />
-        ))}
-      </div>
+      <DenseChipGroup
+        items={items}
+        getKey={(item) => item}
+        renderItem={(item) => <AssetPill label={item} tone={tone} />}
+      />
     </div>
   );
 }
@@ -700,9 +733,12 @@ export default function IntegrationDetailScreen() {
 
             {item.env_vars.length > 0 && (
               <Section title={`Environment Variables (${envSetCount}/${item.env_vars.length} set)`}>
-                <div className="flex flex-wrap gap-1.5">
-                  {item.env_vars.map((envVar) => <EnvVarPill key={envVar.key} v={envVar} />)}
-                </div>
+                <DenseChipGroup
+                  items={item.env_vars}
+                  initialLimit={12}
+                  getKey={(envVar) => envVar.key}
+                  renderItem={(envVar) => <EnvVarPill v={envVar} />}
+                />
               </Section>
             )}
 

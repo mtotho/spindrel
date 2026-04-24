@@ -59,7 +59,7 @@ export function getWidgetLayoutBounds(
   zone: ChatZone,
   cols: number,
 ): WidgetLayoutBounds {
-  return clampBounds(baseBoundsForZone(zone, cols), presentation?.layout_hints);
+  return baseBoundsForZone(zone, cols);
 }
 
 export function getSuggestedWidgetSize(
@@ -69,11 +69,15 @@ export function getSuggestedWidgetSize(
   cols: number,
 ): { w: number; h: number } {
   const preferredZone = presentation?.layout_hints?.preferred_zone?.trim();
+  const resolvedPreferredZone = preferredZone === "chip" ? "header" : preferredZone;
   const base =
     zone === "header" && preferredZone === "chip"
       ? { w: 4, h: 1 }
       : fallback;
-  const bounds = getWidgetLayoutBounds(presentation, zone, cols);
+  const bounds =
+    resolvedPreferredZone === zone
+      ? clampBounds(baseBoundsForZone(zone, cols), presentation?.layout_hints)
+      : baseBoundsForZone(zone, cols);
   const width = Math.max(bounds.minW, Math.min(bounds.maxW, Math.max(1, base.w)));
   const maxHeight = bounds.maxH;
   const height = Math.max(
