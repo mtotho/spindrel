@@ -152,12 +152,8 @@ export interface ChatSessionProps {
    *
    *   - ``dock`` — bottom-right panel with header chrome.
    *   - ``modal`` — centered overlay with header chrome.
-   *   - ``fullpage`` — chrome-less column body for embedding directly in a
-   *     page layout (e.g. the scratch full-page swap on ChannelPage). The
-   *     controller still renders a small header row with bot picker +
-   *     history + reset, but omits maximize/close (the host page owns
-   *     navigation via the surrounding page header). Only supported for the
-   *     ``ephemeral`` source kind today. */
+   *   - ``fullpage`` — column body for embedding directly in a page layout
+   *     (e.g. the scratch full-page swap or session split panels). */
   shape: "modal" | "dock" | "fullpage";
   /** Controlled open state (caller owns open/close). */
   open: boolean;
@@ -643,6 +639,14 @@ function ChannelChatSession({
       <ChatSessionModal open={open} onClose={onClose} title={displayTitle}>
         {body}
       </ChatSessionModal>
+    );
+  }
+
+  if (shape === "fullpage") {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col">
+        {body}
+      </div>
     );
   }
 

@@ -1,276 +1,329 @@
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { useState, useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { AlertTriangle, Bot, Code2, FileText, Info, Save, Trash2 } from "lucide-react";
 
-import { useParams, useLocation } from "react-router-dom";
-import { useUIStore } from "@/src/stores/ui";
-import { Trash2, Info } from "lucide-react";
-import { useGoBack } from "@/src/hooks/useGoBack";
-import { PageHeader } from "@/src/components/layout/PageHeader";
-import { useSkill, useCreateSkill, useUpdateSkill, useDeleteSkill } from "@/src/api/hooks/useSkills";
+import { useCreateSkill, useDeleteSkill, useSkill, useSkills, useUpdateSkill } from "@/src/api/hooks/useSkills";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
-import { FormRow, TextInput, Section } from "@/src/components/shared/FormControls";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { PageHeader } from "@/src/components/layout/PageHeader";
+import { useGoBack } from "@/src/hooks/useGoBack";
+import { useUIStore } from "@/src/stores/ui";
 import { buildRecentHref } from "@/src/lib/recentPages";
+import { FormRow, Section, TextInput } from "@/src/components/shared/FormControls";
+import {
+  ActionButton,
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsSegmentedControl,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { SourceTextEditor } from "@/src/components/shared/SourceTextEditor";
+import { MarkdownViewer } from "@/src/components/workspace/MarkdownViewer";
+
+import { analyzeSkill, skillSourceBucket, skillSourceLabel, splitSkillContent } from "../skillLibrary";
+
+type ViewMode = "preview" | "source";
+type BadgeVariant = "success" | "warning" | "danger" | "info" | "neutral" | "purple" | "skipped";
 
 function fmtDate(iso: string | null | undefined) {
-  if (!iso) return "\u2014";
+  if (!iso) return "-";
   return new Date(iso).toLocaleString(undefined, {
-    month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
-  const t = useThemeTokens();
+function sourceVariant(bucket: ReturnType<typeof skillSourceBucket>): BadgeVariant {
+  if (bucket === "integration") return "warning";
+  if (bucket === "bot") return "purple";
+  if (bucket === "manual") return "neutral";
+  return "info";
+}
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: t.textDim }}>{label}</span>
-      <span style={{ fontSize: 11, color: t.text, fontFamily: "monospace" }}>{value}</span>
+    <div className="flex min-w-0 items-start justify-between gap-3 text-[12px]">
+      <span className="shrink-0 text-text-dim">{label}</span>
+      <span className="min-w-0 text-right font-mono text-text-muted break-all">{value}</span>
     </div>
   );
 }
 
 export default function SkillDetailScreen() {
-  const t = useThemeTokens();
   const { "*": skillId } = useParams();
   const isNew = skillId === "new";
+  const navigate = useNavigate();
   const goBack = useGoBack("/admin/skills");
   const { data: skill, isLoading } = useSkill(isNew ? undefined : skillId);
+  const { data: allSkills = [] } = useSkills();
   const createMut = useCreateSkill();
   const updateMut = useUpdateSkill(skillId);
   const deleteMut = useDeleteSkill();
   const { confirm, ConfirmDialogSlot } = useConfirm();
-
-  const { width } = useWindowSize();
-  const isWide = width >= 768;
-
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [content, setContent] = useState("");
-  const [initialized, setInitialized] = useState(isNew);
+  const [mode, setMode] = useState<ViewMode>("preview");
 
-  // Enrich command palette recent with skill name
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
   const loc = useLocation();
   useEffect(() => {
     if (skill?.name) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), skill.name);
   }, [skill?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
-  if (skill && !initialized) {
+  useEffect(() => {
+    if (!skill || isNew) return;
     setName(skill.name || "");
     setContent(skill.content || "");
-    setInitialized(true);
-  }
+  }, [isNew, skill]);
 
-  const isFileManaged = skill?.source_type === "file" || skill?.source_type === "integration";
+  const readOnly = Boolean(skill?.source_type === "file" || skill?.source_type === "integration");
+  const isSaving = createMut.isPending || updateMut.isPending;
+  const canSave = isNew ? Boolean(id.trim() && name.trim()) : Boolean(name.trim() && !readOnly);
+  const mutError = createMut.error || updateMut.error || deleteMut.error;
+  const analysis = useMemo(() => (
+    skill ? analyzeSkill({ ...skill, content }) : splitSkillContent(content)
+  ), [content, skill]);
+  const sourceBucket = skill ? skillSourceBucket(skill) : "manual";
+  const childSkills = useMemo(
+    () => (skill ? allSkills.filter((item) => item.folder_root_id === skill.id || item.parent_skill_id === skill.id) : []),
+    [allSkills, skill],
+  );
 
   const handleSave = useCallback(async () => {
     if (isNew) {
       if (!id.trim() || !name.trim()) return;
       await createMut.mutateAsync({ id: id.trim(), name: name.trim(), content });
       goBack();
-    } else {
-      if (!name.trim()) return;
-      await updateMut.mutateAsync({ name: name.trim(), content });
+      return;
     }
-  }, [isNew, id, name, content, createMut, updateMut, goBack]);
+    if (!name.trim() || readOnly) return;
+    await updateMut.mutateAsync({ name: name.trim(), content });
+  }, [content, createMut, goBack, id, isNew, name, readOnly, updateMut]);
 
   const handleDelete = useCallback(async () => {
-    if (!skillId) return;
-    const enrolledMsg = skill?.enrolled_bot_count
-      ? ` It is enrolled in ${skill.enrolled_bot_count} bot${skill.enrolled_bot_count !== 1 ? "s" : ""}.`
+    if (!skillId || !skill) return;
+    const enrolledMsg = skill.enrolled_bot_count
+      ? ` It is enrolled in ${skill.enrolled_bot_count} bot${skill.enrolled_bot_count === 1 ? "" : "s"}.`
       : "";
     const ok = await confirm(
-      `Delete "${skill?.name || skillId}" permanently?${enrolledMsg} This cannot be undone.`,
+      `Delete "${skill.name || skillId}" permanently?${enrolledMsg} This cannot be undone.`,
       { title: "Delete skill", variant: "danger", confirmLabel: "Delete permanently" },
     );
     if (!ok) return;
     await deleteMut.mutateAsync(skillId);
     goBack();
-  }, [skillId, skill, deleteMut, goBack, confirm]);
-
-  const isSaving = createMut.isPending || updateMut.isPending;
-  const canSave = isNew ? (id.trim() && name.trim()) : name.trim();
-  const mutError = createMut.error || updateMut.error || deleteMut.error;
+  }, [confirm, deleteMut, goBack, skill, skillId]);
 
   if (!isNew && isLoading) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 items-center justify-center bg-surface">
         <Spinner />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader variant="detail"
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <PageHeader
+        variant="detail"
         parentLabel="Skills"
         backTo="/admin/skills"
-        title={isNew ? "New Skill" : "Edit Skill"}
-        subtitle={!isNew ? skillId : undefined}
+        title={isNew ? "New Skill" : skill?.name || "Skill"}
+        subtitle={!isNew ? skillId : "Manual library entry"}
         right={
-          <>
-            {!isNew && !isFileManaged && (
-              <button
-                onClick={handleDelete}
+          <div className="flex items-center gap-1.5">
+            {!isNew && skill && <StatusBadge label={readOnly ? "read only" : "editable"} variant={readOnly ? "neutral" : "info"} />}
+            {!isNew && skill && !readOnly && (
+              <ActionButton
+                label="Delete"
+                variant="danger"
+                icon={<Trash2 size={14} />}
                 disabled={deleteMut.isPending}
-                title="Delete"
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: isWide ? 6 : 0,
-                  padding: isWide ? "6px 14px" : "6px 8px", fontSize: 13,
-                  border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-                  background: "transparent", color: t.danger, cursor: "pointer", flexShrink: 0,
-                }}
-              >
-                <Trash2 size={14} />
-                {isWide && "Delete"}
-              </button>
+                onPress={handleDelete}
+              />
             )}
-            <button
-              onClick={handleSave}
-              disabled={isSaving || !canSave || isFileManaged}
-              style={{
-                padding: isWide ? "6px 20px" : "6px 12px", fontSize: 13, fontWeight: 600,
-                border: "none", borderRadius: 6, flexShrink: 0,
-                background: (!canSave || isFileManaged) ? t.surfaceBorder : t.accent,
-                color: (!canSave || isFileManaged) ? t.textDim : "#fff",
-                cursor: (!canSave || isFileManaged) ? "not-allowed" : "pointer",
-              }}
-            >
-              {isSaving ? "..." : isNew ? "Create & Embed" : "Save & Re-embed"}
-            </button>
-          </>
+            <ActionButton
+              label={isNew ? "Create & Embed" : "Save & Re-embed"}
+              icon={<Save size={14} />}
+              disabled={isSaving || !canSave}
+              onPress={handleSave}
+            />
+          </div>
         }
       />
 
-      {/* Error display */}
-      {mutError && (
-        <div style={{ padding: "8px 20px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
-          {(mutError as any)?.message || "An error occurred"}
-        </div>
-      )}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-7 p-6">
+          {mutError && (
+            <InfoBanner variant="danger" icon={<AlertTriangle size={13} />}>
+              {(mutError as Error)?.message || "Skill update failed."}
+            </InfoBanner>
+          )}
 
-      {/* File-managed banner */}
-      {isFileManaged && (
-        <div style={{
-          margin: isWide ? "16px 20px 0" : "12px 12px 0",
-          padding: "12px 16px", borderRadius: 8,
-          background: t.accentSubtle, border: `1px solid ${t.accentBorder}`,
-          display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 10,
-        }}>
-          <Info size={14} color={t.accent} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 12, color: t.accent, lineHeight: 1.5 }}>
-            This skill is managed by a {skill?.source_type} (
-            <code style={{ fontSize: 11, fontWeight: 600 }}>{skill?.source_path}</code>
-            ). Edit the source file to make changes &mdash; the server will pick them up automatically.
-          </div>
-        </div>
-      )}
+          {readOnly && skill && (
+            <InfoBanner variant="info" icon={<Info size={13} />}>
+              This skill is managed by {skill.source_type === "integration" ? "an integration package" : "a source file"}.
+              {skill.source_path ? <span className="font-mono"> {skill.source_path}</span> : null}
+            </InfoBanner>
+          )}
 
-      {/* Body */}
-      <div style={{ display: "flex", flex: 1, ...(isWide ? { flexDirection: "row" as const } : {}) }}>
-        {/* Content editor */}
-        <div style={{
-          ...(isWide ? { flex: 3, borderRight: `1px solid ${t.surfaceOverlay}` } : {}),
-          display: "flex", flexDirection: "column",
-          padding: isWide ? "16px 20px" : "12px 12px",
-        }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginBottom: 6 }}>
-            Content (Markdown)
-          </div>
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            readOnly={isFileManaged}
-            placeholder="Write skill content in Markdown. Chunks are split by ## headings."
-            style={{
-              flex: 1, minHeight: isWide ? 400 : 250,
-              background: isFileManaged ? t.surface : t.inputBg,
-              border: `1px solid ${isFileManaged ? t.surfaceBorder : t.surfaceOverlay}`, borderRadius: 8,
-              padding: 12, fontSize: 13, lineHeight: 1.6,
-              color: isFileManaged ? t.textMuted : t.text,
-              fontFamily: "monospace", resize: "vertical",
-              outline: "none",
-            }}
-          />
-          <div style={{ fontSize: 10, color: t.textDim, marginTop: 6 }}>
-            Chunks are split by <code style={{ color: t.textDim }}>## </code> headings and re-embedded on save.
-          </div>
-        </div>
-
-        {/* Metadata panel */}
-        <div style={{
-          ...(isWide ? { flex: 1.5, minWidth: 260 } : {}),
-          padding: isWide ? "16px 20px" : "12px 12px",
-          borderTop: isWide ? "none" : `1px solid ${t.surfaceOverlay}`,
-        }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            {isNew && (
-              <Section title="Identity">
-                <FormRow label="Skill ID" description="Lowercase slug, cannot be changed later">
-                  <TextInput
-                    value={id}
-                    onChangeText={setId}
-                    placeholder="e.g. arch_linux"
-                    style={{ fontFamily: "monospace" }}
+          <div className="grid gap-7 lg:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="flex min-w-0 flex-col gap-7">
+              <Section
+                title="Readable Skill"
+                description="Preview the instruction body first; inspect the literal Markdown source when needed."
+                action={
+                  <SettingsSegmentedControl<ViewMode>
+                    value={mode}
+                    onChange={setMode}
+                    options={[
+                      { value: "preview", label: "Preview", icon: <FileText size={13} /> },
+                      { value: "source", label: "Source", icon: <Code2 size={13} /> },
+                    ]}
                   />
-                </FormRow>
-                <FormRow label="Display Name">
-                  <TextInput value={name} onChangeText={setName} placeholder="e.g. Arch Linux" />
-                </FormRow>
-              </Section>
-            )}
-
-            {!isNew && (
-              <Section title="Identity">
-                <FormRow label="Display Name">
-                  <TextInput
-                    value={name}
-                    onChangeText={isFileManaged ? () => {} : setName}
-                    placeholder="Skill name"
-                    style={isFileManaged ? { opacity: 0.5, pointerEvents: "none" } : undefined}
-                  />
-                </FormRow>
-              </Section>
-            )}
-
-            {skill && (
-              <>
-                {skill.description && (
-                  <Section title="Description">
-                    <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-                      {skill.description}
+                }
+              >
+                {mode === "preview" ? (
+                  analysis.body.trim() ? (
+                    <div className="rounded-md bg-surface-raised/35">
+                      <MarkdownViewer content={analysis.body} />
                     </div>
-                  </Section>
+                  ) : (
+                    <EmptyState message="No readable Markdown body is available yet." />
+                  )
+                ) : (
+                  <SourceTextEditor
+                    value={content}
+                    onChange={readOnly ? undefined : setContent}
+                    language="markdown"
+                    readOnly={readOnly}
+                    minHeight={520}
+                    status={analysis.parseError ? { variant: "danger", label: "Frontmatter error" } : null}
+                    placeholder="Write the skill in Markdown. Optional YAML frontmatter goes between --- fences."
+                  />
                 )}
-                <Section title="Info">
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <InfoRow label="ID" value={skill.id} />
-                    <InfoRow label="Source" value={skill.source_type} />
-                    {skill.source_path && <InfoRow label="Path" value={skill.source_path} />}
-                    {skill.category && <InfoRow label="Category" value={skill.category} />}
-                    <InfoRow label="Chunks" value={String(skill.chunk_count)} />
-                    <InfoRow label="Enrolled bots" value={String(skill.enrolled_bot_count)} />
-                    <InfoRow label="Created" value={fmtDate(skill.created_at)} />
-                    <InfoRow label="Updated" value={fmtDate(skill.updated_at)} />
+              </Section>
+
+              {isNew || !readOnly ? (
+                <Section title="Identity" description="Manual skills keep the existing edit and re-embed behavior.">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {isNew && (
+                      <FormRow label="Skill ID" description="Lowercase slug. This cannot be changed later.">
+                        <TextInput value={id} onChangeText={setId} placeholder="workspace/release_notes" />
+                      </FormRow>
+                    )}
+                    <FormRow label="Display name">
+                      <TextInput value={name} onChangeText={setName} placeholder="Release Notes" />
+                    </FormRow>
                   </div>
                 </Section>
-                {skill.triggers && skill.triggers.length > 0 && (
-                  <Section title="Triggers">
-                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                      {skill.triggers.map((trigger) => (
-                        <span key={trigger} style={{
-                          padding: "2px 8px", borderRadius: 4, fontSize: 11,
-                          background: t.surfaceOverlay, color: t.textMuted,
-                        }}>
-                          {trigger}
-                        </span>
-                      ))}
+              ) : null}
+
+              {childSkills.length > 0 && (
+                <Section title="Children" description="Folder-layout skills are shown as source groups in the library.">
+                  <div className="flex flex-col gap-1.5">
+                    {childSkills.map((child) => (
+                      <SettingsControlRow
+                        key={child.id}
+                        leading={<FileText size={14} />}
+                        title={child.name || child.id}
+                        description={child.description || child.id}
+                        meta={<QuietPill label={child.id} maxWidthClass="max-w-[220px]" />}
+                        onClick={() => navigate(`/admin/skills/${encodeURIComponent(child.id)}`)}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              )}
+            </div>
+
+            <aside className="flex min-w-0 flex-col gap-6">
+              {skill && (
+                <Section title="Overview">
+                  <div className="flex flex-col gap-3">
+                    <SettingsControlRow
+                      leading={sourceBucket === "bot" ? <Bot size={14} /> : <FileText size={14} />}
+                      title={skillSourceLabel(skill)}
+                      description={skill.source_path || skill.id}
+                      meta={<StatusBadge label={sourceBucket} variant={sourceVariant(sourceBucket)} />}
+                    />
+                    <div className="flex flex-col gap-2 rounded-md bg-surface-raised/35 px-3 py-3">
+                      <InfoRow label="ID" value={skill.id} />
+                      <InfoRow label="Layout" value={skill.skill_layout} />
+                      <InfoRow label="Category" value={skill.category || "-"} />
+                      <InfoRow label="Chunks" value={skill.chunk_count} />
+                      <InfoRow label="Enrolled bots" value={skill.enrolled_bot_count} />
+                      <InfoRow label="Surfaced" value={skill.surface_count} />
+                      <InfoRow label="Auto-injects" value={skill.total_auto_injects ?? 0} />
+                      <InfoRow label="Updated" value={fmtDate(skill.updated_at)} />
+                      <InfoRow label="Created" value={fmtDate(skill.created_at)} />
                     </div>
-                  </Section>
+                  </div>
+                </Section>
+              )}
+
+              <Section title="Frontmatter Quality">
+                {analysis.warnings.length ? (
+                  <div className="flex flex-col gap-2">
+                    {analysis.warnings.map((warning) => (
+                      <SettingsControlRow
+                        key={warning}
+                        compact
+                        leading={<AlertTriangle size={13} />}
+                        title={warning}
+                        description="Advisory only. The skill remains available."
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <SettingsControlRow leading={<FileText size={14} />} title="Required metadata present" />
                 )}
-              </>
-            )}
+              </Section>
+
+              {skill?.triggers?.length ? (
+                <Section title="Triggers">
+                  <div className="flex flex-wrap gap-1.5">
+                    {skill.triggers.map((trigger) => <QuietPill key={trigger} label={trigger} maxWidthClass="max-w-[220px]" />)}
+                  </div>
+                </Section>
+              ) : null}
+
+              {skill?.scripts?.length ? (
+                <Section title="Scripts" description="Read-only summaries. Script bodies are not exposed here.">
+                  <div className="flex flex-col gap-1.5">
+                    {skill.scripts.map((script) => (
+                      <SettingsControlRow
+                        key={script.name}
+                        leading={<Code2 size={14} />}
+                        title={script.name}
+                        description={script.description || "No script description provided."}
+                        meta={script.timeout_s ? <QuietPill label={`${script.timeout_s}s`} /> : undefined}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              ) : null}
+
+              {analysis.frontmatterRaw && (
+                <Section title="Frontmatter Source">
+                  <SourceTextEditor
+                    value={analysis.frontmatterRaw}
+                    language="yaml"
+                    readOnly
+                    minHeight={180}
+                    maxHeight={360}
+                    status={analysis.parseError ? { variant: "danger", label: "Invalid YAML" } : null}
+                  />
+                </Section>
+              )}
+            </aside>
           </div>
         </div>
       </div>

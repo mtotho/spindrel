@@ -1,6 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
+export interface SkillScriptSummary {
+  name: string;
+  description?: string | null;
+  timeout_s?: number | null;
+}
+
 export interface SkillItem {
   id: string;
   name: string;
@@ -22,6 +28,8 @@ export interface SkillItem {
   folder_root_id?: string | null;
   parent_skill_id?: string | null;
   has_children: boolean;
+  scripts?: SkillScriptSummary[];
+  script_count: number;
 }
 
 export function useSkills(opts?: {

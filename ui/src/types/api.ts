@@ -820,7 +820,8 @@ export type SlashCommandId =
   | "plan"
   | "effort"
   | "clear"
-  | "scratch";
+  | "scratch"
+  | "sessions";
 export type SlashCommandSurface = "channel" | "session";
 export type EffortLevel = "off" | "low" | "medium" | "high";
 export type ChatModeId = "default" | "terminal";

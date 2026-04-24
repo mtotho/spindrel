@@ -193,6 +193,15 @@ def _workspace_source_file(
     )
 
 
+def _bot_workspace_relative_path(bot, path: str | None) -> str | None:
+    if not path:
+        return None
+    cleaned = path.lstrip("/")
+    if getattr(bot, "shared_workspace_id", None) and not cleaned.startswith("bots/"):
+        return f"bots/{bot.id}/{cleaned}"
+    return cleaned
+
+
 async def _bot_configs(selected: set[str] | None = None):
     from app.agent.bots import list_bots
 
@@ -230,9 +239,9 @@ async def _search_memory_source(
         except Exception:
             logger.debug("Admin memory search failed for bot %s", bot.id, exc_info=True)
             continue
-        for hit in hits:
+        for hit_index, hit in enumerate(hits):
             results.append(LearningSearchResult(
-                id=f"memory:{bot.id}:{hit.file_path}",
+                id=f"memory:{bot.id}:{hit.file_path}:{hit_index}",
                 source="memory",
                 title=hit.file_path,
                 snippet=_trim_snippet(hit.content),
@@ -243,7 +252,8 @@ async def _search_memory_source(
                 open_url=f"/admin/bots/{bot.id}#learning",
                 source_file=_workspace_source_file(
                     workspace_id=getattr(bot, "shared_workspace_id", None),
-                    path=hit.file_path,
+                    path=_bot_workspace_relative_path(bot, hit.file_path),
+                    display_path=hit.file_path,
                     owner_type="bot",
                     owner_id=bot.id,
                     owner_name=bot.name,
@@ -281,9 +291,9 @@ async def _search_bot_knowledge_source(
         except Exception:
             logger.debug("Admin bot knowledge search failed for bot %s", bot.id, exc_info=True)
             continue
-        for hit in hits:
+        for hit_index, hit in enumerate(hits):
             results.append(LearningSearchResult(
-                id=f"bot_knowledge:{bot.id}:{hit.file_path}",
+                id=f"bot_knowledge:{bot.id}:{hit.file_path}:{hit_index}",
                 source="bot_knowledge",
                 title=hit.file_path,
                 snippet=_trim_snippet(hit.content),
@@ -294,7 +304,8 @@ async def _search_bot_knowledge_source(
                 open_url=f"/admin/bots/{bot.id}#learning",
                 source_file=_workspace_source_file(
                     workspace_id=getattr(bot, "shared_workspace_id", None),
-                    path=hit.file_path,
+                    path=_bot_workspace_relative_path(bot, hit.file_path),
+                    display_path=hit.file_path,
                     owner_type="bot",
                     owner_id=bot.id,
                     owner_name=bot.name,
@@ -356,10 +367,10 @@ async def _search_channel_knowledge_source(
         except Exception:
             logger.debug("Admin channel knowledge search failed for channel %s", channel.id, exc_info=True)
             continue
-        for hit in hits:
+        for hit_index, hit in enumerate(hits):
             ch_id = str(channel.id)
             results.append(LearningSearchResult(
-                id=f"channel_knowledge:{ch_id}:{hit.file_path}",
+                id=f"channel_knowledge:{ch_id}:{hit.file_path}:{hit_index}",
                 source="channel_knowledge",
                 title=hit.file_path,
                 snippet=_trim_snippet(hit.content),
@@ -486,7 +497,8 @@ async def _memory_activity(
             job_type=job_type,
             source_file=_workspace_source_file(
                 workspace_id=getattr(bot_config, "shared_workspace_id", None),
-                path=short,
+                path=_bot_workspace_relative_path(bot_config, short) if bot_config else short,
+                display_path=short,
                 owner_type="bot",
                 owner_id=bot_id,
                 owner_name=bot_name,
@@ -888,7 +900,8 @@ async def learning_overview(
             job_type=corr_to_job_type.get(corr_str) if is_hygiene and corr_str else None,
             source_file=_workspace_source_file(
                 workspace_id=getattr(bot_config, "shared_workspace_id", None),
-                path=short,
+                path=_bot_workspace_relative_path(bot_config, short) if bot_config else short,
+                display_path=short,
                 owner_type="bot",
                 owner_id=bot_id,
                 owner_name=bot_name,

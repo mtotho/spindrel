@@ -376,7 +376,13 @@ function MemoryActivityPreview({
       ) : (
         <div className="flex flex-col gap-1.5">
           {rows.map((row, index) => {
-            const id = `activity:${row.correlation_id ?? index}:${row.file_path}`;
+            const id = [
+              "activity",
+              row.correlation_id ?? row.created_at ?? index,
+              row.file_path,
+              row.created_at ?? index,
+              index,
+            ].join(":");
             const result: LearningSearchResult = {
               id,
               source: "memory",

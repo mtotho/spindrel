@@ -8,6 +8,12 @@ import {
 } from "@/src/api/hooks/useEphemeralSession";
 import { Check, Loader2, RotateCcw, StickyNote, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
+import {
+  formatScratchSessionTimestamp,
+  getScratchSessionLabel,
+  getScratchSessionStats,
+  isUntouchedDraftSession,
+} from "@/src/lib/channelSessionSurfaces";
 
 interface ScratchSessionMenuProps {
   open: boolean;
@@ -22,35 +28,6 @@ interface ScratchSessionMenuProps {
   onNavigateSession: (sessionId: string) => void;
 }
 
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "?";
-  return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function previewLabel(preview?: string): string {
-  const raw = preview?.trim();
-  if (!raw) return "Untitled session";
-  return raw;
-}
-
-function sessionLabel(row: { title?: string | null; preview?: string }): string {
-  const title = row.title?.trim();
-  if (title) return title;
-  return previewLabel(row.preview);
-}
-
-function formatSessionStats(messageCount?: number, sectionCount?: number): string {
-  const messages = messageCount ?? 0;
-  const sections = sectionCount ?? 0;
-  return `${messages} msg${messages === 1 ? "" : "s"} · ${sections} section${sections === 1 ? "" : "s"}`;
-}
-
 function handleButtonLikeKeyDown(
   event: React.KeyboardEvent<HTMLElement>,
   onActivate: () => void,
@@ -59,23 +36,6 @@ function handleButtonLikeKeyDown(
     event.preventDefault();
     onActivate();
   }
-}
-
-function isUntouchedDraftSession(session: {
-  message_count?: number;
-  section_count?: number;
-  title?: string | null;
-  summary?: string | null;
-  preview?: string;
-} | null | undefined): boolean {
-  if (!session) return false;
-  const messageCount = session.message_count ?? 0;
-  const sectionCount = session.section_count ?? 0;
-  if (messageCount !== 0 || sectionCount !== 0) return false;
-  if ((session.title || "").trim()) return false;
-  if ((session.summary || "").trim()) return false;
-  if ((session.preview || "").trim()) return false;
-  return true;
 }
 
 export function ScratchSessionMenu({
@@ -319,7 +279,7 @@ export function ScratchSessionMenu({
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-2">
-                    <div className="truncate text-[12px] font-medium text-text">{sessionLabel(currentRow)}</div>
+                    <div className="truncate text-[12px] font-medium text-text">{getScratchSessionLabel(currentRow)}</div>
                     <div className="flex shrink-0 items-center gap-1">
                       <button
                         type="button"
@@ -345,7 +305,7 @@ export function ScratchSessionMenu({
                   </div>
                 )}
                 <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-dim">
-                  <span>{formatTimestamp(currentRow.last_active)}</span>
+                  <span>{formatScratchSessionTimestamp(currentRow.last_active)}</span>
                   {showPrimarySessionRow ? (
                     <button
                       type="button"
@@ -375,7 +335,7 @@ export function ScratchSessionMenu({
                   ) : null}
                 </div>
                 <div className="mt-1 text-[11px] text-text-dim">
-                  {formatSessionStats(currentRow.message_count, currentRow.section_count)}
+                  {getScratchSessionStats(currentRow)}
                 </div>
               </div>
             </div>
@@ -479,7 +439,7 @@ export function ScratchSessionMenu({
                       ) : (
                         <div className="block w-full text-left">
                           <div className="flex items-start justify-between gap-2">
-                            <div className="truncate text-[12px] font-medium text-text">{sessionLabel(row)}</div>
+                            <div className="truncate text-[12px] font-medium text-text">{getScratchSessionLabel(row)}</div>
                             <button
                               type="button"
                               onClick={(event) => {
@@ -498,7 +458,7 @@ export function ScratchSessionMenu({
                         </div>
                       )}
                       <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-text-dim">
-                        <span>{formatTimestamp(row.last_active)}</span>
+                        <span>{formatScratchSessionTimestamp(row.last_active)}</span>
                         {showPromoteAction ? (
                           <button
                             type="button"
@@ -528,7 +488,7 @@ export function ScratchSessionMenu({
                         ) : null}
                       </div>
                       <div className="mt-1 text-[11px] text-text-dim">
-                        {formatSessionStats(row.message_count, row.section_count)}
+                        {getScratchSessionStats(row)}
                       </div>
                     </div>
                   </div>

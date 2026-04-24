@@ -28,6 +28,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Retuned global light-mode neutral tokens so low-chrome shared controls read with more surface depth without adding a second accent or page-local decorative fills.
 - [x] Started the post-theme integration detail density pass: high-volume detected asset/env-var chip groups now collapse behind overflow controls, and capability chips read as metadata instead of accent-colored state.
 - [x] Added shared `SourceTextEditor` for literal YAML/JSON/code strings and moved the integration manifest YAML tab off its raw textarea while keeping file-inspector ownership separate.
+- [x] Rebuilt `/admin/skills` as the canonical fleet-wide skill library: shared low-chrome controls, source-grouped folder tree, advisory frontmatter warnings, read-first detail preview, shared `SourceTextEditor` source inspection, and read-only script summaries from the admin skills API.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
@@ -179,6 +180,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Terminal/default rendering now goes through a mode-aware view registry** — result envelopes can carry `view_key`, `data`, and `template_id`; `RichToolResult` resolves `view_key + mode` through a registry instead of rewriting terminal widgets into default JSON/card paths. Generic semantic views such as `core.search_results` can provide default and terminal React renderers from the same structured data, and unknown old widget rows fall through to a safe non-crashing fallback instead of mounting default chrome.
 - [x] **Composer placement is now a mode contract instead of scattered terminal checks** — `chatModes.ts` defines default as viewport-overlay and terminal as transcript-flow, and `ChatSession` uses that helper for input placement. This preserves default’s sticky/floating composer while terminal’s input remains part of the transcript and scrolls off-screen when reviewing older messages.
 - [x] **Terminal palette moved toward one-accent styling** — terminal assistant/user headers now avoid random avatar colors, streamed skill/thinking chrome avoids purple pills, JSON primitive colors are neutralized, and terminal web-search URLs use muted text instead of success green.
+- [x] **Channel session switching gained a command-first path** — `/sessions` and This Channel palette actions now open a channel-scoped session picker with primary/scratch rows, search, rename/promote actions, fresh-session entry, and a desktop-only split action. Split scratch sessions persist per channel as up to two side panels, while mobile keeps the main-chat switch behavior.
+- [x] **Session switching got an extensibility boundary pass** — primary/scratch session surfaces now route through a pure `channelSessionSurfaces` model that owns descriptors, split-panel normalization, route/source builders, picker entries, labels/stats, and untouched-draft detection. The desktop split panel is extracted from `ChannelPage`, leaving the page to orchestrate activation rather than rebuild scratch session chrome inline.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -214,6 +217,11 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_compaction.py tests/unit/test_compaction_core_gaps.py::TestMaybeCompact -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after terminal mobile tool-row overflow fix
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after `/sessions` picker + session split panels
+- [x] `python -m py_compile agent-server/app/services/slash_commands.py`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session-surface boundary hardening
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.

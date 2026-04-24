@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete, func, select, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,12 +20,18 @@ router = APIRouter()
 # Schemas
 # ---------------------------------------------------------------------------
 
+class SkillScriptSummary(BaseModel):
+    name: str
+    description: str = ""
+    timeout_s: Optional[int] = None
+
+
 class SkillOut(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
     category: Optional[str] = None
-    triggers: list[str] = []
+    triggers: list[str] = Field(default_factory=list)
     content: str = ""
     source_type: str = "manual"
     source_path: Optional[str] = None
@@ -41,6 +47,8 @@ class SkillOut(BaseModel):
     folder_root_id: Optional[str] = None
     parent_skill_id: Optional[str] = None
     has_children: bool = False
+    scripts: list[SkillScriptSummary] = Field(default_factory=list)
+    script_count: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -71,6 +79,31 @@ def _skill_layout_fields(skill_id: str, *, has_children: bool = False) -> dict[s
         "folder_root_id": root_id,
         "parent_skill_id": parent_id,
     }
+
+
+def _summarize_skill_scripts(raw_scripts: object) -> list[SkillScriptSummary]:
+    if not isinstance(raw_scripts, list):
+        return []
+    summaries: list[SkillScriptSummary] = []
+    for idx, script in enumerate(raw_scripts):
+        if not isinstance(script, dict):
+            continue
+        name = str(script.get("name") or f"script_{idx + 1}").strip()
+        if not name:
+            continue
+        timeout = script.get("timeout_s", script.get("timeout"))
+        try:
+            timeout_s = int(timeout) if timeout is not None else None
+        except (TypeError, ValueError):
+            timeout_s = None
+        summaries.append(
+            SkillScriptSummary(
+                name=name,
+                description=str(script.get("description") or "").strip(),
+                timeout_s=timeout_s,
+            )
+        )
+    return summaries
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +197,11 @@ async def admin_list_skills(
             return parts[1] if len(parts) >= 3 else None
         return None
 
-    result = [
-        SkillOut(
+    result = []
+    for s in skills:
+        scripts = _summarize_skill_scripts(s.scripts)
+        has_children = s.id in folder_roots_with_children
+        result.append(SkillOut(
             id=s.id,
             name=s.name,
             description=s.description,
@@ -182,11 +218,11 @@ async def admin_list_skills(
             total_auto_injects=ai_map.get(s.id, 0),
             bot_id=_extract_bot_id(s.id, s.source_type),
             enrolled_bot_count=enrollment_map.get(s.id, 0),
-            has_children=s.id in folder_roots_with_children,
-            **_skill_layout_fields(s.id, has_children=s.id in folder_roots_with_children),
-        )
-        for s in skills
-    ]
+            has_children=has_children,
+            scripts=scripts,
+            script_count=len(scripts),
+            **_skill_layout_fields(s.id, has_children=has_children),
+        ))
 
     return result
 
@@ -212,6 +248,7 @@ async def admin_get_skill(
         select(func.count()).select_from(SkillRow)
         .where(SkillRow.id.like(f"{skill_id}/%"))
     )).scalar_one() > 0
+    scripts = _summarize_skill_scripts(row.scripts)
     return SkillOut(
         id=row.id, name=row.name, content=row.content or "",
         description=row.description, category=row.category,
@@ -223,6 +260,8 @@ async def admin_get_skill(
         surface_count=row.surface_count,
         enrolled_bot_count=enrolled_bot_count,
         has_children=has_children,
+        scripts=scripts,
+        script_count=len(scripts),
         **_skill_layout_fields(row.id, has_children=has_children),
     )
 
@@ -258,6 +297,8 @@ async def admin_create_skill(
         id=row.id, name=row.name, content=row.content or "",
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=0, created_at=row.created_at, updated_at=row.updated_at,
+        scripts=[],
+        script_count=0,
         **_skill_layout_fields(row.id),
     )
 
@@ -290,12 +331,15 @@ async def admin_update_skill(
         select(func.count()).select_from(Document)
         .where(Document.source == f"skill:{skill_id}")
     )).scalar_one()
+    scripts = _summarize_skill_scripts(row.scripts)
     return SkillOut(
         id=row.id, name=row.name, content=row.content or "",
         source_type=row.source_type, source_path=row.source_path,
         chunk_count=chunk_count,
         created_at=row.created_at, updated_at=row.updated_at,
         has_children=False,
+        scripts=scripts,
+        script_count=len(scripts),
         **_skill_layout_fields(row.id),
     )
 

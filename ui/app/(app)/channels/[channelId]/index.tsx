@@ -38,6 +38,7 @@ import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessag
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
+import { ChannelSessionSplitPanel } from "./ChannelSessionSplitPanel";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import {
   CHANNEL_CHAT_MIN_WIDTH,
@@ -57,6 +58,7 @@ import { useChannelChat } from "./useChannelChat";
 import { useSessionPlanMode } from "./useSessionPlanMode";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
+import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
 import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
@@ -72,6 +74,14 @@ import {
   CHANNEL_OPEN_FILE_PARAM,
   readChannelFileIntent,
 } from "@/src/lib/channelFileNavigation";
+import {
+  addChannelSessionPanel,
+  buildChannelSessionRoute,
+  buildScratchChatSource,
+  removeChannelSessionPanel,
+  type ChannelSessionActivationIntent,
+  type ChannelSessionSurface,
+} from "@/src/lib/channelSessionSurfaces";
 import {
   useThreadSummaries,
   useThreadInfo,
@@ -241,6 +251,8 @@ export default function ChatScreen() {
   // channel is pipeline-aware (otherwise nothing can render an awaiting-input
   // widget here).
   const { count: findingsCount } = useFindings(launchpadVisible ? channelId : undefined);
+  const [sessionsOverlayOpen, setSessionsOverlayOpen] = useState(false);
+  const openSessionsOverlay = useCallback(() => setSessionsOverlayOpen(true), []);
 
   const {
     chatState,
@@ -266,7 +278,7 @@ export default function ChatScreen() {
     handleSendNow,
     cancelQueue,
     editQueue,
-  } = useChannelChat({ channelId, channel, activeFile });
+  } = useChannelChat({ channelId, channel, activeFile, onOpenSessions: openSessionsOverlay });
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
   // Show date separator when the current message starts a new day vs the older message above it.
@@ -626,6 +638,27 @@ export default function ChatScreen() {
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
+  const activateChannelSessionSurface = useCallback((
+    surface: ChannelSessionSurface,
+    intent: ChannelSessionActivationIntent,
+  ) => {
+    if (!channelId) return;
+    if (intent === "split" && surface.kind === "scratch") {
+      patchChannelPanelPrefs(channelId, (current) => ({
+        sessionPanels: addChannelSessionPanel(current.sessionPanels, surface.sessionId),
+      }));
+      return;
+    }
+    setScratchPinnedSessionId(null);
+    setScratchOpen(false);
+    navigate(buildChannelSessionRoute(channelId, surface));
+  }, [channelId, navigate, patchChannelPanelPrefs]);
+  const removeScratchSessionPanel = useCallback((sessionId: string) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      sessionPanels: removeChannelSessionPanel(current.sessionPanels, sessionId),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {
@@ -961,6 +994,22 @@ export default function ChatScreen() {
 
     if (!isSystemChannel) {
       actions.push({
+        id: `channel:${channelId}:switch-sessions`,
+        label: "Switch sessions",
+        hint: channelLabel,
+        icon: MessageCircle,
+        category: "This Channel",
+        onSelect: () => openSessionsOverlay(),
+      });
+      actions.push({
+        id: `channel:${channelId}:new-session`,
+        label: "New session",
+        hint: channelLabel,
+        icon: StickyNote,
+        category: "This Channel",
+        onSelect: () => openSessionsOverlay(),
+      });
+      actions.push({
         id: `channel:${channelId}:open-widgets`,
         label: "Open panel: Widgets",
         hint: railPins.length > 0 ? `${railPins.length} widget${railPins.length === 1 ? "" : "s"}` : channelLabel,
@@ -1079,6 +1128,7 @@ export default function ChatScreen() {
     focusOrRestorePanels,
     navigate,
     openLeftPanelTab,
+    openSessionsOverlay,
     panelPrefs.leftOpen,
     panelPrefs.rightOpen,
     panelPrefs.leftPinned,
@@ -1211,18 +1261,11 @@ export default function ChatScreen() {
   // around it.
   const scratchFullpageSource = useMemo(() => {
     if (!isScratchRoute || !channelId || !scratchUrlSessionId) return null;
-    return {
-      kind: "ephemeral" as const,
-      sessionStorageKey: `channel:${channelId}:scratch`,
-      parentChannelId: channelId,
-      defaultBotId: channel?.bot_id,
-      context: {
-        page_name: "channel_scratch",
-        payload: { channel_id: channelId },
-      },
-      scratchBoundChannelId: channelId,
-      pinnedSessionId: scratchUrlSessionId,
-    };
+    return buildScratchChatSource({
+      channelId,
+      botId: channel?.bot_id,
+      sessionId: scratchUrlSessionId,
+    });
   }, [
     isScratchRoute,
     channelId,
@@ -1246,6 +1289,20 @@ export default function ChatScreen() {
         </div>
       </div>
     ) : null;
+  const scratchSessionPanelNodes =
+    !isMobile && channelId && !dashboardOnly && !showFileViewer
+      ? panelPrefs.sessionPanels.map((panel) => (
+          <ChannelSessionSplitPanel
+            key={panel.sessionId}
+            panel={panel}
+            channelId={channelId}
+            botId={channel?.bot_id}
+            emptyState={scratchEmptyState}
+            chatMode={chatMode}
+            onClose={removeScratchSessionPanel}
+          />
+        ))
+      : null;
   // Measured height of the composer overlay (input card + banners + strips)
   // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
   const inputOverlayRef = useRef<HTMLDivElement>(null);
@@ -1584,6 +1641,7 @@ export default function ChatScreen() {
                 </div>
               </div>
             )}
+            {scratchSessionPanelNodes}
 
             {/* File viewer -- visible when a file is selected */}
             {showFileViewer && channelId && (
@@ -1764,6 +1822,18 @@ export default function ChatScreen() {
     >
       {outerChildren}
       <ChannelModalMount />
+      {channelId && (
+        <SessionPickerOverlay
+          open={sessionsOverlayOpen}
+          onClose={() => setSessionsOverlayOpen(false)}
+          channelId={channelId}
+          botId={channel?.bot_id}
+          channelLabel={displayName}
+          selectedSessionId={isScratchRoute ? scratchUrlSessionId : null}
+          onActivateSurface={activateChannelSessionSurface}
+          allowSplit={!isMobile}
+        />
+      )}
       {threadSource && (
         <ChatSession
           source={threadSource}

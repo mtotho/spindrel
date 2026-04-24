@@ -29,6 +29,7 @@ export interface UseChannelChatOptions {
     model_provider_id_override?: string | null;
   } | undefined;
   activeFile: string | null;
+  onOpenSessions?: () => void;
 }
 
 export interface UseChannelChatReturn {
@@ -86,7 +87,7 @@ function makeClientLocalId(): string {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function useChannelChat({ channelId, channel, activeFile }: UseChannelChatOptions): UseChannelChatReturn {
+export function useChannelChat({ channelId, channel, activeFile, onOpenSessions }: UseChannelChatOptions): UseChannelChatReturn {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -602,6 +603,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       "model",
       "style",
       "theme",
+      "sessions",
     ],
     [],
   );
@@ -648,8 +650,11 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
           store.toggle();
         }
       },
+      sessions: () => {
+        onOpenSessions?.();
+      },
     }),
-    [channelId, channel?.bot_id, modelGroups, navigate, queryClient, setMessages, updateChannelSettings],
+    [channelId, channel?.bot_id, modelGroups, navigate, onOpenSessions, queryClient, setMessages, updateChannelSettings],
   );
 
   const handleSlashCommand = useSlashCommandExecutor({

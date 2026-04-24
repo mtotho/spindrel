@@ -6,6 +6,10 @@ import {
   CHANNEL_PANEL_DEFAULT_WIDTH,
   clampChannelPanelWidth,
 } from "../lib/channelPanelLayout";
+import {
+  normalizeChannelSessionPanels,
+  type ChannelSessionPanel,
+} from "../lib/channelSessionSurfaces";
 
 interface DetailPanelState {
   type: string | null;
@@ -27,6 +31,8 @@ export interface RecentPage {
 
 export type OmniPanelTab = "widgets" | "files" | "jump";
 
+export type { ChannelSessionPanel };
+
 export interface ChannelPanelPrefs {
   leftOpen: boolean;
   rightOpen: boolean;
@@ -41,6 +47,7 @@ export interface ChannelPanelPrefs {
     leftOpen: boolean;
     rightOpen: boolean;
   } | null;
+  sessionPanels: ChannelSessionPanel[];
 }
 
 export type ChannelPanelPrefsPatch =
@@ -59,6 +66,7 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     mobileDrawerOpen: false,
     mobileExpandedWidgetId: null,
     focusModePrior: null,
+    sessionPanels: [],
   };
 }
 
@@ -74,6 +82,7 @@ function normalizeChannelPanelPrefs(
     leftTab: prefs?.leftTab ?? base.leftTab,
     mobileExpandedWidgetId: prefs?.mobileExpandedWidgetId ?? null,
     focusModePrior: prefs?.focusModePrior ?? null,
+    sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
   };
 }
 
