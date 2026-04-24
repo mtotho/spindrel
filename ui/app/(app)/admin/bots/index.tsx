@@ -188,6 +188,7 @@ function BotCard({
   return (
     <button
       onClick={onPress}
+      data-testid="bot-row"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -319,6 +320,7 @@ function BotCard({
               </span>
               {usage.cost != null && usage.cost > 0 && (
                 <span
+                  data-testid="cost-badge"
                   style={{
                     display: "flex", flexDirection: "row",
                     alignItems: "center",

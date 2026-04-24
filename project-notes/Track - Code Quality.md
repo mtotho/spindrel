@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (Cluster 6b shipped — run_agent_tool_loop now 591 LOC, -36% from 929)
+updated: 2026-04-24 (Cluster 7a shipped — assemble_context now 1341 LOC, 5 setup-stage helpers extracted)
 ---
 # Track — Code Quality & Refactoring
 
@@ -308,7 +308,7 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 
 | File | Function | Lines | Concern count |
 |------|----------|-------|---------------|
-| context_assembly.py | `assemble_context()` | ~~1400~~ **~990** | ~20 pipeline stages (5 extracted so far) |
+| context_assembly.py | `assemble_context()` | ~~1400~~ ~~990~~ ~~1490~~ **1341** (file: ~~2730~~ **2857**) | Cluster 7a shipped 5 setup-stage helpers (Stages 1-4 + 10). Remaining 32 stages across planned Clusters 7b (stages 7-8 + 11-12 tag/multi-bot), 7c (stage 9 skills, 346 LOC), 7d (stage 18 tool retrieval, 182 LOC), 7e (stages 22-34 temporal/widgets/prompt/tracers). |
 | loop.py | `run_agent_tool_loop()` | ~~960~~ ~~1030~~ ~~809~~ **591** (file: ~~**1684**~~ ~~1358~~ **1136**) | Clusters 6a+6b shipped. 929 → 591 LOC (-36%). Remaining 591 LOC is cohesive per-iteration orchestration (cancellation checks, LLM streaming, dispatch, image injection, skill-nudge, cycle detection) — further reduction needs cross-iteration state objects, not more extractions. |
 | file_sync.py | `sync_all_files()` | ~518 | 5 resource types × collect-upsert-orphan-delete |
 | tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
@@ -536,7 +536,7 @@ Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clu
 - **Cluster 5 — tool_dispatch deepening — ✅ shipped 2026-04-24.** See RFC below.
 - **Cluster 6a — `run_agent_tool_loop` setup/recovery helpers — ✅ shipped 2026-04-24.** Five extractions (`_resolve_loop_config`, `_resolve_loop_tools`, `_inject_opening_skill_nudges`, `_merge_activated_tools_into_param`, `_recover_tool_calls_from_text`) into `loop_helpers.py`. 929 → 809 LOC on the orchestrator (~13%). Same-file size net-zero (helpers moved from one file to its sibling). Behavior-preserving: 87 pass / 12 fail matches baseline exactly. Dependency-injection pattern on schema-fetch callables preserves test-time patchability on `app.agent.loop.*`. See RFC below.
 - **Cluster 6b — `run_agent_tool_loop` fat-block extractions — ✅ shipped 2026-04-24.** Three extractions into `loop_helpers.py`: `_check_prompt_budget_guard` (sync, returns `PromptBudgetGate(events, should_return, wait_seconds)` dataclass — context-window hard block + TPM rate-limit wait), `_handle_no_tool_calls_path` (async generator — empty-response retry + `_finalize_response`), `_handle_loop_exit_forced_response` (async generator with mutable `out_state` dict — cycle/max-iter forced LLM call + `_finalize_response`, signals `out_state["terminated"]=True` on LLM failure so caller skips tool-enrollment flush and exits the outer generator, preserving the original `return` semantics). 809 → 591 LOC on the orchestrator (-218 LOC, 27%). Combined Cluster 6a+6b: 929 → 591 LOC (-36%). Behavior-preserving: 87 pass / 12 fail matches baseline exactly; neighbor sweep 63 passed + 4 pre-existing fails unchanged. `_llm_call` injected as `llm_call_fn` kwarg (Cluster 5/6a DI pattern) so test patches on `app.agent.loop._llm_call` still intercept. See RFC below.
-- **Cluster 7 — `assemble_context` (1500 LOC) in `context_assembly.py`.** Highest remaining payoff, highest effort.
+- **Cluster 7 — `assemble_context` (1490 LOC) in `context_assembly.py`.** In progress. Cluster 7a ✅ shipped 2026-04-24 (5 setup-stage helpers, 1490 → 1341 LOC). Remaining sub-clusters: 7b (tag/multi-bot), 7c (Stage 9 skills 346 LOC), 7d (Stage 18 tool retrieval 182 LOC), 7e (Stages 22-34 tail).
 - **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — touches cross-module pin semantics; deserves its own focused cluster.
 - **Terminal chat mode as CSS archetype** — currently a render-code fork (`chatMode` prop); works. Punt until a third archetype appears.
 - **LIGHT color-drift fix** — the 6 allowlisted keys (`text-dim`, `success`, `warning`, `danger`, `purple`, `danger-muted`) are a real design call between Tailwind-default shades and darker designer-chosen shades. Out of scope for a refactor; in scope for the next UI polish pass.
@@ -658,5 +658,78 @@ if _forced_out_state.get("terminated"):
 
 **Out of scope (parked for future clusters):**
 - Further shrinking `run_agent_tool_loop` below 591 LOC. What's left is cohesive per-iteration orchestration (cancellation checks, LLM streaming with retry/fallback events, AccumulatedMessage persistence, token-usage tracing, thinking-content buffering, tool-call recovery + dispatch, iteration-injected-image handling, skill-nudge, cycle detection). Further reduction would either mean cross-iteration state objects (LoopIterationState, LoopOutputState) — which is Ousterhout-orthogonal deepening — or splitting the single-LLM-call per iteration into its own helper, which drags in too many locals.
-- **Cluster 7 — `assemble_context` (1500 LOC) in `context_assembly.py`**. Next highest payoff, now that loop.py is materially smaller.
+- **Cluster 7 — `assemble_context` (1490 LOC) in `context_assembly.py`**. Cluster 7a shipped 2026-04-24 — see RFC below.
 - **Test Quality Track item**: the 12 baseline failures in `test_agent_loop.py` have now survived through Clusters 5, 6a, and 6b — they're pre-existing on HEAD and warrant a focused investigation session.
+
+### RFC — Cluster 7a — assemble_context setup-stage extractions (2026-04-24)
+
+**Target**: `assemble_context` at `app/agent/context_assembly.py:1136` — 1490 LOC, the largest remaining god function after Cluster 6b brought `run_agent_tool_loop` to 591 LOC. The function has 32 active `# --- stage ---` dividers; six helpers (`_inject_plan_artifact`, `_inject_memory_scheme`, `_inject_channel_workspace`, `_inject_conversation_sections`, `_inject_workspace_rag`, `_inject_bot_knowledge_base`) were already extracted above it. Cluster 7a is the first narrow-scope follow-up, targeting the setup stages (1-4 + 10) that run before RAG injection.
+
+**Diagnosis**: the "discovery + setup" phase at the top of `assemble_context` mixes five cohesive concerns with clean boundaries: channel-row load + skill-enrollment peek (Stage 1), turn-boundary context pruning (Stage 2), base+history token accounting + channel-layered effective-tool resolution + channel-override mirror to `result` (Stage 3), Phase-3 skill-enrollment loading with `_merge_skills` side-effect on `bot` (Stage 4), and scoped-API-key tool injection (Stage 10). Together these were ~200 LOC of inline code whose only shared state with downstream stages is a handful of locals (`_ch_row`, `_enrolled_ids`, `_source_map`) plus the replaced `bot`. Extraction is low-risk because each stage has well-defined inputs/outputs and no mid-stage awaits that require cross-stage buffering.
+
+**Refactor** (one commit, behaviour-identical):
+
+1. **`_load_channel_overrides(*, channel_id) -> Channel | None`** — async. Loads the `Channel` row with `selectinload(Channel.integrations)` + `ChannelSkillEnrollment.skill_id` in a single `async_session()`, stamps `_channel_skill_enrollment_ids` onto the row, returns the row (or `None` on missing channel / load failure). Lazy imports `sqlalchemy.select`, `sqlalchemy.orm.selectinload`, `app.db.engine.async_session`, `app.db.models.Channel + ChannelSkillEnrollment`.
+
+2. **`_run_context_pruning(*, messages, bot, ch_row, inject_chars, correlation_id, session_id, client_id) -> AsyncGenerator[dict, None]`** — async generator. Resolves pruning enabled / min-length from the global→bot→channel cascade, returns early when disabled, otherwise calls `prune_tool_results` (lazy import), yields the `context_pruning` event, fires the trace task. Mutates `messages` and `inject_chars["context_pruning_saved"]` in place.
+
+3. **`_apply_effective_tools_and_budget(*, messages, bot, ch_row, budget, result) -> BotConfig`** — sync (no awaits). Walks `messages` to split base-context vs conversation-history tokens, consumes them against the budget, resolves the channel-layered effective tool set via `resolve_effective_tools` + `apply_auto_injections`, returns the replaced `bot`. Copies channel-side model/iteration/fallback overrides onto `result` (in place). Kept the if/else split (channel present vs absent) intact — the no-channel path still calls `apply_auto_injections` on a fresh `EffectiveTools(list(bot.*))`.
+
+4. **`_load_skill_enrollments(*, bot, out_state) -> AsyncGenerator[dict, None]`** — async generator + `out_state: dict` termination/result pattern. Sets `out_state["bot"]` (replaced BotConfig), `out_state["enrolled_ids"]`, `out_state["source_map"]` as defaults at entry; returns early if `bot.id` is falsy. Otherwise calls the module-level `_get_bot_authored_skill_ids` (so tests patching `app.agent.context_assembly._get_bot_authored_skill_ids` continue to intercept), lazy-imports `enroll_many` / `get_enrolled_skill_ids` / `get_enrolled_source_map` from `app.services.skill_enrollment`, yields `bot_authored_skills_enrolled` and `enrolled_skills` events, calls module-level `_merge_skills` to roll the enrolled skill ids into `bot`, and writes the final state to `out_state`. Out-dict pattern is the same as Cluster 6b's `_handle_loop_exit_forced_response` — used because an async generator can't both yield events and return a value.
+
+5. **`_inject_api_access_tools(*, messages, bot) -> tuple[BotConfig, dict | None]`** — sync. No-op branch (`bot.api_permissions` falsy) returns `(bot, None)`. Otherwise appends `list_api_endpoints` and `call_api` to `bot.local_tools` + `bot.pinned_tools` (with `dict.fromkeys` de-dupe on pinned), appends the scoped-API system message, returns the replaced bot and the `api_access_tools` event dict.
+
+Post-refactor, the five call sites in `assemble_context` read as:
+
+```python
+# Stage 1
+_ch_row = await _load_channel_overrides(channel_id=channel_id)
+
+# Stage 2
+async for _evt in _run_context_pruning(messages=messages, bot=bot, ch_row=_ch_row, ...):
+    yield _evt
+
+# Stage 3
+bot = _apply_effective_tools_and_budget(messages=messages, bot=bot, ch_row=_ch_row, budget=budget, result=result)
+
+# Stage 4
+_skill_state: dict = {}
+async for _evt in _load_skill_enrollments(bot=bot, out_state=_skill_state):
+    yield _evt
+bot = _skill_state.get("bot", bot)
+_enrolled_ids: list[str] = _skill_state.get("enrolled_ids", [])
+_source_map: dict[str, str] = _skill_state.get("source_map", {})
+
+# Stage 10
+bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
+if _api_event:
+    yield _api_event
+```
+
+LOC delta: `assemble_context` 1490 → 1341 (-149 LOC, ~10%). `context_assembly.py` file 2730 → 2857 (+127 LOC net — helpers added ~276 LOC, inline regions removed ~149 LOC). The per-helper size increase over raw inline is dominated by docstrings + keyword-only signature plumbing, which is intentional (follows the precedent of the 6 existing `_inject_*` helpers).
+
+**Why helpers stay in-file** — tests in `tests/unit/test_assembly_budget.py` (lines 53, 221, 307, 345) and `tests/integration/test_context_assembly.py` (lines 523, 731, 1245, 1250) patch `app.agent.context_assembly._get_bot_authored_skill_ids`, `_all_tool_schemas_by_name`, `fetch_skill_chunks_by_id`, `retrieve_tools`. `patch("app.agent.context_assembly.X")` replaces the attribute on the module. Keeping helpers inside `context_assembly.py` (same precedent as the 6 existing `_inject_*` helpers) means those patches continue to work without any test edits. Moving helpers to a sibling file — as Cluster 6a/6b did for `loop_helpers.py` — would have required rewriting every patch path in both test files.
+
+**Why no `_AssemblyCtx` dataclass** — explicitly rejected for 7a. Consolidating the two budget closures (`_budget_consume`, `_budget_can_afford`) plus `_inject_chars` / `_inject_decisions` / `bot` / `session_id` into a shared context dataclass would touch all 6 existing `_inject_*` helpers plus their tests. That's a larger-blast-radius refactor worth doing *after* all 32 stages are extracted, not during the extraction. Kwarg ceremony stays.
+
+**Verification (what ran):**
+- `python -c "import ast; ast.parse(open('app/agent/context_assembly.py').read())"` — clean.
+- Focused baseline suite (9 files: `test_context_assembly`, `test_assembly_budget`, `test_memory_injection`, `test_bot_kb_auto_retrieve`, `test_channel_kb_auto_retrieve`, `test_context_assembly_widgets`, `test_channel_workspace_prompt`, `test_context_assembly_core_gaps`, `test_context_profile_note`) via Docker:
+  - Pre-extraction baseline: **11 failed, 71 passed, 1 skipped** (failures are 8 in `test_memory_injection.py` + 3 in `test_channel_kb_auto_retrieve.py`, all pre-existing on clean HEAD).
+  - Post-extraction: **11 failed, 71 passed, 1 skipped** — exact baseline match. Same files, same failures.
+- Neighbor sweep `pytest tests/unit -k "context_assembly or assembly_budget or memory_injection or kb_auto or context_profile or channel_workspace"`: **11 failed, 131 passed**. Same 11 pre-existing failures, zero new regressions.
+
+**Non-goals (explicit):**
+- No signature changes to `assemble_context` — all callers (`loop.py`, `assemble_for_preview`, any external) see identical behavior.
+- No test changes. No behaviour changes beyond the `out_state`/tuple plumbing that is itself internal.
+- No byte-level divergence in event shape, pruning cascade, budget consumption, channel-override mirror to `result`, `_merge_skills` semantics, API-access injection order, or yield ordering.
+- No fix for the 11 pre-existing baseline failures — unrelated to extraction, flagged for Test Quality.
+- No `_AssemblyCtx` dataclass refactor (see rationale above).
+
+**Out of scope (parked for future sub-clusters):**
+- **Cluster 7b** — Stages 7 (@mention tag resolution, 65 LOC) + 8 (execution_config ephemeral skills, 18 LOC) + 11 (multi-bot channel awareness, 70 LOC) + 12 (delegate bot index, 25 LOC). These four share the `_tagged_*` / `_member_*` locals and are cleanest to extract together.
+- **Cluster 7c** — Stage 9 (skills working set + discovery + ranking, 346 LOC). Self-contained but large; has three internal closures (`_fmt_skill_line`, `_skill_category`, `_render_grouped_skill_lines`) that need to travel with the extraction. Dedicated session.
+- **Cluster 7d** — Stage 18 (tool retrieval + policy gate, 182 LOC). Reads `_ch_row` + complex filtering logic; too much surface for a mixed cluster.
+- **Cluster 7e** — Stages 22-34 (temporal framing, pinned widgets, refusal guard, channel prompt, preamble, user message, budget finalize, tracer emits). Homogeneous tail — all mutate `messages` + `result` + yield trace events. Batched after the fat blocks land.
+- **`_AssemblyCtx` dataclass consolidation** — deferred until all stages are extracted.
+- **4 `except Exception: pass` sites** in this file — separate quality sweep.

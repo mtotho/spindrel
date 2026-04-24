@@ -690,12 +690,15 @@ def _check_prompt_budget_guard(
     LLM call.
     """
     import json
-    from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_chars
+    from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_tokens
     from app.config import settings
     from app.services.providers import check_rate_limit
 
     events: list[dict] = []
-    est_tokens = sum(estimate_chars_to_tokens(message_prompt_chars(m)) for m in messages)
+    # Use the image-aware estimator: base64 image payloads count as ~512 tokens,
+    # not as ~70K "tokens" of stringified dict. Char-based counting here used to
+    # trip this guard on any turn following a few image uploads.
+    est_tokens = sum(message_prompt_tokens(m) for m in messages)
     if tools_param:
         est_tokens += estimate_chars_to_tokens(len(json.dumps(tools_param, default=str)))
     window = 0

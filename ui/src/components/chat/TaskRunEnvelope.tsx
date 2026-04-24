@@ -658,6 +658,7 @@ const InlineTaskRunEnvelope = memo(function InlineTaskRunEnvelope({ message, col
             return (
               <div
                 key={s.index}
+                data-status={stStatus}
                 className="border-b border-surface-border/25 last:border-b-0"
               >
                 <button

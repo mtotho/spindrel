@@ -411,6 +411,272 @@ def _mark_injection_decision(
     inject_decisions[key] = decision
 
 
+# ===== Cluster 7a setup-stage extractions =====
+#
+# Five helpers extracted from the top of `assemble_context` (Stages 1-4 + 10).
+# They form the "discovery + setup" phase that runs before RAG injection:
+# channel-overrides load, context pruning, effective-tool/budget accounting,
+# skill enrollment loading, and API-access tool injection. Each helper stays
+# at module level in this file so test patches on
+# `app.agent.context_assembly.*` continue to intercept.
+
+
+async def _load_channel_overrides(
+    *,
+    channel_id: Any,
+) -> Any:
+    """Load the Channel row + its skill enrollment ids. Returns None if
+    channel_id is None, no channel is found, or the load fails. The returned
+    row carries a `_channel_skill_enrollment_ids` attribute holding the
+    per-channel skill enrollment skill_ids.
+    """
+    if channel_id is None:
+        return None
+    try:
+        from sqlalchemy import select as _sa_select
+        from sqlalchemy.orm import selectinload as _selectinload
+        from app.db.engine import async_session
+        from app.db.models import Channel, ChannelSkillEnrollment
+        async with async_session() as _ch_db:
+            _ch_result = await _ch_db.execute(
+                _sa_select(Channel)
+                .where(Channel.id == channel_id)
+                .options(_selectinload(Channel.integrations))
+            )
+            _ch_row = _ch_result.scalar_one_or_none()
+            if _ch_row is not None:
+                _skill_rows = (await _ch_db.execute(
+                    _sa_select(ChannelSkillEnrollment.skill_id).where(
+                        ChannelSkillEnrollment.channel_id == channel_id
+                    )
+                )).scalars().all()
+                setattr(_ch_row, "_channel_skill_enrollment_ids", list(_skill_rows))
+            return _ch_row
+    except Exception:
+        logger.warning(
+            "Failed to load channel %s for context assembly, continuing without overrides",
+            channel_id,
+            exc_info=True,
+        )
+        return None
+
+
+async def _run_context_pruning(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    ch_row: Any,
+    inject_chars: dict[str, int],
+    correlation_id: Any,
+    session_id: Any,
+    client_id: str | None,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Trim stale tool results from message history. Mutates `messages` and
+    `inject_chars` in place; yields a single `context_pruning` event and
+    fires a trace task when at least one result was pruned. Returns early
+    without mutating anything when pruning is disabled by bot/channel/global
+    settings cascade.
+    """
+    _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
+    _pruning_min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
+    # Bot-level override
+    if bot.context_pruning is not None:
+        _pruning_enabled = bot.context_pruning
+    # Channel-level override (highest priority)
+    if ch_row is not None:
+        if getattr(ch_row, "context_pruning", None) is not None:
+            _pruning_enabled = ch_row.context_pruning
+
+    if not _pruning_enabled:
+        return
+
+    from app.agent.context_pruning import prune_tool_results
+    _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
+    if _prune_stats["pruned_count"] > 0 or _prune_stats.get("tool_call_args_pruned", 0) > 0:
+        inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
+        yield {
+            "type": "context_pruning",
+            "scope": "turn_boundary",
+            "pruned_count": _prune_stats["pruned_count"],
+            "chars_saved": _prune_stats["chars_saved"],
+            "turns_pruned": _prune_stats["turns_pruned"],
+            "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
+            "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
+        }
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="context_pruning",
+                count=_prune_stats["pruned_count"],
+                data={
+                    "scope": "turn_boundary",
+                    "chars_saved": _prune_stats["chars_saved"],
+                    "turns_pruned": _prune_stats["turns_pruned"],
+                    "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
+                    "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
+                    "min_length": _pruning_min_len,
+                },
+            ))
+
+
+def _apply_effective_tools_and_budget(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    ch_row: Any,
+    budget: "ContextBudget | None",
+    result: "AssemblyResult",
+) -> BotConfig:
+    """Consume base + history tokens against the budget, resolve the channel-
+    layered effective tool set via `resolve_effective_tools` +
+    `apply_auto_injections`, copy channel-side model/iteration/fallback
+    overrides into `result`, and return the replaced BotConfig. Sync — no
+    awaits in the underlying pipeline stage.
+    """
+    if budget is not None:
+        _base_tokens = 0
+        _history_tokens = 0
+        for m in messages:
+            _tokens = message_prompt_tokens(m)
+            if m.get("role") == "system":
+                _base_tokens += _tokens
+            else:
+                _history_tokens += _tokens
+        if _base_tokens:
+            budget.consume("base_context", _base_tokens)
+        if _history_tokens:
+            budget.consume("conversation_history", _history_tokens)
+
+    if ch_row is not None:
+        _eff = resolve_effective_tools(bot, ch_row)
+        _eff = apply_auto_injections(_eff, bot)
+        bot = _dc_replace(
+            bot,
+            local_tools=_eff.local_tools,
+            mcp_servers=_eff.mcp_servers,
+            client_tools=_eff.client_tools,
+            pinned_tools=_eff.pinned_tools,
+            skills=_eff.skills,
+        )
+        if ch_row.model_override:
+            result.channel_model_override = ch_row.model_override
+            result.channel_provider_id_override = ch_row.model_provider_id_override
+        if ch_row.max_iterations is not None:
+            result.channel_max_iterations = ch_row.max_iterations
+        if ch_row.fallback_models:
+            result.channel_fallback_models = ch_row.fallback_models
+        if ch_row.model_tier_overrides:
+            result.channel_model_tier_overrides = ch_row.model_tier_overrides
+    else:
+        # No channel — still apply auto-injections to bot defaults
+        _eff = EffectiveTools(
+            local_tools=list(bot.local_tools),
+            mcp_servers=list(bot.mcp_servers),
+            client_tools=list(bot.client_tools),
+            pinned_tools=list(bot.pinned_tools),
+            skills=list(bot.skills),
+        )
+        _eff = apply_auto_injections(_eff, bot)
+        bot = _dc_replace(
+            bot,
+            local_tools=_eff.local_tools,
+            pinned_tools=_eff.pinned_tools,
+        )
+    return bot
+
+
+async def _load_skill_enrollments(
+    *,
+    bot: BotConfig,
+    out_state: dict,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Phase 3 skill-enrollment loader. Discovers bot-authored skills,
+    persists any new ones as source='authored', loads the bot's full enrolled
+    working set, and merges the skill ids into `bot`. Sets three keys on
+    `out_state`:
+
+      * `bot`          — the replaced BotConfig (always set)
+      * `enrolled_ids` — list[str] of skill ids (empty when bot.id is falsy)
+      * `source_map`   — dict[str, str] of skill_id -> enrollment source
+
+    Uses the module-level `_get_bot_authored_skill_ids` so tests that patch
+    `app.agent.context_assembly._get_bot_authored_skill_ids` continue to
+    intercept the call.
+    """
+    out_state["bot"] = bot
+    out_state["enrolled_ids"] = []
+    out_state["source_map"] = {}
+
+    if not bot.id:
+        return
+
+    from app.services.skill_enrollment import (
+        enroll_many as _enroll_many,
+        get_enrolled_skill_ids as _get_enrolled_skill_ids,
+        get_enrolled_source_map as _get_enrolled_source_map,
+    )
+
+    # Discover bot-authored skills, persist any new ones as 'authored'
+    try:
+        _bot_skill_ids = await _get_bot_authored_skill_ids(bot.id)
+        if _bot_skill_ids:
+            _new = await _enroll_many(bot.id, _bot_skill_ids, source="authored")
+            if _new:
+                yield {"type": "bot_authored_skills_enrolled", "count": _new}
+    except Exception:
+        logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
+
+    # Load the bot's full enrolled working set in one query
+    try:
+        _enrolled_ids = await _get_enrolled_skill_ids(bot.id)
+        _source_map = await _get_enrolled_source_map(bot.id)
+        out_state["enrolled_ids"] = _enrolled_ids
+        out_state["source_map"] = _source_map
+        if _enrolled_ids:
+            _prev = len(bot.skills)
+            bot = _merge_skills(bot, _enrolled_ids)
+            out_state["bot"] = bot
+            if len(bot.skills) > _prev:
+                yield {"type": "enrolled_skills", "count": len(bot.skills) - _prev}
+    except Exception:
+        logger.warning("Failed to load enrolled skills for %s", bot.id, exc_info=True)
+
+
+def _inject_api_access_tools(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+) -> tuple[BotConfig, dict[str, Any] | None]:
+    """If the bot has scoped API permissions, inject the two API-access tools
+    (`list_api_endpoints`, `call_api`) into both `local_tools` and
+    `pinned_tools`, append a system message describing the available scopes,
+    and return the replaced bot plus a progress event. Otherwise return the
+    bot unchanged and `None` for the event.
+    """
+    if not bot.api_permissions:
+        return bot, None
+    _api_tools = ["list_api_endpoints", "call_api"]
+    _new_local = list(bot.local_tools or [])
+    _new_pinned = list(dict.fromkeys(bot.pinned_tools or []))
+    for _t in _api_tools:
+        if _t not in _new_local:
+            _new_local.append(_t)
+        if _t not in _new_pinned:
+            _new_pinned.append(_t)
+    bot = _dc_replace(bot, local_tools=_new_local, pinned_tools=_new_pinned)
+    messages.append({
+        "role": "system",
+        "content": (
+            f"You have API access to the agent server (scopes: {', '.join(bot.api_permissions)}). "
+            "Use list_api_endpoints() to see available endpoints and call_api(method, path, body) to execute them."
+        ),
+    })
+    return bot, {"type": "api_access_tools", "scopes": bot.api_permissions}
+
+
 async def _inject_plan_artifact(
     messages: list[dict],
     session_id: uuid.UUID | None,
@@ -1186,164 +1452,39 @@ async def assemble_context(
         return budget.can_afford(estimate_content_tokens(content))
 
     # --- channel-level tool/skill overrides ---
-    _ch_row = None
-    if channel_id is not None:
-        try:
-            from sqlalchemy import select as _sa_select
-            from sqlalchemy.orm import selectinload as _selectinload
-            from app.db.engine import async_session
-            from app.db.models import Channel, ChannelIntegration, ChannelSkillEnrollment
-            async with async_session() as _ch_db:
-                _ch_result = await _ch_db.execute(
-                    _sa_select(Channel)
-                    .where(Channel.id == channel_id)
-                    .options(_selectinload(Channel.integrations))
-                )
-                _ch_row = _ch_result.scalar_one_or_none()
-                if _ch_row is not None:
-                    _skill_rows = (await _ch_db.execute(
-                        _sa_select(ChannelSkillEnrollment.skill_id).where(
-                            ChannelSkillEnrollment.channel_id == channel_id
-                        )
-                    )).scalars().all()
-                    setattr(_ch_row, "_channel_skill_enrollment_ids", list(_skill_rows))
-        except Exception:
-            logger.warning("Failed to load channel %s for context assembly, continuing without overrides", channel_id, exc_info=True)
+    _ch_row = await _load_channel_overrides(channel_id=channel_id)
 
     # --- context pruning (trim stale tool results) ---
-    _pruning_enabled = settings.CONTEXT_PRUNING_ENABLED
-    _pruning_min_len = settings.CONTEXT_PRUNING_MIN_LENGTH
-    # Bot-level override
-    if bot.context_pruning is not None:
-        _pruning_enabled = bot.context_pruning
-    # Channel-level override (highest priority)
-    if _ch_row is not None:
-        if getattr(_ch_row, "context_pruning", None) is not None:
-            _pruning_enabled = _ch_row.context_pruning
-
-    if _pruning_enabled:
-        from app.agent.context_pruning import prune_tool_results
-        _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
-        if _prune_stats["pruned_count"] > 0 or _prune_stats.get("tool_call_args_pruned", 0) > 0:
-            _inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
-            yield {
-                "type": "context_pruning",
-                "scope": "turn_boundary",
-                "pruned_count": _prune_stats["pruned_count"],
-                "chars_saved": _prune_stats["chars_saved"],
-                "turns_pruned": _prune_stats["turns_pruned"],
-                "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
-                "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
-            }
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="context_pruning",
-                    count=_prune_stats["pruned_count"],
-                    data={
-                        "scope": "turn_boundary",
-                        "chars_saved": _prune_stats["chars_saved"],
-                        "turns_pruned": _prune_stats["turns_pruned"],
-                        "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
-                        "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
-                        "min_length": _pruning_min_len,
-                    },
-                ))
+    async for _evt in _run_context_pruning(
+        messages=messages,
+        bot=bot,
+        ch_row=_ch_row,
+        inject_chars=_inject_chars,
+        correlation_id=correlation_id,
+        session_id=session_id,
+        client_id=client_id,
+    ):
+        yield _evt
 
     # --- account for pre-existing messages after pruning ---
-    if budget is not None:
-        _base_tokens = 0
-        _history_tokens = 0
-        for m in messages:
-            _tokens = message_prompt_tokens(m)
-            if m.get("role") == "system":
-                _base_tokens += _tokens
-            else:
-                _history_tokens += _tokens
-        if _base_tokens:
-            budget.consume("base_context", _base_tokens)
-        if _history_tokens:
-            budget.consume("conversation_history", _history_tokens)
-
-    if _ch_row is not None:
-        _eff = resolve_effective_tools(bot, _ch_row)
-        _eff = apply_auto_injections(_eff, bot)
-        bot = _dc_replace(
-            bot,
-            local_tools=_eff.local_tools,
-            mcp_servers=_eff.mcp_servers,
-            client_tools=_eff.client_tools,
-            pinned_tools=_eff.pinned_tools,
-            skills=_eff.skills,
-        )
-        if _ch_row.model_override:
-            result.channel_model_override = _ch_row.model_override
-            result.channel_provider_id_override = _ch_row.model_provider_id_override
-        if _ch_row.max_iterations is not None:
-            result.channel_max_iterations = _ch_row.max_iterations
-        if _ch_row.fallback_models:
-            result.channel_fallback_models = _ch_row.fallback_models
-        if _ch_row.model_tier_overrides:
-            result.channel_model_tier_overrides = _ch_row.model_tier_overrides
-    else:
-        # No channel — still apply auto-injections to bot defaults
-        _eff = EffectiveTools(
-            local_tools=list(bot.local_tools),
-            mcp_servers=list(bot.mcp_servers),
-            client_tools=list(bot.client_tools),
-            pinned_tools=list(bot.pinned_tools),
-            skills=list(bot.skills),
-        )
-        _eff = apply_auto_injections(_eff, bot)
-        bot = _dc_replace(
-            bot,
-            local_tools=_eff.local_tools,
-            pinned_tools=_eff.pinned_tools,
-        )
+    bot = _apply_effective_tools_and_budget(
+        messages=messages,
+        bot=bot,
+        ch_row=_ch_row,
+        budget=budget,
+        result=result,
+    )
 
     # --- skill enrollment loading (Phase 3 working set model) ---
-    #
-    # Replaces three former per-turn blocks (bot-authored discovery, core
-    # auto-enrollment, integration auto-enrollment) with a single load from
-    # `bot_skill_enrollment`. The table is the source of truth for "what
-    # skills does this bot know about".
-    #
-    # Bot-authored skills are still discovered every turn (they appear/dis-
-    # appear with file edits) but the discovery now writes a persistent
-    # enrollment row instead of merging into the per-turn bot.skills list
-    # directly. The merge happens via the enrolled-list load below.
-    if bot.id:
-        from app.services.skill_enrollment import (
-            enroll_many as _enroll_many,
-            get_enrolled_skill_ids as _get_enrolled_skill_ids,
-            get_enrolled_source_map as _get_enrolled_source_map,
-        )
-
-        # Discover bot-authored skills, persist any new ones as 'authored'
-        try:
-            _bot_skill_ids = await _get_bot_authored_skill_ids(bot.id)
-            if _bot_skill_ids:
-                _new = await _enroll_many(bot.id, _bot_skill_ids, source="authored")
-                if _new:
-                    yield {"type": "bot_authored_skills_enrolled", "count": _new}
-        except Exception:
-            logger.warning("Failed to auto-discover bot-authored skills for %s", bot.id, exc_info=True)
-
-        # Load the bot's full enrolled working set in one query
-        _source_map: dict[str, str] = {}
-        try:
-            _enrolled_ids = await _get_enrolled_skill_ids(bot.id)
-            _source_map = await _get_enrolled_source_map(bot.id)
-            if _enrolled_ids:
-                _prev = len(bot.skills)
-                bot = _merge_skills(bot, _enrolled_ids)
-                if len(bot.skills) > _prev:
-                    yield {"type": "enrolled_skills", "count": len(bot.skills) - _prev}
-        except Exception:
-            logger.warning("Failed to load enrolled skills for %s", bot.id, exc_info=True)
+    # `bot_skill_enrollment` is the source of truth for "what skills does
+    # this bot know about"; bot-authored skills are discovered each turn
+    # and persisted as enrollment rows rather than merged inline.
+    _skill_state: dict = {}
+    async for _evt in _load_skill_enrollments(bot=bot, out_state=_skill_state):
+        yield _evt
+    bot = _skill_state.get("bot", bot)
+    _enrolled_ids: list[str] = _skill_state.get("enrolled_ids", [])
+    _source_map: dict[str, str] = _skill_state.get("source_map", {})
 
     # --- memory scheme: file injection ---
     # NOTE: memory-scheme TOOL injection (search_memory, file, etc.) is handled
@@ -1817,24 +1958,9 @@ async def assemble_context(
                 ))
 
     # --- API access tools (for bots with scoped API keys) ---
-    if bot.api_permissions:
-        _api_tools = ["list_api_endpoints", "call_api"]
-        _new_local = list(bot.local_tools or [])
-        _new_pinned = list(dict.fromkeys(bot.pinned_tools or []))
-        for _t in _api_tools:
-            if _t not in _new_local:
-                _new_local.append(_t)
-            if _t not in _new_pinned:
-                _new_pinned.append(_t)
-        bot = _dc_replace(bot, local_tools=_new_local, pinned_tools=_new_pinned)
-        messages.append({
-            "role": "system",
-            "content": (
-                f"You have API access to the agent server (scopes: {', '.join(bot.api_permissions)}). "
-                "Use list_api_endpoints() to see available endpoints and call_api(method, path, body) to execute them."
-            ),
-        })
-        yield {"type": "api_access_tools", "scopes": bot.api_permissions}
+    bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
+    if _api_event:
+        yield _api_event
 
     # --- multi-bot channel awareness + member bot injection ---
     _member_bot_ids: list[str] = []

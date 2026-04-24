@@ -578,7 +578,7 @@ export function ToolsSandbox() {
           )}
 
           {envelope && selected && previewErrors.length === 0 && (
-            <section>
+            <section data-testid="rendered-envelope">
               <div className="flex items-end justify-between mb-2 gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim">
@@ -643,7 +643,7 @@ export function ToolsSandbox() {
           )}
 
           {rawResult !== null && (
-            <section>
+            <section data-testid="raw-result">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-text-dim mb-2">
                 Raw result
               </div>

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-24 (spindrel-website design/terminology pass)
+updated: 2026-04-24 (screenshot pipeline scaffold landed; Phase A now in progress, not pending)
 ---
 
 # Track - Docs Refresh
@@ -31,7 +31,7 @@ Concrete gaps:
 
 | Phase | Area | Status |
 |---|---|---|
-| A | Screenshot punch list — staged + captured | pending |
+| A | Screenshot punch list — staged + captured | **in progress** — tooling landed 2026-04-24 at `scripts/screenshots/`; flagship 8 specs + stagers + docker-exec helpers ready. Awaits first real capture run against the e2e instance. See session log `Sessions/agent-server/2026-04-24-22-screenshot-pipeline-scaffold.md`. |
 | B | Rewrite stale docs (1 full + 4 major edits) | **complete** — `workflows.md` deprecation stub shipped; `bot-skills.md` gained "Ephemeral Skill Injection" (@-tags + pipeline `execution_config.skills` + sub-session scope + mechanism comparison); `setup.md` gained `openai-subscription` provider row + "ChatGPT Subscription (OAuth, no API key)" subsection (device-code flow, model allowlist, billing config, caveats, disconnect); `slack.md` already has full Slack Depth coverage (App Home, Shortcuts, Modals, Ephemeral, Reactions, Threads); `widget-templates.md` already reframed with 3-mode picker + html-widgets cross-link. |
 | C | Minor section edits (10 files) | **partial** — shipped: `index.md` Features + Guides, `api.md` scopes + new widget/state endpoints, `how-spindrel-works.md` (capability gating + search_tools + pipelines + sub-sessions + workspace singleton + rehydration), `heartbeats.md` (workflow→pipeline clarified, `run_pipeline` example), `delegation.md` (vs subagents vs pipelines comparison), `chat-history.md` (rehydration section), `migration.md` (singleton narrative), `mcp-servers.md` (HA integration note). Still pending: `templates-and-activation.md` (minimal language changes needed — may skip). |
 | D | Create missing docs (5–7 new files) | **complete** — shipped all 7 in session 19: `task-sub-sessions.md`, `chat-state-rehydration.md`, `pwa-push.md`, `dev-panel.md`, `providers.md`, `homeassistant.md`, `excalidraw.md`. Each one prove-before-propose'd against source. Capabilities + Workspace-files guides (8–9 in the original plan) stayed optional and are parked — existing how-spindrel-works.md and migration.md cover them. |

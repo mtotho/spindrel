@@ -408,6 +408,66 @@ class TestContextWindowGuard:
         response = [e for e in events if e.get("type") == "response"][-1]
         assert "too large" in response["text"]
 
+    def test_image_payload_does_not_trigger_false_context_overflow(self):
+        """Regression: base64 image data must not be char-counted as prompt text.
+
+        The pre-LLM guard used to call ``message_prompt_chars`` and divide by 3.5,
+        which stringified multimodal parts whole and counted the base64 blob as
+        prompt text — a ~200KB image became ~71K "tokens", so any channel with a
+        few image uploads tripped ``context_window_exceeded`` before the LLM was
+        ever called. Real tokenizers count each image as ~512 tokens.
+        """
+        from app.agent.loop_helpers import _check_prompt_budget_guard
+
+        bot = _make_bot(model="gpt-4o")
+        # Ten ~250KB base64 images — representative of a chat history with
+        # repeated screenshot uploads. Raw char count ~2.5MB ≈ 714K "tokens"
+        # by the chars/3.5 heuristic; real tokenization counts ~512/image
+        # ≈ 5K tokens total, well under a 128K-window budget.
+        fake_b64 = "A" * 250_000
+        messages = [{"role": "system", "content": "short system prompt"}]
+        for i in range(10):
+            messages.append({
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": f"screenshot {i}"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{fake_b64}"},
+                    },
+                ],
+            })
+            messages.append({"role": "assistant", "content": f"looked at {i}"})
+
+        with patch("app.agent.loop_helpers.logger"), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.context_budget.get_model_context_window", return_value=128_000), \
+             patch("app.config.settings") as ms:
+            ms.CONTEXT_BUDGET_RESERVE_RATIO = 0.15
+            gate = _check_prompt_budget_guard(
+                messages=messages,
+                tools_param=None,
+                model="gpt-4o",
+                effective_provider_id="openai",
+                iteration=0,
+                correlation_id=None,
+                session_id=None,
+                bot=bot,
+                client_id=None,
+                turn_start=0,
+                embedded_client_actions=[],
+                compaction=False,
+            )
+
+        assert gate.should_return is False, (
+            "A single 200KB image must not trip the context-window guard — real "
+            "tokenization counts it as ~512 tokens, not ~71K. Messages left "
+            f"in state: {len(messages)}"
+        )
+        assert not any(
+            e.get("code") == "context_window_exceeded" for e in gate.events
+        ), "No context_window_exceeded event should fire for a single image."
+
     # NOTE: end-to-end tests for profile-level keep_iterations would live here,
     # but the harness used by TestInLoopPruning in this file has a pre-existing
     # circular-import issue (ToolResultEnvelope in app.tools.local.machine_control)

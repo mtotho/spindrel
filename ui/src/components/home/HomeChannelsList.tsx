@@ -37,6 +37,7 @@ function ChannelCard({ channel, bot, t, isOrchestrator }: {
   return (
     <Link to={`/channels/${channel.id}` as any} style={{ textDecoration: "none", color: "inherit" } as any}>
       <div
+        data-testid="channel-row"
         style={{
           display: "flex",
           flexDirection: "row",
