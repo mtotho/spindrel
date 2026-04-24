@@ -4,7 +4,7 @@ status: active
 updated: 2026-04-24
 ---
 
-<!-- Latest pass (2026-04-24): Memory & Knowledge admin reframe + guide-reset control language adoption. See UI Polish shared-control reset. -->
+<!-- Latest pass (2026-04-24): Memory & Knowledge Dreaming tab/table cleanup completed the missed shared-control migration. See UI Polish shared-control reset. -->
 <!-- Previous pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->
 <!-- Previous pass (2026-04-23): Pass 3 — channel dashboard + settings migration + two-gear unification. -->
 
@@ -43,7 +43,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Integration control proof path | ✅ migrated 2026-04-24 (Pass 4b) | `ActivationsSection`, `ActivationCard`, `ActivationConfigFields`, `BindingsSection`, `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker` now use token/Tailwind control-surface chrome; activation add-ons split Added vs Available with a quiet filter; no `useThemeTokens()` in the integration settings flow. |
 | `IntegrationsTab` wrapper | ✅ clean 2026-04-23 (Pass 4a) | 5-line re-export already token-free. |
 | Channel Tasks tab | ✅ migrated 2026-04-24 (Pass 4c start) | `TasksTab`, `TaskCardRow`, `TaskConstants`, and `Spinner` now use grouped control flow, quiet segmented filters, borderless tonal rows, semantic token badges, and no `useThemeTokens()` in the visible task list path. |
-| Admin Memory & Knowledge | ✅ first pass 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, file-backed in-page source inspection, and lower-chrome Dreaming/Skills tabs. |
+| Admin Memory & Knowledge | ✅ first pass + Dreaming cleanup 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, file-backed in-page source inspection, and lower-chrome Dreaming/Skills tabs. The shared Dreaming bot table is token/Tailwind-based, uses shared empty/pill/badge primitives, and keeps maintenance amber distinct from skill review purple. |
 | Admin Machines + Integrations | ✅ migrated 2026-04-24 | `/admin/machines`, `/admin/integrations`, integration detail, and route-owned integration subcomponents now use shared control-surface primitives, Tailwind tokens, no `useThemeTokens()`, and no inline hex/RGBA in the refreshed paths. Machine-control integration detail remains summary/link-only, with Admin > Machines as the canonical lifecycle surface. |
 | Deeper settings tab panels | ⏳ deferred | **Pass 4c remaining candidates**: HeartbeatTab (+ HeartbeatHistoryList, HeartbeatContextPreview), PipelinesTab (+ PipelineRunLive/PreRun), HistoryTab, QuietHoursPicker. **Pass 4d**: ContextTab (dirtiest — 10 inline hex). **Pass 4e (own plan)**: ChannelWorkspaceTab, AttachmentsTab, ChannelFileBrowser/Viewer/ExplorerParts. |
 

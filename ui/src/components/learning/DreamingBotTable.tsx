@@ -137,7 +137,7 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
           <div className="flex flex-col items-center gap-2 text-center">
             <Moon size={18} className="text-text-dim" />
             <span>
-          No bots with workspace-files memory. Enable memory on a bot to start dreaming.
+              No bots with workspace-files memory. Enable memory on a bot to start dreaming.
             </span>
           </div>
         }

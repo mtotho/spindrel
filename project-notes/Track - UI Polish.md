@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-24 (Memory & Knowledge source inspection)
+updated: 2026-04-24 (Memory & Knowledge dreaming cleanup)
 ---
 # Track — UI Polish
 
@@ -22,6 +22,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Corrected the banner rule: semantic left-border alert stripes are now banned in `ui-design.md` / `spindrel-ui`, and shared `InfoBanner` renders tonal notes without side borders.
 - [x] Added the load-stability rule: settings loading states must reserve the final layout footprint instead of using spinner-only swaps that make tabs bounce; Heartbeat now uses a stable low-chrome loading shell.
 - [x] Reframed `/admin/learning` as Memory & Knowledge with Overview, Memory, Knowledge, History, Dreaming, and Skills tabs; added read-first unified search across bot memory, bot KB, channel KB, and archived conversation history.
+- [x] Cleaned up the missed Dreaming tab/table path: `DreamingBotTable` now uses shared low-chrome empty/pill/badge primitives, Tailwind design tokens, no `useThemeTokens()` / inline hex/RGBA, unclipped run menus, and clear amber vs purple job-type signaling for maintenance vs skill review.
 - [x] Refreshed `/admin/machines` and `/admin/integrations` against the canonical control-surface standard: shared token/Tailwind controls, no route-level `useThemeTokens()`, no inline hex/RGBA, lower-chrome rows/sections, and machine-control provider detail kept summary/link-only.
 - [x] Added shared `EmptyState` for low-chrome empty surfaces and moved the new Memory & Knowledge page onto existing shared controls instead of one-off dropdowns/buttons.
 - [x] Added shared read-only `SourceFileInspector` and wired Memory & Knowledge file-backed memory/KB rows to open their actual workspace source file in-page; non-file fallbacks now say `Open location`, not `Open source`.

@@ -6,14 +6,16 @@ import { apiFetch } from "@/src/api/client";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useSpawnEphemeralSession,
-  useScratchHistory,
-  useScratchSession,
-  useResetScratchSession,
   loadEphemeralState,
   saveEphemeralState,
   clearEphemeralState,
   type StoredEphemeralState,
 } from "@/src/api/hooks/useEphemeralSession";
+import {
+  useResetScratchSession,
+  useScratchHistory,
+  useScratchSession,
+} from "@/src/api/hooks/useChannelSessions";
 import { useSessionConfigOverhead } from "@/src/api/hooks/useSessionConfigOverhead";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useSpawnThread, useThreadInfo } from "@/src/api/hooks/useThreads";
@@ -42,12 +44,13 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
-import type { Message, SlashCommandId } from "@/src/types/api";
+import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { useModelGroups } from "@/src/api/hooks/useModels";
 import { resolveProviderForModel } from "./slashArgSources";
+import { resolveAvailableSlashCommandIds } from "./slashCommandSurfaces";
 import { useThemeStore } from "@/src/stores/theme";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
 import { buildRecentHref, formatSessionRecentLabel } from "@/src/lib/recentPages";
@@ -175,43 +178,6 @@ export interface ChatSessionProps {
   /** Opens the channel-scoped session picker when this chat is embedded
    *  inside a channel screen or split layout. */
   onOpenSessions?: () => void;
-}
-
-const CHANNEL_CHAT_SLASH_COMMANDS: SlashCommandId[] = [
-  "help",
-  "stop",
-  "context",
-  "scratch",
-  "clear",
-  "compact",
-  "plan",
-  "find",
-  "rename",
-  "model",
-  "style",
-  "theme",
-  "sessions",
-];
-
-function buildSessionSlashCommands({
-  hasSession,
-  canOpenSessions,
-}: {
-  hasSession: boolean;
-  canOpenSessions: boolean;
-}): SlashCommandId[] {
-  if (!hasSession) return [];
-  return [
-    "help",
-    "context",
-    "stop",
-    "compact",
-    "plan",
-    "rename",
-    "model",
-    "theme",
-    ...(canOpenSessions ? (["sessions"] as SlashCommandId[]) : []),
-  ];
 }
 
 function getDockStorageKey(source: ChatSource): string {
@@ -464,9 +430,14 @@ function ChannelChatSession({
     [channelModelGroups, navigate, onOpenSessions, queryClient, source.channelId, src],
   );
 
-  const channelAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => CHANNEL_CHAT_SLASH_COMMANDS,
-    [],
+  const channelAvailableSlashCommands = useMemo(
+    () => resolveAvailableSlashCommandIds({
+      catalog: channelSlashCatalog,
+      surface: "channel",
+      enabled: !!source.channelId,
+      capabilities: ["clear", "scratch", "model", "theme", "sessions"],
+    }),
+    [channelSlashCatalog, source.channelId],
   );
 
   const handleSlashCommand = useSlashCommandExecutor({
@@ -934,12 +905,16 @@ function EphemeralChatSession({
     qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
   }, [qc, sessionId]);
   const sessionSlashCatalog = useSlashCommandList();
-  const sessionAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => buildSessionSlashCommands({
-      hasSession: !!sessionId,
-      canOpenSessions: !!onOpenSessions,
+  const sessionAvailableSlashCommands = useMemo(
+    () => resolveAvailableSlashCommandIds({
+      catalog: sessionSlashCatalog,
+      surface: "session",
+      enabled: !!sessionId,
+      capabilities: onOpenSessions
+        ? ["model", "theme", "sessions"]
+        : ["model", "theme"],
     }),
-    [onOpenSessions, sessionId],
+    [onOpenSessions, sessionId, sessionSlashCatalog],
   );
   const sessionSlashLocalHandlers = useMemo(
     () => ({
@@ -1484,12 +1459,16 @@ function ThreadChatSession({
     qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
   }, [effectiveSessionId, qc, storeKey]);
   const threadSlashCatalog = useSlashCommandList();
-  const threadAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => buildSessionSlashCommands({
-      hasSession: !!effectiveSessionId,
-      canOpenSessions: !!onOpenSessions,
+  const threadAvailableSlashCommands = useMemo(
+    () => resolveAvailableSlashCommandIds({
+      catalog: threadSlashCatalog,
+      surface: "session",
+      enabled: !!effectiveSessionId,
+      capabilities: onOpenSessions
+        ? ["model", "theme", "sessions"]
+        : ["model", "theme"],
     }),
-    [effectiveSessionId, onOpenSessions],
+    [effectiveSessionId, onOpenSessions, threadSlashCatalog],
   );
   const threadSlashLocalHandlers = useMemo(
     () => ({

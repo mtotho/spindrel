@@ -1,6 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { apiFetch } from "../client";
-import type { ChannelSessionCatalogItem } from "@/src/lib/channelSessionSurfaces";
 
 interface EphemeralContextPayload {
   page_name?: string;
@@ -32,201 +31,17 @@ export function useSpawnEphemeralSession() {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Cross-device scratch-session pointer (Phase 3 — replaces localStorage-only
-// identity for channel-scratch chats).
-// ---------------------------------------------------------------------------
-
-export interface ScratchSessionResponse {
-  session_id: string;
-  parent_channel_id: string;
-  bot_id: string;
-  created_at: string;
-  is_current: boolean;
-  title?: string | null;
-  summary?: string | null;
-  message_count?: number;
-  section_count?: number;
-  session_scope?: string;
-}
-
-export interface ScratchHistoryItem {
-  session_id: string;
-  bot_id: string;
-  created_at: string;
-  last_active: string;
-  is_current: boolean;
-  message_count: number;
-  preview?: string;
-  title?: string | null;
-  summary?: string | null;
-  section_count?: number;
-  session_scope?: string;
-}
-
-function scratchCurrentKey(parentChannelId: string, botId: string) {
-  return ["scratch-current", parentChannelId, botId] as const;
-}
-
-function scratchHistoryKey(parentChannelId: string) {
-  return ["scratch-history", parentChannelId] as const;
-}
-
-function channelSessionCatalogKey(channelId: string) {
-  return ["channel-session-catalog", channelId] as const;
-}
-
-function channelSessionSearchKey(channelId: string, query: string) {
-  return ["channel-session-search", channelId, query] as const;
-}
-
-/** Resolve (or lazily create) the current scratch session for
- *  (user, channel, bot). Returns a stable session id that matches across
- *  devices for the authenticated user. */
-export function useScratchSession(
-  parentChannelId: string | null | undefined,
-  botId: string | null | undefined,
-) {
-  const enabled = !!parentChannelId && !!botId;
-  return useQuery({
-    queryKey: enabled
-      ? scratchCurrentKey(parentChannelId!, botId!)
-      : ["scratch-current", "disabled"],
-    queryFn: async (): Promise<ScratchSessionResponse> => {
-      const qs = new URLSearchParams({
-        parent_channel_id: parentChannelId!,
-        bot_id: botId!,
-      });
-      return apiFetch<ScratchSessionResponse>(
-        `/api/v1/sessions/scratch/current?${qs.toString()}`,
-      );
-    },
-    enabled,
-    staleTime: 5 * 60_000,
-  });
-}
-
-/** Reset: archive the current scratch session + spawn a fresh one. */
-export function useResetScratchSession() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: { parent_channel_id: string; bot_id: string }) =>
-      apiFetch<ScratchSessionResponse>("/api/v1/sessions/scratch/reset", {
-        method: "POST",
-        body: JSON.stringify(req),
-      }),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({
-        queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
-      });
-      qc.invalidateQueries({
-        queryKey: scratchHistoryKey(vars.parent_channel_id),
-      });
-      qc.invalidateQueries({
-        queryKey: channelSessionCatalogKey(vars.parent_channel_id),
-      });
-    },
-  });
-}
-
-/** List the caller's scratch sessions (current + archived) for a channel. */
-export function useScratchHistory(
-  parentChannelId: string | null | undefined,
-) {
-  return useQuery({
-    queryKey: parentChannelId
-      ? scratchHistoryKey(parentChannelId)
-      : ["scratch-history", "disabled"],
-    queryFn: async (): Promise<ScratchHistoryItem[]> => {
-      const qs = new URLSearchParams({
-        parent_channel_id: parentChannelId!,
-      });
-      return apiFetch<ScratchHistoryItem[]>(
-        `/api/v1/sessions/scratch/list?${qs.toString()}`,
-      );
-    },
-    enabled: !!parentChannelId,
-    staleTime: 60_000,
-  });
-}
-
-export function useChannelSessionCatalog(channelId: string | null | undefined) {
-  return useQuery({
-    queryKey: channelId ? channelSessionCatalogKey(channelId) : ["channel-session-catalog", "disabled"],
-    queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
-      const data = await apiFetch<{ sessions: ChannelSessionCatalogItem[] }>(
-        `/api/v1/channels/${channelId}/sessions?limit=100`,
-      );
-      return data.sessions;
-    },
-    enabled: !!channelId,
-    staleTime: 60_000,
-  });
-}
-
-export function useChannelSessionSearch(
-  channelId: string | null | undefined,
-  query: string,
-) {
-  const q = query.trim();
-  return useQuery({
-    queryKey: channelId && q.length >= 2
-      ? channelSessionSearchKey(channelId, q)
-      : ["channel-session-search", "disabled"],
-    queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
-      const params = new URLSearchParams({ q, limit: "100" });
-      const data = await apiFetch<{ query: string; sessions: ChannelSessionCatalogItem[] }>(
-        `/api/v1/channels/${channelId}/sessions/search?${params.toString()}`,
-      );
-      return data.sessions;
-    },
-    enabled: !!channelId && q.length >= 2,
-    staleTime: 30_000,
-  });
-}
-
-export function useRenameSession() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: { session_id: string; title: string; parent_channel_id?: string; bot_id?: string }) =>
-      apiFetch<{ session_id: string; title?: string | null; summary?: string | null }>(`/api/v1/sessions/${req.session_id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ title: req.title }),
-      }),
-    onSuccess: (_data, vars) => {
-      if (vars.parent_channel_id) {
-        qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
-        qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
-      }
-      if (vars.parent_channel_id && vars.bot_id) {
-        qc.invalidateQueries({
-          queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
-        });
-      }
-    },
-  });
-}
-
-export function usePromoteScratchSession() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (req: { session_id: string; parent_channel_id: string; bot_id?: string }) =>
-      apiFetch<{ primary_session_id: string; demoted_session_id: string; channel_id: string }>(
-        `/api/v1/sessions/${req.session_id}/promote-to-primary`,
-        { method: "POST" },
-      ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
-      qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
-      if (vars.bot_id) {
-        qc.invalidateQueries({
-          queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),
-        });
-      }
-      qc.invalidateQueries({ queryKey: ["channels", vars.parent_channel_id] });
-    },
-  });
-}
+export {
+  useScratchSession,
+  useResetScratchSession,
+  useScratchHistory,
+  useChannelSessionCatalog,
+  useChannelSessionSearch,
+  useRenameSession,
+  usePromoteScratchSession,
+  type ScratchHistoryItem,
+  type ScratchSessionResponse,
+} from "./useChannelSessions";
 
 // ---------------------------------------------------------------------------
 // Storage helpers — persist {sessionId, botId} per surface key.

@@ -10,7 +10,7 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
-import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemeralSession";
+import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useChannelSessions";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
@@ -263,7 +263,7 @@ export function ChannelHeader({
       : null,
     channelId && onOpenSessions
       ? {
-          key: "scratch",
+          key: "sessions",
           label: sessionButtonLabel,
           icon: StickyNote,
           onClick: onOpenSessions,

@@ -15,7 +15,7 @@ import {
   useRenameSession,
   useResetScratchSession,
   useScratchHistory,
-} from "@/src/api/hooks/useEphemeralSession";
+} from "@/src/api/hooks/useChannelSessions";
 
 interface SessionPickerOverlayProps {
   open: boolean;

@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -365,9 +366,456 @@ class UsageTimeseriesOut(BaseModel):
     points: list[TimeseriesPoint] = []
 
 
+class UsageAnomalyMetric(BaseModel):
+    tokens: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    calls: int = 0
+    cost: float | None = None
+    has_cost_data: bool = True
+
+
+class UsageAnomalySource(BaseModel):
+    source_type: str = "unknown"
+    title: str | None = None
+    task_id: str | None = None
+    task_type: str | None = None
+    bot_id: str | None = None
+    channel_id: str | None = None
+    channel_name: str | None = None
+    model: str | None = None
+    provider_id: str | None = None
+    provider_name: str | None = None
+
+
+class UsageAnomalySignal(BaseModel):
+    id: str
+    kind: str
+    label: str
+    severity: str = "info"
+    reason: str
+    created_at: str | None = None
+    bucket: str | None = None
+    correlation_id: str | None = None
+    dimension: str | None = None
+    dimension_value: str | None = None
+    metric: UsageAnomalyMetric
+    baseline: UsageAnomalyMetric | None = None
+    ratio: float | None = None
+    cost_confidence: str = "unknown"
+    source: UsageAnomalySource = Field(default_factory=UsageAnomalySource)
+
+
+class UsageAnomaliesOut(BaseModel):
+    window_start: str
+    window_end: str
+    baseline_start: str
+    baseline_end: str
+    bucket_size: str
+    time_spikes: list[UsageAnomalySignal] = Field(default_factory=list)
+    trace_bursts: list[UsageAnomalySignal] = Field(default_factory=list)
+    contributors: list[UsageAnomalySignal] = Field(default_factory=list)
+
+
+def _metric_from_events(
+    events: list[TraceEvent],
+    pricing: dict,
+    ptype_map: dict[str | None, str],
+) -> UsageAnomalyMetric:
+    total_tokens = 0
+    prompt_tokens = 0
+    completion_tokens = 0
+    calls = 0
+    cost_total = 0.0
+    has_cost_data = True
+    for ev in events:
+        d = ev.data or {}
+        pt = int(d.get("prompt_tokens") or 0)
+        ct = int(d.get("completion_tokens") or 0)
+        tt = int(d.get("total_tokens") or (pt + ct))
+        total_tokens += tt
+        prompt_tokens += pt
+        completion_tokens += ct
+        calls += 1
+        cost = _resolve_event_cost(d, pricing, ptype_map)
+        if cost is None:
+            has_cost_data = False
+        else:
+            cost_total += cost
+    return UsageAnomalyMetric(
+        tokens=total_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        calls=calls,
+        cost=round(cost_total, 6) if cost_total > 0 else None,
+        has_cost_data=has_cost_data,
+    )
+
+
+def _metric_ratio(current: UsageAnomalyMetric, baseline: UsageAnomalyMetric | None) -> float | None:
+    if not baseline or baseline.tokens <= 0:
+        return None
+    return round(current.tokens / baseline.tokens, 2)
+
+
+def _severity(metric: UsageAnomalyMetric, ratio: float | None) -> str:
+    if metric.tokens >= 100_000 or (ratio is not None and ratio >= 5):
+        return "danger"
+    if metric.tokens >= 25_000 or (ratio is not None and ratio >= 2):
+        return "warning"
+    return "info"
+
+
+def _source_type_for_trace(correlation_id: uuid.UUID | None, task_by_corr: dict[str, Task]) -> str:
+    if not correlation_id:
+        return "agent"
+    task = task_by_corr.get(str(correlation_id))
+    if not task:
+        return "agent"
+    if task.task_type == "heartbeat":
+        return "heartbeat"
+    if task.task_type in ("memory_hygiene", "skill_review"):
+        return "maintenance"
+    if task.parent_task_id or task.recurrence:
+        return "task"
+    return task.task_type or "task"
+
+
+def _cost_confidence_for_events(
+    events: list[TraceEvent],
+    pricing: dict,
+    provider_type_map: dict[str | None, str],
+) -> str:
+    if not events:
+        return "unknown"
+    states: set[str] = set()
+    for ev in events:
+        d = ev.data or {}
+        provider_id = d.get("provider_id")
+        model = d.get("model")
+        if _is_plan_billed(provider_id, model):
+            states.add("plan")
+            continue
+        ptype = provider_type_map.get(provider_id)
+        if ptype in {"ollama", "local"} or (model and str(model).startswith("ollama/")):
+            states.add("local")
+            continue
+        if _resolve_event_cost(d, pricing, provider_type_map) is not None:
+            states.add("metered")
+        else:
+            states.add("missing")
+    if "metered" in states:
+        return "metered"
+    if "plan" in states:
+        return "plan"
+    if "local" in states:
+        return "local"
+    if "missing" in states:
+        return "missing"
+    return "unknown"
+
+
+async def _usage_source_maps(
+    db: AsyncSession,
+    events: list[TraceEvent],
+) -> tuple[dict[str, Task], dict[str, str], dict[str, str]]:
+    corr_ids = [ev.correlation_id for ev in events if ev.correlation_id]
+    tasks_by_corr: dict[str, Task] = {}
+    if corr_ids:
+        task_rows = (await db.execute(
+            select(Task).where(Task.correlation_id.in_(corr_ids))
+        )).scalars().all()
+        tasks_by_corr = {str(task.correlation_id): task for task in task_rows if task.correlation_id}
+
+    channel_ids: set[str] = set()
+    for ev in events:
+        cid = (ev.data or {}).get("channel_id")
+        if cid:
+            channel_ids.add(str(cid))
+    for task in tasks_by_corr.values():
+        if task.channel_id:
+            channel_ids.add(str(task.channel_id))
+
+    channel_name_map: dict[str, str] = {}
+    valid_channel_ids: list[uuid.UUID] = []
+    for cid in channel_ids:
+        try:
+            valid_channel_ids.append(uuid.UUID(cid))
+        except ValueError:
+            pass
+    if valid_channel_ids:
+        rows = (await db.execute(
+            select(Channel.id, Channel.name).where(Channel.id.in_(valid_channel_ids))
+        )).all()
+        channel_name_map = {str(row.id): row.name for row in rows}
+
+    provider_names: dict[str, str] = {}
+    provider_rows = (await db.execute(
+        select(ProviderConfig.id, ProviderConfig.display_name)
+    )).all()
+    for row in provider_rows:
+        provider_names[row.id] = row.display_name
+
+    return tasks_by_corr, channel_name_map, provider_names
+
+
+def _source_for_events(
+    events: list[TraceEvent],
+    task_by_corr: dict[str, Task],
+    channel_names: dict[str, str],
+    provider_names: dict[str, str],
+) -> UsageAnomalySource:
+    first = events[0] if events else None
+    if not first:
+        return UsageAnomalySource()
+    d = first.data or {}
+    corr = str(first.correlation_id) if first.correlation_id else None
+    task = task_by_corr.get(corr or "")
+    channel_id = str(task.channel_id) if task and task.channel_id else d.get("channel_id")
+    source_type = _source_type_for_trace(first.correlation_id, task_by_corr)
+    title = None
+    if task:
+        title = task.title or task.task_type
+    return UsageAnomalySource(
+        source_type=source_type,
+        title=title,
+        task_id=str(task.id) if task else None,
+        task_type=task.task_type if task else None,
+        bot_id=first.bot_id or (task.bot_id if task else None),
+        channel_id=str(channel_id) if channel_id else None,
+        channel_name=channel_names.get(str(channel_id)) if channel_id else None,
+        model=d.get("model"),
+        provider_id=d.get("provider_id"),
+        provider_name=provider_names.get(d.get("provider_id")) if d.get("provider_id") else None,
+    )
+
+
+def _bucket_key(created_at: datetime, bucket_seconds: int) -> str:
+    bucket_ts = datetime.fromtimestamp(
+        (int(created_at.timestamp()) // bucket_seconds) * bucket_seconds,
+        tz=timezone.utc,
+    )
+    return bucket_ts.isoformat()
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+@router.get("/anomalies", response_model=UsageAnomaliesOut)
+async def usage_anomalies(
+    after: Optional[str] = Query("24h"),
+    before: Optional[str] = Query(None),
+    bot_id: Optional[str] = Query(None),
+    model: Optional[str] = Query(None),
+    provider_id: Optional[str] = Query(None),
+    channel_id: Optional[str] = Query(None),
+    source_type: Optional[str] = Query(None, pattern="^(agent|task|heartbeat|maintenance)$"),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
+):
+    """Compute high-signal usage anomalies for the selected window.
+
+    The endpoint is intentionally read-only and stateless: anomalies are
+    recalculated from token_usage trace events for the current window and the
+    immediately previous matching baseline window.
+    """
+    now = datetime.now(timezone.utc)
+    after_dt = _parse_time(after) if after else now - timedelta(hours=24)
+    before_dt = _parse_time(before) if before else now
+    if after_dt is None:
+        after_dt = now - timedelta(hours=24)
+    if before_dt is None:
+        before_dt = now
+    if after_dt >= before_dt:
+        after_dt = before_dt - timedelta(hours=24)
+
+    span = before_dt - after_dt
+    baseline_start = after_dt - span
+    baseline_end = after_dt
+
+    pricing = await _load_pricing_map(db)
+    ptype_map = _get_provider_type_map()
+
+    events, _ = await _fetch_token_usage_events(
+        db,
+        after=after_dt,
+        before=before_dt,
+        bot_id=bot_id,
+        model=model,
+        provider_id=provider_id,
+        channel_id=channel_id,
+    )
+    baseline_events, _ = await _fetch_token_usage_events(
+        db,
+        after=baseline_start,
+        before=baseline_end,
+        bot_id=bot_id,
+        model=model,
+        provider_id=provider_id,
+        channel_id=channel_id,
+    )
+
+    task_by_corr, channel_names, provider_names = await _usage_source_maps(db, events + baseline_events)
+
+    if source_type:
+        events = [
+            ev for ev in events
+            if _source_type_for_trace(ev.correlation_id, task_by_corr) == source_type
+        ]
+        baseline_events = [
+            ev for ev in baseline_events
+            if _source_type_for_trace(ev.correlation_id, task_by_corr) == source_type
+        ]
+
+    span_seconds = max(1, int(span.total_seconds()))
+    if span_seconds <= 36 * 3600:
+        bucket_seconds = 3600
+        bucket_size = "1h"
+    elif span_seconds <= 7 * 86400:
+        bucket_seconds = 6 * 3600
+        bucket_size = "6h"
+    else:
+        bucket_seconds = 86400
+        bucket_size = "1d"
+
+    current_buckets: dict[str, list[TraceEvent]] = {}
+    for ev in events:
+        current_buckets.setdefault(_bucket_key(ev.created_at, bucket_seconds), []).append(ev)
+    baseline_buckets: dict[str, list[TraceEvent]] = {}
+    for ev in baseline_events:
+        baseline_buckets.setdefault(_bucket_key(ev.created_at + span, bucket_seconds), []).append(ev)
+
+    time_spikes: list[UsageAnomalySignal] = []
+    for bucket, bucket_events in current_buckets.items():
+        metric = _metric_from_events(bucket_events, pricing, ptype_map)
+        baseline_metric = _metric_from_events(baseline_buckets.get(bucket, []), pricing, ptype_map)
+        ratio = _metric_ratio(metric, baseline_metric)
+        if metric.tokens < 5_000 and (ratio is None or ratio < 2):
+            continue
+        if ratio is not None and ratio < 1.5 and metric.tokens < 25_000:
+            continue
+        time_spikes.append(UsageAnomalySignal(
+            id=f"time:{bucket}",
+            kind="time_spike",
+            label=f"Spike around {bucket}",
+            severity=_severity(metric, ratio),
+            reason=f"{ratio}x previous window" if ratio is not None else "High token bucket",
+            created_at=bucket,
+            bucket=bucket,
+            metric=metric,
+            baseline=baseline_metric,
+            ratio=ratio,
+            cost_confidence=_cost_confidence_for_events(bucket_events, pricing, ptype_map),
+            source=_source_for_events(bucket_events, task_by_corr, channel_names, provider_names),
+        ))
+    time_spikes.sort(key=lambda item: (item.severity == "danger", item.metric.tokens), reverse=True)
+
+    by_trace: dict[str, list[TraceEvent]] = {}
+    for ev in events:
+        key = str(ev.correlation_id) if ev.correlation_id else str(ev.id)
+        by_trace.setdefault(key, []).append(ev)
+    trace_baseline_tokens = _metric_from_events(baseline_events, pricing, ptype_map).tokens
+    average_baseline_trace = max(1, trace_baseline_tokens // max(1, len({str(ev.correlation_id) for ev in baseline_events if ev.correlation_id})))
+
+    trace_bursts: list[UsageAnomalySignal] = []
+    for trace_id, trace_events in by_trace.items():
+        metric = _metric_from_events(trace_events, pricing, ptype_map)
+        iterations = max(int((ev.data or {}).get("iteration") or 0) for ev in trace_events)
+        ratio = round(metric.tokens / average_baseline_trace, 2) if average_baseline_trace > 0 else None
+        if metric.tokens < 10_000 and iterations < 4 and (ratio is None or ratio < 2):
+            continue
+        first = min(trace_events, key=lambda ev: ev.created_at)
+        reason_parts = []
+        if metric.tokens >= 10_000:
+            reason_parts.append("large token trace")
+        if iterations >= 4:
+            reason_parts.append(f"{iterations} iterations")
+        if ratio is not None and ratio >= 2:
+            reason_parts.append(f"{ratio}x baseline trace")
+        trace_bursts.append(UsageAnomalySignal(
+            id=f"trace:{trace_id}",
+            kind="trace_burst",
+            label=_source_for_events(trace_events, task_by_corr, channel_names, provider_names).title or "High-usage trace",
+            severity=_severity(metric, ratio),
+            reason=", ".join(reason_parts) or "High trace usage",
+            created_at=first.created_at.isoformat() if first.created_at else None,
+            correlation_id=trace_id if trace_events[0].correlation_id else None,
+            metric=metric,
+            ratio=ratio,
+            cost_confidence=_cost_confidence_for_events(trace_events, pricing, ptype_map),
+            source=_source_for_events(trace_events, task_by_corr, channel_names, provider_names),
+        ))
+    trace_bursts.sort(key=lambda item: (item.severity == "danger", item.metric.tokens), reverse=True)
+
+    def _contributors(dimension: str) -> list[UsageAnomalySignal]:
+        current: dict[str, list[TraceEvent]] = {}
+        previous: dict[str, list[TraceEvent]] = {}
+        for ev in events:
+            d = ev.data or {}
+            if dimension == "bot":
+                key = ev.bot_id or "unknown"
+            elif dimension == "channel":
+                key = d.get("channel_id") or "unknown"
+            elif dimension == "provider":
+                key = d.get("provider_id") or "default"
+            else:
+                key = d.get("model") or "unknown"
+            current.setdefault(str(key), []).append(ev)
+        for ev in baseline_events:
+            d = ev.data or {}
+            if dimension == "bot":
+                key = ev.bot_id or "unknown"
+            elif dimension == "channel":
+                key = d.get("channel_id") or "unknown"
+            elif dimension == "provider":
+                key = d.get("provider_id") or "default"
+            else:
+                key = d.get("model") or "unknown"
+            previous.setdefault(str(key), []).append(ev)
+        signals: list[UsageAnomalySignal] = []
+        for key, group_events in current.items():
+            metric = _metric_from_events(group_events, pricing, ptype_map)
+            baseline_metric = _metric_from_events(previous.get(key, []), pricing, ptype_map)
+            ratio = _metric_ratio(metric, baseline_metric)
+            if metric.tokens < 10_000 and (ratio is None or ratio < 2):
+                continue
+            label = channel_names.get(key, key) if dimension == "channel" else key
+            signals.append(UsageAnomalySignal(
+                id=f"{dimension}:{key}",
+                kind="contributor",
+                label=label,
+                severity=_severity(metric, ratio),
+                reason=f"{ratio}x previous window" if ratio is not None else f"Top {dimension} by tokens",
+                dimension=dimension,
+                dimension_value=key,
+                metric=metric,
+                baseline=baseline_metric,
+                ratio=ratio,
+                cost_confidence=_cost_confidence_for_events(group_events, pricing, ptype_map),
+                source=_source_for_events(group_events, task_by_corr, channel_names, provider_names),
+            ))
+        return signals
+
+    contributors = (
+        _contributors("bot") +
+        _contributors("channel") +
+        _contributors("model") +
+        _contributors("provider")
+    )
+    contributors.sort(key=lambda item: (item.severity == "danger", item.metric.tokens), reverse=True)
+
+    return UsageAnomaliesOut(
+        window_start=after_dt.isoformat(),
+        window_end=before_dt.isoformat(),
+        baseline_start=baseline_start.isoformat(),
+        baseline_end=baseline_end.isoformat(),
+        bucket_size=bucket_size,
+        time_spikes=time_spikes[:8],
+        trace_bursts=trace_bursts[:10],
+        contributors=contributors[:12],
+    )
+
 
 @router.get("/summary", response_model=UsageSummaryOut)
 async def usage_summary(

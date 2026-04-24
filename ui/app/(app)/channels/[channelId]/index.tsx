@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -21,7 +20,6 @@ import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
-import { apiFetch } from "@/src/api/client";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
@@ -58,6 +56,7 @@ import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import { useSessionPlanMode } from "./useSessionPlanMode";
+import { useChannelSessionSurfaces } from "./useChannelSessionSurfaces";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay";
@@ -77,12 +76,7 @@ import {
   readChannelFileIntent,
 } from "@/src/lib/channelFileNavigation";
 import {
-  addChannelSessionPanel,
-  buildChannelSessionRoute,
   buildScratchChatSource,
-  removeChannelSessionPanel,
-  type ChannelSessionActivationIntent,
-  type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
 import {
   useThreadSummaries,
@@ -174,7 +168,6 @@ export default function ChatScreen() {
   const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack("/");
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const { data: channel, isLoading: channelLoading } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -626,43 +619,17 @@ export default function ChatScreen() {
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
-  const activateChannelSessionSurface = useCallback((
-    surface: ChannelSessionSurface,
-    intent: ChannelSessionActivationIntent,
-  ) => {
-    if (!channelId) return;
-    if (intent === "split" && surface.kind === "scratch") {
-      patchChannelPanelPrefs(channelId, (current) => ({
-        sessionPanels: addChannelSessionPanel(current.sessionPanels, surface.sessionId),
-      }));
-      return;
-    }
+  const leaveScratchSurface = useCallback(() => {
     setScratchPinnedSessionId(null);
     setScratchOpen(false);
-    if (surface.kind === "channel") {
-      void apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
-        method: "POST",
-        body: JSON.stringify({ session_id: surface.sessionId }),
-      }).then(() => {
-        queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
-        queryClient.invalidateQueries({ queryKey: ["channels"] });
-        queryClient.invalidateQueries({ queryKey: ["channel-session-catalog", channelId] });
-        queryClient.invalidateQueries({ queryKey: ["channel-sessions", channelId] });
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        navigate(buildChannelSessionRoute(channelId, surface));
-      }).catch((err) => {
-        console.error("Failed to switch channel session", err);
-      });
-      return;
-    }
-    navigate(buildChannelSessionRoute(channelId, surface));
-  }, [channelId, navigate, patchChannelPanelPrefs, queryClient]);
-  const removeScratchSessionPanel = useCallback((sessionId: string) => {
-    if (!channelId) return;
-    patchChannelPanelPrefs(channelId, (current) => ({
-      sessionPanels: removeChannelSessionPanel(current.sessionPanels, sessionId),
-    }));
-  }, [channelId, patchChannelPanelPrefs]);
+  }, []);
+  const {
+    activateSurface: activateChannelSessionSurface,
+    removePanel: removeScratchSessionPanel,
+  } = useChannelSessionSurfaces({
+    channelId,
+    onLeaveScratchSurface: leaveScratchSurface,
+  });
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {

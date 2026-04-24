@@ -87,6 +87,57 @@ export interface UsageTimeseriesResponse {
   points: TimeseriesPoint[];
 }
 
+export interface UsageAnomalyMetric {
+  tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  calls: number;
+  cost: number | null;
+  has_cost_data: boolean;
+}
+
+export interface UsageAnomalySource {
+  source_type: string;
+  title?: string | null;
+  task_id?: string | null;
+  task_type?: string | null;
+  bot_id?: string | null;
+  channel_id?: string | null;
+  channel_name?: string | null;
+  model?: string | null;
+  provider_id?: string | null;
+  provider_name?: string | null;
+}
+
+export interface UsageAnomalySignal {
+  id: string;
+  kind: string;
+  label: string;
+  severity: "info" | "warning" | "danger";
+  reason: string;
+  created_at?: string | null;
+  bucket?: string | null;
+  correlation_id?: string | null;
+  dimension?: string | null;
+  dimension_value?: string | null;
+  metric: UsageAnomalyMetric;
+  baseline?: UsageAnomalyMetric | null;
+  ratio?: number | null;
+  cost_confidence: "metered" | "plan" | "local" | "missing" | "unknown" | string;
+  source: UsageAnomalySource;
+}
+
+export interface UsageAnomaliesResponse {
+  window_start: string;
+  window_end: string;
+  baseline_start: string;
+  baseline_end: string;
+  bucket_size: string;
+  time_spikes: UsageAnomalySignal[];
+  trace_bursts: UsageAnomalySignal[];
+  contributors: UsageAnomalySignal[];
+}
+
 function buildQS(params: Record<string, string | number | undefined>): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -125,5 +176,13 @@ export function useUsageTimeSeries(params: UsageParams & { bucket?: string }) {
     queryKey: ["usage-timeseries", params],
     queryFn: () =>
       apiFetch<UsageTimeseriesResponse>(`/api/v1/admin/usage/timeseries${buildQS(params)}`),
+  });
+}
+
+export function useUsageAnomalies(params: UsageParams & { source_type?: string }) {
+  return useQuery({
+    queryKey: ["usage-anomalies", params],
+    queryFn: () =>
+      apiFetch<UsageAnomaliesResponse>(`/api/v1/admin/usage/anomalies${buildQS(params)}`),
   });
 }

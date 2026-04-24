@@ -14,7 +14,8 @@ import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
 import type { PendingFile } from "@/src/components/chat/MessageInput";
 import { resolveProviderForModel } from "@/src/components/chat/slashArgSources";
-import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message, SlashCommandId } from "@/src/types/api";
+import { resolveAvailableSlashCommandIds } from "@/src/components/chat/slashCommandSurfaces";
+import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/src/types/api";
 import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
 import { useThemeStore } from "@/src/stores/theme";
 import { type MessagePage, PAGE_SIZE } from "./chatUtils";
@@ -588,24 +589,14 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions 
 
   const slashCatalog = useSlashCommandList();
   const { data: modelGroups } = useModelGroups();
-  const availableSlashCommandIds: SlashCommandId[] = useMemo(
-    () => [
-      "help",
-      "stop",
-      "context",
-      "scratch",
-      "clear",
-      "compact",
-      "plan",
-      "effort",
-      "find",
-      "rename",
-      "model",
-      "style",
-      "theme",
-      "sessions",
-    ],
-    [],
+  const availableSlashCommandIds = useMemo(
+    () => resolveAvailableSlashCommandIds({
+      catalog: slashCatalog,
+      surface: "channel",
+      enabled: !!channelId,
+      capabilities: ["clear", "scratch", "model", "theme", "sessions"],
+    }),
+    [channelId, slashCatalog],
   );
 
   const slashLocalHandlers = useMemo(

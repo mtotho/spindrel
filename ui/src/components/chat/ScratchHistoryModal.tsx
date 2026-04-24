@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router-dom";
 import { X } from "lucide-react";
-import { useScratchHistory } from "@/src/api/hooks/useEphemeralSession";
+import { useScratchHistory } from "@/src/api/hooks/useChannelSessions";
 
 interface ScratchHistoryModalProps {
   open: boolean;
