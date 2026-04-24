@@ -45,7 +45,6 @@ _ALL_EXPECTED_TOOLS = _DECLARED_LOCAL_TOOLS | _MEMORY_SCHEME_TOOLS | _AUTO_INJEC
 # (memory_scheme=workspace-files, no persona, no capabilities, history_mode=file)
 _EXPECTED_BLOCK_LABELS = {
     "Global Base Prompt",
-    "Base Prompt",
     "Bot System Prompt",
     "Date/Time",
 }
@@ -264,7 +263,7 @@ async def test_breakdown_has_expected_categories(client: E2EClient) -> None:
     cat_keys = {c["key"] for c in data["categories"]}
 
     # These should always be present for a bot with system_prompt + workspace
-    for required in ("system_prompt", "base_prompt", "datetime", "conversation"):
+    for required in ("system_prompt", "datetime", "conversation"):
         assert required in cat_keys, (
             f"Missing expected category '{required}'. Got: {sorted(cat_keys)}"
         )

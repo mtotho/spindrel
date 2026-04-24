@@ -178,7 +178,6 @@ async def assemble_config_state(db) -> dict:
             "tool_retrieval": b.tool_retrieval,
             "tool_similarity_threshold": b.tool_similarity_threshold,
             "persona": b.persona,
-            "base_prompt": b.base_prompt,
             "context_compaction": b.context_compaction,
             "compaction_interval": b.compaction_interval,
             "compaction_keep_turns": b.compaction_keep_turns,

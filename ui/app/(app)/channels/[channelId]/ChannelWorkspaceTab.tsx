@@ -267,17 +267,16 @@ function KnowledgeBaseSection({
           </div>
 
           {parentPath && (
-            <button
-              type="button"
-              onClick={() => {
+            <ActionButton
+              label="Up one level"
+              onPress={() => {
                 setCurrentPath(parentPath);
                 onSelectPath(null);
               }}
-              className="inline-flex w-fit items-center gap-1.5 text-[12px] text-text-dim transition-colors hover:text-text-muted"
-            >
-              <ChevronRight size={12} className="rotate-180" />
-              Up one level
-            </button>
+              variant="ghost"
+              size="small"
+              icon={<ChevronRight size={12} className="rotate-180" />}
+            />
           )}
 
           {!workspaceId ? (
@@ -435,19 +434,18 @@ function IndexedDirectoriesSection({
                 threshold: {seg.similarity_threshold ?? defaultThreshold}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => handleRemove(i)}
-              className="inline-flex p-1 text-text-dim transition-colors hover:text-danger"
-              aria-label="Remove indexed directory"
-            >
-              <X size={13} />
-            </button>
+            <ActionButton
+              label="Remove"
+              onPress={() => handleRemove(i)}
+              variant="danger"
+              size="small"
+              icon={<X size={13} />}
+            />
           </SettingsControlRow>
         ))}
 
         {adding ? (
-          <div className="flex flex-col gap-3 rounded-md border border-surface-border bg-surface-raised/40 p-3">
+          <div className="flex flex-col gap-3 rounded-md bg-surface-raised/35 p-3">
             <FormRow label="Path prefix" description="Relative to channel workspace, e.g. data/repo">
               <TextInput value={newPath} onChangeText={setNewPath} placeholder="data/repo" />
             </FormRow>
@@ -587,7 +585,7 @@ export function ChannelWorkspaceTab({
 
         {hasSharedWorkspace && (
           <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
-            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenate after.">
+            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace is added after the global base prompt. Per-bot additions concatenate after.">
               <SelectInput
                 value={form.workspace_base_prompt_enabled == null ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
                 options={[

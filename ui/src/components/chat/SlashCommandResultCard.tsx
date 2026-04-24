@@ -8,6 +8,7 @@ import { FindResultsRenderer } from "./renderers/FindResultsRenderer";
 
 interface Props {
   message: Message;
+  chatMode?: "default" | "terminal";
 }
 
 function fmtTokens(n?: number | null) {
@@ -37,19 +38,66 @@ function formatPinnedSkipReason(reason: string) {
   }
 }
 
-export function SlashCommandResultCard({ message }: Props) {
+export function SlashCommandResultCard({ message, chatMode = "default" }: Props) {
   const resultType = (message.metadata?.result_type ?? "context_summary") as string;
   const rawPayload = message.metadata?.payload ?? {};
+  const slashCommand = String(message.metadata?.slash_command ?? "");
 
   if (resultType === "find_results") {
     return <FindResultsRenderer payload={rawPayload as SlashCommandFindResultsPayload} />;
   }
 
-  // Default: context_summary (also used by /help and /context)
-  return <ContextSummaryCard message={message} />;
+  if (slashCommand === "help") {
+    return <HelpCard payload={rawPayload as ContextSummaryPayload} chatMode={chatMode} />;
+  }
+
+  // Default: context_summary (used by /context)
+  return <ContextSummaryCard message={message} chatMode={chatMode} />;
 }
 
-function ContextSummaryCard({ message }: Props) {
+function HelpCard({
+  payload,
+  chatMode,
+}: {
+  payload: ContextSummaryPayload;
+  chatMode: "default" | "terminal";
+}) {
+  const isTerminal = chatMode === "terminal";
+  const categories = payload.top_categories ?? [];
+  const containerClass = isTerminal
+    ? "my-2 rounded-none border border-surface-border/60 bg-surface-raised font-mono"
+    : "my-2 rounded-md border border-surface-border bg-surface-raised";
+  return (
+    <div className={containerClass}>
+      <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-surface-border/60">
+        <div className="text-[11px] uppercase tracking-wider text-text-dim">
+          /help
+        </div>
+        <div className="text-[11px] text-text-dim">
+          {categories.length} command{categories.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <ul className="divide-y divide-surface-border/40">
+        {categories.map((cmd) => (
+          <li
+            key={cmd.key}
+            className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-3"
+          >
+            <span className="text-[13px] font-medium text-text whitespace-nowrap">
+              /{cmd.key}
+            </span>
+            <span className="text-[12px] text-text-muted leading-snug">
+              {cmd.description}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ContextSummaryCard({ message, chatMode = "default" }: Props) {
+  void chatMode;
   const t = useThemeTokens();
   const payload = (message.metadata?.payload ?? {}) as ContextSummaryPayload;
   const budget = payload.budget ?? null;

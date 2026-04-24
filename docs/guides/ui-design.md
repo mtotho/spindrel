@@ -274,7 +274,8 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 
 ### Banners / toasts
 
-- `bg-surface-raised border-l-2 border-warning text-text-muted p-3 rounded-md` for caution (left border uses a semantic token, not a decorative stripe).
+- Use a quiet tonal note: `rounded-md bg-warning/10 text-warning-muted px-3.5 py-2.5` or `bg-danger/10 text-danger` for true destructive/error state.
+- Do not use colored left borders, semantic side stripes, outline borders, gradients, or shadows on banners/toasts in settings/admin/control surfaces.
 - Icon color uses a `text-*` token (`text-warning-muted`, `text-danger-muted`) — never an inline hex.
 - No `animate-pulse` on whole-row states. Use `.thinking-pulse` (`global.css:275-279`) or `.terminal-thinking-dot` (`global.css:263-272`) for a single dot.
 
@@ -327,6 +328,7 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 | `bg-blue-500/[0.12] text-blue-600` Bootstrap-style running state | `bg-accent/10 text-accent` | Accent token carries dark mode; blue-500 literal is frozen to light |
 | `style={{ color: "#8b5cf6" }}` inline hex | `className="text-purple"` | Inline hex skips dark mode entirely |
 | 2–4px `border-l-blue-500` stripe on dropdown rows | `bg-surface-overlay/60` hover tint alone | Colored hover stripes on list rows read as AI slop |
+| `border-l-2 border-warning` / `border-l-2 border-danger` alert banner | Tonal note only: `bg-warning/10 text-warning-muted` or `bg-danger/10 text-danger` | Semantic left stripes still read as template/admin chrome |
 | `border-b border-surface-border` between every stacked bar | Spacing + `bg-surface-raised` step | Bar-between-bar borders produce admin-chrome noise |
 | `animate-pulse` on a running task row | Inline `.thinking-pulse` dot + muted label | Pulsing whole rows pull the eye; a single dot carries it |
 | `shadow-lg` on a card | `bg-surface-raised border border-surface-border` | Shadows read as old admin UI; tonal lift is calmer |

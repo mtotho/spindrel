@@ -113,7 +113,7 @@ function DangerZoneSection({
       title="Danger Zone"
       description="Destructive channel actions live here."
     >
-      <div className="rounded-md border border-danger/40 bg-danger/10 p-3.5">
+      <InfoBanner variant="danger">
         {!showDeleteConfirm ? (
           <div className="flex flex-row items-center justify-between flex-wrap gap-3">
             <div className="flex-1 min-w-[180px]">
@@ -132,7 +132,7 @@ function DangerZoneSection({
           </div>
         ) : (
           <div className="flex flex-col gap-3">
-            <div className="flex flex-row items-center gap-2 rounded-md border border-danger/40 bg-danger/10 px-3.5 py-2.5">
+            <div className="flex flex-row items-center gap-2 text-danger">
               <AlertTriangle size={16} className="text-danger" />
               <span className="text-xs font-semibold text-danger">
                 This action cannot be undone.
@@ -179,7 +179,7 @@ function DangerZoneSection({
             )}
           </div>
         )}
-      </div>
+      </InfoBanner>
     </Section>
   );
 }

@@ -172,18 +172,18 @@ export function QuietPill({
 }
 
 // ---------------------------------------------------------------------------
-// InfoBanner — warning / info / danger / success boxes
+// InfoBanner — warning / info / danger / success inline notes
 //
-// Per SKILL §4 Banners: single left-border accent in semantic token + muted
-// body text; no outline border, no bg gradient, no shadow.
+// Keep these low-chrome: tonal semantic tint + text only. No semantic left
+// border, outline border, gradient, or shadow.
 // ---------------------------------------------------------------------------
 type BannerVariant = "warning" | "info" | "danger" | "success";
 
 const BANNER_CLASSES: Record<BannerVariant, string> = {
-  warning: "border-warning/60 bg-warning/10 text-warning-muted",
-  info: "border-accent/50 bg-accent/[0.06] text-text-muted",
-  danger: "border-danger/60 bg-danger/10 text-danger",
-  success: "border-success/60 bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning-muted",
+  info: "bg-accent/[0.06] text-text-muted",
+  danger: "bg-danger/10 text-danger",
+  success: "bg-success/10 text-success",
 };
 
 export function InfoBanner({
@@ -198,7 +198,7 @@ export function InfoBanner({
   return (
     <div
       className={
-        `flex items-start gap-2 rounded-md border-l-2 px-3.5 py-2.5 text-[12px] leading-relaxed ` +
+        `flex items-start gap-2 rounded-md px-3.5 py-2.5 text-[12px] leading-relaxed ` +
         BANNER_CLASSES[variant]
       }
     >

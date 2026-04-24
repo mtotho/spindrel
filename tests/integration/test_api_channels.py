@@ -299,7 +299,7 @@ class TestAdminContextPreview:
         labels = [b["label"] for b in blocks]
 
         # The test bot has system_prompt="You are a test bot." and no memory,
-        # so we expect Base Prompt and Bot System Prompt as separate entries.
+        # so we expect its bot prompt as a separate preview block.
         assert "Bot System Prompt" in labels
         # Should NOT have the old monolithic "System Prompt" label
         assert "System Prompt" not in labels

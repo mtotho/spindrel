@@ -243,7 +243,6 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "tool_retrieval": row.get("tool_retrieval", True),
                 "tool_similarity_threshold": row.get("tool_similarity_threshold"),
                 "persona": row.get("persona", False),
-                "base_prompt": row.get("base_prompt", True),
                 "context_compaction": row.get("context_compaction", True),
                 "compaction_interval": row.get("compaction_interval"),
                 "compaction_keep_turns": row.get("compaction_keep_turns"),

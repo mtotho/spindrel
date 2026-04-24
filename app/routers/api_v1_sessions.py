@@ -1102,7 +1102,6 @@ async def session_config_overhead(
         "history_mode": bot.history_mode,
         "context_pruning": bot.context_pruning,
         "audio_input": bot.audio_input or "transcribe",
-        "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
         "pinned_widgets": channel_pinned_widgets,
         "channel_config": channel.config if channel is not None else {},
     }

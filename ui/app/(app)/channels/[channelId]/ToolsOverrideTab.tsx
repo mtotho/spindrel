@@ -8,7 +8,7 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { EmptyState } from "@/src/components/shared/FormControls";
-import { SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
+import { ActionButton, QuietPill, SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
 import { HoverPopover, SkillPreview, ToolPreview } from "@/src/components/shared/ItemPreviewPopover";
 import { ActivationsSection } from "./integrations/ActivationsSection";
 
@@ -61,19 +61,16 @@ function SkillChip({
         <span className="ml-1.5 font-mono text-[9px] text-text-dim">{id}</span>
       </div>
       {badge && (
-        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-text-dim">
-          {badge}
-        </span>
+        <QuietPill label={badge} maxWidthClass="max-w-[96px]" />
       )}
       {removable && onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          title="Remove from this channel"
-          className="inline-flex items-center p-0 text-text-dim hover:text-text transition-colors"
-        >
-          <X size={11} />
-        </button>
+        <ActionButton
+          label="Remove"
+          onPress={onRemove}
+          variant="ghost"
+          size="small"
+          icon={<X size={11} />}
+        />
       )}
     </div>
   );

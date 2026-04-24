@@ -252,7 +252,7 @@ Per-model flags live on the `provider_models` table. Each row has the four boole
 | `supports_reasoning` | `false` | Whether the model takes an effort / thinking-budget knob. Gates the `/effort` command and the bot editor control |
 | `prompt_style` | `'markdown'` | Framework-prompt dialect (`markdown` / `xml` / `structured`) — see [Prompt dialect](#prompt-dialect-prompt_style) |
 
-All are loaded into in-memory sets by `load_providers()` (`app/services/providers.py`). The cache auto-rebuilds whenever an admin adds, edits, or deletes a provider or model — no manual invalidation needed.
+All are loaded into in-memory sets by `load_providers()` (`app/services/providers.py`). Prompt style is cached by `(provider_id, model_id)` first, with a model-only fallback for older call paths, so duplicate model IDs can use different dialects on different providers. The cache auto-rebuilds whenever an admin adds, edits, or deletes a provider or model — no manual invalidation needed.
 
 ### Marking a new model as reasoning-capable
 
@@ -266,7 +266,7 @@ Existing rows were backfilled by migration 242 for the known reasoning-capable f
 
 ## Prompt dialect (`prompt_style`)
 
-Framework prompts use a single `{% section "Title" %} ... {% endsection %}` marker. `app/services/prompt_dialect.py::render(canonical, style)` rewrites the markers per-model based on the `prompt_style` column on `provider_models`:
+Framework prompts use a single `{% section "Title" %} ... {% endsection %}` marker. `app/services/prompt_dialect.py::render(canonical, style)` rewrites the markers based on the effective provider/model pair's `prompt_style` column on `provider_models`:
 
 - `markdown` → `## Title\n...` (default — works everywhere OpenAI-shaped).
 - `xml` → `<title>\n...\n</title>` (native Anthropic prefers XML framing).

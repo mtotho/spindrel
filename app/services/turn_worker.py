@@ -245,7 +245,7 @@ async def run_turn(
             dispatch_config=None,
             channel_id=channel_id,
             model_override=_effective_model_override,
-            provider_id_override=req.model_provider_id_override,
+            provider_id_override=req.model_provider_id_override or ctx.provider_id_override,
             system_preamble=ctx.system_preamble,
         )
         _auto_injected_skills: list[dict] = []

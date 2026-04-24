@@ -301,7 +301,7 @@ export default function WorkspaceDetailScreen() {
             <div className="text-xs leading-relaxed" style={{ color: t.textMuted }}>
               <div className="font-semibold mb-1" style={{ color: t.textMuted }}>File conventions:</div>
               <div className="flex flex-col gap-0.5">
-                <span><code style={{ color: t.accent }}>common/prompts/base.md</code> {"\u2014"} replaces global base prompt for every bot</span>
+                <span><code style={{ color: t.accent }}>common/prompts/base.md</code> {"\u2014"} added after the global base prompt for every bot</span>
                 <span><code style={{ color: t.warningMuted }}>{"bots/<bot-id>/prompts/base.md"}</code> {"\u2014"} concatenated after common, resolved per bot</span>
               </div>
             </div>

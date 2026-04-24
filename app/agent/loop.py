@@ -1042,6 +1042,26 @@ async def run_stream(
         except Exception:
             logger.debug("effort override lookup failed", exc_info=True)
 
+    # Apply channel-level model/provider override before any provider-sensitive
+    # prompt rendering or budget accounting. Context assembly still records the
+    # channel settings in AssemblyResult, but the effective call parameters need
+    # to be known before assembly starts.
+    if model_override is None and channel_id is not None:
+        try:
+            from app.db.engine import async_session as _model_session_factory
+            from app.db.models import Channel as _ModelChannel
+            async with _model_session_factory() as _model_db:
+                _ch = await _model_db.get(_ModelChannel, channel_id)
+                if _ch is not None and _ch.model_override:
+                    model_override = _ch.model_override
+                    provider_id_override = provider_id_override or getattr(
+                        _ch,
+                        "model_provider_id_override",
+                        None,
+                    )
+        except Exception:
+            logger.debug("channel model override lookup failed", exc_info=True)
+
     from app.agent.context import current_run_origin
     from app.agent.context_profiles import resolve_context_profile
 
@@ -1094,6 +1114,8 @@ async def run_stream(
         task_mode=task_mode,
         skip_skill_inject=skip_skill_inject,
         context_profile_name=_resolved_context_profile,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
     ):
         yield event
 

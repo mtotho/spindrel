@@ -34,6 +34,7 @@ from app.db.models import (
     TraceEvent,
 )
 from app.routers.api_v1_channels import get_channel_state
+from app.services import session_locks
 
 
 pytestmark = pytest.mark.asyncio
@@ -397,7 +398,11 @@ class TestTextOnlyTurnLifecycle:
         ))
         await db_session.commit()
 
-        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        session_locks.acquire(session_id)
+        try:
+            out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        finally:
+            session_locks.release(session_id)
 
         assert len(out.active_turns) == 1
         turn = out.active_turns[0]
@@ -406,6 +411,35 @@ class TestTextOnlyTurnLifecycle:
         assert turn.is_primary is True
         assert turn.tool_calls == []
         assert turn.auto_injected_skills == []
+
+    async def test_idle_turn_started_without_terminal_row_is_not_active(self, db_session):
+        """A lifecycle-only marker must not resurrect an idle completed turn.
+
+        This happens when a prior turn wrote ``turn_started`` but the final
+        assistant row is missing or lacks the matching correlation id. The
+        snapshot used to show a stale typing indicator until the 10-minute
+        active-turn window expired.
+        """
+        channel_id, session_id = await _seed_channel(db_session)
+        correlation_id = uuid.uuid4()
+        db_session.add(TraceEvent(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id="test-bot",
+            event_type="turn_started",
+            data={"bot_id": "test-bot"},
+        ))
+        db_session.add(Message(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            role="assistant",
+            content="done but missing corr",
+            correlation_id=None,
+        ))
+        await db_session.commit()
+
+        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        assert out.active_turns == []
 
     async def test_turn_started_excluded_after_assistant_message(self, db_session):
         """Once the turn produces a terminal assistant Message the snapshot
@@ -447,6 +481,10 @@ class TestTextOnlyTurnLifecycle:
         ))
         await db_session.commit()
 
-        out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        session_locks.acquire(session_id)
+        try:
+            out = await get_channel_state(channel_id=channel_id, db=db_session, _auth=None)
+        finally:
+            session_locks.release(session_id)
         assert len(out.active_turns) == 1
         assert out.active_turns[0].auto_injected_skills == []

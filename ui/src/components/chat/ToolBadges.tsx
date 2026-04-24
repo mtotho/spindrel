@@ -244,11 +244,12 @@ export function DefaultToolRows({
                   setExpandedIdx(isExpanded ? null : idx);
                 }
               } : undefined}
-              className={`inline-flex items-center self-start gap-1.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"}`}
+              className={`${isTerminalMode ? "flex w-full max-w-full" : "inline-flex self-start"} items-center gap-1.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"}`}
               style={{
                 fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                 fontSize: isTerminalMode ? 11.5 : undefined,
                 lineHeight: isTerminalMode ? 1.5 : undefined,
+                minWidth: isTerminalMode ? 0 : undefined,
               }}
             >
               {isTerminalMode ? (
@@ -276,17 +277,22 @@ export function DefaultToolRows({
                   textTransform: isTerminalMode ? "none" : undefined,
                   letterSpacing: isTerminalMode ? "normal" : undefined,
                   fontSize: isTerminalMode ? 11.5 : undefined,
+                  whiteSpace: isTerminalMode ? "nowrap" : undefined,
+                  flexShrink: isTerminalMode ? 0 : undefined,
                 }}
               >
                 {entry.label}
               </span>
               {entry.metaLabel && (
                 <span
-                  className="text-[10px] font-mono normal-case"
+                  className="text-[10px] font-mono normal-case overflow-hidden text-ellipsis"
                   style={{
                     color: t.textDim,
                     fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                     fontSize: isTerminalMode ? 10.5 : undefined,
+                    minWidth: isTerminalMode ? 0 : undefined,
+                    maxWidth: isTerminalMode ? "100%" : undefined,
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {entry.metaLabel}
@@ -294,12 +300,15 @@ export function DefaultToolRows({
               )}
               {entry.target && (
                 <span
-                  className="text-[10px] font-mono normal-case"
+                  className="text-[10px] font-mono normal-case overflow-hidden text-ellipsis"
                   style={{
                     color: t.textMuted,
                     opacity: 0.85,
                     fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                     fontSize: isTerminalMode ? 10.5 : undefined,
+                    minWidth: isTerminalMode ? 0 : undefined,
+                    maxWidth: isTerminalMode ? "100%" : undefined,
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {"→"} {entry.target}
@@ -307,8 +316,13 @@ export function DefaultToolRows({
               )}
               {!isExpanded && entry.detailKind === "expandable" && (entry.previewText || entry.env) && (
                 <span
-                  className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap max-w-[360px]"
-                  style={{ color: toneColor(entry.isError, t) }}
+                  className="text-[11px] overflow-hidden text-ellipsis whitespace-nowrap"
+                  style={{
+                    color: toneColor(entry.isError, t),
+                    flex: isTerminalMode ? "1 1 0" : undefined,
+                    minWidth: 0,
+                    maxWidth: isTerminalMode ? "100%" : 360,
+                  }}
                 >
                   {entry.previewText || resultSummary(entry.env)}
                 </span>

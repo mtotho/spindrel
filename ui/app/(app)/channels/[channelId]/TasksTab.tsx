@@ -4,7 +4,7 @@ import { Spinner } from "@/src/components/shared/Spinner";
 import { Plus } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/src/components/shared/FormControls";
-import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
 import { TaskEditor as TaskEditorShared } from "@/src/components/shared/TaskEditor";
 import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 import type { TaskItem } from "@/src/components/shared/TaskConstants";
@@ -23,20 +23,6 @@ const STATUS_PILL_KEYS: { key: StatusFilter; label: string }[] = [
 ];
 
 const ACTIVE_STATUSES = new Set(["pending", "running", "active"]);
-
-function FilterCount({ active, count }: { active: boolean; count: number }) {
-  if (count === 0) return null;
-  return (
-    <span
-      className={
-        `min-w-[18px] rounded-full px-1.5 py-px text-center text-[10px] font-semibold ` +
-        (active ? "bg-accent/10 text-accent" : "bg-surface-overlay text-text-dim")
-      }
-    >
-      {count}
-    </span>
-  );
-}
 
 function TaskGroup({
   label,
@@ -122,29 +108,15 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex rounded-md bg-surface-raised/40 p-1">
-          {STATUS_PILL_KEYS.map((pill) => {
-            const ct = pill.key === "all" ? allTasks.length : pill.key === "active" ? activeCt : failedCt;
-            const active = statusFilter === pill.key;
-            return (
-              <button
-                key={pill.key}
-                type="button"
-                onClick={() => setStatusFilter(pill.key)}
-                className={
-                  `inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold transition-colors ` +
-                  `focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 ` +
-                  (active
-                    ? "bg-surface-overlay text-text"
-                    : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted")
-                }
-              >
-                {pill.label}
-                <FilterCount active={active} count={ct} />
-              </button>
-            );
-          })}
-        </div>
+        <SettingsSegmentedControl
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={STATUS_PILL_KEYS.map((pill) => ({
+            key: pill.key,
+            label: pill.label,
+            count: pill.key === "all" ? allTasks.length : pill.key === "active" ? activeCt : failedCt,
+          }))}
+        />
         <ActionButton
           label="New Task"
           onPress={() => setEditorState({ mode: "create" })}

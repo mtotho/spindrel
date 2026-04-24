@@ -339,7 +339,6 @@ function ConfigOverhead({ estimate, t }: { estimate: ContextEstimate; t: any }) 
   // Map raw labels to user-friendly names
   const labelMap: Record<string, string> = {
     "sys:global_base_prompt": "Global prompt",
-    "sys:base_prompt": "Platform prompt",
     "sys:datetime": "Date/time",
     "sys:system_prompt": "System prompt",
     "sys:persona": "Persona",

@@ -1291,7 +1291,11 @@ async def get_channel_state(
 
     cutoff = datetime.now(timezone.utc) - ACTIVE_TURN_WINDOW
     active_turns = await _snapshot_active_turns(
-        db, session_id=session_id, channel_bot_id=channel.bot_id, cutoff=cutoff,
+        db,
+        session_id=session_id,
+        channel_bot_id=channel.bot_id,
+        cutoff=cutoff,
+        session_active=session_locks.is_active(session_id),
     )
     return ChannelStateOut(active_turns=active_turns, pending_approvals=pending_approvals)
 
@@ -1511,6 +1515,7 @@ async def _snapshot_active_turns(
     session_id: uuid.UUID,
     channel_bot_id: str,
     cutoff: datetime,
+    session_active: bool = False,
 ) -> list[ActiveTurnOut]:
     # Candidate correlation_ids — any ToolCall, skill_index TraceEvent, or
     # turn_started TraceEvent in the window. turn_started is the canonical
@@ -1537,12 +1542,18 @@ async def _snapshot_active_turns(
 
     by_corr: dict[uuid.UUID, dict] = {}
     for r in tc_rows:
-        slot = by_corr.setdefault(r.correlation_id, {"bot_id": r.bot_id, "tool_calls": [], "skills": []})
+        slot = by_corr.setdefault(
+            r.correlation_id,
+            {"bot_id": r.bot_id, "tool_calls": [], "skills": []},
+        )
         slot["tool_calls"].append(r)
         if not slot["bot_id"] and r.bot_id:
             slot["bot_id"] = r.bot_id
     for r in te_rows:
-        slot = by_corr.setdefault(r.correlation_id, {"bot_id": r.bot_id, "tool_calls": [], "skills": []})
+        slot = by_corr.setdefault(
+            r.correlation_id,
+            {"bot_id": r.bot_id, "tool_calls": [], "skills": []},
+        )
         # Only skill_index events feed the auto-injected skills list.
         # turn_started is a lifecycle marker — presence is enough.
         if r.event_type == "skill_index":
@@ -1563,6 +1574,20 @@ async def _snapshot_active_turns(
     )).scalars().all()
     for corr_id in done_rows:
         by_corr.pop(corr_id, None)
+
+    if not session_active:
+        # ``turn_started`` / ``skill_index`` TraceEvents prove that a
+        # text-only turn existed, but they are not terminal state. If the
+        # process missed ``turn_ended`` or the final assistant Message lacks
+        # the matching correlation id, keeping lifecycle-only rows active
+        # leaves a stale typing indicator until ACTIVE_TURN_WINDOW expires.
+        # Durable ToolCall rows still rehydrate below while the 10-minute
+        # window applies to real in-flight tool/approval state.
+        by_corr = {
+            corr_id: slot
+            for corr_id, slot in by_corr.items()
+            if slot["tool_calls"]
+        }
 
     if not by_corr:
         return []

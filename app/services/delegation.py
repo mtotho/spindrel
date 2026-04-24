@@ -114,7 +114,14 @@ class DelegationService:
         # Build in-memory messages for the delegate (not persisted — the parent's
         # tool call/result already captures the delegation in its own session).
         from app.agent.persona import get_persona
-        child_messages: list[dict] = [{"role": "system", "content": _effective_system_prompt(delegate_bot)}]
+        child_messages: list[dict] = [{
+            "role": "system",
+            "content": _effective_system_prompt(
+                delegate_bot,
+                model_override=_tier_model,
+                provider_id_override=_tier_provider,
+            ),
+        }]
         if delegate_bot.persona:
             persona_layer = await get_persona(delegate_bot.id)
             if persona_layer:

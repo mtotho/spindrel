@@ -24,12 +24,13 @@ def _resolve_effective_provider(
     bot_model_provider_id: str | None,
 ) -> str | None:
     """Resolve the effective provider for the current call."""
-    if provider_id_override:
-        return provider_id_override
-    if model_override:
-        from app.services.providers import resolve_provider_for_model
-        return resolve_provider_for_model(model_override) or bot_model_provider_id
-    return bot_model_provider_id
+    from app.services.providers import resolve_effective_provider
+
+    return resolve_effective_provider(
+        model_override,
+        provider_id_override,
+        bot_model_provider_id,
+    )
 
 
 _CORRECTION_RE = re.compile(

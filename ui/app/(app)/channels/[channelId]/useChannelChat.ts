@@ -630,6 +630,10 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       if (result.command_id === "plan") {
         queryClient.invalidateQueries({ queryKey: ["session-plan", channel?.active_session_id ?? undefined] });
       }
+      if (result.command_id === "mode" || result.command_id === "rename") {
+        queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+        queryClient.invalidateQueries({ queryKey: ["channels"] });
+      }
     },
   });
 

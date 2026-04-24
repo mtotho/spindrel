@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { SettingsControlRow } from "@/src/components/shared/SettingsControls";
 
 export function MultiSelectPicker({
   options,
@@ -22,11 +23,11 @@ export function MultiSelectPicker({
       {options.map((opt) => {
         const isChecked = selected.includes(opt.value);
         return (
-          <button
+          <SettingsControlRow
             key={opt.value}
-            type="button"
             onClick={() => toggle(opt.value)}
-            className="flex items-center gap-2 bg-transparent py-0.5 text-left transition-colors"
+            compact
+            className="flex items-center gap-2"
           >
             <div
               className={
@@ -37,7 +38,7 @@ export function MultiSelectPicker({
               {isChecked && <Check size={10} className="text-white" strokeWidth={3} />}
             </div>
             <span className="text-[13px] leading-snug text-text">{opt.label}</span>
-          </button>
+          </SettingsControlRow>
         );
       })}
     </div>

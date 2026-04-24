@@ -171,7 +171,6 @@ class BotConfig:
     client_tools: list[str] = field(default_factory=list)
     skills: list[SkillConfig] = field(default_factory=list)
     persona: bool = False
-    base_prompt: bool = True
     context_compaction: bool = True
     compaction_interval: int | None = None
     compaction_keep_turns: int | None = None
@@ -428,7 +427,6 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         client_tools=row.client_tools or [],
         skills=[_parse_skill_entry(e) for e in (row.skills or [])],
         persona=row.persona,
-        base_prompt=getattr(row, "base_prompt", True),
         context_compaction=row.context_compaction,
         compaction_interval=row.compaction_interval,
         compaction_keep_turns=row.compaction_keep_turns,
@@ -524,7 +522,6 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "max_iterations": data.get("max_iterations"),
         "max_script_tool_calls": data.get("max_script_tool_calls"),
         "persona": data.get("persona", False),
-        "base_prompt": data.get("base_prompt", True),
         "context_compaction": data.get("context_compaction", True),
         "compaction_interval": data.get("compaction_interval"),
         "compaction_keep_turns": data.get("compaction_keep_turns"),
@@ -734,7 +731,6 @@ async def ensure_default_bot() -> None:
             "tool_retrieval": True,
             "tool_discovery": True,
             "persona": False,
-            "base_prompt": True,
             "context_compaction": True,
             "audio_input": "transcribe",
             "memory_config": {},

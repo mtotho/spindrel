@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-23 (context/discovery canonicalization pass — profile matrix + discovery guide + vault pointer cleanup)
+updated: 2026-04-24 (spindrel-website design/terminology pass)
 ---
 
 # Track - Docs Refresh
@@ -132,7 +132,8 @@ Follow-up refinement the same day:
 - Added an explicit **Best Fit Today** section to `docs/index.md` so the docs landing page says plainly who Spindrel is for right now and who it is not for.
 - Added companion "best fit / not the pitch today" framing to `docs/guides/feature-status.md` so the current product/security posture is visible in the canonical readiness doc, not just implied by row labels.
 - Updated the marketing site's shared metadata plus `/`, `/features`, `/how-it-works`, and `/guides` to point directly at the docs status pages and soften overclaims like "fleet", blanket "no cloud" language, and broad public-cloud security framing.
-- Remaining website follow-up is a deeper terminology sweep on `/skills` and `/integrations`, which still expose older `carapace` / legacy-automation wording more directly than the refreshed entry pages.
+- 2026-04-24 follow-up: swept `/skills` and `/integrations` for older `carapace` / legacy-automation wording, added a site-wide low-chrome design-token pass in `BaseLayout.astro`, and aligned `/guides` + `/use-cases` with the current status-first positioning.
+- Later 2026-04-24 follow-up: removed all stale screenshot usage from `spindrel-website`, replaced page images with `ScreenshotPlaceholder`, and deleted tracked screenshot PNG/PNG assets from `public/` while keeping favicons. Remaining website debt is fresh screenshot capture.
 
 ### 2026-04-23 progress — subagent docs corrected to match runtime hardening
 

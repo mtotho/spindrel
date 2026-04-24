@@ -69,6 +69,7 @@ One canonical LLM provider subsystem: one reasoning knob, one slash-command regi
 - Added integration coverage for provider-model update semantics and for the DB/live catalog union behavior.
 - 2026-04-24 follow-up: Bot editor existing-bot saves now send a minimal changed-field payload instead of round-tripping the whole `editorData.bot` object. This prevents unrelated legacy `api_permissions` validation from returning 422 when the user only changes model/provider, and the save banner now exposes FastAPI `detail` for future validation failures.
 - 2026-04-24 doc sync: `docs/guides/providers.md` picked up a **Managing models on a provider** subsection (driver-catalog ∪ DB rows, inline edit/save/cancel over the PUT endpoint, per-row flag table) and the Known-limits fallback-list note now mentions the DB/live union as today's mitigation. Confirmed: gpt-subscription `reasoning.effort` flows end-to-end in production (Phase 1 silent-drop fix verified).
+- 2026-04-24 prompt-style fix: dialect lookup is now provider+model aware, and effective model/provider overrides are passed into system-prompt rendering, context assembly, and previews so duplicate model IDs can resolve different prompt styles per provider.
 
 **Still belongs to Phase 3:**
 

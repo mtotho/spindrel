@@ -764,7 +764,12 @@ async def _inject_channel_workspace(
             workspace_path=cw_abs,
             channel_id=ch_id,
             data_listing=data_listing,
-            style=resolve_prompt_style(bot, ch_row),
+            style=resolve_prompt_style(
+                bot,
+                ch_row,
+                model_override=model_override,
+                provider_id_override=provider_id_override,
+            ),
         )
         if schema_content:
             helper = schema_content + "\n\n" + helper
@@ -1145,6 +1150,8 @@ async def assemble_context(
     task_mode: bool = False,
     skip_skill_inject: bool = False,
     context_profile_name: str | None = None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 

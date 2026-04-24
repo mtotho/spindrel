@@ -142,6 +142,8 @@ async def _resolve_channel_and_session(
         locked=is_integration,
         channel_id=channel.id,
         preserve_metadata=preserve_metadata,
+        model_override=req.model_override,
+        provider_id_override=req.model_provider_id_override,
     )
 
     return channel, session_id, messages, is_integration

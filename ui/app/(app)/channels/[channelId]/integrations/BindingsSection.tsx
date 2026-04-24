@@ -7,7 +7,7 @@ import {
   useUnbindIntegration,
 } from "@/src/api/hooks/useChannels";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
-import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { configSummaryText } from "./helpers";
 import { BindingForm } from "./BindingForm";
@@ -83,7 +83,7 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                 return (
                   <div
                     key={b.id}
-                    className="rounded-md border border-surface-border bg-surface-raised p-3.5"
+                    className="rounded-md bg-surface-raised/35 p-3.5"
                   >
                     <BindingForm
                       availableIntegrations={available}
@@ -105,9 +105,9 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                 );
               }
               return (
-                <div
+                <SettingsControlRow
                   key={b.id}
-                  className="flex flex-wrap items-center gap-3 rounded-md border border-surface-border bg-surface-raised px-3.5 py-3 hover:bg-surface-overlay/40 transition-colors"
+                  className="flex flex-wrap items-center gap-3"
                 >
                   <StatusBadge label={b.integration_type} variant="info" />
                   <div className="min-w-0 flex-1">
@@ -141,13 +141,13 @@ export function BindingsSection({ channelId }: { channelId: string }) {
                       icon={<X size={12} />}
                     />
                   </div>
-                </div>
+                </SettingsControlRow>
               );
             })}
           </div>
         )}
         {showAdd && (
-          <div className="mt-3 rounded-md border border-surface-border bg-surface-raised p-3.5">
+          <div className="mt-3 rounded-md bg-surface-raised/35 p-3.5">
             <div className="mb-2.5 text-[12px] font-semibold text-text tracking-[-0.01em]">Add Binding</div>
             <BindingForm
               availableIntegrations={available}

@@ -77,14 +77,13 @@ export function LogsTab({ channelId }: { channelId: string }) {
             ]}
           />
           {hasFilters && (
-            <button
-              type="button"
-              onClick={clearFilters}
-              className="inline-flex min-h-[34px] items-center gap-1 rounded-md px-2.5 text-[12px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
-            >
-              <X size={12} />
-              Clear
-            </button>
+            <ActionButton
+              label="Clear"
+              onPress={clearFilters}
+              variant="ghost"
+              size="small"
+              icon={<X size={12} />}
+            />
           )}
         </div>
       </div>
@@ -123,14 +122,14 @@ export function LogsTab({ channelId }: { channelId: string }) {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => navigate(`/admin/logs?channel_id=${channelId}`)}
-        className="inline-flex w-fit items-center gap-1.5 rounded-md px-0 py-1 text-[13px] font-semibold text-accent transition-colors hover:text-accent-hover"
-      >
-        View all in Logs
-        <ExternalLink size={12} />
-      </button>
+      <div>
+        <ActionButton
+          label="View all in Logs"
+          onPress={() => navigate(`/admin/logs?channel_id=${channelId}`)}
+          variant="primary"
+          icon={<ExternalLink size={12} />}
+        />
+      </div>
     </div>
   );
 }

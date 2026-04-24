@@ -750,7 +750,6 @@ class Bot(Base):
     max_iterations: Mapped[int | None] = mapped_column(Integer, nullable=True)
     max_script_tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     persona: Mapped[bool] = mapped_column(nullable=False, default=False)
-    base_prompt: Mapped[bool] = mapped_column(nullable=False, server_default=text("true"), default=True)
     context_compaction: Mapped[bool] = mapped_column(nullable=False, default=True)
     compaction_interval: Mapped[int | None] = mapped_column(nullable=True)
     compaction_keep_turns: Mapped[int | None] = mapped_column(nullable=True)

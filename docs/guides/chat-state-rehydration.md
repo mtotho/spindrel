@@ -67,7 +67,9 @@ Returns a point-in-time snapshot of what's *in-flight right now*:
 
 ### What counts as "active"
 
-An active turn is a correlation_id that has at least one `ToolCall` or a `skill_index` `TraceEvent` in the last **10 minutes** *and* has **not yet produced a terminal `assistant` Message**. Once the assistant Message lands, the turn is complete — the snapshot excludes it.
+An active turn is a correlation_id that has at least one `ToolCall` or a `skill_index` / `turn_started` `TraceEvent` in the last **10 minutes** *and* has **not yet produced a terminal `assistant` Message**. Once the assistant Message lands, the turn is complete — the snapshot excludes it.
+
+Lifecycle-only turns (`turn_started` / `skill_index` with no durable `ToolCall`) are only considered active while the session lock is active. This preserves refresh support for pure text turns while preventing stale typing indicators from rehydrating after the turn is already idle.
 
 The 10-minute window is a practical ceiling: tool calls that legitimately take longer get rehydrated by their next event, and anything older than that is considered stale enough to re-start rather than resume.
 

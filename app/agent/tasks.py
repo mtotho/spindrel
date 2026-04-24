@@ -938,6 +938,9 @@ async def run_task(task: Task) -> None:
         from app.agent.persona import get_persona
         from app.services.sessions import _effective_system_prompt, load_or_create
         bot = get_bot(task.bot_id)
+        _ecfg_pre = task.execution_config or task.callback_config or {}
+        _model_override = _ecfg_pre.get("model_override") or None
+        _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
 
         async with async_session() as db:
             # Detect cross-bot delegation: task.session_id belongs to a different bot
@@ -968,7 +971,16 @@ async def run_task(task: Task) -> None:
                 )
                 db.add(child_session)
                 await db.commit()
-                messages = [{"role": "system", "content": _effective_system_prompt(bot)}]
+                _task_channel = await db.get(Channel, task.channel_id) if task.channel_id else None
+                messages = [{
+                    "role": "system",
+                    "content": _effective_system_prompt(
+                        bot,
+                        channel=_task_channel,
+                        model_override=_model_override,
+                        provider_id_override=_provider_id_override,
+                    ),
+                }]
                 if bot.persona:
                     persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
                     if persona_layer:
@@ -989,6 +1001,8 @@ async def run_task(task: Task) -> None:
                     task.bot_id,
                     channel_id=task.channel_id,
                     context_profile_name=_initial_profile,
+                    model_override=_model_override,
+                    provider_id_override=_provider_id_override,
                 )
 
         # Trim conversation history. Respects `execution_config.history_mode`
@@ -1060,9 +1074,6 @@ async def run_task(task: Task) -> None:
             task_prompt = "\n".join(_preamble_lines) + "\n" + task_prompt
 
         # Model override from execution_config (preferred) or callback_config (legacy)
-        _ecfg_pre = task.execution_config or task.callback_config or {}
-        _model_override = _ecfg_pre.get("model_override") or None
-        _provider_id_override = _ecfg_pre.get("model_provider_id_override") or None
         _fallback_models = _ecfg_pre.get("fallback_models") or None
         _skip_tool_policy = bool(_ecfg_pre.get("skip_tool_approval", False))
 

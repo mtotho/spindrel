@@ -422,11 +422,11 @@ class TestCustomPromptOverride:
 
 
 # ---------------------------------------------------------------------------
-# Base prompt content validation
+# Global base prompt content validation
 # ---------------------------------------------------------------------------
 
-class TestBasePromptContent:
-    def test_base_prompt_correct_tool_names(self):
+class TestGlobalBasePromptContent:
+    def test_global_base_prompt_correct_tool_names(self):
         """Verify correct tool names appear and old wrong names don't."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
@@ -441,7 +441,7 @@ class TestBasePromptContent:
         # Old get_tool( pattern must not appear
         assert "get_tool(" not in DEFAULT_GLOBAL_BASE_PROMPT
 
-    def test_base_prompt_platform_awareness(self):
+    def test_global_base_prompt_platform_awareness(self):
         """Verify key platform concepts are mentioned in the base prompt."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 
@@ -452,7 +452,7 @@ class TestBasePromptContent:
                 f"Base prompt missing platform concept: {concept}"
             )
 
-    def test_base_prompt_tool_and_skill_discovery(self):
+    def test_global_base_prompt_tool_and_skill_discovery(self):
         """Verify tool + skill discovery guidance is present."""
         from app.config import DEFAULT_GLOBAL_BASE_PROMPT
 

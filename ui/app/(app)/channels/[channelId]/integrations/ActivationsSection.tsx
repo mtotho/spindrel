@@ -1,26 +1,17 @@
 import { useState } from "react";
-import { AlertTriangle, Search, X } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import {
   useActivatableIntegrations,
   useActivateIntegration,
   useDeactivateIntegration,
 } from "@/src/api/hooks/useChannels";
 import { Section } from "@/src/components/shared/FormControls";
-import { InfoBanner } from "@/src/components/shared/SettingsControls";
+import { InfoBanner, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
 import type { ActivationResult } from "@/src/types/api";
 import { ActivationCard } from "./ActivationCard";
 
 function GroupLabel({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="flex items-center gap-1.5 pt-1">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
-        {label}
-      </span>
-      <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-dim">
-        {count}
-      </span>
-    </div>
-  );
+  return <SettingsGroupLabel label={label} count={count} />;
 }
 
 export function ActivationsSection({ channelId }: { channelId: string }) {
@@ -94,26 +85,12 @@ export function ActivationsSection({ channelId }: { channelId: string }) {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <GroupLabel label="Available add-ons" count={available.length} />
             {available.length > 6 && (
-              <div className="flex min-h-[34px] items-center gap-1.5 rounded-md bg-surface-raised/50 px-2.5 text-text-dim transition-colors focus-within:bg-surface-overlay/45 focus-within:ring-2 focus-within:ring-accent/30 sm:w-64">
-                <Search size={13} className="shrink-0" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Filter add-ons..."
-                  className="min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-dim"
-                />
-                {query && (
-                  <button
-                    type="button"
-                    onClick={() => setQuery("")}
-                    aria-label="Clear add-on filter"
-                    className="inline-flex items-center p-0 text-text-dim transition-colors hover:text-text"
-                  >
-                    <X size={12} />
-                  </button>
-                )}
-              </div>
+              <SettingsSearchBox
+                value={query}
+                onChange={setQuery}
+                placeholder="Filter add-ons..."
+                className="sm:w-64"
+              />
             )}
           </div>
 

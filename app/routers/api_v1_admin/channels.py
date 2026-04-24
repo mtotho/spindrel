@@ -1998,7 +1998,6 @@ async def admin_channel_config_overhead(
         "history_mode": bot.history_mode,
         "context_pruning": bot.context_pruning,
         "audio_input": bot.audio_input or "transcribe",
-        "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
         "pinned_widgets": channel_pinned_widgets,
         "channel_config": channel.config or {},
     }
@@ -2048,11 +2047,13 @@ async def admin_channel_context_preview(
     _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Render a preview of all system messages that would be injected before a user message."""
-    from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
+    from app.agent.base_prompt import resolve_workspace_base_prompt
     from app.agent.bots import get_bot as _get_bot_fn
     from app.agent.persona import get_persona
     from app.db.models import ConversationSection, Skill as SkillRow
     from app.services.compaction import _get_history_mode, format_section_index
+    from app.services.prompt_dialect import render as _dialect_render
+    from app.services.providers import resolve_prompt_style
     from app.services.widget_context import (
         build_pinned_widget_context_snapshot,
         fetch_channel_pin_dicts,
@@ -2065,10 +2066,15 @@ async def admin_channel_context_preview(
 
     bot = _get_bot_fn(channel.bot_id)
     blocks: list[dict] = []  # {"label": str, "role": str, "content": str}
+    prompt_style = resolve_prompt_style(bot, channel)
 
     # --- System prompt blocks (shown separately for clarity) ---
     if settings.GLOBAL_BASE_PROMPT:
-        blocks.append({"label": "Global Base Prompt", "role": "system", "content": settings.GLOBAL_BASE_PROMPT.rstrip()})
+        blocks.append({
+            "label": "Global Base Prompt",
+            "role": "system",
+            "content": _dialect_render(settings.GLOBAL_BASE_PROMPT, prompt_style).rstrip(),
+        })
 
     ws_base = None
     ws_base_enabled = False
@@ -2082,15 +2088,11 @@ async def admin_channel_context_preview(
             ws_base_enabled = _sw.workspace_base_prompt_enabled
     if channel.workspace_base_prompt_enabled is not None:
         ws_base_enabled = channel.workspace_base_prompt_enabled
-        if ws_base_enabled:
-            ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
+    if ws_base_enabled and getattr(bot, "shared_workspace_id", None):
+        ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
         blocks.append({"label": "Workspace Base Prompt", "role": "system", "content": ws_base.rstrip()})
-    else:
-        base = render_base_prompt(bot)
-        if base:
-            blocks.append({"label": "Base Prompt", "role": "system", "content": base.rstrip()})
 
     if bot.system_prompt:
         blocks.append({"label": "Bot System Prompt", "role": "system", "content": bot.system_prompt.rstrip()})

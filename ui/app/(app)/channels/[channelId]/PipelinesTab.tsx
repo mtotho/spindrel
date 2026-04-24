@@ -169,18 +169,18 @@ function SubscriptionRow({
   return (
     <SettingsControlRow disabled={!sub.enabled} className="flex flex-wrap items-center gap-3">
       {/* Featured star */}
-      <button
-        title={sub.featured ? "Unfeature" : "Feature on launchpad"}
-        onClick={() =>
+      <ActionButton
+        label={sub.featured ? "Featured" : "Feature"}
+        variant="ghost"
+        size="small"
+        icon={<Star size={13} fill={sub.featured ? "currentColor" : "none"} />}
+        onPress={() =>
           update.mutate({
             subscriptionId: sub.id,
             patch: { featured_override: sub.featured ? false : true },
           })
         }
-        className={`inline-flex items-center p-1 transition-colors ${sub.featured ? "text-warning-muted" : "text-text-dim hover:text-text-muted"}`}
-      >
-        <Star size={16} fill={sub.featured ? "currentColor" : "none"} />
-      </button>
+      />
 
       {/* Title + description */}
       <div className="min-w-[220px] flex-1">
@@ -199,15 +199,13 @@ function SubscriptionRow({
       </div>
 
       {/* Schedule */}
-      <button
-        onClick={() => setScheduleOpen(true)}
-        title="Edit schedule"
-        className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-[11px] transition-colors hover:bg-surface-overlay/45 ${sub.schedule ? "font-mono text-text-muted" : "text-text-dim"}`}
-      >
-        <CalendarClock size={12} />
-        <span>{scheduleLabel}</span>
-        {nextFire && <span className="text-text-dim">· next {nextFire}</span>}
-      </button>
+      <ActionButton
+        label={nextFire ? `${scheduleLabel} · next ${nextFire}` : scheduleLabel}
+        onPress={() => setScheduleOpen(true)}
+        variant="secondary"
+        size="small"
+        icon={<CalendarClock size={12} />}
+      />
 
       {/* Enable toggle */}
       <label
@@ -235,9 +233,12 @@ function SubscriptionRow({
       >
         <ExternalLink size={14} />
       </Link>
-      <button
-        title="Unsubscribe"
-        onClick={async () => {
+      <ActionButton
+        label="Unsubscribe"
+        variant="danger"
+        size="small"
+        icon={<Trash2 size={12} />}
+        onPress={async () => {
           const ok = await confirm(
             `Unsubscribe this channel from "${p?.title ?? "pipeline"}"?`,
             { title: "Unsubscribe", confirmLabel: "Unsubscribe", variant: "danger" },
@@ -245,10 +246,7 @@ function SubscriptionRow({
           if (!ok) return;
           unsub.mutate(sub.id);
         }}
-        className="inline-flex items-center p-1 text-text-dim transition-colors hover:text-danger"
-      >
-        <Trash2 size={14} />
-      </button>
+      />
 
       {scheduleOpen && (
         <CronScheduleModal

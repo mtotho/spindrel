@@ -220,12 +220,14 @@ def _effective_system_prompt(
     bot: BotConfig,
     workspace_base_prompt_enabled: bool = False,
     channel=None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> str:
-    """Base prompt + bot system prompt + optional memory guidelines.
+    """Server prompt + optional workspace prompt + bot system prompt.
 
     If workspace_base_prompt_enabled and the bot belongs to a shared workspace,
     reads common/prompts/base.md (+ bots/{bot_id}/prompts/base.md) from the
-    workspace filesystem and uses that instead of the global base prompt.
+    workspace filesystem and appends it after the global base prompt.
 
     Framework prompts (GLOBAL_BASE_PROMPT, MEMORY_SCHEME_PROMPT) pass through
     ``prompt_dialect.render`` to apply the resolved provider's prompt_style.
@@ -236,12 +238,17 @@ def _effective_system_prompt(
     _override = current_system_prompt_override.get()
     if _override is not None:
         return _override
-    from app.agent.base_prompt import render_base_prompt, resolve_workspace_base_prompt
+    from app.agent.base_prompt import resolve_workspace_base_prompt
     from app.config import settings as _settings
     from app.services.prompt_dialect import render as _dialect_render
     from app.services.providers import resolve_prompt_style
 
-    _style = resolve_prompt_style(bot, channel)
+    _style = resolve_prompt_style(
+        bot,
+        channel,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
+    )
     parts = []
 
     # Global base prompt: org-wide instructions prepended before everything
@@ -249,16 +256,12 @@ def _effective_system_prompt(
         parts.append(_dialect_render(_settings.GLOBAL_BASE_PROMPT, _style).rstrip())
 
     ws_base = None
-    if workspace_base_prompt_enabled:
+    if workspace_base_prompt_enabled and getattr(bot, "shared_workspace_id", None):
         ws_base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
 
     if ws_base:
         # User/workspace-authored base — pass through verbatim
         parts.append(ws_base.rstrip())
-    else:
-        base = render_base_prompt(bot)
-        if base:
-            parts.append(base.rstrip())
 
     # Resolve system prompt from workspace file if configured
     _sys_prompt = bot.system_prompt
@@ -296,6 +299,8 @@ async def load_or_create(
     channel_id: uuid.UUID | None = None,
     preserve_metadata: bool = False,
     context_profile_name: str | None = None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> tuple[uuid.UUID, list[dict]]:
     if session_id is not None:
         existing = await db.get(Session, session_id)
@@ -312,6 +317,8 @@ async def load_or_create(
                 existing,
                 preserve_metadata=preserve_metadata,
                 context_profile_name=context_profile_name,
+                model_override=model_override,
+                provider_id_override=provider_id_override,
             )
             return session_id, messages
 
@@ -326,7 +333,14 @@ async def load_or_create(
     db.add(session)
 
     ws_base_enabled = await _resolve_workspace_base_prompt_enabled(db, bot_id, channel_id)
-    system_content = _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)
+    channel = await db.get(Channel, channel_id) if channel_id else None
+    system_content = _effective_system_prompt(
+        bot,
+        workspace_base_prompt_enabled=ws_base_enabled,
+        channel=channel,
+        model_override=model_override,
+        provider_id_override=provider_id_override,
+    )
     system_msg = Message(
         session_id=session_id,
         role="system",
@@ -368,6 +382,8 @@ async def _load_messages(
     *,
     preserve_metadata: bool = False,
     context_profile_name: str | None = None,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
 ) -> list[dict]:
     """Load messages for a session, using compacted summary when available.
 
@@ -390,7 +406,16 @@ async def _load_messages(
         persona_layer = await get_persona(bot.id, workspace_id=bot.shared_workspace_id)
 
     def _base_messages() -> list[dict]:
-        msgs = [{"role": "system", "content": _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base_enabled)}]
+        msgs = [{
+            "role": "system",
+            "content": _effective_system_prompt(
+                bot,
+                workspace_base_prompt_enabled=ws_base_enabled,
+                channel=_channel,
+                model_override=model_override,
+                provider_id_override=provider_id_override,
+            ),
+        }]
         if persona_layer:
             msgs.append({"role": "system", "content": f"[PERSONA]\n{persona_layer}"})
         for extra in build_plan_mode_system_context(session):

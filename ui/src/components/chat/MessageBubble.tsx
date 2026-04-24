@@ -253,7 +253,7 @@ export const MessageBubble = memo(function MessageBubble({ message, botName, isG
             : null;
 
   if (meta.kind === "slash_command_result") {
-    return <SlashCommandResultCard message={message} />;
+    return <SlashCommandResultCard message={message} chatMode={chatMode} />;
   }
 
   // Message metadata carries the emitting bot as `sender_id: "bot:<id>"`

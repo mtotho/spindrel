@@ -19,6 +19,8 @@ from app.db.models import (
     ConversationSection,
     Message,
     Session,
+    SharedWorkspace,
+    SharedWorkspaceBot,
     TraceEvent,
 )
 
@@ -372,7 +374,7 @@ async def compute_context_breakdown(
             return payload
         _breakdown_cache.pop(cache_key, None)
 
-    from app.agent.base_prompt import render_base_prompt
+    from app.agent.base_prompt import resolve_workspace_base_prompt
     from app.agent.bots import get_bot
     from app.agent.persona import get_persona
 
@@ -391,20 +393,37 @@ async def compute_context_breakdown(
 
     # Global base prompt (server-level, prepended before everything)
     from app.config import settings as _settings
+    from app.services.prompt_dialect import render as _dialect_render
+    from app.services.providers import resolve_prompt_style
     if _settings.GLOBAL_BASE_PROMPT:
+        _prompt_style = resolve_prompt_style(bot, channel)
+        _global_base_prompt = _dialect_render(_settings.GLOBAL_BASE_PROMPT, _prompt_style)
         categories.append(ContextCategory(
-            key="global_base_prompt", label="Global Base Prompt", chars=len(_settings.GLOBAL_BASE_PROMPT),
+            key="global_base_prompt", label="Global Base Prompt", chars=len(_global_base_prompt),
             tokens_approx=0, percentage=0, category="static",
             description="Server-wide prompt prepended before all other base/system prompts",
         ))
 
-    # Base prompt
-    base = render_base_prompt(bot)
+    # Workspace base prompt: user-authored workspace instructions appended after
+    # the server-level global base prompt when enabled for this channel.
+    ws_base_enabled = False
+    swb = (await db.execute(
+        select(SharedWorkspaceBot).where(SharedWorkspaceBot.bot_id == bot.id)
+    )).scalar_one_or_none()
+    if swb:
+        ws = await db.get(SharedWorkspace, swb.workspace_id)
+        if ws:
+            ws_base_enabled = ws.workspace_base_prompt_enabled
+    if channel.workspace_base_prompt_enabled is not None:
+        ws_base_enabled = channel.workspace_base_prompt_enabled
+    base = None
+    if ws_base_enabled and getattr(bot, "shared_workspace_id", None):
+        base = resolve_workspace_base_prompt(bot.shared_workspace_id, bot.id)
     if base:
         categories.append(ContextCategory(
-            key="base_prompt", label="Base Prompt", chars=len(base),
+            key="workspace_base_prompt", label="Workspace Base Prompt", chars=len(base),
             tokens_approx=0, percentage=0, category="static",
-            description="Universal platform prompt prepended to every bot",
+            description="Workspace-authored prompt appended after the global base prompt",
         ))
 
     # Bot system prompt
@@ -871,7 +890,6 @@ async def compute_context_breakdown(
             value=bot.tool_similarity_threshold or settings.TOOL_RETRIEVAL_THRESHOLD,
             source="bot" if bot.tool_similarity_threshold else "global",
         ),
-        "base_prompt": EffectiveSetting(value=bot.base_prompt, source="bot"),
         "rag_reranking": EffectiveSetting(value=settings.RAG_RERANK_ENABLED, source="global"),
         "context_pruning": _resolve_setting(
             getattr(channel, "context_pruning", None),

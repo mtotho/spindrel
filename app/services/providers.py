@@ -29,8 +29,10 @@ _no_vision_models: set[str] = set()
 # Cached set of model_ids flagged as supports_reasoning=True in provider_models table.
 # Authoritative for the bot editor reasoning control and /effort validation.
 _reasoning_capable_models: set[str] = set()
-# Cached map model_id → prompt_style ('markdown' | 'xml' | 'structured')
-# Unknown models default to 'markdown' (handled by get_prompt_style()).
+# Cached maps for prompt_style ('markdown' | 'xml' | 'structured').
+# The provider-aware map is authoritative; the model-only map is a fallback for
+# older call sites and models resolved without a provider.
+_prompt_style_by_provider_model: dict[tuple[str, str], str] = {}
 _prompt_style_by_model: dict[str, str] = {}
 # Cached set of model_ids belonging to plan-billed providers
 _plan_billed_models: set[str] = set()
@@ -203,7 +205,7 @@ async def _ensure_openai_subscription_models(
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _no_vision_models, _reasoning_capable_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_model
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _no_vision_models, _reasoning_capable_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_provider_model, _prompt_style_by_model
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -215,6 +217,7 @@ async def load_providers() -> None:
     _plan_billed_models = set()
     _model_to_provider = {}
     _live_model_to_provider = {}
+    _prompt_style_by_provider_model = {}
     _prompt_style_by_model = {}
 
     async with async_session() as db:
@@ -270,13 +273,19 @@ async def load_providers() -> None:
         ).scalars().all()
         _reasoning_capable_models = set(reasoning)
 
-        # Load prompt_style per model (defaults to 'markdown' server-side)
+        # Load prompt_style per provider+model (defaults to 'markdown' server-side)
         styles = (
             await db.execute(
-                select(ProviderModel.model_id, ProviderModel.prompt_style)
+                select(ProviderModel.provider_id, ProviderModel.model_id, ProviderModel.prompt_style)
             )
         ).all()
-        _prompt_style_by_model = {mid: (style or "markdown") for mid, style in styles}
+        _prompt_style_by_provider_model = {
+            (provider_id, mid): (style or "markdown")
+            for provider_id, mid, style in styles
+        }
+        _prompt_style_by_model = {}
+        for _provider_id, mid, style in styles:
+            _prompt_style_by_model.setdefault(mid, style or "markdown")
 
         # Load model IDs belonging to plan-billed providers
         plan_provider_ids = [r.id for r in rows if r.billing_type == "plan"]
@@ -378,40 +387,72 @@ async def has_encrypted_secrets() -> bool:
     return False
 
 
-def get_prompt_style(model: str) -> str:
-    """Return the prompt_style flag for a model, or 'markdown' if unknown.
+def get_prompt_style(model: str, provider_id: str | None = None) -> str:
+    """Return the prompt_style flag for a provider/model pair.
 
-    Backed by the cache loaded from ``provider_models.prompt_style``. Unknown
-    models fall back to ``'markdown'`` — the safe default that works for
-    everything OpenAI-compatible (including all the things that answer to
-    the openai-compatible provider_type: vLLM, Groq, Together, LMStudio,
-    OpenRouter, LocalAI, LiteLLM proxy).
+    Backed by the cache loaded from ``provider_models.prompt_style``. When
+    ``provider_id`` is available, it disambiguates duplicate model IDs exposed
+    by multiple providers. Unknown pairs fall back to a model-only style, then
+    to ``'markdown'`` — the safe default for OpenAI-compatible surfaces.
     """
     from app.services.prompt_dialect import DEFAULT_STYLE, PROMPT_STYLES
 
-    style = _prompt_style_by_model.get(model, DEFAULT_STYLE)
+    style = None
+    if provider_id:
+        style = _prompt_style_by_provider_model.get((provider_id, model))
+    if style is None:
+        style = _prompt_style_by_model.get(model, DEFAULT_STYLE)
     if style not in PROMPT_STYLES:
         return DEFAULT_STYLE
     return style
 
 
-def resolve_prompt_style(bot, channel=None) -> str:
-    """Resolve the prompt dialect for a bot/channel pair.
+def resolve_effective_provider(
+    model_override: str | None,
+    provider_id_override: str | None,
+    bot_model_provider_id: str | None,
+) -> str | None:
+    """Resolve the provider for an LLM call using the same precedence as loop calls."""
+    if provider_id_override:
+        return provider_id_override
+    if model_override:
+        return resolve_provider_for_model(model_override) or bot_model_provider_id
+    return bot_model_provider_id
 
-    Resolution mirrors model selection: channel override first, then the
-    bot's configured model. Only the model_id is needed for dialect lookup
-    (``prompt_style`` is a per-model flag). If no model can be determined
-    we return the safe default.
+
+def resolve_prompt_style(
+    bot,
+    channel=None,
+    *,
+    model_override: str | None = None,
+    provider_id_override: str | None = None,
+) -> str:
+    """Resolve the prompt dialect for the effective model/provider.
+
+    Resolution mirrors LLM-call model selection: explicit override first,
+    channel override next, then the bot default. Provider ID is included when
+    available so duplicate model IDs across providers can carry different
+    prompt styles.
     """
-    model_id: str | None = None
-    if channel is not None:
+    model_id: str | None = model_override
+    provider_id: str | None = provider_id_override
+    if not model_id and channel is not None:
         model_id = getattr(channel, "model_override", None)
+        provider_id = getattr(channel, "model_provider_id_override", None)
     if not model_id:
         model_id = getattr(bot, "model", None)
+        if provider_id is None:
+            provider_id = getattr(bot, "model_provider_id", None)
     if not model_id:
         from app.services.prompt_dialect import DEFAULT_STYLE
         return DEFAULT_STYLE
-    return get_prompt_style(model_id)
+    if provider_id is None:
+        provider_id = resolve_effective_provider(
+            model_id if model_id != getattr(bot, "model", None) else None,
+            None,
+            getattr(bot, "model_provider_id", None),
+        )
+    return get_prompt_style(model_id, provider_id)
 
 
 def requires_system_message_folding(model: str) -> bool:

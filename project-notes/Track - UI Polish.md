@@ -18,12 +18,15 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Cleaned up Participants by moving primary/member rows and the add-bot picker to shared row/action/pill primitives.
 - [x] Clarified Member Bots passive-context behavior in settings and docs so @-mention routing is not confused with isolation from memory compaction or dreaming/learning.
 - [x] Swept channel routing / passive-memory copy across Agent and Participants settings plus Slack/Discord/BlueBubbles docs so active reply routing is consistently described separately from passive context absorption.
+- [x] Completed a channel-settings consistency sweep: Sessions, Logs, Context preview, Knowledge workspace controls, Tasks filters, Pipeline subscriptions, integration add-ons/bindings, and integration picker rows now use shared low-chrome primitives where the old one-off controls were visually inconsistent.
+- [x] Corrected the banner rule: semantic left-border alert stripes are now banned in `ui-design.md` / `spindrel-ui`, and shared `InfoBanner` renders tonal notes without side borders.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
 - [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.
 - [x] Trimmed the command palette browse defaults so per-channel `Settings · #channel` entries stay searchable and recent-eligible but no longer appear beside every `Chat · #channel` row in the empty Ctrl+K listing.
 - [x] Collapsed noisy command-palette detail families in the empty browse view: tool detail rows, policy detail rows, and recent trace rows now sit behind `Show ...` toggles, while typed search bypasses the collapse and queries the full catalog.
 - [x] Clarified the composer plan control: inactive chat now shows `Start plan` / `Resume plan` as direct actions, while active plan modes show semantic status labels (`Planning`, `Executing`, `Blocked`, `Done`) and keep the dropdown only for active-mode actions.
+- [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 
@@ -201,6 +204,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/components/chat/toolTranscriptModel.test.js .chat-test-dist/stores/chat.test.js`
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_compaction.py tests/unit/test_compaction_core_gaps.py::TestMaybeCompact -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after terminal mobile tool-row overflow fix
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
@@ -394,3 +398,4 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 ## Small copy fixes (2026-04-24)
 
 - [x] `/settings` Chat History `Compaction Model` description is provider-neutral now: "Model used for context compaction." The old "LiteLLM model alias" wording was misleading because the shared picker spans all LLM providers.
+- [x] Fixed stale post-compaction typing indicators: channel-state rehydration now treats lifecycle-only `turn_started` / `skill_index` trace rows as active only while the session lock is active, so reopening a compacted idle thread does not show a phantom bot thinking until the 10-minute TTL expires.

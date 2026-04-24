@@ -256,6 +256,7 @@ class BotContext:
     messages: list[dict]            # Ready for run/run_stream
     system_preamble: str | None     # Identity reinforcement (None for primary)
     model_override: str | None      # From member_config
+    provider_id_override: str | None # From member_config
     raw_snapshot: list[dict]        # Pre-rewrite copy for member bot chaining
     extracted_user_prompt: str      # User msg pulled from snapshot end (member path)
     is_primary: bool
@@ -309,7 +310,14 @@ async def prepare_bot_context(
             async with _async_session() as _tmp_db:
                 ws_base = await _resolve_workspace_base_prompt_enabled(_tmp_db, bot.id, channel_id)
 
-        new_sys = _effective_system_prompt(bot, workspace_base_prompt_enabled=ws_base)
+        _member_model_override = member_config.get("model_override")
+        _member_provider_override = member_config.get("model_provider_id_override")
+        new_sys = _effective_system_prompt(
+            bot,
+            workspace_base_prompt_enabled=ws_base,
+            model_override=_member_model_override,
+            provider_id_override=_member_provider_override,
+        )
         messages[:] = [m for m in messages if m.get("role") != "system"]
         messages.insert(0, {"role": "system", "content": new_sys})
         if bot.persona:
@@ -375,11 +383,13 @@ async def prepare_bot_context(
     )
 
     model_override = member_config.get("model_override")
+    provider_id_override = member_config.get("model_provider_id_override")
 
     return BotContext(
         messages=messages,
         system_preamble=system_preamble,
         model_override=model_override,
+        provider_id_override=provider_id_override,
         raw_snapshot=raw_snapshot,
         extracted_user_prompt=extracted_user_prompt,
         is_primary=is_primary,

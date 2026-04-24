@@ -333,6 +333,7 @@ async def _run_member_bot_reply(
             correlation_id=correlation_id,
             channel_id=channel_id,
             model_override=model_override,
+            provider_id_override=ctx.provider_id_override,
             system_preamble=ctx.system_preamble,
         )
         async for event in emit_run_stream_events(

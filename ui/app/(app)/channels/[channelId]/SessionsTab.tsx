@@ -1,8 +1,7 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { RotateCw } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { EmptyState } from "@/src/components/shared/FormControls";
-import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { EmptyState, Section } from "@/src/components/shared/FormControls";
+import { ActionButton, QuietPill, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -10,7 +9,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 // Sessions Tab
 // ---------------------------------------------------------------------------
 export function SessionsTab({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["channel-sessions", channelId],
@@ -42,72 +40,58 @@ export function SessionsTab({ channelId }: { channelId: string }) {
     },
   });
 
-  if (isLoading) return <Spinner color={t.accent} />;
+  if (isLoading) return <Spinner />;
 
   return (
-    <>
-      {/* Actions bar */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 8, marginBottom: 12 }}>
+    <Section
+      title="Conversations"
+      description="Channel sessions tied to this channel. Start fresh creates a new active conversation without deleting older sessions."
+      action={
         <ActionButton
           label={resetMutation.isPending ? "Resetting..." : "Start Fresh"}
           onPress={() => resetMutation.mutate()}
           disabled={resetMutation.isPending}
           icon={<RotateCw size={12} />}
+          size="small"
         />
-        <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
-          {data?.length ?? 0} conversation{data?.length !== 1 ? "s" : ""}
-        </span>
+      }
+    >
+      <div className="text-[11px] text-text-dim">
+        {data?.length ?? 0} conversation{data?.length !== 1 ? "s" : ""}
       </div>
-
       {!data?.length ? (
         <EmptyState message="No conversations yet." />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div className="flex flex-col gap-1.5">
           {data.map((s: any) => (
-            <div key={s.id} style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
-              padding: "10px 12px", background: s.is_active ? t.successSubtle : t.surfaceRaised,
-              borderRadius: 8, border: `1px solid ${s.is_active ? t.successBorder : t.surfaceOverlay}`,
-            }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 12, color: t.text, fontFamily: "monospace" }}>
-                    {s.id?.substring(0, 8)}
-                  </span>
-                  {s.title && (
-                    <span style={{ fontSize: 12, color: t.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                      {s.title}
-                    </span>
-                  )}
+            <SettingsControlRow key={s.id} active={s.is_active} className="flex items-center gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="font-mono text-[12px] text-text">{s.id?.substring(0, 8)}</span>
+                  {s.title && <span className="min-w-0 truncate text-[12px] text-text-muted">{s.title}</span>}
                   {s.is_active && <StatusBadge label="ACTIVE" variant="success" />}
                   {s.locked && <StatusBadge label="LOCKED" variant="danger" />}
-                  {s.depth > 0 && (
-                    <span style={{ fontSize: 9, background: t.surfaceBorder, color: t.textMuted, padding: "1px 6px", borderRadius: 3 }}>
-                      depth {s.depth}
-                    </span>
-                  )}
+                  {s.depth > 0 && <QuietPill label={`depth ${s.depth}`} />}
                 </div>
-                <div style={{ display: "flex", flexDirection: "row", gap: 8, fontSize: 11, color: t.textDim, marginTop: 3, flexWrap: "wrap" }}>
+                <div className="mt-1 flex flex-wrap gap-2.5 text-[11px] text-text-dim">
                   <span>{s.message_count ?? 0} msgs</span>
                   {s.last_active && <span>{new Date(s.last_active).toLocaleString()}</span>}
                   {s.created_at && <span>created {new Date(s.created_at).toLocaleDateString()}</span>}
                 </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "row", gap: 4, flexShrink: 0 }}>
-                {!s.is_active && (
-                  <ActionButton
-                    label="Activate"
-                    onPress={() => switchMutation.mutate(s.id)}
-                    disabled={switchMutation.isPending}
-                    variant="secondary"
-                    size="small"
-                  />
-                )}
-              </div>
-            </div>
+              {!s.is_active && (
+                <ActionButton
+                  label="Activate"
+                  onPress={() => switchMutation.mutate(s.id)}
+                  disabled={switchMutation.isPending}
+                  variant="secondary"
+                  size="small"
+                />
+              )}
+            </SettingsControlRow>
           ))}
         </div>
       )}
-    </>
+    </Section>
   );
 }

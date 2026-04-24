@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { useChannelContextBreakdown, type ContextBreakdownMode } from "@/src/api/hooks/useChannels";
 import { Section, EmptyState, Toggle } from "@/src/components/shared/FormControls";
 import {
+  ActionButton,
   SettingsControlRow,
   SettingsSegmentedControl,
   SettingsStatGrid,
@@ -38,12 +39,8 @@ function ContextBlock({
   const displayContent = truncated ? `${block.content.slice(0, 200)}...` : block.content;
 
   return (
-    <SettingsControlRow className="flex flex-col gap-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between gap-3 text-left"
-      >
+    <SettingsControlRow onClick={() => setOpen(!open)} className="flex flex-col gap-2">
+      <div className="flex w-full items-center justify-between gap-3 text-left">
         <span className="inline-flex items-center gap-2">
           <StatusBadge label={block.role} variant={ROLE_BADGE[block.role] ?? "neutral"} />
           <span className="text-[11px] font-semibold text-text">{block.label}</span>
@@ -51,7 +48,7 @@ function ContextBlock({
         <span className="text-[10px] text-text-dim">
           {block.content.length.toLocaleString()} chars {open ? "▲" : "▼"}
         </span>
-      </button>
+      </div>
       <div
         className={`max-h-[120px] overflow-hidden whitespace-pre-wrap font-mono text-[11px] leading-relaxed ${isPlaceholder ? "italic text-text-dim" : "text-text-muted"} ${open ? "max-h-none" : ""}`}
       >
@@ -79,14 +76,13 @@ function ContextPreview({ channelId }: { channelId: string }) {
   return (
     <Section title="Context Preview">
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => setExpanded(!expanded)}
-          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-surface-overlay/50 hover:text-text"
-        >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {expanded ? "Collapse" : "Expand"}
-        </button>
+        <ActionButton
+          label={expanded ? "Collapse" : "Expand"}
+          onPress={() => setExpanded(!expanded)}
+          variant="secondary"
+          size="small"
+          icon={expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        />
         <Toggle
           value={includeHistory}
           onChange={setIncludeHistory}
