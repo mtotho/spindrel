@@ -1,12 +1,10 @@
 import { useState } from "react";
 import { Plus, Pencil, X } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useChannelIntegrations,
   useAvailableIntegrations,
   useBindIntegration,
   useUnbindIntegration,
-  type AvailableIntegration,
 } from "@/src/api/hooks/useChannels";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
 import { ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
@@ -15,7 +13,6 @@ import { configSummaryText } from "./helpers";
 import { BindingForm } from "./BindingForm";
 
 export function BindingsSection({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const { data: bindings, isLoading } = useChannelIntegrations(channelId);
   const { data: availableIntegrations } = useAvailableIntegrations();
   const bindMutation = useBindIntegration(channelId);
@@ -51,22 +48,14 @@ export function BindingsSection({ channelId }: { channelId: string }) {
   if (isLoading) {
     return (
       <Section title="Dispatcher Bindings" description="Connect this channel to external messaging services. When the bot responds, its messages are forwarded to the bound service (e.g. a Slack channel or iMessage chat).">
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: 12 }}>
-          <span
-            style={{
-              width: 14,
-              height: 14,
-              border: `2px solid ${t.accent}`,
-              borderTopColor: "transparent",
-              borderRadius: "50%",
-              display: "inline-block",
-              animation: "spin 0.6s linear infinite",
-            }}
-          />
+        <div className="flex items-center gap-2 p-3">
+          <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
         </div>
       </Section>
     );
   }
+
+  const visibleBindings = (bindings ?? []).filter((b) => !b.client_id.startsWith("mc-activated:"));
 
   return (
     <>
@@ -83,70 +72,60 @@ export function BindingsSection({ channelId }: { channelId: string }) {
           />
         ) : undefined}
       >
-        {(!bindings || bindings.filter((b) => !b.client_id.startsWith("mc-activated:")).length === 0) ? (
+        {visibleBindings.length === 0 ? (
           <EmptyState message="No integrations bound to this channel" />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {bindings.filter((b) => !b.client_id.startsWith("mc-activated:")).map((b) => {
+          <div className="flex flex-col gap-2">
+            {visibleBindings.map((b) => {
               const dc = b.dispatch_config ?? {};
               const summary = configSummaryText(dc, available.find((a) => a.type === b.integration_type)?.binding?.config_fields);
-              return editingId === b.id ? (
+              if (editingId === b.id) {
+                return (
+                  <div
+                    key={b.id}
+                    className="rounded-md border border-surface-border bg-surface-raised p-3.5"
+                  >
+                    <BindingForm
+                      availableIntegrations={available}
+                      initialType={b.integration_type}
+                      initialClientId={b.client_id}
+                      initialDisplayName={b.display_name ?? ""}
+                      initialDispatchConfig={dc}
+                      onSubmit={(type, clientId, displayName, dispatchConfig) =>
+                        handleEdit(b.id, type, clientId, displayName, dispatchConfig)
+                      }
+                      onCancel={() => setEditingId(null)}
+                      isPending={bindMutation.isPending || unbindMutation.isPending}
+                      isError={bindMutation.isError}
+                      errorMessage={bindMutation.error instanceof Error ? bindMutation.error.message : undefined}
+                      submitLabel="Save"
+                      lockType
+                    />
+                  </div>
+                );
+              }
+              return (
                 <div
                   key={b.id}
-                  style={{
-                    background: t.surfaceRaised,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 6,
-                    padding: 14,
-                  }}
-                >
-                  <BindingForm
-                    availableIntegrations={available}
-                    initialType={b.integration_type}
-                    initialClientId={b.client_id}
-                    initialDisplayName={b.display_name ?? ""}
-                    initialDispatchConfig={dc}
-                    onSubmit={(type, clientId, displayName, dispatchConfig) =>
-                      handleEdit(b.id, type, clientId, displayName, dispatchConfig)
-                    }
-                    onCancel={() => setEditingId(null)}
-                    isPending={bindMutation.isPending || unbindMutation.isPending}
-                    isError={bindMutation.isError}
-                    errorMessage={bindMutation.error instanceof Error ? bindMutation.error.message : undefined}
-                    submitLabel="Save"
-                    lockType
-                  />
-                </div>
-              ) : (
-                <div
-                  key={b.id}
-                  style={{
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "12px 14px",
-                    borderRadius: 6,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    background: t.surfaceRaised,
-                  }}
+                  className="flex flex-wrap items-center gap-3 rounded-md border border-surface-border bg-surface-raised px-3.5 py-3 hover:bg-surface-overlay/40 transition-colors"
                 >
                   <StatusBadge label={b.integration_type} variant="info" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] text-text">
                       {b.client_id}
                     </div>
                     {b.display_name && (
-                      <div style={{ fontSize: 11, color: t.textDim, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div className="mt-0.5 truncate text-[11px] text-text-dim">
                         {b.display_name}
                       </div>
                     )}
                     {summary && (
-                      <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
+                      <div className="mt-0.5 text-[10px] text-text-dim">
                         {summary}
                       </div>
                     )}
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div className="flex flex-wrap items-center gap-2">
                     <ActionButton
                       label="Edit"
                       onPress={() => setEditingId(b.id)}
@@ -168,16 +147,8 @@ export function BindingsSection({ channelId }: { channelId: string }) {
           </div>
         )}
         {showAdd && (
-          <div
-            style={{
-              marginTop: 12,
-              padding: 14,
-              borderRadius: 6,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-            }}
-          >
-            <div style={{ fontSize: 12, fontWeight: 600, color: t.text, marginBottom: 10, letterSpacing: "-0.01em" }}>Add Binding</div>
+          <div className="mt-3 rounded-md border border-surface-border bg-surface-raised p-3.5">
+            <div className="mb-2.5 text-[12px] font-semibold text-text tracking-[-0.01em]">Add Binding</div>
             <BindingForm
               availableIntegrations={available}
               initialType={available[0]?.type ?? ""}

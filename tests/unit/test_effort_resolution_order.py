@@ -16,6 +16,18 @@ from app.agent.context import current_effort_override
 from app.agent.model_params import filter_model_params, translate_effort
 
 
+@pytest.fixture(autouse=True)
+def _allow_reasoning(monkeypatch):
+    """Phase 2 added a DB-flag reasoning gate inside ``filter_model_params``.
+    These tests isolate ContextVar / bot_params overlay + translation — the
+    DB gate has its own suite. Force the gate open so we don't need to seed
+    provider_models for every case."""
+    monkeypatch.setattr(
+        "app.services.providers.supports_reasoning",
+        lambda _m: True,
+    )
+
+
 class TestContextVarWinsOverBotParams:
     def test_contextvar_unset_uses_bot_default(self):
         """If no /effort was fired, bot's own model_params drive the request."""

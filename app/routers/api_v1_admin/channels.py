@@ -55,24 +55,24 @@ def _resolve_index_segment_defaults(bot_id: str) -> dict:
     """Resolve effective default values for index segment fields from bot config."""
     try:
         bot = get_bot(bot_id)
-        from app.services.workspace_indexing import resolve_indexing
-        resolved = resolve_indexing(
-            bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config,
-        )
-        return {
-            "embedding_model": resolved["embedding_model"],
-            "patterns": resolved["patterns"],
-            "similarity_threshold": resolved["similarity_threshold"],
-            "top_k": resolved["top_k"],
-        }
+        from app.services.bot_indexing import resolve_for
+        plan = resolve_for(bot, scope="workspace")
+        if plan is not None:
+            return {
+                "embedding_model": plan.embedding_model,
+                "patterns": plan.patterns,
+                "similarity_threshold": plan.similarity_threshold,
+                "top_k": plan.top_k,
+            }
     except Exception:
-        from app.config import settings as _s
-        return {
-            "embedding_model": _s.EMBEDDING_MODEL,
-            "patterns": ["**/*.py", "**/*.md", "**/*.yaml"],
-            "similarity_threshold": _s.FS_INDEX_SIMILARITY_THRESHOLD,
-            "top_k": _s.FS_INDEX_TOP_K,
-        }
+        pass
+    from app.config import settings as _s
+    return {
+        "embedding_model": _s.EMBEDDING_MODEL,
+        "patterns": ["**/*.py", "**/*.md", "**/*.yaml"],
+        "similarity_threshold": _s.FS_INDEX_SIMILARITY_THRESHOLD,
+        "top_k": _s.FS_INDEX_TOP_K,
+    }
 
 
 # ---------------------------------------------------------------------------

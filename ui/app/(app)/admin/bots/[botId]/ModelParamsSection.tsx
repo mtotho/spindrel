@@ -2,15 +2,19 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { FormRow, Slider } from "@/src/components/shared/FormControls";
 import type { ModelParamDefinition } from "@/src/types/api";
 
+const REASONING_PARAMS = new Set(["effort", "reasoning_effort", "thinking_budget"]);
+
 export function ModelParamsSection({
   definitions,
   support,
+  reasoningCapableModels,
   model,
   params,
   onChange,
 }: {
   definitions: ModelParamDefinition[];
   support: Record<string, string[]>;
+  reasoningCapableModels?: string[];
   model: string;
   params: Record<string, any>;
   onChange: (p: Record<string, any>) => void;
@@ -18,6 +22,8 @@ export function ModelParamsSection({
   // Derive provider family from model string
   const family = model.includes("/") ? model.split("/")[0].toLowerCase() : "openai";
   const supported = new Set(support[family] || support["_default"] || ["temperature", "max_tokens"]);
+  const reasoningCapable = new Set(reasoningCapableModels ?? []);
+  const modelSupportsReasoning = !!model && reasoningCapable.has(model);
 
   const t = useThemeTokens();
 
@@ -35,11 +41,18 @@ export function ModelParamsSection({
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted, marginTop: 4 }}>Model Parameters</div>
       {definitions.map((def) => {
-        const isSupported = supported.has(def.name);
+        const isFamilySupported = supported.has(def.name);
+        const isReasoningParam = REASONING_PARAMS.has(def.name);
+        const gatedByReasoning = isReasoningParam && !modelSupportsReasoning;
+        const isSupported = isFamilySupported && !gatedByReasoning;
         const hasValue = params[def.name] !== undefined;
         const currentValue = hasValue ? params[def.name] : (def.default ?? 0);
-        const desc = (!isSupported ? `Not supported by ${family} models` : def.description)
-          + ` \u00b7 ${def.name}`;
+        const descBase = gatedByReasoning
+          ? `Model ${model || "(unset)"} is not marked as reasoning-capable — toggle on the admin providers page`
+          : !isFamilySupported
+            ? `Not supported by ${family} models`
+            : def.description;
+        const desc = `${descBase} · ${def.name}`;
 
         return (
           <FormRow key={def.name} label={def.label} description={desc}>

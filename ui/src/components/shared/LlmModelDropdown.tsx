@@ -259,8 +259,26 @@ export function LlmModelDropdownContent({
                     }}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: isSelected ? t.accent : t.text }}>
-                        {model.id}
+                      <div style={{
+                        fontSize: 13, color: isSelected ? t.accent : t.text,
+                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+                      }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {model.id}
+                        </span>
+                        {model.supports_reasoning && (
+                          <span
+                            title="Supports reasoning / effort budget — /effort works on channels bound to this model"
+                            style={{
+                              fontSize: 9, fontWeight: 600,
+                              color: t.accent, background: t.surfaceOverlay,
+                              padding: "1px 5px", borderRadius: 3,
+                              letterSpacing: "0.03em", flexShrink: 0,
+                            }}
+                          >
+                            reasoning
+                          </span>
+                        )}
                       </div>
                       {model.display !== model.id && (
                         <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>

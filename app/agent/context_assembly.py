@@ -797,13 +797,15 @@ async def _inject_channel_workspace(
         # convention-based KB folder is retrievable without any configuration.
         try:
             from app.agent.fs_indexer import retrieve_filesystem_context
-            from app.services.workspace_indexing import resolve_indexing
-            ws_res = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+            from app.services.bot_indexing import resolve_for
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                raise RuntimeError("channel RAG requires workspace-enabled bot")
 
             implicit_kb_prefix = f"channels/{ch_id}/knowledge-base"
             seg_dicts: list[dict] = [{
                 "path_prefix": implicit_kb_prefix,
-                "embedding_model": ws_res["embedding_model"],
+                "embedding_model": plan.embedding_model,
             }]
             for seg in cw_segments:
                 explicit_prefix = f"channels/{ch_id}/{seg['path_prefix'].strip('/')}"
@@ -811,7 +813,7 @@ async def _inject_channel_workspace(
                     continue  # user's explicit segment wins, don't double-register
                 seg_dicts.append({
                     "path_prefix": explicit_prefix,
-                    "embedding_model": seg.get("embedding_model") or ws_res["embedding_model"],
+                    "embedding_model": seg.get("embedding_model") or plan.embedding_model,
                 })
 
             seg_top_k = max((seg.get("top_k", 8) for seg in cw_segments), default=8)
@@ -819,7 +821,7 @@ async def _inject_channel_workspace(
             chunks, sim = await retrieve_filesystem_context(
                 user_message, f"channel:{ch_row.id}",
                 roots=[str(Path(cw_root).parent.parent)],
-                embedding_model=ws_res["embedding_model"],
+                embedding_model=plan.embedding_model,
                 segments=seg_dicts,
                 top_k=seg_top_k,
                 threshold=seg_threshold,
@@ -987,13 +989,14 @@ async def _inject_workspace_rag(
         do_rag = channel_rag
 
     if do_rag:
-        from app.services.workspace_indexing import resolve_indexing, get_all_roots
-        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+        from app.services.bot_indexing import resolve_for
+        plan = resolve_for(bot, scope="workspace")
+        assert plan is not None  # guarded above by bot.workspace.enabled
         fs_chunks, fs_sim = await retrieve_filesystem_context(
-            user_message, bot.id, roots=get_all_roots(bot),
-            threshold=resolved["similarity_threshold"], top_k=resolved["top_k"],
-            embedding_model=resolved["embedding_model"],
-            segments=resolved.get("segments"),
+            user_message, bot.id, roots=list(plan.roots),
+            threshold=plan.similarity_threshold, top_k=plan.top_k,
+            embedding_model=plan.embedding_model,
+            segments=plan.segments,
             channel_id=str(channel_id) if channel_id else None,
             exclude_paths=sorted(memory_scheme_injected_paths) if memory_scheme_injected_paths else None,
             exclude_path_prefixes=sorted(excluded_path_prefixes) if excluded_path_prefixes else None,
@@ -1081,22 +1084,23 @@ async def _inject_bot_knowledge_base(
 
     try:
         from app.agent.fs_indexer import retrieve_filesystem_context
+        from app.services.bot_indexing import resolve_for
         from app.services.workspace import workspace_service
-        from app.services.workspace_indexing import get_all_roots, resolve_indexing
 
-        resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
+        plan = resolve_for(bot, scope="workspace")
+        assert plan is not None  # guarded above by bot.workspace.enabled
         kb_prefix = workspace_service.get_bot_knowledge_base_index_prefix(bot)
         kb_segments: list[dict[str, Any]] = [{
             "path_prefix": kb_prefix,
-            "embedding_model": resolved["embedding_model"],
+            "embedding_model": plan.embedding_model,
         }]
         chunks, sim = await retrieve_filesystem_context(
             user_message,
             bot.id,
-            roots=get_all_roots(bot, workspace_service),
-            threshold=resolved["similarity_threshold"],
-            top_k=resolved["top_k"],
-            embedding_model=resolved["embedding_model"],
+            roots=list(plan.roots),
+            threshold=plan.similarity_threshold,
+            top_k=plan.top_k,
+            embedding_model=plan.embedding_model,
             segments=kb_segments,
         )
         if not chunks:

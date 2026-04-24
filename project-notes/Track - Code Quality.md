@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-23
+updated: 2026-04-23 (Cluster 1 all 6 commits shipped — indexing abstraction-leak closed)
 ---
 # Track — Code Quality & Refactoring
 
@@ -70,6 +70,133 @@ Claimed shallow by one explore agent but unverified. Future session: `wc -l`, `g
 ### Why this matters (architectural read)
 
 The three promoted clusters share a theme: **caller-side knowledge that should live in one module**. Indexing callers duplicate resolution logic. Dashboard callers and services duplicate preset truth. Service callers duplicate HTTP error handling that the service shouldn't own. Each cluster, when deepened, reduces the number of places that need to understand a given policy.
+
+### RFC — Cluster 1 — Indexing caller-boundary leak (2026-04-23)
+
+Chosen design: **A+ — minimal surface with caller-optimized verbs + constructor-injected primitive**. This RFC is the output of the Matt-Pocock skill Step 7 (3 parallel designs evaluated, user picked A+). Not yet executed.
+
+#### Scope
+
+Consolidate three existing modules into one:
+- `app/services/workspace_indexing.py` → becomes internal helpers
+- `app/services/memory_indexing.py` → absorbed
+- `app/services/channel_workspace_indexing.py` → absorbed
+- **New:** `app/services/bot_indexing.py` (public module)
+
+Remove all ~17 direct call sites of `resolve_indexing()` / `get_all_roots()` outside the new owning module. Caller reach surface: `app/main.py` (5), `app/agent/fs_watcher.py` (3 stanzas, ~9 refs), `app/agent/context_assembly.py` (4), `app/tools/local/workspace.py` (4), `app/tools/local/channel_workspace.py` (1).
+
+#### Public interface (final)
+
+```python
+# app/services/bot_indexing.py
+from typing import Literal, Iterator
+
+Scope = Literal["workspace", "memory", "channel"]
+
+@dataclass(frozen=True)
+class BotIndexPlan:
+    bot_id: str                   # sentinel "channel:{id}" for channel scope
+    roots: tuple[str, ...]
+    patterns: list[str]
+    embedding_model: str
+    similarity_threshold: float
+    top_k: int
+    watch: bool
+    cooldown_seconds: int
+    segments: list[dict] | None
+    scope: Scope
+    shared_workspace: bool
+    skip_stale_cleanup: bool
+
+# Reader — pure, no I/O. Returns None if scope doesn't apply to this bot.
+def resolve_for(
+    bot: BotConfig,
+    *,
+    scope: Scope = "workspace",
+    channel_id: str | None = None,
+    channel_segments: list[dict] | None = None,
+) -> BotIndexPlan | None: ...
+
+# Writer — resolves + runs index_directory per root. Returns merged stats or None.
+async def reindex_bot(
+    bot: BotConfig,
+    *,
+    include_workspace: bool = True,
+    include_memory: bool = True,
+    force: bool = True,
+) -> dict | None: ...
+
+# Watcher helper — one call, handles workspace-enabled + memory-only branches.
+def iter_watch_targets(bots: list[BotConfig]) -> Iterator[tuple[BotIndexPlan, str]]: ...
+
+# Channel flavor — narrower call for channel re-index (tools + admin routers)
+async def reindex_channel(
+    channel_id: str,
+    bot: BotConfig,
+    *,
+    channel_segments: list[dict] | None = None,
+    force: bool = True,
+) -> dict | None: ...
+```
+
+Module init does one-time import of `index_directory` (injected primitive) to break the lazy-import cycle; `workspace_service` / `shared_workspace_service` remain lazy-imported inside private helpers (circular-import constraint).
+
+#### Readers keep `retrieve_filesystem_context` separate
+
+Call sites in `context_assembly.py` become:
+
+```python
+plan = bot_indexing.resolve_for(bot, scope="workspace")
+fs_chunks, fs_sim = await retrieve_filesystem_context(
+    user_message, plan.bot_id,
+    roots=list(plan.roots),
+    threshold=plan.similarity_threshold, top_k=plan.top_k,
+    embedding_model=plan.embedding_model,
+    segments=plan.segments, channel_id=..., exclude_paths=...,
+)
+```
+
+We intentionally do **not** subsume `retrieve_filesystem_context` into `bot_indexing` — RAG retrieval and indexing are distinct concerns.
+
+#### Invariants preserved
+
+1. Three-tier config cascade (bot → workspace → global env).
+2. Memory flavor gate: `memory_scheme == "workspace-files" AND workspace.enabled`.
+3. Memory pattern source: `memory_scheme.get_memory_index_patterns(bot)`.
+4. Channel sentinel bot_id: `"channel:{id}"` stored on `FilesystemChunk.bot_id`.
+5. Channel patterns: `channels/{id}/**/*.md` + optional per-segment extensions.
+6. Shared-workspace root: `shared_workspace_service.get_host_root(id)`; standalone: `workspace_service.get_workspace_root(bot.id, bot=bot)`.
+7. `skip_stale_cleanup=True` for memory + channel-without-explicit-segments; `False` when `channel_segments` provided.
+8. Shared-workspace-no-segments skip + stale non-memory chunk deletion (currently `main.py:204-222` inline branch).
+9. Per-root stats merging (currently memory_indexing's inline merge).
+
+#### Commit plan (6 commits, behavior-preserving)
+
+Behavior-preserving = `pytest tests/unit/test_workspace_indexing.py tests/unit/test_memory_indexing.py tests/unit/test_channel_workspace_indexing.py tests/unit/test_fs_watcher_channel_workspace_e2e.py tests/integration/test_workspace_indexing_e2e.py` green at every commit.
+
+1. ~~**Add `bot_indexing.py` skeleton + tests**~~ ✅ shipped 2026-04-23 — `app/services/bot_indexing.py` with `BotIndexPlan` + `resolve_for(scope="workspace")` delegating to `resolve_indexing` + `get_all_roots`. 10 new boundary tests (`tests/unit/test_bot_indexing.py`); 82 legacy indexing tests unchanged. Zero caller changes.
+2. ~~**Port `main.py` startup block (5 sites)**~~ ✅ shipped 2026-04-23 — `_index_filesystems_and_start_watchers` collapsed from 104 → 22 lines. Single loop over `list_bots()` calling `bot_indexing.reindex_bot(bot, force=True, cleanup_orphans=True)` + the legacy `filesystem_indexes` loop. Shared-workspace-no-segments stale-chunk cleanup, two-pass stale-root cleanup, Phase-1 memory indexing, and Phase-2 segment indexing now all live inside `reindex_bot`. New writer tests (6) cover memory-only, segments-indexes-each-root, cleanup-orphans gating, and memory-failure isolation.
+3. ~~**Port `fs_watcher.py` (3 stanzas)**~~ ✅ shipped 2026-04-23 — `start_watchers` now mounts watcher tasks from `iter_watch_targets(bots)` (63 → 33 lines); `_watch_shared_workspace` inner loop collapsed to `reindex_bot(bot, force=True)` per matching bot (36 → 10 lines); periodic reindex worker collapsed to `reindex_bot(bot, force=False)` per bot (30 → 7 lines). 4 new boundary tests on `iter_watch_targets` (memory-scope synthesis, watch=False gate, shared-workspace skip). Minor behavior change noted: periodic memory reindex was implicit force=True → now force=False (matches workspace periodic; skips redundant re-embedding of unchanged memory files).
+4. ~~**Port `context_assembly.py` readers (3 sites)**~~ ✅ shipped 2026-04-23 — channel-segments RAG (line 800), workspace RAG (line 990), bot-knowledge-base RAG (line 1085) all use `bot_indexing.resolve_for(bot, scope="workspace")` and pass plan fields into `retrieve_filesystem_context` unchanged. Implicit-KB-prefix dedupe at line 800 kept at call site per RFC Risk note. (RFC said "4 sites"; actual = 3.)
+5. ~~**Port tool sites (5 files)**~~ ✅ shipped 2026-04-23 — `tools/local/workspace.py` (2 sites), `tools/local/channel_workspace.py` (1 site), `tools/local/memory_files.py` (2 sites). Extended: RFC under-counted callers; also ported `routers/api_v1_workspaces.py` (2 reindex endpoints — phase 0/1/2 cleanup+memory+segments collapsed to single `reindex_bot` loop), `routers/api_v1_admin/diagnostics.py` (3 sites — force-reindex admin endpoint, memory-search diagnostics endpoint, filesystem-per-bot stats endpoint), `routers/api_v1_admin/channels.py` (1 site), `routers/api_v1_search.py` (1 site). Two admin visibility endpoints (`get_workspace_indexing`, `update_bot_indexing`) intentionally retained `resolve_indexing` — they return the raw cascade dict (incl. `segments_source`) for UI display.
+6. ~~**Delete legacy wrappers**~~ ✅ shipped 2026-04-23 — `memory_indexing.index_memory_for_bot` now delegates to `bot_indexing.reindex_bot(include_memory=True, include_workspace=False)`; `channel_workspace_indexing.index_channel_workspace` delegates to `bot_indexing.reindex_channel`. Memory indexing body absorbed into `_reindex_memory` inside `bot_indexing.py`; channel indexing body absorbed into `reindex_channel`. `workspace_indexing.resolve_indexing` + `get_all_roots` remain as internal helpers (used by `bot_indexing._resolve_workspace` + the two admin visibility endpoints) — no deletion. Legacy module file shrink: `memory_indexing.py` 67 → 29 LOC; `channel_workspace_indexing.py` 95 → 32 LOC.
+
+#### Critical regression tests
+
+- `tests/unit/test_workspace_indexing.py` — cascade math.
+- `tests/unit/test_memory_indexing.py` — memory gate + pattern resolution.
+- `tests/unit/test_channel_workspace_indexing.py` — sentinel bot_id + segment composition.
+- `tests/unit/test_fs_watcher_channel_workspace_e2e.py` — watcher + indexing integration.
+- `tests/integration/test_workspace_indexing_e2e.py` — end-to-end.
+- Any `tests/unit/test_main_startup*.py` (if exists) — startup reindex flow.
+
+#### Risks
+
+- **Shared-workspace "no segments" stale-chunk DB cleanup** (`main.py:204-222`) is ~20 lines of SQL that only runs at startup. Moving it inside `reindex_bot` means it runs more often in principle — mitigate by keying the cleanup on a `segments_source` change flag or by keeping it startup-only via an explicit `cleanup_orphans=True` kwarg.
+- **`context_assembly.py:800-826` implicit-KB-prefix dedupe** is channel-retrieval logic, not indexing. Commit 4 should keep that dedupe at the call site — do NOT pull it into `bot_indexing`.
+- **Periodic re-index in `fs_watcher.py:321`** uses `force=False` — commit 3 must preserve that explicit flag.
+
+**All 6 commits shipped 2026-04-23.** Indexing abstraction-leak closed: 18 caller sites across 10 files now route through `bot_indexing.resolve_for` / `reindex_bot` / `iter_watch_targets` / `reindex_channel`. Net LOC delta: ~200 lines removed from caller sites; new `bot_indexing.py` is ~300 LOC carrying all prior semantics behind a 4-function public surface. Legacy flavor modules retained as one-liner delegators for external-caller / test-patch stability.
 
 ## Actual Bugs
 

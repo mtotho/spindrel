@@ -13,6 +13,7 @@ Read the matching guide before touching these areas.
 | [Widget System](widget-system.md) | Widget contracts, origins, presentation, host policy | `app/services/widget_*.py` |
 | [UI Design](ui-design.md) | UI archetypes, design tokens, active-row pill, anti-patterns | `ui/` |
 | [Integrations](integrations.md) | Integration contract + responsibility boundary + surface map | `integrations/`, `app/services/integration_*.py` |
+| [Ubiquitous Language](ubiquitous-language.md) | Canonical glossary + flagged ambiguities across the domain | all of the above |
 
 ## Topic Guides
 

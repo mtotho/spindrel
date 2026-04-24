@@ -116,7 +116,14 @@ class TestFilterModelParams:
         result = filter_model_params("gpt-4", params)
         assert result == {"max_tokens": 4096}
 
-    def test_reasoning_effort_passes_for_openai(self):
+    def test_reasoning_effort_passes_for_openai(self, monkeypatch):
+        # Phase 2 adds a DB-flag reasoning gate inside filter_model_params.
+        # This test isolates the family-level pass-through, so force the DB
+        # gate open — a dedicated suite covers the DB-gating behavior.
+        monkeypatch.setattr(
+            "app.services.providers.supports_reasoning",
+            lambda _m: True,
+        )
         params = {"reasoning_effort": "high", "temperature": 0.5}
         result = filter_model_params("gpt-4o", params)
         assert result["reasoning_effort"] == "high"

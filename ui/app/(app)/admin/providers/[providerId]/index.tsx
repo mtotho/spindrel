@@ -9,7 +9,7 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useProvider, useCreateProvider, useUpdateProvider, useDeleteProvider, useTestProvider, useTestProviderInline,
-  useProviderModels, useAddProviderModel, useDeleteProviderModel,
+  useProviderModels, useAddProviderModel, useDeleteProviderModel, useUpdateProviderModel,
   useProviderTypeCapabilities, useDeleteRemoteModel,
   useOpenAIOAuthStatus, useStartOpenAIOAuth, usePollOpenAIOAuth, useDisconnectOpenAIOAuth,
   type ProviderModelItem,
@@ -96,6 +96,7 @@ export default function ProviderDetailScreen() {
   const { data: providerModels, isLoading: modelsLoading } = useProviderModels(isNew ? undefined : providerId);
   const addModelMut = useAddProviderModel(providerId);
   const deleteModelMut = useDeleteProviderModel(providerId);
+  const updateModelMut = useUpdateProviderModel(providerId);
   const deleteRemoteMut = useDeleteRemoteModel(isNew ? undefined : providerId);
   const [newModelId, setNewModelId] = useState("");
   const [newModelDisplay, setNewModelDisplay] = useState("");
@@ -104,7 +105,18 @@ export default function ProviderDetailScreen() {
   const [newModelOutputCost, setNewModelOutputCost] = useState("");
   const [newModelNoSysMsg, setNewModelNoSysMsg] = useState(false);
   const [newModelNoTools, setNewModelNoTools] = useState(false);
+  const [newModelReasoning, setNewModelReasoning] = useState(false);
   const [newModelPromptStyle, setNewModelPromptStyle] = useState<"markdown" | "xml" | "structured">("markdown");
+  const [editingModelId, setEditingModelId] = useState<number | null>(null);
+  const [editModelDisplay, setEditModelDisplay] = useState("");
+  const [editModelMaxTokens, setEditModelMaxTokens] = useState("");
+  const [editModelInputCost, setEditModelInputCost] = useState("");
+  const [editModelOutputCost, setEditModelOutputCost] = useState("");
+  const [editModelNoSysMsg, setEditModelNoSysMsg] = useState(false);
+  const [editModelSupportsTools, setEditModelSupportsTools] = useState(true);
+  const [editModelSupportsVision, setEditModelSupportsVision] = useState(true);
+  const [editModelReasoning, setEditModelReasoning] = useState(false);
+  const [editModelPromptStyle, setEditModelPromptStyle] = useState<"markdown" | "xml" | "structured">("markdown");
   const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (provider && !initialized) {
@@ -164,6 +176,32 @@ export default function ProviderDetailScreen() {
     await deleteMut.mutateAsync(providerId);
     goBack();
   }, [providerId, deleteMut, goBack, confirm]);
+
+  const beginEditModel = useCallback((model: ProviderModelItem) => {
+    setEditingModelId(model.id);
+    setEditModelDisplay(model.display_name || "");
+    setEditModelMaxTokens(model.max_tokens ? String(model.max_tokens) : "");
+    setEditModelInputCost(model.input_cost_per_1m || "");
+    setEditModelOutputCost(model.output_cost_per_1m || "");
+    setEditModelNoSysMsg(!!model.no_system_messages);
+    setEditModelSupportsTools(model.supports_tools !== false);
+    setEditModelSupportsVision(model.supports_vision !== false);
+    setEditModelReasoning(!!model.supports_reasoning);
+    setEditModelPromptStyle(model.prompt_style || "markdown");
+  }, []);
+
+  const cancelEditModel = useCallback(() => {
+    setEditingModelId(null);
+    setEditModelDisplay("");
+    setEditModelMaxTokens("");
+    setEditModelInputCost("");
+    setEditModelOutputCost("");
+    setEditModelNoSysMsg(false);
+    setEditModelSupportsTools(true);
+    setEditModelSupportsVision(true);
+    setEditModelReasoning(false);
+    setEditModelPromptStyle("markdown");
+  }, []);
 
   const handleTest = useCallback(() => {
     setTestResult(null);
@@ -407,81 +445,270 @@ export default function ProviderDetailScreen() {
                     <div
                       key={m.id}
                       style={{
-                        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                        padding: "6px 8px", background: t.surfaceRaised, borderRadius: 6,
+                        display: "flex", flexDirection: "column", gap: 8,
+                        padding: "8px 10px", background: t.surfaceRaised, borderRadius: 6,
                         fontSize: 12,
                       }}
                     >
-                      <span style={{ color: t.text, fontFamily: "monospace", flex: 1 }}>
-                        {m.model_id}
-                      </span>
-                      {m.display_name && (
-                        <span style={{ color: t.textMuted, fontSize: 11 }}>{m.display_name}</span>
-                      )}
-                      {m.max_tokens && (
-                        <span style={{ color: t.textDim, fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
-                      )}
-                      {(m.input_cost_per_1m || m.output_cost_per_1m) && (
-                        <span style={{ color: t.textDim, fontSize: 11 }}>
-                          {m.input_cost_per_1m || "?"}/{m.output_cost_per_1m || "?"}
+                      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ color: t.text, fontFamily: "monospace", flex: 1 }}>
+                          {m.model_id}
                         </span>
-                      )}
-                      {m.no_system_messages && (
-                        <span style={{
-                          color: t.warning, fontSize: 10, fontWeight: 600,
-                          background: t.warningSubtle, padding: "1px 5px",
-                          borderRadius: 4,
-                        }}>no-sys</span>
-                      )}
-                      {m.supports_tools === false && (
-                        <span style={{
-                          color: t.warning, fontSize: 10, fontWeight: 600,
-                          background: t.warningSubtle, padding: "1px 5px",
-                          borderRadius: 4,
-                        }}>no-tools</span>
-                      )}
-                      {m.prompt_style && m.prompt_style !== "markdown" && (
-                        <span
-                          style={{
-                            color: t.textMuted, fontSize: 10, fontWeight: 600,
-                            background: t.surfaceOverlay, padding: "1px 5px",
-                            borderRadius: 4,
-                          }}
-                          title="Framework prompts render in this dialect for this model"
-                        >{m.prompt_style}</span>
-                      )}
-                      {caps?.delete_model && (
+                        {editingModelId === m.id ? (
+                          <>
+                            <button
+                              onClick={async () => {
+                                await updateModelMut.mutateAsync({
+                                  modelPk: m.id,
+                                  data: {
+                                    display_name: editModelDisplay.trim() || null,
+                                    max_tokens: editModelMaxTokens ? parseInt(editModelMaxTokens) : null,
+                                    input_cost_per_1m: editModelInputCost.trim() || null,
+                                    output_cost_per_1m: editModelOutputCost.trim() || null,
+                                    no_system_messages: editModelNoSysMsg,
+                                    supports_tools: editModelSupportsTools,
+                                    supports_vision: editModelSupportsVision,
+                                    supports_reasoning: editModelReasoning,
+                                    prompt_style: editModelPromptStyle,
+                                  },
+                                });
+                                cancelEditModel();
+                              }}
+                              disabled={updateModelMut.isPending}
+                              style={{
+                                background: t.accent, border: "none", borderRadius: 4,
+                                color: "#fff", cursor: "pointer", padding: "4px 8px",
+                                fontSize: 11, fontWeight: 600,
+                              }}
+                              title="Save model row"
+                            >
+                              Save
+                            </button>
+                            <button
+                              onClick={cancelEditModel}
+                              disabled={updateModelMut.isPending}
+                              style={{
+                                background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                color: t.textMuted, cursor: "pointer", padding: "4px 8px",
+                                fontSize: 11, fontWeight: 600,
+                              }}
+                              title="Cancel editing"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => beginEditModel(m)}
+                            disabled={updateModelMut.isPending || editingModelId !== null}
+                            style={{
+                              background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                              color: t.textMuted, cursor: editingModelId !== null ? "not-allowed" : "pointer",
+                              padding: "4px 8px", fontSize: 11, fontWeight: 600, opacity: editingModelId !== null ? 0.6 : 1,
+                            }}
+                            title="Edit model row"
+                          >
+                            Edit
+                          </button>
+                        )}
+                        {caps?.delete_model && (
+                          <button
+                            onClick={async () => {
+                              const ok = await confirm(`Remove ${m.model_id} from provider?`, {
+                                title: "Remove model",
+                                confirmLabel: "Remove",
+                                variant: "danger",
+                              });
+                              if (ok) deleteRemoteMut.mutate(m.model_id);
+                            }}
+                            disabled={deleteRemoteMut.isPending || editingModelId === m.id}
+                            style={{
+                              background: "none", border: "none", cursor: "pointer",
+                              padding: "2px 4px", color: t.danger, flexShrink: 0,
+                              fontSize: 10, fontWeight: 600,
+                            }}
+                            title="Remove from provider"
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        )}
                         <button
-                          onClick={async () => {
-                            const ok = await confirm(`Remove ${m.model_id} from provider?`, {
-                              title: "Remove model",
-                              confirmLabel: "Remove",
-                              variant: "danger",
-                            });
-                            if (ok) deleteRemoteMut.mutate(m.model_id);
-                          }}
-                          disabled={deleteRemoteMut.isPending}
+                          onClick={() => deleteModelMut.mutate(m.id)}
+                          disabled={deleteModelMut.isPending || editingModelId === m.id}
                           style={{
                             background: "none", border: "none", cursor: "pointer",
-                            padding: "2px 4px", color: t.danger, flexShrink: 0,
-                            fontSize: 10, fontWeight: 600,
+                            padding: 2, color: t.textDim, flexShrink: 0,
                           }}
-                          title="Remove from provider"
+                          title="Remove from DB"
                         >
-                          <Trash2 size={11} />
+                          <X size={13} />
                         </button>
+                      </div>
+
+                      {editingModelId === m.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+                            <div style={{ flex: 2, minWidth: 140 }}>
+                              <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Display Name</div>
+                              <input
+                                value={editModelDisplay}
+                                onChange={(e) => setEditModelDisplay(e.target.value)}
+                                placeholder="Optional"
+                                style={{
+                                  width: "100%", padding: "6px 8px", fontSize: 12,
+                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                  color: t.text,
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Max Tokens</div>
+                              <input
+                                value={editModelMaxTokens}
+                                onChange={(e) => setEditModelMaxTokens(e.target.value)}
+                                placeholder="Optional"
+                                type="number"
+                                style={{
+                                  width: "100%", padding: "6px 8px", fontSize: 12,
+                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                  color: t.text,
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Input $/1M</div>
+                              <input
+                                value={editModelInputCost}
+                                onChange={(e) => setEditModelInputCost(e.target.value)}
+                                placeholder="Optional"
+                                style={{
+                                  width: "100%", padding: "6px 8px", fontSize: 12,
+                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                  color: t.text,
+                                }}
+                              />
+                            </div>
+                            <div style={{ flex: 1, minWidth: 120 }}>
+                              <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Output $/1M</div>
+                              <input
+                                value={editModelOutputCost}
+                                onChange={(e) => setEditModelOutputCost(e.target.value)}
+                                placeholder="Optional"
+                                style={{
+                                  width: "100%", padding: "6px 8px", fontSize: 12,
+                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                  color: t.text,
+                                }}
+                              />
+                            </div>
+                            <div style={{ minWidth: 110 }}>
+                              <div style={{ color: t.textDim, fontSize: 10, marginBottom: 2 }}>Prompt style</div>
+                              <select
+                                value={editModelPromptStyle}
+                                onChange={(e) => setEditModelPromptStyle(e.target.value as "markdown" | "xml" | "structured")}
+                                style={{
+                                  width: "100%", padding: "5px 6px", fontSize: 12,
+                                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
+                                  color: t.text,
+                                }}
+                              >
+                                <option value="markdown">markdown</option>
+                                <option value="xml">xml</option>
+                                <option value="structured">structured</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelNoSysMsg}
+                                onChange={(e) => setEditModelNoSysMsg(e.target.checked)}
+                                style={{ accentColor: t.warning }}
+                              />
+                              No system msgs
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelSupportsTools}
+                                onChange={(e) => setEditModelSupportsTools(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Supports tools
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelSupportsVision}
+                                onChange={(e) => setEditModelSupportsVision(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Supports vision
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelReasoning}
+                                onChange={(e) => setEditModelReasoning(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Reasoning
+                            </label>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {m.display_name && (
+                            <span style={{ color: t.textMuted, fontSize: 11 }}>{m.display_name}</span>
+                          )}
+                          {m.max_tokens && (
+                            <span style={{ color: t.textDim, fontSize: 11 }}>{Math.round(m.max_tokens / 1000)}k</span>
+                          )}
+                          {(m.input_cost_per_1m || m.output_cost_per_1m) && (
+                            <span style={{ color: t.textDim, fontSize: 11 }}>
+                              {m.input_cost_per_1m || "?"}/{m.output_cost_per_1m || "?"}
+                            </span>
+                          )}
+                          {m.no_system_messages && (
+                            <span style={{
+                              color: t.warning, fontSize: 10, fontWeight: 600,
+                              background: t.warningSubtle, padding: "1px 5px",
+                              borderRadius: 4,
+                            }}>no-sys</span>
+                          )}
+                          {m.supports_tools === false && (
+                            <span style={{
+                              color: t.warning, fontSize: 10, fontWeight: 600,
+                              background: t.warningSubtle, padding: "1px 5px",
+                              borderRadius: 4,
+                            }}>no-tools</span>
+                          )}
+                          {m.supports_vision === false && (
+                            <span style={{
+                              color: t.warning, fontSize: 10, fontWeight: 600,
+                              background: t.warningSubtle, padding: "1px 5px",
+                              borderRadius: 4,
+                            }}>no-vision</span>
+                          )}
+                          {m.supports_reasoning && (
+                            <span style={{
+                              color: t.accent, fontSize: 10, fontWeight: 600,
+                              background: t.surfaceOverlay, padding: "1px 5px",
+                              borderRadius: 4,
+                            }} title="Model supports reasoning / effort budget">reasoning</span>
+                          )}
+                          <span
+                            style={{
+                              color: t.textMuted, fontSize: 10, fontWeight: 600,
+                              background: t.surfaceOverlay, padding: "1px 5px",
+                              borderRadius: 4,
+                            }}
+                            title="Framework prompts render in this dialect for this model"
+                          >{m.prompt_style || "markdown"}</span>
+                        </div>
                       )}
-                      <button
-                        onClick={() => deleteModelMut.mutate(m.id)}
-                        disabled={deleteModelMut.isPending}
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          padding: 2, color: t.textDim, flexShrink: 0,
-                        }}
-                        title="Remove from DB"
-                      >
-                        <X size={13} />
-                      </button>
                     </div>
                   ))}
                 </div>
@@ -589,6 +816,21 @@ export default function ProviderDetailScreen() {
                   />
                   No tools
                 </label>
+                <label style={{
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
+                  fontSize: 10, color: t.textMuted, cursor: "pointer",
+                  flexShrink: 0, alignSelf: "flex-end", paddingBottom: 6,
+                }}
+                title="Model supports a reasoning / thinking budget. Gates the Reasoning effort control in the bot editor and the /effort slash command."
+                >
+                  <input
+                    type="checkbox"
+                    checked={newModelReasoning}
+                    onChange={(e) => setNewModelReasoning(e.target.checked)}
+                    style={{ accentColor: t.accent }}
+                  />
+                  Reasoning
+                </label>
                 <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 110, alignSelf: "flex-end" }}>
                   <div style={{ color: t.textDim, fontSize: 10 }}>Prompt style</div>
                   <select
@@ -617,6 +859,7 @@ export default function ProviderDetailScreen() {
                       output_cost_per_1m: newModelOutputCost.trim() || undefined,
                       no_system_messages: newModelNoSysMsg || undefined,
                       supports_tools: newModelNoTools ? false : undefined,
+                      supports_reasoning: newModelReasoning || undefined,
                       prompt_style: newModelPromptStyle !== "markdown" ? newModelPromptStyle : undefined,
                     });
                     setNewModelId("");
@@ -626,6 +869,7 @@ export default function ProviderDetailScreen() {
                     setNewModelOutputCost("");
                     setNewModelNoSysMsg(false);
                     setNewModelNoTools(false);
+                    setNewModelReasoning(false);
                     setNewModelPromptStyle("markdown");
                   }}
                   disabled={!newModelId.trim() || addModelMut.isPending}

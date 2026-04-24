@@ -385,6 +385,11 @@ def _persist_delivery_metadata(metadata: dict, external_id: str, target) -> None
         metadata["slack_thread_ts"] = target.thread_ts
 
 
+def _claims_user_id(recipient_user_id: str) -> bool:
+    """Slack user ids start with ``U`` (regular) or ``W`` (enterprise) and are alphanumeric."""
+    return recipient_user_id[:1] in ("U", "W") and recipient_user_id.isalnum()
+
+
 register_integration(IntegrationMeta(
     integration_type="slack",
     client_id_prefix="slack:",
@@ -395,6 +400,8 @@ register_integration(IntegrationMeta(
     build_thread_ref_from_message=_build_thread_ref_from_message,
     extract_thread_ref_from_dispatch=_extract_thread_ref_from_dispatch,
     persist_delivery_metadata=_persist_delivery_metadata,
+    claims_user_id=_claims_user_id,
+    attachment_file_id_key="slack_file_id",
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)

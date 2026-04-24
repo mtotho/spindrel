@@ -2,7 +2,7 @@
 tags: [agent-server, track, providers, llm, reasoning]
 status: active
 created: 2026-04-23
-updated: 2026-04-23 (phase 1 in-flight)
+updated: 2026-04-23 (phase 2 shipped; provider-model admin/catalog follow-up)
 ---
 # Track — Provider Refactor
 
@@ -14,9 +14,9 @@ One canonical LLM provider subsystem: one reasoning knob, one slash-command regi
 
 | Phase | Summary | Status |
 |---|---|---|
-| 1 | `/effort` slash command + reasoning plumbing fixes + unified slash registry + canonical providers guide | 🟡 in-flight |
-| 2 | `ProviderModel.supports_reasoning` capability column + UI gating | 🔲 planned |
-| 3 | Adapter dedup (`provider_translation.py`) + silent-failure cleanup + hardcoded model-list removal + real `test_connection` | 🔲 planned |
+| 1 | `/effort` slash command + reasoning plumbing fixes + unified slash registry + canonical providers guide | ✅ shipped 2026-04-23 |
+| 2 | `ProviderModel.supports_reasoning` capability column + UI gating + `/effort` validator | ✅ shipped 2026-04-23 |
+| 3 | Adapter dedup (`provider_translation.py`) + silent-failure cleanup + hardcoded model-list removal + real `test_connection` + provider-model admin/catalog cleanup | ◐ in progress |
 | 4 | Prompt dialect `structured` decision (implement or drop) + tool-call ID truncation docs + message-folding dedup | 🔲 planned |
 
 ## Phase 1 — Scope
@@ -36,6 +36,42 @@ One canonical LLM provider subsystem: one reasoning knob, one slash-command regi
 - No migration of existing `bot.model_params.thinking_budget` values; additive only.
 - No change to `prompt_style` enum (Phase 4 owns the `structured` decision).
 - No new `ProviderModel` column (Phase 2 owns `supports_reasoning`).
+
+## Phase 2 — Scope (shipped)
+
+**Shipped 2026-04-23:**
+
+- Migration 242 adds `provider_models.supports_reasoning boolean not null default false` with a one-time UPDATE backfill for known reasoning families (Claude Opus/Sonnet/Haiku-4.5, gpt-5-*, o-series, codex-*, Gemini 2.5-*, DeepSeek Reasoner/R1, Grok 3).
+- `_reasoning_capable_models: set[str]` cache populated in `load_providers()` plus public accessors `supports_reasoning(model)` and `supports_reasoning_set()`.
+- `filter_model_params` consults the DB flag as a second gate — reasoning params get stripped for models the admin hasn't marked reasoning-capable, even within a reasoning-family.
+- `/effort <high|medium|low>` rejects with 400 on channels whose primary bot runs a non-reasoning model (explicit error toast instead of silent drop). `/effort off` always succeeds.
+- `BotEditorDataOut.reasoning_capable_models` whitelist exposed to frontend; `ModelParamsSection.tsx` greys out the Reasoning effort / reasoning_effort / thinking_budget controls with a tooltip when the current model is not reasoning-capable.
+- Admin → Providers → Models: new **Reasoning** checkbox on add + edit + badge on the model row.
+- Bot editor model dropdown (`LlmModelDropdownContent`) shows a `reasoning` chip next to each reasoning-capable model — so users picking a model see which ones support `/effort` before selection. `/admin/models` endpoint now returns `supports_reasoning` per model, sourced from the `_reasoning_capable_models` cache.
+- `docs/guides/providers.md` extended with a ProviderModel capability columns table and a "marking a new model as reasoning-capable" workflow.
+- Tests (all real-DB, no mocks): `test_supports_reasoning_cache.py`, `test_filter_model_params_reasoning_gate.py`, `test_slash_command_effort_capability_gate.py`, `test_editor_data_reasoning_capable.py` — 15 new tests green.
+
+**Out of scope for Phase 2:**
+
+- `/effort` validation against dispatch side-bots (only `Channel.bot_id` is checked).
+- Auto-setting `supports_reasoning=True` at model create based on model-id heuristics (admin toggles the checkbox at create time).
+- Per-family runtime fallback heuristic — DB flag is the sole runtime authority.
+
+## Phase 3 — Provider-model admin/catalog follow-up (partial, 2026-04-23)
+
+**Shipped in this follow-up:**
+
+- Added `PUT /api/v1/admin/providers/{provider_id}/models/{model_pk}` so existing provider-model rows can be edited in place instead of delete/recreate.
+- Provider-model create, update, and delete now always call `load_providers()` after commit so prompt-style / no-system / tools / vision / reasoning caches refresh even when only a "default-looking" field changes.
+- `list_models_for_provider()` now merges DB-backed `provider_models` rows with live driver catalogs instead of treating DB rows as a pure fallback.
+- Result: a manually added ChatGPT subscription row like `gpt-5.5` now shows up in `/api/v1/admin/models` and downstream model dropdowns even if the driver still reports `gpt-5.4` / `gpt-5.4-mini`.
+- Admin → Providers → Models now shows prompt style on existing rows consistently, adds inline edit/save/cancel controls, and exposes the current row flags (`no_system_messages`, tools, vision, reasoning, prompt_style`) during edit.
+- Added integration coverage for provider-model update semantics and for the DB/live catalog union behavior.
+
+**Still belongs to Phase 3:**
+
+- Adapter dedup (`provider_translation.py`), silent `try/except: return []` cleanup, and real `test_connection()` work remain open.
+- This follow-up intentionally did **not** expand the hardcoded ChatGPT OAuth allowlist just to surface manual rows; the DB/live union is the durable fix.
 
 ## Audit Findings — All Severities
 

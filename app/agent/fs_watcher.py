@@ -124,51 +124,28 @@ async def _debounced_watch(
 
 async def start_watchers(bots: list) -> None:
     """Launch watcher tasks for workspace and legacy filesystem_indexes configs."""
+    from app.services.bot_indexing import iter_watch_targets
+
     global _stop_event, _watcher_tasks
     _stop_event = asyncio.Event()
     seen: set[tuple[str, str]] = set()
+    for plan, ws_root in iter_watch_targets(list(bots)):
+        abs_root = str(Path(ws_root).resolve())
+        key = (abs_root, plan.bot_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        name_prefix = "fs_watcher:memory" if plan.scope == "memory" else "fs_watcher"
+        task = asyncio.create_task(
+            _debounced_watch(
+                ws_root, plan.bot_id, plan.patterns,
+                embedding_model=plan.embedding_model if plan.scope != "memory" else None,
+                segments=plan.segments,
+            ),
+            name=f"{name_prefix}:{plan.bot_id}:{abs_root}",
+        )
+        _watcher_tasks.append(task)
     for bot in bots:
-        # Workspace-based watcher — skip shared workspace bots (covered by shared ws watcher)
-        ws = getattr(bot, "workspace", None)
-        if ws and ws.enabled and ws.indexing.enabled and not getattr(bot, "shared_workspace_id", None):
-            from app.services.workspace_indexing import resolve_indexing, get_all_roots
-            _resolved = resolve_indexing(ws.indexing, getattr(bot, "_workspace_raw", {}), getattr(bot, "_ws_indexing_config", None))
-            if not _resolved["watch"]:
-                continue
-            for ws_root in get_all_roots(bot):
-                abs_root = str(Path(ws_root).resolve())
-                key = (abs_root, bot.id)
-                if key not in seen:
-                    seen.add(key)
-                    task = asyncio.create_task(
-                        _debounced_watch(
-                            ws_root, bot.id, _resolved["patterns"],
-                            embedding_model=_resolved.get("embedding_model"),
-                            segments=_resolved.get("segments"),
-                        ),
-                        name=f"fs_watcher:{bot.id}:{abs_root}",
-                    )
-                    _watcher_tasks.append(task)
-        # Memory-only watcher for bots with workspace-files memory but no general indexing
-        elif (
-            ws and ws.enabled
-            and not ws.indexing.enabled
-            and getattr(bot, "memory_scheme", None) == "workspace-files"
-            and not getattr(bot, "shared_workspace_id", None)
-        ):
-            from app.services.memory_indexing import get_memory_patterns
-            from app.services.workspace_indexing import get_all_roots
-            for ws_root in get_all_roots(bot):
-                abs_root = str(Path(ws_root).resolve())
-                key = (abs_root, bot.id)
-                if key not in seen:
-                    seen.add(key)
-                    task = asyncio.create_task(
-                        _debounced_watch(ws_root, bot.id, get_memory_patterns()),
-                        name=f"fs_watcher:memory:{bot.id}:{abs_root}",
-                    )
-                    _watcher_tasks.append(task)
-        # Legacy filesystem_indexes
         for cfg in getattr(bot, "filesystem_indexes", []):
             if not cfg.watch:
                 continue
@@ -225,44 +202,15 @@ async def _watch_shared_workspace(
 
                 # Re-index filesystem for each bot in the workspace
                 from app.agent.bots import list_bots
-                from app.agent.fs_indexer import index_directory
-                from app.services.workspace_indexing import resolve_indexing, get_all_roots
+                from app.services.bot_indexing import reindex_bot
 
                 for bot in list_bots():
                     if bot.shared_workspace_id != workspace_id:
                         continue
-                    if bot.workspace.indexing.enabled:
-                        try:
-                            _resolved = resolve_indexing(
-                                bot.workspace.indexing,
-                                getattr(bot, "_workspace_raw", {}),
-                                getattr(bot, "_ws_indexing_config", None),
-                            )
-                            _segments = _resolved.get("segments")
-                            # Shared workspace bots without segments: skip file
-                            # indexing — only memory gets indexed.  Without this
-                            # guard, segments=[] is falsy and index_directory()
-                            # falls through to blanket-glob the entire workspace.
-                            if not _segments:
-                                if getattr(bot, "memory_scheme", None) == "workspace-files":
-                                    from app.services.memory_indexing import index_memory_for_bot
-                                    await index_memory_for_bot(bot, force=True)
-                                continue
-                            for root in get_all_roots(bot):
-                                await index_directory(
-                                    root, bot.id, _resolved["patterns"], force=True,
-                                    embedding_model=_resolved["embedding_model"],
-                                    segments=_segments,
-                                )
-                        except Exception:
-                            logger.exception("Shared workspace watcher: index failed for bot %s", bot.id)
-                    elif getattr(bot, "memory_scheme", None) == "workspace-files":
-                        # Memory-only re-index for bots without general indexing
-                        try:
-                            from app.services.memory_indexing import index_memory_for_bot
-                            await index_memory_for_bot(bot, force=True)
-                        except Exception:
-                            logger.exception("Shared workspace watcher: memory index failed for bot %s", bot.id)
+                    try:
+                        await reindex_bot(bot, force=True)
+                    except Exception:
+                        logger.exception("Shared workspace watcher: reindex failed for bot %s", bot.id)
     except asyncio.CancelledError:
         pass
     logger.info("Shared workspace watcher stopped: %s", host_root)
@@ -313,36 +261,13 @@ async def periodic_reindex_worker() -> None:
                 continue
 
             from app.agent.bots import list_bots
-            from app.agent.fs_indexer import index_directory
-            from app.services.workspace_indexing import resolve_indexing, get_all_roots
-            from app.services.workspace import workspace_service
-            from app.services.memory_indexing import index_memory_for_bot
+            from app.services.bot_indexing import reindex_bot
 
             for bot in list_bots():
-                # Memory files
-                if bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
-                    try:
-                        await index_memory_for_bot(bot)
-                    except Exception:
-                        logger.exception("Periodic reindex: memory failed for bot %s", bot.id)
-
-                # Workspace indexing
-                if bot.workspace.enabled and bot.workspace.indexing.enabled:
-                    _resolved = resolve_indexing(
-                        bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
-                    )
-                    _segments = _resolved.get("segments")
-                    if bot.shared_workspace_id and not _segments:
-                        continue
-                    for root in get_all_roots(bot, workspace_service):
-                        try:
-                            await index_directory(
-                                root, bot.id, _resolved["patterns"],
-                                embedding_model=_resolved["embedding_model"],
-                                segments=_segments,
-                            )
-                        except Exception:
-                            logger.exception("Periodic reindex: failed for bot %s root %s", bot.id, root)
+                try:
+                    await reindex_bot(bot, force=False)
+                except Exception:
+                    logger.exception("Periodic reindex: failed for bot %s", bot.id)
 
             logger.info("Periodic reindex pass complete")
         except Exception:

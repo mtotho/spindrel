@@ -161,6 +161,8 @@ export interface ProviderModelItem {
   output_cost_per_1m?: string | null;
   no_system_messages?: boolean;
   supports_tools?: boolean;
+  supports_vision?: boolean;
+  supports_reasoning?: boolean;
   prompt_style?: PromptStyle;
   created_at: string;
 }
@@ -173,6 +175,20 @@ export interface ProviderModelCreatePayload {
   output_cost_per_1m?: string;
   no_system_messages?: boolean;
   supports_tools?: boolean;
+  supports_vision?: boolean;
+  supports_reasoning?: boolean;
+  prompt_style?: PromptStyle;
+}
+
+export interface ProviderModelUpdatePayload {
+  display_name?: string | null;
+  max_tokens?: number | null;
+  input_cost_per_1m?: string | null;
+  output_cost_per_1m?: string | null;
+  no_system_messages?: boolean;
+  supports_tools?: boolean;
+  supports_vision?: boolean;
+  supports_reasoning?: boolean;
   prompt_style?: PromptStyle;
 }
 
@@ -213,6 +229,31 @@ export function useDeleteProviderModel(providerId: string | undefined) {
       apiFetch(
         `/api/v1/admin/providers/${providerId}/models/${modelPk}`,
         { method: "DELETE" }
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useUpdateProviderModel(providerId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      modelPk,
+      data,
+    }: {
+      modelPk: number;
+      data: ProviderModelUpdatePayload;
+    }) =>
+      apiFetch<ProviderModelItem>(
+        `/api/v1/admin/providers/${providerId}/models/${modelPk}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        }
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-provider-models", providerId] });

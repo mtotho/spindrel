@@ -66,10 +66,7 @@ async def _background_reindex(
     try:
         if reindex_memory or reindex_filesystem:
             from app.db.engine import async_session
-            from app.services.workspace_indexing import resolve_indexing, get_all_roots
-            from app.services.workspace import workspace_service
-            from app.services.memory_indexing import index_memory_for_bot
-            from app.agent.fs_indexer import index_directory
+            from app.services.bot_indexing import reindex_bot
 
             async with async_session() as db:
                 sw_bots = (await db.execute(
@@ -82,30 +79,19 @@ async def _background_reindex(
                 bot = next((b for b in list_bots() if b.id == bot_id), None)
                 if not bot or not bot.workspace.enabled:
                     continue
-
-                if reindex_memory and bot.memory_scheme == "workspace-files":
-                    try:
-                        await index_memory_for_bot(bot, force=True)
-                    except Exception:
-                        logger.exception("Auto reindex memory failed for bot %s", bot_id)
-
-                if reindex_filesystem and bot.workspace.indexing.enabled and ws:
-                    try:
-                        _resolved = resolve_indexing(
-                            bot.workspace.indexing, bot._workspace_raw,
-                            ws.indexing_config if ws else None,
-                        )
-                        _segments = _resolved.get("segments")
-                        if not _segments:
-                            continue
-                        for root in get_all_roots(bot, workspace_service):
-                            await index_directory(
-                                root, bot_id, _resolved["patterns"],
-                                embedding_model=_resolved["embedding_model"],
-                                segments=_segments,
-                            )
-                    except Exception:
-                        logger.exception("Auto reindex fs failed for bot %s", bot_id)
+                # Pull fresh workspace-level config into the cached bot so
+                # the reindex pass sees the update we just applied.
+                if ws is not None:
+                    bot._ws_indexing_config = ws.indexing_config
+                try:
+                    await reindex_bot(
+                        bot,
+                        include_workspace=reindex_filesystem,
+                        include_memory=reindex_memory,
+                        force=True,
+                    )
+                except Exception:
+                    logger.exception("Auto reindex failed for bot %s", bot_id)
     except Exception:
         logger.exception("Background reindex failed for workspace %s", workspace_id[:8])
 
@@ -927,58 +913,21 @@ async def reindex_workspace(
         select(SharedWorkspaceBot).where(SharedWorkspaceBot.workspace_id == ws_id)
     )).scalars().all()
 
-    from app.agent.fs_indexer import index_directory, cleanup_stale_roots
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
-
-    from app.services.memory_indexing import index_memory_for_bot
+    from app.services.bot_indexing import reindex_bot
 
     results = {}
-
-    # Phase 0: Clean up chunks from stale roots (e.g. after root path changes)
     for swb in sw_bots:
         bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
-        if bot and bot.workspace.enabled:
-            try:
-                valid = get_all_roots(bot)
-                removed = await cleanup_stale_roots(bot.id, valid)
-                if removed:
-                    results.setdefault(swb.bot_id, {})["stale_roots_cleaned"] = removed
-            except Exception:
-                pass  # non-fatal
-
-    # Phase 1: Memory reindex for all workspace-files bots
-    memory_indexed_bot_ids: set[str] = set()
-    for swb in sw_bots:
-        bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
-        if bot and bot.memory_scheme == "workspace-files" and bot.workspace.enabled:
-            try:
-                stats = await index_memory_for_bot(bot, force=True)
-                if stats:
-                    results.setdefault(swb.bot_id, {}).update({"memory": stats})
-                memory_indexed_bot_ids.add(swb.bot_id)
-            except Exception as exc:
-                results.setdefault(swb.bot_id, {})["memory_error"] = str(exc)
-
-    # Phase 2: Segment-based indexing (only for bots with segments)
-    for swb in sw_bots:
+        if not bot or not bot.workspace.enabled:
+            continue
+        if ws.indexing_config is not None:
+            bot._ws_indexing_config = ws.indexing_config
         try:
-            bot = next((b for b in list_bots() if b.id == swb.bot_id), None)
-            if bot and bot.workspace.indexing.enabled:
-                _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, ws.indexing_config)
-                _segments = _resolved.get("segments")
-                if not _segments:
-                    continue
-                bot_results = []
-                for root in get_all_roots(bot):
-                    stats = await index_directory(
-                        root, swb.bot_id, _resolved["patterns"], force=True,
-                        embedding_model=_resolved["embedding_model"],
-                        segments=_segments,
-                    )
-                    bot_results.append(stats)
-                results.setdefault(swb.bot_id, {})["indexing"] = bot_results[0] if len(bot_results) == 1 else bot_results
+            stats = await reindex_bot(bot, force=True, cleanup_orphans=True)
+            if stats:
+                results[swb.bot_id] = stats
         except Exception as exc:
-            results.setdefault(swb.bot_id, {})["indexing_error"] = str(exc)
+            results.setdefault(swb.bot_id, {})["error"] = str(exc)
 
     return {"results": results}
 

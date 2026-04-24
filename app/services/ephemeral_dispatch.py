@@ -138,6 +138,8 @@ def _pick_ephemeral_target(
     Returns the integration_id to target, or None if no binding can
     deliver privately.
     """
+    from app.agent.hooks import claims_user_id
+
     capable: list[str] = []
     for integration_id, _target in targets:
         renderer = renderer_registry.get(integration_id)
@@ -148,27 +150,6 @@ def _pick_ephemeral_target(
     if not capable:
         return None
     for integration_id in capable:
-        if _claims_user_id(integration_id, recipient_user_id):
+        if claims_user_id(integration_id, recipient_user_id):
             return integration_id
     return capable[0]
-
-
-def _claims_user_id(integration_id: str, recipient_user_id: str) -> bool:
-    """Does ``integration_id`` natively own this user identifier?
-
-    V1 heuristic — per-integration until we wire the full cross-integration
-    identity resolver (``app.services.channels.get_user_by_integration_identity``).
-
-    - slack: user ids start with ``U`` or ``W`` and are alphanumeric.
-    - discord: user ids are numeric snowflakes.
-    - bluebubbles: phone / email.
-    """
-    if not recipient_user_id:
-        return False
-    if integration_id == "slack":
-        return recipient_user_id[:1] in ("U", "W") and recipient_user_id.isalnum()
-    if integration_id == "discord":
-        return recipient_user_id.isdigit()
-    if integration_id == "bluebubbles":
-        return "@" in recipient_user_id or recipient_user_id.startswith("+")
-    return False

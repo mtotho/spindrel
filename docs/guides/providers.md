@@ -216,6 +216,38 @@ Power users can set a numeric `thinking_budget` under the Advanced disclosure in
 
 The command persists `channel.config.effort_override` (or removes the key on `off`). The channel header shows an `effort: <level>` pill while the override is active. The slash-command registry is backend-owned (`list_supported_slash_commands` in `app/services/slash_commands.py`); the frontend mirrors it at load. Each entry carries `accepts_args`, `arg_enum`, and `local_only` flags so both surfaces agree on the contract.
 
+### Capability gating
+
+`/effort <level>` (anything other than `off`) rejects with a 400 if the channel's primary bot runs a model that isn't marked as reasoning-capable. The bot editor greys out the Reasoning effort control under the same rule. Both checks consult the `supports_reasoning` column on `provider_models` — the single source of truth.
+
+`filter_model_params` is the last-line defence: it strips `effort` / `reasoning_effort` / `thinking_budget` before the SDK call when the model isn't reasoning-capable. Callers never need to pre-check capability themselves.
+
+Unknown models (no `provider_models` row) are treated as non-reasoning. If a legitimate reasoning model sneaks in without the flag, flip the checkbox in **Admin → Providers → [provider] → Models** and the cache picks up the change on next provider mutation (or bot/page reload). See [ProviderModel capability columns](#providermodel-capability-columns) below.
+
+---
+
+## ProviderModel capability columns
+
+Per-model flags live on the `provider_models` table. Each row has the four booleans the admin UI exposes, plus the prompt-dialect string:
+
+| Column | Default | Purpose |
+|---|:-:|---|
+| `no_system_messages` | `false` | Fold `system` into the first user message (MiniMax-style APIs that reject `role: system`) |
+| `supports_tools` | `true` | Whether function-calling / tool use is supported. Auto-learned on API rejection |
+| `supports_vision` | `true` | Whether `image_url` content parts are accepted. Auto-learned on API rejection |
+| `supports_reasoning` | `false` | Whether the model takes an effort / thinking-budget knob. Gates the `/effort` command and the bot editor control |
+| `prompt_style` | `'markdown'` | Framework-prompt dialect (`markdown` / `xml` / `structured`) — see [Prompt dialect](#prompt-dialect-prompt_style) |
+
+All are loaded into in-memory sets by `load_providers()` (`app/services/providers.py`). The cache auto-rebuilds whenever an admin adds, edits, or deletes a provider or model — no manual invalidation needed.
+
+### Marking a new model as reasoning-capable
+
+1. **Admin → Providers → [your provider] → Add model.**
+2. In the row controls, tick the **Reasoning** checkbox.
+3. Save. The `load_providers()` reload on the same request repopulates `_reasoning_capable_models`, the `/effort` validator and bot editor pick it up immediately.
+
+Existing rows were backfilled by migration 242 for the known reasoning-capable families: Claude Opus / Sonnet / Haiku 4.5, gpt-5-*, o-series, codex-*, Gemini 2.5-*, DeepSeek Reasoner / R1, Grok 3. Anything else starts as `false`.
+
 ---
 
 ## Prompt dialect (`prompt_style`)

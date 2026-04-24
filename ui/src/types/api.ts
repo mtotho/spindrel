@@ -241,6 +241,7 @@ export interface BotEditorData {
   all_sandbox_profiles: { name: string; description?: string }[];
   model_param_definitions: ModelParamDefinition[];
   model_param_support: Record<string, string[]>;
+  reasoning_capable_models?: string[];
   resolved_preview?: ResolvedPreview | null;
   starter_skill_ids?: string[];
 }
@@ -786,6 +787,7 @@ export interface LlmModel {
   max_tokens?: number;
   download_status?: "cached" | "not_downloaded" | "downloading";
   size_mb?: number;
+  supports_reasoning?: boolean;
 }
 
 export interface ModelGroup {

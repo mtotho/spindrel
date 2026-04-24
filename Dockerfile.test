@@ -12,4 +12,5 @@ COPY spindrel/ spindrel/
 COPY tests/ tests/
 COPY skills/ skills/
 COPY migrations/ migrations/
+COPY docs/ docs/
 COPY alembic.ini ./

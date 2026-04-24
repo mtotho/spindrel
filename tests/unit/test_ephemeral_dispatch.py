@@ -9,6 +9,8 @@ import uuid
 
 import pytest
 
+from app.agent import hooks as agent_hooks
+from app.agent.hooks import IntegrationMeta, claims_user_id, register_integration
 from app.domain.capability import Capability
 from app.domain.channel_events import ChannelEventKind
 from app.integrations import renderer_registry
@@ -45,9 +47,31 @@ class _FakeDB:
 @pytest.fixture(autouse=True)
 def _clean_registry():
     before = dict(renderer_registry._registry)
+    meta_before = dict(agent_hooks._meta_registry)
+    # Register the production claims_user_id predicates so the routing
+    # contract stays live in tests without pulling in each integration's
+    # full hooks.py (which would require httpx, zeroconf, etc.).
+    register_integration(IntegrationMeta(
+        integration_type="slack",
+        client_id_prefix="slack:",
+        claims_user_id=lambda u: u[:1] in ("U", "W") and u.isalnum(),
+        attachment_file_id_key="slack_file_id",
+    ))
+    register_integration(IntegrationMeta(
+        integration_type="discord",
+        client_id_prefix="discord:",
+        claims_user_id=lambda u: u.isdigit(),
+    ))
+    register_integration(IntegrationMeta(
+        integration_type="bluebubbles",
+        client_id_prefix="bb:",
+        claims_user_id=lambda u: "@" in u or u.startswith("+"),
+    ))
     yield
     renderer_registry._registry.clear()
     renderer_registry._registry.update(before)
+    agent_hooks._meta_registry.clear()
+    agent_hooks._meta_registry.update(meta_before)
 
 
 class _FakeRenderer:
@@ -164,17 +188,27 @@ class TestDeliverEphemeralErrors:
 
 
 class TestClaimsUserId:
+    """The predicate itself lives on each integration's IntegrationMeta now
+    (registered in ``integrations/<id>/hooks.py``). These tests verify the
+    central ``claims_user_id`` lookup dispatches to the right registrant."""
+
     async def test_slack_claims_u_prefix(self):
-        assert ephemeral_dispatch._claims_user_id("slack", "UALICE")
-        assert ephemeral_dispatch._claims_user_id("slack", "W01ABC")
-        assert not ephemeral_dispatch._claims_user_id("slack", "123456789")
-        assert not ephemeral_dispatch._claims_user_id("slack", "")
+        assert claims_user_id("slack", "UALICE")
+        assert claims_user_id("slack", "W01ABC")
+        assert not claims_user_id("slack", "123456789")
+        assert not claims_user_id("slack", "")
 
     async def test_discord_claims_numeric_snowflake(self):
-        assert ephemeral_dispatch._claims_user_id("discord", "123456789012345678")
-        assert not ephemeral_dispatch._claims_user_id("discord", "UALICE")
+        assert claims_user_id("discord", "123456789012345678")
+        assert not claims_user_id("discord", "UALICE")
 
     async def test_bluebubbles_claims_phone_or_email(self):
-        assert ephemeral_dispatch._claims_user_id("bluebubbles", "+15551234")
-        assert ephemeral_dispatch._claims_user_id("bluebubbles", "alice@example.com")
-        assert not ephemeral_dispatch._claims_user_id("bluebubbles", "UALICE")
+        assert claims_user_id("bluebubbles", "+15551234")
+        assert claims_user_id("bluebubbles", "alice@example.com")
+        assert not claims_user_id("bluebubbles", "UALICE")
+
+    async def test_unregistered_integration_safe_default(self):
+        """Removing an integration from the registry should return False,
+        not raise ``NameError``/``KeyError``. Matches the plan's per-site
+        verification: unregistered integration id → safe fallback."""
+        assert not claims_user_id("nonexistent", "UALICE")

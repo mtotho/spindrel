@@ -15,6 +15,7 @@ Index: [`docs/guides/index.md`](docs/guides/index.md). Read the matching guide b
 - [`docs/guides/widget-system.md`](docs/guides/widget-system.md) — widget contracts, origins, presentation, host policy
 - [`docs/guides/ui-design.md`](docs/guides/ui-design.md) — UI archetypes, design tokens, anti-patterns
 - [`docs/guides/integrations.md`](docs/guides/integrations.md) — integration contract + responsibility boundary
+- [`docs/guides/ubiquitous-language.md`](docs/guides/ubiquitous-language.md) — canonical glossary; open when naming a new concept, reviewing UI copy, or resolving a terminology disagreement
 
 ## Commands
 

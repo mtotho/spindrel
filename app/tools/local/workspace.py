@@ -81,19 +81,18 @@ async def search_workspace(query: str, top_k: int | None = None) -> str:
     if not bot.workspace.indexing.enabled:
         return json.dumps({"count": 0, "results": [], "error": "Workspace indexing is not enabled for this bot."}, ensure_ascii=False)
 
-    from app.services.workspace import workspace_service
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
     from app.agent.fs_indexer import retrieve_filesystem_context
+    from app.services.bot_indexing import resolve_for
 
-    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-    roots = get_all_roots(bot, workspace_service)
-    threshold = _resolved["similarity_threshold"]
-    k = top_k or _resolved["top_k"]
+    plan = resolve_for(bot, scope="workspace")
+    assert plan is not None  # workspace.enabled checked above
+    k = top_k or plan.top_k
 
     chunks, best_sim = await retrieve_filesystem_context(
-        query, bot_id, roots=roots, top_k=k, threshold=threshold,
-        embedding_model=_resolved["embedding_model"],
-        segments=_resolved.get("segments"),
+        query, bot_id, roots=list(plan.roots), top_k=k,
+        threshold=plan.similarity_threshold,
+        embedding_model=plan.embedding_model,
+        segments=plan.segments,
     )
     if not chunks:
         return json.dumps({"count": 0, "results": [], "message": "No relevant results found."}, ensure_ascii=False)
@@ -149,22 +148,22 @@ async def search_bot_knowledge(query: str, top_k: int | None = None) -> str:
     if not bot.workspace.indexing.enabled:
         return json.dumps({"count": 0, "results": [], "error": "Bot knowledge search is not available (indexing disabled)."}, ensure_ascii=False)
 
-    from app.services.workspace import workspace_service
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_search import hybrid_memory_search
+    from app.services.workspace import workspace_service
 
-    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-    roots = get_all_roots(bot, workspace_service)
+    plan = resolve_for(bot, scope="workspace")
+    assert plan is not None  # workspace.enabled checked above
     kb_prefix = workspace_service.get_bot_knowledge_base_index_prefix(bot)
 
     try:
         results = await hybrid_memory_search(
             query=query,
             bot_id=bot_id,
-            roots=roots,
+            roots=list(plan.roots),
             memory_prefix=kb_prefix,
-            embedding_model=_resolved["embedding_model"],
-            top_k=top_k or _resolved["top_k"],
+            embedding_model=plan.embedding_model,
+            top_k=top_k or plan.top_k,
         )
     except Exception as exc:
         return json.dumps({"count": 0, "results": [], "error": f"Bot knowledge search ERROR: {exc}"}, ensure_ascii=False)

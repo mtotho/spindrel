@@ -299,14 +299,17 @@ async def delete_attachment(attachment_id: uuid.UUID) -> dict:
 def _infer_integration_from_metadata(meta: dict, source_integration: str) -> str | None:
     """Determine which integration to dispatch deletion to based on metadata keys.
 
-    Metadata keys are prefixed with the integration name (e.g. slack_file_id),
-    so we can detect which integration uploaded the file even if
-    source_integration is "web" (mirrored channels).
+    Each integration declares its file-id metadata key via
+    ``IntegrationMeta.attachment_file_id_key`` (e.g. Slack registers
+    ``slack_file_id``). The lookup walks registered metas so mirrored
+    channels (source_integration == "web") still route to the owning
+    integration when an integration-specific key is present.
     """
-    # Map metadata key prefixes to integration types
-    if meta.get("slack_file_id"):
-        return "slack"
-    # Future: discord_file_id → "discord", telegram_file_id → "telegram", etc.
+    from app.agent.hooks import integration_id_from_attachment_meta
+
+    integration_type = integration_id_from_attachment_meta(meta)
+    if integration_type:
+        return integration_type
 
     # Fallback: use source_integration if it's not "web"
     if source_integration and source_integration != "web":

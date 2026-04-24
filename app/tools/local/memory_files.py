@@ -139,13 +139,15 @@ async def search_memory(query: str) -> str:
     if not query:
         return json.dumps({"count": 0, "results": [], "error": "No search query provided."}, ensure_ascii=False)
 
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
-    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-    embedding_model = _resolved["embedding_model"]
-    roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+    plan = resolve_for(bot, scope="workspace")
+    if plan is None:
+        return json.dumps({"count": 0, "results": [], "error": "Memory search requires workspace-enabled bot."}, ensure_ascii=False)
+    embedding_model = plan.embedding_model
+    roots = [str(Path(r).resolve()) for r in plan.roots]
 
     try:
         results = await hybrid_memory_search(
@@ -285,15 +287,15 @@ async def search_bot_memory(bot_id: str, query: str) -> str:
     if target_bot.memory_scheme != "workspace-files":
         return json.dumps({"count": 0, "results": [], "error": f"Bot {target_bot_id} does not use workspace-files memory scheme."}, ensure_ascii=False)
 
-    from app.services.memory_search import hybrid_memory_search
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_scheme import get_memory_index_prefix
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+    from app.services.memory_search import hybrid_memory_search
 
-    _resolved = resolve_indexing(
-        target_bot.workspace.indexing, target_bot._workspace_raw, target_bot._ws_indexing_config,
-    )
-    embedding_model = _resolved["embedding_model"]
-    roots = [str(Path(r).resolve()) for r in get_all_roots(target_bot)]
+    plan = resolve_for(target_bot, scope="workspace")
+    if plan is None:
+        return json.dumps({"count": 0, "results": [], "error": f"Bot {target_bot_id} has workspace disabled."}, ensure_ascii=False)
+    embedding_model = plan.embedding_model
+    roots = [str(Path(r).resolve()) for r in plan.roots]
 
     try:
         results = await hybrid_memory_search(

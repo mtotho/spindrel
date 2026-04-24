@@ -1,11 +1,14 @@
 /**
  * Shared settings control components.
  * Companion to FormControls — keeps FormControls focused on form primitives.
+ *
+ * All token-driven via Tailwind. `useThemeTokens()` was removed in the
+ * 2026-04-23 SKILL pass — if you need a new color, add a token in
+ * `ui/global.css` + `ui/tailwind.config.cjs` first.
  */
 
 import { useState } from "react";
 import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, PencilLine } from "lucide-react";
-import { useThemeTokens } from "../../theme/tokens";
 
 // ---------------------------------------------------------------------------
 // AdvancedSection — collapsible with chevron + title, 44px touch target
@@ -19,34 +22,17 @@ export function AdvancedSection({
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
-  const t = useThemeTokens();
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div style={{ marginTop: 10 }}>
+    <div className="mt-2.5">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          minHeight: 44,
-          paddingLeft: 2,
-          paddingRight: 2,
-          background: "transparent",
-          border: "none",
-          cursor: "pointer",
-        }}
+        className="flex items-center gap-1.5 min-h-[44px] px-0.5 bg-transparent text-text-muted hover:text-text transition-colors"
       >
-        {open ? (
-          <ChevronDown size={14} color={t.textMuted} />
-        ) : (
-          <ChevronRight size={14} color={t.textMuted} />
-        )}
-        <span style={{ color: t.textMuted, fontSize: 13, fontWeight: 600 }}>
-          {title}
-        </span>
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <span className="text-[13px] font-semibold">{title}</span>
       </button>
       {open && children}
     </div>
@@ -58,6 +44,22 @@ export function AdvancedSection({
 // ---------------------------------------------------------------------------
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "default" | "small";
+
+// Primary action buttons use the signature Spindrel gradient
+// (`linear-gradient(135deg, accent, purple)` — see `MessageInput.tsx:887`).
+// This is the same treatment as the composer send arrow: it carries brand
+// personality on destructive/confirm CTAs without needing bright color.
+const VARIANT_CLASSES: Record<ButtonVariant, string> = {
+  primary:
+    "bg-gradient-to-br from-accent to-purple text-white border-transparent " +
+    "shadow-[0_6px_18px_-6px_rgba(59,130,246,0.45)] hover:brightness-110 active:brightness-95",
+  secondary:
+    "bg-surface-raised text-text border border-surface-border hover:bg-surface-overlay/60",
+  danger:
+    "bg-danger/10 text-danger border border-danger/40 hover:bg-danger/15",
+  ghost:
+    "bg-transparent text-text-muted border border-surface-border hover:bg-surface-overlay/60",
+};
 
 export function ActionButton({
   label,
@@ -74,56 +76,18 @@ export function ActionButton({
   disabled?: boolean;
   icon?: React.ReactNode;
 }) {
-  const t = useThemeTokens();
-
-  const minHeight = size === "small" ? 34 : 40;
-  const fontSize = size === "small" ? 12 : 13;
-  const px = size === "small" ? 11 : 14;
-
-  const variantStyles: Record<
-    ButtonVariant,
-    { bg: string; color: string; border?: string }
-  > = {
-    primary: { bg: t.accent, color: "#fff" },
-    secondary: {
-      bg: t.surfaceRaised,
-      color: t.text,
-      border: `1px solid ${t.surfaceBorder}`,
-    },
-    danger: {
-      bg: t.dangerSubtle,
-      color: t.danger,
-      border: `1px solid ${t.dangerBorder}`,
-    },
-    ghost: { bg: "transparent", color: t.textMuted, border: `1px solid ${t.surfaceBorder}` },
-  };
-
-  const v = variantStyles[variant];
-
+  const sizeClass =
+    size === "small" ? "min-h-[34px] px-2.5 text-[12px]" : "min-h-[40px] px-3.5 text-[13px]";
   return (
     <button
+      type="button"
       onClick={disabled ? undefined : onPress}
       disabled={disabled}
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 6,
-        paddingLeft: px,
-        paddingRight: px,
-        minHeight,
-        borderRadius: 6,
-        fontSize,
-        fontWeight: 600,
-        cursor: disabled ? "default" : "pointer",
-        background: v.bg,
-        color: v.color,
-        border: v.border ?? "none",
-        opacity: disabled ? 0.5 : 1,
-        transition: "opacity 0.12s, background-color 0.12s, border-color 0.12s",
-        flexShrink: 0,
-        boxShadow: variant === "primary" ? "0 8px 18px rgba(56, 114, 255, 0.14)" : "none",
-      }}
+      className={
+        `inline-flex items-center justify-center gap-1.5 shrink-0 rounded-md font-semibold transition-colors ` +
+        `disabled:cursor-default disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ` +
+        `${sizeClass} ${VARIANT_CLASSES[variant]}`
+      }
     >
       {icon}
       {label}
@@ -133,6 +97,8 @@ export function ActionButton({
 
 // ---------------------------------------------------------------------------
 // StatusBadge — consistent badge with variant colors
+//
+// Per SKILL §4 Badges: `rounded-full` pill with low-opacity semantic tint.
 // ---------------------------------------------------------------------------
 type BadgeVariant =
   | "success"
@@ -143,22 +109,14 @@ type BadgeVariant =
   | "purple"
   | "skipped";
 
-const BADGE_COLORS: Record<
-  BadgeVariant,
-  (t: ReturnType<typeof useThemeTokens>) => {
-    bg: string;
-    fg: string;
-  }
-> = {
-  success: (t) => ({ bg: t.successSubtle, fg: t.success }),
-  warning: (t) => ({ bg: t.warningSubtle, fg: t.warningMuted }),
-  danger: (t) => ({ bg: t.dangerSubtle, fg: t.danger }),
-  info: (t) => ({ bg: t.accentMuted, fg: t.accent }),
-  neutral: (t) => ({ bg: t.surfaceBorder, fg: t.textMuted }),
-  purple: (t) => ({ bg: t.purpleSubtle, fg: t.purple }),
-  // Intentionally not-run: dimmed purple to read as "dreaming-related, but
-  // didn't execute this cycle". Distinct from neutral (pending/running).
-  skipped: (t) => ({ bg: t.surfaceOverlay, fg: t.purpleMuted }),
+const BADGE_CLASSES: Record<BadgeVariant, string> = {
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning-muted",
+  danger: "bg-danger/10 text-danger",
+  info: "bg-accent/10 text-accent",
+  neutral: "bg-surface-overlay text-text-muted",
+  purple: "bg-purple/10 text-purple",
+  skipped: "bg-surface-overlay text-text-dim",
 };
 
 export function StatusBadge({
@@ -170,22 +128,22 @@ export function StatusBadge({
   variant?: BadgeVariant;
   customColors?: { bg: string; fg: string };
 }) {
-  const t = useThemeTokens();
-  const colors = customColors ?? BADGE_COLORS[variant](t);
-
+  if (customColors) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]"
+        style={{ background: customColors.bg, color: customColors.fg }}
+      >
+        {label}
+      </span>
+    );
+  }
   return (
     <span
-      style={{
-        display: "inline-block",
-        fontSize: 10,
-        fontWeight: 600,
-        padding: "3px 8px",
-        borderRadius: 6,
-        background: colors.bg,
-        color: colors.fg,
-        whiteSpace: "nowrap",
-        flexShrink: 0,
-      }}
+      className={
+        `inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 ` +
+        `text-[10px] font-semibold uppercase tracking-[0.06em] ${BADGE_CLASSES[variant]}`
+      }
     >
       {label}
     </span>
@@ -194,8 +152,18 @@ export function StatusBadge({
 
 // ---------------------------------------------------------------------------
 // InfoBanner — warning / info / danger / success boxes
+//
+// Per SKILL §4 Banners: single left-border accent in semantic token + muted
+// body text; no outline border, no bg gradient, no shadow.
 // ---------------------------------------------------------------------------
 type BannerVariant = "warning" | "info" | "danger" | "success";
+
+const BANNER_CLASSES: Record<BannerVariant, string> = {
+  warning: "border-warning/60 bg-warning/10 text-warning-muted",
+  info: "border-accent/50 bg-accent/[0.06] text-text-muted",
+  danger: "border-danger/60 bg-danger/10 text-danger",
+  success: "border-success/60 bg-success/10 text-success",
+};
 
 export function InfoBanner({
   variant = "info",
@@ -206,52 +174,42 @@ export function InfoBanner({
   icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const t = useThemeTokens();
-
-  const variantStyles: Record<
-    BannerVariant,
-    { bg: string; border: string; color: string }
-  > = {
-    warning: {
-      bg: t.warningSubtle,
-      border: t.warningBorder,
-      color: t.warningMuted,
-    },
-    info: { bg: t.accentSubtle, border: t.accentBorder, color: t.textMuted },
-    danger: { bg: t.dangerSubtle, border: t.dangerBorder, color: t.danger },
-    success: {
-      bg: t.successSubtle,
-      border: t.successBorder,
-      color: t.success,
-    },
-  };
-
-  const v = variantStyles[variant];
-
   return (
     <div
-      style={{
-        padding: "10px 14px",
-        borderRadius: 6,
-        background: v.bg,
-        border: `1px solid ${v.border}`,
-        fontSize: 11,
-        lineHeight: "1.5",
-        color: v.color,
-        display: "flex", flexDirection: "row",
-        gap: 8,
-        alignItems: "flex-start",
-      }}
+      className={
+        `flex items-start gap-2 rounded-md border-l-2 px-3.5 py-2.5 text-[12px] leading-relaxed ` +
+        BANNER_CLASSES[variant]
+      }
     >
-      {icon && (
-        <span style={{ flexShrink: 0, marginTop: 1 }}>{icon}</span>
-      )}
-      <div style={{ flex: 1 }}>{children}</div>
+      {icon && <span className="mt-px shrink-0">{icon}</span>}
+      <div className="flex-1">{children}</div>
     </div>
   );
 }
 
 export type SaveStatusTone = "idle" | "dirty" | "pending" | "saved" | "error";
+
+const PILL_CLASSES: Record<
+  Exclude<SaveStatusTone, "idle">,
+  { icon: React.ReactNode; cls: string }
+> = {
+  dirty: {
+    icon: <PencilLine size={12} />,
+    cls: "bg-surface-overlay border-surface-border text-text-muted",
+  },
+  pending: {
+    icon: <Loader2 size={12} className="animate-spin" />,
+    cls: "bg-accent/10 border-accent/40 text-accent",
+  },
+  saved: {
+    icon: <Check size={12} />,
+    cls: "bg-success/10 border-success/40 text-success",
+  },
+  error: {
+    icon: <AlertCircle size={12} />,
+    cls: "bg-danger/10 border-danger/40 text-danger",
+  },
+};
 
 export function SaveStatusPill({
   tone,
@@ -260,59 +218,16 @@ export function SaveStatusPill({
   tone: SaveStatusTone;
   label: string;
 }) {
-  const t = useThemeTokens();
-
-  const config: Record<
-    Exclude<SaveStatusTone, "idle">,
-    { icon: React.ReactNode; bg: string; border: string; color: string }
-  > = {
-    dirty: {
-      icon: <PencilLine size={12} />,
-      bg: t.surfaceOverlay,
-      border: t.surfaceBorder,
-      color: t.textMuted,
-    },
-    pending: {
-      icon: <Loader2 size={12} className="animate-spin" />,
-      bg: t.accentSubtle,
-      border: t.accentBorder,
-      color: t.accent,
-    },
-    saved: {
-      icon: <Check size={12} />,
-      bg: t.successSubtle,
-      border: t.successBorder,
-      color: t.success,
-    },
-    error: {
-      icon: <AlertCircle size={12} />,
-      bg: t.dangerSubtle,
-      border: t.dangerBorder,
-      color: t.danger,
-    },
-  };
-
   if (tone === "idle") return null;
-  const pill = config[tone];
-
+  const pill = PILL_CLASSES[tone];
   return (
     <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 30,
-        padding: "0 11px",
-        borderRadius: 6,
-        background: pill.bg,
-        border: `1px solid ${pill.border}`,
-        color: pill.color,
-        fontSize: 11,
-        fontWeight: 600,
-        flexShrink: 0,
-      }}
+      className={
+        `inline-flex shrink-0 items-center gap-1.5 min-h-[30px] rounded-md border px-2.5 text-[11px] font-semibold ` +
+        pill.cls
+      }
     >
-      <span style={{ display: "flex", alignItems: "center" }}>{pill.icon}</span>
+      <span className="inline-flex items-center">{pill.icon}</span>
       <span>{label}</span>
     </div>
   );

@@ -26,6 +26,9 @@ _no_sys_msg_models: set[str] = set()
 _no_tools_models: set[str] = set()
 # Cached set of model_ids flagged as supports_vision=False in provider_models table
 _no_vision_models: set[str] = set()
+# Cached set of model_ids flagged as supports_reasoning=True in provider_models table.
+# Authoritative for the bot editor reasoning control and /effort validation.
+_reasoning_capable_models: set[str] = set()
 # Cached map model_id → prompt_style ('markdown' | 'xml' | 'structured')
 # Unknown models default to 'markdown' (handled by get_prompt_style()).
 _prompt_style_by_model: dict[str, str] = {}
@@ -200,7 +203,7 @@ async def _ensure_openai_subscription_models(
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_model
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _no_vision_models, _reasoning_capable_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_model
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -208,6 +211,7 @@ async def load_providers() -> None:
     _no_sys_msg_models = set()
     _no_tools_models = set()
     _no_vision_models = set()
+    _reasoning_capable_models = set()
     _plan_billed_models = set()
     _model_to_provider = {}
     _live_model_to_provider = {}
@@ -255,6 +259,16 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _no_vision_models = set(no_vision)
+
+        # Load model IDs flagged as supporting reasoning / effort budget
+        reasoning = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_reasoning == True  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _reasoning_capable_models = set(reasoning)
 
         # Load prompt_style per model (defaults to 'markdown' server-side)
         styles = (
@@ -323,6 +337,8 @@ async def load_providers() -> None:
         logger.info("Models with supports_tools=false flag: %s", _no_tools_models)
     if _no_vision_models:
         logger.info("Models with supports_vision=false flag: %s", _no_vision_models)
+    if _reasoning_capable_models:
+        logger.info("Models with supports_reasoning=true flag: %s", _reasoning_capable_models)
     if _plan_billed_models:
         logger.info("Models on plan-billed providers: %s", _plan_billed_models)
 
@@ -437,6 +453,21 @@ def model_supports_vision(model: str) -> bool:
     or auto-learned at runtime when the API rejects image_url content.
     """
     return model not in _no_vision_models
+
+
+def supports_reasoning(model: str) -> bool:
+    """Return True iff ``model`` is flagged as reasoning-capable in the DB.
+
+    Authoritative source for the bot editor UI's Reasoning effort control
+    and the `/effort` slash command validator. Unknown models (no DB row)
+    return False — admin must explicitly toggle the flag.
+    """
+    return model in _reasoning_capable_models
+
+
+def supports_reasoning_set() -> list[str]:
+    """Return a sorted copy of the reasoning-capable model_id set."""
+    return sorted(_reasoning_capable_models)
 
 
 async def mark_model_no_vision(model: str) -> None:
@@ -606,7 +637,12 @@ async def _get_db_models_for_provider(provider_id: str) -> list[dict]:
 
 
 async def list_models_for_provider(provider_id: str) -> list[str]:
-    """Fetch available models for a specific provider. Falls back to DB models."""
+    """Fetch available models for a specific provider.
+
+    Driver/API results come first. Any DB-backed manual rows are then merged in
+    so admin-added overrides remain selectable even when the provider also
+    exposes a live catalog.
+    """
     from app.services.provider_drivers import get_driver
 
     provider = _registry.get(provider_id)
@@ -614,16 +650,35 @@ async def list_models_for_provider(provider_id: str) -> list[str]:
         return []
 
     driver = get_driver(provider.provider_type)
-    api_models = await driver.list_models(provider)
-    if api_models:
-        return api_models
-
-    # Fallback: DB-stored models
+    api_models = await driver.list_models(provider) or []
     db_models = await _get_db_models_for_provider(provider_id)
-    if db_models:
+    if not api_models and db_models:
         logger.info("Using %d DB-stored models for provider %s", len(db_models), provider_id)
         return [m["id"] for m in db_models]
-    return []
+
+    if not db_models:
+        return api_models
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for mid in api_models:
+        if mid and mid not in seen:
+            merged.append(mid)
+            seen.add(mid)
+    db_only = 0
+    for entry in db_models:
+        mid = entry["id"]
+        if mid not in seen:
+            merged.append(mid)
+            seen.add(mid)
+            db_only += 1
+    if db_only:
+        logger.info(
+            "Merged %d DB-only provider_models rows into live catalog for provider %s",
+            db_only,
+            provider_id,
+        )
+    return merged
 
 
 def get_cached_model_info(model_id: str, provider_id: str | None = None) -> dict | None:

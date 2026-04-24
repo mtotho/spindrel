@@ -23,6 +23,7 @@ class ModelOut(BaseModel):
     max_tokens: Optional[int] = None
     download_status: Optional[Literal["cached", "not_downloaded", "downloading"]] = None
     size_mb: Optional[int] = None
+    supports_reasoning: bool = False
 
 
 class ModelGroupOut(BaseModel):
@@ -51,7 +52,7 @@ async def admin_models(
     _auth: str = Depends(require_scopes("providers:read")),
 ):
     """List all available LLM models grouped by provider."""
-    from app.services.providers import get_available_models_grouped
+    from app.services.providers import get_available_models_grouped, supports_reasoning
     try:
         groups = await get_available_models_grouped()
     except Exception:
@@ -62,7 +63,15 @@ async def admin_models(
             provider_id=g.get("provider_id"),
             provider_name=g["provider_name"],
             provider_type=g["provider_type"],
-            models=[ModelOut(id=m["id"], display=m["display"], max_tokens=m.get("max_tokens")) for m in g["models"]],
+            models=[
+                ModelOut(
+                    id=m["id"],
+                    display=m["display"],
+                    max_tokens=m.get("max_tokens"),
+                    supports_reasoning=supports_reasoning(m["id"]),
+                )
+                for m in g["models"]
+            ],
         )
         for g in groups
     ]

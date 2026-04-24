@@ -303,12 +303,18 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
     return {"channel_id": channel_id, "token": token}
 
 
+def _claims_user_id(recipient_user_id: str) -> bool:
+    """Discord user ids are numeric snowflakes."""
+    return recipient_user_id.isdigit()
+
+
 register_integration(IntegrationMeta(
     integration_type="discord",
     client_id_prefix="discord:",
     user_attribution=_user_attribution,
     resolve_display_names=_resolve_display_names,
     resolve_dispatch_config=_resolve_dispatch_config,
+    claims_user_id=_claims_user_id,
 ))
 
 register_hook("after_tool_call", _on_after_tool_call)

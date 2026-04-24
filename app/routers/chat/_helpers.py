@@ -102,12 +102,20 @@ async def _resolve_channel_and_session(
         extra_kwargs["user_id"] = user.id
         extra_kwargs["private"] = True
 
-    # Integration user resolution: if sender_id is "slack:U123", look up system user
+    # Integration user resolution: if sender_id is "<prefix>:<uid>", look up
+    # the system user that owns the external identity. The integration id
+    # (and thus the prefix) comes from the hook-registry so this path does
+    # not hard-code any single integration.
     if is_integration and user is None and req.msg_metadata:
+        from app.agent.hooks import get_integration_meta, integration_id_from_sender_id
+
         sender_id = (req.msg_metadata or {}).get("sender_id", "")
-        if sender_id.startswith("slack:"):
-            slack_uid = sender_id.removeprefix("slack:")
-            resolved = await resolve_integration_user(db, "slack", slack_uid)
+        integration_id = integration_id_from_sender_id(sender_id)
+        if integration_id:
+            meta = get_integration_meta(integration_id)
+            prefix = meta.client_id_prefix if meta else f"{integration_id}:"
+            external_uid = sender_id.removeprefix(prefix)
+            resolved = await resolve_integration_user(db, integration_id, external_uid)
             if resolved:
                 extra_kwargs["user_id"] = resolved.id
                 if req.msg_metadata:

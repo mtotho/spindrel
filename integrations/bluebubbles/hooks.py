@@ -51,8 +51,14 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
     }
 
 
+def _claims_user_id(recipient_user_id: str) -> bool:
+    """BlueBubbles recipient ids are phone numbers (``+…``) or emails (``@``)."""
+    return "@" in recipient_user_id or recipient_user_id.startswith("+")
+
+
 register_integration(IntegrationMeta(
     integration_type="bluebubbles",
     client_id_prefix="bb:",
     resolve_dispatch_config=_resolve_dispatch_config,
+    claims_user_id=_claims_user_id,
 ))

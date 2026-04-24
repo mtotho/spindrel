@@ -82,10 +82,18 @@ class ProviderModelOut(BaseModel):
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
+    supports_reasoning: bool = False
     prompt_style: str = "markdown"
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+def _validate_prompt_style_value(v: str) -> str:
+    from app.services.prompt_dialect import PROMPT_STYLES
+    if v not in PROMPT_STYLES:
+        raise ValueError(f"prompt_style must be one of {PROMPT_STYLES}")
+    return v
 
 
 class ProviderModelCreateIn(BaseModel):
@@ -97,15 +105,32 @@ class ProviderModelCreateIn(BaseModel):
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
+    supports_reasoning: bool = False
     prompt_style: str = "markdown"
 
     @field_validator("prompt_style")
     @classmethod
     def _validate_prompt_style(cls, v: str) -> str:
-        from app.services.prompt_dialect import PROMPT_STYLES
-        if v not in PROMPT_STYLES:
-            raise ValueError(f"prompt_style must be one of {PROMPT_STYLES}")
-        return v
+        return _validate_prompt_style_value(v)
+
+
+class ProviderModelUpdateIn(BaseModel):
+    display_name: str | None = None
+    max_tokens: int | None = None
+    input_cost_per_1m: str | None = None
+    output_cost_per_1m: str | None = None
+    no_system_messages: bool | None = None
+    supports_tools: bool | None = None
+    supports_vision: bool | None = None
+    supports_reasoning: bool | None = None
+    prompt_style: str | None = None
+
+    @field_validator("prompt_style")
+    @classmethod
+    def _validate_prompt_style(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return _validate_prompt_style_value(v)
 
 
 class ProviderTestResult(BaseModel):
@@ -202,6 +227,7 @@ async def admin_add_provider_model(
         no_system_messages=body.no_system_messages,
         supports_tools=body.supports_tools,
         supports_vision=body.supports_vision,
+        supports_reasoning=body.supports_reasoning,
         prompt_style=body.prompt_style,
     )
     db.add(row)
@@ -211,16 +237,58 @@ async def admin_add_provider_model(
     except Exception as exc:
         raise HTTPException(status_code=409, detail=f"Model already exists or DB error: {exc}")
 
-    # Any non-default flag (including non-markdown prompt_style) means the
-    # runtime cache must reload.
-    if (
-        body.no_system_messages
-        or not body.supports_tools
-        or not body.supports_vision
-        or body.prompt_style != "markdown"
-    ):
-        from app.services.providers import load_providers
-        await load_providers()
+    from app.services.providers import load_providers
+    await load_providers()
+
+    return ProviderModelOut.model_validate(row)
+
+
+@router.put("/providers/{provider_id}/models/{model_pk}", response_model=ProviderModelOut)
+async def admin_update_provider_model(
+    provider_id: str,
+    model_pk: int,
+    body: ProviderModelUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("providers:write")),
+):
+    row = await db.get(ProviderModel, model_pk)
+    if not row or row.provider_id != provider_id:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    updates = body.model_fields_set
+
+    if "display_name" in updates:
+        row.display_name = body.display_name.strip() if body.display_name and body.display_name.strip() else None
+    if "max_tokens" in updates:
+        row.max_tokens = body.max_tokens
+    if "input_cost_per_1m" in updates:
+        row.input_cost_per_1m = (
+            body.input_cost_per_1m.strip()
+            if body.input_cost_per_1m and body.input_cost_per_1m.strip()
+            else None
+        )
+    if "output_cost_per_1m" in updates:
+        row.output_cost_per_1m = (
+            body.output_cost_per_1m.strip()
+            if body.output_cost_per_1m and body.output_cost_per_1m.strip()
+            else None
+        )
+    if "no_system_messages" in updates:
+        row.no_system_messages = bool(body.no_system_messages)
+    if "supports_tools" in updates:
+        row.supports_tools = bool(body.supports_tools)
+    if "supports_vision" in updates:
+        row.supports_vision = bool(body.supports_vision)
+    if "supports_reasoning" in updates:
+        row.supports_reasoning = bool(body.supports_reasoning)
+    if "prompt_style" in updates and body.prompt_style is not None:
+        row.prompt_style = body.prompt_style
+
+    await db.commit()
+    await db.refresh(row)
+
+    from app.services.providers import load_providers
+    await load_providers()
 
     return ProviderModelOut.model_validate(row)
 
@@ -235,13 +303,11 @@ async def admin_delete_provider_model(
     row = await db.get(ProviderModel, model_pk)
     if not row or row.provider_id != provider_id:
         raise HTTPException(status_code=404, detail="Model not found")
-    had_flag = row.no_system_messages or not row.supports_tools or not row.supports_vision
     await db.delete(row)
     await db.commit()
 
-    if had_flag:
-        from app.services.providers import load_providers
-        await load_providers()
+    from app.services.providers import load_providers
+    await load_providers()
 
     return {"ok": True}
 

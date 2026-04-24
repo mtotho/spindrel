@@ -16,7 +16,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import {
   Section, FormRow, SelectInput, Toggle, EmptyState,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { AdvancedSection } from "@/src/components/shared/SettingsControls";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import type { ChannelBotMember, ChannelBotMemberConfig } from "@/src/types/api";
@@ -55,28 +55,41 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
 
   return (
     <>
-      {/* Primary bot */}
-      <Section title="Participants">
-        <div className="flex items-center gap-2.5 py-2">
-          <Bot size={16} className="text-accent shrink-0" />
-          <span className="flex-1 min-w-0 truncate text-[13px] font-semibold text-text">
-            {primaryBot?.name || primaryBotId}
-          </span>
+      <Section
+        title="Participants"
+        description="Bots that can respond in this channel. The primary agent owns the channel; members respond on @-mention."
+      >
+        <div className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-raised px-3.5 py-3">
+          <div className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-overlay">
+            <Bot size={18} className="text-text" />
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success ring-2 ring-surface-raised"
+              aria-hidden
+              title="Active"
+            />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="truncate text-[14px] font-semibold text-text tracking-[-0.01em]">
+              {primaryBot?.name || primaryBotId}
+            </div>
+            <div className="mt-0.5 text-[11px] text-text-dim">
+              Primary agent · owns this channel
+            </div>
+          </div>
           <Link
             to={`/admin/bots/${primaryBotId}`}
-            className="inline-flex items-center gap-0.5 text-[11px] text-accent hover:underline"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-accent hover:bg-surface-overlay/60 transition-colors"
           >
-            <ExternalLink size={10} />
-            <span>config</span>
+            <ExternalLink size={11} />
+            <span>Open config</span>
           </Link>
-          <StatusBadge label="primary" variant="info" />
         </div>
       </Section>
 
       {/* Member bots */}
       <Section
         title="Member Bots"
-        description="Members respond when @-mentioned in chat."
+        description="Additional agents that respond when @-mentioned."
         action={
           availableBots.length > 0 && !showPicker ? (
             <button
@@ -209,7 +222,14 @@ function MemberCard({
         ) : (
           <ChevronRight size={12} className="text-text-dim shrink-0" />
         )}
-        <Bot size={14} className="text-text-dim shrink-0" />
+        <div className="relative shrink-0">
+          <Bot size={14} className="text-text-dim" />
+          {/* running-status dot: accent = auto-respond, dim = @-mention only. */}
+          <span
+            aria-hidden
+            className={`absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full ring-2 ring-surface-raised ${cfg.auto_respond ? "bg-accent" : "bg-text-dim/60"}`}
+          />
+        </div>
         <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-text">
           {member.bot_name || member.bot_id}
         </span>

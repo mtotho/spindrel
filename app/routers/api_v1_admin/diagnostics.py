@@ -72,9 +72,9 @@ async def diagnostics_indexing(
 
     # --- 3. Filesystem indexing (per bot) ---
     from app.agent.bots import list_bots, get_bot
-    from app.services.workspace import workspace_service
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_scheme import get_memory_rel_path, get_memory_index_prefix
-    from app.services.workspace_indexing import get_all_roots
+    from app.services.workspace import workspace_service
 
     fs_info = []
     for bot in list_bots():
@@ -120,7 +120,8 @@ async def diagnostics_indexing(
                             memory_files_on_disk += 1
 
         # Use the indexing root (workspace root for shared ws bots) for DB queries
-        _db_roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+        _plan = resolve_for(bot, scope="workspace")
+        _db_roots = [str(Path(r).resolve()) for r in (_plan.roots if _plan else [])]
         _root_filter = FilesystemChunk.root.in_(_db_roots)
 
         # Count chunks in DB
@@ -224,96 +225,27 @@ async def diagnostics_reindex(
 ):
     """Force re-index ALL filesystem directories."""
     from app.agent.bots import list_bots
-    from app.agent.fs_indexer import index_directory
     from app.services import progress
-    from app.services.workspace import workspace_service
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
+    from app.services.bot_indexing import reindex_bot
 
     reindex_op = progress.start("reindex", "Full reindex")
     results: dict = {"filesystem": []}
 
     try:
-        # Re-index filesystem chunks
-        from app.services.memory_indexing import index_memory_for_bot
-
-        bots = list_bots()
-        indexable = [b for b in bots if b.workspace.enabled and b.workspace.indexing.enabled]
-        bot_count = len(indexable)
-        done = 0
-
-        memory_indexed_bot_ids: set[str] = set()
-        for bot in indexable:
-            _resolved = resolve_indexing(
-                bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config
-            )
-            _segments = _resolved.get("segments")
-            # Shared workspace bots without segments: skip file indexing,
-            # but clean up stale non-memory chunks from previous segment configs.
-            if bot.shared_workspace_id and not _segments:
-                from app.services.memory_scheme import get_memory_index_prefix
-                _mem_prefix = get_memory_index_prefix(bot)
-                for root in get_all_roots(bot, workspace_service):
-                    try:
-                        _resolved_root = str(Path(root).resolve())
-                        _del = await db.execute(
-                            delete(FilesystemChunk).where(
-                                FilesystemChunk.bot_id == bot.id,
-                                FilesystemChunk.root == _resolved_root,
-                                ~FilesystemChunk.file_path.like(_mem_prefix.rstrip("/") + "/%"),
-                            )
-                        )
-                        if _del.rowcount:
-                            logger.info("Cleaned up %d stale non-memory chunks for bot %s", _del.rowcount, bot.id)
-                        await db.commit()
-                    except Exception:
-                        logger.exception("Failed to clean up stale chunks for bot %s", bot.id)
-                if bot.memory_scheme == "workspace-files":
-                    memory_indexed_bot_ids.add(bot.id)
-                done += 1
-                progress.update(reindex_op, current=done, total=bot_count, message=f"Cleaned up {bot.id} (shared, no segments)")
-                continue
-
-            # Per-bot sub-operation for file-level progress
-            for root in get_all_roots(bot, workspace_service):
-                fs_op = progress.start("fs_index", f"Indexing {bot.id}", op_id=f"fs_{bot.id}")
-                try:
-                    stats = await index_directory(
-                        root, bot.id, _resolved["patterns"], force=True,
-                        embedding_model=_resolved["embedding_model"],
-                        segments=_segments,
-                        _progress_op_id=fs_op,
-                    )
-                    progress.complete(fs_op, message=f"{stats.get('indexed', 0)} indexed, {stats.get('skipped', 0)} skipped")
-                    results["filesystem"].append({
-                        "bot_id": bot.id, "root": root, **stats,
-                    })
-                except Exception as e:
-                    progress.fail(fs_op, message=str(e))
-                    results["filesystem"].append({
-                        "bot_id": bot.id, "root": root, "error": str(e),
-                    })
-            if bot.memory_scheme == "workspace-files":
-                memory_indexed_bot_ids.add(bot.id)
-            done += 1
-            progress.update(reindex_op, current=done, total=bot_count, message=f"Done {bot.id}")
-
-        # Memory-only reindex for bots with workspace-files but no general indexing
-        for bot in bots:
-            if (
-                bot.memory_scheme == "workspace-files"
-                and bot.workspace.enabled
-                and bot.id not in memory_indexed_bot_ids
-            ):
-                try:
-                    stats = await index_memory_for_bot(bot, force=True)
-                    if stats:
-                        results["filesystem"].append({
-                            "bot_id": bot.id, "source": "memory-only", **stats,
-                        })
-                except Exception as e:
-                    results["filesystem"].append({
-                        "bot_id": bot.id, "source": "memory-only", "error": str(e),
-                    })
+        bots = [
+            b for b in list_bots()
+            if b.workspace.enabled
+            and (b.workspace.indexing.enabled or b.memory_scheme == "workspace-files")
+        ]
+        bot_count = len(bots)
+        for i, bot in enumerate(bots, start=1):
+            try:
+                stats = await reindex_bot(bot, force=True, cleanup_orphans=True)
+                if stats:
+                    results["filesystem"].append({"bot_id": bot.id, **stats})
+            except Exception as e:
+                results["filesystem"].append({"bot_id": bot.id, "error": str(e)})
+            progress.update(reindex_op, current=i, total=bot_count, message=f"Done {bot.id}")
 
         progress.complete(reindex_op, message="Reindex complete")
     except Exception as e:
@@ -336,9 +268,9 @@ async def diagnostics_memory_search(
     Example: GET /api/v1/admin/diagnostics/memory-search/dev_bot?query=user+preferences
     """
     from app.agent.bots import get_bot
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
-    from app.services.workspace_indexing import resolve_indexing, get_all_roots
 
     bot = get_bot(bot_id)
     if not bot:
@@ -346,9 +278,11 @@ async def diagnostics_memory_search(
     if bot.memory_scheme != "workspace-files":
         return {"error": f"Bot {bot_id} does not use workspace-files memory scheme"}
 
-    _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-    embedding_model = _resolved["embedding_model"]
-    roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+    plan = resolve_for(bot, scope="workspace")
+    if plan is None:
+        return {"error": f"Bot {bot_id} has workspace disabled"}
+    embedding_model = plan.embedding_model
+    roots = [str(Path(r).resolve()) for r in plan.roots]
     memory_prefix = get_memory_index_prefix(bot)
     path_pattern = memory_prefix.rstrip("/") + "/%"
 

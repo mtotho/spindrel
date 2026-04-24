@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Channel, Session, Task
+from app.db.models import Bot as BotRow, Channel, Session, Task
 from app.services import session_locks
 from app.services.context_breakdown import compute_context_breakdown, fetch_latest_context_budget
 from app.services.session_plan_mode import (
@@ -439,6 +439,21 @@ async def _set_channel_effort(
         raise ValueError(
             f"Unknown effort level {level!r}. Must be one of: {', '.join(EFFORT_LEVELS)}"
         )
+
+    # Only `off` always succeeds (clears state). Any real effort level must
+    # be validated against the channel's primary bot's model capability so the
+    # user gets a signal instead of a silent drop in `filter_model_params`.
+    if level != "off" and channel.bot_id:
+        from app.services.providers import supports_reasoning as _supports_reasoning
+
+        bot_row = await db.get(BotRow, channel.bot_id)
+        if bot_row is not None and not _supports_reasoning(bot_row.model):
+            raise ValueError(
+                f"Bot {bot_row.name!r} uses model {bot_row.model!r}, which is not marked "
+                f"as reasoning-capable. Try a Claude (Opus/Sonnet/Haiku-4.5), Codex/gpt-5, "
+                f"Gemini 2.5, o-series, or DeepSeek R1 model, or toggle the Reasoning flag "
+                f"on the model in the admin providers page."
+            )
 
     cfg = _copy.deepcopy(channel.config or {})
     if level == "off":

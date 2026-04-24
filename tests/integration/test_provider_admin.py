@@ -30,6 +30,7 @@ def _make_driver_stub(
     *,
     capabilities: ProviderCapabilities | None = None,
     test_result: tuple[bool, str] = (True, "ok"),
+    models: list[str] | None = None,
     enriched_models: list[dict] | None = None,
     pull_chunks: list[dict] | None = None,
     model_info: dict | None = None,
@@ -39,6 +40,7 @@ def _make_driver_stub(
     driver = AsyncMock()
     driver.capabilities = lambda: capabilities or ProviderCapabilities()
     driver.test_connection = AsyncMock(return_value=test_result)
+    driver.list_models = AsyncMock(return_value=models or [])
     driver.list_models_enriched = AsyncMock(return_value=enriched_models or [])
     driver.delete_model = AsyncMock(return_value=True)
     driver.get_model_info = AsyncMock(return_value=model_info or {})
@@ -475,6 +477,80 @@ class TestDeleteProviderModel:
 
         resp = await client.delete(
             f"/api/v1/admin/providers/prov-b/models/{model.id}",
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# PUT /providers/{id}/models/{pk} — admin_update_provider_model
+# ---------------------------------------------------------------------------
+
+class TestUpdateProviderModel:
+    async def test_when_valid_payload_then_model_row_updated_and_registry_reloaded(
+        self, client, db_session,
+    ):
+        prov = build_provider_config(id="edit-models")
+        model = build_provider_model(
+            "edit-models",
+            model_id="gpt-5",
+            display_name="GPT-5",
+            max_tokens=128000,
+            supports_reasoning=False,
+            prompt_style="markdown",
+        )
+        db_session.add_all([prov, model])
+        await db_session.commit()
+        reload_mock = AsyncMock()
+
+        with patch("app.services.providers.load_providers", reload_mock):
+            resp = await client.put(
+                f"/api/v1/admin/providers/edit-models/models/{model.id}",
+                json={
+                    "display_name": "GPT-5.5",
+                    "max_tokens": 272000,
+                    "supports_reasoning": True,
+                    "prompt_style": "xml",
+                },
+                headers=AUTH_HEADERS,
+            )
+
+        assert resp.status_code == 200
+        await db_session.refresh(model)
+        assert model.model_id == "gpt-5"
+        assert model.display_name == "GPT-5.5"
+        assert model.max_tokens == 272000
+        assert model.supports_reasoning is True
+        assert model.prompt_style == "xml"
+        reload_mock.assert_awaited_once()
+
+    async def test_when_prompt_style_invalid_then_422(self, client, db_session):
+        prov = build_provider_config(id="bad-prompt-style")
+        model = build_provider_model("bad-prompt-style", model_id="gpt-5")
+        db_session.add_all([prov, model])
+        await db_session.commit()
+
+        resp = await client.put(
+            f"/api/v1/admin/providers/bad-prompt-style/models/{model.id}",
+            json={"prompt_style": "yaml"},
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 422
+
+    async def test_when_model_belongs_to_different_provider_then_404(
+        self, client, db_session,
+    ):
+        prov_a = build_provider_config(id="edit-prov-a")
+        prov_b = build_provider_config(id="edit-prov-b")
+        model = build_provider_model("edit-prov-a", model_id="gpt-5")
+        db_session.add_all([prov_a, prov_b, model])
+        await db_session.commit()
+
+        resp = await client.put(
+            f"/api/v1/admin/providers/edit-prov-b/models/{model.id}",
+            json={"display_name": "Should Fail"},
             headers=AUTH_HEADERS,
         )
 

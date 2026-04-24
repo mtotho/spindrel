@@ -70,16 +70,12 @@ async def _get_bot_and_roots(channel_id: str | None = None) -> tuple:
         if owner_bot is not None:
             effective_bot = owner_bot
 
+    from app.services.bot_indexing import resolve_for
     from app.services.channel_workspace import _get_ws_root
-    from app.services.workspace_indexing import resolve_indexing
 
     ws_root = str(Path(_get_ws_root(effective_bot)).resolve())
-    _resolved = resolve_indexing(
-        effective_bot.workspace.indexing,
-        effective_bot._workspace_raw,
-        effective_bot._ws_indexing_config,
-    )
-    embedding_model = _resolved["embedding_model"]
+    plan = resolve_for(effective_bot, scope="workspace")
+    embedding_model = plan.embedding_model if plan is not None else None
     return bot, ch_id, ws_root, embedding_model
 
 

@@ -7,6 +7,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import {
   useCreateChannel,
   useGlobalActivatableIntegrations,
+  useAvailableIntegrations,
   useChannelCategories,
 } from "@/src/api/hooks/useChannels";
 import { Section, TextInput, Toggle } from "@/src/components/shared/FormControls";
@@ -14,6 +15,11 @@ import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { BotPicker } from "@/src/components/shared/BotPicker";
 import { UserSelect } from "@/src/components/shared/UserSelect";
 import { IntegrationActivationList } from "@/src/components/channels/IntegrationActivationList";
+import {
+  BindableIntegrationsList,
+  type PendingBinding,
+} from "@/src/components/channels/BindableIntegrationsList";
+import { apiFetch } from "@/src/api/client";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 
@@ -25,8 +31,14 @@ export default function NewChannelScreen() {
   const theme = useThemeTokens();
   const { data: bots } = useBots();
   const { data: activatableIntegrations } = useGlobalActivatableIntegrations();
+  const { data: availableIntegrations } = useAvailableIntegrations();
   const { data: existingCategories } = useChannelCategories();
   const createChannel = useCreateChannel();
+
+  const bindableIntegrations = useMemo(
+    () => (availableIntegrations ?? []).filter((i) => i.binding),
+    [availableIntegrations],
+  );
 
   const isAdmin = useIsAdmin();
   const currentUserId = useAuthStore((s) => s.user?.id);
@@ -40,6 +52,7 @@ export default function NewChannelScreen() {
   const [category, setCategory] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
   const [enabledIntegrations, setEnabledIntegrations] = useState<string[]>([]);
+  const [pendingBindings, setPendingBindings] = useState<Record<string, PendingBinding>>({});
   const [memberBotIds, setMemberBotIds] = useState<string[]>([]);
   // Admin can reassign owner at create time. Non-admins always own what they
   // create (backend auto-populates user_id from the auth user when omitted).
@@ -59,6 +72,8 @@ export default function NewChannelScreen() {
   }, [existingCategories, category]);
 
   const hasActivatable = (activatableIntegrations?.length ?? 0) > 0;
+  const hasBindable = bindableIntegrations.length > 0;
+  const hasIntegrationStep = hasActivatable || hasBindable;
 
   const handleToggleIntegration = (intType: string) => {
     setEnabledIntegrations((prev) =>
@@ -66,6 +81,18 @@ export default function NewChannelScreen() {
         ? prev.filter((x) => x !== intType)
         : [...prev, intType],
     );
+  };
+
+  const handleBindingSubmit = (type: string, pending: PendingBinding) => {
+    setPendingBindings((prev) => ({ ...prev, [type]: pending }));
+  };
+
+  const handleBindingRemove = (type: string) => {
+    setPendingBindings((prev) => {
+      const next = { ...prev };
+      delete next[type];
+      return next;
+    });
   };
 
   /** Build shared request body from common fields */
@@ -90,6 +117,34 @@ export default function NewChannelScreen() {
     return body;
   };
 
+  /** Sequentially bind any pending bindings after channel creation.
+   *
+   * Failures are logged but do not block navigation — a successfully-created
+   * channel with a missing binding is recoverable in channel settings; a
+   * hard failure here would leave the user stranded on the wizard.
+   */
+  const applyPendingBindings = async (channelId: string) => {
+    for (const [integrationType, pending] of Object.entries(pendingBindings)) {
+      try {
+        await apiFetch(`/api/v1/channels/${channelId}/integrations`, {
+          method: "POST",
+          body: JSON.stringify({
+            integration_type: integrationType,
+            client_id: pending.clientId,
+            display_name: pending.displayName || undefined,
+            dispatch_config:
+              Object.keys(pending.dispatchConfig).length > 0
+                ? pending.dispatchConfig
+                : undefined,
+          }),
+        });
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`Failed to bind ${integrationType} on new channel`, err);
+      }
+    }
+  };
+
   const handleQuickCreate = async () => {
     if (!name.trim() || createChannel.isPending) return;
     try {
@@ -108,6 +163,7 @@ export default function NewChannelScreen() {
         body.activate_integrations = enabledIntegrations;
       }
       const channel = await createChannel.mutateAsync(body);
+      await applyPendingBindings(channel.id);
       navigate(`/channels/${channel.id}`);
     } catch {
       // mutation error handled by react-query
@@ -142,7 +198,7 @@ export default function NewChannelScreen() {
         {/* Step indicator */}
         <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
           {(["basics", "integrations"] as WizardStep[])
-            .filter((s) => s !== "integrations" || hasActivatable)
+            .filter((s) => s !== "integrations" || hasIntegrationStep)
             .map((s) => (
               <div
                 key={s}
@@ -312,7 +368,7 @@ export default function NewChannelScreen() {
           >
             {errorBanner}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {hasActivatable ? (
+              {hasIntegrationStep ? (
                 <button
                   type="button"
                   onClick={() => canProceed && setStep("integrations")}
@@ -362,7 +418,7 @@ export default function NewChannelScreen() {
                 </button>
               )}
 
-              {hasActivatable && (
+              {hasIntegrationStep && (
                 <button
                   type="button"
                   onClick={handleQuickCreate}
@@ -392,21 +448,44 @@ export default function NewChannelScreen() {
         <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
           <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
             <div style={{ padding: 20, maxWidth: 560, width: "100%", boxSizing: "border-box" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <div>
-                  <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
-                    Activate Integrations
-                  </span>
-                  <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
-                    Integrations inject specialized tools and skills into your channel.
-                  </span>
-                </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                {hasBindable && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
+                        Connect External Service
+                      </span>
+                      <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
+                        Route this channel to a Slack channel, iMessage chat, voice satellite, or other external service. Optional — you can add this later in channel settings.
+                      </span>
+                    </div>
+                    <BindableIntegrationsList
+                      integrations={bindableIntegrations}
+                      pending={pendingBindings}
+                      onSubmit={handleBindingSubmit}
+                      onRemove={handleBindingRemove}
+                    />
+                  </div>
+                )}
 
-                <IntegrationActivationList
-                  integrations={activatableIntegrations ?? []}
-                  enabled={enabledIntegrations}
-                  onToggle={handleToggleIntegration}
-                />
+                {hasActivatable && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div>
+                      <span style={{ color: theme.text, fontWeight: 600, fontSize: 14, display: "block" }}>
+                        Activate Integrations
+                      </span>
+                      <span style={{ color: theme.textMuted, fontSize: 12, marginTop: 4, display: "block" }}>
+                        Integrations inject specialized tools and skills into your channel.
+                      </span>
+                    </div>
+
+                    <IntegrationActivationList
+                      integrations={activatableIntegrations ?? []}
+                      enabled={enabledIntegrations}
+                      onToggle={handleToggleIntegration}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>

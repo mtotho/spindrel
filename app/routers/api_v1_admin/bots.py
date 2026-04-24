@@ -141,6 +141,7 @@ class BotEditorDataOut(BaseModel):
     all_sandbox_profiles: list[dict] = []
     model_param_definitions: list[dict] = []
     model_param_support: dict[str, list[str]] = {}
+    reasoning_capable_models: list[str] = []
     resolved_preview: ResolvedPreview | None = None
     starter_skill_ids: list[str] = []
 
@@ -220,6 +221,7 @@ async def admin_bot_editor_data(
     ]
 
     from app.agent.model_params import MODEL_PARAM_SUPPORT, PARAM_DEFINITIONS
+    from app.services.providers import supports_reasoning_set
 
     # Resolve preview (full tool picture at bot level)
     resolved_preview = None
@@ -241,6 +243,7 @@ async def admin_bot_editor_data(
         all_sandbox_profiles=sandbox_profiles,
         model_param_definitions=PARAM_DEFINITIONS,
         model_param_support={k: sorted(v) for k, v in MODEL_PARAM_SUPPORT.items()},
+        reasoning_capable_models=supports_reasoning_set(),
         resolved_preview=resolved_preview,
         starter_skill_ids=list(STARTER_SKILL_IDS),
     )

@@ -1,13 +1,25 @@
 /**
  * Shared form control primitives for settings pages.
- * All use raw HTML elements for web compat (no RN TextInput issues).
+ * All token-driven via Tailwind. `useThemeTokens()` was removed in the
+ * 2026-04-23 SKILL pass — if you need a new color, add a token in
+ * `ui/global.css` + `ui/tailwind.config.cjs` first.
  */
 
 import { ChevronDown } from "lucide-react";
-import { useThemeTokens, type ThemeTokens } from "../../theme/tokens";
+
+const INPUT_CLASS =
+  "w-full min-h-[40px] px-3 py-2 text-sm bg-input border border-input-border rounded-md " +
+  "text-text placeholder:text-text-dim " +
+  "focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/40 " +
+  "transition-colors";
 
 // ---------------------------------------------------------------------------
-// Section card
+// Section — canonical content-surface block.
+//
+// Renders as: uppercase eyebrow label + bold title + muted description +
+// children. Gets its outer breathing room from the parent scroll container's
+// `gap-*`; do NOT add `mt-*` to individual sections. Per SKILL §2.2 / §6,
+// sections are separated by SPACING — not borders.
 // ---------------------------------------------------------------------------
 export function Section({ title, description, action, children, noDivider = false }: {
   title: React.ReactNode;
@@ -16,23 +28,22 @@ export function Section({ title, description, action, children, noDivider = fals
   children: React.ReactNode;
   noDivider?: boolean;
 }) {
-  const t = useThemeTokens();
+  // `noDivider` is legacy API kept for compatibility; it no longer gates a
+  // visual divider (there is no divider) but callers still pass it to skip
+  // the small `pt-0.5` used to optically align the first section.
+  const paddingTopClass = noDivider ? "pt-0" : "pt-0.5";
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      gap: 12,
-      borderTop: "none",
-      paddingTop: noDivider ? 0 : 2,
-    }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ minWidth: 0 }}>
-          <span style={{ color: t.text, fontSize: 14, fontWeight: 600, display: "block", letterSpacing: "-0.01em" }}>{title}</span>
+    <div className={`flex flex-col gap-3 ${paddingTopClass}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[13px] font-semibold text-text tracking-[-0.01em]">{title}</h3>
           {description && (
-            <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.55, marginTop: 4, display: "block", maxWidth: 860 }}>{description}</span>
+            <p className="mt-1 max-w-[65ch] text-[12px] leading-relaxed text-text-dim">
+              {description}
+            </p>
           )}
         </div>
-        {action}
+        {action && <div className="shrink-0">{action}</div>}
       </div>
       {children}
     </div>
@@ -47,13 +58,12 @@ export function FormRow({ label, description, children }: {
   description?: string;
   children: React.ReactNode;
 }) {
-  const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <label style={{ color: t.textMuted, fontSize: 12, fontWeight: 500, lineHeight: 1.4 }}>{label}</label>
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[12px] font-medium leading-tight text-text-muted">{label}</label>
       {children}
       {description && (
-        <div style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5 }}>{description}</div>
+        <div className="text-[12px] leading-snug text-text-dim">{description}</div>
       )}
     </div>
   );
@@ -62,46 +72,22 @@ export function FormRow({ label, description, children }: {
 // ---------------------------------------------------------------------------
 // Text / number input
 // ---------------------------------------------------------------------------
-function makeInputStyle(t: ThemeTokens): React.CSSProperties {
-  return {
-    background: t.inputBg,
-    border: `1px solid ${t.inputBorder}`,
-    borderRadius: 6,
-    minHeight: 40,
-    padding: "9px 12px",
-    color: t.inputText,
-    fontSize: 14,
-    width: "100%",
-    outline: "none",
-    transition: "border-color 0.15s, background-color 0.15s, box-shadow 0.15s",
-    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
-  };
-}
-
-export function TextInput({ value, onChangeText, placeholder, type = "text", style }: {
+export function TextInput({ value, onChangeText, placeholder, type = "text", style, className }: {
   value: string;
   onChangeText: (t: string) => void;
   placeholder?: string;
   type?: string;
   style?: React.CSSProperties;
+  className?: string;
 }) {
-  const t = useThemeTokens();
-  const inputStyle = makeInputStyle(t);
   return (
     <input
       type={type}
       value={value}
       onChange={(e) => onChangeText(e.target.value)}
       placeholder={placeholder}
-      style={{ ...inputStyle, ...style }}
-      onFocus={(e) => {
-        e.target.style.borderColor = t.inputBorderFocus;
-        e.target.style.boxShadow = `0 0 0 1px ${t.inputBorderFocus}33`;
-      }}
-      onBlur={(e) => {
-        e.target.style.borderColor = t.inputBorder;
-        e.target.style.boxShadow = "inset 0 1px 0 rgba(255,255,255,0.02)";
-      }}
+      style={style}
+      className={`${INPUT_CLASS} ${className ?? ""}`}
     />
   );
 }
@@ -115,42 +101,12 @@ export function SelectInput({ value, onChange, options, style }: {
   options: { label: string; value: string }[];
   style?: React.CSSProperties;
 }) {
-  const t = useThemeTokens();
-  const inputStyle = makeInputStyle(t);
-  const containerStyle: React.CSSProperties = {
-    position: "relative",
-    width: style?.width ?? "100%",
-    minWidth: style?.minWidth,
-    maxWidth: style?.maxWidth,
-    flex: style?.flex,
-  };
-  const selectStyle: React.CSSProperties = {
-    ...inputStyle,
-    ...style,
-    width: "100%",
-    minWidth: undefined,
-    maxWidth: undefined,
-    flex: undefined,
-    cursor: "pointer",
-    appearance: "none",
-    WebkitAppearance: "none",
-    paddingRight: 34,
-    backgroundImage: "none",
-  };
   return (
-    <div style={containerStyle}>
+    <div className="relative w-full" style={style ? { width: style.width, minWidth: style.minWidth, maxWidth: style.maxWidth, flex: style.flex } : undefined}>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        style={selectStyle}
-        onFocus={(e) => {
-          (e.target as HTMLSelectElement).style.borderColor = t.inputBorderFocus;
-          (e.target as HTMLSelectElement).style.boxShadow = `0 0 0 1px ${t.inputBorderFocus}33`;
-        }}
-        onBlur={(e) => {
-          (e.target as HTMLSelectElement).style.borderColor = t.inputBorder;
-          (e.target as HTMLSelectElement).style.boxShadow = "inset 0 1px 0 rgba(255,255,255,0.02)";
-        }}
+        className={`${INPUT_CLASS} cursor-pointer appearance-none pr-9 [&::-ms-expand]:hidden`}
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
@@ -158,15 +114,7 @@ export function SelectInput({ value, onChange, options, style }: {
       </select>
       <span
         aria-hidden
-        style={{
-          position: "absolute",
-          right: 12,
-          top: "50%",
-          transform: "translateY(-50%)",
-          pointerEvents: "none",
-          color: t.textDim,
-          display: "flex",
-        }}
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-dim"
       >
         <ChevronDown size={14} />
       </span>
@@ -183,7 +131,6 @@ export function Toggle({ value, onChange, label, description }: {
   label?: React.ReactNode;
   description?: string;
 }) {
-  const t = useThemeTokens();
   return (
     <div
       role="switch"
@@ -191,42 +138,20 @@ export function Toggle({ value, onChange, label, description }: {
       tabIndex={0}
       onClick={() => onChange(!value)}
       onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); onChange(!value); } }}
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "flex-start",
-        gap: 10,
-        padding: "6px 0",
-        cursor: "pointer",
-        userSelect: "none",
-      }}
+      className="flex items-start gap-2.5 py-1.5 cursor-pointer select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded-md"
     >
-      {/* Custom toggle track */}
-      <div style={{
-        width: 34,
-        height: 20,
-        borderRadius: 999,
-        background: value ? t.accent : t.surfaceBorder,
-        position: "relative",
-        flexShrink: 0,
-        marginTop: 1,
-        transition: "background 0.15s",
-      }}>
-        <div style={{
-          width: 14,
-          height: 14,
-          borderRadius: 999,
-          background: t.text,
-          position: "absolute",
-          top: 3,
-          left: value ? 17 : 3,
-          transition: "left 0.15s",
-        }} />
+      <div
+        className={`relative mt-0.5 h-5 w-[34px] shrink-0 rounded-full transition-colors ${value ? "bg-accent" : "bg-surface-border"}`}
+      >
+        <div
+          className={`absolute top-[3px] h-3.5 w-3.5 rounded-full bg-text transition-[left] ${value ? "left-[17px]" : "left-[3px]"}`}
+        />
       </div>
       {(label || description) && (
-        <div>
-          {label && <div style={{ fontSize: 13, color: t.text, lineHeight: 1.4 }}>{label}</div>}
+        <div className="min-w-0">
+          {label && <div className="text-[13px] leading-snug text-text">{label}</div>}
           {description && (
-            <div style={{ fontSize: 11, color: t.textDim, marginTop: 3, lineHeight: 1.45 }}>{description}</div>
+            <div className="mt-0.5 text-[11px] leading-snug text-text-dim">{description}</div>
           )}
         </div>
       )}
@@ -246,10 +171,9 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
   disabled?: boolean;
   defaultValue?: number | null;
 }) {
-  const t = useThemeTokens();
   return (
-    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, opacity: disabled ? 0.4 : 1 }}>
-      <span style={{ fontSize: 11, color: t.textDim, minWidth: 24, textAlign: "right" }}>{min}</span>
+    <div className={`flex items-center gap-2.5 ${disabled ? "opacity-40" : ""}`}>
+      <span className="min-w-[24px] text-right text-[11px] text-text-dim">{min}</span>
       <input
         type="range"
         min={min}
@@ -258,24 +182,18 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={{ flex: 1, accentColor: t.accent, cursor: disabled ? "not-allowed" : "pointer" }}
+        className={`flex-1 accent-accent ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
       />
-      <span style={{ fontSize: 11, color: t.textDim, minWidth: 24 }}>{max}</span>
-      <span style={{
-        fontSize: 12, color: t.text, fontWeight: 600, minWidth: 40, textAlign: "right",
-        fontFamily: "monospace",
-      }}>
+      <span className="min-w-[24px] text-[11px] text-text-dim">{max}</span>
+      <span className="min-w-[40px] text-right font-mono text-[12px] font-semibold text-text">
         {value}
       </span>
       {defaultValue != null && (
         <button
+          type="button"
           onClick={() => onChange(defaultValue)}
           disabled={disabled}
-          style={{
-            fontSize: 10, color: t.textDim, background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 4, padding: "2px 6px", cursor: disabled ? "not-allowed" : "pointer",
-            whiteSpace: "nowrap",
-          }}
+          className="whitespace-nowrap rounded border border-surface-border bg-surface-raised px-1.5 py-0.5 text-[10px] text-text-dim hover:bg-surface-overlay/60 disabled:cursor-not-allowed transition-colors"
           title={`Reset to default (${defaultValue})`}
         >
           default: {defaultValue}
@@ -290,7 +208,7 @@ export function Slider({ value, onChange, min, max, step, disabled, defaultValue
 // ---------------------------------------------------------------------------
 export function Row({ children, gap = 12, stack }: { children: React.ReactNode; gap?: number; stack?: boolean }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap, flexDirection: stack ? "column" : "row" }}>{children}</div>
+    <div style={{ gap }} className={`flex flex-wrap ${stack ? "flex-col" : "flex-row"}`}>{children}</div>
   );
 }
 
@@ -308,43 +226,25 @@ export function TabBar({ tabs, active, onChange }: {
   active: string;
   onChange: (key: string) => void;
 }) {
-  const t = useThemeTokens();
   return (
     <div
-      style={{
-        display: "flex", flexDirection: "row",
-        gap: 4,
-        overflowX: "auto",
-        WebkitOverflowScrolling: "touch",
-        scrollbarWidth: "none",
-        paddingBottom: 4,
-        paddingRight: 24,
-        scrollSnapType: "x mandatory",
-      }}
-      className="hide-scrollbar"
+      className="flex flex-row gap-1 overflow-x-auto pb-1 pr-6 hide-scrollbar"
+      style={{ WebkitOverflowScrolling: "touch", scrollSnapType: "x mandatory" }}
     >
       {tabs.map((tab) => {
         const isActive = tab.key === active;
         return (
           <button
             key={tab.key}
+            type="button"
             onClick={() => onChange(tab.key)}
-            style={{
-              padding: "6px 10px",
-              fontSize: 12,
-              fontWeight: isActive ? 600 : 500,
-              border: "1px solid",
-              borderColor: isActive ? t.accent : t.surfaceBorder,
-              borderRadius: 6,
-              background: isActive ? t.accent : "transparent",
-              color: isActive ? "#fff" : t.textMuted,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-              transition: "all 0.15s",
-              flexShrink: 0,
-              scrollSnapAlign: "start",
-              minHeight: 36,
-            }}
+            className={
+              `shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[12px] transition-colors min-h-[36px] ` +
+              (isActive
+                ? "border-accent bg-accent text-white font-semibold"
+                : "border-surface-border bg-transparent text-text-muted font-medium hover:bg-surface-overlay/60")
+            }
+            style={{ scrollSnapAlign: "start" }}
           >
             {tab.label}
           </button>
@@ -358,9 +258,8 @@ export function TabBar({ tabs, active, onChange }: {
 // Empty state / placeholder
 // ---------------------------------------------------------------------------
 export function EmptyState({ message }: { message: string }) {
-  const t = useThemeTokens();
   return (
-    <div style={{ padding: 32, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+    <div className="rounded-md border border-dashed border-surface-border bg-surface-raised/40 px-4 py-8 text-center text-[13px] text-text-dim">
       {message}
     </div>
   );

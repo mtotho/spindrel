@@ -120,12 +120,34 @@ def get_supported_params(model: str) -> set[str]:
     return MODEL_PARAM_SUPPORT.get(family, MODEL_PARAM_SUPPORT["_default"])
 
 
+_REASONING_PARAMS: frozenset[str] = frozenset(
+    {"effort", "reasoning_effort", "thinking_budget"}
+)
+
+
 def filter_model_params(model: str, params: dict) -> dict:
-    """Strip unsupported params for the given model, returning a clean dict."""
+    """Strip unsupported params for the given model, returning a clean dict.
+
+    Two layers of gating:
+    1. Family heuristic (``MODEL_PARAM_SUPPORT``) — drops params the provider
+       family is known not to accept.
+    2. Per-model reasoning flag (``supports_reasoning`` DB column) — drops
+       ``effort`` / ``reasoning_effort`` / ``thinking_budget`` for models the
+       admin has not marked as reasoning-capable. Prevents the silent-drop
+       footgun where a user sets effort on a non-thinking model (e.g. gpt-4o)
+       and gets no feedback.
+    """
     if not params:
         return {}
     supported = get_supported_params(model)
-    return {k: v for k, v in params.items() if k in supported and v is not None}
+    result = {k: v for k, v in params.items() if k in supported and v is not None}
+    if result and any(k in result for k in _REASONING_PARAMS):
+        # Local import avoids an import cycle: providers.py imports model_params.
+        from app.services.providers import supports_reasoning as _supports_reasoning
+        if not _supports_reasoning(model):
+            for key in _REASONING_PARAMS:
+                result.pop(key, None)
+    return result
 
 
 # Metadata for UI rendering. Returned in editor-data so the frontend can

@@ -292,6 +292,7 @@ export default function BotEditorScreen() {
                 <ModelParamsSection
                   definitions={editorData.model_param_definitions}
                   support={editorData.model_param_support}
+                  reasoningCapableModels={editorData.reasoning_capable_models}
                   model={draft.model}
                   params={draft.model_params || {}}
                   onChange={(p) => update({ model_params: p })}

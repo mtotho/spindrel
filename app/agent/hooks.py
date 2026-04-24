@@ -72,6 +72,22 @@ class IntegrationMeta:
     #   clone. Target is the typed ``DispatchTarget``, useful for pulling
     #   the outbound channel/thread context.
     persist_delivery_metadata: Callable[[dict, str, Any], None] | None = None
+    # claims_user_id: given a recipient_user_id string, return True iff
+    #   this integration natively owns that identifier. Used by the
+    #   ephemeral-dispatch integration picker to disambiguate when
+    #   multiple integrations claim the same channel (e.g. Slack user ids
+    #   start with U/W; Discord ids are numeric snowflakes; BlueBubbles
+    #   ids are phone numbers or emails). Replaces the hard-coded
+    #   ``if integration_id == "slack":`` branches that used to live in
+    #   ``app/services/ephemeral_dispatch.py``.
+    claims_user_id: Callable[[str], bool] | None = None
+    # attachment_file_id_key: metadata key under which this integration
+    #   stores its external file id (e.g. Slack stamps ``slack_file_id``
+    #   via ``uploads.py::_store_slack_file_id``). The attachments
+    #   service iterates every integration meta and matches the first
+    #   populated key instead of hard-coding the Slack check inside
+    #   ``app/services/attachments.py``.
+    attachment_file_id_key: str | None = None
 
 
 _meta_registry: dict[str, IntegrationMeta] = {}
@@ -104,6 +120,10 @@ def register_integration(meta: IntegrationMeta) -> None:
             persist_delivery_metadata=(
                 meta.persist_delivery_metadata
                 or existing.persist_delivery_metadata
+            ),
+            claims_user_id=meta.claims_user_id or existing.claims_user_id,
+            attachment_file_id_key=(
+                meta.attachment_file_id_key or existing.attachment_file_id_key
             ),
         )
     _meta_registry[meta.integration_type] = meta
@@ -149,6 +169,55 @@ def iter_integration_meta() -> list[IntegrationMeta]:
 def get_all_client_id_prefixes() -> tuple[str, ...]:
     """Return all registered client_id prefixes (e.g. ('slack:', 'discord:'))."""
     return tuple(m.client_id_prefix for m in _meta_registry.values())
+
+
+def integration_id_from_sender_id(sender_id: str) -> str | None:
+    """Resolve a ``<prefix>:<id>``-style sender to its integration id.
+
+    Returns the ``integration_type`` whose ``client_id_prefix`` matches the
+    sender's prefix, or ``None`` if no registered integration claims it.
+    """
+    if not sender_id:
+        return None
+    for meta in _meta_registry.values():
+        if meta.client_id_prefix and sender_id.startswith(meta.client_id_prefix):
+            return meta.integration_type
+    return None
+
+
+def claims_user_id(integration_id: str, recipient_user_id: str) -> bool:
+    """Does ``integration_id`` natively own this user identifier?
+
+    Looks up the integration's registered ``claims_user_id`` predicate and
+    returns its result, defaulting to ``False`` if the integration has not
+    registered one (or is unknown).
+    """
+    if not recipient_user_id:
+        return False
+    meta = _meta_registry.get(integration_id)
+    if meta is None or meta.claims_user_id is None:
+        return False
+    try:
+        return bool(meta.claims_user_id(recipient_user_id))
+    except Exception:
+        logger.warning("claims_user_id failed for %s", integration_id, exc_info=True)
+        return False
+
+
+def integration_id_from_attachment_meta(meta: dict) -> str | None:
+    """Return the integration that stamped this attachment's metadata.
+
+    Iterates every registered integration's ``attachment_file_id_key`` and
+    returns the first one whose key is populated in ``meta``. Returns
+    ``None`` if no integration claims the metadata.
+    """
+    if not meta:
+        return None
+    for im in _meta_registry.values():
+        key = im.attachment_file_id_key
+        if key and meta.get(key):
+            return im.integration_type
+    return None
 
 
 def get_user_attribution(integration_type: str, user: Any) -> dict:

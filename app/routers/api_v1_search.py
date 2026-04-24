@@ -56,9 +56,9 @@ async def search_memory(
     from pathlib import Path
 
     from app.agent.bots import get_bot, list_bots
+    from app.services.bot_indexing import resolve_for
     from app.services.memory_scheme import get_memory_index_prefix
     from app.services.memory_search import hybrid_memory_search
-    from app.services.workspace_indexing import get_all_roots, resolve_indexing
 
     if not body.query.strip():
         return MemorySearchResponse(results=[])
@@ -80,10 +80,12 @@ async def search_memory(
         if bot.memory_scheme != "workspace-files":
             continue
         try:
-            roots = [str(Path(r).resolve()) for r in get_all_roots(bot)]
+            plan = resolve_for(bot, scope="workspace")
+            if plan is None:
+                continue
+            roots = [str(Path(r).resolve()) for r in plan.roots]
             prefix = get_memory_index_prefix(bot)
-            _resolved = resolve_indexing(bot.workspace.indexing, bot._workspace_raw, bot._ws_indexing_config)
-            embedding_model = _resolved["embedding_model"]
+            embedding_model = plan.embedding_model
             hits = await hybrid_memory_search(
                 body.query,
                 bot.id,
