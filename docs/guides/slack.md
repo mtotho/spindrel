@@ -108,6 +108,11 @@ A message is passive when it arrives without @mentioning the app and `require_me
 
 This lets the bot stay aware of conversations happening around it without interrupting them.
 
+In multi-bot channels, passive storage is channel-level, not limited to the bot
+that actively replied. Member bots can still absorb passive channel context
+through memory compaction or dreaming/learning when passive memory and their
+learning settings allow it.
+
 ## Channel Configuration
 
 Configure per-channel behavior in **Admin > Channels** (select a channel, then the **Integrations** tab). Each channel can have:
@@ -116,7 +121,7 @@ Configure per-channel behavior in **Admin > Channels** (select a channel, then t
 |---|---|---|
 | **Default Bot** | `SLACK_DEFAULT_BOT` | The bot that responds to @mentions in this channel. Other bots can be addressed with `/ask <bot-id>`. |
 | **Require @mention** | `true` | When checked, only @mentions trigger the agent. All other messages are stored passively as channel context. When unchecked, the bot replies to every message. |
-| **Passive memory** | `true` | When compaction runs, passive channel messages are included in the transcript so the bot can extract channel activity into `MEMORY.md`. |
+| **Passive memory** | `true` | When compaction runs, passive channel messages are included in the transcript so channel participants can extract channel activity into memory. |
 
 The derived session ID for each channel is shown in the channel list (first 8 chars of the UUID).
 
@@ -125,6 +130,10 @@ Config is served at `GET /integrations/slack/config` (requires `X-API-Key` heade
 ## Multi-Bot Channels
 
 A channel has one **default bot** (used for @mentions), but multiple bots can operate in the same channel:
+
+Default/member routing controls who actively answers. It does not isolate member
+bots from passive channel context; passive memory and learning settings decide
+whether they later learn from overheard messages.
 
 **Using `/ask`:**
 

@@ -17,6 +17,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Continued the Memory tab pass by constraining full-row select/model popovers and moving Backfill, Archived Sections, Section Index preview, and Compaction Activity onto shared low-chrome action/status/row primitives.
 - [x] Cleaned up Participants by moving primary/member rows and the add-bot picker to shared row/action/pill primitives.
 - [x] Clarified Member Bots passive-context behavior in settings and docs so @-mention routing is not confused with isolation from memory compaction or dreaming/learning.
+- [x] Swept channel routing / passive-memory copy across Agent and Participants settings plus Slack/Discord/BlueBubbles docs so active reply routing is consistently described separately from passive context absorption.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
 - [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.

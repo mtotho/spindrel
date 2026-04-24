@@ -371,18 +371,18 @@ export function MessageRoutingSection({
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
 }) {
   return (
-    <Section title="Message Routing" description="Controls when inbound messages trigger the bot vs. get stored passively.">
+    <Section title="Message Routing" description="Controls active replies. Messages that do not trigger a reply can still be stored as passive channel context.">
       <Toggle
         value={form.require_mention ?? true}
         onChange={(v) => patch("require_mention", v as ChannelSettings["require_mention"])}
         label="Require @mention"
-        description="Only @mentions or wake words trigger the bot; other messages are stored as context."
+        description="Only @mentions or wake words create active turns. Other messages are stored as passive context and may feed memory/learning when Passive memory is on."
       />
       <Toggle
         value={form.allow_bot_messages ?? false}
         onChange={(v) => patch("allow_bot_messages", v as ChannelSettings["allow_bot_messages"])}
         label="Allow bot messages"
-        description="Process messages from other bots and webhooks and let them trigger the agent."
+        description="Let messages from other bots and webhooks trigger active turns. Passive storage rules still apply to non-triggering messages."
       />
     </Section>
   );
@@ -400,8 +400,8 @@ export function ModelOverrideSection({
   settings: ChannelSettings;
 }) {
   return (
-    <Section title="Model Override" description="Override the bot's default model for this channel. Leave empty to inherit.">
-      <FormRow label="Model" description="All messages in this channel will use this model instead of the bot default.">
+    <Section title="Model Override" description="Override the primary bot's default model for this channel. Leave empty to inherit.">
+      <FormRow label="Model" description="Active turns for the primary/default bot use this model instead of the bot default. Member bots can have their own override in Participants.">
         <LlmModelDropdown
           value={form.model_override ?? ""}
           selectedProviderId={form.model_provider_id_override}
@@ -438,7 +438,7 @@ export function AgentBehaviorSection({
         value={form.passive_memory ?? true}
         onChange={(v) => patch("passive_memory", v as ChannelSettings["passive_memory"])}
         label="Passive memory"
-        description="Include passive messages in memory compaction."
+        description="Include non-triggering channel messages in compaction and dreaming/learning. This can apply to member bots too because they are channel participants."
       />
       <Toggle
         value={form.workspace_rag ?? true}

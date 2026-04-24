@@ -46,17 +46,9 @@ alembic upgrade head                    # migrations (auto on startup)
 - **Don't band-aid — keep the broader vision.** If the user reports one symptom, don't fix it by ripping out a canonical / standard pattern and replacing it with an imperative workaround. Diagnose the root cause and match the fix to best practice. A bug in `flex: column-reverse` chat scroll should not become "scroll with JS"; a bug in React Query caching should not become "bypass the cache"; a bug in CSS grid should not become "use absolute positioning". User frustration means the band-aid isn't holding — it does NOT mean apply another band-aid faster. Assume senior-engineer scrutiny on every line.
 - **Chat scroll: use `flex-direction: column-reverse` on the OUTER container with messages in a normal-flow inner div.** The browser natively pins the visual bottom — no `scrollTop = scrollHeight` effects, no `ResizeObserver` pin logic, no image-load races. Selection works because the inner wrapper's DOM order matches its visual order. Do NOT reintroduce imperative scroll anchoring. See `ui/app/(app)/channels/[channelId]/ChatMessageArea.tsx`.
 
-## DB Gotchas
-
-- `schema_` is the ORM attribute for the `schema` column in `tool_embeddings` (PostgreSQL reserved word)
-- Core-level `sqlalchemy.dialects.postgresql.insert`: use `**{"schema": value}` — Core doesn't translate ORM attribute names
-- JSONB `server_default`: use `sa.text("'{}'::jsonb")` not bare string
-- JSONB mutation tracking: use `copy.deepcopy()` + `flag_modified()` (see `_set_step_states()` pattern)
 
 ## Conventions
 
-- UI says "Capabilities", code says "carapace" — accepted debt
 - Bot YAML seeds DB, then UI edits — YAML is not user-facing config
 - `memory_scheme: "workspace-files"` and `history_mode: "file"` are the only active options
-- DB `memories` and `bot_knowledge` tables are DEPRECATED — do not use
-- **Single-workspace mode**: every bot is a permanent member of the default workspace via `ensure_all_bots_enrolled` (`app/services/workspace_bootstrap.py`). There is no "non-workspace bot" — the workspace is the container environment, not a property of the bot. The `POST`/`DELETE` workspace-bot endpoints are 410'd; membership is owned by the bootstrap loop.
+

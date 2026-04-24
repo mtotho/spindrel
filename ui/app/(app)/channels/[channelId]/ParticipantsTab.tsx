@@ -57,7 +57,7 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
     <>
       <Section
         title="Participants"
-        description="Bots that can respond in this channel. The primary agent owns the channel; members respond on @-mention."
+        description="Bots that can participate in this channel. The primary agent owns default routing; members can be routed active turns by @mention or auto-respond."
       >
         <SettingsControlRow
           leading={<Bot size={14} />}
@@ -79,7 +79,7 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
       {/* Member bots */}
       <Section
         title="Member Bots"
-        description="Additional agents that respond when @-mentioned."
+        description="Additional agents that can receive active turns by @mention or auto-respond."
         action={
           availableBots.length > 0 && !showPicker ? (
             <ActionButton
@@ -297,7 +297,7 @@ function MemberConfigForm({
 
   return (
     <div className="flex flex-col gap-3 border-t border-surface-border px-3 pt-2 pb-3">
-      <FormRow label="Auto-respond" description="Respond to all messages, not just @-mentions">
+      <FormRow label="Auto-respond" description="Active routing only. Off means @mention-only; passive context can still feed memory/learning when channel settings allow it.">
         <Toggle
           value={!!config.auto_respond}
           onChange={(val) => onUpdate({ auto_respond: val })}

@@ -88,11 +88,16 @@ Each Discord channel maps to one agent session:
 By default (`require_mention: true`):
 - **@mentioning** the bot triggers the agent (active message)
 - All other messages are stored as passive context
-- The agent can reference passive messages for context
+- Channel participants can reference passive messages for context and memory when passive memory is enabled
 
 With `require_mention: false`:
 - **All messages** trigger the agent
 - Useful for dedicated bot channels
+
+In multi-bot channels, routing decides who actively answers; it is not isolation
+from channel context. Member bots can still absorb passive messages through
+memory compaction or dreaming/learning when passive memory and their learning
+settings allow it.
 
 ### Cancellation
 
@@ -124,7 +129,7 @@ Navigate to the admin panel > Channels. Create or edit a channel with:
 ## Multi-Bot Channels
 
 Multiple bots can serve the same Discord channel:
-- Default bot handles @mentions and passive messages
+- Default bot handles default @mentions; passive messages are channel context
 - `/ask other-bot question` routes to a specific bot
 - `/bot new-bot` switches the default for the channel
 

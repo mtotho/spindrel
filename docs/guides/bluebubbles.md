@@ -109,6 +109,10 @@ This setting has **no effect** on BlueBubbles. It's designed for platforms like 
 
 When a message is stored passively (no agent triggered), this controls whether it's included in memory compaction. Enable this to let the bot "overhear" and remember the conversation even when not directly addressed.
 
+If the channel has member bots, this passive context is still channel-level.
+Member bots can later absorb it through compaction or dreaming/learning when
+their bot-level learning settings allow it, even if they did not actively reply.
+
 ## Chat HUD
 
 When BlueBubbles is activated on a channel, a **status strip** widget appears in the chat interface showing real-time connection status, message delivery state, and quick-access controls.
