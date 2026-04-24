@@ -39,12 +39,17 @@ class MachineControlProvider(Protocol):
     driver: str
     supports_enroll: bool
     supports_remove_target: bool
+    supports_profiles: bool
 
     def list_targets(self) -> list[dict[str, Any]]: ...
 
     def get_target(self, target_id: str) -> dict[str, Any] | None: ...
 
     def get_target_status(self, target_id: str) -> dict[str, Any] | None: ...
+
+    def list_profiles(self) -> list[dict[str, Any]]: ...
+
+    def get_profile(self, profile_id: str) -> dict[str, Any] | None: ...
 
     async def probe_target(
         self,
@@ -61,6 +66,25 @@ class MachineControlProvider(Protocol):
         label: str | None = None,
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
+
+    async def create_profile(
+        self,
+        db: AsyncSession,
+        *,
+        label: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def update_profile(
+        self,
+        db: AsyncSession,
+        *,
+        profile_id: str,
+        label: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def delete_profile(self, db: AsyncSession, profile_id: str) -> bool: ...
 
     async def remove_target(self, db: AsyncSession, target_id: str) -> bool: ...
 
@@ -163,6 +187,14 @@ def _provider_enroll_fields(provider_id: str) -> list[dict[str, Any]]:
     return [field for field in fields if isinstance(field, dict)]
 
 
+def _provider_profile_fields(provider_id: str) -> list[dict[str, Any]]:
+    block = _provider_block(provider_id)
+    fields = block.get("profile_fields")
+    if not isinstance(fields, list):
+        return []
+    return [field for field in fields if isinstance(field, dict)]
+
+
 def _normalize_target_status(
     status: dict[str, Any] | None,
     *,
@@ -256,6 +288,12 @@ def _public_target_payload(
     runtime_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     driver = str(target.get("driver") or _provider_driver(provider_id, provider))
+    profile_id = str(target.get("profile_id") or "").strip() or None
+    profile_label = str(target.get("profile_label") or "").strip() or None
+    if profile_id and profile_label is None and provider is not None and getattr(provider, "supports_profiles", False):
+        profile = provider.get_profile(profile_id)
+        if isinstance(profile, dict):
+            profile_label = str(profile.get("label") or "").strip() or None
     normalized = _normalize_target_status(
         runtime_status,
         driver=driver,
@@ -280,7 +318,25 @@ def _public_target_payload(
         "handle_id": normalized["handle_id"],
         "connected": normalized["ready"],
         "connection_id": normalized["handle_id"],
+        "profile_id": profile_id,
+        "profile_label": profile_label,
         "metadata": target.get("metadata") if isinstance(target.get("metadata"), dict) else None,
+    }
+
+
+def _public_profile_payload(
+    profile: dict[str, Any],
+    *,
+    target_count: int = 0,
+) -> dict[str, Any]:
+    return {
+        "profile_id": str(profile.get("profile_id") or ""),
+        "label": str(profile.get("label") or profile.get("profile_id") or ""),
+        "summary": str(profile.get("summary") or "") or None,
+        "created_at": profile.get("created_at"),
+        "updated_at": profile.get("updated_at"),
+        "target_count": int(target_count),
+        "metadata": profile.get("metadata") if isinstance(profile.get("metadata"), dict) else None,
     }
 
 
@@ -297,8 +353,10 @@ def _provider_summary(provider_id: str, provider: MachineControlProvider) -> dic
         "config_ready": is_configured(provider_id),
         "supports_enroll": bool(getattr(provider, "supports_enroll", False)),
         "supports_remove_target": bool(getattr(provider, "supports_remove_target", False)),
+        "supports_profiles": bool(getattr(provider, "supports_profiles", False)),
         "integration_admin_href": _provider_admin_href(provider_id),
         "enroll_fields": _provider_enroll_fields(provider_id),
+        "profile_fields": _provider_profile_fields(provider_id),
         "metadata": block.get("metadata") if isinstance(block.get("metadata"), dict) else None,
     }
 
@@ -336,8 +394,20 @@ def build_providers_status() -> list[dict[str, Any]]:
             logger.exception("Failed to load machine-control provider %s", provider_id)
             continue
         targets = build_targets_status(provider_id=provider_id)
+        target_counts_by_profile: dict[str, int] = {}
+        for target in targets:
+            profile_id = str(target.get("profile_id") or "").strip()
+            if not profile_id:
+                continue
+            target_counts_by_profile[profile_id] = target_counts_by_profile.get(profile_id, 0) + 1
+        profiles = [
+            _public_profile_payload(profile, target_count=target_counts_by_profile.get(str(profile.get("profile_id") or ""), 0))
+            for profile in provider.list_profiles()
+        ]
         rows.append({
             **_provider_summary(provider_id, provider),
+            "profiles": profiles,
+            "profile_count": len(profiles),
             "targets": targets,
             "target_count": len(targets),
             "ready_target_count": sum(1 for target in targets if target.get("ready")),
@@ -672,6 +742,62 @@ async def enroll_machine_target(
         "launch": enrolled.get("launch") if isinstance(enrolled.get("launch"), dict) else None,
         "metadata": enrolled.get("metadata") if isinstance(enrolled.get("metadata"), dict) else None,
     }
+
+
+async def create_machine_profile(
+    db: AsyncSession,
+    *,
+    provider_id: str,
+    label: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    provider = get_provider(provider_id)
+    if not getattr(provider, "supports_profiles", False):
+        raise ValueError(f"Provider '{provider_id}' does not support profiles.")
+    profile = await provider.create_profile(db, label=label, config=config)
+    if not isinstance(profile, dict):
+        raise RuntimeError(f"Provider '{provider_id}' returned an invalid profile payload.")
+    return {
+        "provider": _provider_summary(provider_id, provider),
+        "profile": _public_profile_payload(profile),
+    }
+
+
+async def update_machine_profile(
+    db: AsyncSession,
+    *,
+    provider_id: str,
+    profile_id: str,
+    label: str | None = None,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    provider = get_provider(provider_id)
+    if not getattr(provider, "supports_profiles", False):
+        raise ValueError(f"Provider '{provider_id}' does not support profiles.")
+    profile = await provider.update_profile(db, profile_id=profile_id, label=label, config=config)
+    if not isinstance(profile, dict):
+        raise RuntimeError(f"Provider '{provider_id}' returned an invalid profile payload.")
+    target_count = sum(
+        1
+        for target in build_targets_status(provider_id=provider_id)
+        if str(target.get("profile_id") or "").strip() == profile_id
+    )
+    return {
+        "provider": _provider_summary(provider_id, provider),
+        "profile": _public_profile_payload(profile, target_count=target_count),
+    }
+
+
+async def delete_machine_profile(
+    db: AsyncSession,
+    *,
+    provider_id: str,
+    profile_id: str,
+) -> bool:
+    provider = get_provider(provider_id)
+    if not getattr(provider, "supports_profiles", False):
+        raise ValueError(f"Provider '{provider_id}' does not support profiles.")
+    return await provider.delete_profile(db, profile_id)
 
 
 async def probe_machine_target(

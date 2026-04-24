@@ -155,7 +155,7 @@ class TestSlashCommandCatalog:
         assert by_id["theme"]["args"][0]["enum"] == ["light", "dark"]
         assert by_id["theme"]["args"][0]["required"] is False
 
-        assert by_id["mode"]["args"][0]["enum"] == ["default", "terminal"]
+        assert by_id["style"]["args"][0]["enum"] == ["default", "terminal"]
 
     async def test_client_only_commands_rejected_over_backend(self, client, db_session):
         channel_id, _session_id = await _create_channel_with_session(db_session)
@@ -187,7 +187,7 @@ class TestSlashCommandHelp:
         assert "/scratch" in labels
         assert "/clear" in labels
         assert "/find" in labels
-        assert "/mode" in labels
+        assert "/style" in labels
 
     async def test_help_in_session_omits_channel_only_commands(self, client, db_session):
         _channel_id, session_id = await _create_channel_with_session(db_session)
@@ -200,7 +200,7 @@ class TestSlashCommandHelp:
         labels = {c["label"] for c in resp.json()["payload"]["top_categories"]}
         # Session surface — /find, /clear, /scratch, /mode, /effort are channel-only
         assert "/find" not in labels
-        assert "/mode" not in labels
+        assert "/style" not in labels
         assert "/effort" not in labels
         assert "/clear" not in labels
         assert "/scratch" not in labels
@@ -310,17 +310,17 @@ class TestSlashCommandRename:
         assert resp.status_code == 400, resp.text
 
 
-class TestSlashCommandMode:
+class TestSlashCommandStyle:
     async def test_mode_with_arg_sets_channel_config(self, client, db_session):
         channel_id, _session_id = await _create_channel_with_session(db_session)
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "channel_id": channel_id, "args": ["terminal"]},
+            json={"command_id": "style", "channel_id": channel_id, "args": ["terminal"]},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
-        assert body["payload"]["effect"] == "mode"
+        assert body["payload"]["effect"] == "style"
         assert "terminal" in body["payload"]["detail"]
 
         ch = await db_session.get(Channel, uuid.UUID(channel_id))
@@ -336,7 +336,7 @@ class TestSlashCommandMode:
 
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "channel_id": channel_id, "args": ["default"]},
+            json={"command_id": "style", "channel_id": channel_id, "args": ["default"]},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200, resp.text
@@ -350,7 +350,7 @@ class TestSlashCommandMode:
         # Start at default → toggle should go to terminal
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "channel_id": channel_id},
+            json={"command_id": "style", "channel_id": channel_id},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200, resp.text
@@ -361,7 +361,7 @@ class TestSlashCommandMode:
         # Toggle back
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "channel_id": channel_id},
+            json={"command_id": "style", "channel_id": channel_id},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200, resp.text
@@ -373,7 +373,7 @@ class TestSlashCommandMode:
         channel_id, _session_id = await _create_channel_with_session(db_session)
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "channel_id": channel_id, "args": ["fancy"]},
+            json={"command_id": "style", "channel_id": channel_id, "args": ["fancy"]},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400, resp.text
@@ -382,7 +382,7 @@ class TestSlashCommandMode:
         _channel_id, session_id = await _create_channel_with_session(db_session)
         resp = await client.post(
             "/api/v1/slash-commands/execute",
-            json={"command_id": "mode", "session_id": session_id},
+            json={"command_id": "style", "session_id": session_id},
             headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400, resp.text

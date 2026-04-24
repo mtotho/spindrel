@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Spinner } from "@/src/components/shared/Spinner";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { Play, RotateCcw, Pencil, FileText, Workflow as WorkflowIcon } from "lucide-react";
 import {
@@ -58,6 +57,149 @@ function buildIntervalOptions(current: number | null | undefined) {
   return INTERVAL_OPTIONS;
 }
 
+function HeartbeatTabLoading({
+  workflowMode = false,
+  workspaceFileLinked = false,
+  templateLinked = false,
+  dispatchResults = false,
+}: {
+  workflowMode?: boolean;
+  workspaceFileLinked?: boolean;
+  templateLinked?: boolean;
+  dispatchResults?: boolean;
+}) {
+  const placeholder = "rounded-md border border-input-border bg-input/55";
+  const mutedLine = "rounded-full bg-surface-overlay/60";
+  const mutedButton = "inline-flex h-[24px] rounded border border-surface-border bg-transparent";
+  const toggleRow = "flex min-h-[32px] items-start gap-2.5 py-1.5";
+
+  return (
+    <>
+      <Section
+        title={
+          <div className="flex flex-wrap items-center gap-2">
+            <span>Heartbeat</span>
+            <StatusBadge label="Loading" variant="neutral" />
+          </div>
+        }
+        description="Heartbeat schedules background runs for this channel. Configuration saves automatically."
+        action={
+          <span className="block h-[34px] w-16 rounded-md bg-surface-overlay/35" aria-hidden />
+        }
+      >
+        {null}
+      </Section>
+
+      <div className="flex flex-col gap-5" aria-busy="true" aria-label="Loading heartbeat settings">
+        <Section title="Schedule">
+          <div className="flex w-full flex-col gap-1.5">
+            <span className={`${mutedLine} h-3 w-16`} aria-hidden />
+            <span className={`${placeholder} h-10 w-full`} aria-hidden />
+          </div>
+        </Section>
+
+        <Section title="Action">
+          <div className="mb-3">
+            <div className="inline-flex rounded-md bg-surface-raised/40 p-1" aria-hidden>
+              <span className={`h-[30px] w-[87px] rounded-md ${workflowMode ? "bg-surface-overlay/35" : "bg-surface-overlay/70"}`} />
+              <span className={`h-[30px] w-[103px] rounded-md ${workflowMode ? "bg-surface-overlay/70" : "bg-surface-overlay/35"}`} />
+            </div>
+          </div>
+
+          {workflowMode ? (
+            <div className="flex flex-col gap-2" aria-hidden>
+              <div className="flex flex-col gap-1.5">
+                <span className={`${mutedLine} h-3 w-20`} />
+                <span className={`${placeholder} h-10 w-full`} />
+                <span className={`${mutedLine} h-3 w-72 opacity-70`} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className={`${mutedLine} h-3 w-24`} />
+                <span className={`${placeholder} h-10 w-full`} />
+                <span className={`${mutedLine} h-3 w-80 opacity-70`} />
+              </div>
+            </div>
+          ) : (
+            <>
+              {workspaceFileLinked ? (
+                <div className={`${placeholder} mb-1 h-[92px] w-full`} aria-hidden />
+              ) : (
+                <>
+                  <div className={`${mutedButton} mb-1 w-[143px]`} aria-hidden />
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5" aria-hidden>
+                    <span className={`${mutedButton} w-[105px]`} />
+                  </div>
+                  {templateLinked ? (
+                    <div className={`${placeholder} h-[228px] w-full`} aria-hidden />
+                  ) : (
+                    <div className="flex flex-col gap-1.5" aria-hidden>
+                      <div className="flex min-h-[30px] items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <span className={`${mutedLine} block h-3 w-[112px]`} />
+                          <span className={`${mutedLine} mt-1 block h-3 w-[96px] opacity-70`} />
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="h-7 w-[72px] rounded-md bg-surface-overlay/35" />
+                          <span className="h-7 w-[57px] rounded-md bg-surface-overlay/35" />
+                        </div>
+                      </div>
+                      <div className={`${placeholder} h-[280px] w-full`} />
+                      <div className="flex min-h-[17px] items-center justify-between gap-3">
+                        <span className={`${mutedLine} h-3 w-[410px] max-w-[45%] opacity-70`} />
+                        <span className={`${mutedLine} h-3 w-[104px] opacity-70`} />
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </Section>
+
+        {!workflowMode && (
+          <Section title="Dispatch">
+            <div className="flex flex-col gap-2" aria-hidden>
+              <div className={toggleRow}>
+                <span className="mt-0.5 h-5 w-[34px] shrink-0 rounded-full bg-surface-border" />
+                <span className={`${mutedLine} mt-1 h-4 w-[150px]`} />
+              </div>
+              {dispatchResults && (
+                <div className="flex flex-col gap-1.5">
+                  <span className={`${mutedLine} h-3 w-[92px]`} />
+                  <span className={`${placeholder} h-10 w-full`} />
+                  <span className={`${mutedLine} h-3 w-[240px] opacity-70`} />
+                </div>
+              )}
+              <div className={toggleRow}>
+                <span className="mt-0.5 h-5 w-[34px] shrink-0 rounded-full bg-surface-border" />
+                <div className="min-w-0">
+                  <span className={`${mutedLine} block h-4 w-[246px]`} />
+                  <span className={`${mutedLine} mt-1 block h-3 w-[370px] opacity-70`} />
+                </div>
+              </div>
+            </div>
+          </Section>
+        )}
+
+        <div className="mt-1 flex min-h-[40px] flex-wrap gap-2" aria-hidden>
+          <span className="h-10 w-[93px] rounded-md bg-surface-overlay/35" />
+          {!workflowMode && (
+            <span className={`${mutedLine} self-center h-3 w-[310px] opacity-70`} />
+          )}
+        </div>
+
+        {!workflowMode && (
+          <div className="mt-2.5" aria-hidden>
+            <div className="flex min-h-[44px] items-center gap-1.5 px-0.5">
+              <span className={`${mutedLine} h-3 w-[135px] opacity-70`} />
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Heartbeat Tab
 // ---------------------------------------------------------------------------
@@ -81,12 +223,14 @@ export function HeartbeatTab({
 }) {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isFetching, isLoading } = useQuery({
     queryKey: ["channel-heartbeat", channelId],
     queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/heartbeat`),
+    refetchOnMount: "always",
   });
 
   const [hbForm, setHbForm] = useState<any>(null);
+  const [initialHeartbeatApplied, setInitialHeartbeatApplied] = useState(false);
   const [hbDirty, setHbDirty] = useState(false);
   const [hbLastSavedAt, setHbLastSavedAt] = useState<number | null>(null);
   const [customizedFromTemplateId, setCustomizedFromTemplateId] = useState<string | null>(null);
@@ -103,6 +247,13 @@ export function HeartbeatTab({
   const { data: workflows } = useWorkflows();
 
   useEffect(() => {
+    setHbForm(null);
+    hbFormRef.current = null;
+    setInitialHeartbeatApplied(false);
+  }, [channelId]);
+
+  useEffect(() => {
+    if (!data || isFetching) return;
     if (data?.config) {
       const nextForm = {
         interval_minutes: data.config.interval_minutes ?? 60,
@@ -128,6 +279,7 @@ export function HeartbeatTab({
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
+      setInitialHeartbeatApplied(true);
       hbDirtyRef.current = false;
       setHbDirty(false);
     } else if (data && !data.config) {
@@ -155,10 +307,11 @@ export function HeartbeatTab({
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
+      setInitialHeartbeatApplied(true);
       hbDirtyRef.current = false;
       setHbDirty(false);
     }
-  }, [data]);
+  }, [data, isFetching]);
 
   const toggleMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/toggle`, { method: "POST" }),
@@ -253,7 +406,16 @@ export function HeartbeatTab({
     },
   });
 
-  if (isLoading || !hbForm) return <Spinner />;
+  if (isLoading || !initialHeartbeatApplied || !hbForm) {
+    return (
+      <HeartbeatTabLoading
+        workflowMode={!!data?.config?.workflow_id}
+        workspaceFileLinked={!!data?.config?.workspace_file_path}
+        templateLinked={!!data?.config?.prompt_template_id}
+        dispatchResults={data?.config?.dispatch_results ?? false}
+      />
+    );
+  }
 
   const enabled = data?.config?.enabled ?? false;
   const isWorkflowMode = !!hbForm.workflow_id;

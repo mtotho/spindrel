@@ -6,6 +6,7 @@ can see what it just did.  User messages, assistant text, and system messages
 are never touched.
 """
 
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,84 @@ STICKY_TOOL_NAMES: frozenset[str] = frozenset({
     # asking for the same file across pruning cycles.
     "get_memory_file",
 })
+
+
+_PRUNED_ARGS_SENTINEL = "_spindrel_pruned_tool_args"
+
+
+def _empty_turn_stats() -> dict:
+    return {
+        "pruned_count": 0,
+        "chars_saved": 0,
+        "turns_pruned": 0,
+        "tool_call_args_pruned": 0,
+        "tool_call_arg_chars_saved": 0,
+    }
+
+
+def _empty_iteration_stats() -> dict:
+    return {
+        "pruned_count": 0,
+        "chars_saved": 0,
+        "iterations_pruned": 0,
+        "tool_call_args_pruned": 0,
+        "tool_call_arg_chars_saved": 0,
+    }
+
+
+def _compact_tool_call_arguments(msg: dict, min_content_length: int) -> dict[str, int]:
+    """Replace oversized assistant tool-call arguments with a valid JSON marker."""
+    tool_calls = msg.get("tool_calls")
+    if not isinstance(tool_calls, list):
+        return {"count": 0, "chars_saved": 0}
+
+    changed = False
+    count = 0
+    chars_saved = 0
+    new_tool_calls = []
+    for tc in tool_calls:
+        if not isinstance(tc, dict):
+            new_tool_calls.append(tc)
+            continue
+        fn = tc.get("function")
+        if not isinstance(fn, dict):
+            new_tool_calls.append(tc)
+            continue
+        args = fn.get("arguments", "")
+        if not isinstance(args, str):
+            args = json.dumps(args)
+        if len(args) < min_content_length:
+            new_tool_calls.append(tc)
+            continue
+        try:
+            parsed = json.loads(args)
+            if isinstance(parsed, dict) and parsed.get(_PRUNED_ARGS_SENTINEL):
+                new_tool_calls.append(tc)
+                continue
+        except (TypeError, ValueError):
+            pass
+
+        name = str(fn.get("name") or "tool")
+        marker = json.dumps({
+            _PRUNED_ARGS_SENTINEL: True,
+            "tool": name,
+            "original_chars": len(args),
+            "note": "Historical tool-call arguments were compacted for context replay.",
+        }, separators=(",", ":"))
+        new_tool_calls.append({
+            **tc,
+            "function": {
+                **fn,
+                "arguments": marker,
+            },
+        })
+        changed = True
+        count += 1
+        chars_saved += max(0, len(args) - len(marker))
+
+    if changed:
+        msg["tool_calls"] = new_tool_calls
+    return {"count": count, "chars_saved": chars_saved}
 
 
 def prune_tool_results(
@@ -65,16 +144,16 @@ def prune_tool_results(
     # --- locate conversation region ---
     conv_start, conv_end = _find_conversation_region(messages)
     if conv_start is None:
-        return {"pruned_count": 0, "chars_saved": 0, "turns_pruned": 0}
+        return _empty_turn_stats()
 
     conv_msgs = messages[conv_start:conv_end]
     if not conv_msgs:
-        return {"pruned_count": 0, "chars_saved": 0, "turns_pruned": 0}
+        return _empty_turn_stats()
 
     # --- split into turns (each starting with a user message) ---
     turns = _split_into_turns(conv_msgs)
     if not turns:
-        return {"pruned_count": 0, "chars_saved": 0, "turns_pruned": 0}
+        return _empty_turn_stats()
 
     # --- build tool_call_id → tool_name map from assistant messages ---
     tool_name_map = _build_tool_name_map(conv_msgs)
@@ -82,10 +161,20 @@ def prune_tool_results(
     pruned_count = 0
     chars_saved = 0
     turns_pruned = 0
+    tool_call_args_pruned = 0
+    tool_call_arg_chars_saved = 0
 
     for turn_msgs in turns:
         turn_had_pruning = False
         for msg in turn_msgs:
+            if msg.get("role") == "assistant":
+                arg_stats = _compact_tool_call_arguments(msg, min_content_length)
+                if arg_stats["count"] > 0:
+                    tool_call_args_pruned += arg_stats["count"]
+                    tool_call_arg_chars_saved += arg_stats["chars_saved"]
+                    chars_saved += arg_stats["chars_saved"]
+                    turn_had_pruning = True
+                continue
             if msg.get("role") != "tool":
                 continue
             # Sticky tool results (skills, runbooks) are reference material
@@ -122,6 +211,8 @@ def prune_tool_results(
         "pruned_count": pruned_count,
         "chars_saved": chars_saved,
         "turns_pruned": turns_pruned,
+        "tool_call_args_pruned": tool_call_args_pruned,
+        "tool_call_arg_chars_saved": tool_call_arg_chars_saved,
     }
 
 
@@ -186,7 +277,7 @@ def prune_in_loop_tool_results(
 
     if boundary_idx is None:
         # Not enough iterations to prune.
-        return {"pruned_count": 0, "chars_saved": 0, "iterations_pruned": 0}
+        return _empty_iteration_stats()
 
     # Build tool_call_id → tool_name map only for the prunable prefix —
     # tool calls in the kept tail aren't referenced from pruned messages.
@@ -195,6 +286,8 @@ def prune_in_loop_tool_results(
     pruned_count = 0
     chars_saved = 0
     iterations_pruned = 0
+    tool_call_args_pruned = 0
+    tool_call_arg_chars_saved = 0
     current_iter_had_prunes = False
 
     for i in range(boundary_idx):
@@ -205,6 +298,12 @@ def prune_in_loop_tool_results(
             if current_iter_had_prunes:
                 iterations_pruned += 1
                 current_iter_had_prunes = False
+            arg_stats = _compact_tool_call_arguments(msg, min_content_length)
+            if arg_stats["count"] > 0:
+                tool_call_args_pruned += arg_stats["count"]
+                tool_call_arg_chars_saved += arg_stats["chars_saved"]
+                chars_saved += arg_stats["chars_saved"]
+                current_iter_had_prunes = True
             continue
         if msg.get("role") != "tool":
             continue
@@ -244,6 +343,8 @@ def prune_in_loop_tool_results(
         "pruned_count": pruned_count,
         "chars_saved": chars_saved,
         "iterations_pruned": iterations_pruned,
+        "tool_call_args_pruned": tool_call_args_pruned,
+        "tool_call_arg_chars_saved": tool_call_arg_chars_saved,
     }
 
 

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 import {
   adminMachineEnrollPath,
+  adminMachineProfilePath,
+  adminMachineProfilesPath,
   adminMachineTargetPath,
   adminMachinesPath,
   sessionMachineTargetLeasePath,
@@ -28,6 +30,8 @@ export interface MachineTarget {
   handle_id?: string | null;
   connected: boolean;
   connection_id?: string | null;
+  profile_id?: string | null;
+  profile_label?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -67,7 +71,18 @@ export interface MachineControlEnrollField {
   required?: boolean;
   default?: string | number | boolean | null;
   secret?: boolean;
+  multiline?: boolean;
   options?: Array<{ value: string; label: string }>;
+}
+
+export interface MachineProviderProfile {
+  profile_id: string;
+  label: string;
+  summary?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  target_count: number;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface MachineProviderState {
@@ -80,8 +95,12 @@ export interface MachineProviderState {
   config_ready: boolean;
   supports_enroll: boolean;
   supports_remove_target: boolean;
+  supports_profiles: boolean;
   integration_admin_href: string;
   enroll_fields?: MachineControlEnrollField[] | null;
+  profile_fields?: MachineControlEnrollField[] | null;
+  profiles?: MachineProviderProfile[] | null;
+  profile_count?: number | null;
   metadata?: Record<string, unknown> | null;
   targets: MachineTarget[];
   target_count: number;
@@ -107,6 +126,11 @@ export interface MachineTargetEnrollment {
 export interface MachineTargetProbeResult {
   provider: Omit<MachineProviderState, "targets" | "target_count" | "ready_target_count" | "connected_target_count">;
   target: MachineTarget;
+}
+
+export interface MachineProfileMutationResult {
+  provider: Omit<MachineProviderState, "targets" | "target_count" | "ready_target_count" | "connected_target_count">;
+  profile: MachineProviderProfile;
 }
 
 export function useSessionMachineTarget(sessionId: string | null | undefined, enabled = true) {
@@ -206,6 +230,56 @@ export function useDeleteMachineTarget(providerId: string) {
   return useMutation({
     mutationFn: (targetId: string) =>
       apiFetch<{ status: string; provider_id: string; target_id: string }>(adminMachineTargetPath(providerId, targetId), {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-machines"] });
+      qc.invalidateQueries({ queryKey: ["session-machine-target"] });
+    },
+  });
+}
+
+export function useCreateMachineProfile(providerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body?: { label?: string | null; config?: Record<string, unknown> | null }) =>
+      apiFetch<MachineProfileMutationResult>(adminMachineProfilesPath(providerId), {
+        method: "POST",
+        body: JSON.stringify(body ?? {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-machines"] });
+      qc.invalidateQueries({ queryKey: ["session-machine-target"] });
+    },
+  });
+}
+
+export function useUpdateMachineProfile(providerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      profileId,
+      body,
+    }: {
+      profileId: string;
+      body?: { label?: string | null; config?: Record<string, unknown> | null };
+    }) =>
+      apiFetch<MachineProfileMutationResult>(adminMachineProfilePath(providerId, profileId), {
+        method: "PUT",
+        body: JSON.stringify(body ?? {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-machines"] });
+      qc.invalidateQueries({ queryKey: ["session-machine-target"] });
+    },
+  });
+}
+
+export function useDeleteMachineProfile(providerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (profileId: string) =>
+      apiFetch<{ status: string; provider_id: string; profile_id: string }>(adminMachineProfilePath(providerId, profileId), {
         method: "DELETE",
       }),
     onSuccess: () => {

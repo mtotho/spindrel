@@ -6,7 +6,8 @@ import { RecordingOverlay } from "./RecordingOverlay";
 import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
-import { resolveSlashCommand } from "./slashCommands";
+import { resolveSlashCommand, detectMissingSlashArgs } from "./slashCommands";
+import { toast } from "../../stores/toast";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
@@ -143,6 +144,17 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
       if (channelId) clearDraft(channelId);
       else { setLocalText(""); setLocalFiles([]); }
       editorRef.current?.clear();
+      editorRef.current?.focus();
+      return;
+    }
+    // Bare `/cmd` typed with required args missing — hint instead of sending
+    // it as a normal chat message (which hits the bot and confuses things).
+    const missing = detectMissingSlashArgs(message, slashSurface, slashCatalog, availableSlashCommands);
+    if (missing && pendingFiles.length === 0) {
+      toast({
+        kind: "info",
+        message: `/${missing.id} needs: ${missing.missing.join(", ")}`,
+      });
       editorRef.current?.focus();
       return;
     }
@@ -422,6 +434,17 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
       if (channelId) clearDraft(channelId);
       else { setLocalText(""); setLocalFiles([]); }
       editorRef.current?.clear();
+      editorRef.current?.focus();
+      return;
+    }
+    // Bare `/cmd` typed with required args missing — hint instead of sending
+    // it as a normal chat message (which hits the bot and confuses things).
+    const missing = detectMissingSlashArgs(message, slashSurface, slashCatalog, availableSlashCommands);
+    if (missing && pendingFiles.length === 0) {
+      toast({
+        kind: "info",
+        message: `/${missing.id} needs: ${missing.missing.join(", ")}`,
+      });
       editorRef.current?.focus();
       return;
     }

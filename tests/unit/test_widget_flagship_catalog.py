@@ -125,17 +125,20 @@ class TestWebSearchWidget:
 
 
 class TestFrigateListCamerasWidget:
-    def test_registers_as_html(self):
+    def test_registers_as_components_with_drilldown(self):
         raw, base = _load_integration_manifest("frigate")
         tool_widgets = raw["tool_widgets"]
         count = _register_widgets("integration:frigate", tool_widgets, base_dir=base)
-        # Now 3 widgets: snapshot, events_timeline, list_cameras.
+        # Three widgets: snapshot, events_timeline, list_cameras.
         assert count == 3
         tmpl = _widget_templates["frigate_list_cameras"]
-        assert tmpl["content_type"] == "application/vnd.spindrel.html+interactive"
-        # Per-tile snapshot polling lives in JS; the list itself only needs
-        # a slow state_poll (300s) to catch camera add/remove events.
+        # Ported to tiles v2 in Phase 5 — no per-tile live thumbnails, click
+        # drills into the per-camera snapshot widget. Slow state_poll catches
+        # camera add/remove events only.
+        assert tmpl["content_type"] == "application/vnd.spindrel.components+json"
         assert tmpl["state_poll"]["refresh_interval_seconds"] == 300
+        assert tmpl["transform"].endswith(":render_cameras_widget")
+        assert tmpl["state_poll"]["transform"].endswith(":cameras_view")
 
 
 class TestFrigateSnapshotWidgetCarriesCamera:

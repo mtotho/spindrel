@@ -169,4 +169,5 @@ class TestDiscoverSetupStatus:
         assert "machine_control" in ssh.get("provides", [])
         assert ssh["machine_control"]["provider_id"] == "ssh"
         assert ssh["machine_control"]["driver"] == "ssh"
+        assert isinstance(ssh["machine_control"].get("profile_fields"), list)
         assert isinstance(ssh["machine_control"].get("enroll_fields"), list)

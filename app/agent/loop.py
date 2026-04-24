@@ -41,6 +41,7 @@ from app.agent.message_utils import (
     _extract_transcript,
     _merge_tool_schemas,
 )
+from app.agent.prompt_sizing import estimate_chars_to_tokens, message_prompt_chars
 from app.agent.recording import _record_trace_event
 from app.agent.llm import AccumulatedMessage, EmptyChoicesError, FallbackInfo, _llm_call, _llm_call_stream, _summarize_tool_result, extract_json_tool_calls, extract_xml_tool_calls, last_fallback_info, strip_malformed_tool_calls, strip_silent_tags, strip_think_tags  # noqa: F401 — re-exported
 from app.agent.loop_cycle_detection import ToolCallSignature, detect_cycle
@@ -187,15 +188,6 @@ async def run_agent_tool_loop(
         tools_to_enroll=_tools_to_enroll,
     )
 
-    def _est_msg_chars(m: dict) -> int:
-        content = m.get("content") or ""
-        chars = len(content) if isinstance(content, str) else sum(
-            len(str(p)) for p in content
-        ) if isinstance(content, list) else 0
-        if m.get("tool_calls"):
-            chars += sum(len(str(tc)) for tc in m["tool_calls"])
-        return chars
-
     try:
         import time as _time
         from app.agent.hooks import fire_hook, HookContext
@@ -298,7 +290,7 @@ async def run_agent_tool_loop(
                     keep_iterations=_in_loop_keep_iterations,
                     min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
                 )
-                if _in_loop_stats["pruned_count"] > 0:
+                if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
                     logger.info(
                         "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d",
                         _in_loop_stats["pruned_count"],
@@ -310,6 +302,8 @@ async def run_agent_tool_loop(
                         "pruned_count": _in_loop_stats["pruned_count"],
                         "chars_saved": _in_loop_stats["chars_saved"],
                         "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                        "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                        "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
                         "scope": "in_loop",
                         "keep_iterations": _in_loop_keep_iterations,
                     }, compaction)
@@ -325,6 +319,8 @@ async def run_agent_tool_loop(
                                 "scope": "in_loop",
                                 "chars_saved": _in_loop_stats["chars_saved"],
                                 "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                                "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                                "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
                                 "iteration": iteration + 1,
                                 "keep_iterations": _in_loop_keep_iterations,
                             },
@@ -336,9 +332,7 @@ async def run_agent_tool_loop(
                 for _m in messages:
                     _role = _m.get("role", "?")
                     _content = _m.get("content") or ""
-                    _chars = sum(len(str(p)) for p in _content) if isinstance(_content, list) else len(_content)
-                    if _role == "assistant" and _m.get("tool_calls"):
-                        _chars += sum(len(str(tc)) for tc in _m["tool_calls"])
+                    _chars = message_prompt_chars(_m)
                     _key = _role
                     if _role == "system" and isinstance(_content, str):
                         _key = _CLASSIFY_SYS_MSG(_content)
@@ -361,7 +355,60 @@ async def run_agent_tool_loop(
                 ))
 
             # TPM rate limit check: yield wait event and sleep if needed
-            _est_tokens = sum(_est_msg_chars(m) // 4 for m in messages)
+            _est_tokens = sum(estimate_chars_to_tokens(message_prompt_chars(m)) for m in messages)
+            if tools_param:
+                _est_tokens += estimate_chars_to_tokens(len(json.dumps(tools_param, default=str)))
+            _window = 0
+            try:
+                from app.agent.context_budget import get_model_context_window
+                _window = get_model_context_window(model, effective_provider_id)
+            except Exception:
+                _window = 0
+            if _window > 0:
+                _available = max(0, _window - int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO))
+                if _available > 0 and _est_tokens > _available:
+                    _msg = (
+                        "The assembled prompt is still too large for this model after "
+                        "context pruning. Please compact the conversation or switch to a "
+                        "larger-context model."
+                    )
+                    logger.error(
+                        "Context window guard blocked LLM call: estimated=%d available=%d model=%s provider=%s",
+                        _est_tokens, _available, model, effective_provider_id,
+                    )
+                    messages.append({"role": "assistant", "content": _msg})
+                    if correlation_id is not None:
+                        safe_create_task(_record_trace_event(
+                            correlation_id=correlation_id,
+                            session_id=session_id,
+                            bot_id=bot.id,
+                            client_id=client_id,
+                            event_type="error",
+                            event_name="ContextWindowExceeded",
+                            data={
+                                "estimated_prompt_tokens": _est_tokens,
+                                "available_tokens": _available,
+                                "model": model,
+                                "provider_id": effective_provider_id,
+                                "iteration": iteration + 1,
+                            },
+                        ))
+                    yield _event_with_compaction_tag({
+                        "type": "error",
+                        "code": "context_window_exceeded",
+                        "message": _msg,
+                        "estimated_prompt_tokens": _est_tokens,
+                        "available_tokens": _available,
+                    }, compaction)
+                    yield _event_with_compaction_tag({
+                        "type": "response",
+                        "text": _msg,
+                        "client_actions": (
+                            _extract_client_actions(messages, turn_start) + embedded_client_actions
+                        ),
+                        **({"correlation_id": str(correlation_id)} if correlation_id else {}),
+                    }, compaction)
+                    return
             _wait = check_rate_limit(effective_provider_id, _est_tokens)
             if _wait:
                 logger.info("Provider TPM limit: waiting %ds before LLM call", _wait)

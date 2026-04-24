@@ -26,7 +26,7 @@ chat / plan session
 
 ## Operator flow
 
-1. Enroll a target from `Admin > Machines` or from the quick-setup helper on `Admin > Integrations > Local Companion`:
+1. Enroll a target from `Admin > Machines`:
 
    ```bash
    curl -X POST \

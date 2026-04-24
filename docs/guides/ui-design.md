@@ -138,6 +138,8 @@ Control surfaces are content surfaces with denser interaction. This is where the
 - **Inside sections:** use `gap-3` between header and content, `gap-2` between peer rows, and `gap-4` inside editable forms.
 - **Dividers are scarce.** Use a single neutral divider only when a row expands inline and needs a content seam. Never use repeated `border-b` on every row in a list.
 - **Status is small.** Prefer a 6-8px status dot or a muted semantic pill. Do not add colored bars, colored side borders, or whole-row pulse.
+- **Loading preserves layout without shouting.** Never replace a settings tab, section header, status pill, or control row with a lone spinner that changes the page footprint. Reserve the final slot with disabled-looking controls, muted inline copy, or low-contrast placeholder rows. Do not use high-opacity `bg-skeleton` slabs; they invert harshly across light/dark and become their own chrome.
+- **Do not flash stale cached status.** If a status badge, toggle, selected value, or interval is loaded from a cache that immediately refetches on mount, hold the stable loading placeholder until the fresh fetch has been applied. A brief wrong `Enabled`/`Disabled` or old selected value is worse than a quiet placeholder.
 - **Empty states are low-commitment.** Use `rounded-md border border-dashed border-surface-border bg-surface-raised/40 py-8 text-center text-text-dim`.
 
 #### Proof references
@@ -334,6 +336,7 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 | `shadow-lg` on a card | `bg-surface-raised border border-surface-border` | Shadows read as old admin UI; tonal lift is calmer |
 | Bootstrap-like filled accent row button (`bg-accent text-white` for `Add`) | Inline primary control action: `bg-transparent text-accent hover:bg-accent/[0.08]` | Routine settings actions should match rail/header affordances, not web-framework CTAs |
 | `bg-gradient-to-br from-accent to-purple` on a settings CTA | Inline primary control action or, for rare final confirmation, one flat filled accent button | Gradients are decorative here and were the source of guide drift |
+| Spinner-only loading block or high-contrast skeleton slabs that collapse/repaint a settings tab/header/control | Same-footprint disabled-looking controls, muted inline loading copy, or low-contrast placeholder rows in the final slot | Page bounce and bright loading blocks both read sloppy |
 | Hand-rolled badge with `rgba(...)` bg | Token-based chip from §4 Badges | Consistent across surfaces, free dark mode |
 | Mixing `style={{ t.surfaceBorder }}` and Tailwind classes | Tailwind classes only | `useThemeTokens()` is debt; new code avoids it |
 | Multiple radii in one view (4 / 8 / 12 / 16 mixed) | Pick one from §3 Radius | Scale discipline is the difference between polished and generic |

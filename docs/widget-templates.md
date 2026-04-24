@@ -198,6 +198,138 @@ blob fetch, detection/annotation overlays, and click-to-lightbox.
 
 Entropy-minimization note: `auth` matches HTTP `Authorization: Bearer` vocabulary (`"none" | "bearer"`). Unknown values fail at registration time — drift like `auth: blob` or `auth: token` is rejected with a precise error.
 
+### `tiles` primitive
+
+A responsive grid of tiles. One primitive, two layouts: **text-first** (label /
+value / caption) and **image-first** (image fills the tile, label overlays on a
+bottom gradient). Presence of `image_url` on an item flips its mode. Mixed
+modes in the same `items[]` work — the grid keeps its tracks; each tile
+renders in its own mode.
+
+```yaml
+- type: tiles
+  min_width: 220
+  items:
+    - label: "CPU"
+      value: "42%"
+      caption: "1m avg"
+    - label: "Driveway"
+      caption: "1920×1080 · 5fps"
+      image_url: "/api/v1/attachments/{{d.snapshot_id}}/file"
+      image_aspect_ratio: "16 / 9"
+      image_auth: bearer                    # "none" (default) | "bearer"
+      status: success                       # optional corner chip (SemanticSlot)
+      action:                               # optional on-click dispatch
+        dispatch: tool
+        tool: frigate_snapshot
+        args: {camera: "driveway"}
+```
+
+| Field | Notes |
+|---|---|
+| `items[]` | List of tiles. Each item may be text-first or image-first. No fields are strictly required — the template engine may emit blank placeholders. |
+| `items[].label` | Text-first: small uppercase caption at the top. Image-first: overlay label on the bottom gradient. Also used as the `<img alt>` in image mode. |
+| `items[].value` | Text-first only: large bold value (e.g. `"42%"`). Suppressed in image-first mode. |
+| `items[].caption` | Footer line (small, dim). Shown in both modes when present; omitted at `density: "compact"` in text mode. |
+| `items[].image_url` | **Mode switch.** When set, the tile renders image-first. Absolute or server-relative URL. |
+| `items[].image_aspect_ratio` | CSS `aspect-ratio` for the image tile (default `"16 / 9"`). Parallel to `image.aspect_ratio`. |
+| `items[].image_auth` | `"none"` (default) \| `"bearer"`. Same semantics as `image.auth`. |
+| `items[].status` | Optional corner chip (small dot). Uses the `SemanticSlot` vocabulary (`accent`/`success`/`warning`/`danger`/`info`/`muted`). |
+| `items[].action` | Optional `WidgetAction`. When set, the whole tile becomes clickable and dispatches on activation. Supports `dispatch: tool` / `api` / `widget_config` — same grammar as buttons/toggles. |
+| `min_width` | Minimum tile width in px. Drives `grid-template-columns: repeat(auto-fill, minmax(Xpx, 1fr))`. |
+| `gap` | Gap between tiles in px (default 6). |
+
+Entropy-minimization notes:
+- One primitive, not two — `image_url` presence is the mode switch. Avoids the fragmentation of an `image_tiles` parallel primitive and keeps authors on the same vocabulary when adding or removing images from a tile set.
+- `image_*` field names parallel the `image` primitive — consistent `aspect_ratio` / `auth` vocabulary across primitives.
+- `action` reuses the existing `WidgetAction` shape — no new grammar for per-item dispatch.
+- `status` uses `SemanticSlot` tokens only — no new color vocabulary.
+
+### `timeline` primitive
+
+SVG lane-based event renderer. Events are pills placed in horizontal lanes,
+with a tick axis on top. Omit `range` for auto-fit (the window spans the
+events themselves); set `range` explicitly to fix the window. Omit `lanes`
+for a flat single-lane timeline.
+
+```yaml
+- type: timeline
+  # Omit `range` for auto-fit from events. Set explicitly to fix the window:
+  # range: {start: "2026-04-23T12:00:00Z", end: "2026-04-23T18:00:00Z"}
+  lanes:                                  # optional; omit for flat timeline
+    - {id: driveway, label: "Driveway"}
+    - {id: backyard, label: "Backyard"}
+  events:
+    - id: "ev-123"                        # required — stable selection needs ids
+      start: "2026-04-23T14:00:12Z"       # required, ISO 8601
+      end:   "2026-04-23T14:00:28Z"       # optional (defaults to start + 2s)
+      lane_id: driveway                   # required when lanes present; forbidden otherwise
+      label: "person"
+      color: accent                       # SemanticSlot
+      subtitle: "score 0.91"              # optional hover/detail text
+  on_event_click:                         # optional
+    dispatch: widget_config
+    config: {selected_event: "{{event.id}}"}
+  selected_event_id: "{{widget_config.selected_event}}"  # optional; binds selection state
+```
+
+| Field | Notes |
+|---|---|
+| `events[]` | Required. Each event must carry a stable `id` so selection state survives re-renders. Missing `id` fails at registration — there is no silent fallback. |
+| `events[].start` | Required. ISO 8601 UTC (e.g. `"2026-04-23T14:00:12Z"`). Epoch seconds / ms are not accepted at the primitive layer — integration transforms coerce at the edge (see Phase 4 helper). |
+| `events[].end` | Optional. Defaults to `start + 2s` at render time. |
+| `events[].lane_id` | Required when `lanes` is non-empty; must be absent otherwise. `lane_id` must match a declared lane — typos fail at registration. |
+| `events[].label` | Optional label shown on hover / as part of the pill tooltip. |
+| `events[].color` | Optional. `SemanticSlot` vocabulary (`accent`/`success`/`warning`/`danger`/`info`/`muted`). No hex codes. |
+| `events[].subtitle` | Optional secondary text on hover (e.g. score, confidence). |
+| `range` | Optional `{start, end}`. Both fields required when present — partial ranges fail. Omit for auto-fit across events (with a small 4% pad). |
+| `lanes` | Optional list of `{id, label?}`. Omit for a flat timeline. |
+| `on_event_click` | Optional `WidgetAction`. Fires with the event's `id` as the dispatch value. `widget_config` dispatch is the common choice — it re-renders the widget with `selected_event` bound. |
+| `selected_event_id` | Optional. Visually strokes the matching pill. Typically bound to `widget_config.selected_event` so round-trip dispatch + render works without local state. |
+
+Entropy-minimization notes:
+- `range` is omit-for-auto, object-for-explicit. A mixed `range: "auto" | {start, end}` was considered and rejected — mixed-type enum fields raise author entropy (an LLM doesn't know whether to emit `"auto"` or `{start, end}` without seeing prior examples).
+- ISO 8601 only, not epoch seconds — self-documenting and LLM-reliable.
+- `event.id` is always required — selection state would silently break without it. Loud failure is the correct default.
+- Lane invariants (required-with-lanes, forbidden-without-lanes, must-match-declared) mirror how a human thinks about timelines and surface typos at registration rather than at render time.
+
+### Timestamp policy — ISO 8601 at the primitive boundary
+
+Primitive-layer timestamps are **ISO 8601 UTC** (e.g. `"2026-04-23T14:00:12Z"`).
+Epoch seconds, epoch milliseconds, and naive datetime objects are all valid
+shapes at the *integration-tool* boundary, but they must be coerced by the
+integration transform before they reach a primitive.
+
+The one-call helper lives at `app/services/time_coercion.py`:
+
+```python
+from app.services.time_coercion import to_iso_z
+
+# Inside an integration transform:
+events = [
+    {
+        "id": ev["id"],
+        "start": to_iso_z(ev["start_time"]),       # epoch seconds → ISO Z
+        "end":   to_iso_z(ev.get("end_time")),     # None → None (passthrough)
+        "label": ev.get("label"),
+    }
+    for ev in tool_result["events"]
+]
+```
+
+`to_iso_z` accepts `str` (ISO 8601, with or without timezone), `int` / `float`
+(epoch seconds when `< 1e12`, milliseconds otherwise), and `datetime` (any tz).
+It returns a stable `"...Z"` string or `None` for `None` input, and raises
+`ValueError` on unparseable input — loud failure is the correct behavior at
+transform time.
+
+A lenient variant `to_iso_z_or_none` returns `None` instead of raising; use it
+only in bulk map operations where one malformed row shouldn't fail the render.
+
+This policy keeps the primitive contract strict (one canonical shape, no
+mixed-type fields) without forcing integrations to rewrite their native tool
+output. The coercion is at the edge — everything past the transform is ISO 8601.
+
 ### State polling
 
 Add a `state_poll` block to refresh a pinned widget's state by calling

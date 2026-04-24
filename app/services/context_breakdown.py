@@ -5,6 +5,7 @@ Used by the admin UI to show what goes into each agent turn.
 from __future__ import annotations
 
 import logging
+import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -123,6 +124,13 @@ def _chars_to_tokens(chars: int) -> int:
     if chars < 0:
         return -estimate_tokens("x" * abs(chars))
     return 0
+
+
+def _row_prompt_chars(content: Any, tool_calls: Any) -> int:
+    chars = len(content or "")
+    if tool_calls:
+        chars += len(json.dumps(tool_calls, separators=(",", ":"), default=str))
+    return chars
 
 
 async def fetch_latest_context_budget(
@@ -674,27 +682,28 @@ async def compute_context_breakdown(
             .where(_not_compaction_run_clause)
         )).scalar_one()
 
-        total_msg_chars = (await db.execute(
-            select(func.coalesce(func.sum(func.length(Message.content)), 0))
+        total_rows = (await db.execute(
+            select(Message.content, Message.tool_calls)
             .where(Message.session_id == target_session_pk)
             .where(_not_compaction_run_clause)
-        )).scalar_one()
+        )).all()
+        total_msg_chars = sum(_row_prompt_chars(row[0], row[1]) for row in total_rows)
 
         # Messages since watermark
         if session and session.summary_message_id and session.summary:
             watermark_msg = await db.get(Message, session.summary_message_id)
             if watermark_msg:
                 result = await db.execute(
-                    select(func.count(), func.coalesce(func.sum(func.length(Message.content)), 0))
+                    select(Message.content, Message.tool_calls)
                     .where(
                         Message.session_id == target_session_pk,
                         Message.created_at > watermark_msg.created_at,
                         _not_compaction_run_clause,
                     )
                 )
-                row = result.one()
-                msgs_since_watermark = row[0]
-                chars_since_watermark = row[1]
+                watermark_rows = result.all()
+                msgs_since_watermark = len(watermark_rows)
+                chars_since_watermark = sum(_row_prompt_chars(row[0], row[1]) for row in watermark_rows)
                 # Count user messages only (matches compaction trigger logic)
                 user_msgs_since_watermark = (await db.execute(
                     select(func.count())
@@ -761,7 +770,49 @@ async def compute_context_breakdown(
                 )
             )).one()
             _tool_count, _tool_chars = _tool_msg_stats
-            if _tool_count > 0:
+            _arg_rows = (await db.execute(
+                select(Message.tool_calls).where(
+                    Message.session_id == target_session_pk,
+                    _watermark_clause,
+                    _not_compaction_run_clause,
+                    Message.role == "assistant",
+                    Message.tool_calls.is_not(None),
+                )
+            )).scalars().all()
+            _arg_count = 0
+            _arg_chars = 0
+            _arg_marker_chars = 0
+            for _tool_calls in _arg_rows:
+                if not isinstance(_tool_calls, list):
+                    continue
+                for _tc in _tool_calls:
+                    if not isinstance(_tc, dict):
+                        continue
+                    _fn = _tc.get("function") or {}
+                    if not isinstance(_fn, dict):
+                        continue
+                    _args = _fn.get("arguments", "")
+                    if not isinstance(_args, str):
+                        _args = json.dumps(_args)
+                    if len(_args) < _min_len:
+                        continue
+                    try:
+                        _parsed = json.loads(_args)
+                        if isinstance(_parsed, dict) and _parsed.get("_spindrel_pruned_tool_args"):
+                            continue
+                    except (TypeError, ValueError):
+                        pass
+                    _name = str(_fn.get("name") or "tool")
+                    _marker = json.dumps({
+                        "_spindrel_pruned_tool_args": True,
+                        "tool": _name,
+                        "original_chars": len(_args),
+                        "note": "Historical tool-call arguments were compacted for context replay.",
+                    }, separators=(",", ":"))
+                    _arg_count += 1
+                    _arg_chars += len(_args)
+                    _arg_marker_chars += len(_marker)
+            if _tool_count > 0 or _arg_count > 0:
                 # Compute marker length from a representative sample so the
                 # estimate stays in sync if the marker format in
                 # context_pruning.py changes.  New messages get retrieval
@@ -774,12 +825,15 @@ async def compute_context_breakdown(
                     f" to retrieve]"
                 )
                 _marker_chars = _tool_count * len(_sample_marker)
-                _est_savings = max(0, _tool_chars - _marker_chars)
+                _est_savings = max(0, _tool_chars - _marker_chars) + max(0, _arg_chars - _arg_marker_chars)
                 categories.append(ContextCategory(
                     key="context_pruning", label="Context Pruning (savings)",
                     chars=-_est_savings,
                     tokens_approx=0, percentage=0, category="conversation",
-                    description=f"~{_tool_count} tool results replaced with retrieval pointers",
+                    description=(
+                        f"~{_tool_count} tool results replaced with retrieval pointers"
+                        + (f"; ~{_arg_count} tool-call argument payload(s) compacted" if _arg_count else "")
+                    ),
                 ))
 
     # -----------------------------------------------------------------------

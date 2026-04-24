@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.integration_settings import get_status, get_value, set_status, update_settings
 
 TARGETS_KEY = "SSH_TARGETS_JSON"
+PROFILES_KEY = "SSH_PROFILES_JSON"
 _TARGETS_SETUP_VARS = [{"key": TARGETS_KEY, "secret": False}]
+_PROFILES_SETUP_VARS = [{"key": PROFILES_KEY, "secret": True}]
 
 
 def _utc_now_iso() -> str:
@@ -32,8 +34,6 @@ def _parse_int(value: Any, default: int) -> int:
 
 def _load_runtime_settings() -> dict[str, Any]:
     return {
-        "private_key": get_value("ssh", "SSH_PRIVATE_KEY", ""),
-        "known_hosts": get_value("ssh", "SSH_KNOWN_HOSTS", ""),
         "connect_timeout_seconds": max(1, _parse_int(get_value("ssh", "SSH_CONNECT_TIMEOUT_SECONDS", "10"), 10)),
         "probe_timeout_seconds": max(1, _parse_int(get_value("ssh", "SSH_PROBE_TIMEOUT_SECONDS", "10"), 10)),
         "command_timeout_seconds": max(1, _parse_int(get_value("ssh", "SSH_COMMAND_TIMEOUT_SECONDS", "120"), 120)),
@@ -58,6 +58,7 @@ def _parse_targets(raw: str) -> list[dict[str, Any]]:
         if not target_id:
             continue
         metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+        profile_id = str(item.get("profile_id") or metadata.get("profile_id") or "").strip()
         out.append({
             "target_id": target_id,
             "driver": "ssh",
@@ -65,6 +66,8 @@ def _parse_targets(raw: str) -> list[dict[str, Any]]:
             "hostname": str(item.get("hostname") or metadata.get("host") or ""),
             "platform": str(item.get("platform") or ""),
             "capabilities": [str(v) for v in (item.get("capabilities") or ["shell"]) if str(v).strip()],
+            "profile_id": profile_id or None,
+            "profile_label": str(item.get("profile_label") or "").strip() or None,
             "enrolled_at": str(item.get("enrolled_at") or _utc_now_iso()),
             "last_seen_at": str(item.get("last_seen_at") or "") or None,
             "metadata": {
@@ -85,21 +88,84 @@ def _dump_targets(targets: list[dict[str, Any]]) -> str:
     return json.dumps(targets, ensure_ascii=False)
 
 
+def _parse_profiles(raw: str) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        profile_id = str(item.get("profile_id") or "").strip()
+        if not profile_id:
+            continue
+        config = item.get("config") if isinstance(item.get("config"), dict) else {}
+        out.append({
+            "profile_id": profile_id,
+            "label": str(item.get("label") or profile_id),
+            "created_at": str(item.get("created_at") or _utc_now_iso()),
+            "updated_at": str(item.get("updated_at") or item.get("created_at") or _utc_now_iso()),
+            "config": {
+                "private_key": str(config.get("private_key") or ""),
+                "known_hosts": str(config.get("known_hosts") or ""),
+            },
+        })
+    return out
+
+
+def _dump_profiles(profiles: list[dict[str, Any]]) -> str:
+    return json.dumps(profiles, ensure_ascii=False)
+
+
 def get_registered_targets() -> list[dict[str, Any]]:
     return _parse_targets(get_value("ssh", TARGETS_KEY, "[]"))
+
+
+def _get_stored_profiles() -> list[dict[str, Any]]:
+    return _parse_profiles(get_value("ssh", PROFILES_KEY, "[]"))
+
+
+def _public_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    config = profile.get("config") if isinstance(profile.get("config"), dict) else {}
+    configured = [key for key in ("private_key", "known_hosts") if str(config.get(key) or "").strip()]
+    return {
+        "profile_id": str(profile.get("profile_id") or ""),
+        "label": str(profile.get("label") or profile.get("profile_id") or ""),
+        "created_at": profile.get("created_at"),
+        "updated_at": profile.get("updated_at"),
+        "summary": f"{len(configured)} secret{'s' if len(configured) != 1 else ''} configured" if configured else "No secrets configured",
+        "metadata": {
+            "configured_secrets": configured,
+        },
+    }
 
 
 async def _save_targets(db: AsyncSession, targets: list[dict[str, Any]]) -> None:
     await update_settings("ssh", {TARGETS_KEY: _dump_targets(targets)}, _TARGETS_SETUP_VARS, db)
 
 
-def _require_secret_settings() -> dict[str, Any]:
-    config = _load_runtime_settings()
-    if not config["private_key"].strip():
-        raise ValueError("SSH provider requires SSH_PRIVATE_KEY to be configured.")
-    if not config["known_hosts"].strip():
-        raise ValueError("SSH provider requires SSH_KNOWN_HOSTS to be configured.")
-    return config
+async def _save_profiles(db: AsyncSession, profiles: list[dict[str, Any]]) -> None:
+    await update_settings("ssh", {PROFILES_KEY: _dump_profiles(profiles)}, _PROFILES_SETUP_VARS, db)
+
+
+def _require_profile(profile_id: str) -> dict[str, Any]:
+    for profile in _get_stored_profiles():
+        if profile.get("profile_id") != profile_id:
+            continue
+        config = profile.get("config") if isinstance(profile.get("config"), dict) else {}
+        private_key = str(config.get("private_key") or "")
+        known_hosts = str(config.get("known_hosts") or "")
+        if not private_key.strip():
+            raise ValueError(f"SSH profile '{profile_id}' is missing a private key.")
+        if not known_hosts.strip():
+            raise ValueError(f"SSH profile '{profile_id}' is missing known_hosts.")
+        return profile
+    raise ValueError(f"Unknown SSH profile '{profile_id}'.")
 
 
 def _target_handle_id(target: dict[str, Any]) -> str:
@@ -120,12 +186,12 @@ def _trim(data: bytes, max_output_bytes: int) -> tuple[str, bool]:
 async def _run_ssh(
     target: dict[str, Any],
     *,
+    auth: dict[str, Any],
     remote_command: str,
     timeout_seconds: int,
     connect_timeout_seconds: int,
     max_output_bytes: int,
 ) -> dict[str, Any]:
-    config = _require_secret_settings()
     metadata = target.get("metadata") if isinstance(target.get("metadata"), dict) else {}
     host = str(metadata.get("host") or target.get("hostname") or "").strip()
     username = str(metadata.get("username") or "").strip()
@@ -133,11 +199,19 @@ async def _run_ssh(
     if not host or not username:
         raise ValueError("SSH target is missing host or username.")
 
+    config = auth.get("config") if isinstance(auth.get("config"), dict) else {}
+    private_key = str(config.get("private_key") or "")
+    known_hosts = str(config.get("known_hosts") or "")
+    if not private_key.strip():
+        raise ValueError("SSH profile is missing a private key.")
+    if not known_hosts.strip():
+        raise ValueError("SSH profile is missing known_hosts.")
+
     key_fd, key_path = tempfile.mkstemp(prefix="spindrel-ssh-key-", text=True)
     hosts_fd, hosts_path = tempfile.mkstemp(prefix="spindrel-known-hosts-", text=True)
     try:
-        os.write(key_fd, config["private_key"].encode())
-        os.write(hosts_fd, config["known_hosts"].encode())
+        os.write(key_fd, private_key.encode())
+        os.write(hosts_fd, known_hosts.encode())
     finally:
         os.close(key_fd)
         os.close(hosts_fd)
@@ -223,6 +297,7 @@ class SSHMachineControlProvider:
     driver = "ssh"
     supports_enroll = True
     supports_remove_target = True
+    supports_profiles = True
 
     def list_targets(self) -> list[dict[str, Any]]:
         return get_registered_targets()
@@ -248,6 +323,15 @@ class SSHMachineControlProvider:
             "handle_id": metadata.get("handle_id") or _target_handle_id(target),
         }
 
+    def list_profiles(self) -> list[dict[str, Any]]:
+        return [_public_profile(profile) for profile in _get_stored_profiles()]
+
+    def get_profile(self, profile_id: str) -> dict[str, Any] | None:
+        for profile in self.list_profiles():
+            if profile.get("profile_id") == profile_id:
+                return profile
+        return None
+
     async def enroll(
         self,
         db: AsyncSession,
@@ -262,10 +346,16 @@ class SSHMachineControlProvider:
         username = str(payload.get("username") or "").strip()
         port = _parse_int(payload.get("port"), 22)
         working_dir = str(payload.get("working_dir") or "").strip()
+        profile_id = str(payload.get("profile_id") or "").strip()
         if not host:
             raise ValueError("SSH target enrollment requires a host.")
         if not username:
             raise ValueError("SSH target enrollment requires a username.")
+        if not profile_id:
+            raise ValueError("SSH target enrollment requires a profile_id.")
+        profile = self.get_profile(profile_id)
+        if profile is None:
+            raise ValueError("Unknown SSH profile.")
 
         targets = get_registered_targets()
         target_id = str(uuid.uuid4())
@@ -276,6 +366,8 @@ class SSHMachineControlProvider:
             "hostname": host,
             "platform": "",
             "capabilities": ["shell"],
+            "profile_id": profile_id,
+            "profile_label": profile.get("label"),
             "enrolled_at": _utc_now_iso(),
             "last_seen_at": None,
             "metadata": {
@@ -294,6 +386,87 @@ class SSHMachineControlProvider:
         if get_status("ssh") != "enabled":
             await set_status("ssh", "enabled")
         return {"target": target}
+
+    async def create_profile(
+        self,
+        db: AsyncSession,
+        *,
+        label: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        payload = config if isinstance(config, dict) else {}
+        private_key = str(payload.get("private_key") or "")
+        known_hosts = str(payload.get("known_hosts") or "")
+        if not private_key.strip():
+            raise ValueError("SSH profile creation requires a private_key.")
+        if not known_hosts.strip():
+            raise ValueError("SSH profile creation requires known_hosts.")
+        profiles = _get_stored_profiles()
+        profile = {
+            "profile_id": str(uuid.uuid4()),
+            "label": (label or f"SSH Profile {len(profiles) + 1}").strip() or f"SSH Profile {len(profiles) + 1}",
+            "created_at": _utc_now_iso(),
+            "updated_at": _utc_now_iso(),
+            "config": {
+                "private_key": private_key,
+                "known_hosts": known_hosts,
+            },
+        }
+        profiles.append(profile)
+        await _save_profiles(db, profiles)
+        if get_status("ssh") != "enabled":
+            await set_status("ssh", "enabled")
+        return _public_profile(profile)
+
+    async def update_profile(
+        self,
+        db: AsyncSession,
+        *,
+        profile_id: str,
+        label: str | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        profiles = _get_stored_profiles()
+        payload = config if isinstance(config, dict) else {}
+        updated: dict[str, Any] | None = None
+        for profile in profiles:
+            if profile.get("profile_id") != profile_id:
+                continue
+            if label is not None:
+                next_label = label.strip()
+                if not next_label:
+                    raise ValueError("SSH profile label cannot be empty.")
+                profile["label"] = next_label
+            existing_config = profile.get("config") if isinstance(profile.get("config"), dict) else {}
+            next_config = dict(existing_config)
+            for key in ("private_key", "known_hosts"):
+                if key not in payload:
+                    continue
+                value = payload.get(key)
+                next_config[key] = "" if value is None else str(value)
+            if not str(next_config.get("private_key") or "").strip():
+                raise ValueError("SSH profile must keep a private_key.")
+            if not str(next_config.get("known_hosts") or "").strip():
+                raise ValueError("SSH profile must keep known_hosts.")
+            profile["config"] = next_config
+            profile["updated_at"] = _utc_now_iso()
+            updated = profile
+            break
+        if updated is None:
+            raise ValueError("Unknown SSH profile.")
+        await _save_profiles(db, profiles)
+        return _public_profile(updated)
+
+    async def delete_profile(self, db: AsyncSession, profile_id: str) -> bool:
+        targets = get_registered_targets()
+        if any(str(target.get("profile_id") or "").strip() == profile_id for target in targets):
+            raise RuntimeError("Machine profile is still in use by one or more targets.")
+        profiles = _get_stored_profiles()
+        kept = [profile for profile in profiles if profile.get("profile_id") != profile_id]
+        if len(kept) == len(profiles):
+            return False
+        await _save_profiles(db, kept)
+        return True
 
     async def remove_target(self, db: AsyncSession, target_id: str) -> bool:
         targets = get_registered_targets()
@@ -336,6 +509,8 @@ class SSHMachineControlProvider:
                 target["hostname"] = hostname
             if platform:
                 target["platform"] = platform
+            profile = self.get_profile(str(target.get("profile_id") or "").strip())
+            target["profile_label"] = profile.get("label") if isinstance(profile, dict) else target.get("profile_label")
             updated = target
             break
         if updated is None:
@@ -352,15 +527,17 @@ class SSHMachineControlProvider:
         target = self.get_target(target_id)
         if target is None:
             raise ValueError("Unknown machine target.")
-        config = _require_secret_settings()
+        profile_id = str(target.get("profile_id") or "").strip()
         checked_at = _utc_now_iso()
         try:
+            auth = _require_profile(profile_id)
             result = await _run_ssh(
                 target,
+                auth=auth,
                 remote_command=_probe_remote_command(),
-                timeout_seconds=config["probe_timeout_seconds"],
-                connect_timeout_seconds=config["connect_timeout_seconds"],
-                max_output_bytes=config["max_output_bytes"],
+                timeout_seconds=_load_runtime_settings()["probe_timeout_seconds"],
+                connect_timeout_seconds=_load_runtime_settings()["connect_timeout_seconds"],
+                max_output_bytes=_load_runtime_settings()["max_output_bytes"],
             )
         except Exception as exc:
             await self._update_probe_state(
@@ -422,28 +599,32 @@ class SSHMachineControlProvider:
         target = self.get_target(target_id)
         if target is None:
             raise ValueError("Unknown machine target.")
-        config = _require_secret_settings()
+        auth = _require_profile(str(target.get("profile_id") or "").strip())
+        runtime = _load_runtime_settings()
         return await _run_ssh(
             target,
+            auth=auth,
             remote_command=_command_remote_script(command),
-            timeout_seconds=config["command_timeout_seconds"],
-            connect_timeout_seconds=config["connect_timeout_seconds"],
-            max_output_bytes=config["max_output_bytes"],
+            timeout_seconds=runtime["command_timeout_seconds"],
+            connect_timeout_seconds=runtime["connect_timeout_seconds"],
+            max_output_bytes=runtime["max_output_bytes"],
         )
 
     async def exec_command(self, target_id: str, command: str, working_dir: str = "") -> dict[str, Any]:
         target = self.get_target(target_id)
         if target is None:
             raise ValueError("Unknown machine target.")
-        config = _require_secret_settings()
+        auth = _require_profile(str(target.get("profile_id") or "").strip())
+        runtime = _load_runtime_settings()
         metadata = target.get("metadata") if isinstance(target.get("metadata"), dict) else {}
         effective_dir = working_dir.strip() or str(metadata.get("working_dir") or "").strip()
         return await _run_ssh(
             target,
+            auth=auth,
             remote_command=_command_remote_script(command, effective_dir),
-            timeout_seconds=config["command_timeout_seconds"],
-            connect_timeout_seconds=config["connect_timeout_seconds"],
-            max_output_bytes=config["max_output_bytes"],
+            timeout_seconds=runtime["command_timeout_seconds"],
+            connect_timeout_seconds=runtime["connect_timeout_seconds"],
+            max_output_bytes=runtime["max_output_bytes"],
         )
 
 

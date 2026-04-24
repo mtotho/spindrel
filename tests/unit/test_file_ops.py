@@ -1394,13 +1394,33 @@ class TestBatchOp:
         assert "not allowed in batch" in parsed["results"][0]["error"]
 
     @pytest.mark.asyncio
-    async def test_rejects_nested_archive(self, mock_ctx):
+    async def test_archive_older_than_allowed_inside_batch(self, mock_ctx):
+        """Bundling archive with log-promotion edits in one batch should work —
+        the Phase-2 limitation cost a full iteration in a hygiene trace."""
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        (logs / "2026-04-04.md").write_text("old\n")
+        (logs / "2026-04-24.md").write_text("fresh\n")
+
         result = await file_tool(operation="batch", ops=[
-            {"op": "archive_older_than", "path": "memory/logs"},
+            {"op": "append", "path": "memory/logs/2026-04-24.md", "content": "promoted\n"},
+            {
+                "op": "archive_older_than",
+                "path": "memory/logs",
+                "destination": "memory/logs/archive",
+                "older_than_days": 14,
+            },
         ])
         parsed = json.loads(result)
-        assert parsed["error_count"] == 1
-        assert "not allowed in batch" in parsed["results"][0]["error"]
+        assert parsed["ok"] is True
+        assert parsed["error_count"] == 0
+        assert parsed["ok_count"] == 2
+        archive_result = parsed["results"][1]
+        assert archive_result["ok"] is True
+        assert "2026-04-04.md" in archive_result["moved"]
+        assert (logs / "archive" / "2026-04-04.md").is_file()
+        assert not (logs / "2026-04-04.md").exists()
 
     @pytest.mark.asyncio
     async def test_rejects_op_without_op_key(self, mock_ctx):

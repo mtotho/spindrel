@@ -47,6 +47,7 @@ from app.agent.rag_formatting import (
 from app.agent.recording import _record_trace_event
 from app.agent.tags import resolve_tags
 from app.agent.tokenization import estimate_content_tokens
+from app.agent.prompt_sizing import message_prompt_tokens
 from app.agent.tools import retrieve_tools
 from app.config import settings
 from app.tools.client_tools import get_client_tool_schemas
@@ -1184,23 +1185,6 @@ async def assemble_context(
             return True
         return budget.can_afford(estimate_content_tokens(content))
 
-    # --- account for pre-existing messages (base context + replayed live history) ---
-    if budget is not None:
-        from app.agent.context_budget import estimate_tokens
-        _base_tokens = 0
-        _history_tokens = 0
-        for m in messages:
-            _content = m.get("content", "")
-            _tokens = estimate_content_tokens(_content)
-            if m.get("role") == "system":
-                _base_tokens += _tokens
-            else:
-                _history_tokens += _tokens
-        if _base_tokens:
-            budget.consume("base_context", _base_tokens)
-        if _history_tokens:
-            budget.consume("conversation_history", _history_tokens)
-
     # --- channel-level tool/skill overrides ---
     _ch_row = None
     if channel_id is not None:
@@ -1240,18 +1224,16 @@ async def assemble_context(
     if _pruning_enabled:
         from app.agent.context_pruning import prune_tool_results
         _prune_stats = prune_tool_results(messages, min_content_length=_pruning_min_len)
-        if _prune_stats["pruned_count"] > 0:
+        if _prune_stats["pruned_count"] > 0 or _prune_stats.get("tool_call_args_pruned", 0) > 0:
             _inject_chars["context_pruning_saved"] = -_prune_stats["chars_saved"]
-            # Reduce budget to reflect actual post-pruning content
-            # (inlined estimate_tokens formula to avoid allocating huge temp string)
-            if budget is not None:
-                budget.consume("context_pruning_savings", -max(1, int(_prune_stats["chars_saved"] / 3.5)))
             yield {
                 "type": "context_pruning",
                 "scope": "turn_boundary",
                 "pruned_count": _prune_stats["pruned_count"],
                 "chars_saved": _prune_stats["chars_saved"],
                 "turns_pruned": _prune_stats["turns_pruned"],
+                "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
+                "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
             }
             if correlation_id is not None:
                 asyncio.create_task(_record_trace_event(
@@ -1265,9 +1247,26 @@ async def assemble_context(
                         "scope": "turn_boundary",
                         "chars_saved": _prune_stats["chars_saved"],
                         "turns_pruned": _prune_stats["turns_pruned"],
+                        "tool_call_args_pruned": _prune_stats.get("tool_call_args_pruned", 0),
+                        "tool_call_arg_chars_saved": _prune_stats.get("tool_call_arg_chars_saved", 0),
                         "min_length": _pruning_min_len,
                     },
                 ))
+
+    # --- account for pre-existing messages after pruning ---
+    if budget is not None:
+        _base_tokens = 0
+        _history_tokens = 0
+        for m in messages:
+            _tokens = message_prompt_tokens(m)
+            if m.get("role") == "system":
+                _base_tokens += _tokens
+            else:
+                _history_tokens += _tokens
+        if _base_tokens:
+            budget.consume("base_context", _base_tokens)
+        if _history_tokens:
+            budget.consume("conversation_history", _history_tokens)
 
     if _ch_row is not None:
         _eff = resolve_effective_tools(bot, _ch_row)

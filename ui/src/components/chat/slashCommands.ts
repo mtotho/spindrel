@@ -78,6 +78,42 @@ export function resolveSlashCommand(
   return { id: match.id, args };
 }
 
+export interface MissingSlashArgs {
+  id: SlashCommandId;
+  missing: string[];
+}
+
+/** Detect a bare `/cmd` (known command, required args missing) so the caller
+ *  can surface a "add a query" hint rather than silently sending as chat. */
+export function detectMissingSlashArgs(
+  raw: string,
+  surface: SlashCommandSurface,
+  catalog: SlashCommandSpec[],
+  availableIds?: SlashCommandId[],
+): MissingSlashArgs | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("/") || trimmed.includes("\n")) return null;
+  const tokens = trimmed.slice(1).split(/\s+/).filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  const query = tokens[0].toLowerCase();
+  const provided = tokens.length - 1;
+  const allow = availableIds ? new Set<SlashCommandId>(availableIds) : null;
+  const match = catalog.find(
+    (cmd) =>
+      cmdSurfaces(cmd).includes(surface) &&
+      (!allow || allow.has(cmd.id)) &&
+      cmd.id === query,
+  );
+  if (!match) return null;
+  const schema = cmdArgs(match);
+  const required = schema.filter((a) => a.required);
+  if (provided >= required.length) return null;
+  return {
+    id: match.id,
+    missing: required.slice(provided).map((a) => a.name),
+  };
+}
+
 /** Look up a single command spec by id, or `null` if not present. */
 export function findSpec(
   catalog: SlashCommandSpec[],

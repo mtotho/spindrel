@@ -509,6 +509,633 @@ def _sanitize_extra_csp(raw: Any) -> dict[str, list[str]] | None:
     return out or None
 
 
+# ---------------------------------------------------------------------------
+# Dispatch helpers — extracted from ``dispatch_tool_call`` so the main
+# function reads as a linear pre-guard → execute → post-process pipeline.
+# ---------------------------------------------------------------------------
+
+
+def _apply_error_payload(
+    result_obj: "ToolCallResult",
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    error_message: str,
+    raw_result: str | None = None,
+) -> None:
+    """Populate ``result_obj`` for an error / denial return path.
+
+    ``raw_result`` — when the tool result should carry more than the default
+    ``{"error": ...}`` envelope (e.g. the machine-access-required denial wraps
+    a structured ``local_control_required`` payload), caller passes the
+    pre-serialized JSON string. Otherwise a ``{"error": error_message}`` JSON
+    body is used for both the user-visible and LLM-visible result strings.
+    """
+    payload = raw_result if raw_result is not None else json.dumps({"error": error_message})
+    result_obj.result = payload
+    result_obj.result_for_llm = payload
+    result_obj.tool_event = {
+        "type": "tool_result",
+        "tool": tool_name,
+        "tool_call_id": tool_call_id,
+        "error": error_message,
+    }
+
+
+def _enqueue_denial_record(
+    *,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    bot_id: str,
+    tool_name: str,
+    tool_type: str,
+    iteration: int,
+    arguments: dict,
+    result: str,
+    error: str,
+    correlation_id: uuid.UUID | None,
+    envelope: dict | None = None,
+) -> None:
+    """Enqueue a ``_record_tool_call`` insert with ``status='denied'``.
+
+    Fire-and-forget — uses ``safe_create_task`` so the dispatcher can return
+    the deny ``ToolCallResult`` immediately without awaiting the DB write.
+    """
+    kwargs = dict(
+        session_id=session_id,
+        client_id=client_id,
+        bot_id=bot_id,
+        tool_name=tool_name,
+        tool_type=tool_type,
+        server_name=None,
+        iteration=iteration,
+        arguments=arguments,
+        result=result,
+        error=error,
+        duration_ms=0,
+        correlation_id=correlation_id,
+        status="denied",
+    )
+    if envelope is not None:
+        kwargs["envelope"] = envelope
+    safe_create_task(_record_tool_call(**kwargs))
+
+
+def _parse_args_dict(args: str | None) -> dict:
+    """Parse a JSON arguments string into a dict, returning ``{}`` on any
+    failure. Used by the deny paths to populate the ``arguments`` column on
+    the recorded denial row without crashing on malformed input.
+    """
+    if not args:
+        return {}
+    try:
+        parsed = json.loads(args)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def _authorization_guard(
+    result_obj: "ToolCallResult",
+    *,
+    name: str,
+    tool_call_id: str,
+    bot_id: str,
+    client_id: str | None,
+    session_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    iteration: int,
+    arguments: dict,
+    allowed_tool_names: set[str] | None,
+) -> "ToolCallResult | None":
+    """Early-deny when ``allowed_tool_names`` is set and ``name`` is absent.
+
+    Returns the populated ``result_obj`` to signal the caller should return
+    immediately; returns None when the tool is authorized (or no allowlist
+    constraint is in effect).
+    """
+    if allowed_tool_names is None or name in allowed_tool_names:
+        return None
+    _trace("✗ %s not authorized for bot %s", name, bot_id)
+    err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
+    _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+    _enqueue_denial_record(
+        session_id=session_id, client_id=client_id, bot_id=bot_id,
+        tool_name=name, tool_type="unknown", iteration=iteration,
+        arguments=arguments, result=result_obj.result,
+        error=err, correlation_id=correlation_id,
+    )
+    return result_obj
+
+
+async def _execution_policy_guard(
+    result_obj: "ToolCallResult",
+    *,
+    name: str,
+    tool_call_id: str,
+    bot_id: str,
+    client_id: str | None,
+    session_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    iteration: int,
+    arguments: dict,
+) -> tuple["ToolCallResult | None", str]:
+    """Machine-control execution-policy gate for local tools.
+
+    Returns ``(denial_or_None, execution_policy)``. ``execution_policy`` is
+    one of ``"normal" | "interactive_user" | "live_target_lease"``; the
+    downstream policy guard short-circuits ``require_approval`` for the
+    latter two when the rule is the default (no explicit rule_id).
+    """
+    if not is_local_tool(name):
+        return None, "normal"
+    from app.tools.registry import get_tool_execution_policy
+    execution_policy = get_tool_execution_policy(name)
+    if execution_policy == "normal":
+        return None, "normal"
+    try:
+        from app.services.machine_control import (
+            build_machine_access_required_payload,
+            validate_current_execution_policy,
+        )
+        resolution = await validate_current_execution_policy(execution_policy)
+    except Exception:
+        logger.exception("Execution-policy validation failed for %s", name)
+        err = "Tool call denied: unable to validate the machine-control policy. Please retry."
+        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        return result_obj, execution_policy
+    if resolution is None or resolution.allowed:
+        return None, execution_policy
+
+    exec_err = resolution.reason or "Tool call denied by execution policy."
+    deny_result = json.dumps({"error": "local_control_required", "message": exec_err})
+    deny_payload: dict = {
+        "reason": exec_err,
+        "execution_policy": execution_policy,
+        "requested_tool": name,
+        "session_id": str(session_id) if session_id else None,
+        "lease": None,
+        "targets": [],
+        "connected_targets": [],
+        "connected_target_count": 0,
+        "admin_machines_href": "/admin/machines",
+        "integration_admin_href": "/admin/machines",
+    }
+    try:
+        async with async_session() as db:
+            deny_payload = await build_machine_access_required_payload(
+                db,
+                session_id=session_id,
+                reason=exec_err,
+                execution_policy=execution_policy,
+                requested_tool=name,
+            )
+    except Exception:
+        logger.debug("Failed to build machine-control denial payload for %s", name, exc_info=True)
+    result_obj.result = deny_result
+    result_obj.result_for_llm = deny_result
+    result_obj.envelope = _build_envelope_from_optin(
+        {
+            "content_type": "application/vnd.spindrel.components+json",
+            "display": "inline",
+            "plain_body": exec_err,
+            "body": {
+                "v": 1,
+                "components": [
+                    {"type": "heading", "text": "Machine access required", "level": 3},
+                ],
+            },
+            "view_key": "core.machine_access_required",
+            "data": deny_payload,
+        },
+        deny_result,
+    )
+    result_obj.envelope.tool_name = name
+    result_obj.envelope.tool_call_id = tool_call_id
+    result_obj.tool_event = {
+        "type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": exec_err,
+    }
+    _enqueue_denial_record(
+        session_id=session_id, client_id=client_id, bot_id=bot_id,
+        tool_name=name, tool_type="local", iteration=iteration,
+        arguments=arguments, result=result_obj.result,
+        error=exec_err, correlation_id=correlation_id,
+        envelope=result_obj.envelope.compact_dict(),
+    )
+    return result_obj, execution_policy
+
+
+async def _policy_and_approval_guard(
+    result_obj: "ToolCallResult",
+    *,
+    name: str,
+    tool_call_id: str,
+    bot_id: str,
+    client_id: str | None,
+    session_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    iteration: int,
+    arguments: dict,
+    execution_policy: str,
+    skip_policy: bool,
+) -> "ToolCallResult | None":
+    """Tool-policy evaluation + approval creation.
+
+    Three terminal outcomes:
+    - policy deny → populated ``result_obj`` with ``"denied by policy"`` error.
+    - require_approval → populated ``result_obj`` with ``needs_approval=True``,
+      ``approval_id``, ``record_id``.
+    - eval error → populated ``result_obj`` with generic policy error.
+
+    Returns None when the policy allows the tool or ``skip_policy`` is set.
+    """
+    if skip_policy:
+        return None
+    try:
+        decision = await _check_tool_policy(
+            bot_id, name, arguments,
+            correlation_id=str(correlation_id) if correlation_id else None,
+        )
+        if decision is None:
+            return None
+        if (
+            execution_policy in {"interactive_user", "live_target_lease"}
+            and decision.action == "require_approval"
+            and decision.rule_id is None
+        ):
+            return None
+        if decision.action == "deny":
+            err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
+            _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+            # Preserve legacy ``"Denied by policy: ..."`` phrasing on tool_event.error
+            # for renderers / tests that match on it.
+            result_obj.tool_event["error"] = f"Denied by policy: {decision.reason or 'no reason'}"
+            _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
+            _enqueue_denial_record(
+                session_id=session_id, client_id=client_id, bot_id=bot_id,
+                tool_name=name, tool_type="unknown", iteration=iteration,
+                arguments=arguments, result=result_obj.result,
+                error=err, correlation_id=correlation_id,
+            )
+            return result_obj
+        if decision.action == "require_approval":
+            if is_client_tool(name):
+                ap_type = "client"
+            elif is_mcp_tool(name):
+                ap_type = "mcp"
+            else:
+                ap_type = "local"
+            approval_reason = decision.reason
+            if decision.tier:
+                approval_reason = f"[{decision.tier}] {decision.reason}"
+            try:
+                pending_id, approval_id = await _create_approval_state(
+                    session_id=session_id, channel_id=channel_id, bot_id=bot_id,
+                    client_id=client_id, correlation_id=correlation_id,
+                    tool_name=name, tool_type=ap_type, arguments=arguments,
+                    iteration=iteration, policy_rule_id=decision.rule_id,
+                    reason=approval_reason, timeout=decision.timeout,
+                )
+            except Exception:
+                logger.exception("Failed to create approval state for %s", name)
+                err = "Tool call denied: approval state could not be created. Please retry."
+                _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+                return result_obj
+            result_obj.needs_approval = True
+            result_obj.approval_id = approval_id
+            result_obj.approval_timeout = decision.timeout
+            result_obj.approval_reason = approval_reason
+            result_obj.record_id = pending_id
+            result_obj.result_for_llm = json.dumps({
+                "status": "pending_approval", "reason": approval_reason,
+            })
+            result_obj.tool_event = {
+                "type": "tool_result", "tool": name, "tool_call_id": tool_call_id,
+                "pending_approval": True,
+            }
+            _trace("⏳ %s requires approval (%s)", name,
+                   f"tier={decision.tier}" if decision.tier else f"rule {decision.rule_id}")
+            return result_obj
+    except Exception:
+        logger.exception("Policy check failed for %s — denying by default", name)
+        err = "Tool call denied: policy evaluation error. Please retry."
+        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        return result_obj
+    return None
+
+
+async def _plan_mode_guard(
+    result_obj: "ToolCallResult",
+    *,
+    name: str,
+    tool_call_id: str,
+    bot_id: str,
+    client_id: str | None,
+    session_id: uuid.UUID | None,
+    correlation_id: uuid.UUID | None,
+    iteration: int,
+    arguments: dict,
+    pre_hook_type: str,
+    safety_tier: str | None,
+) -> "ToolCallResult | None":
+    """Plan-mode tool-kind allowlist check.
+
+    Sessions in plan mode restrict the set of tool kinds that can run —
+    evidence-gathering local tools only, no network / write / approval paths.
+    Returns a populated deny ``result_obj`` when the current session blocks
+    the tool, or None when plan mode allows it (or the session isn't in
+    plan mode, or no ``session_id`` was passed).
+    """
+    if session_id is None:
+        return None
+    try:
+        from app.services.session_plan_mode import plan_mode_tool_denial_reason
+        session = await _load_session_for_plan_mode(session_id)
+        if session is None:
+            return None
+        err = plan_mode_tool_denial_reason(
+            session,
+            tool_name=name,
+            tool_kind=pre_hook_type,
+            safety_tier=safety_tier,
+        )
+        if not err:
+            return None
+        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        _enqueue_denial_record(
+            session_id=session_id, client_id=client_id, bot_id=bot_id,
+            tool_name=name, tool_type=pre_hook_type, iteration=iteration,
+            arguments=arguments, result=result_obj.result,
+            error=err, correlation_id=correlation_id,
+        )
+        return result_obj
+    except Exception:
+        logger.exception("Plan-mode guard failed for %s — denying by default", name)
+        err = "Tool call denied: unable to validate plan-mode restrictions. Please retry."
+        _apply_error_payload(result_obj, tool_name=name, tool_call_id=tool_call_id, error_message=err)
+        return result_obj
+
+
+def _classify_pre_hook_type(name: str) -> str:
+    """Map a tool ``name`` to its broad ``tool_type`` category used by
+    hooks, plan-mode, DB recording."""
+    if is_client_tool(name):
+        return "client"
+    if is_mcp_tool(name):
+        return "mcp"
+    if is_widget_handler_tool_name(name):
+        return "widget"
+    return "local"
+
+
+def _extract_embedded_payloads(
+    raw_result: str,
+) -> tuple[str, dict | None, dict | None, list[dict] | None]:
+    """Parse ``raw_result`` JSON (when possible) and extract the three
+    structured extension points tools can embed alongside plain output:
+
+    - ``_envelope`` — a user-visible rendering hint lifted onto the final
+      envelope (content_type, body, display, plain_body, …).
+    - ``client_action`` — browser-side action the UI performs (navigation,
+      file open, etc.). Paired with a short ``message`` used as LLM text.
+    - ``injected_images`` — images injected into the LLM's context.
+
+    Returns ``(result_for_llm, envelope_optin, embedded_client_action,
+    injected_images)``. ``result_for_llm`` is the raw JSON when no
+    extension is present, or the extracted ``message`` / ``llm`` / default
+    string when one is. Callers still need to run ``_redact_secrets`` on
+    the returned ``result_for_llm`` — this helper is parse-only.
+    """
+    try:
+        parsed = json.loads(raw_result)
+    except (json.JSONDecodeError, TypeError):
+        return raw_result, None, None, None
+    if not isinstance(parsed, dict):
+        return raw_result, None, None, None
+
+    envelope_optin: dict | None = None
+    if isinstance(parsed.get("_envelope"), dict):
+        envelope_optin = parsed["_envelope"]
+
+    if "client_action" in parsed:
+        return parsed.get("message", "Done."), envelope_optin, parsed["client_action"], None
+    if "injected_images" in parsed:
+        return (
+            parsed.get("message", "Image loaded for analysis."),
+            envelope_optin,
+            None,
+            parsed["injected_images"],
+        )
+    if envelope_optin is not None:
+        # Tool only sent an envelope — surface its ``llm`` text (if any) so
+        # the bot has a short, readable hand-off without the full rendered
+        # body bloating the context window.
+        llm_text = parsed.get("llm")
+        if isinstance(llm_text, str) and llm_text:
+            return llm_text, envelope_optin, None, None
+    return raw_result, envelope_optin, None, None
+
+
+def _select_result_envelope(
+    *,
+    name: str,
+    tool_call_id: str,
+    redacted_result: str,
+    envelope_optin: dict | None,
+    redact: Any,
+) -> "ToolResultEnvelope":
+    """Build the final ``ToolResultEnvelope`` for a successful tool call.
+
+    Precedence: ``_envelope`` opt-in from the tool → declared widget
+    template → auto-detected default (markdown / json / plain text).
+    Also invalidates the widget poll cache for tools that declare
+    ``state_poll_config`` so the next refresh hits the real service
+    instead of serving a stale payload.
+
+    ``redact`` is injected so the caller controls which secret-registry
+    function is used (avoids a module-level import dance).
+    """
+    from app.services.widget_templates import apply_widget_template, get_state_poll_config
+
+    if envelope_optin is not None:
+        scrubbed = dict(envelope_optin)
+        if isinstance(scrubbed.get("body"), str):
+            scrubbed["body"] = redact(scrubbed["body"])
+        if isinstance(scrubbed.get("plain_body"), str):
+            scrubbed["plain_body"] = redact(scrubbed["plain_body"])
+        envelope = _build_envelope_from_optin(scrubbed, redacted_result)
+    else:
+        widget_envelope = apply_widget_template(name, redacted_result)
+        if widget_envelope is not None:
+            envelope = widget_envelope
+        else:
+            envelope = _build_default_envelope(redacted_result)
+        # Widget-template tools and default tools may have mutated external
+        # state a pinned widget is tracking. Drop the cached poll result so
+        # the next refresh reads fresh data.
+        poll_cfg = get_state_poll_config(name)
+        if poll_cfg:
+            try:
+                from app.routers.api_v1_widget_actions import invalidate_poll_cache_for
+                invalidate_poll_cache_for(poll_cfg)
+            except Exception:
+                logger.debug("poll-cache invalidation skipped", exc_info=True)
+
+    envelope.tool_name = name
+    envelope.tool_call_id = tool_call_id
+    return envelope
+
+
+def _build_tool_event(
+    *,
+    name: str,
+    tool_call_id: str,
+    args: str,
+    redacted_result: str,
+    result_for_llm: str,
+    envelope: "ToolResultEnvelope",
+    was_summarized: bool,
+) -> dict[str, Any]:
+    """Assemble the ``tool_result`` SSE event: envelope + presentation
+    (surface / summary) + error hoist when the tool returned ``{"error": …}``.
+    """
+    from app.services.tool_presentation import derive_tool_presentation
+
+    event: dict[str, Any] = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id}
+    if was_summarized:
+        event["summarized"] = True
+    try:
+        parsed = json.loads(redacted_result)
+        if isinstance(parsed, dict) and "error" in parsed:
+            err = parsed["error"]
+            logger.warning("Tool %s returned error: %s", name, err)
+            event["error"] = err
+            _trace("← %s error: %s", name, str(err)[:80])
+        else:
+            _trace("← %s (%d chars)", name, len(result_for_llm))
+    except (json.JSONDecodeError, TypeError):
+        _trace("← %s (%d chars)", name, len(result_for_llm))
+
+    event["envelope"] = envelope.compact_dict()
+    try:
+        tool_args = json.loads(args) if args else {}
+    except (json.JSONDecodeError, TypeError):
+        tool_args = {}
+    surface, summary = derive_tool_presentation(
+        tool_name=name,
+        arguments=tool_args,
+        result=redacted_result,
+        envelope=event["envelope"],
+        error=event.get("error"),
+    )
+    event["surface"] = surface
+    event["summary"] = summary
+    return event
+
+
+async def _execute_tool_call(
+    result_obj: "ToolCallResult",
+    *,
+    name: str,
+    args: str,
+    bot_id: str,
+    session_id: uuid.UUID | None,
+    client_id: str | None,
+    correlation_id: uuid.UUID | None,
+    channel_id: uuid.UUID | None,
+    iteration: int,
+    pre_hook_type: str,
+    compaction: bool,
+) -> tuple[str, str, str | None]:
+    """Fire the ``before_tool_execution`` hook, select the per-kind tool
+    coroutine (client/local/mcp/widget), run it under the shared wall-clock
+    guard, and return ``(raw_result_json, tc_type, tc_server)``.
+
+    Side effects on ``result_obj``:
+    - ``pre_events`` appended with a ``tool_request`` event for client tools.
+    - ``duration_ms`` populated from the monotonic stopwatch.
+
+    ``tc_type`` is normally identical to ``pre_hook_type`` except for local
+    tools that dispatch through ``call_persona_tool`` — those still report
+    ``"local"`` since the downstream audit/summarize logic keys on it.
+    """
+    from app.agent.message_utils import _event_with_compaction_tag
+    from app.agent.hooks import fire_hook, HookContext
+
+    safe_create_task(fire_hook("before_tool_execution", HookContext(
+        bot_id=bot_id, session_id=session_id, channel_id=channel_id,
+        client_id=client_id, correlation_id=correlation_id,
+        extra={
+            "tool_name": name,
+            "tool_type": pre_hook_type,
+            "args": args,
+            "iteration": iteration + 1,
+        },
+    )))
+
+    t0 = time.monotonic()
+    tc_type = "local"
+    tc_server: str | None = None
+    tool_coro = None
+    result: str = ""
+
+    if is_client_tool(name):
+        tc_type = "client"
+        request_id = str(uuid.uuid4())
+        try:
+            tool_args = json.loads(args) if args else {}
+        except (json.JSONDecodeError, TypeError):
+            tool_args = {}
+        result_obj.pre_events.append(_event_with_compaction_tag({
+            "type": "tool_request",
+            "request_id": request_id,
+            "tool": name,
+            "arguments": tool_args,
+        }, compaction))
+        future = create_pending(request_id)
+        try:
+            result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("Client tool %s timed out (request %s)", name, request_id)
+            result = json.dumps({"error": "Client did not respond in time"})
+    elif is_local_tool(name):
+        tc_type = "local"
+        if name in ("update_persona", "append_to_persona", "edit_persona"):
+            tool_coro = call_persona_tool(name, args or "{}", bot_id)
+        else:
+            tool_coro = call_local_tool(name, args)
+    elif is_mcp_tool(name):
+        tc_type = "mcp"
+        tc_server = get_mcp_server_for_tool(name)
+        tool_coro = call_mcp_tool(name, args)
+    elif is_widget_handler_tool_name(name):
+        tc_type = "widget"
+        tool_coro = _call_widget_handler_tool(name, args, bot_id, channel_id)
+    else:
+        result = json.dumps({"error": f"Unknown tool: {name}"})
+
+    if tool_coro is not None:
+        try:
+            result = await asyncio.wait_for(
+                tool_coro, timeout=settings.TOOL_DISPATCH_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Tool %s exceeded %.0fs wall-clock — cancelled by dispatch guard",
+                name, settings.TOOL_DISPATCH_TIMEOUT,
+            )
+            result = json.dumps({
+                "error": (
+                    f"Tool {name} exceeded {settings.TOOL_DISPATCH_TIMEOUT:.0f}s "
+                    "wall-clock and was cancelled. Try a different approach."
+                ),
+            })
+
+    result_obj.duration_ms = int((time.monotonic() - t0) * 1000)
+    return result, tc_type, tc_server
+
+
 async def dispatch_tool_call(
     *,
     name: str,
@@ -563,275 +1190,51 @@ async def dispatch_tool_call(
             )
             name = _resolved
 
-    # --- Authorization check ---
-    if allowed_tool_names is not None and name not in allowed_tool_names:
-        _trace("✗ %s not authorized for bot %s", name, bot_id)
-        _auth_err = f"Tool '{name}' is not available. It must be explicitly assigned to this bot."
-        result_obj.result = json.dumps({"error": _auth_err})
-        result_obj.result_for_llm = result_obj.result
-        result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _auth_err}
-        safe_create_task(_record_tool_call(
-            session_id=session_id,
-            client_id=client_id,
-            bot_id=bot_id,
-            tool_name=name,
-            tool_type="unknown",
-            server_name=None,
-            iteration=iteration,
-            arguments=json.loads(args or "{}") if args else {},
-            result=result_obj.result,
-            error=_auth_err,
-            duration_ms=0,
-            correlation_id=correlation_id,
-            status="denied",
-                    ))
-        return result_obj
+    args_dict = _parse_args_dict(args)
 
-    _execution_policy = "normal"
-    _execution_resolution = None
-    if is_local_tool(name):
-        from app.tools.registry import get_tool_execution_policy
+    # --- Pre-execution guards — each returns a populated ``result_obj`` to
+    # short-circuit, or None to continue. Ordering matters: authorization
+    # (cheap) → execution-policy (machine-control) → tool-policy + approval
+    # (external config) → plan-mode (session state). The execution_policy
+    # result flows into the policy guard so ``interactive_user`` /
+    # ``live_target_lease`` tools skip default ``require_approval``.
+    if (deny := await _authorization_guard(
+        result_obj, name=name, tool_call_id=tool_call_id, bot_id=bot_id,
+        client_id=client_id, session_id=session_id, correlation_id=correlation_id,
+        iteration=iteration, arguments=args_dict, allowed_tool_names=allowed_tool_names,
+    )) is not None:
+        return deny
 
-        _execution_policy = get_tool_execution_policy(name)
-        if _execution_policy != "normal":
-            try:
-                from app.services.machine_control import (
-                    build_machine_access_required_payload,
-                    validate_current_execution_policy,
-                )
+    deny, _execution_policy = await _execution_policy_guard(
+        result_obj, name=name, tool_call_id=tool_call_id, bot_id=bot_id,
+        client_id=client_id, session_id=session_id, correlation_id=correlation_id,
+        iteration=iteration, arguments=args_dict,
+    )
+    if deny is not None:
+        return deny
 
-                _execution_resolution = await validate_current_execution_policy(_execution_policy)
-            except Exception:
-                logger.exception("Execution-policy validation failed for %s", name)
-                _exec_guard_err = "Tool call denied: unable to validate the machine-control policy. Please retry."
-                result_obj.result = json.dumps({"error": _exec_guard_err})
-                result_obj.result_for_llm = result_obj.result
-                result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _exec_guard_err}
-                return result_obj
-            if _execution_resolution is not None and not _execution_resolution.allowed:
-                _exec_err = _execution_resolution.reason or "Tool call denied by execution policy."
-                _deny_result = json.dumps({"error": "local_control_required", "message": _exec_err})
-                _deny_payload = {
-                    "reason": _exec_err,
-                    "execution_policy": _execution_policy,
-                    "requested_tool": name,
-                    "session_id": str(session_id) if session_id else None,
-                    "lease": None,
-                    "targets": [],
-                    "connected_targets": [],
-                    "connected_target_count": 0,
-                    "admin_machines_href": "/admin/machines",
-                    "integration_admin_href": "/admin/machines",
-                }
-                try:
-                    async with async_session() as db:
-                        _deny_payload = await build_machine_access_required_payload(
-                            db,
-                            session_id=session_id,
-                            reason=_exec_err,
-                            execution_policy=_execution_policy,
-                            requested_tool=name,
-                        )
-                except Exception:
-                    logger.debug("Failed to build machine-control denial payload for %s", name, exc_info=True)
-                result_obj.result = _deny_result
-                result_obj.result_for_llm = result_obj.result
-                result_obj.envelope = _build_envelope_from_optin(
-                    {
-                        "content_type": "application/vnd.spindrel.components+json",
-                        "display": "inline",
-                        "plain_body": _exec_err,
-                        "body": {
-                            "v": 1,
-                            "components": [
-                                {
-                                    "type": "heading",
-                                    "text": "Machine access required",
-                                    "level": 3,
-                                },
-                            ],
-                        },
-                        "view_key": "core.machine_access_required",
-                        "data": _deny_payload,
-                    },
-                    _deny_result,
-                )
-                result_obj.envelope.tool_name = name
-                result_obj.envelope.tool_call_id = tool_call_id
-                result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _exec_err}
-                safe_create_task(_record_tool_call(
-                    session_id=session_id,
-                    client_id=client_id,
-                    bot_id=bot_id,
-                    tool_name=name,
-                    tool_type="local",
-                    server_name=None,
-                    iteration=iteration,
-                    arguments=json.loads(args or "{}") if args else {},
-                    result=result_obj.result,
-                    error=_exec_err,
-                    duration_ms=0,
-                    correlation_id=correlation_id,
-                    status="denied",
-                    envelope=result_obj.envelope.compact_dict(),
-                ))
-                return result_obj
+    if (deny := await _policy_and_approval_guard(
+        result_obj, name=name, tool_call_id=tool_call_id, bot_id=bot_id,
+        client_id=client_id, session_id=session_id, channel_id=channel_id,
+        correlation_id=correlation_id, iteration=iteration, arguments=args_dict,
+        execution_policy=_execution_policy, skip_policy=skip_policy,
+    )) is not None:
+        return deny
 
-    # --- Policy check ---
-    if not skip_policy:
-        try:
-            _tc_args_for_policy: dict = {}
-            try:
-                _tc_args_for_policy = json.loads(args or "{}") if args else {}
-                if not isinstance(_tc_args_for_policy, dict):
-                    _tc_args_for_policy = {}
-            except Exception:
-                pass
-            decision = await _check_tool_policy(
-                bot_id, name, _tc_args_for_policy,
-                correlation_id=str(correlation_id) if correlation_id else None,
-            )
-            if decision is not None:
-                if (
-                    _execution_policy in {"interactive_user", "live_target_lease"}
-                    and decision.action == "require_approval"
-                    and decision.rule_id is None
-                ):
-                    decision = None
-                if decision is None:
-                    pass
-                elif decision.action == "deny":
-                    _deny_err = f"Tool call denied by policy: {decision.reason or 'no reason'}"
-                    result_obj.result = json.dumps({"error": _deny_err})
-                    result_obj.result_for_llm = result_obj.result
-                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": f"Denied by policy: {decision.reason or 'no reason'}"}
-                    _trace("✗ %s denied by policy (rule %s)", name, decision.rule_id)
-                    safe_create_task(_record_tool_call(
-                        session_id=session_id,
-                        client_id=client_id,
-                        bot_id=bot_id,
-                        tool_name=name,
-                        tool_type="unknown",
-                        server_name=None,
-                        iteration=iteration,
-                        arguments=_tc_args_for_policy,
-                        result=result_obj.result,
-                        error=_deny_err,
-                        duration_ms=0,
-                        correlation_id=correlation_id,
-                        status="denied",
-                    ))
-                    return result_obj
-                elif decision.action == "require_approval":
-                    # Determine tool type for the approval record
-                    if is_client_tool(name):
-                        _ap_type = "client"
-                    elif is_mcp_tool(name):
-                        _ap_type = "mcp"
-                    else:
-                        _ap_type = "local"
-                    # Include tier in reason for UI display
-                    _approval_reason = decision.reason
-                    if decision.tier:
-                        _approval_reason = f"[{decision.tier}] {decision.reason}"
-                    try:
-                        _tc_pending_id, approval_id = await _create_approval_state(
-                            session_id=session_id,
-                            channel_id=channel_id,
-                            bot_id=bot_id,
-                            client_id=client_id,
-                            correlation_id=correlation_id,
-                            tool_name=name,
-                            tool_type=_ap_type,
-                            arguments=_tc_args_for_policy,
-                            iteration=iteration,
-                            policy_rule_id=decision.rule_id,
-                            reason=_approval_reason,
-                            timeout=decision.timeout,
-                        )
-                    except Exception:
-                        logger.exception("Failed to create approval state for %s", name)
-                        _approval_err = "Tool call denied: approval state could not be created. Please retry."
-                        result_obj.result = json.dumps({"error": _approval_err})
-                        result_obj.result_for_llm = result_obj.result
-                        result_obj.tool_event = {
-                            "type": "tool_result",
-                            "tool": name,
-                            "tool_call_id": tool_call_id,
-                            "error": _approval_err,
-                        }
-                        return result_obj
-                    result_obj.needs_approval = True
-                    result_obj.approval_id = approval_id
-                    result_obj.approval_timeout = decision.timeout
-                    result_obj.approval_reason = _approval_reason
-                    result_obj.record_id = _tc_pending_id
-                    result_obj.result_for_llm = json.dumps({"status": "pending_approval", "reason": _approval_reason})
-                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "pending_approval": True}
-                    _trace("⏳ %s requires approval (%s)", name,
-                           f"tier={decision.tier}" if decision.tier else f"rule {decision.rule_id}")
-                    return result_obj
-        except Exception:
-            logger.exception("Policy check failed for %s — denying by default", name)
-            _policy_err = "Tool call denied: policy evaluation error. Please retry."
-            result_obj.result = json.dumps({"error": _policy_err})
-            result_obj.result_for_llm = result_obj.result
-            result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _policy_err}
-            return result_obj
-
-    _pre_hook_type = "local"
-    if is_client_tool(name):
-        _pre_hook_type = "client"
-    elif is_mcp_tool(name):
-        _pre_hook_type = "mcp"
-    elif is_widget_handler_tool_name(name):
-        _pre_hook_type = "widget"
+    _pre_hook_type = _classify_pre_hook_type(name)
 
     _safety_tier = None
     if _pre_hook_type == "local":
         from app.tools.registry import get_tool_safety_tier
-
         _safety_tier = get_tool_safety_tier(name)
 
-    if session_id is not None:
-        try:
-            from app.services.session_plan_mode import plan_mode_tool_denial_reason
-
-            _session = await _load_session_for_plan_mode(session_id)
-            if _session is not None:
-                _plan_mode_err = plan_mode_tool_denial_reason(
-                    _session,
-                    tool_name=name,
-                    tool_kind=_pre_hook_type,
-                    safety_tier=_safety_tier,
-                )
-                if _plan_mode_err:
-                    result_obj.result = json.dumps({"error": _plan_mode_err})
-                    result_obj.result_for_llm = result_obj.result
-                    result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _plan_mode_err}
-                    safe_create_task(_record_tool_call(
-                        session_id=session_id,
-                        client_id=client_id,
-                        bot_id=bot_id,
-                        tool_name=name,
-                        tool_type=_pre_hook_type,
-                        server_name=None,
-                        iteration=iteration,
-                        arguments=json.loads(args or "{}") if args else {},
-                        result=result_obj.result,
-                        error=_plan_mode_err,
-                        duration_ms=0,
-                        correlation_id=correlation_id,
-                        status="denied",
-                    ))
-                    return result_obj
-        except Exception:
-            logger.exception("Plan-mode guard failed for %s — denying by default", name)
-            _plan_guard_err = "Tool call denied: unable to validate plan-mode restrictions. Please retry."
-            result_obj.result = json.dumps({"error": _plan_guard_err})
-            result_obj.result_for_llm = result_obj.result
-            result_obj.tool_event = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id, "error": _plan_guard_err}
-            return result_obj
+    if (deny := await _plan_mode_guard(
+        result_obj, name=name, tool_call_id=tool_call_id, bot_id=bot_id,
+        client_id=client_id, session_id=session_id, correlation_id=correlation_id,
+        iteration=iteration, arguments=args_dict,
+        pre_hook_type=_pre_hook_type, safety_tier=_safety_tier,
+    )) is not None:
+        return deny
 
     # Tool call row id — pre-allocated so the row exists in 'running' state
     # before completion. Re-dispatch after approval reuses the existing row
@@ -861,83 +1264,15 @@ async def dispatch_tool_call(
             strict=True,
         )
 
-    # Fire before_tool_execution lifecycle hook (after auth/policy checks pass)
-    from app.agent.hooks import fire_hook, HookContext
-    safe_create_task(fire_hook("before_tool_execution", HookContext(
-        bot_id=bot_id, session_id=session_id, channel_id=channel_id,
-        client_id=client_id, correlation_id=correlation_id,
-        extra={
-            "tool_name": name,
-            "tool_type": _pre_hook_type,
-            "args": args,
-            "iteration": iteration + 1,
-        },
-    )))
-
-    t0 = time.monotonic()
-    _tc_type = "local"
-    _tc_server: str | None = None
-
-    # The local / MCP branches build a coroutine and then run it under a
-    # single wall-clock guard below. Client tools already have their own
-    # CLIENT_TOOL_TIMEOUT wait_for (long-poll pattern), so they're handled
-    # inline and never fall into the shared guard.
-    _tool_coro = None
-
-    if is_client_tool(name):
-        _tc_type = "client"
-        request_id = str(uuid.uuid4())
-        try:
-            tool_args = json.loads(args) if args else {}
-        except (json.JSONDecodeError, TypeError):
-            tool_args = {}
-        result_obj.pre_events.append(_event_with_compaction_tag({
-            "type": "tool_request",
-            "request_id": request_id,
-            "tool": name,
-            "arguments": tool_args,
-        }, compaction))
-        future = create_pending(request_id)
-        try:
-            result = await asyncio.wait_for(future, timeout=CLIENT_TOOL_TIMEOUT)
-        except asyncio.TimeoutError:
-            logger.warning("Client tool %s timed out (request %s)", name, request_id)
-            result = json.dumps({"error": "Client did not respond in time"})
-    elif is_local_tool(name):
-        _tc_type = "local"
-        if name in ("update_persona", "append_to_persona", "edit_persona"):
-            _tool_coro = call_persona_tool(name, args or "{}", bot_id)
-        else:
-            _tool_coro = call_local_tool(name, args)
-    elif is_mcp_tool(name):
-        _tc_type = "mcp"
-        _tc_server = get_mcp_server_for_tool(name)
-        _tool_coro = call_mcp_tool(name, args)
-    elif is_widget_handler_tool_name(name):
-        _tc_type = "widget"
-        _tool_coro = _call_widget_handler_tool(name, args, bot_id, channel_id)
-    else:
-        result = json.dumps({"error": f"Unknown tool: {name}"})
-
-    if _tool_coro is not None:
-        try:
-            result = await asyncio.wait_for(
-                _tool_coro, timeout=settings.TOOL_DISPATCH_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            logger.warning(
-                "Tool %s exceeded %.0fs wall-clock — cancelled by dispatch guard",
-                name, settings.TOOL_DISPATCH_TIMEOUT,
-            )
-            result = json.dumps({
-                "error": (
-                    f"Tool {name} exceeded {settings.TOOL_DISPATCH_TIMEOUT:.0f}s "
-                    "wall-clock and was cancelled. Try a different approach."
-                ),
-            })
-
-    _tc_duration = int((time.monotonic() - t0) * 1000)
-    result_obj.duration_ms = _tc_duration
+    result, _tc_type, _tc_server = await _execute_tool_call(
+        result_obj,
+        name=name, args=args, bot_id=bot_id,
+        session_id=session_id, client_id=client_id,
+        correlation_id=correlation_id, channel_id=channel_id,
+        iteration=iteration, pre_hook_type=_pre_hook_type,
+        compaction=compaction,
+    )
+    _tc_duration = result_obj.duration_ms
 
     # Detect tool-reported errors so the row gets status='error' on UPDATE
     _tc_error: str | None = None
@@ -952,40 +1287,17 @@ async def dispatch_tool_call(
     from app.services.secret_registry import redact as _redact_secrets
     result_obj.result = _redact_secrets(result)
 
-    # Extract embedded client_action / injected_images / _envelope.
-    # The _envelope opt-in is additive — tools may pair it with client_action.
-    # When present, the dispatcher lifts it onto result_obj.envelope; when
-    # absent, _build_default_envelope (called after summarization) builds a
-    # text/plain envelope from the redacted result so legacy tools render
-    # in the existing badge UI without per-tool changes.
-    result_for_llm = result
-    _envelope_optin: dict | None = None
-    try:
-        parsed_tool = json.loads(result_for_llm)
-        if isinstance(parsed_tool, dict):
-            if isinstance(parsed_tool.get("_envelope"), dict):
-                _envelope_optin = parsed_tool["_envelope"]
-                # Fall through to client_action / injected_images so tools can
-                # combine an envelope with the existing extension points.
-            if "client_action" in parsed_tool:
-                result_obj.embedded_client_action = parsed_tool["client_action"]
-                result_for_llm = parsed_tool.get("message", "Done.")
-            elif "injected_images" in parsed_tool:
-                result_obj.injected_images = parsed_tool["injected_images"]
-                result_for_llm = parsed_tool.get("message", "Image loaded for analysis.")
-            elif _envelope_optin is not None:
-                # Tool only sent an envelope — surface its plain_body to the LLM
-                # so the bot has a short, readable hand-off without the full
-                # rendered body bloating the context window. The full untruncated
-                # body still flows to the bot via the result_for_llm path below
-                # for tools that want their LLM-side answer intact (we only
-                # take this branch when the tool didn't also set "message" or
-                # "client_action"/"injected_images").
-                _llm_text = parsed_tool.get("llm")
-                if isinstance(_llm_text, str) and _llm_text:
-                    result_for_llm = _llm_text
-    except (json.JSONDecodeError, TypeError):
-        pass
+    # Extract embedded ``_envelope`` / ``client_action`` / ``injected_images``
+    # from the raw (pre-redacted) JSON parse. The LLM-visible ``result_for_llm``
+    # is re-redacted below; the envelope body is redacted inside
+    # ``_select_result_envelope``.
+    result_for_llm, _envelope_optin, _client_action, _injected_images = (
+        _extract_embedded_payloads(result)
+    )
+    if _client_action is not None:
+        result_obj.embedded_client_action = _client_action
+    if _injected_images is not None:
+        result_obj.injected_images = _injected_images
 
     # Redact known secrets before summarization or LLM consumption
     result_for_llm = _redact_secrets(result_for_llm)
@@ -1032,50 +1344,13 @@ async def dispatch_tool_call(
         and len(result_for_llm) > summarize_threshold
     )
 
-    # Build the user-visible envelope from the redacted result. Envelope opt-in
-    # via {"_envelope": {...}} from the tool takes priority; otherwise we
-    # construct a text/plain envelope so the existing badge UI keeps working.
-    # The envelope body goes through redaction here because the opt-in dict
-    # is lifted from the unredacted parse upstream.
-    if _envelope_optin is not None:
-        # Redact the body field in-place before building. Other fields
-        # (content_type, display, plain_body) are short and structural —
-        # plain_body still goes through redaction since tools may put
-        # snippets there.
-        _envelope_optin = dict(_envelope_optin)
-        if isinstance(_envelope_optin.get("body"), str):
-            _envelope_optin["body"] = _redact_secrets(_envelope_optin["body"])
-        if isinstance(_envelope_optin.get("plain_body"), str):
-            _envelope_optin["plain_body"] = _redact_secrets(_envelope_optin["plain_body"])
-        result_obj.envelope = _build_envelope_from_optin(_envelope_optin, result_obj.result)
-    else:
-        # Check for widget template (any tool with a declared widget template)
-        _widget_envelope: ToolResultEnvelope | None = None
-        from app.services.widget_templates import apply_widget_template, get_state_poll_config
-        _widget_envelope = apply_widget_template(name, result_obj.result)
-        if _widget_envelope is not None:
-            result_obj.envelope = _widget_envelope
-        else:
-            result_obj.envelope = _build_default_envelope(result_obj.result)
-
-    # Stamp the tool name on every envelope — renderers that show a
-    # compact tool-badge (e.g. Slack `:wrench: *get_weather*`) read it
-    # via ``compact_dict()``. Set here (after both the opt-in and
-    # default/widget branches) so all paths carry it uniformly.
-    result_obj.envelope.tool_name = name
-    result_obj.envelope.tool_call_id = tool_call_id
-
-    if _envelope_optin is None:
-        # A bot-triggered mutation may have changed state that a pinned widget
-        # is tracking. Drop the cached poll result so the next refresh hits
-        # the real service instead of serving stale data.
-        _poll_cfg = get_state_poll_config(name)
-        if _poll_cfg:
-            try:
-                from app.routers.api_v1_widget_actions import invalidate_poll_cache_for
-                invalidate_poll_cache_for(_poll_cfg)
-            except Exception:
-                logger.debug("poll-cache invalidation skipped", exc_info=True)
+    result_obj.envelope = _select_result_envelope(
+        name=name,
+        tool_call_id=tool_call_id,
+        redacted_result=result_obj.result,
+        envelope_optin=_envelope_optin,
+        redact=_redact_secrets,
+    )
 
     # The row was inserted up-front in 'running' state (or reused from the
     # awaiting-approval re-dispatch). Decide whether to keep the full result
@@ -1138,40 +1413,15 @@ async def dispatch_tool_call(
     result_preview = result_for_llm[:200] + "..." if len(result_for_llm) > 200 else result_for_llm
     logger.debug("Tool result [%s]: %s", name, result_preview)
 
-    # Build tool_event — use redacted result to avoid leaking secrets
-    # in SSE events, log output, or memory previews
-    _redacted_result = result_obj.result
-    tool_event: dict[str, Any] = {"type": "tool_result", "tool": name, "tool_call_id": tool_call_id}
-    if _was_summarized:
-        tool_event["summarized"] = True
-    try:
-        parsed = json.loads(_redacted_result)
-        if isinstance(parsed, dict) and "error" in parsed:
-            err = parsed["error"]
-            logger.warning("Tool %s returned error: %s", name, err)
-            tool_event["error"] = err
-            _trace("← %s error: %s", name, str(err)[:80])
-        else:
-            _trace("← %s (%d chars)", name, len(result_for_llm))
-    except (json.JSONDecodeError, TypeError):
-        _trace("← %s (%d chars)", name, len(result_for_llm))
-    # Attach the rendered envelope so SSE consumers (web UI) can pick a
-    # mimetype-keyed renderer instead of just showing the tool name.
-    tool_event["envelope"] = result_obj.envelope.compact_dict()
-    from app.services.tool_presentation import derive_tool_presentation
-    try:
-        _tool_args = json.loads(args) if args else {}
-    except (json.JSONDecodeError, TypeError):
-        _tool_args = {}
-    _surface, _summary = derive_tool_presentation(
-        tool_name=name,
-        arguments=_tool_args,
-        result=result_obj.result,
-        envelope=tool_event["envelope"],
-        error=tool_event.get("error"),
+    tool_event = _build_tool_event(
+        name=name,
+        tool_call_id=tool_call_id,
+        args=args,
+        redacted_result=result_obj.result,
+        result_for_llm=result_for_llm,
+        envelope=result_obj.envelope,
+        was_summarized=_was_summarized,
     )
-    tool_event["surface"] = _surface
-    tool_event["summary"] = _summary
     result_obj.tool_event = tool_event
     from app.agent.context import current_turn_id
     safe_create_task(_record_plan_tool_evidence(
@@ -1183,7 +1433,7 @@ async def dispatch_tool_call(
         tool_call_id=tool_call_id,
         record_id=_tc_record_id,
         arguments=_tc_args_pre,
-        result_summary=_summary or result_preview,
+        result_summary=tool_event.get("summary") or result_preview,
         turn_id=current_turn_id.get(),
         correlation_id=str(correlation_id) if correlation_id else None,
     ))

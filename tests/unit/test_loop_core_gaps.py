@@ -71,6 +71,7 @@ def _base_loop_settings(ms, *, pruning_enabled: bool = False) -> None:
     ms.CONTEXT_PRUNING_MIN_LENGTH = 200
     ms.SKILL_CORRECTION_NUDGE_ENABLED = False
     ms.SKILL_REPEATED_LOOKUP_NUDGE_ENABLED = False
+    ms.CONTEXT_BUDGET_RESERVE_RATIO = 0.15
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -360,6 +361,45 @@ class TestInLoopPruning:
 
         pruning = [e for e in events if e.get("type") == "context_pruning"]
         assert len(pruning) == 0, "single-iteration run must not emit context_pruning"
+
+
+class TestContextWindowGuard:
+    @pytest.mark.asyncio
+    async def test_oversized_prompt_returns_controlled_error_without_llm_call(self):
+        """The loop should block locally instead of sending an over-window request."""
+        from app.agent.loop import run_agent_tool_loop
+
+        llm = AsyncMock()
+        bot = _make_bot(model="gpt-4")
+        events = []
+        huge_args = '{"payload":"' + ("x" * 40_000) + '"}'
+        messages = [
+            {"role": "user", "content": "old"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "tc_big",
+                    "type": "function",
+                    "function": {"name": "big_tool", "arguments": huge_args},
+                }],
+            },
+            {"role": "tool", "tool_call_id": "tc_big", "content": "OK"},
+        ]
+
+        with patch("app.agent.loop._llm_call_stream", llm), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.services.providers.resolve_provider_for_model", return_value=None), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
+             patch("app.agent.loop.settings") as ms:
+            _base_loop_settings(ms)
+            async for evt in run_agent_tool_loop(messages, bot):
+                events.append(evt)
+
+        assert llm.await_count == 0
+        assert any(e.get("code") == "context_window_exceeded" for e in events)
+        response = [e for e in events if e.get("type") == "response"][-1]
+        assert "too large" in response["text"]
 
     # NOTE: end-to-end tests for profile-level keep_iterations would live here,
     # but the harness used by TestInLoopPruning in this file has a pre-existing

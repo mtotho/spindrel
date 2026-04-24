@@ -42,7 +42,8 @@ Hygiene runs visit many channels and logs in sequence. Keep the iteration count 
 - **Batch-get multiple skill bodies.** `manage_bot_skill(action="get", names=["skill-a", "skill-b", ...])` returns `{skills: [...], missing: [...]}` in one call. Skip the redundant `action="list"` entirely — the Working Set snapshot already carries `category`, `stale`, and `script_count` for authored skills.
 - **Read multiple channels in one call.** `read_conversation_history(channel_ids=[id1, id2, id3])` and `list_sub_sessions(channel_ids=[...])` return a map keyed by `channel_id`. Use these for the per-channel sweep instead of N single-channel calls.
 - **Bundle prune with updates.** `prune_enrolled_skills(...)` can run in the same iteration as `manage_bot_skill(update/create/upsert, ...)` calls — they don't depend on each other. Splitting the prune into its own iteration wastes an LLM round-trip.
-- **Heading-based section edits.** `file(operation="replace_section", heading="## Reflections", content="...")` replaces a MEMORY.md section without sending the current content as the `find` string of a plain `edit`.
+- **Heading-based section edits.** `file(operation="replace_section", heading="## Reflections", content="...")` replaces a MEMORY.md section without sending the current content as the `find` string of a plain `edit`. Also sidesteps the JSON-escaping trap where `find: "\\n## Reflections\\n"` (literal backslash-n, two chars) silently fails to match the real newline in the file.
+- **Bundle archive with log-promotion edits.** `archive_older_than` is allowed inside `file(batch, ops=[...])` — put it in the same batch as your log `append` / `edit` calls instead of saving it for a standalone follow-up iteration.
 
 ## Don't Re-Fetch Your Own Tool Results
 
@@ -61,6 +62,9 @@ Hygiene runs visit many channels and logs in sequence. Keep the iteration count 
 - Issuing N `manage_bot_skill(action="get", name=...)` calls instead of one `names=[...]` batch
 - Splitting `prune_enrolled_skills` into its own iteration after an update batch
 - Calling `read_conversation_history` once per channel when you could pass `channel_ids=[...]`
+- Re-querying a single channel with `channel_id=...` right after it already appeared in a `channel_ids=[...]` sweep — the single-channel call returns the same data
+- Passing JSON-escaped `\\n` (literal backslash-n) as part of a `file(edit)` `find` string and then failing to match the real newline — use `replace_section` for heading-bounded edits instead
+- Running `archive_older_than` alone in a trailing iteration after a `file(batch, ...)` — batch accepts it now; bundle them
 
 ## Related Skills
 

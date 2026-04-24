@@ -111,7 +111,7 @@ class SlashCommandResult(BaseModel):
 
 
 class SideEffectPayload(BaseModel):
-    effect: Literal["stop", "compact", "plan", "effort", "rename", "mode"]
+    effect: Literal["stop", "compact", "plan", "effort", "rename", "style"]
     scope_kind: Literal["channel", "session"]
     scope_id: str
     title: str
@@ -880,7 +880,7 @@ async def _mode_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     treatment so the channel config stays tidy).
     """
     if ctx.surface != "channel":
-        raise ValueError("/mode is a channel setting; not available on sessions")
+        raise ValueError("/style is a channel setting; not available on sessions")
     assert ctx.channel is not None and ctx.channel_id is not None
 
     current = (ctx.channel.config or {}).get("chat_mode", "default")
@@ -903,13 +903,13 @@ async def _mode_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     await ctx.db.commit()
 
     payload = SideEffectPayload(
-        effect="mode",
+        effect="style",
         scope_kind="channel",
         scope_id=str(ctx.channel_id),
-        title=f"Chat mode: {target}",
-        detail=f"Chat mode set to {target}.",
+        title=f"Chat style: {target}",
+        detail=f"Chat style set to {target}.",
     )
-    return _side_effect_result(payload, command_id="mode")
+    return _side_effect_result(payload, command_id="style")
 
 
 # ============================================================================
@@ -961,12 +961,12 @@ _register(SlashCommandSpec(
 ))
 
 _register(SlashCommandSpec(
-    id="mode",
-    label="/mode",
-    description="Switch chat mode (default / terminal)",
+    id="style",
+    label="/style",
+    description="Switch chat style (default / terminal)",
     surfaces=("channel",),
     handler=_mode_handler,
-    args=(SlashCommandArgSpec(name="mode", source="enum", required=False, enum=CHAT_MODES),),
+    args=(SlashCommandArgSpec(name="style", source="enum", required=False, enum=CHAT_MODES),),
 ))
 
 _register(SlashCommandSpec(

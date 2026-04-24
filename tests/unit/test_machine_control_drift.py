@@ -63,6 +63,7 @@ class _FakeProvider:
     driver = "companion"
     supports_enroll = True
     supports_remove_target = True
+    supports_profiles = False
 
     def __init__(self, *, connected: bool = True):
         self._connected = connected
@@ -105,6 +106,13 @@ class _FakeProvider:
             "handle_id": None,
         }
 
+    def list_profiles(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_profile(self, profile_id: str) -> dict[str, Any] | None:
+        _ = profile_id
+        return None
+
     async def probe_target(self, db, *, target_id: str):
         _ = db
         status = self.get_target_status(target_id)
@@ -118,6 +126,15 @@ class _FakeProvider:
     async def remove_target(self, db, target_id: str) -> bool:
         self.removed_targets.append(target_id)
         return True
+
+    async def create_profile(self, db, *, label=None, config=None):
+        raise NotImplementedError
+
+    async def update_profile(self, db, *, profile_id: str, label=None, config=None):
+        raise NotImplementedError
+
+    async def delete_profile(self, db, profile_id: str) -> bool:
+        raise NotImplementedError
 
     async def register_connected_target(self, db, **_kwargs):
         raise NotImplementedError

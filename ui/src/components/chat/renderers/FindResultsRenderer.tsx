@@ -1,5 +1,6 @@
 import { toast } from "@/src/stores/toast";
 import type { SlashCommandFindResultsPayload } from "@/src/types/api";
+import { SlashResultPanel } from "./SlashResultPanel";
 
 /** Custom event the chat feed listens for to jump to a message. */
 export const SCROLL_TO_MESSAGE_EVENT = "chat:scroll-to-message";
@@ -16,9 +17,10 @@ export function requestScrollToMessage(detail: ScrollToMessageDetail): void {
 
 interface Props {
   payload: SlashCommandFindResultsPayload;
+  chatMode?: "default" | "terminal";
 }
 
-export function FindResultsRenderer({ payload }: Props) {
+export function FindResultsRenderer({ payload, chatMode = "default" }: Props) {
   const { query, matches, truncated } = payload;
 
   const handleClick = (messageId: string, sessionId: string) => {
@@ -28,20 +30,19 @@ export function FindResultsRenderer({ payload }: Props) {
     requestScrollToMessage({ messageId, sessionId });
   };
 
-  return (
-    <div className="my-2 rounded-md border border-surface-border bg-surface-raised">
-      <div className="flex items-baseline justify-between gap-3 px-3 py-2 border-b border-surface-border/60">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-[0.08em] text-text-dim/70">/find</span>
-          <span className="text-sm text-text truncate">{query}</span>
-        </div>
-        <span className="text-xs text-text-dim shrink-0">
-          {matches.length === 0
-            ? "No matches"
-            : `${matches.length}${truncated ? "+" : ""} match${matches.length === 1 ? "" : "es"}`}
-        </span>
-      </div>
+  const meta =
+    matches.length === 0
+      ? "No matches"
+      : `${matches.length}${truncated ? "+" : ""} match${matches.length === 1 ? "" : "es"}`;
 
+  return (
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/find"
+      title={query}
+      meta={meta}
+      footer={truncated ? "More results available — refine the query to see them." : undefined}
+    >
       {matches.length === 0 ? (
         <div className="px-3 py-4 text-xs text-text-dim">
           Nothing matched {query ? `"${query}"` : "that query"} in this channel.
@@ -77,13 +78,7 @@ export function FindResultsRenderer({ payload }: Props) {
           ))}
         </ul>
       )}
-
-      {truncated && (
-        <div className="px-3 py-2 text-[11px] text-text-dim border-t border-surface-border/60">
-          More results available — refine the query to see them.
-        </div>
-      )}
-    </div>
+    </SlashResultPanel>
   );
 }
 

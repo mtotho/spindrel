@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   adminMachineEnrollPath,
+  adminMachineProfilePath,
+  adminMachineProfilesPath,
   adminMachineTargetPath,
   adminMachinesPath,
   sessionMachineTargetLeasePath,
@@ -18,6 +20,14 @@ test("machine-control admin endpoints use the api/v1 namespace", () => {
   assert.equal(
     adminMachineTargetPath("local_companion", "desk mac"),
     "/api/v1/admin/machines/providers/local_companion/targets/desk%20mac",
+  );
+  assert.equal(
+    adminMachineProfilesPath("ssh"),
+    "/api/v1/admin/machines/providers/ssh/profiles",
+  );
+  assert.equal(
+    adminMachineProfilePath("ssh", "profile 1"),
+    "/api/v1/admin/machines/providers/ssh/profiles/profile%201",
   );
 });
 

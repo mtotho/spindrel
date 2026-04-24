@@ -813,7 +813,7 @@ export type SlashCommandId =
   | "find"
   | "rename"
   | "model"
-  | "mode"
+  | "style"
   | "theme"
   | "stop"
   | "compact"
@@ -856,7 +856,7 @@ export interface SlashCommandResult {
 }
 
 export interface SlashCommandSideEffectPayload {
-  effect: "stop" | "compact" | "plan" | "effort" | "rename" | "mode";
+  effect: "stop" | "compact" | "plan" | "effort" | "rename" | "style";
   scope_kind: "channel" | "session";
   scope_id: string;
   title: string;

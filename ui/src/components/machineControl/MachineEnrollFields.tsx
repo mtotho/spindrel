@@ -121,9 +121,27 @@ export function MachineEnrollFields({
                   </option>
                 ))}
               </select>
+            ) : field.multiline ? (
+              <textarea
+                value={String(value ?? "")}
+                disabled={disabled}
+                onChange={(event) => onChange(key, event.target.value)}
+                placeholder={field.description || ""}
+                rows={5}
+                style={{
+                  borderRadius: 6,
+                  border: `1px solid ${t.inputBorder}`,
+                  background: t.inputBg,
+                  color: t.text,
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  resize: "vertical",
+                  minHeight: 100,
+                }}
+              />
             ) : (
               <input
-                type={field.type === "number" ? "number" : "text"}
+                type={field.type === "number" ? "number" : field.secret ? "password" : "text"}
                 value={String(value ?? "")}
                 disabled={disabled}
                 onChange={(event) => onChange(key, event.target.value)}

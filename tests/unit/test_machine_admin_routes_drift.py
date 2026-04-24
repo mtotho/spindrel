@@ -26,6 +26,14 @@ the router-level contract in ``app/routers/api_v1_admin/machines.py``:
   QM.8  ``server_base_url`` passed to ``enroll_machine_target`` is the
         request's ``base_url`` (string-coerced). Drift here would break
         the ``curl`` launch command the UI relies on.
+  QM.9  Provider profile routes (POST /profiles, PUT /profiles/{id},
+        DELETE /profiles/{id}) carry the same drift shape as the
+        target routes: exception-to-HTTP mapping, scope gate, no-body
+        POST acceptance, body passthrough with path ``profile_id``
+        winning, ``delete_machine_profile`` False → 404. The SSH
+        provider (shipped 2026-04-24) is the first real user of this
+        surface; keeping it pinned prevents a subsequent profile-type
+        provider from silently diverging.
 
 Seams deliberately NOT covered: concurrent-enroll race (that's a service-
 layer concern pinned in Phase O when it lands), full DB wiring (this file
@@ -89,6 +97,9 @@ class _Calls:
         self.enroll: list[dict[str, Any]] = []
         self.probe: list[dict[str, Any]] = []
         self.delete: list[dict[str, Any]] = []
+        self.create_profile: list[dict[str, Any]] = []
+        self.update_profile: list[dict[str, Any]] = []
+        self.delete_profile: list[dict[str, Any]] = []
         self.providers: list[None] = []
 
 
@@ -115,6 +126,20 @@ def calls(monkeypatch):
         record.delete.append({"provider_id": provider_id, "target_id": target_id})
         return True
 
+    async def _fake_create_profile(db, *, provider_id, label=None, config=None):
+        record.create_profile.append({"provider_id": provider_id, "label": label, "config": config})
+        return {"provider_id": provider_id, "profile": {"profile_id": "profile-1"}}
+
+    async def _fake_update_profile(db, *, provider_id, profile_id, label=None, config=None):
+        record.update_profile.append(
+            {"provider_id": provider_id, "profile_id": profile_id, "label": label, "config": config}
+        )
+        return {"provider_id": provider_id, "profile": {"profile_id": profile_id}}
+
+    async def _fake_delete_profile(db, *, provider_id, profile_id):
+        record.delete_profile.append({"provider_id": provider_id, "profile_id": profile_id})
+        return True
+
     def _fake_providers_status():
         record.providers.append(None)
         return [{"provider_id": "local_companion", "targets": []}]
@@ -122,6 +147,9 @@ def calls(monkeypatch):
     monkeypatch.setattr(machines_router_module, "enroll_machine_target", _fake_enroll)
     monkeypatch.setattr(machines_router_module, "probe_machine_target", _fake_probe)
     monkeypatch.setattr(machines_router_module, "delete_machine_target", _fake_delete)
+    monkeypatch.setattr(machines_router_module, "create_machine_profile", _fake_create_profile)
+    monkeypatch.setattr(machines_router_module, "update_machine_profile", _fake_update_profile)
+    monkeypatch.setattr(machines_router_module, "delete_machine_profile", _fake_delete_profile)
     monkeypatch.setattr(
         machines_router_module, "build_providers_status", _fake_providers_status
     )
@@ -405,3 +433,237 @@ class TestServerBaseUrlPassthrough:
         assert isinstance(sent, str)
         # FastAPI TestClient's ``base_url`` is http://testserver/ by default.
         assert sent.startswith("http://testserver")
+
+
+# ---------------------------------------------------------------------------
+# QM.9 — Profile routes (create / update / delete)
+# Parity with the target-route drift pins above: happy-path + exception
+# mapping + scope gate + no-body POST + path-wins-over-body + delete-false→404.
+# ---------------------------------------------------------------------------
+
+
+class TestProfileRoutesHappyPath:
+    def test_create_profile_forwards_label_and_config(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/ssh/profiles",
+            json={"label": "LAN", "config": {"private_key": "KEY"}},
+        )
+        assert resp.status_code == 200
+        assert calls.create_profile == [
+            {"provider_id": "ssh", "label": "LAN", "config": {"private_key": "KEY"}}
+        ]
+
+    def test_update_profile_uses_path_profile_id(self, calls):
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/profile-1",
+            json={"label": "Renamed", "config": {"known_hosts": "host"}},
+        )
+        assert resp.status_code == 200
+        assert calls.update_profile == [
+            {
+                "provider_id": "ssh",
+                "profile_id": "profile-1",
+                "label": "Renamed",
+                "config": {"known_hosts": "host"},
+            }
+        ]
+
+    def test_delete_profile_returns_ok_envelope(self, calls):
+        resp = _client(scopes=["integrations:write"]).delete(
+            "/admin/machines/providers/ssh/profiles/profile-1"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "ok",
+            "provider_id": "ssh",
+            "profile_id": "profile-1",
+        }
+        assert calls.delete_profile == [{"provider_id": "ssh", "profile_id": "profile-1"}]
+
+
+class TestProfileExceptionToHttpMapping:
+    def test_create_profile_keyerror_is_404(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise KeyError("unknown provider 'nope'")
+
+        monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/nope/profiles", json={}
+        )
+        assert resp.status_code == 404
+
+    def test_create_profile_valueerror_is_400(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise ValueError("Provider 'local_companion' does not support profiles.")
+
+        monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/local_companion/profiles", json={}
+        )
+        assert resp.status_code == 400
+        assert "does not support" in resp.json()["detail"]
+
+    def test_create_profile_runtimeerror_is_409(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise RuntimeError("profile label already exists")
+
+        monkeypatch.setattr(machines_router_module, "create_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/ssh/profiles", json={"label": "dup"}
+        )
+        assert resp.status_code == 409
+
+    def test_update_profile_keyerror_is_404(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise KeyError("unknown profile 'ghost'")
+
+        monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/ghost", json={}
+        )
+        assert resp.status_code == 404
+
+    def test_update_profile_valueerror_is_400(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise ValueError("invalid config field")
+
+        monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/p1", json={"config": {"bad": 1}}
+        )
+        assert resp.status_code == 400
+
+    def test_update_profile_runtimeerror_is_409(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise RuntimeError("profile is in use by 2 active targets")
+
+        monkeypatch.setattr(machines_router_module, "update_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/p1", json={}
+        )
+        assert resp.status_code == 409
+
+    def test_delete_profile_keyerror_is_404(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise KeyError("unknown provider")
+
+        monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).delete(
+            "/admin/machines/providers/nope/profiles/p1"
+        )
+        assert resp.status_code == 404
+
+    def test_delete_profile_valueerror_is_400(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise ValueError("provider does not support profiles")
+
+        monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).delete(
+            "/admin/machines/providers/local_companion/profiles/p1"
+        )
+        assert resp.status_code == 400
+
+    def test_delete_profile_runtimeerror_is_409(self, monkeypatch):
+        """Deleting a profile that still has bound targets should surface
+        as 409 via the shared exception-to-HTTP mapping; a silent 200 on
+        such a call would leave orphan targets referencing a dead profile.
+        """
+
+        async def _raise(db, **_kwargs):
+            raise RuntimeError("profile has 3 bound targets; remove them first")
+
+        monkeypatch.setattr(machines_router_module, "delete_machine_profile", _raise)
+        resp = _client(scopes=["integrations:write"]).delete(
+            "/admin/machines/providers/ssh/profiles/p1"
+        )
+        assert resp.status_code == 409
+
+
+class TestProfileDeleteNotFound:
+    def test_delete_nonexistent_profile_returns_404(self, monkeypatch):
+        """Service layer returns ``False`` when the profile row doesn't
+        exist. The router MUST convert that to 404 with the profile-
+        specific message — mirrors the target-delete contract.
+        """
+
+        async def _fake_delete(db, **_kwargs):
+            return False
+
+        monkeypatch.setattr(machines_router_module, "delete_machine_profile", _fake_delete)
+        resp = _client(scopes=["integrations:write"]).delete(
+            "/admin/machines/providers/ssh/profiles/ghost"
+        )
+        assert resp.status_code == 404
+        assert "profile" in resp.json()["detail"].lower()
+
+
+class TestProfileScopeGate:
+    def test_read_only_scope_cannot_create_profile(self, calls):
+        resp = _client(scopes=["integrations:read"]).post(
+            "/admin/machines/providers/ssh/profiles", json={}
+        )
+        assert resp.status_code == 403
+        assert calls.create_profile == []
+
+    def test_read_only_scope_cannot_update_profile(self, calls):
+        resp = _client(scopes=["integrations:read"]).put(
+            "/admin/machines/providers/ssh/profiles/p1", json={}
+        )
+        assert resp.status_code == 403
+        assert calls.update_profile == []
+
+    def test_read_only_scope_cannot_delete_profile(self, calls):
+        resp = _client(scopes=["integrations:read"]).delete(
+            "/admin/machines/providers/ssh/profiles/p1"
+        )
+        assert resp.status_code == 403
+        assert calls.delete_profile == []
+
+
+class TestProfileBodyOptional:
+    def test_post_create_profile_without_body_succeeds(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/ssh/profiles"
+        )
+        assert resp.status_code == 200
+        assert calls.create_profile == [
+            {"provider_id": "ssh", "label": None, "config": None}
+        ]
+
+    def test_put_update_profile_without_body_succeeds(self, calls):
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/p1"
+        )
+        assert resp.status_code == 200
+        assert calls.update_profile == [
+            {"provider_id": "ssh", "profile_id": "p1", "label": None, "config": None}
+        ]
+
+    def test_create_profile_with_unknown_body_field_is_tolerated(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/ssh/profiles",
+            json={"label": "x", "future_field": True},
+        )
+        assert resp.status_code == 200
+
+
+class TestProfilePathWinsOverBody:
+    def test_update_path_profile_id_wins_over_body(self, calls):
+        """A smuggled ``profile_id`` in the body MUST NOT override the
+        URL path parameter. Same contract as the enroll route for
+        ``provider_id``.
+        """
+        resp = _client(scopes=["integrations:write"]).put(
+            "/admin/machines/providers/ssh/profiles/real-id",
+            json={"label": "x", "profile_id": "rogue"},
+        )
+        assert resp.status_code == 200
+        assert calls.update_profile[0]["profile_id"] == "real-id"
+
+    def test_create_path_provider_id_wins_over_body(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/ssh/profiles",
+            json={"label": "x", "provider_id": "rogue"},
+        )
+        assert resp.status_code == 200
+        assert calls.create_profile[0]["provider_id"] == "ssh"

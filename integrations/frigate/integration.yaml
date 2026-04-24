@@ -93,22 +93,21 @@ provides:
   - tools
   - skills
 
-# Tool-specific HTML widget. See docs/widget-templates.md § HTML template mode.
-# The tool's raw JSON result rides into the iframe as window.spindrel.result
-# (with window.spindrel.widgetConfig alongside it, and toolResult as a
-# compatibility object). The HTML file handles rendering (image, bbox toggle,
-# refresh). State_poll re-invokes frigate_snapshot so the viewer always sees a
-# recent frame.
+# Tool widgets — YAML component templates using canonical primitives.
+# See docs/widget-templates.md for the primitive reference.
 tool_widgets:
+  # Per-camera snapshot. Renders via the `image` v2 primitive with
+  # auth: bearer (the attachment endpoint requires the viewer's token).
+  # state_poll re-invokes frigate_snapshot every 60s; the bbox toggle
+  # flips widget_config, which state_poll reads to request the next
+  # frame with or without overlays.
   frigate_snapshot:
-    content_type: application/vnd.spindrel.html+interactive
+    content_type: application/vnd.spindrel.components+json
     display: inline
     # display_label resolves to the camera name so state_poll's
     # {{display_label}} substitution carries the right arg on auto-refresh.
     # The tool adds "camera" to its result dict for this purpose.
     display_label: "{{camera}}"
-    html_template:
-      path: widgets/frigate_snapshot.html
     default_config:
       show_bbox: true
     config_schema:
@@ -125,23 +124,84 @@ tool_widgets:
         camera: "{{display_label}}"
         bounding_box: "{{widget_config.show_bbox}}"
       refresh_interval_seconds: 60
+      # Same template as top-level — the component-mode state_poll requires
+      # its own `template:` block. Changes to one must mirror into the other.
+      template:
+        v: 1
+        components:
+          - type: image
+            url: "/api/v1/attachments/{{attachment_id}}/file"
+            alt: "{{camera}} snapshot"
+            aspect_ratio: "16 / 9"
+            auth: bearer
+            lightbox: true
+    # Users flip bounding boxes via pin config (config_schema above) — no
+    # inline toggle, since template `when:` lacks a negation operator and
+    # adding both show/hide buttons would need a pre-substitution transform
+    # that this tool widget doesn't otherwise need.
+    template:
+      v: 1
+      components:
+        - type: image
+          url: "/api/v1/attachments/{{attachment_id}}/file"
+          alt: "{{camera}} snapshot"
+          aspect_ratio: "16 / 9"
+          auth: bearer
+          lightbox: true
     sample_payload:
       attachment_id: "00000000-0000-0000-0000-000000000000"
       filename: "driveway_snapshot.jpg"
       size_bytes: 84210
       camera: "driveway"
 
+  # Events timeline. Two transforms cooperate:
+  #   - Widget-level code transform `render_events_widget` builds the
+  #     components list from raw tool data on initial render (coerces epoch
+  #     floats → ISO 8601, maps labels → SemanticSlot colors, derives lanes
+  #     from distinct cameras).
+  #   - state_poll `events_view` returns the same reshape as a dict, which
+  #     the state-poll template substitutes against.
+  # Both paths share `_reshape_events` in widget_transforms.py so there's
+  # one source of truth for the timeline shape.
   frigate_get_events:
-    content_type: application/vnd.spindrel.html+interactive
+    content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "Frigate events"
-    html_template:
-      path: widgets/frigate_events_timeline.html
+    transform: "integrations.frigate.widget_transforms:render_events_widget"
     state_poll:
       tool: frigate_get_events
       args:
         limit: 40
       refresh_interval_seconds: 60
+      transform: "integrations.frigate.widget_transforms:events_view"
+      template:
+        v: 1
+        components:
+          - type: status
+            when: "{{error}}"
+            text: "{{error}}"
+            color: danger
+          - type: status
+            when: "{{has_events}}"
+            text: "{{count}} events"
+            color: info
+          - type: timeline
+            when: "{{has_events}}"
+            lanes: "{{lanes}}"
+            events: "{{events}}"
+            on_event_click:
+              dispatch: widget_config
+              value_key: selected_event
+            selected_event_id: "{{widget_config.selected_event}}"
+          - type: text
+            when: "{{has_events | not}}"
+            content: "No events in this window."
+            style: muted
+    # Top-level template is a placeholder — the widget-level `transform:`
+    # rebuilds components from raw data on initial render.
+    template:
+      v: 1
+      components: []
     sample_payload:
       events:
         - id: "1713607200.123-abc"
@@ -174,16 +234,58 @@ tool_widgets:
           license_plate: "ABC 1234"
       count: 3
 
+  # Cameras grid. Pre-tiles-v2 this was an HTML widget that polled
+  # frigate_snapshot per-tile every 10s for live thumbnails. The port
+  # drops that — the grid is a drill-down index now (tile click opens
+  # the per-camera snapshot widget), and users who want a live wall
+  # pin N frigate_snapshot widgets on a dashboard.
   frigate_list_cameras:
-    content_type: application/vnd.spindrel.html+interactive
+    content_type: application/vnd.spindrel.components+json
     display: inline
     display_label: "Frigate cameras"
-    html_template:
-      path: widgets/frigate_list_cameras.html
+    default_config:
+      show_bbox: true
+    config_schema:
+      type: object
+      properties:
+        show_bbox:
+          type: boolean
+          title: Show bounding boxes
+          description: >
+            Pass through bounding-box overlays when a tile is clicked to open
+            a snapshot. Individual snapshot pins have their own show_bbox.
+          default: true
+    transform: "integrations.frigate.widget_transforms:render_cameras_widget"
     state_poll:
       tool: frigate_list_cameras
       args: {}
       refresh_interval_seconds: 300
+      transform: "integrations.frigate.widget_transforms:cameras_view"
+      template:
+        v: 1
+        components:
+          - type: status
+            when: "{{error}}"
+            text: "{{error}}"
+            color: danger
+          - type: status
+            when: "{{has_cameras}}"
+            text: "{{summary}}"
+            color: info
+          - type: tiles
+            when: "{{has_cameras}}"
+            min_width: 220
+            items: "{{tiles}}"
+          - type: text
+            when: "{{has_cameras | not}}"
+            content: "No cameras configured."
+            style: muted
+    # Top-level template is a placeholder — the widget-level `transform:`
+    # rebuilds components from raw data on initial render (same pattern as
+    # frigate_get_events).
+    template:
+      v: 1
+      components: []
     sample_payload:
       cameras:
         - name: "driveway"

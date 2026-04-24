@@ -85,6 +85,7 @@ Important replay rules now in place:
 - rows marked `metadata.kind == "compaction_run"` are excluded from LLM reload and live-history accounting
 - older heartbeat turns are trimmed, keeping only the latest heartbeat turn(s)
 - older assistant turns with large verbose `content` are compacted from canonical `assistant_turn_body` metadata
+- oversized historical assistant tool-call arguments are compacted in the model-visible replay copy while the persisted database row stays intact for debugging/history
 - the most recent assistant turn stays verbatim
 
 Hidden/internal transcript rows are not model context just because they exist in persisted session history. If a row is UI-only or runtime-internal, it should stay out of replay.
@@ -119,6 +120,13 @@ Budget accounting now distinguishes:
 - `live_history_tokens`
 - `static_injection_tokens`
 - `tool_schema_tokens`
+
+Live-history accounting includes both message `content` and assistant `tool_calls`.
+This matters because large tool-call arguments can exceed the provider window even
+when the paired tool result content has already been pruned. If pruning and
+admission still leave the estimated prompt over the usable model window, the
+agent loop blocks the provider call locally and emits a controlled
+`context_window_exceeded` error instead of forwarding an over-window request.
 
 That split is emitted downstream so compaction can react to replayable-history pressure specifically, instead of only one blended prompt number.
 

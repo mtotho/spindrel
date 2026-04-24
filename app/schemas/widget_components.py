@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 
 # ── Enum vocabularies (matched against ComponentRenderer.tsx) ──
@@ -229,10 +229,27 @@ class LinksNode(_Base):
 
 
 class _TileItem(BaseModel):
+    """A single tile in a ``tiles`` primitive.
+
+    Two render modes share one shape: **text-first** (label/value/caption)
+    and **image-first** (``image_url`` present). One primitive, two layouts
+    — presence of ``image_url`` flips the mode. The ``image_*`` field names
+    deliberately parallel the ``image`` primitive so LLMs carry vocabulary
+    across primitives.
+    """
+
     model_config = ConfigDict(extra="forbid")
     label: Optional[str] = None
     value: Optional[str] = None
     caption: Optional[str] = None
+    # Image-first mode (presence of ``image_url`` flips the tile into image mode)
+    image_url: Optional[str] = None
+    image_aspect_ratio: Optional[str] = None
+    image_auth: AuthMode = None
+    # Optional corner chip (SemanticSlot vocabulary)
+    status: SemanticColor = None
+    # Optional on-click dispatch
+    action: Optional[WidgetAction] = None
     when: Optional[str] = None
 
 
@@ -241,6 +258,98 @@ class TilesNode(_Base):
     items: Union[list[_TileItem], EachBlock, TemplatedStr]
     min_width: Optional[Union[int, str]] = None
     gap: Optional[Union[int, str]] = None
+
+
+class _TimelineLane(BaseModel):
+    """A horizontal lane on the ``timeline`` primitive."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    label: Optional[str] = None
+
+
+class _TimelineRange(BaseModel):
+    """Explicit time window for the ``timeline`` primitive.
+
+    Omit the whole ``range`` field for auto-fit (span from events). A mixed
+    ``range: "auto" | {start, end}`` was considered and rejected — mixed-type
+    fields raise author entropy.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    start: str
+    end: str
+
+
+class _TimelineEvent(BaseModel):
+    """A single event on the ``timeline`` primitive.
+
+    ``id`` is required — without stable ids, selection state can't survive
+    re-renders. Loud failure on missing id is intentional.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    start: str  # ISO 8601 — templated strings also accepted
+    end: Optional[str] = None  # defaults to start + 2s at render time
+    lane_id: Optional[str] = None
+    label: Optional[str] = None
+    color: SemanticColor = None
+    subtitle: Optional[str] = None
+    when: Optional[str] = None
+
+
+class TimelineNode(_Base):
+    """SVG lane-based event renderer.
+
+    Event schedule with optional lanes. Events must carry stable ``id`` values
+    so selection state survives data refreshes. When ``lanes`` is present,
+    every event must name its ``lane_id``; when ``lanes`` is absent, ``lane_id``
+    must be absent too (flat timeline). Loud failure on either invariant.
+    """
+
+    type: Literal["timeline"]
+    events: Union[list[_TimelineEvent], EachBlock, TemplatedStr]
+    # Omit ``range`` for auto-fit; set explicitly to fix the window.
+    range: Optional[_TimelineRange] = None
+    # Omit ``lanes`` for a flat timeline.
+    lanes: Optional[Union[list[_TimelineLane], EachBlock, TemplatedStr]] = None
+    on_event_click: Optional[WidgetAction] = None
+    # Optional author-controlled selection. Typically bound to
+    # ``widget_config.selected_event`` so clicks + render flow round-trip.
+    selected_event_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_lane_invariants(self) -> "TimelineNode":
+        # Invariants only apply when both ``lanes`` and ``events`` are concrete
+        # lists — if either side is templated (each-block or templated string),
+        # the engine materializes them at render time and the invariant will be
+        # enforced there rather than at schema layer.
+        events = self.events if isinstance(self.events, list) else None
+        lanes = self.lanes if isinstance(self.lanes, list) else None
+        if events is None:
+            return self
+        has_lanes = lanes is not None and len(lanes) > 0
+        for ev in events:
+            has_lane_id = ev.lane_id is not None and (
+                not isinstance(ev.lane_id, str) or not _is_templated(ev.lane_id)
+            ) and ev.lane_id != ""
+            if has_lanes and not has_lane_id:
+                raise ValueError(
+                    f"event {ev.id!r}: lane_id is required when lanes are present"
+                )
+            if not has_lanes and ev.lane_id:
+                raise ValueError(
+                    f"event {ev.id!r}: lane_id must be absent when no lanes are declared"
+                )
+        if has_lanes:
+            lane_ids = {lane.id for lane in lanes}
+            for ev in events:
+                if ev.lane_id and not _is_templated(ev.lane_id) and ev.lane_id not in lane_ids:
+                    raise ValueError(
+                        f"event {ev.id!r}: lane_id {ev.lane_id!r} does not match any declared lane"
+                    )
+        return self
 
 
 class SectionNode(_Base):
@@ -334,7 +443,7 @@ class FragmentNode(_Base):
 ComponentNode = Annotated[
     Union[
         HeadingNode, TextNode, StatusNode, DividerNode, CodeNode, ImageNode,
-        PropertiesNode, TableNode, LinksNode, TilesNode, SectionNode,
+        PropertiesNode, TableNode, LinksNode, TilesNode, TimelineNode, SectionNode,
         ButtonNode, ToggleNode, SelectNode, InputNode, SliderNode, FormNode,
         FragmentNode,
     ],
@@ -346,7 +455,7 @@ ComponentNodeAny = ComponentNode
 
 KNOWN_COMPONENT_TYPES: frozenset[str] = frozenset({
     "heading", "text", "status", "divider", "code", "image",
-    "properties", "table", "links", "tiles", "section",
+    "properties", "table", "links", "tiles", "timeline", "section",
     "button", "toggle", "select", "input", "slider", "form",
     "fragment",
 })
@@ -362,6 +471,7 @@ COMPONENT_MODELS: dict[str, type[BaseModel]] = {
     "table": TableNode,
     "links": LinksNode,
     "tiles": TilesNode,
+    "timeline": TimelineNode,
     "section": SectionNode,
     "button": ButtonNode,
     "toggle": ToggleNode,

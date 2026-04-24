@@ -112,14 +112,14 @@ Follow these rules so this pass finishes in a small number of iterations:
 - **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Your recent tool results are kept in context for you. If you truly need a prior result, one hydration is enough — calling it repeatedly is wasted work.
 - **Read each channel index and each log file once.** The results are cached inside this run.
 - **Sweep channels in one call.** `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` return concatenated per-channel markdown in a single iteration. Cap 10 per call.
-- **Prefer `file(operation="batch", ops=[...])` over N parallel `file` calls** when you need to read, append, or edit several files. One call, one iteration.
-- **For MEMORY.md section edits** (e.g. `## Reflections`, `## Preferences`) prefer `file(operation="replace_section", heading="## Name", content="...")` over the older `edit` find/replace dance — you don't have to send the current body as the `find` string.
+- **Prefer `file(operation="batch", ops=[...])` over N parallel `file` calls** when you need to read, append, or edit several files. One call, one iteration. `archive_older_than` is batch-eligible now — bundle it with your log-promotion edits in the same batch call.
+- **For MEMORY.md section edits** (e.g. `## Reflections`, `## Preferences`) prefer `file(operation="replace_section", heading="## Name", content="...")` over the older `edit` find/replace dance — you don't have to send the current body as the `find` string, and you avoid the common trap of passing JSON-escaped `\\n` (literal backslash-n) in a `find` string that then never matches the real newline.
 - **Prefer `manage_bot_skill(action="upsert", ...)` over `create`** when you're not certain whether a skill already exists. Upsert handles both cases in one call.
 - **Batch-get multiple skill bodies** with `manage_bot_skill(action="get", names=[...])` when you need to read several at once.
 
 ## Step 1 — Survey channels AND sub-sessions
 Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. Prefer the multi-channel form: `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` sweep up to 10 channels per call. For each channel with recent activity:
-- Review its index entry from the multi-channel response (or fall back to a single `channel_id=...` call if you only need one).
+- Review its index entry in the multi-channel response. Do NOT issue a second `read_conversation_history(channel_id=...)` for a channel that was already in the `channel_ids=[...]` sweep — the single-channel call returns the same data and wastes an iteration. Use `section="recent"` (still via `channel_ids=[...]`) only if the index didn't surface what you need.
 - **Always check sub-sessions** — `list_sub_sessions(channel_ids=[...])` returns them too. Read interesting ones with `read_sub_session(session_id="<id>")`. Decisions and corrections often land in sub-sessions and never hit the main channel feed — if you skip this step, you'll miss them.
 - If the history layout is unclear while you review, call `get_skill(skill_id="history_and_memory/memory_hygiene")` before continuing.
 - Note channels with no recent activity (candidates for archiving stale daily logs).

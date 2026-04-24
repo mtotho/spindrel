@@ -20,6 +20,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Swept channel routing / passive-memory copy across Agent and Participants settings plus Slack/Discord/BlueBubbles docs so active reply routing is consistently described separately from passive context absorption.
 - [x] Completed a channel-settings consistency sweep: Sessions, Logs, Context preview, Knowledge workspace controls, Tasks filters, Pipeline subscriptions, integration add-ons/bindings, and integration picker rows now use shared low-chrome primitives where the old one-off controls were visually inconsistent.
 - [x] Corrected the banner rule: semantic left-border alert stripes are now banned in `ui-design.md` / `spindrel-ui`, and shared `InfoBanner` renders tonal notes without side borders.
+- [x] Added the load-stability rule: settings loading states must reserve the final layout footprint instead of using spinner-only swaps that make tabs bounce; Heartbeat now uses a stable low-chrome loading shell.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
 - [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.

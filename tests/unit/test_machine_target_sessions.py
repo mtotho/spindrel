@@ -39,6 +39,7 @@ class _FakeProvider:
     driver = "companion"
     supports_enroll = True
     supports_remove_target = True
+    supports_profiles = False
 
     def __init__(self):
         self.target = {
@@ -80,6 +81,13 @@ class _FakeProvider:
             }
         return None
 
+    def list_profiles(self):
+        return []
+
+    def get_profile(self, profile_id: str):
+        _ = profile_id
+        return None
+
     async def probe_target(self, db, *, target_id: str):
         _ = db
         status = self.get_target_status(target_id)
@@ -91,6 +99,15 @@ class _FakeProvider:
         raise NotImplementedError
 
     async def remove_target(self, db, target_id: str):
+        raise NotImplementedError
+
+    async def create_profile(self, db, *, label=None, config=None):
+        raise NotImplementedError
+
+    async def update_profile(self, db, *, profile_id: str, label=None, config=None):
+        raise NotImplementedError
+
+    async def delete_profile(self, db, profile_id: str):
         raise NotImplementedError
 
     async def register_connected_target(self, db, *, target_id: str, label=None, hostname=None, platform=None, capabilities=None):
@@ -176,6 +193,8 @@ async def test_grant_session_lease_and_build_payload(fake_provider):
         "handle_id": "conn-1",
         "connected": True,
         "connection_id": "conn-1",
+        "profile_id": None,
+        "profile_label": None,
         "metadata": {"room": "office"},
     }]
     assert db.commit_count == 1

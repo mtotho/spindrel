@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, yaml, integrations]
 status: active
-updated: 2026-04-24 (Phase 1 shipped)
+updated: 2026-04-24 (Phases 1–5 shipped; presets deferred)
 ---
 
 # Track — Widget Primitives
@@ -19,10 +19,10 @@ Integration-owned widgets should default to declarative YAML. The YAML component
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | `image` v2 — aspect-ratio, auth: bearer, overlays, lightbox | ✅ shipped 2026-04-24 |
-| 2 | `tiles` v2 — image-first mode, per-item action, status chip | 📋 queued |
-| 3 | `timeline` primitive — SVG lane-based event renderer | 📋 queued |
-| 4 | ISO-8601 canonicalization — server-side coercion helper, doc policy | 📋 queued (rides Phase 3) |
-| 5 | Port frigate to YAML — three `template:` widgets + `widget_presets` + `binding_sources`; delete HTML files | 📋 queued |
+| 2 | `tiles` v2 — image-first mode, per-item action, status chip | ✅ shipped 2026-04-24 |
+| 3 | `timeline` primitive — SVG lane-based event renderer | ✅ shipped 2026-04-24 |
+| 4 | ISO-8601 canonicalization — server-side coercion helper, doc policy | ✅ shipped 2026-04-24 |
+| 5 | Port frigate to YAML — three `template:` widgets; delete HTML files (preset promotion split out) | ✅ shipped 2026-04-24 (all three widgets + HTML deletions; `widget_presets` + `bindings.py` deferred) |
 | 6 | Audit remaining integration HTML (openweather, browser_live, excalidraw) — port what fits, keep bespoke HTML where truly custom | 📋 queued |
 | 7 | Flip `widget-system.md` decision table — YAML default for integration-owned; HTML first-class for bot-authored (unchanged) | 📋 rides Phase 5 |
 
@@ -82,11 +82,11 @@ Entropy-minimizing choices:
 - `image_*` field names parallel the `image` primitive — consistent vocabulary.
 - `action` reuses existing dispatch shape — no new grammar.
 
-Work:
-- Extend `TilesNode` / item shape in `ComponentRenderer.tsx`.
-- Image-first render: image fills tile, label overlay on bottom-gradient (matches existing frigate cameras pattern — steal that styling).
-- Per-item `action` dispatch wiring (tool / widget_config / refresh).
-- Tests: text-only tiles unchanged, image-first tiles render, mixed modes in the same `items[]` work.
+Work (shipped 2026-04-24):
+- Extended `_TileItem` in `app/schemas/widget_components.py` — added `image_url`, `image_aspect_ratio`, `image_auth` (reuses `AuthMode`), `status` (reuses `SemanticColor`), and `action` (reuses `WidgetAction`). Extra-key rejection remains on — typos like `imageUrl` (camelCase) fail loudly.
+- Rewrote `TilesBlock` in `ui/src/components/chat/renderers/ComponentRenderer.tsx` — split into `TextTile` + `ImageTile` sub-components. Image tiles render cover-fill with a bottom-gradient label overlay (matches the steal-from-frigate cameras pattern). Mixed text/image items in the same `items[]` work — grid tracks stay consistent; each tile picks its mode per-item. Added `StatusChip` (small dot, top-right, `SemanticSlot` color). Added `useTileAction` hook — wraps `useAction()` with busy state; entire tile becomes the button when `action` is set (role="button", Enter/Space key handling).
+- `docs/widget-templates.md` — new `tiles` primitive reference subsection with full field table + entropy notes.
+- Tests: `tests/unit/test_widget_components_tiles_v2.py` — 21 tests: text-only backward-compat, empty item shape, image-first full shape, all `AuthMode` values accepted, unknown `image_auth` rejected, templated `image_auth`, all `SemanticColor` status slots, unknown status rejected, `action` with tool/widget_config/unknown-dispatch, extra-key rejection (camelCase typo), mixed text+image items, full round-trip through `ComponentBody`. All 21 pass. Regression sweep across `test_widget_components_image_v2.py` + `test_widget_package_validation.py` + `test_widget_templates.py` = 123 total, 0 regressions. UI `tsc --noEmit` clean.
 
 ### Phase 3 — `timeline` primitive
 
@@ -118,33 +118,36 @@ Entropy-minimizing choices:
 - `event.id` always required — without it, selection state can't survive re-renders. Loud failure, not silent.
 - `lane_id` required when lanes present, absent when not — mirrors how a human thinks about timelines.
 
-Work:
-- New `TimelineNode` interface + `<TimelineBlock>` React component.
-- SVG layout: axis ticks (~4 evenly spaced), lane backgrounds, event pills, selection stroke. Borrow layout math from `frigate_events_timeline.html` (`renderAll` function).
-- Click handler → dispatch.
-- Responsive: rescale on container resize.
-- Server-side schema validation.
-- Tests: auto-range from events, explicit range, flat-lane fallback, selection stroke persists across data updates, click dispatch fires with event id.
+Work (shipped 2026-04-24):
+- Schema: `TimelineNode`, `_TimelineLane`, `_TimelineRange`, `_TimelineEvent` in `app/schemas/widget_components.py`. `@model_validator(mode="after")` enforces the three lane invariants (lane_id required when lanes present / forbidden when absent / must match a declared lane). Templated `events` (each-block or templated string) bypass the invariant in schema — runtime enforces. Wired into `ComponentNode` union, `KNOWN_COMPONENT_TYPES`, `COMPONENT_MODELS`.
+- Renderer: `TimelineBlock` in `ui/src/components/chat/renderers/ComponentRenderer.tsx`. SVG-based. `ResizeObserver` rescales on container resize. Computes viewBox from auto-fit or explicit range (with 4% pad on auto). Renders lane backgrounds + labels, ~4 tick axis labels, event pills with selection stroke. Flat-mode fallback when no lanes declared (single implicit `__flat__` lane). Selection: `selected_event_id` (author-controlled) OR local `useState` (fallback). Click → `on_event_click` dispatch with event id as value. Date parsing via `Date.parse` (accepts ISO 8601 natively).
+- `docs/widget-templates.md` — new `timeline` primitive reference subsection with full field table + entropy notes.
+- Tests: `tests/unit/test_widget_components_timeline.py` — 24 tests: flat shape, missing id/start rejection, explicit range, partial range rejection, lanes with matching ids, all three lane invariants (missing/forbidden/unknown), all `SemanticColor` slots + rejection, `on_event_click`, `selected_event_id` binding, extra-key rejection (event/lane/range), full round-trip through `ComponentBody`, templated events bypasses invariant. All 24 pass. Regression sweep across widget schema tests = 147 total, 0 regressions. UI `tsc --noEmit` clean on `ComponentRenderer.tsx` (two pre-existing errors on unrelated slash-command code remain).
 
 ### Phase 4 — ISO 8601 canonicalization
 
 Companion to Phase 3. Write once, apply everywhere new.
 
-- New helper `app/services/time_coercion.py::to_iso_z(value)` — accepts ISO 8601, epoch seconds, epoch ms, datetime object; returns ISO 8601 UTC string with `Z` suffix.
-- Primitive schemas call this on any `*_time` / `start` / `end` / timestamp field before rendering.
-- Document in `docs/guides/widget-system.md`: "Primitive timestamps are ISO 8601. Integration transforms coerce native formats at the edge."
-- Legacy integrations (no migration forced) — their tool-result JSON can keep epoch seconds; the primitive layer coerces on the way in.
+Work (shipped 2026-04-24):
+- `app/services/time_coercion.py::to_iso_z(value)` — accepts ISO 8601 strings (with or without tz), epoch seconds (< 1e12), epoch milliseconds (≥ 1e12), `datetime` (naive or aware). Naive strings/datetimes assume UTC; aware datetimes are converted to UTC. Returns `"YYYY-MM-DDTHH:MM:SSZ"` (microseconds dropped for stable output). `None` passes through. Raises `ValueError` on garbage — loud failure at transform time. Bool guard (bool is an int subclass in Python); NaN guard.
+- `to_iso_z_or_none(value)` lenient variant — returns `None` instead of raising. Use in bulk map ops where one bad row shouldn't fail the widget.
+- `docs/widget-templates.md` — new "Timestamp policy — ISO 8601 at the primitive boundary" subsection: example transform, policy explanation, pointer to helper.
+- Tests: `tests/unit/test_time_coercion.py` — 22 tests covering all accepted types (None passthrough, epoch s int/float, epoch zero, epoch ms, threshold boundary, ISO with Z / offset / naive / microseconds, datetime aware UTC / non-UTC / naive), all rejection cases (empty/whitespace/garbage strings, NaN, bool, unsupported type), and the lenient variant. All 22 pass.
+- Not called by schema — schema accepts bare strings. Helper is for integration transforms to call explicitly before shaping tool results into primitive-friendly data. Matches the "coerce at the edge" policy in the doc.
 
 ### Phase 5 — Port frigate to YAML
 
-Replace the three HTML files with YAML widgets that compose from the new primitives:
+Replace the three HTML files with YAML widgets that compose from the new primitives.
 
-- **`frigate_snapshot`** → `template:` with `image` v2 (overlays for bbox, `auth: bearer`, lightbox, aspect-ratio). Stays a `tool_widget` — arg-driven per-camera.
-- **`frigate_list_cameras`** → `template:` with `tiles` v2 (image-first tiles, each tile's `image_url` points at a fresh snapshot attachment). `widget_preset` with `binding_sources: frigate.cameras` for optional subset filter. Moves out of `tool_widgets:`, lives in library.
-- **`frigate_events_timeline`** → `template:` with `timeline` primitive. `widget_preset` with label-filter + time-window picker. Moves out of `tool_widgets:`.
-- New `integrations/frigate/widget_transforms.py` — reshape `frigate_list_cameras` / `frigate_get_events` tool output into the primitive-friendly shape (tiles items, timeline events with ISO timestamps).
-- New `integrations/frigate/bindings.py` — `frigate.cameras` binding source (returns `[{value, label}]` from `frigate_list_cameras`).
-- Delete `integrations/frigate/widgets/frigate_*.html`.
+**Shipped 2026-04-24 (all three widgets):**
+- **`frigate_snapshot`** → YAML `template:` with `image` v2 (`auth: bearer`, `aspect_ratio: "16 / 9"`, `lightbox: true`). Stays a `tool_widget`. Same `state_poll` + widget_config bbox toggle; bbox toggle no longer inline (flipped via the pin config panel) because the template engine has no `!` / negation operator and adding two `when:`-gated buttons would need a pre-substitution transform this widget doesn't otherwise use.
+- **`frigate_get_events`** → YAML `template:` with `timeline` primitive. Two cooperating transforms in a new `integrations/frigate/widget_transforms.py`: `_reshape_events(parsed) -> dict` is the single reshape core (epoch → ISO 8601 via `app.services.time_coercion.to_iso_z_or_none`; SemanticSlot color per label; lanes derived from distinct cameras, alphabetized; events missing id or with unparseable `start_time` are dropped). `events_view(raw, meta) -> dict` is the state-poll signature wrapper; `render_events_widget(data, components) -> list[dict]` is the widget-level code-transform wrapper that builds the components list directly (since the template engine's single-pass substitution can't re-shape raw data into the primitive shape — it's the HA `render_single_entity_widget` pattern). Stays a `tool_widget`. Top-level `template.components: []` placeholder; state_poll has its own substitutable template.
+- **`frigate_list_cameras`** → YAML `template:` with `tiles` v2. Drill-down grid, not a live wall: each tile carries `label` / `caption` (`WxH · Nfps`) / `status` (`success` enabled, `muted` disabled), and `action.dispatch: "tool"` opens `frigate_snapshot` for that camera inline. The old HTML did per-tile 10s snapshot polling with object-URL blobs; that pattern required either per-tile `state_poll` (not in primitive scope) or tool-side attachment fan-out (one N-sized DB write burst every 10s per viewer). Dropped both in favor of the primitive-aligned drill-down — users who want the monitor-wall aesthetic pin N `frigate_snapshot` widgets on a dashboard, which is what dashboards are for. The transform pair mirrors the events pipeline: `_reshape_cameras(parsed, widget_config) -> dict` is the reshape core (tile build, summary string, error passthrough); `cameras_view` / `render_cameras_widget` are the state-poll / widget-level adapters. `widget_config.show_bbox` threads into each tile's action `args.bounding_box` so the grid's bbox pref applies to the snapshot opened from it.
+- Deleted all three: `frigate_snapshot.html`, `frigate_events_timeline.html`, `frigate_list_cameras.html`. `integrations/frigate/widgets/` now empty (directory kept; scanner no-ops on empty).
+- Tests: `tests/unit/test_frigate_widget_transforms.py` — 35 tests (17 events + 18 cameras) covering reshape cores, state-poll/initial-render parity, error passthrough, empty payloads, widget_config threading, drop-on-missing-name / drop-on-unparseable-start_time, label→color mapping, summary pluralization. Smoke-tested both initial render + state_poll refresh via `apply_widget_template` / `apply_state_poll`: envelopes produce correct component trees with bounding-box flag correctly reflecting `widget_config.show_bbox`. `test_widget_flagship_catalog.TestFrigateListCamerasWidget` updated for components+json content type. Full regression: 228 widget-adjacent tests pass.
+
+**Deferred — preset promotion + bindings:**
+- The original spec called for `frigate_get_events` + `frigate_list_cameras` to move out of `tool_widgets:` into `widget_presets:` with `binding_sources`. Not done this session — the primary value of Phase 5 is the primitive port and HTML deletion, and the preset promotion changes the *activation surface* (users pin presets differently than tool widget results) which is a separate UX shift worth its own phase. `integrations/frigate/bindings.py` therefore not created yet.
 
 ### Phase 6 — Audit remaining integration HTML widgets
 

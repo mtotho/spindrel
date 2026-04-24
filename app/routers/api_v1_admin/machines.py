@@ -9,15 +9,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db, require_scopes
 from app.services.machine_control import (
     build_providers_status,
+    create_machine_profile,
+    delete_machine_profile,
     delete_machine_target,
     enroll_machine_target,
     probe_machine_target,
+    update_machine_profile,
 )
 
 router = APIRouter()
 
 
 class MachineEnrollRequest(BaseModel):
+    label: str | None = None
+    config: dict[str, Any] | None = None
+
+
+class MachineProfileRequest(BaseModel):
     label: str | None = None
     config: dict[str, Any] | None = None
 
@@ -66,6 +74,72 @@ async def probe_machine_provider_target(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/machines/providers/{provider_id}/profiles")
+async def create_machine_provider_profile(
+    provider_id: str,
+    body: MachineProfileRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
+):
+    try:
+        return await create_machine_profile(
+            db,
+            provider_id=provider_id,
+            label=body.label if body else None,
+            config=body.config if body else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.put("/machines/providers/{provider_id}/profiles/{profile_id}")
+async def update_machine_provider_profile(
+    provider_id: str,
+    profile_id: str,
+    body: MachineProfileRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
+):
+    try:
+        return await update_machine_profile(
+            db,
+            provider_id=provider_id,
+            profile_id=profile_id,
+            label=body.label if body else None,
+            config=body.config if body else None,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.delete("/machines/providers/{provider_id}/profiles/{profile_id}")
+async def delete_machine_provider_profile(
+    provider_id: str,
+    profile_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("integrations:write")),
+) -> dict[str, Any]:
+    try:
+        removed = await delete_machine_profile(db, provider_id=provider_id, profile_id=profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not removed:
+        raise HTTPException(status_code=404, detail="Machine profile not found")
+    return {"status": "ok", "provider_id": provider_id, "profile_id": profile_id}
 
 
 @router.delete("/machines/providers/{provider_id}/targets/{target_id}")

@@ -429,7 +429,7 @@ function ChannelChatSession({
       "find",
       "rename",
       "model",
-      "mode",
+      "style",
       "theme",
     ],
     [],

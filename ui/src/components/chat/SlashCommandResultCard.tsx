@@ -5,6 +5,7 @@ import type {
 } from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
 import { FindResultsRenderer } from "./renderers/FindResultsRenderer";
+import { SlashResultPanel } from "./renderers/SlashResultPanel";
 
 interface Props {
   message: Message;
@@ -44,7 +45,12 @@ export function SlashCommandResultCard({ message, chatMode = "default" }: Props)
   const slashCommand = String(message.metadata?.slash_command ?? "");
 
   if (resultType === "find_results") {
-    return <FindResultsRenderer payload={rawPayload as SlashCommandFindResultsPayload} />;
+    return (
+      <FindResultsRenderer
+        payload={rawPayload as SlashCommandFindResultsPayload}
+        chatMode={chatMode}
+      />
+    );
   }
 
   if (slashCommand === "help") {
@@ -62,21 +68,13 @@ function HelpCard({
   payload: ContextSummaryPayload;
   chatMode: "default" | "terminal";
 }) {
-  const isTerminal = chatMode === "terminal";
   const categories = payload.top_categories ?? [];
-  const containerClass = isTerminal
-    ? "my-2 rounded-none border border-surface-border/60 bg-surface-raised font-mono"
-    : "my-2 rounded-md border border-surface-border bg-surface-raised";
   return (
-    <div className={containerClass}>
-      <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-surface-border/60">
-        <div className="text-[11px] uppercase tracking-wider text-text-dim">
-          /help
-        </div>
-        <div className="text-[11px] text-text-dim">
-          {categories.length} command{categories.length === 1 ? "" : "s"}
-        </div>
-      </div>
+    <SlashResultPanel
+      chatMode={chatMode}
+      commandLabel="/help"
+      meta={`${categories.length} command${categories.length === 1 ? "" : "s"}`}
+    >
       <ul className="divide-y divide-surface-border/40">
         {categories.map((cmd) => (
           <li
@@ -92,7 +90,7 @@ function HelpCard({
           </li>
         ))}
       </ul>
-    </div>
+    </SlashResultPanel>
   );
 }
 

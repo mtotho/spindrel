@@ -22,21 +22,23 @@ chat / plan session
 
 ## Operator flow
 
-1. Configure provider settings in `Admin > Integrations > SSH`:
-   - `SSH_PRIVATE_KEY`
-   - `SSH_KNOWN_HOSTS`
-   - optional timeout/output settings
-2. Enroll a target from `Admin > Machines` or the quick-setup helper on `Admin > Integrations > SSH`.
-3. Provide:
+1. Configure any provider-wide timeout/output settings in `Admin > Integrations > SSH`.
+2. Go to `Admin > Machines`.
+3. Under the `SSH` provider, create at least one profile containing:
+   - private key
+   - `known_hosts`
+4. Enroll a target from `Admin > Machines`.
+5. Provide:
+   - profile
    - `host`
    - `username`
    - optional `port`
    - optional default `working_dir`
-4. Use `Probe` in `Admin > Machines` to verify the target is reachable.
-5. Grant that target to the session you want to use.
-6. Use `machine_status`, `machine_inspect_command`, or `machine_exec_command` from that session.
+6. Use `Probe` in `Admin > Machines` to verify the target is reachable.
+7. Grant that target to the session you want to use.
+8. Use `machine_status`, `machine_inspect_command`, or `machine_exec_command` from that session.
 
-The provider stores SSH credentials and trust material in app-managed integration settings, so container rebuilds do not wipe setup. The runtime only creates short-lived temp files for the actual `ssh` subprocess.
+The provider stores SSH profiles and target references in app-managed provider settings, so container rebuilds do not wipe setup. The runtime only creates short-lived temp files for the actual `ssh` subprocess.
 
 ## Safety
 

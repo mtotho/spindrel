@@ -214,26 +214,23 @@ class TestKeyRotationDoesNotInvalidateToken:
 
 
 class TestConcurrentMint:
-    """Same-second concurrent POST /mint for the same bot yields the SAME token.
+    """Same-second concurrent POST /mint for the same bot yields DISTINCT tokens.
 
-    ``create_widget_token`` uses ``datetime.now(timezone.utc)`` with second-level
-    precision for ``iat`` and ``exp``.  Within the same second, all JWT inputs
-    are identical so ``jwt.encode`` produces the same deterministic signature.
-
-    Pinning current contract: same-second concurrent mints are idempotent.
-    If a ``jti`` nonce is ever added, update assertion to ``t1 != t2``.
+    ``create_widget_token`` embeds a fresh ``jti`` (UUID4) per mint (Phase P,
+    L.5), so two concurrent mints always produce two distinct JWTs even when
+    ``iat`` / ``exp`` collide at second-level precision.
     """
 
-    async def test_concurrent_same_second_mints_produce_same_token(
+    async def test_concurrent_same_second_mints_produce_distinct_tokens(
         self, client_factory, db_session
     ):
-        """Pinning current (deterministic) behavior: same-second concurrent
-        mints for the same bot return the SAME JWT because create_widget_token
-        has no per-call nonce — iat/exp are second-level and all other inputs
-        are fixed.
-
-        Update assertion to ``t1 != t2`` if randomness (jti) is added.
+        """Two concurrent mints produce two distinct JWTs because each carries
+        a unique ``jti`` nonce. Pin against regression if ``jti`` is ever
+        removed (tokens would collapse back to deterministic same-second output).
         """
+        import jwt as _jwt
+        from app.services.auth import _jwt_secret
+
         admin = await _make_user(db_session, is_admin=True)
         bot, _ = await _make_bot_with_key(db_session, ["chat"])
         app = client_factory(admin)
@@ -248,11 +245,14 @@ class TestConcurrentMint:
 
         t1 = r1.json()["token"]
         t2 = r2.json()["token"]
-        # Pinning current contract: deterministic JWT → same token within the same second.
-        assert t1 == t2, (
-            "Concurrent mints now return different tokens — a nonce (jti) was "
-            "likely added. Update assertion to t1 != t2 once jti is verified."
+        assert t1 != t2, (
+            "Concurrent mints collapsed to identical tokens — jti nonce is "
+            "likely missing. Re-add per-mint jti in create_widget_token."
         )
+
+        p1 = _jwt.decode(t1, _jwt_secret, algorithms=["HS256"])
+        p2 = _jwt.decode(t2, _jwt_secret, algorithms=["HS256"])
+        assert p1["jti"] != p2["jti"]
 
     async def test_concurrent_minted_tokens_are_valid(
         self, client_factory, db_session

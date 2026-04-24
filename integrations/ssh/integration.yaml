@@ -5,16 +5,6 @@ description: Headless machine control over OpenSSH with explicit per-session lea
 version: "0.1"
 
 settings:
-  - key: SSH_PRIVATE_KEY
-    type: string
-    label: "Private key used for SSH targets"
-    required: true
-    secret: true
-  - key: SSH_KNOWN_HOSTS
-    type: string
-    label: "known_hosts entries for the allowed SSH targets"
-    required: true
-    secret: true
   - key: SSH_CONNECT_TIMEOUT_SECONDS
     type: number
     label: "SSH connect timeout seconds"
@@ -39,6 +29,21 @@ machine_control:
   provider_id: ssh
   label: SSH
   driver: ssh
+  profile_fields:
+    - key: private_key
+      type: string
+      label: Private Key
+      description: "PEM-formatted private key used for this SSH profile"
+      required: true
+      secret: true
+      multiline: true
+    - key: known_hosts
+      type: string
+      label: known_hosts
+      description: "Strict host verification entries for the machines that use this profile"
+      required: true
+      secret: true
+      multiline: true
   enroll_fields:
     - key: host
       type: string

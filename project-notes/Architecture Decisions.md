@@ -207,6 +207,36 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Any persistent machine-control affordance in the channel workspace should use the native widget system rather than bespoke header controls.
 - `core/machine_control_native` is convenience UI only and must not export pinned-widget context into the prompt.
 
+### Machine-control provider profiles are core-owned abstractions; SSH uses them first with no ambient fallback
+**Decided 2026-04-24.** Reusable machine credentials/trust belong to the machine-control subsystem as provider-scoped profiles, not to ad hoc provider-global settings or a cross-integration credential vault.
+
+**What changed.**
+- Core machine-control summaries and admin APIs now expose provider profiles generically:
+  - `supports_profiles`
+  - `profile_fields`
+  - `profiles`
+  - `profile_count`
+  - `/api/v1/admin/machines/providers/{provider_id}/profiles/*`
+- `Admin > Machines` now owns profile CRUD for any provider that declares profile support.
+- Integration pages no longer act as machine CRUD/setup shadows; they point back to the core machine center.
+- `ssh` is the first provider to adopt this:
+  - SSH targets now reference one explicit `profile_id`
+  - named SSH profiles hold private key + `known_hosts`
+  - the old provider-global `SSH_PRIVATE_KEY` / `SSH_KNOWN_HOSTS` runtime path is retired
+  - no automatic fallback wraps or reuses those old top-level settings
+
+**Why.**
+- Multiple SSH targets need multiple independent identities/trust bundles, but solving that as an SSH-only hack would have leaked provider assumptions into core UX.
+- A global cross-integration credential subsystem would be too broad and would violate the desired integration/app boundary in the other direction.
+- The right abstraction is "provider-scoped machine-control profiles": core owns the UX and contract; providers own schema, validation, storage, and runtime resolution.
+
+**Load-bearing invariants.**
+- Profiles are machine-control-provider scoped, not a global credential vault.
+- Core owns generic profile APIs and UI; providers own profile semantics and persistence.
+- Profile-capable providers must require explicit target-to-profile binding rather than ambient provider-global credential fallback.
+- Profile list/read surfaces may expose only safe summaries and secret-presence markers, never raw secret values.
+- Integration pages may expose provider-wide settings, but machine profile lifecycle lives in `Admin > Machines`.
+
 ### Sub-agents are experimental readonly sidecars, not a default orchestration primitive
 **Decided 2026-04-23.** `spawn_subagents` is no longer treated as a generally encouraged prompt-level tool.
 

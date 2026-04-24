@@ -82,6 +82,7 @@ type ComponentNode =
   | ToggleNode
   | ButtonNode
   | TilesNode
+  | TimelineNode
   | SelectNode
   | InputNode
   | FormNode
@@ -200,15 +201,70 @@ interface ButtonNode extends ComponentBase {
   subtle?: boolean;
 }
 
+interface TileItem {
+  label?: string;
+  value?: string;
+  caption?: string;
+  /** Presence of `image_url` flips the tile into image-first mode — image
+   *  fills the tile, `label` overlays on a bottom gradient, `value` /
+   *  `caption` are suppressed. Same vocabulary as the `image` primitive. */
+  image_url?: string;
+  image_aspect_ratio?: string;
+  image_auth?: "none" | "bearer";
+  /** Optional corner chip (SemanticSlot). */
+  status?: SemanticSlot;
+  /** Optional on-click dispatch. Entire tile becomes a button. */
+  action?: WidgetAction;
+}
+
 interface TilesNode extends ComponentBase {
   type: "tiles";
-  /** Array of { label, value, caption? } tiles. Typically produced via the
-   *  template engine's `each:` expansion over a result array. */
-  items: { label?: string; value?: string; caption?: string }[];
+  /** Array of tile items. Typically produced via the template engine's
+   *  `each:` expansion over a result array. One primitive, two render
+   *  modes: text-first (default) and image-first (when `image_url` is set
+   *  on an item). Mixed modes in the same `items[]` are supported. */
+  items: TileItem[];
   /** Minimum tile width in px — drives `grid-template-columns: repeat(auto-fill, minmax(Xpx, 1fr))`. */
   min_width?: number;
   /** Gap between tiles in px (default 6). */
   gap?: number;
+}
+
+interface TimelineLane {
+  id: string;
+  label?: string;
+}
+
+interface TimelineRange {
+  start: string;
+  end: string;
+}
+
+interface TimelineEvent {
+  /** Required — stable selection across re-renders depends on event ids. */
+  id: string;
+  /** ISO 8601 timestamp. */
+  start: string;
+  /** ISO 8601 timestamp. Defaults to `start + 2s` when omitted. */
+  end?: string;
+  /** Required when `lanes` is non-empty; must be absent otherwise. */
+  lane_id?: string;
+  label?: string;
+  color?: SemanticSlot;
+  subtitle?: string;
+}
+
+interface TimelineNode extends ComponentBase {
+  type: "timeline";
+  events: TimelineEvent[];
+  /** Explicit window. Omit for auto-fit (span spanned by events). */
+  range?: TimelineRange;
+  /** Omit for a flat (single-lane) timeline. */
+  lanes?: TimelineLane[];
+  on_event_click?: WidgetAction;
+  /** Optional author-controlled selection. Typically bound to
+   *  `widget_config.selected_event` so round-trip dispatch + state works. */
+  selected_event_id?: string;
 }
 
 interface SelectNode extends ComponentBase {
@@ -429,6 +485,8 @@ function RenderNode({
       return <ButtonBlock node={node as ButtonNode} t={t} />;
     case "tiles":
       return <TilesBlock node={node as TilesNode} t={t} ctx={ctx} />;
+    case "timeline":
+      return <TimelineBlock node={node as TimelineNode} t={t} />;
     case "select":
       return <SelectBlock node={node as SelectNode} t={t} />;
     case "input":
@@ -1394,54 +1452,228 @@ function TilesBlock({ node, t, ctx }: { node: TilesNode; t: ThemeTokens; ctx: Co
         gap,
       }}
     >
-      {items.map((item, i) => (
-        <div
-          key={i}
-          className="rounded-md border"
+      {items.map((item, i) =>
+        item.image_url ? (
+          <ImageTile key={i} item={item} t={t} />
+        ) : (
+          <TextTile key={i} item={item} t={t} ctx={ctx} showCaption={showCaption} />
+        ),
+      )}
+    </div>
+  );
+}
+
+function useTileAction(action: WidgetAction | undefined) {
+  const dispatch = useAction();
+  const [busy, setBusy] = useState(false);
+  const onClick = action && dispatch
+    ? async () => {
+        if (busy) return;
+        setBusy(true);
+        try {
+          await dispatch(action, true);
+        } catch {
+          // Per-tile error surface would crowd the grid; swallow.
+        } finally {
+          setBusy(false);
+        }
+      }
+    : undefined;
+  return { onClick, busy, interactive: Boolean(onClick) };
+}
+
+function StatusChip({ slot, t }: { slot: SemanticSlot; t: ThemeTokens }) {
+  return (
+    <span
+      style={{
+        position: "absolute",
+        top: 4,
+        right: 4,
+        width: 8,
+        height: 8,
+        borderRadius: "50%",
+        background: slotColor(slot, t),
+        boxShadow: `0 0 0 2px ${t.surface}`,
+      }}
+      aria-hidden
+    />
+  );
+}
+
+function TextTile({
+  item,
+  t,
+  ctx,
+  showCaption,
+}: {
+  item: TileItem;
+  t: ThemeTokens;
+  ctx: ComponentRenderContext;
+  showCaption: boolean;
+}) {
+  const { onClick, busy, interactive } = useTileAction(item.action);
+
+  return (
+    <div
+      onClick={onClick}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={
+        interactive
+          ? (ev) => {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      className="rounded-md border"
+      style={{
+        borderColor: `${t.surfaceBorder}80`,
+        background: t.overlayLight,
+        padding: ctx.density === "compact" ? "5px 7px" : "6px 8px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 1,
+        minWidth: 0,
+        position: "relative",
+        cursor: interactive ? "pointer" : undefined,
+        opacity: busy ? 0.6 : 1,
+        transition: "opacity 0.15s",
+      }}
+    >
+      {item.status && <StatusChip slot={item.status} t={t} />}
+      {item.label && (
+        <span
           style={{
-            borderColor: `${t.surfaceBorder}80`,
-            background: t.overlayLight,
-            padding: ctx.density === "compact" ? "5px 7px" : "6px 8px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 1,
-            minWidth: 0,
+            fontSize: 10,
+            color: t.textMuted,
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
           }}
         >
-          {item.label && (
+          {item.label}
+        </span>
+      )}
+      {item.value && (
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: t.contentText,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {item.value}
+        </span>
+      )}
+      {showCaption && item.caption && (
+        <span
+          style={{
+            fontSize: 10,
+            color: t.textDim,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {item.caption}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ImageTile({ item, t }: { item: TileItem; t: ThemeTokens }) {
+  const authMode: "none" | "bearer" = item.image_auth ?? "none";
+  const resolvedUrl = useAuthedImageUrl(item.image_url ?? "", authMode);
+  const { onClick, busy, interactive } = useTileAction(item.action);
+  const hasAspect =
+    typeof item.image_aspect_ratio === "string" && item.image_aspect_ratio.length > 0;
+
+  return (
+    <div
+      onClick={onClick}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onKeyDown={
+        interactive
+          ? (ev) => {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
+      className="rounded-md border"
+      style={{
+        borderColor: `${t.surfaceBorder}80`,
+        background: t.codeBg,
+        position: "relative",
+        overflow: "hidden",
+        minWidth: 0,
+        aspectRatio: hasAspect ? item.image_aspect_ratio : "16 / 9",
+        cursor: interactive ? "pointer" : undefined,
+        opacity: busy ? 0.6 : 1,
+        transition: "opacity 0.15s",
+      }}
+    >
+      {resolvedUrl ? (
+        <img
+          src={resolvedUrl}
+          alt={item.label ?? ""}
+          style={{
+            display: "block",
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+          }}
+        />
+      ) : (
+        <div style={{ width: "100%", height: "100%", background: t.codeBg }} />
+      )}
+
+      {item.status && <StatusChip slot={item.status} t={t} />}
+
+      {item.label && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            padding: "18px 8px 6px",
+            background: "linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))",
+            pointerEvents: "none",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "#fff",
+              display: "block",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+            }}
+          >
+            {item.label}
+          </span>
+          {item.caption && (
             <span
               style={{
                 fontSize: 10,
-                color: t.textMuted,
-                textTransform: "uppercase",
-                letterSpacing: "0.03em",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {item.label}
-            </span>
-          )}
-          {item.value && (
-            <span
-              style={{
-                fontSize: 13,
-                fontWeight: 600,
-                color: t.contentText,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {item.value}
-            </span>
-          )}
-          {showCaption && item.caption && (
-            <span
-              style={{
-                fontSize: 10,
-                color: t.textDim,
+                color: "rgba(255,255,255,0.82)",
+                display: "block",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -1451,7 +1683,227 @@ function TilesBlock({ node, t, ctx }: { node: TilesNode; t: ThemeTokens; ctx: Co
             </span>
           )}
         </div>
-      ))}
+      )}
+    </div>
+  );
+}
+
+// ── Timeline ──
+
+const TIMELINE_LANE_H = 22;
+const TIMELINE_LANE_GAP = 4;
+const TIMELINE_AXIS_H = 18;
+const TIMELINE_PAD_X = 8;
+const TIMELINE_DEFAULT_EVENT_MS = 2000;
+
+function parseTimelineMs(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const v = Date.parse(iso);
+  return Number.isFinite(v) ? v : null;
+}
+
+function formatTimelineClock(ms: number): string {
+  try {
+    return new Date(ms).toLocaleTimeString(undefined, {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+}
+
+function TimelineBlock({ node, t }: { node: TimelineNode; t: ThemeTokens }) {
+  const events = Array.isArray(node.events) ? node.events : [];
+  const lanes = Array.isArray(node.lanes) ? node.lanes : [];
+  const hasLanes = lanes.length > 0;
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(480);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        if (w > 0) setWidth(w);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const dispatch = useAction();
+  const [localSelected, setLocalSelected] = useState<string | null>(null);
+  const selectedId = node.selected_event_id ?? localSelected;
+
+  // Compute window: explicit range takes priority; otherwise auto-fit.
+  let tMin: number | null = parseTimelineMs(node.range?.start);
+  let tMax: number | null = parseTimelineMs(node.range?.end);
+  if (tMin == null || tMax == null) {
+    for (const ev of events) {
+      const s = parseTimelineMs(ev.start);
+      if (s == null) continue;
+      const e = parseTimelineMs(ev.end) ?? s + TIMELINE_DEFAULT_EVENT_MS;
+      if (tMin == null || s < tMin) tMin = s;
+      if (tMax == null || e > tMax) tMax = e;
+    }
+  }
+
+  if (tMin == null || tMax == null) {
+    return (
+      <div
+        ref={containerRef}
+        style={{ fontSize: 11, color: t.textDim, padding: "8px 0" }}
+      >
+        No events.
+      </div>
+    );
+  }
+
+  // Pad window so events at the very edge don't clip against the frame.
+  let span = Math.max(tMax - tMin, 1000);
+  if (!node.range) {
+    const pad = span * 0.04;
+    tMin -= pad;
+    tMax += pad;
+    span = tMax - tMin;
+  }
+
+  // Lane list — when no lanes declared, fall back to a single implicit flat lane.
+  const renderLanes: TimelineLane[] = hasLanes
+    ? lanes
+    : [{ id: "__flat__", label: "" }];
+
+  const laneIndex = new Map<string, number>();
+  renderLanes.forEach((lane, i) => laneIndex.set(lane.id, i));
+
+  const contentW = Math.max(120, width - TIMELINE_PAD_X * 2);
+  const totalH = TIMELINE_AXIS_H + renderLanes.length * (TIMELINE_LANE_H + TIMELINE_LANE_GAP);
+  const timeToX = (ms: number): number =>
+    TIMELINE_PAD_X + ((ms - (tMin as number)) / span) * contentW;
+
+  const tickCount = 4;
+  const ticks: { x: number; label: string; anchor: "start" | "middle" | "end" }[] = [];
+  for (let k = 0; k <= tickCount; k++) {
+    const tms = (tMin as number) + (span * k) / tickCount;
+    ticks.push({
+      x: timeToX(tms),
+      label: formatTimelineClock(tms),
+      anchor: k === 0 ? "start" : k === tickCount ? "end" : "middle",
+    });
+  }
+
+  async function onPillClick(ev: TimelineEvent) {
+    if (node.selected_event_id == null) setLocalSelected(ev.id);
+    if (node.on_event_click && dispatch) {
+      try {
+        await dispatch(node.on_event_click, ev.id);
+      } catch {
+        // Click-handler errors are swallowed — the pill reflects local selection regardless.
+      }
+    }
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        borderRadius: 6,
+        border: `1px solid ${t.surfaceBorder}`,
+        background: t.codeBg,
+        padding: "4px 0",
+      }}
+    >
+      <svg
+        width="100%"
+        height={totalH}
+        viewBox={`0 0 ${width} ${totalH}`}
+        preserveAspectRatio="none"
+        style={{ display: "block" }}
+        role="img"
+        aria-label="timeline"
+      >
+        {renderLanes.map((lane, idx) => {
+          const y = TIMELINE_AXIS_H + idx * (TIMELINE_LANE_H + TIMELINE_LANE_GAP);
+          return (
+            <g key={lane.id}>
+              <rect
+                x={TIMELINE_PAD_X}
+                y={y}
+                width={contentW}
+                height={TIMELINE_LANE_H}
+                rx={3}
+                fill={t.overlayLight}
+              />
+              {lane.label && (
+                <text
+                  x={TIMELINE_PAD_X + 6}
+                  y={y + TIMELINE_LANE_H / 2 + 3}
+                  fill={t.textMuted}
+                  fontSize={10}
+                  pointerEvents="none"
+                >
+                  {lane.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {ticks.map((tick, i) => (
+          <text
+            key={i}
+            x={tick.x}
+            y={11}
+            fill={t.textDim}
+            fontSize={9}
+            textAnchor={tick.anchor}
+          >
+            {tick.label}
+          </text>
+        ))}
+
+        {events.map((ev) => {
+          const s = parseTimelineMs(ev.start);
+          if (s == null) return null;
+          const e = parseTimelineMs(ev.end) ?? s + TIMELINE_DEFAULT_EVENT_MS;
+          const laneKey = hasLanes ? ev.lane_id ?? "" : "__flat__";
+          const idx = laneIndex.get(laneKey);
+          if (idx == null) return null;
+          const y = TIMELINE_AXIS_H + idx * (TIMELINE_LANE_H + TIMELINE_LANE_GAP) + 3;
+          const h = TIMELINE_LANE_H - 6;
+          const x1 = timeToX(s);
+          const x2 = timeToX(e);
+          const w = Math.max(4, x2 - x1);
+          const isSelected = ev.id === selectedId;
+          const fill = slotColor(ev.color, t);
+          const title = [
+            ev.label ?? "event",
+            formatTimelineClock(s),
+            ev.subtitle,
+          ].filter(Boolean).join(" · ");
+
+          return (
+            <rect
+              key={ev.id}
+              x={x1}
+              y={y}
+              width={w}
+              height={h}
+              rx={3}
+              fill={fill}
+              fillOpacity={0.75}
+              stroke={isSelected ? t.accent : undefined}
+              strokeWidth={isSelected ? 2 : undefined}
+              style={{ cursor: node.on_event_click ? "pointer" : "default" }}
+              onClick={() => onPillClick(ev)}
+            >
+              <title>{title}</title>
+            </rect>
+          );
+        })}
+      </svg>
     </div>
   );
 }

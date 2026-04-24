@@ -569,6 +569,38 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       }
     }, [disabled, editor]);
 
+    // Global "/" hotkey: anywhere on the chat screen, pressing "/" focuses this
+    // composer and inserts a leading slash so the command picker opens. Guarded
+    // so we don't steal "/" from other inputs, modals, or when the editor is
+    // already focused (native input handles it).
+    useEffect(() => {
+      if (!editor || disabled) return;
+      const container = containerRef.current;
+      if (!container) return;
+      const handler = (e: KeyboardEvent) => {
+        if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+        const target = e.target as HTMLElement | null;
+        if (target) {
+          const tag = target.tagName;
+          if (
+            tag === "INPUT" ||
+            tag === "TEXTAREA" ||
+            tag === "SELECT" ||
+            target.isContentEditable
+          ) {
+            return;
+          }
+        }
+        // Skip if another composer is visible and would also claim this event
+        // (first one wins — but guard against an offscreen/hidden instance).
+        if (container.offsetParent === null) return;
+        e.preventDefault();
+        editor.chain().focus("end").insertContent("/").run();
+      };
+      window.addEventListener("keydown", handler);
+      return () => window.removeEventListener("keydown", handler);
+    }, [editor, disabled]);
+
     useImperativeHandle(ref, () => ({
       focus: () => editor?.commands.focus("end"),
       clear: () => {

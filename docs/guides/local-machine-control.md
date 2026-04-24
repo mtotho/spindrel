@@ -28,6 +28,7 @@ Machine control is a core subsystem with pluggable providers. A live signed-in a
 | `machine target` | A controllable machine endpoint identified by `(provider_id, target_id)` |
 | `provider` | The implementation/transport behind the target |
 | `driver` | The provider's transport family such as `companion` or `ssh` |
+| `profile` | A provider-scoped reusable credentials/trust/config object that one or more targets may reference |
 | `ready` | Provider-reported ability to execute right now after a probe or live-status check |
 | `connection` | The provider's current live transport handle for drivers that keep one, such as `local_companion` |
 | `handle_id` | Provider-specific runtime handle such as a companion connection id or `ssh://user@host:port` |
@@ -115,6 +116,7 @@ Providers are discovered from integrations that declare machine control through:
 Each provider implements a machine-control contract that exposes:
 
 - identity metadata: `provider_id`, `label`, `driver`
+- optional provider-scoped profile CRUD and safe profile summaries
 - target enumeration and lookup
 - cached target status lookup
 - fresh probe capability
@@ -184,6 +186,9 @@ Current core APIs:
   - `DELETE /api/v1/sessions/{id}/machine-target/lease`
 - Admin machine center:
   - `GET /api/v1/admin/machines`
+  - `POST /api/v1/admin/machines/providers/{provider_id}/profiles`
+  - `PUT /api/v1/admin/machines/providers/{provider_id}/profiles/{profile_id}`
+  - `DELETE /api/v1/admin/machines/providers/{provider_id}/profiles/{profile_id}`
   - `POST /api/v1/admin/machines/providers/{provider_id}/enroll`
   - `POST /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}/probe`
   - `DELETE /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}`
@@ -226,21 +231,32 @@ This provider uses `driver="companion"` and derives readiness from its live outb
 It owns:
 
 - `machine_control.py` provider implementation
-- provider-level SSH settings in integration settings
+- provider-wide timeout/output settings in integration settings
+- provider-scoped SSH profiles for credentials and host trust
 - target enrollment metadata such as host, username, port, and optional default working directory
 
 It uses `driver="ssh"` and derives readiness from a fresh SSH probe rather than a long-lived live connection.
 
-Provider-level SSH credentials and trust material live in app-managed integration settings, not ephemeral container filesystem state, so container rebuilds do not wipe configured keys or `known_hosts`.
+SSH profiles live in app-managed provider settings, not ephemeral container filesystem state, so container rebuilds do not wipe configured keys or `known_hosts`.
 
 ## Current request flow
 
 ### Enroll a target
 
-1. Admin calls `POST /api/v1/admin/machines/providers/{provider_id}/enroll`.
-2. Core resolves the provider and asks it to enroll a target.
-3. The provider creates target state and returns any provider-specific setup information.
-4. For `local_companion`, the response includes the example companion launch command.
+1. If the provider supports profiles, admin creates or updates a profile first.
+2. Admin calls `POST /api/v1/admin/machines/providers/{provider_id}/enroll`.
+3. Core resolves the provider and asks it to enroll a target.
+4. The provider creates target state and returns any provider-specific setup information.
+5. For `local_companion`, the response includes the example companion launch command.
+
+### Create or update a provider profile
+
+1. Admin calls one of:
+   - `POST /api/v1/admin/machines/providers/{provider_id}/profiles`
+   - `PUT /api/v1/admin/machines/providers/{provider_id}/profiles/{profile_id}`
+2. Core resolves the provider and hands off profile validation/storage.
+3. The provider persists the profile in provider-owned durable storage.
+4. Core only receives safe summary payloads back. Secret values are never echoed into the UI.
 
 ### Refresh or probe a target
 
@@ -289,7 +305,7 @@ Provider-level SSH credentials and trust material live in app-managed integratio
 
 #### Local companion
 
-1. Go to `Admin > Machines`, or use the quick-setup helper on `Admin > Integrations > Local Companion`.
+1. Go to `Admin > Machines`.
 2. Enroll a target under the `Local Companion` provider.
 3. Copy the returned launch command.
 4. Run that command on the target machine. The current launch flow downloads the companion script from the server first, then starts it locally with Python.
@@ -297,12 +313,20 @@ Provider-level SSH credentials and trust material live in app-managed integratio
 
 #### SSH
 
-1. Go to `Admin > Integrations > SSH` and configure `SSH_PRIVATE_KEY` plus `SSH_KNOWN_HOSTS`.
-2. Enroll a target under the `SSH` provider with `host`, `username`, optional `port`, and optional default `working_dir`.
-3. Use `Probe` from `Admin > Machines` to confirm the target becomes reachable.
-4. Grant that target to the session you want to use.
+1. Go to `Admin > Machines`.
+2. Under the `SSH` provider, create at least one profile containing:
+   - private key
+   - `known_hosts`
+3. Enroll a target under the `SSH` provider with:
+   - profile
+   - `host`
+   - `username`
+   - optional `port`
+   - optional default `working_dir`
+4. Use `Probe` from `Admin > Machines` to confirm the target becomes reachable.
+5. Grant that target to the session you want to use.
 
-The SSH provider stores credentials and trust in app-managed integration settings, so those settings survive container rebuilds. Only short-lived temp files are created at runtime for the actual `ssh` subprocess.
+SSH profiles and target references survive container rebuilds because they live in app-managed provider settings. Only short-lived temp files are created at runtime for the actual `ssh` subprocess.
 
 ### Session flow
 
@@ -367,6 +391,7 @@ For `ssh`, the provider still enforces:
 ## Current limits
 
 - Two providers are shipped: `local_companion` and `ssh`.
+- SSH uses provider-scoped named profiles. There is no provider-global ambient SSH key fallback.
 - `local_companion` bridge state is still in-memory; multi-worker deployments need shared coordination before companion transport becomes horizontally safe.
 - Both shipped providers are shell-first.
 - `browser_live` has not yet been moved onto this same lease model.

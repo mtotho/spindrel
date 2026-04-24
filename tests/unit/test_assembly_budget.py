@@ -1,12 +1,14 @@
 """Tests for budget-aware behaviour inside assemble_context()."""
 
 import uuid
+import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.agent.bots import BotConfig
 from app.agent.context_assembly import AssemblyResult, assemble_context
 from app.agent.context_budget import ContextBudget, estimate_tokens
+from app.agent.prompt_sizing import estimate_chars_to_tokens
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +114,42 @@ class TestAssemblyBudgetGenerous:
         assert result.budget_utilization >= 0
         assert result.context_policy["name"] == "chat"
         assert "optional_static_injections" in result.context_policy
+
+    @pytest.mark.asyncio
+    async def test_budget_counts_tool_calls_after_pruning(self):
+        """Large replayed tool-call args are compacted before live-history accounting."""
+        bot = _minimal_bot(context_pruning=True)
+        huge_args = json.dumps({"payload": "x" * 20_000})
+        messages = [
+            {"role": "system", "content": "You are a test bot."},
+            {"role": "user", "content": "old turn"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": "tc1",
+                    "type": "function",
+                    "function": {"name": "exec_command", "arguments": huge_args},
+                }],
+            },
+            {"role": "tool", "tool_call_id": "tc1", "content": "OK"},
+        ]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        patches = _assembly_patches()
+        for p in patches:
+            p.start()
+        try:
+            await _drain(_call_assembly(messages, bot, "new turn", result, budget=budget))
+        finally:
+            for p in patches:
+                p.stop()
+
+        compacted_args = messages[2]["tool_calls"][0]["function"]["arguments"]
+        assert json.loads(compacted_args)["_spindrel_pruned_tool_args"] is True
+        assert budget.live_history_tokens < estimate_chars_to_tokens(len(huge_args))
+        assert budget.live_history_tokens > 0
 
     @pytest.mark.asyncio
     async def test_budget_utilization_on_result(self):

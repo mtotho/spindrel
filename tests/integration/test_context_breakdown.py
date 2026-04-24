@@ -4,6 +4,7 @@ Tests the pruning savings estimate logic in compute_context_breakdown.
 Uses the HTTP client fixture to bypass SQLite/UUID compat issues.
 """
 import uuid
+import json
 from datetime import datetime, timezone, timedelta
 
 import pytest
@@ -19,7 +20,7 @@ AUTH_HEADERS = {"Authorization": "Bearer test-key"}
 
 async def _setup_channel(client: AsyncClient, db_session: AsyncSession, *,
                           tool_result_size: int = 1000, num_turns: int = 5,
-                          pruning: bool = True) -> str:
+                          pruning: bool = True, tool_arg_size: int = 0) -> str:
     """Create channel via internal DB, insert tool messages, return channel_id."""
     channel_id = uuid.uuid4()
     session_id = uuid.uuid4()
@@ -39,7 +40,10 @@ async def _setup_channel(client: AsyncClient, db_session: AsyncSession, *,
                                content=f"q{turn}", created_at=t))
         db_session.add(Message(session_id=session_id, role="assistant", content="",
                                tool_calls=[{"id": f"tc{turn}", "type": "function",
-                                            "function": {"name": f"tool_{turn}", "arguments": "{}"}}],
+                                            "function": {
+                                                "name": f"tool_{turn}",
+                                                "arguments": json.dumps({"payload": "x" * tool_arg_size}) if tool_arg_size else "{}",
+                                            }}],
                                created_at=t + timedelta(seconds=1)))
         db_session.add(Message(session_id=session_id, role="tool",
                                content="x" * tool_result_size, tool_call_id=f"tc{turn}",
@@ -103,3 +107,28 @@ class TestPruningEstimate:
         assert resp.status_code == 200
         pruning_cats = [c for c in resp.json()["categories"] if c["key"] == "context_pruning"]
         assert len(pruning_cats) == 0
+
+    @pytest.mark.asyncio
+    async def test_estimates_savings_for_large_tool_call_arguments(
+        self, client: AsyncClient, db_session: AsyncSession,
+    ):
+        """Huge assistant tool-call args should count toward forecast and pruning savings."""
+        cid = await _setup_channel(
+            client, db_session,
+            tool_result_size=2,
+            num_turns=1,
+            tool_arg_size=5000,
+        )
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{cid}/context-breakdown",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+
+        conversation = [c for c in data["categories"] if c["key"] == "conversation"][0]
+        assert conversation["chars"] >= 5000
+        pruning = [c for c in data["categories"] if c["key"] == "context_pruning"][0]
+        assert pruning["chars"] <= -4500
+        assert "tool-call argument" in pruning["description"]

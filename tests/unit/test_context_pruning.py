@@ -1,6 +1,7 @@
 """Unit tests for app.agent.context_pruning and tool result hard cap."""
 
 import copy
+import json
 
 import pytest
 
@@ -128,6 +129,57 @@ class TestBasicPruning:
         assert messages[1]["content"] == long_reply
 
 
+class TestToolCallArgumentPruning:
+    def test_prunes_large_assistant_tool_call_arguments(self):
+        """Large historical tool-call args should be compacted even when result is small."""
+        large_args = json.dumps({"query": "x" * 1000})
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [{
+                "id": "tc1",
+                "type": "function",
+                "function": {"name": "web_search", "arguments": large_args},
+            }]),
+            _make_tool_result("tc1", "OK"),
+            _make_assistant_msg("a1"),
+        ]
+
+        stats = prune_tool_results(messages, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        assert stats["tool_call_args_pruned"] == 1
+        assert stats["tool_call_arg_chars_saved"] > 0
+        compacted = messages[1]["tool_calls"][0]
+        assert compacted["id"] == "tc1"
+        assert compacted["function"]["name"] == "web_search"
+        marker = json.loads(compacted["function"]["arguments"])
+        assert marker["_spindrel_pruned_tool_args"] is True
+        assert marker["tool"] == "web_search"
+        assert marker["original_chars"] == len(large_args)
+
+    def test_already_pruned_tool_call_arguments_are_idempotent(self):
+        marker = json.dumps({
+            "_spindrel_pruned_tool_args": True,
+            "tool": "web_search",
+            "original_chars": 1200,
+            "note": "Historical tool-call arguments were compacted for context replay.",
+        })
+        messages = [
+            _make_user_msg("q1"),
+            _make_assistant_msg("", [{
+                "id": "tc1",
+                "type": "function",
+                "function": {"name": "web_search", "arguments": marker},
+            }]),
+            _make_tool_result("tc1", "OK"),
+        ]
+
+        stats = prune_tool_results(messages, min_content_length=50)
+
+        assert stats["tool_call_args_pruned"] == 0
+        assert messages[1]["tool_calls"][0]["function"]["arguments"] == marker
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
@@ -135,7 +187,13 @@ class TestBasicPruning:
 class TestEdgeCases:
     def test_empty_messages(self):
         stats = prune_tool_results([])
-        assert stats == {"pruned_count": 0, "chars_saved": 0, "turns_pruned": 0}
+        assert stats == {
+            "pruned_count": 0,
+            "chars_saved": 0,
+            "turns_pruned": 0,
+            "tool_call_args_pruned": 0,
+            "tool_call_arg_chars_saved": 0,
+        }
 
     def test_no_tool_calls(self):
         """Conversation with no tool calls should be unmodified."""
@@ -516,6 +574,34 @@ class TestInLoopPruning:
         # Iter 4 (latest) verbatim
         assert messages[8]["content"] == _long_content(500)
 
+    def test_prunes_older_iteration_tool_call_arguments_keeps_latest(self):
+        """Oversized args from older iterations are compacted; latest iteration stays verbatim."""
+        old_args = json.dumps({"payload": "x" * 1000})
+        latest_args = json.dumps({"payload": "y" * 1000})
+        messages = [
+            _make_user_msg("q"),
+            _make_assistant_msg("", [{
+                "id": "tc1",
+                "type": "function",
+                "function": {"name": "old_tool", "arguments": old_args},
+            }]),
+            _make_tool_result("tc1", "OK"),
+            _make_assistant_msg("", [{
+                "id": "tc2",
+                "type": "function",
+                "function": {"name": "latest_tool", "arguments": latest_args},
+            }]),
+            _make_tool_result("tc2", "OK"),
+        ]
+
+        stats = prune_in_loop_tool_results(messages, keep_iterations=1, min_content_length=200)
+
+        assert stats["pruned_count"] == 0
+        assert stats["tool_call_args_pruned"] == 1
+        old_marker = json.loads(messages[1]["tool_calls"][0]["function"]["arguments"])
+        assert old_marker["_spindrel_pruned_tool_args"] is True
+        assert messages[3]["tool_calls"][0]["function"]["arguments"] == latest_args
+
     def test_keep_iterations_two(self):
         """With keep_iterations=2, the last two iterations are protected."""
         messages = _build_iter_turn(num_iterations=4)
@@ -628,7 +714,13 @@ class TestInLoopPruning:
 
     def test_empty_messages(self):
         stats = prune_in_loop_tool_results([], keep_iterations=1)
-        assert stats == {"pruned_count": 0, "chars_saved": 0, "iterations_pruned": 0}
+        assert stats == {
+            "pruned_count": 0,
+            "chars_saved": 0,
+            "iterations_pruned": 0,
+            "tool_call_args_pruned": 0,
+            "tool_call_arg_chars_saved": 0,
+        }
 
     def test_no_tool_calls_at_all(self):
         """A turn with no tool calls is a no-op."""

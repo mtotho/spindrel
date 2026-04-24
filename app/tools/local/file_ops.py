@@ -360,7 +360,9 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                         "Example: [{\"op\": \"read\", \"path\": \"a.md\"}, "
                         "{\"op\": \"move\", \"path\": \"b.md\", \"destination\": \"old/b.md\"}]. "
                         "Results are returned in order; partial failures do not "
-                        "abort the batch. Nested `batch` / `archive_older_than` is rejected."
+                        "abort the batch. `archive_older_than` IS allowed inside — "
+                        "bundle it with the log-promotion edits in a hygiene pass. "
+                        "Nested `batch` is rejected."
                     ),
                     "items": {"type": "object"},
                 },
@@ -1726,9 +1728,11 @@ def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) ->
 # ---------------------------------------------------------------------------
 
 _BATCH_MAX_OPS = 50
-# Nested batch/archive is rejected: it muddles error attribution and the
-# iteration-savings story doesn't hold past one level.
-_BATCH_FORBIDDEN_OPS = frozenset({"batch", "archive_older_than"})
+# Nested batch is rejected: it muddles error attribution and the iteration-
+# savings story doesn't hold past one level. `archive_older_than` IS allowed
+# — it's idempotent and commonly bundled with the log-promotion edits in a
+# hygiene pass, so forbidding it cost real iterations in traced runs.
+_BATCH_FORBIDDEN_OPS = frozenset({"batch"})
 
 
 async def _op_batch(ops: list[dict] | None) -> str:

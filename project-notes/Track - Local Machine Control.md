@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-24 (phase 7 ssh provider + transcript-first widget UX shipped)
+updated: 2026-04-24 (phase 9 provider profiles shipped)
 ---
 # Track — Local Machine Control
 
@@ -35,6 +35,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 6 | Core provider architecture, `/admin/machines`, renderer extraction, tool rename | ✅ shipped 2026-04-23 |
 | 7 | Provider-generic readiness contract, SSH provider, probe UX | ✅ shipped 2026-04-24 |
 | 8 | Transcript-first UX, header chrome removal, optional native widget | ✅ shipped 2026-04-24 |
+| 9 | Generic provider profiles, SSH-first adoption, machine-center profile UI | ✅ shipped 2026-04-24 |
 
 ## What Shipped
 
@@ -128,6 +129,23 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - no pinned-widget context export
 - New invariant: machine control may appear in chat chrome only when intentionally pinned as a widget or rendered in transcript/result surfaces, not as a default top-right header icon.
 
+### Phase 9 — Generic provider profiles, SSH-first adoption
+
+- Added generic provider-profile support to the core machine-control contract:
+  - provider summaries now expose `supports_profiles`, `profile_fields`, `profiles`, and `profile_count`
+  - core admin profile APIs now exist under `/api/v1/admin/machines/providers/{provider_id}/profiles`
+- `Admin > Machines` is now the canonical machine-profile surface:
+  - profile CRUD is rendered generically from provider-declared `profile_fields`
+  - target enrollment is gated until a required profile exists
+  - profile-capable providers inject a required profile selector into target enrollment
+- `Admin > Integrations > <provider>` machine section is now summary-only; it points back to `Admin > Machines` instead of acting as a shadow machine center.
+- `ssh` is the first provider using profiles:
+  - top-level `SSH_PRIVATE_KEY` / `SSH_KNOWN_HOSTS` runtime path removed
+  - named SSH profiles now carry private key + `known_hosts`
+  - each SSH target references one explicit `profile_id`
+  - no provider-global ambient credential fallback remains
+- Profiles and targets persist in provider-owned app settings, so SSH setup survives container rebuilds without requiring new core tables.
+
 ## Current Architecture Shape
 
 - Core:
@@ -150,12 +168,17 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Shared lease/consent model for `browser_live` if that path should converge.
 - Richer machine capabilities beyond shell once the provider contract settles.
 - Multi-worker/shared-broker support for live provider connection state.
+- Better pytest reliability around the `test_machine_admin_routes_drift.py` stall pattern so router-level machine-profile tests can be left in the normal aggregate slice instead of file-by-file verification.
 
 ## Verification
 
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q`
 - `pytest tests/unit/test_machine_target_sessions.py -q`
 - `pytest tests/unit/test_machine_control_drift.py tests/unit/test_local_companion_provider.py tests/unit/test_ssh_provider.py tests/unit/test_integration_setup.py::TestDiscoverSetupStatus::test_local_companion_exposes_machine_control_metadata tests/unit/test_integration_setup.py::TestDiscoverSetupStatus::test_ssh_exposes_machine_control_metadata -q`
+- `timeout 30s pytest tests/unit/test_ssh_provider.py -q`
+- `timeout 30s pytest tests/unit/test_machine_target_sessions.py -q`
+- `timeout 30s pytest tests/unit/test_machine_control_drift.py -q`
 - `cd agent-server/ui && node --test src/components/chat/renderArchitecture.test.ts 'app/(app)/channels/[channelId]/sessionHeaderChrome.test.ts'`
 - `cd agent-server/ui && node --test src/lib/machineControlSetup.test.ts`
+- `cd agent-server/ui && node --test src/lib/machineControlApiPaths.test.ts`
 - `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false`

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, Monitor, Plug, RefreshCw, SearchCheck, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, KeyRound, Monitor, Pencil, Plug, RefreshCw, SearchCheck, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Spinner } from "@/src/components/shared/Spinner";
@@ -7,12 +7,16 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import {
   useAdminMachines,
+  useCreateMachineProfile,
+  useDeleteMachineProfile,
   useDeleteMachineTarget,
   useEnrollMachineTarget,
   useProbeMachineTarget,
+  useUpdateMachineProfile,
   type MachineControlEnrollField,
-  type MachineTarget,
+  type MachineProviderProfile,
   type MachineProviderState,
+  type MachineTarget,
 } from "@/src/api/hooks/useMachineTargets";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import {
@@ -48,12 +52,17 @@ function formatDateTime(value?: string | null): string | null {
   return parsed.toLocaleString();
 }
 
+function targetStateText(target: MachineTarget): string {
+  return target.status_label || (target.ready ? "Ready" : "Unavailable");
+}
+
 function initialDraft(fields?: MachineControlEnrollField[] | null): MachineEnrollDraft {
   return buildMachineEnrollDraft(fields);
 }
 
-function targetStateText(target: MachineTarget): string {
-  return target.status_label || (target.ready ? "Ready" : "Unavailable");
+function profileConfiguredSecrets(profile: MachineProviderProfile): string[] {
+  const configured = profile.metadata?.configured_secrets;
+  return Array.isArray(configured) ? configured.map((value) => String(value)) : [];
 }
 
 function ProviderSection({ provider }: { provider: MachineProviderState }) {
@@ -62,17 +71,50 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   const enroll = useEnrollMachineTarget(provider.provider_id);
   const remove = useDeleteMachineTarget(provider.provider_id);
   const probe = useProbeMachineTarget(provider.provider_id);
+  const createProfile = useCreateMachineProfile(provider.provider_id);
+  const updateProfile = useUpdateMachineProfile(provider.provider_id);
+  const deleteProfile = useDeleteMachineProfile(provider.provider_id);
+
   const [labelDraft, setLabelDraft] = useState("");
   const [configDraft, setConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.enroll_fields));
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    setConfigDraft(initialDraft(provider.enroll_fields));
-  }, [provider.enroll_fields]);
+  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [profileLabelDraft, setProfileLabelDraft] = useState("");
+  const [profileConfigDraft, setProfileConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.profile_fields));
 
-  const pending = enroll.isPending || remove.isPending || probe.isPending;
+  const profiles = provider.profiles ?? [];
+  const effectiveEnrollFields = useMemo<MachineControlEnrollField[]>(() => {
+    const fields = [...(provider.enroll_fields ?? [])];
+    if (provider.supports_profiles) {
+      fields.unshift({
+        key: "profile_id",
+        type: "select",
+        label: "Profile",
+        description: "Choose the credentials/trust profile for this target",
+        required: true,
+        options: profiles.map((profile) => ({ value: profile.profile_id, label: profile.label })),
+      });
+    }
+    return fields;
+  }, [profiles, provider.enroll_fields, provider.supports_profiles]);
+
+  useEffect(() => {
+    setConfigDraft(initialDraft(effectiveEnrollFields));
+  }, [provider.provider_id, JSON.stringify(effectiveEnrollFields)]);
+
+  useEffect(() => {
+    setProfileConfigDraft(initialDraft(provider.profile_fields));
+    setProfileLabelDraft("");
+    setEditingProfileId(null);
+  }, [provider.provider_id, JSON.stringify(provider.profile_fields)]);
+
+  const profilePending = createProfile.isPending || updateProfile.isPending || deleteProfile.isPending;
+  const pending = enroll.isPending || remove.isPending || probe.isPending || profilePending;
   const launch = enroll.data?.launch ?? null;
-  const config = normalizeMachineEnrollConfig(provider.enroll_fields, configDraft);
+  const targetConfig = normalizeMachineEnrollConfig(effectiveEnrollFields, configDraft);
+  const profileConfig = normalizeMachineEnrollConfig(provider.profile_fields, profileConfigDraft);
+  const canEnrollTargets = provider.config_ready && (!provider.supports_profiles || profiles.length > 0);
 
   async function handleCopy(command: string) {
     await writeToClipboard(command);
@@ -82,6 +124,22 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
 
   function handleConfigChange(key: string, value: string | boolean) {
     setConfigDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleProfileConfigChange(key: string, value: string | boolean) {
+    setProfileConfigDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  function handleStartEditProfile(profile: MachineProviderProfile) {
+    setEditingProfileId(profile.profile_id);
+    setProfileLabelDraft(profile.label);
+    setProfileConfigDraft(initialDraft(provider.profile_fields));
+  }
+
+  function handleCancelEditProfile() {
+    setEditingProfileId(null);
+    setProfileLabelDraft("");
+    setProfileConfigDraft(initialDraft(provider.profile_fields));
   }
 
   async function handleRemove(targetId: string, label: string) {
@@ -97,6 +155,43 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
     await remove.mutateAsync(targetId);
   }
 
+  async function handleDeleteProfile(profile: MachineProviderProfile) {
+    if (profile.target_count > 0) return;
+    const accepted = await confirm(
+      `Delete profile ${profile.label}? Targets using this profile will no longer be able to connect until a replacement profile is assigned.`,
+      {
+        title: "Delete machine profile?",
+        confirmLabel: "Delete",
+        variant: "danger",
+      },
+    );
+    if (!accepted) return;
+    await deleteProfile.mutateAsync(profile.profile_id);
+    if (editingProfileId === profile.profile_id) handleCancelEditProfile();
+  }
+
+  async function handleSubmitProfile() {
+    if (editingProfileId) {
+      await updateProfile.mutateAsync({
+        profileId: editingProfileId,
+        body: {
+          label: profileLabelDraft || null,
+          config: profileConfig,
+        },
+      });
+    } else {
+      await createProfile.mutateAsync({
+        label: profileLabelDraft || null,
+        config: profileConfig,
+      });
+    }
+    handleCancelEditProfile();
+  }
+
+  const editingProfile = editingProfileId
+    ? profiles.find((profile) => profile.profile_id === editingProfileId) ?? null
+    : null;
+
   return (
     <>
       <ConfirmDialogSlot />
@@ -108,6 +203,11 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
               <span style={{ fontSize: 11, color: t.textDim }}>
                 {provider.ready_target_count}/{provider.target_count} ready
               </span>
+              {provider.supports_profiles ? (
+                <span style={{ fontSize: 11, color: t.textDim }}>
+                  {profiles.length} profile{profiles.length === 1 ? "" : "s"}
+                </span>
+              ) : null}
             </div>
             <div style={{ fontSize: 12, color: t.textDim }}>
               Driver: {provider.driver} · Integration: {provider.integration_name} · Status: {provider.integration_status}
@@ -141,7 +241,206 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
               color: t.textDim,
             }}
           >
-            Provider setup is incomplete. Configure the required settings on the integration page, then return here to enroll or probe targets.
+            Provider setup is incomplete. Configure the required provider-wide settings on the integration page, then return here to manage profiles and targets.
+          </div>
+        ) : null}
+
+        {provider.supports_profiles ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+              padding: 12,
+              borderRadius: 8,
+              border: `1px solid ${t.surfaceBorder}`,
+              background: t.surfaceRaised,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <KeyRound size={14} color={t.accent} />
+              <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Profiles</div>
+            </div>
+
+            {profiles.length === 0 ? (
+              <div style={{ fontSize: 12, color: t.textDim }}>
+                No profiles exist yet. Create one before enrolling targets for this provider.
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {profiles.map((profile, index) => (
+                  <div
+                    key={`${provider.provider_id}:${profile.profile_id}`}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: "12px 0",
+                      borderTop: index === 0 ? "none" : `1px solid ${t.surfaceBorder}`,
+                    }}
+                  >
+                    <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{profile.label}</span>
+                        <span style={{ fontSize: 11, color: t.textDim }}>
+                          {profile.target_count} target{profile.target_count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: t.textDim }}>
+                        {profile.summary || "No summary available"}
+                      </div>
+                      {profileConfiguredSecrets(profile).length ? (
+                        <div style={{ fontSize: 11, color: t.textDim }}>
+                          Secrets: {profileConfiguredSecrets(profile).join(", ")}
+                        </div>
+                      ) : null}
+                      <div style={{ fontSize: 11, color: t.textDim }}>
+                        Created {formatDateTime(profile.created_at) ?? "unknown"}
+                        {profile.updated_at ? ` · Updated ${formatDateTime(profile.updated_at) ?? profile.updated_at}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <button
+                        type="button"
+                        onClick={() => handleStartEditProfile(profile)}
+                        disabled={pending}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          borderRadius: 6,
+                          border: `1px solid ${t.surfaceBorder}`,
+                          background: "transparent",
+                          color: t.text,
+                          padding: "6px 10px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          opacity: pending ? 0.7 : 1,
+                        }}
+                      >
+                        <Pencil size={12} />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteProfile(profile)}
+                        disabled={pending || profile.target_count > 0}
+                        title={profile.target_count > 0 ? "Move or remove the targets using this profile before deleting it." : undefined}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          borderRadius: 6,
+                          border: `1px solid ${t.danger}`,
+                          background: t.dangerSubtle,
+                          color: t.danger,
+                          padding: "6px 10px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          opacity: pending || profile.target_count > 0 ? 0.55 : 1,
+                        }}
+                      >
+                        <Trash2 size={12} />
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+                padding: 12,
+                borderRadius: 8,
+                border: `1px solid ${t.surfaceBorder}`,
+                background: t.inputBg,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: t.text }}>
+                {editingProfile ? `Edit Profile: ${editingProfile.label}` : "Create profile"}
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: t.textDim }}>Label</span>
+                <input
+                  value={profileLabelDraft}
+                  onChange={(event) => setProfileLabelDraft(event.target.value)}
+                  placeholder="Profile label"
+                  style={{
+                    minHeight: 36,
+                    borderRadius: 6,
+                    border: `1px solid ${t.inputBorder}`,
+                    background: t.inputBg,
+                    color: t.text,
+                    padding: "8px 10px",
+                    fontSize: 12,
+                  }}
+                />
+              </label>
+              <MachineEnrollFields
+                fields={provider.profile_fields}
+                draft={profileConfigDraft}
+                onChange={handleProfileConfigChange}
+                disabled={pending || !provider.config_ready}
+                t={t}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div style={{ fontSize: 11, color: t.textDim }}>
+                  {editingProfile
+                    ? "Leave any secret field blank to preserve its current value."
+                    : "Profiles provide provider-specific credentials and trust data for targets."}
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {editingProfile ? (
+                    <button
+                      type="button"
+                      onClick={handleCancelEditProfile}
+                      disabled={pending}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        borderRadius: 6,
+                        border: `1px solid ${t.surfaceBorder}`,
+                        background: "transparent",
+                        color: t.text,
+                        padding: "8px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        opacity: pending ? 0.7 : 1,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitProfile()}
+                    disabled={pending || !provider.config_ready}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      borderRadius: 6,
+                      border: `1px solid ${t.accentBorder}`,
+                      background: t.accentSubtle,
+                      color: t.accent,
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      opacity: pending || !provider.config_ready ? 0.7 : 1,
+                    }}
+                  >
+                    <KeyRound size={14} />
+                    {editingProfile ? (updateProfile.isPending ? "Saving..." : "Save profile") : (createProfile.isPending ? "Creating..." : "Create profile")}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -177,22 +476,26 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
               </label>
             </div>
             <MachineEnrollFields
-              fields={provider.enroll_fields}
+              fields={effectiveEnrollFields}
               draft={configDraft}
               onChange={handleConfigChange}
-              disabled={pending || !provider.config_ready}
+              disabled={pending || !canEnrollTargets}
               t={t}
             />
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <div style={{ fontSize: 11, color: t.textDim }}>
-                {provider.enroll_fields?.length
-                  ? "Enter provider-specific target details, then enroll the machine."
-                  : "Enroll a new machine target for this provider."}
+                {!provider.config_ready
+                  ? "Provider setup is incomplete."
+                  : provider.supports_profiles && profiles.length === 0
+                    ? "Create a profile before enrolling targets for this provider."
+                    : effectiveEnrollFields.length
+                      ? "Enter provider-specific target details, then enroll the machine."
+                      : "Enroll a new machine target for this provider."}
               </div>
               <button
                 type="button"
-                onClick={() => enroll.mutate({ label: labelDraft || null, config })}
-                disabled={pending || !provider.config_ready}
+                onClick={() => enroll.mutate({ label: labelDraft || null, config: targetConfig })}
+                disabled={pending || !canEnrollTargets}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -204,7 +507,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                   padding: "8px 12px",
                   fontSize: 12,
                   fontWeight: 700,
-                  opacity: pending || !provider.config_ready ? 0.7 : 1,
+                  opacity: pending || !canEnrollTargets ? 0.7 : 1,
                 }}
               >
                 <Plug size={14} />
@@ -286,9 +589,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                 <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Monitor size={14} color={target.ready ? t.accent : t.textDim} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>
-                      {target.label}
-                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: t.text }}>{target.label}</span>
                     <span style={{ fontSize: 11, color: target.ready ? t.success : t.textDim }}>
                       {targetStateText(target)}
                     </span>
@@ -296,6 +597,11 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                   <div style={{ fontSize: 11, color: t.textDim }}>
                     {[target.hostname, target.platform].filter(Boolean).join(" · ") || target.target_id}
                   </div>
+                  {target.profile_label ? (
+                    <div style={{ fontSize: 11, color: t.textDim }}>
+                      Profile: {target.profile_label}
+                    </div>
+                  ) : null}
                   {target.reason ? (
                     <div style={{ fontSize: 11, color: t.textDim }}>
                       {target.reason}
@@ -398,26 +704,21 @@ export default function AdminMachinesPage() {
         )}
       />
 
-      <div
-        style={{
-          flex: 1,
-          overflow: "auto",
-        }}
-      >
+      <div style={{ flex: 1, overflow: "auto" }}>
         <div
           style={{
             display: "flex",
             flexDirection: "column",
             gap: 16,
-            padding: 20,
-            maxWidth: 960,
+            padding: 24,
+            maxWidth: 1040,
             margin: "0 auto",
             width: "100%",
             boxSizing: "border-box",
           }}
         >
           <div style={{ fontSize: 13, color: t.textDim, lineHeight: "20px" }}>
-            Machine enrollment and target lifecycle live here. Session-level lease grant and revoke remain chat-scoped.
+            Machine profile management, target enrollment, probing, and removal live here. Session-level lease grant and revoke remain chat-scoped.
           </div>
 
           {isLoading ? (
