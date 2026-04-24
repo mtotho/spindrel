@@ -1030,7 +1030,23 @@ _register(SlashCommandSpec(
 _register(SlashCommandSpec(
     id="sessions",
     label="/sessions",
-    description="Switch or split sessions in this channel (local)",
+    description="Switch sessions in this channel (local)",
+    surfaces=("channel", "session"),
+    local_only=True,
+))
+
+_register(SlashCommandSpec(
+    id="split",
+    label="/split",
+    description="Add a session split pane (local)",
+    surfaces=("channel", "session"),
+    local_only=True,
+))
+
+_register(SlashCommandSpec(
+    id="focus",
+    label="/focus",
+    description="Toggle focused chat layout (local)",
     surfaces=("channel", "session"),
     local_only=True,
 ))

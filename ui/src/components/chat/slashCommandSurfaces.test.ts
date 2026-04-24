@@ -13,6 +13,8 @@ const catalog: SlashCommandSpec[] = [
   { id: "model", label: "/model", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "theme", label: "/theme", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
   { id: "sessions", label: "/sessions", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
+  { id: "split", label: "/split", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
+  { id: "focus", label: "/focus", description: "", surfaces: ["channel", "session"], local_only: true, args: [] },
 ];
 
 describe("resolveAvailableSlashCommandIds", () => {
@@ -22,9 +24,9 @@ describe("resolveAvailableSlashCommandIds", () => {
         catalog,
         surface: "channel",
         enabled: true,
-        capabilities: ["clear", "scratch", "model", "theme", "sessions"],
+        capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "find", "effort", "clear", "scratch", "model", "theme", "sessions"],
+      ["help", "context", "find", "effort", "clear", "scratch", "model", "theme", "sessions", "split", "focus"],
     );
   });
 
@@ -34,9 +36,9 @@ describe("resolveAvailableSlashCommandIds", () => {
         catalog,
         surface: "session",
         enabled: true,
-        capabilities: ["model", "theme", "sessions"],
+        capabilities: ["model", "theme", "sessions", "split", "focus"],
       }),
-      ["help", "context", "model", "theme", "sessions"],
+      ["help", "context", "model", "theme", "sessions", "split", "focus"],
     );
   });
 

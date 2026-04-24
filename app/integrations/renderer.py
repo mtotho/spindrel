@@ -34,6 +34,10 @@ Renderers also declare two ClassVars:
   actually render. The outbox drainer (Phase D) and the in-process
   `IntegrationDispatcherTask` (this Phase B) silently skip events whose
   `kind.required_capabilities()` is not a subset.
+- `tool_result_rendering: ToolResultRenderingSupport | None` — optional
+  detailed declaration for rich tool-result envelopes. YAML manifests are
+  the source of truth when present; this ClassVar is the plugin/test
+  fallback.
 
 Phase B introduces this as the contract; no concrete renderer registers
 yet. Phase F replaces `integrations/slack/dispatcher.py` with
@@ -52,6 +56,7 @@ if TYPE_CHECKING:
     from app.domain.channel_events import ChannelEvent
     from app.domain.dispatch_target import DispatchTarget
     from app.domain.outbound_action import OutboundAction
+    from integrations.tool_output import ToolResultRenderingSupport
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +120,7 @@ class ChannelRenderer(Protocol):
 
     integration_id: ClassVar[str]
     capabilities: ClassVar["frozenset[Capability]"]
+    tool_result_rendering: ClassVar["ToolResultRenderingSupport | None"]
 
     async def render(
         self,
@@ -190,6 +196,7 @@ class SimpleRenderer:
 
     integration_id: ClassVar[str]
     capabilities: ClassVar["frozenset[Capability]"]
+    tool_result_rendering: ClassVar["ToolResultRenderingSupport | None"] = None
 
     async def send_text(
         self,

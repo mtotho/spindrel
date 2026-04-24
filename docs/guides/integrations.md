@@ -90,7 +90,8 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `webhook` | Inbound webhook path + description. Displayed in admin UI so users configure the external service. | `router.py` owns the route | active |
 | `binding` | Per-channel channel/entity picker — `client_id_prefix`, `suggestions_endpoint`, `config_fields`. See [Channel binding model](#channel-binding-model). | `integrations/<id>/router.py` serves suggestions | active |
 | `target` | Typed dispatch target (auto-generates a frozen dataclass) or points to `target.py` for custom logic. | `integrations/__init__.py::discover_targets` | active |
-| `capabilities` | Renderer capability flags (text, rich_text, threading, reactions, attachments, streaming_edit, approval_buttons, ephemeral, modals, …). Overrides renderer ClassVar. See [Integration Depth Playbook](#capability-model). | `app/services/capability_gate.py` | active |
+| `capabilities` | Renderer capability flags (text, rich_text, rich_tool_results, threading, reactions, attachments, streaming_edit, approval_buttons, ephemeral, modals, …). Overrides renderer ClassVar. See [Integration Depth Playbook](#capability-model). | `app/services/capability_gate.py` | active |
+| `tool_result_rendering` | Detailed support matrix for read-only rich tool-result envelopes: supported display modes, content types, view keys, fallback behavior, placement, and platform limits. YAML wins over renderer ClassVar. | `integrations.tool_output` + renderer adapter | active |
 | `activation` | Per-channel tool/skill/MCP injection manifest. When a channel activates an integration, these surface. | `app/agent/channel_overrides.py` | active |
 | `events` | Event types the integration can emit (used by task-trigger UI). | `integrations/__init__.py::discover_events` | active |
 | `mcp_servers` | MCP servers this integration contributes. URL or container image. | `app/services/mcp_servers.py::seed_from_integrations` | active |
@@ -184,6 +185,74 @@ Capabilities declare what a renderer can do. The dispatcher reads declared capab
 - **Under-declaration is a missed affordance.** Platform supports modals but you didn't declare `MODALS`? The `open_modal` tool short-circuits with `unsupported=True`.
 
 For the full list of capabilities and the Slack pilot's 5-phase depth recipe, see [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md).
+
+### Rich tool results
+
+Rich tool results are advisory presentation layered onto durable `NEW_MESSAGE` delivery. The message text is always the baseline. A renderer that declares `rich_tool_results` and a `tool_result_rendering` block may render `Message.metadata.tool_results` as native read-only cards; renderers without that support ignore the metadata and deliver text normally.
+
+The shared SDK boundary is `integrations.tool_output`, re-exported from `integrations.sdk`. Renderers call `build_tool_result_presentation(...)` to get badges, portable cards, and unsupported-envelope fallbacks. Platform adapters then translate portable cards to Block Kit, embeds, or another native representation.
+
+V1 rules:
+
+- `tool_result_rendering` is manifest-first; optional renderer ClassVar declarations exist for tests and plugin renderers.
+- Slack and Discord render rich results today. BlueBubbles and GitHub continue plain-text fallback until their adapters are deliberately added.
+- Rich results are read-only. Widget/component actions are not exported as Slack buttons; approvals stay on `approval_buttons`.
+- `tool_output_display` remains the channel-level policy for `compact | full | none`.
+- HTML and native widget envelopes degrade to compact badges outside the web host.
+
+Producer-side rules:
+
+- Return a normal textual result first. That text is the durable baseline for every renderer.
+- Add `_envelope` only when the tool has a better structured presentation than its raw text.
+- Prefer renderer-neutral `view_key` + `data` when the shape is common enough for core to own, such as `core.search_results`.
+- Use transcript-safe content types for chat integrations: `text/plain`, `text/markdown`, `application/json`, `application/vnd.spindrel.components+json`, `application/vnd.spindrel.diff+text`, or `application/vnd.spindrel.file-listing+json`.
+- Use `application/vnd.spindrel.html+interactive` only for web-hosted widgets. Slack and Discord intentionally fall it back to a badge.
+
+Example tool result with a semantic view key:
+
+```json
+{
+  "summary": "Found 2 results for python asyncio timeout.",
+  "_envelope": {
+    "content_type": "application/vnd.spindrel.components+json",
+    "plain_body": "Found 2 results for python asyncio timeout.",
+    "display": "inline",
+    "display_label": "Search results",
+    "view_key": "core.search_results",
+    "data": {
+      "query": "python asyncio timeout",
+      "count": 2,
+      "results": [
+        {
+          "title": "asyncio.wait_for",
+          "url": "https://docs.python.org/3/library/asyncio-task.html",
+          "content": "Run an awaitable with a timeout."
+        }
+      ]
+    }
+  }
+}
+```
+
+Example transcript-safe JSON result:
+
+```json
+{
+  "summary": "Command exited with status 0.",
+  "_envelope": {
+    "content_type": "application/json",
+    "plain_body": "Command exited with status 0.",
+    "display": "inline",
+    "display_label": "Command result",
+    "view_key": "core.command_result",
+    "data": {
+      "status": "0",
+      "duration_ms": "142",
+      "target": "local"
+    }
+  }
+}
+```
 
 ## Lifecycle hooks
 

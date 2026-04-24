@@ -97,6 +97,14 @@ An `app_mention` with no text after the mention still runs the agent (so you can
 
 Active messages go through the full agent pipeline: RAG retrieval, tool calls, LLM response. The response is posted to the channel attributed to the responding bot.
 
+Slack declares `rich_tool_results` and a `tool_result_rendering` support matrix in `integrations/slack/integration.yaml`. The renderer reads final `NEW_MESSAGE` metadata and applies the channel's `tool_output_display` policy:
+
+- `compact` adds a single tool-badge context block to the assistant message.
+- `full` renders supported read-only tool-result envelopes as Block Kit cards in the same assistant message, then adds compact badges for unsupported envelopes.
+- `none` suppresses tool-result presentation.
+
+Slack v1 supports transcript-safe envelopes: text/markdown/json, component envelopes, diff/file-listing envelopes, and selected core `view_key`s such as `core.search_results`. Interactive HTML/native widgets fall back to badges. Widget actions are not mapped to Slack buttons; approvals continue through the separate `approval_buttons` capability.
+
 ### Passive messages — stored silently, no reply
 
 A message is passive when it arrives without @mentioning the app and `require_mention = true` (the default). Passive messages are:

@@ -17,6 +17,8 @@ import pytest
 from app.domain.capability import Capability
 from app.integrations import renderer_registry
 from app.integrations.renderer import ChannelRenderer, DeliveryReceipt
+from app.services import integration_manifests as manifests_mod
+from integrations.sdk import ToolResultRenderingSupport
 
 
 class _FakeRenderer:
@@ -55,8 +57,11 @@ class _SecondRenderer:
 @pytest.fixture(autouse=True)
 def _clean_registry():
     renderer_registry.clear()
+    before_manifests = dict(manifests_mod._manifests)
     yield
     renderer_registry.clear()
+    manifests_mod._manifests.clear()
+    manifests_mod._manifests.update(before_manifests)
 
 
 class TestRegister:
@@ -108,6 +113,33 @@ class TestRegister:
 
         with pytest.raises(ValueError, match="frozenset"):
             renderer_registry.register(NoneCaps())  # type: ignore[arg-type]
+
+    def test_manifest_tool_result_rendering_overrides_classvar(self):
+        manifests_mod._manifests["fake"] = {
+            "id": "fake",
+            "capabilities": ["text", "rich_tool_results"],
+            "tool_result_rendering": {
+                "modes": ["full"],
+                "content_types": ["application/vnd.spindrel.components+json"],
+                "view_keys": ["core.search_results"],
+            },
+        }
+
+        renderer_registry.register(_FakeRenderer())
+
+        support = _FakeRenderer.tool_result_rendering
+        assert isinstance(support, ToolResultRenderingSupport)
+        assert support.content_types == frozenset({"application/vnd.spindrel.components+json"})
+        assert support.view_keys == frozenset({"core.search_results"})
+
+    def test_python_tool_result_rendering_dict_is_normalized(self):
+        class RichRenderer(_FakeRenderer):
+            integration_id = "rich"
+            tool_result_rendering = {"content_types": ["text/plain"]}
+
+        renderer_registry.register(RichRenderer())
+
+        assert RichRenderer.tool_result_rendering.content_types == frozenset({"text/plain"})
 
 
 class TestAllRenderers:

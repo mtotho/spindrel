@@ -22,6 +22,11 @@ class Capability(StrEnum):
     RICH_TEXT = "rich_text"
     """Markdown/mrkdwn/Block Kit / embeds — formatted text."""
 
+    RICH_TOOL_RESULTS = "rich_tool_results"
+    """The renderer can turn structured tool-result envelopes into native,
+    read-only platform presentation. This is advisory for NEW_MESSAGE
+    delivery; text fallback remains the durable baseline."""
+
     THREADING = "threading"
     """Slack-style threaded replies. (Currently unused — see ActorRef and
     Slack-thread-vs-channel discussion in vault Track.)"""

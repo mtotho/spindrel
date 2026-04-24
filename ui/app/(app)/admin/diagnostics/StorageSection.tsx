@@ -77,7 +77,7 @@ export function StorageSection() {
             Data retention is <strong style={{ color: t.text }}>off</strong> — operational data is kept indefinitely.
           </span>
           <a
-            href="/admin/settings#Data%20Retention"
+            href="/settings/system#Operations"
             style={{
               display: "inline-flex", flexDirection: "row",
               alignItems: "center",

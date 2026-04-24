@@ -236,6 +236,27 @@ class TestRendererBranching:
         assert "Feels like" in serialized
         assert "Humidity" in serialized
 
+    async def test_full_badges_unsupported_html_widget(self, fake_http):
+        html_env = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "body": "<div>weather</div>",
+            "plain_body": "Weather widget",
+            "display": "inline",
+            "truncated": False,
+            "record_id": None,
+            "byte_size": 200,
+            "display_label": "Lambertville, NJ",
+            "tool_name": "get_weather",
+        }
+        metadata = {"tool_results": [_weather_envelope_dict(), html_env]}
+        posts = await _render("full", fake_http, metadata)
+
+        assert len(posts) == 1
+        serialized = str(posts[0]["blocks"])
+        assert "Humidity" in serialized
+        assert ":wrench:" in serialized
+        assert "get_weather" in serialized
+
     async def test_none_skips_tool_output(self, fake_http):
         metadata = {"tool_results": [_weather_envelope_dict()]}
         posts = await _render("none", fake_http, metadata)

@@ -12,6 +12,8 @@ import pytest
 from integrations.sdk import (
     ToolBadge,
     ToolOutputDisplay,
+    ToolResultRenderingSupport,
+    build_tool_result_presentation,
     extract_tool_badges,
 )
 
@@ -104,3 +106,74 @@ class TestExtractToolBadges:
     def test_non_string_display_label_coerced(self):
         envelopes = [{"tool_name": "x", "display_label": 42}]
         assert extract_tool_badges(envelopes)[0].display_label == "42"
+
+
+class TestBuildToolResultPresentation:
+    def test_compact_mode_returns_badges_only(self):
+        envelopes = [{"tool_name": "get_weather", "display_label": "NJ"}]
+
+        presentation = build_tool_result_presentation(envelopes, display_mode="compact")
+
+        assert presentation.cards == ()
+        assert presentation.badges == (ToolBadge("get_weather", "NJ"),)
+
+    def test_full_mode_turns_components_into_portable_card(self):
+        envelopes = [{
+            "content_type": "application/vnd.spindrel.components+json",
+            "tool_name": "get_weather",
+            "display_label": "Lambertville",
+            "body": (
+                '{"v":1,"components":['
+                '{"type":"heading","text":"Lambertville, NJ"},'
+                '{"type":"properties","items":[{"label":"Humidity","value":"69%"}]},'
+                '{"type":"links","items":[{"title":"Forecast","url":"https://example.test"}]}'
+                ']}'
+            ),
+        }]
+
+        presentation = build_tool_result_presentation(envelopes, display_mode="full")
+
+        assert len(presentation.cards) == 1
+        card = presentation.cards[0]
+        assert card.title == "Lambertville, NJ"
+        assert card.fields[0].label == "Humidity"
+        assert card.links[0].url == "https://example.test"
+        assert presentation.unsupported_badges == ()
+
+    def test_full_mode_badges_unsupported_envelopes(self):
+        support = ToolResultRenderingSupport.from_manifest({
+            "content_types": ["application/vnd.spindrel.components+json"],
+            "unsupported_fallback": "badge",
+        })
+        envelopes = [{
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "tool_name": "get_weather",
+            "display_label": "Lambertville",
+        }]
+
+        presentation = build_tool_result_presentation(
+            envelopes,
+            display_mode="full",
+            support=support,
+        )
+
+        assert presentation.cards == ()
+        assert presentation.unsupported_badges == (ToolBadge("get_weather", "Lambertville"),)
+
+    def test_core_search_results_view_key_supported_by_default(self):
+        envelopes = [{
+            "content_type": "application/vnd.spindrel.components+json",
+            "view_key": "core.search_results",
+            "tool_name": "web_search",
+            "data": {
+                "query": "espresso",
+                "count": 1,
+                "results": [{"title": "Result", "url": "https://example.test", "content": "Summary"}],
+            },
+        }]
+
+        presentation = build_tool_result_presentation(envelopes, display_mode="full")
+
+        assert presentation.cards[0].title == "Search: espresso"
+        assert presentation.cards[0].status == "1 result(s)"
+        assert presentation.cards[0].links[0].title == "Result"

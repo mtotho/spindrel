@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import {
+  addChannelChatPane,
   addChannelSessionPanel,
   buildChannelSessionChatSource,
   buildChannelSessionPickerEntries,
+  buildChannelSessionPickerGroups,
   buildChannelSessionRoute,
   buildScratchChatSource,
   getScratchSessionLabel,
   isUntouchedDraftSession,
+  normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
   removeChannelSessionPanel,
+  replaceFocusedChannelChatPane,
+  resizeChannelChatPanes,
 } from "./channelSessionSurfaces.js";
 
 assert.deepEqual(normalizeChannelSessionPanels(null), []);
@@ -148,3 +153,30 @@ assert.equal(catalogEntries.length, 1);
 assert.equal(catalogEntries[0]?.kind, "channel");
 assert.deepEqual(catalogEntries[0]?.surface, { kind: "channel", sessionId: "old" });
 assert.equal(catalogEntries[0]?.matches?.[0]?.preview, "rollback checklist");
+
+const migratedLayout = normalizeChannelChatPaneLayout(null, [
+  { kind: "scratch", sessionId: "scratch-a" },
+  { kind: "channel", sessionId: "old" },
+]);
+assert.deepEqual(migratedLayout.panes.map((pane) => pane.id), ["primary", "scratch:scratch-a", "channel:old"]);
+assert.equal(migratedLayout.focusedPaneId, "primary");
+
+const splitLayout = addChannelChatPane(migratedLayout, { kind: "scratch", sessionId: "scratch-a" });
+assert.deepEqual(splitLayout.panes.map((pane) => pane.id), ["primary", "scratch:scratch-a", "channel:old"]);
+assert.equal(splitLayout.focusedPaneId, "scratch:scratch-a");
+
+const replacedLayout = replaceFocusedChannelChatPane(splitLayout, { kind: "channel", sessionId: "later" });
+assert.deepEqual(replacedLayout.panes.map((pane) => pane.id), ["primary", "channel:later", "channel:old"]);
+assert.equal(replacedLayout.focusedPaneId, "channel:later");
+
+const resizedLayout = resizeChannelChatPanes(replacedLayout, "primary", "channel:later", 0.1);
+assert.equal(Math.round(Object.values(resizedLayout.widths).reduce((sum, width) => sum + width, 0) * 1000), 1000);
+assert.ok(resizedLayout.widths.primary > replacedLayout.widths.primary);
+
+const browseGroups = buildChannelSessionPickerGroups(catalogEntries, "");
+assert.deepEqual(browseGroups.map((group) => group.id), ["previous"]);
+assert.deepEqual(browseGroups[0]?.entries.map((entry) => entry.id), ["old"]);
+
+const searchGroups = buildChannelSessionPickerGroups(catalogEntries, "rollback");
+assert.deepEqual(searchGroups.map((group) => group.id), ["results"]);
+assert.deepEqual(searchGroups[0]?.entries.map((entry) => entry.id), ["old"]);

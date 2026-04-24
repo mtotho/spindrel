@@ -500,7 +500,7 @@ export default function BotEditorScreen() {
               <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
                 Pre-processes incoming attachments before the agent loop begins.
                 Override the global defaults here, or{" "}
-                <a href="/settings#Attachments" style={{ color: t.accent, textDecoration: "none" }}>
+                <a href="/settings/system#Media%20%26%20Voice" style={{ color: t.accent, textDecoration: "none" }}>
                   edit global attachment settings &rarr;
                 </a>
               </div>

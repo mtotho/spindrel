@@ -53,8 +53,8 @@ export function DreamingTab() {
     <div className="flex flex-col gap-7">
       <InfoBanner variant="info" icon={<Moon size={13} />}>
         Dreaming is the background maintenance surface for memory hygiene and skill review. Global defaults live in{" "}
-        <a href="/settings#Memory & Learning" className="font-semibold text-accent hover:underline">
-          Settings / Memory &amp; Learning
+        <a href="/settings/system#Memory%20%26%20Context" className="font-semibold text-accent hover:underline">
+          Settings / Memory &amp; Context
         </a>
         .
       </InfoBanner>

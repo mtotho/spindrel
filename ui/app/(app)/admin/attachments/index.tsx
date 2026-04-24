@@ -641,7 +641,7 @@ export default function AttachmentsPage() {
             <span style={{ fontSize: 11, color: t.textDim }}>{data.total} results</span>
           )}
           <div style={{ flex: 1 }} />
-          <Link to="/settings#Attachments">
+          <Link to="/settings/system#Media%20%26%20Voice">
             <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, cursor: "pointer" }}>
               <Settings size={12} color={t.accent} />
               <span style={{ fontSize: 11, color: t.accent }}>Settings</span>

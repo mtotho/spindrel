@@ -14,7 +14,7 @@ from pathlib import Path
 from playwright.async_api import TimeoutError as PWTimeoutError
 
 from .browser import AuthBundle, browser_context
-from .specs import ScreenshotSpec
+from .specs import Action, ScreenshotSpec
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,41 @@ class CaptureResult:
     output: Path
     status: str                    # "ok" | "wait-timeout" | "nav-error" | "other"
     detail: str | None = None
+
+
+async def _run_actions(page, actions: list[Action]) -> None:
+    """Execute pre-capture interactions in order.
+
+    Each action either succeeds or raises — no silent skips, no sleeps. Waits
+    use Playwright's default per-call timeout (5s) which is tight enough to
+    fail fast when a selector is wrong.
+    """
+    for a in actions:
+        if a.kind == "click":
+            if not a.selector:
+                raise ValueError("action kind='click' requires selector")
+            await page.click(a.selector, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "fill":
+            if not a.selector or a.value is None:
+                raise ValueError("action kind='fill' requires selector and value")
+            await page.fill(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "press":
+            if a.value is None:
+                raise ValueError("action kind='press' requires value (key)")
+            if a.selector:
+                await page.press(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
+            else:
+                await page.keyboard.press(a.value)
+        elif a.kind == "select":
+            if not a.selector or a.value is None:
+                raise ValueError("action kind='select' requires selector and value")
+            await page.select_option(a.selector, a.value, timeout=WAIT_TIMEOUT_MS)
+        elif a.kind == "wait_for":
+            if not a.selector:
+                raise ValueError("action kind='wait_for' requires selector")
+            await page.wait_for_selector(a.selector, timeout=WAIT_TIMEOUT_MS)
+        else:
+            raise ValueError(f"unknown action kind: {a.kind!r}")
 
 
 async def _wait_for(page, spec: ScreenshotSpec) -> None:
@@ -103,6 +138,21 @@ async def capture_batch(
                             await page.wait_for_timeout(250)  # settle after synthetic click
                         except Exception as e:  # pragma: no cover
                             logger.warning("pre_capture_js failed for %s: %s", spec.name, e)
+
+                    if spec.actions:
+                        try:
+                            await _run_actions(page, spec.actions)
+                        except PWTimeoutError as e:
+                            results.append(
+                                CaptureResult(
+                                    name=spec.name,
+                                    output=out_path,
+                                    status="wait-timeout",
+                                    detail=f"action: {e}",
+                                )
+                            )
+                            await page.close()
+                            continue
 
                     await page.screenshot(path=str(out_path), full_page=spec.full_page)
                     results.append(CaptureResult(name=spec.name, output=out_path, status="ok"))

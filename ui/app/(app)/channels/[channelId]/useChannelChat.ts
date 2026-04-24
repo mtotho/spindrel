@@ -31,6 +31,7 @@ export interface UseChannelChatOptions {
   } | undefined;
   activeFile: string | null;
   onOpenSessions?: () => void;
+  onOpenSessionSplit?: () => void;
 }
 
 export interface UseChannelChatReturn {
@@ -88,7 +89,7 @@ function makeClientLocalId(): string {
   return `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export function useChannelChat({ channelId, channel, activeFile, onOpenSessions }: UseChannelChatOptions): UseChannelChatReturn {
+export function useChannelChat({ channelId, channel, activeFile, onOpenSessions, onOpenSessionSplit }: UseChannelChatOptions): UseChannelChatReturn {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
 
@@ -594,7 +595,7 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions 
       catalog: slashCatalog,
       surface: "channel",
       enabled: !!channelId,
-      capabilities: ["clear", "scratch", "model", "theme", "sessions"],
+      capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
     }),
     [channelId, slashCatalog],
   );
@@ -644,8 +645,14 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions 
       sessions: () => {
         onOpenSessions?.();
       },
+      split: () => {
+        onOpenSessionSplit?.();
+      },
+      focus: () => {
+        window.dispatchEvent(new CustomEvent("spindrel:channel-focus-layout"));
+      },
     }),
-    [channelId, channel?.bot_id, modelGroups, navigate, onOpenSessions, queryClient, setMessages, updateChannelSettings],
+    [channelId, channel?.bot_id, modelGroups, navigate, onOpenSessionSplit, onOpenSessions, queryClient, setMessages, updateChannelSettings],
   );
 
   const handleSlashCommand = useSlashCommandExecutor({

@@ -1,8 +1,9 @@
-import { createBrowserRouter, Navigate, Outlet, useParams } from "react-router-dom";
+import { createBrowserRouter, Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { lazy } from "react";
 import { RootLayout } from "./layouts/RootLayout";
 import { AppShell } from "./components/layout/AppShell";
 import { AdminRoute } from "./components/routing/AdminRoute";
+import { useIsAdmin } from "./hooks/useScope";
 
 /** Legacy redirect: `/admin/widget-packages/:packageId` → `/widgets/dev?id=...#templates`.
  *  The editor now lives inside the Widget dev panel as the Templates tab. */
@@ -18,6 +19,12 @@ function ChannelDashboardSettingsRedirect() {
   return <Navigate to={`/channels/${channelId}/settings?from=dashboard#dashboard`} replace />;
 }
 
+function SettingsIndexRedirect() {
+  const isAdmin = useIsAdmin();
+  const { hash } = useLocation();
+  return <Navigate to={`${isAdmin ? "/settings/system" : "/settings/account"}${hash}`} replace />;
+}
+
 // ---------------------------------------------------------------------------
 // Lazy-loaded pages — keeps initial bundle small
 // ---------------------------------------------------------------------------
@@ -28,7 +35,6 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 
 // App root
 const HomePage = lazy(() => import("@/app/(app)/index"));
-const SettingsPage = lazy(() => import("@/app/(app)/settings"));
 const SettingsShell = lazy(() =>
   import("@/app/(app)/settings/SettingsShell").then((m) => ({
     default: m.SettingsShell,
@@ -37,6 +43,7 @@ const SettingsShell = lazy(() =>
 const SettingsAccountPage = lazy(() => import("@/app/(app)/settings/account"));
 const SettingsChannelsPage = lazy(() => import("@/app/(app)/settings/channels"));
 const SettingsBotsPage = lazy(() => import("@/app/(app)/settings/bots"));
+const SettingsSystemPage = lazy(() => import("@/app/(app)/settings/system"));
 
 // Channels
 const NewChannelPage = lazy(() => import("@/app/(app)/channels/new"));
@@ -121,14 +128,15 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <HomePage /> },
-          { path: "settings", element: <SettingsPage /> },
           {
             path: "settings",
             element: <SettingsShell />,
             children: [
+              { index: true, element: <SettingsIndexRedirect /> },
               { path: "account", element: <SettingsAccountPage /> },
               { path: "channels", element: <SettingsChannelsPage /> },
               { path: "bots", element: <SettingsBotsPage /> },
+              { path: "system", element: <AdminRoute><SettingsSystemPage /></AdminRoute> },
             ],
           },
           { path: "profile", element: <Navigate to="/settings/account" replace /> },

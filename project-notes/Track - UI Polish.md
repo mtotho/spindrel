@@ -34,6 +34,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Reframed `/admin/usage` around anomaly investigation instead of billing-only reporting: stat health strip, token timeline markers, trace-burst/top-contributor signals, source/channel filters, shared `TraceInspector` drilldowns, and low-chrome trend charts.
 - [x] Added canonical `TraceInspector` and token-driven chart guidance to `ui-components.md` so usage, task, heartbeat, and debugging drilldowns have one shared trace preview path.
 - [x] Corrected trace inspection into a global modal drawer instead of a page-local sticky panel: `TraceInspectorRoot` now portals from `AppShell`, usage/traces rows call the global opener, and the drawer/full trace page share one low-chrome `TraceTimeline` renderer.
+- [x] Rebuilt the settings foundation: `/settings` is now one nested shell with role-aware redirect, Account owns personal/device preferences, Channels/Bots are catalog-first self-service pages, and admin System moved to a domain-first control center with an Advanced registry fallback. Palette/admin deep links now target `/settings/system#...` instead of the retired generic page.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
@@ -192,6 +193,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Header sessions button now uses the unified picker** — the top-right `Sessions` button and mobile overflow action open `SessionPickerOverlay` directly instead of the legacy scratch-session menu.
 - [x] **Session switching boundary hardening** — slash-command availability now resolves through one pure surface helper, channel-session activation lives behind a route-local controller hook, channel/scratch session API hooks have a dedicated module, and backend channel-session catalog/search construction moved out of the channel router into a service.
 - [x] **Generic session split panels are writable and web-only** — the split panel model now accepts both scratch and channel-session surfaces, `ChatSession` has a fixed-session source for historical/non-primary channel sessions, and secondary sends use `external_delivery: none` so only the primary session mirrors to integrations. Channel settings now calls out that dispatcher bindings mirror the primary session only.
+- [x] **Session canvas panes replace the temporary split-panel model** — `/sessions` now browses/switches with grouped empty-state rows, `/split` opens the same picker in add-pane mode with already-visible sessions hidden, and the chat area persists up to three first-class panes with headers, close/rename/make-primary actions, focused-pane replacement, and draggable width gutters.
+- [x] **Focused chat layout is commandable** — `/focus`, This Channel palette action, and the existing keyboard shortcut now collapse both side panels plus the floating top chip rail into a compact top-edge handle, with prior chrome restored on the next toggle.
+- [x] **Session pane boundary cleaned up** — stale side-panel modules were removed, legacy `sessionPanels` remains migration-only, and `channelSessionSurfaces` owns pane normalization, resize math, picker grouping, and route/source helpers.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -218,6 +222,12 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after renderer-variant split + persisted tool auto-open removal
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after persisted ordered-item collapse in `MessageBubble`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after `transcript_entries` stream→settled parity fix
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after session canvas panes + focus layout (clean before the later dirty-tree settings route deletion surfaced)
+- [ ] Final rerun of `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` is currently blocked by unrelated `src/router.tsx` import failure for deleted `ui/app/(app)/settings/account.tsx`.
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/src/components/chat/slashCommandSurfaces.test.js`
+- [x] `cd /home/mtoth/personal/agent-server && python -m py_compile app/services/slash_commands.py`
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_loop_helpers.py tests/unit/test_sessions.py -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after backend `transcript_entries` persistence + settled transcript fallback fix
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`

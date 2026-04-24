@@ -32,7 +32,8 @@ _KNOWN_KEYS = {
     "sidebar_section",
     "debug_actions", "api_permissions", "dashboard_modules",
     "target", "process", "capabilities", "provides", "events",
-    "tool_widgets", "widget_presets", "tool_families", "machine_control",
+    "tool_result_rendering", "tool_widgets", "widget_presets",
+    "tool_families", "machine_control",
 }
 
 # Keys passed through as-is when converting manifest dicts to SETUP-compatible format.
@@ -42,7 +43,8 @@ PASSTHROUGH_KEYS = (
     "mcp_servers", "docker_compose", "web_ui",
     "sidebar_section", "debug_actions",
     "api_permissions", "dashboard_modules",
-    "target", "process", "capabilities", "provides", "events", "machine_control",
+    "target", "process", "capabilities", "provides", "events",
+    "tool_result_rendering", "machine_control",
 )
 
 
@@ -304,6 +306,15 @@ def get_capabilities(integration_id: str) -> frozenset[str] | None:
     return frozenset(caps)
 
 
+def get_tool_result_rendering(integration_id: str) -> dict | None:
+    """Return rich tool-result support from the manifest cache, if declared."""
+    manifest = _manifests.get(integration_id)
+    if not manifest:
+        return None
+    spec = manifest.get("tool_result_rendering")
+    return spec if isinstance(spec, dict) else None
+
+
 def set_detected_provides(integration_id: str, detected: set[str]) -> None:
     """Store auto-detected module list on the in-memory manifest."""
     if integration_id in _manifests:
@@ -323,6 +334,44 @@ def validate_capabilities() -> None:
             logger.warning(
                 "Integration '%s' declares unknown capabilities: %s (valid: %s)",
                 iid, sorted(unknown), sorted(valid),
+            )
+
+
+def validate_tool_result_rendering() -> None:
+    """Warn about malformed rich tool-result rendering declarations."""
+    valid_modes = {"compact", "full", "none"}
+    for iid, manifest in _manifests.items():
+        spec = manifest.get("tool_result_rendering")
+        if spec is None:
+            continue
+        if not isinstance(spec, dict):
+            logger.warning(
+                "Integration '%s' declares tool_result_rendering but it is not a mapping",
+                iid,
+            )
+            continue
+        modes = spec.get("modes", [])
+        if not isinstance(modes, list) or any(m not in valid_modes for m in modes):
+            logger.warning(
+                "Integration '%s' has invalid tool_result_rendering.modes: %r",
+                iid,
+                modes,
+            )
+        for key in ("content_types", "view_keys"):
+            value = spec.get(key, [])
+            if not isinstance(value, list) or any(
+                not isinstance(v, str) or not v.strip() for v in value
+            ):
+                logger.warning(
+                    "Integration '%s' has invalid tool_result_rendering.%s: %r",
+                    iid,
+                    key,
+                    value,
+                )
+        if spec.get("interactive") not in (None, False):
+            logger.warning(
+                "Integration '%s' declares interactive tool_result_rendering; only read-only rendering is supported",
+                iid,
             )
 
 

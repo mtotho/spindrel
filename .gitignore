@@ -91,3 +91,6 @@ data/
 
 # MkDocs build output
 site/
+
+# Quickstart video output (derived artifact — storyboard is the source of truth)
+docs/videos/

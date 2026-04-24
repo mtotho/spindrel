@@ -128,7 +128,12 @@ def _turn_ended(
     )
 
 
-def _new_message(content: str = "hi") -> ChannelEvent:
+def _new_message(
+    content: str = "hi",
+    *,
+    metadata: dict | None = None,
+    correlation_id: str | None = None,
+) -> ChannelEvent:
     cid = uuid.uuid4()
     return ChannelEvent(
         channel_id=cid,
@@ -142,6 +147,8 @@ def _new_message(content: str = "hi") -> ChannelEvent:
                 created_at=datetime.now(timezone.utc),
                 actor=ActorRef.bot("test-bot"),
                 channel_id=cid,
+                metadata=metadata,
+                correlation_id=correlation_id,
             ),
         ),
     )
@@ -161,6 +168,7 @@ class TestDiscordRendererRegistration:
     def test_capability_set(self):
         assert Capability.STREAMING_EDIT in DiscordRenderer.capabilities
         assert Capability.TEXT in DiscordRenderer.capabilities
+        assert Capability.RICH_TOOL_RESULTS in DiscordRenderer.capabilities
         assert Capability.APPROVAL_BUTTONS in DiscordRenderer.capabilities
         # Discord doesn't claim THREADING since the delivery layer
         # doesn't model Discord threads yet.
@@ -372,6 +380,60 @@ class TestNewMessage:
         assert receipt.success is True
         assert len(fake_http.calls) == 1
         assert fake_http.calls[0]["method"] == "POST"
+
+    async def test_full_tool_results_post_discord_embeds(self, fake_http, monkeypatch):
+        async def display_mode(_channel_id: str) -> str:
+            return "full"
+
+        monkeypatch.setattr(discord_renderer_mod, "_resolve_tool_output_display", display_mode)
+        fake_http.set_response({"id": "msg-3"})
+        renderer = DiscordRenderer()
+        receipt = await renderer.render(
+            _new_message(
+                "Search complete",
+                metadata={
+                    "tool_results": [{
+                        "tool_name": "web_search",
+                        "display_label": "Web search",
+                        "content_type": "application/json",
+                        "body": '{"answer": "42"}',
+                    }],
+                },
+            ),
+            _target("888"),
+        )
+
+        assert receipt.success is True
+        body = fake_http.calls[0]["body"]
+        assert body["content"] == "Search complete"
+        assert body["embeds"][0]["title"] == "Web search"
+        assert "answer" in body["embeds"][0]["description"]
+
+    async def test_compact_tool_results_append_badges(self, fake_http, monkeypatch):
+        async def display_mode(_channel_id: str) -> str:
+            return "compact"
+
+        monkeypatch.setattr(discord_renderer_mod, "_resolve_tool_output_display", display_mode)
+        fake_http.set_response({"id": "msg-3"})
+        renderer = DiscordRenderer()
+        await renderer.render(
+            _new_message(
+                "Done",
+                metadata={
+                    "tool_results": [{
+                        "tool_name": "web_search",
+                        "display_label": "Web search",
+                        "content_type": "application/json",
+                        "body": '{"answer": "42"}',
+                    }],
+                },
+            ),
+            _target("888"),
+        )
+
+        body = fake_http.calls[0]["body"]
+        assert "Tools: `web_search` - Web search" in body["content"]
+        assert "embeds" not in body
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ from app.services.mcp_servers import load_mcp_servers, seed_from_yaml as seed_mc
 from app.services.integration_manifests import (
     seed_manifests, load_manifests,
     validate_capabilities, validate_provides, validate_manifest_consistency,
+    validate_tool_result_rendering,
     get_all_manifests,
 )
 
@@ -493,6 +494,7 @@ async def lifespan(application: FastAPI):
 
     # Validate integration manifests against runtime state
     validate_capabilities()
+    validate_tool_result_rendering()
     validate_provides()
     validate_manifest_consistency()
 

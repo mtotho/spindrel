@@ -27,10 +27,13 @@ import httpx
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
+    ToolOutputDisplay, ToolResultRenderingSupport,
+    get_channel_for_integration,
 )
 from integrations.discord.client import bot_attribution
 from integrations.discord.formatting import format_response_for_discord, split_for_discord
 from integrations.discord.target import DiscordTarget
+from integrations.discord.tool_result_adapter import build_tool_result_payload
 
 logger = logging.getLogger(__name__)
 
@@ -137,10 +140,37 @@ class DiscordRenderer:
         Capability.IMAGE_UPLOAD,
         Capability.FILE_UPLOAD,
         Capability.STREAMING_EDIT,
+        Capability.RICH_TOOL_RESULTS,
         Capability.APPROVAL_BUTTONS,
         Capability.DISPLAY_NAMES,
         Capability.MENTIONS,
     })
+    tool_result_rendering: ClassVar[ToolResultRenderingSupport | None] = (
+        ToolResultRenderingSupport.from_manifest({
+            "modes": ["compact", "full", "none"],
+            "content_types": [
+                "text/plain",
+                "text/markdown",
+                "application/json",
+                "application/vnd.spindrel.components+json",
+                "application/vnd.spindrel.diff+text",
+                "application/vnd.spindrel.file-listing+json",
+            ],
+            "view_keys": [
+                "core.search_results",
+                "core.command_result",
+                "core.machine_target_status",
+            ],
+            "interactive": False,
+            "unsupported_fallback": "badge",
+            "placement": "same_message",
+            "limits": {
+                "max_table_rows": 12,
+                "max_links": 8,
+                "max_code_chars": 1700,
+            },
+        })
+    )
 
     async def render(
         self,
@@ -332,6 +362,20 @@ class DiscordRenderer:
         text = getattr(msg, "content", "") or ""
         formatted = format_response_for_discord(text)
         chunks = split_for_discord(formatted) or [formatted]
+        msg_metadata = getattr(msg, "metadata", None) or {}
+        tool_results = msg_metadata.get("tool_results") or []
+        display_mode = ToolOutputDisplay.COMPACT
+        suffix = ""
+        embeds: list[dict] = []
+        if tool_results and role != "user":
+            display_mode = await _resolve_tool_output_display(target.channel_id)
+            suffix, embeds = build_tool_result_payload(
+                tool_results,
+                display_mode=display_mode,
+                support=self.tool_result_rendering,
+            )
+            if suffix:
+                chunks[0] = f"{chunks[0]}\n\n{suffix}" if chunks[0] else suffix
 
         # Placeholder handoff: if a thinking message exists for this turn,
         # update it with the first chunk instead of posting a new message.
@@ -347,18 +391,20 @@ class DiscordRenderer:
             ctx_channel_id, ctx = ctx_info
             if ctx.thinking_message_id:
                 edit_result = await self._edit_message(
-                    target, ctx.thinking_message_id, chunks[0],
+                    target, ctx.thinking_message_id, chunks[0], embeds=embeds,
                 )
                 if edit_result.success:
                     placeholder_used = True
                     chunks = chunks[1:]
+                    embeds = []
             # Context cleanup — NEW_MESSAGE owns this.
             discord_render_contexts.discard(ctx_channel_id, correlation_id)
 
         # Post remaining chunks (all of them if no placeholder, or
         # overflow chunks if the placeholder took the first).
         for chunk in chunks:
-            result = await self._post_message(target, content=chunk)
+            result = await self._post_message(target, content=chunk, embeds=embeds)
+            embeds = []
             if not result.success:
                 return result
         return DeliveryReceipt.ok()
@@ -445,8 +491,11 @@ class DiscordRenderer:
         target: DiscordTarget,
         *,
         content: str,
+        embeds: list[dict] | None = None,
     ) -> "_DiscordCallResult":
         body = {"content": content}
+        if embeds:
+            body["embeds"] = embeds
         return await self._post_raw(target, body, return_call=True)
 
     async def _post_raw(
@@ -467,11 +516,15 @@ class DiscordRenderer:
         target: DiscordTarget,
         message_id: str,
         content: str,
+        embeds: list[dict] | None = None,
     ) -> DeliveryReceipt:
         url = (
             f"{DISCORD_API}/channels/{target.channel_id}/messages/{message_id}"
         )
-        result = await self._call(url, "PATCH", target.token, {"content": content})
+        body = {"content": content}
+        if embeds:
+            body["embeds"] = embeds
+        result = await self._call(url, "PATCH", target.token, body)
         return result.to_receipt()
 
     async def _call(
@@ -566,6 +619,17 @@ def _action_to_dict(action) -> dict:
     except Exception:
         pass
     return {}
+
+
+async def _resolve_tool_output_display(discord_channel_id: str) -> str:
+    client_id = f"discord:{discord_channel_id}"
+    try:
+        channel = await get_channel_for_integration("discord", client_id)
+        if channel is not None:
+            return ToolOutputDisplay.normalize(channel.tool_output_display)
+    except Exception:
+        logger.debug("discord tool_output_display lookup failed, using default", exc_info=True)
+    return ToolOutputDisplay.COMPACT
 
 
 def _build_tool_approval_embed(

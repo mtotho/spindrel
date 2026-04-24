@@ -1,0 +1,80 @@
+# Spindrel quickstart — Phase B1 proof.
+#
+# 4 scenes × ~5s + 4 title cards × 1.4s ≈ 26s total. All scenes use the
+# existing Flagship A1 screenshots in docs/images/.
+#
+# Schema is stable across all Track-B phases. `doc_hero`, `doc_callout`,
+# `playwright`, and `manual` scenes can be added to this file at any time,
+# but will fail with a phase-marker error until the matching clip module
+# is implemented. Reserved-but-unused `audio:` fields are ignored in B1.
+
+meta:
+  title: "Spindrel quickstart"
+  slug: quickstart
+  output_dir: docs/videos/
+  resolution: [1920, 1080]
+  fps: 30
+  transition: crossfade
+  transition_duration: 0.5
+  watermark:
+    text: "spindrel.dev"
+    opacity: 0.45
+  caption_style:
+    position: bottom
+    font_size: 38
+    padding: 56
+    bg_opacity: 0.6
+
+sections:
+  - id: intro
+    title: "What is Spindrel?"
+    scenes: [hero_home]
+
+  - id: first_channel
+    title: "One channel, one bot"
+    scenes: [channel_chat]
+
+  - id: dashboards
+    title: "Dashboards from tool results"
+    scenes: [widget_dashboard]
+
+  - id: pipelines
+    title: "Pipelines that stream progress"
+    scenes: [pipeline_live]
+
+scenes:
+  - id: hero_home
+    kind: still
+    asset: docs/images/home.png
+    duration: 6
+    ken_burns:
+      start: [1.00, 0.50, 0.50]
+      end:   [1.08, 0.50, 0.55]
+    caption: "Spindrel organizes AI around channels — one bot, one chat, one workspace."
+
+  - id: channel_chat
+    kind: still
+    asset: docs/images/chat-main.png
+    duration: 5
+    ken_burns:
+      start: [1.04, 0.50, 0.40]
+      end:   [1.00, 0.50, 0.55]
+    caption: "Each channel is a persistent conversation with its own bot, widgets, and workspace files."
+
+  - id: widget_dashboard
+    kind: still
+    asset: docs/images/widget-dashboard.png
+    duration: 6
+    ken_burns:
+      start: [1.00, 0.35, 0.50]
+      end:   [1.05, 0.65, 0.55]
+    caption: "Pin tool results as live widgets — build per-channel dashboards out of the things your bot already runs."
+
+  - id: pipeline_live
+    kind: still
+    asset: docs/images/chat-pipeline-live.png
+    duration: 6
+    ken_burns:
+      start: [1.06, 0.50, 0.30]
+      end:   [1.00, 0.50, 0.55]
+    caption: "Pipelines chain steps — gather, summarize, post — streaming progress into the chat."

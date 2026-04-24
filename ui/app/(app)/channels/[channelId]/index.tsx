@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -38,7 +39,7 @@ import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessag
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
-import { ChannelSessionSplitPanel } from "./ChannelSessionSplitPanel";
+import { ChannelChatPaneGroup } from "./ChannelChatPaneGroup";
 import { useChannelChatZones } from "@/src/stores/channelChatZones";
 import {
   CHANNEL_CHAT_MIN_WIDTH,
@@ -56,13 +57,13 @@ import { FindingsPanel, FindingsSheet, useFindings } from "./FindingsPanel";
 import { ChatScreenSkeleton } from "./ChatScreenSkeleton";
 import { useChannelChat } from "./useChannelChat";
 import { useSessionPlanMode } from "./useSessionPlanMode";
-import { useChannelSessionSurfaces } from "./useChannelSessionSurfaces";
 import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
 import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
+import { apiFetch } from "@/src/api/client";
 import { selectIsStreaming } from "@/src/stores/chat";
 import {
   buildRecentHref,
@@ -76,12 +77,20 @@ import {
   readChannelFileIntent,
 } from "@/src/lib/channelFileNavigation";
 import {
+  addChannelChatPane,
+  paneIdForSurface,
+  removeChannelChatPane,
+  replaceFocusedChannelChatPane,
+  resizeChannelChatPanes,
   buildScratchChatSource,
+  type ChannelChatPane,
+  type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
 import {
   useThreadSummaries,
   useThreadInfo,
 } from "@/src/api/hooks/useThreads";
+import { channelSessionCatalogKey, useChannelSessionCatalog, usePromoteScratchSession } from "@/src/api/hooks/useChannelSessions";
 import { MessageCircle, StickyNote, X as CloseIcon } from "lucide-react";
 import { Lock as LockIcon } from "lucide-react";
 
@@ -248,7 +257,16 @@ export default function ChatScreen() {
   // widget here).
   const { count: findingsCount } = useFindings(launchpadVisible ? channelId : undefined);
   const [sessionsOverlayOpen, setSessionsOverlayOpen] = useState(false);
-  const openSessionsOverlay = useCallback(() => setSessionsOverlayOpen(true), []);
+  const [sessionsOverlayMode, setSessionsOverlayMode] = useState<"switch" | "split">("switch");
+  const [pendingSplitSurface, setPendingSplitSurface] = useState<ChannelSessionSurface | null>(null);
+  const openSessionsOverlay = useCallback(() => {
+    setSessionsOverlayMode("switch");
+    setSessionsOverlayOpen(true);
+  }, []);
+  const openSplitOverlay = useCallback(() => {
+    setSessionsOverlayMode("split");
+    setSessionsOverlayOpen(true);
+  }, []);
 
   const {
     chatState,
@@ -274,7 +292,13 @@ export default function ChatScreen() {
     handleSendNow,
     cancelQueue,
     editQueue,
-  } = useChannelChat({ channelId, channel, activeFile, onOpenSessions: openSessionsOverlay });
+  } = useChannelChat({
+    channelId,
+    channel,
+    activeFile,
+    onOpenSessions: openSessionsOverlay,
+    onOpenSessionSplit: openSplitOverlay,
+  });
 
   // In inverted list: index 0 = newest, index+1 = chronologically previous (older).
   // Show date separator when the current message starts a new day vs the older message above it.
@@ -619,17 +643,82 @@ export default function ChatScreen() {
     ensureChannelPanelPrefs(channelId, channelPanelDefaults);
   }, [channelId, channelPanelDefaults, ensureChannelPanelPrefs]);
   const panelPrefs = channelPanelPrefs ?? channelPanelDefaults;
+  const queryClient = useQueryClient();
+  const promoteScratch = usePromoteScratchSession();
+  const { data: channelSessionCatalog } = useChannelSessionCatalog(channelId);
   const leaveScratchSurface = useCallback(() => {
     setScratchPinnedSessionId(null);
     setScratchOpen(false);
   }, []);
-  const {
-    activateSurface: activateChannelSessionSurface,
-    removePanel: removeScratchSessionPanel,
-  } = useChannelSessionSurfaces({
-    channelId,
-    onLeaveScratchSurface: leaveScratchSurface,
-  });
+  const focusPane = useCallback((paneId: string) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: { ...current.chatPaneLayout, focusedPaneId: paneId },
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const closePane = useCallback((paneId: string) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: removeChannelChatPane(current.chatPaneLayout, paneId),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const resizePanePair = useCallback((leftPaneId: string, rightPaneId: string, deltaRatio: number) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: resizeChannelChatPanes(current.chatPaneLayout, leftPaneId, rightPaneId, deltaRatio),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const activateChannelSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
+    if (!channelId) return;
+    leaveScratchSurface();
+    if (intent === "split") {
+      const id = paneIdForSurface(surface);
+      const alreadyOpen = panelPrefs.chatPaneLayout.panes.some((pane) => pane.id === id);
+      if (!alreadyOpen && panelPrefs.chatPaneLayout.panes.length >= 3) {
+        setPendingSplitSurface(surface);
+        return;
+      }
+    }
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: intent === "split"
+        ? addChannelChatPane(current.chatPaneLayout, surface)
+        : replaceFocusedChannelChatPane(current.chatPaneLayout, surface),
+    }));
+  }, [channelId, leaveScratchSurface, panelPrefs.chatPaneLayout.panes, patchChannelPanelPrefs]);
+  const replacePaneWithPendingSplit = useCallback((paneId: string) => {
+    if (!channelId || !pendingSplitSurface) return;
+    patchChannelPanelPrefs(channelId, (current) => {
+      const nextPanes = current.chatPaneLayout.panes.map((pane) =>
+        pane.id === paneId ? { id: paneIdForSurface(pendingSplitSurface), surface: pendingSplitSurface } : pane,
+      );
+      return {
+        chatPaneLayout: {
+          ...current.chatPaneLayout,
+          panes: nextPanes,
+          focusedPaneId: paneIdForSurface(pendingSplitSurface),
+        },
+      };
+    });
+    setPendingSplitSurface(null);
+  }, [channelId, patchChannelPanelPrefs, pendingSplitSurface]);
+  const makePanePrimary = useCallback((pane: ChannelChatPane) => {
+    if (!channelId || pane.surface.kind === "primary") return;
+    if (pane.surface.kind === "scratch") {
+      promoteScratch.mutate({
+        session_id: pane.surface.sessionId,
+        parent_channel_id: channelId,
+        bot_id: channel?.bot_id,
+      });
+      return;
+    }
+    void apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
+      method: "POST",
+      body: JSON.stringify({ session_id: pane.surface.sessionId }),
+    }).then(() => {
+      void queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+      void queryClient.invalidateQueries({ queryKey: channelSessionCatalogKey(channelId) });
+    });
+  }, [channel?.bot_id, channelId, promoteScratch, queryClient]);
   const openLeftPanelTab = useCallback((tab: OmniPanelTab) => {
     if (!channelId) return;
     if (tab === "files") {
@@ -695,20 +784,31 @@ export default function ChatScreen() {
   const focusOrRestorePanels = useCallback(() => {
     if (!channelId) return;
     patchChannelPanelPrefs(channelId, (current) => {
-      if (current.leftOpen || current.rightOpen) {
+      if (current.leftOpen || current.rightOpen || !current.topChromeCollapsed) {
         return {
-          focusModePrior: { leftOpen: current.leftOpen, rightOpen: current.rightOpen },
+          focusModePrior: {
+            leftOpen: current.leftOpen,
+            rightOpen: current.rightOpen,
+            topChromeCollapsed: current.topChromeCollapsed,
+          },
           leftOpen: false,
           rightOpen: false,
+          topChromeCollapsed: true,
         };
       }
       return {
         leftOpen: current.focusModePrior?.leftOpen ?? true,
         rightOpen: current.focusModePrior?.rightOpen ?? (dockPins.length > 0),
+        topChromeCollapsed: current.focusModePrior?.topChromeCollapsed ?? false,
         focusModePrior: null,
       };
     });
   }, [channelId, dockPins.length, patchChannelPanelPrefs]);
+  useEffect(() => {
+    const handler = () => focusOrRestorePanels();
+    window.addEventListener("spindrel:channel-focus-layout", handler);
+    return () => window.removeEventListener("spindrel:channel-focus-layout", handler);
+  }, [focusOrRestorePanels]);
 
   // Keyboard shortcuts for explorer/split/file viewer/browse
   useEffect(() => {
@@ -981,6 +1081,14 @@ export default function ChatScreen() {
         onSelect: () => openSessionsOverlay(),
       });
       actions.push({
+        id: `channel:${channelId}:add-session-split`,
+        label: "Add session split",
+        hint: channelLabel,
+        icon: Layers,
+        category: "This Channel",
+        onSelect: () => openSplitOverlay(),
+      });
+      actions.push({
         id: `channel:${channelId}:open-widgets`,
         label: "Open panel: Widgets",
         hint: railPins.length > 0 ? `${railPins.length} widget${railPins.length === 1 ? "" : "s"}` : channelLabel,
@@ -1042,7 +1150,7 @@ export default function ChatScreen() {
       }
       actions.push({
         id: `channel:${channelId}:focus-mode`,
-        label: panelPrefs.leftOpen || panelPrefs.rightOpen ? "Collapse panels" : "Restore panels",
+        label: panelPrefs.leftOpen || panelPrefs.rightOpen || !panelPrefs.topChromeCollapsed ? "Focus chat panes" : "Restore panels",
         hint: channelLabel,
         icon: LayoutDashboardIcon,
         category: "This Channel",
@@ -1100,8 +1208,10 @@ export default function ChatScreen() {
     navigate,
     openLeftPanelTab,
     openSessionsOverlay,
+    openSplitOverlay,
     panelPrefs.leftOpen,
     panelPrefs.rightOpen,
+    panelPrefs.topChromeCollapsed,
     panelPrefs.leftPinned,
     panelPrefs.rightPinned,
     panelPrefs.focusModePrior,
@@ -1257,25 +1367,12 @@ export default function ChatScreen() {
             emptyState={scratchEmptyState}
             chatMode={chatMode}
             onOpenSessions={openSessionsOverlay}
+            onOpenSessionSplit={openSplitOverlay}
+            onToggleFocusLayout={focusOrRestorePanels}
           />
         </div>
       </div>
     ) : null;
-  const scratchSessionPanelNodes =
-    !isMobile && channelId && !dashboardOnly && !showFileViewer
-      ? panelPrefs.sessionPanels.map((panel) => (
-          <ChannelSessionSplitPanel
-            key={`${panel.kind}:${panel.sessionId}`}
-            panel={panel}
-            channelId={channelId}
-            botId={channel?.bot_id}
-            emptyState={scratchEmptyState}
-            chatMode={chatMode}
-            onClose={removeScratchSessionPanel}
-            onOpenSessions={openSessionsOverlay}
-          />
-        ))
-      : null;
   // Measured height of the composer overlay (input card + banners + strips)
   // so messages scroll BEHIND the frosted input at the bottom — Claude-style.
   const inputOverlayRef = useRef<HTMLDivElement>(null);
@@ -1289,6 +1386,37 @@ export default function ChatScreen() {
     ro.observe(inputOverlayRef.current);
     return () => ro.disconnect();
   }, []);
+
+  const primaryChatNode = (
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
+      <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+        <ChatMessageArea
+          {...messageAreaProps}
+          bottomSlot={terminalBottomSlot}
+          scrollPaddingTop={0}
+          scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)}
+        />
+      </div>
+      {chatMode !== "terminal" && (
+        <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
+          {chatState.error && (
+            <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
+          )}
+          {chatState.secretWarning && (
+            <SecretWarningBanner
+              patterns={chatState.secretWarning.patterns}
+              onDismiss={() => channelId && useChatStore.setState((s) => ({
+                channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
+              }))}
+            />
+          )}
+          <ChatComposerShell chatMode={chatMode}>
+            <MessageInput {...messageInputProps} />
+          </ChatComposerShell>
+        </div>
+      )}
+    </div>
+  );
 
   const channelHeaderBlock = (
     // Transparent wrapper — header, HUD strip, and launchpad sit directly
@@ -1363,12 +1491,25 @@ export default function ChatScreen() {
                 : HEADER_RAIL_EDGE_INSET_PX + CENTER_PANEL_GUTTER_PX,
         }}
       >
+        {panelPrefs.topChromeCollapsed ? (
+          <div className="pointer-events-auto mx-auto flex h-7 w-fit items-center gap-2 rounded-md border border-surface-border bg-surface-raised/90 px-2 text-[11px] text-text-dim shadow-sm">
+            <button
+              type="button"
+              onClick={() => patchChannelPanelPrefs(channelId, { topChromeCollapsed: false, focusModePrior: null })}
+              className="text-text-dim hover:text-text"
+            >
+              Show top widgets
+            </button>
+            <span>{headerChipPins.length}</span>
+          </div>
+        ) : (
         <div className="w-full">
           <ChannelHeaderChip
             channelId={channelId}
             backdropMode={channel?.config?.header_backdrop_mode ?? "glass"}
           />
         </div>
+        )}
       </div>
     ) : null;
 
@@ -1387,32 +1528,7 @@ export default function ChatScreen() {
           {scratchColumnNode ? (
             scratchColumnNode
           ) : (
-          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-            <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-              <ChatMessageArea {...messageAreaProps} bottomSlot={terminalBottomSlot} scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)} />
-            </div>
-            {chatMode !== "terminal" && (
-            <div
-              ref={inputOverlayRef}
-              style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}
-            >
-              {chatState.error && (
-                <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-              )}
-              {chatState.secretWarning && (
-                <SecretWarningBanner
-                  patterns={chatState.secretWarning.patterns}
-                  onDismiss={() => channelId && useChatStore.setState((s) => ({
-                    channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                  }))}
-                />
-              )}
-              <ChatComposerShell chatMode={chatMode}>
-                <MessageInput {...messageInputProps} />
-              </ChatComposerShell>
-            </div>
-            )}
-          </div>
+            primaryChatNode
           )}
           {/* Mobile channel drawer — tabbed Widgets/Files/Jump; opens from
               the channel header's hamburger. Replaces the old bottom sheet
@@ -1574,38 +1690,45 @@ export default function ChatScreen() {
               scratchColumnNode
             )}
             {!dashboardOnly && !scratchColumnNode && (!showFileViewer || splitMode) && (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-                <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", position: "relative" }}>
-                  <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-                    <ChatMessageArea
-                      {...messageAreaProps}
-                      bottomSlot={terminalBottomSlot}
-                      scrollPaddingTop={0}
-                      scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + 48}
-                    />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {panelPrefs.chatPaneLayout.panes.length > 1
+                  && !panelPrefs.collapseHintDismissed
+                  && (panelPrefs.leftOpen || panelPrefs.rightOpen || !panelPrefs.topChromeCollapsed) && (
+                  <div className="mx-1 flex shrink-0 items-center justify-between rounded-md border border-surface-border bg-surface-raised px-3 py-1.5 text-[11px] text-text-dim">
+                    <span>More room for splits: use /focus or Ctrl/⌘+Alt+B to collapse panels.</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={focusOrRestorePanels} className="text-accent hover:underline">Focus</button>
+                      <button
+                        type="button"
+                        onClick={() => patchChannelPanelPrefs(channelId!, { collapseHintDismissed: true })}
+                        className="text-text-dim hover:text-text"
+                      >
+                        Don't show again
+                      </button>
+                    </div>
                   </div>
-                  {chatMode !== "terminal" && (
-                  <div ref={inputOverlayRef} style={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 4 }}>
-                    {chatState.error && (
-                      <ErrorBanner error={chatState.error} onDismiss={() => channelId && setError(channelId, "")} onRetry={handleRetry} />
-                    )}
-                    {chatState.secretWarning && (
-                      <SecretWarningBanner
-                        patterns={chatState.secretWarning.patterns}
-                        onDismiss={() => channelId && useChatStore.setState((s) => ({
-                          channels: { ...s.channels, [channelId]: { ...s.channels[channelId]!, secretWarning: null } },
-                        }))}
-                      />
-                    )}
-                    <ChatComposerShell chatMode={chatMode}>
-                      <MessageInput {...messageInputProps} />
-                    </ChatComposerShell>
-                  </div>
-                  )}
-                </div>
+                )}
+                <ChannelChatPaneGroup
+                  channelId={channelId!}
+                  botId={channel?.bot_id}
+                  activeSessionId={channel?.active_session_id}
+                  panes={panelPrefs.chatPaneLayout.panes}
+                  widths={panelPrefs.chatPaneLayout.widths}
+                  focusedPaneId={panelPrefs.chatPaneLayout.focusedPaneId}
+                  catalog={channelSessionCatalog}
+                  primaryNode={primaryChatNode}
+                  emptyState={scratchEmptyState}
+                  chatMode={chatMode}
+                  onFocusPane={focusPane}
+                  onClosePane={closePane}
+                  onResizePanePair={resizePanePair}
+                  onMakePrimary={makePanePrimary}
+                  onOpenSessions={openSessionsOverlay}
+                  onOpenSessionSplit={openSplitOverlay}
+                  onToggleFocusLayout={focusOrRestorePanels}
+                />
               </div>
             )}
-            {scratchSessionPanelNodes}
 
             {/* File viewer -- visible when a file is selected */}
             {showFileViewer && channelId && (
@@ -1786,6 +1909,31 @@ export default function ChatScreen() {
     >
       {outerChildren}
       <ChannelModalMount />
+      {pendingSplitSurface && (
+        <div className="fixed inset-0 z-[10045] flex items-center justify-center bg-black/40">
+          <div className="w-[360px] max-w-[92vw] rounded-md border border-surface-border bg-surface-raised p-3 shadow-xl">
+            <div className="text-[13px] font-semibold text-text">Replace a pane</div>
+            <div className="mt-1 text-[12px] text-text-dim">This channel can show up to 3 chat panes. Choose one to replace.</div>
+            <div className="mt-3 space-y-1">
+              {panelPrefs.chatPaneLayout.panes.map((pane, index) => (
+                <button
+                  key={pane.id}
+                  type="button"
+                  onClick={() => replacePaneWithPendingSplit(pane.id)}
+                  className="block w-full rounded-md px-2 py-2 text-left text-[12px] text-text hover:bg-surface-overlay"
+                >
+                  Pane {index + 1}: {pane.surface.kind === "primary" ? "Primary session" : pane.surface.kind}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button type="button" onClick={() => setPendingSplitSurface(null)} className="rounded-md px-2 py-1 text-[12px] text-text-dim hover:bg-surface-overlay">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {channelId && (
         <SessionPickerOverlay
           open={sessionsOverlayOpen}
@@ -1796,6 +1944,8 @@ export default function ChatScreen() {
           selectedSessionId={isScratchRoute ? scratchUrlSessionId : null}
           onActivateSurface={activateChannelSessionSurface}
           allowSplit={!isMobile}
+          mode={sessionsOverlayMode}
+          hiddenSurfaces={panelPrefs.chatPaneLayout.panes.map((pane) => pane.surface)}
         />
       )}
       {threadSource && (
@@ -1808,6 +1958,8 @@ export default function ChatScreen() {
           initiallyExpanded
           chatMode={chatMode}
           onOpenSessions={openSessionsOverlay}
+          onOpenSessionSplit={openSplitOverlay}
+          onToggleFocusLayout={focusOrRestorePanels}
         />
       )}
       {scratchSource && !activeThread && !isScratchRoute && (
@@ -1821,6 +1973,8 @@ export default function ChatScreen() {
           initiallyExpanded
           chatMode={chatMode}
           onOpenSessions={openSessionsOverlay}
+          onOpenSessionSplit={openSplitOverlay}
+          onToggleFocusLayout={focusOrRestorePanels}
         />
       )}
     </div>

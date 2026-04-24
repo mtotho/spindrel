@@ -11,6 +11,23 @@ from typing import Callable, Literal
 
 
 WaitKind = Literal["selector", "function", "network_idle", "pin_count"]
+ActionKind = Literal["click", "fill", "press", "select", "wait_for"]
+
+
+@dataclass
+class Action:
+    """A single pre-capture interaction. Runs after nav+ready, before screenshot.
+
+    Shape per kind:
+      - click:     selector required; clicks the first match
+      - fill:      selector + value; clears and types value into an input
+      - press:     value required (e.g. "Escape", "Enter"); selector optional (page-level if omitted)
+      - select:    selector + value; chooses an <option> by value
+      - wait_for:  selector required; waits for it to attach (default) or match
+    """
+    kind: ActionKind
+    selector: str | None = None
+    value: str | None = None
 
 
 @dataclass
@@ -25,6 +42,7 @@ class ScreenshotSpec:
     pre_capture_js: str | None = None          # JS run after nav, before screenshot
     extra_init_scripts: list[str] = field(default_factory=list)
     full_page: bool = False
+    actions: list[Action] = field(default_factory=list)  # pre-capture interactions
 
 
 FLAGSHIP_SPECS: list[ScreenshotSpec] = [
@@ -139,6 +157,165 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Docs-repair specs (Phase A2.5) — one per broken image reference in
+# ``docs/guides/*.md``. Output filenames match the guide references exactly.
+# ---------------------------------------------------------------------------
+
+DOCS_REPAIR_SPECS: list[ScreenshotSpec] = [
+    # 1. heartbeats.md — channel Settings → Automation tab (hosts HeartbeatTab)
+    ScreenshotSpec(
+        name="channel-heartbeat",
+        route="/channels/{chat_main}/settings#automation",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # AutomationTabSections renders HeartbeatTab with labels like
+        # "Interval", "Quiet hours", "Prompt". Wait on a stable one.
+        wait_arg='/Interval|Quiet hours|Dispatch mode/i.test(document.body.innerText)',
+        output="channel-heartbeat.png",
+    ),
+    # 2. chat-history.md — channel Settings → Memory tab (hosts HistoryTab)
+    ScreenshotSpec(
+        name="channel_history_mode",
+        route="/channels/{chat_main}/settings#memory",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg='/History mode|Compaction|file|structured|summary/i.test(document.body.innerText)',
+        output="channel_history_mode.png",
+    ),
+    # 3. mcp-servers.md — /admin/mcp-servers with seeded servers
+    ScreenshotSpec(
+        name="mcp-list",
+        route="/admin/mcp-servers",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg='/Home Assistant|Notes/i.test(document.body.innerText)',
+        output="mcp-list.png",
+    ),
+    # 4. secrets.md — /admin/secret-values vault view (route is plural "values")
+    ScreenshotSpec(
+        name="secret-store",
+        route="/admin/secret-values",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg='/SCREENSHOT_GITHUB_TOKEN|SCREENSHOT_WEATHER_API_KEY/i.test(document.body.innerText)',
+        output="secret-store.png",
+    ),
+    # 5. usage-and-billing.md — /admin/usage Overview (contains cost cards
+    # + spend breakdown + forecast panel in one view, matching the filename).
+    # The Forecast tab exists but its panel takes longer to resolve with
+    # seeded-only data; Overview shipped with the cards and breakdown reads
+    # cleaner as a hero image for the guide.
+    ScreenshotSpec(
+        name="usage-and-forecast",
+        route="/admin/usage",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait until the Overview panel finishes its initial fetch — the
+        # generic spinner uses a .animate-spin class, which must disappear
+        # before the cards render. Accept either rendered dollar amounts or
+        # a "No usage" zero-state.
+        wait_arg=(
+            '(!document.querySelector(".animate-spin"))'
+            ' && (/\\$\\d|No usage|no usage data|Total cost|Total tokens/i.test(document.body.innerText))'
+        ),
+        output="usage-and-forecast.png",
+    ),
+    # 6. ingestion.md — integration detail page for the ingestion slug
+    ScreenshotSpec(
+        name="integration-edit-v2",
+        route="/admin/integrations/ingestion",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg='/Ingestion|ingestion/.test(document.body.innerText)',
+        output="integration-edit-v2.png",
+    ),
+    # 7. bot-skills.md — /admin/learning#Skills (skill catalog)
+    # Wait until the bot-authored-skills + catalog queries resolve: both
+    # sections render Tailwind ``animate-pulse`` skeletons while loading.
+    # We wait for those to disappear, then require the filter input to
+    # exist (the page structure is mounted).
+    ScreenshotSpec(
+        name="bot-skills-learning-1",
+        route="/admin/learning#Skills",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '!!document.querySelector(\'input[placeholder*="Filter skills" i]\')'
+            ' && document.querySelectorAll(".animate-pulse").length === 0'
+            ' && document.querySelectorAll(".animate-spin").length === 0'
+        ),
+        output="bot-skills-learning-1.png",
+    ),
+    # 8. bot-skills.md — /admin/learning#History with recent activity rows
+    # (alternative to the always-empty Dreaming tab on a fresh e2e instance).
+    # History tab shows loop/attribution rows — closer to the "learning
+    # analytics with health badges" the guide references.
+    ScreenshotSpec(
+        name="bot-skills-learning-2",
+        route="/admin/learning#History",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '(!document.querySelector(".animate-spin"))'
+            ' && /History|Turn|Bot|Channel|No history/i.test(document.body.innerText)'
+        ),
+        output="bot-skills-learning-2.png",
+    ),
+    # 9. bluebubbles.md — channel with BlueBubbles binding + seeded messages.
+    # The HUD itself surfaces when the integration reports status; for a
+    # baseline doc image, a live channel with chat history + binding is
+    # representative. Iterate to pin a HUD widget in a later pass.
+    ScreenshotSpec(
+        name="channel-bluebubbles-hud",
+        route="/channels/{bluebubbles}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait for at least one message bubble to render.
+        wait_arg='document.querySelectorAll("[data-testid=\\"message\\"], .message, [data-message-id]").length >= 1',
+        output="channel-bluebubbles-hud.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Integration hero specs (Phase A2) — one admin-detail capture per integration
+# guide currently lacking an image. The detail page renders manifest-derived
+# Overview (capability badges) + Manifest editor + Detected Assets + (when
+# present) Events / Webhook / Machine Setup, which is enough hero content for
+# each integration's docs guide. No staging required — the registry is
+# populated from the integrations/ tree on server startup.
+# ---------------------------------------------------------------------------
+
+def _integration_spec(*, slug: str, output: str, name_text: str) -> "ScreenshotSpec":
+    return ScreenshotSpec(
+        name=f"integration-{slug}",
+        route=f"/admin/integrations/{slug}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait for the integration name in the PageHeader plus the Overview
+        # section to mount; both signal the manifest fetch resolved. The
+        # Overview heading is part of every detail page.
+        wait_arg=(
+            f'/{name_text}/i.test(document.body.innerText)'
+            ' && /Overview/.test(document.body.innerText)'
+        ),
+        output=output,
+    )
+
+
+INTEGRATIONS_SPECS: list[ScreenshotSpec] = [
+    _integration_spec(slug="slack",        output="integration-slack.png",        name_text="Slack"),
+    _integration_spec(slug="discord",      output="integration-discord.png",      name_text="Discord"),
+    _integration_spec(slug="github",       output="integration-github.png",       name_text="GitHub"),
+    _integration_spec(slug="homeassistant",output="integration-homeassistant.png",name_text="Home ?Assistant"),
+    _integration_spec(slug="frigate",      output="integration-frigate.png",      name_text="Frigate"),
+    _integration_spec(slug="excalidraw",   output="integration-excalidraw.png",   name_text="Excalidraw"),
+    _integration_spec(slug="browser_live", output="integration-browser-live.png", name_text="Browser ?Live"),
+    _integration_spec(slug="web_search",   output="integration-web-search.png",   name_text="Web ?Search"),
+]
+
+
 def _omnipanel_mobile_init_script(chat_main_id: str) -> str:
     """Seed localStorage["spindrel-ui"] so the channel mounts with drawer open.
 
@@ -204,6 +381,7 @@ def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[S
                 pre_capture_js=s.pre_capture_js,
                 extra_init_scripts=init_scripts,
                 full_page=s.full_page,
+                actions=list(s.actions),
             )
         )
     return out

@@ -821,7 +821,9 @@ export type SlashCommandId =
   | "effort"
   | "clear"
   | "scratch"
-  | "sessions";
+  | "sessions"
+  | "split"
+  | "focus";
 export type SlashCommandSurface = "channel" | "session";
 export type EffortLevel = "off" | "low" | "medium" | "high";
 export type ChatModeId = "default" | "terminal";

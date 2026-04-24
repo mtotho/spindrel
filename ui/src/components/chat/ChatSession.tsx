@@ -188,6 +188,8 @@ export interface ChatSessionProps {
   /** Opens the channel-scoped session picker when this chat is embedded
    *  inside a channel screen or split layout. */
   onOpenSessions?: () => void;
+  onOpenSessionSplit?: () => void;
+  onToggleFocusLayout?: () => void;
 }
 
 function getDockStorageKey(source: ChatSource): string {
@@ -270,6 +272,8 @@ function ChannelChatSession({
   emptyState,
   initiallyExpanded,
   onOpenSessions,
+  onOpenSessionSplit,
+  onToggleFocusLayout,
   chatMode = "default",
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
@@ -442,8 +446,10 @@ function ChannelChatSession({
         if (onOpenSessions) onOpenSessions();
         else navigate(`/channels/${source.channelId}`);
       },
+      split: () => onOpenSessionSplit?.(),
+      focus: () => onToggleFocusLayout?.(),
     }),
-    [channelModelGroups, navigate, onOpenSessions, queryClient, source.channelId, src],
+    [channelModelGroups, navigate, onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, queryClient, source.channelId, src],
   );
 
   const channelAvailableSlashCommands = useMemo(
@@ -451,7 +457,7 @@ function ChannelChatSession({
       catalog: channelSlashCatalog,
       surface: "channel",
       enabled: !!source.channelId,
-      capabilities: ["clear", "scratch", "model", "theme", "sessions"],
+      capabilities: ["clear", "scratch", "model", "theme", "sessions", "split", "focus"],
     }),
     [channelSlashCatalog, source.channelId],
   );
@@ -700,6 +706,8 @@ function FixedSessionChatSession({
   emptyState,
   initiallyExpanded,
   onOpenSessions,
+  onOpenSessionSplit,
+  onToggleFocusLayout,
   chatMode = "default",
 }: FixedSessionChatSessionProps) {
   const t = useThemeTokens();
@@ -820,7 +828,7 @@ function FixedSessionChatSession({
       surface: "session",
       enabled: !!sessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions"]
+        ? ["model", "theme", "sessions", "split", "focus"]
         : ["model", "theme"],
     }),
     [onOpenSessions, sessionId, slashCatalog],
@@ -842,8 +850,10 @@ function FixedSessionChatSession({
         }
       },
       sessions: () => onOpenSessions?.(),
+      split: () => onOpenSessionSplit?.(),
+      focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessions, sessionModelGroups, setModelOverride],
+    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, sessionModelGroups, setModelOverride],
   );
   const handleSlashCommand = useSlashCommandExecutor({
     availableCommands: availableSlashCommands,
@@ -962,6 +972,8 @@ function EphemeralChatSession({
   initiallyExpanded,
   dismissMode,
   onOpenSessions,
+  onOpenSessionSplit,
+  onToggleFocusLayout,
   chatMode = "default",
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
@@ -1188,7 +1200,7 @@ function EphemeralChatSession({
       surface: "session",
       enabled: !!sessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions"]
+        ? ["model", "theme", "sessions", "split", "focus"]
         : ["model", "theme"],
     }),
     [onOpenSessions, sessionId, sessionSlashCatalog],
@@ -1210,8 +1222,10 @@ function EphemeralChatSession({
         }
       },
       sessions: () => onOpenSessions?.(),
+      split: () => onOpenSessionSplit?.(),
+      focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessions, sessionModelGroups, setModelOverride],
+    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, sessionModelGroups, setModelOverride],
   );
   const handleSessionSlashCommand = useSlashCommandExecutor({
     availableCommands: sessionAvailableSlashCommands,
@@ -1662,6 +1676,8 @@ function ThreadChatSession({
   initiallyExpanded,
   dismissMode,
   onOpenSessions,
+  onOpenSessionSplit,
+  onToggleFocusLayout,
   chatMode = "default",
 }: ThreadChatSessionProps) {
   const t = useThemeTokens();
@@ -1742,7 +1758,7 @@ function ThreadChatSession({
       surface: "session",
       enabled: !!effectiveSessionId,
       capabilities: onOpenSessions
-        ? ["model", "theme", "sessions"]
+        ? ["model", "theme", "sessions", "split", "focus"]
         : ["model", "theme"],
     }),
     [effectiveSessionId, onOpenSessions, threadSlashCatalog],
@@ -1765,8 +1781,10 @@ function ThreadChatSession({
         }
       },
       sessions: () => onOpenSessions?.(),
+      split: () => onOpenSessionSplit?.(),
+      focus: () => onToggleFocusLayout?.(),
     }),
-    [onOpenSessions, threadModelGroups],
+    [onOpenSessionSplit, onOpenSessions, onToggleFocusLayout, threadModelGroups],
   );
   const handleThreadSlashCommand = useSlashCommandExecutor({
     availableCommands: threadAvailableSlashCommands,

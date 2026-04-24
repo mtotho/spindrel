@@ -40,7 +40,7 @@ import httpx
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
-    ToolBadge, ToolOutputDisplay, extract_tool_badges,
+    ToolBadge, ToolOutputDisplay, ToolResultRenderingSupport,
     count_pending_outbox,
     get_channel_for_integration,
 )
@@ -54,6 +54,10 @@ from integrations.slack.render_context import (
     slack_render_contexts,
 )
 from integrations.slack.target import SlackTarget
+from integrations.slack.tool_result_adapter import (
+    badges_to_context_block,
+    build_tool_result_blocks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,12 +90,40 @@ class SlackRenderer:
         Capability.FILE_UPLOAD,
         Capability.FILE_DELETE,
         Capability.STREAMING_EDIT,
+        Capability.RICH_TOOL_RESULTS,
         Capability.APPROVAL_BUTTONS,
         Capability.DISPLAY_NAMES,
         Capability.MENTIONS,
         Capability.EPHEMERAL,
         Capability.MODALS,
     })
+    tool_result_rendering: ClassVar[ToolResultRenderingSupport | None] = (
+        ToolResultRenderingSupport.from_manifest({
+            "modes": ["compact", "full", "none"],
+            "content_types": [
+                "text/plain",
+                "text/markdown",
+                "application/json",
+                "application/vnd.spindrel.components+json",
+                "application/vnd.spindrel.diff+text",
+                "application/vnd.spindrel.file-listing+json",
+            ],
+            "view_keys": [
+                "core.search_results",
+                "core.command_result",
+                "core.machine_target_status",
+            ],
+            "interactive": False,
+            "unsupported_fallback": "badge",
+            "placement": "same_message",
+            "limits": {
+                "max_blocks": 50,
+                "max_table_rows": 20,
+                "max_links": 10,
+                "max_code_chars": 2900,
+            },
+        })
+    )
 
     async def render(
         self,
@@ -448,13 +480,11 @@ class SlackRenderer:
         tool_blocks: list[dict] = []
         if tool_results and role != "user":
             display_mode = await _resolve_tool_output_display(target.channel_id)
-            if display_mode == ToolOutputDisplay.FULL:
-                tool_blocks = _components_to_blocks(tool_results)
-            elif display_mode == ToolOutputDisplay.COMPACT:
-                badges = extract_tool_badges(tool_results)
-                ctx_block = _badges_to_context_block(badges)
-                if ctx_block is not None:
-                    tool_blocks = [ctx_block]
+            tool_blocks = build_tool_result_blocks(
+                tool_results,
+                display_mode=display_mode,
+                support=self.tool_result_rendering,
+            )
         tool_blocks = tool_blocks[:50]  # Slack per-message blocks cap
 
         # If a thinking placeholder exists for this turn, update it
@@ -1048,10 +1078,16 @@ async def _wait_for_pending_outbox(
     deadline = time.monotonic() + timeout
     try:
         while time.monotonic() < deadline:
-            pending = await count_pending_outbox(channel_id, "slack")
+            remaining = max(0.0, deadline - time.monotonic())
+            pending = await asyncio.wait_for(
+                count_pending_outbox(channel_id, "slack"),
+                timeout=max(0.001, min(poll_interval, remaining)),
+            )
             if not pending:
                 return
             await asyncio.sleep(poll_interval)
+    except asyncio.TimeoutError:
+        logger.debug("_wait_for_pending_outbox poll timed out; continuing")
     except Exception:
         logger.debug("_wait_for_pending_outbox poll failed; continuing", exc_info=True)
 
@@ -1081,16 +1117,7 @@ def _badges_to_context_block(badges: list[ToolBadge]) -> dict | None:
     overflow is silently dropped (these are compact hints, not the
     canonical record — the web UI still shows everything).
     """
-    if not badges:
-        return None
-    elements = []
-    for badge in badges[:10]:
-        name = _escape_mrkdwn(badge.tool_name) or "tool"
-        text = f":wrench:  *{name}*"
-        if badge.display_label:
-            text += f"  —  {_escape_mrkdwn(badge.display_label)}"
-        elements.append({"type": "mrkdwn", "text": text})
-    return {"type": "context", "elements": elements}
+    return badges_to_context_block(badges)
 
 
 def _components_to_blocks(envelopes: list[dict]) -> list[dict]:

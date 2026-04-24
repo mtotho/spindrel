@@ -236,6 +236,114 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    # --- secrets / mcp / skills / heartbeats / bindings --------------------
+    # Used by docs_repair staging; all idempotent via GET-then-POST.
+
+    def list_secret_values(self) -> list[dict]:
+        r = self._http.get("/api/v1/admin/secret-values/")
+        r.raise_for_status()
+        payload = r.json()
+        return payload if isinstance(payload, list) else payload.get("items", [])
+
+    def create_secret_value(self, *, name: str, value: str, description: str = "") -> dict:
+        return self._post(
+            "/api/v1/admin/secret-values/",
+            json={"name": name, "value": value, "description": description},
+        ).json()
+
+    def delete_secret_value(self, secret_id: str) -> None:
+        r = self._http.delete(f"/api/v1/admin/secret-values/{secret_id}")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+    def list_mcp_servers(self) -> list[dict]:
+        r = self._http.get("/api/v1/admin/mcp-servers")
+        r.raise_for_status()
+        payload = r.json()
+        return payload if isinstance(payload, list) else payload.get("items", [])
+
+    def ensure_mcp_server(
+        self,
+        *,
+        server_id: str,
+        display_name: str,
+        url: str,
+        is_enabled: bool = True,
+        config: dict | None = None,
+    ) -> dict:
+        for s in self.list_mcp_servers():
+            if s.get("id") == server_id:
+                return s
+        body: dict[str, Any] = {
+            "id": server_id,
+            "display_name": display_name,
+            "url": url,
+            "is_enabled": is_enabled,
+            "config": config or {},
+        }
+        return self._post("/api/v1/admin/mcp-servers", json=body).json()
+
+    def delete_mcp_server(self, server_id: str) -> None:
+        r = self._http.delete(f"/api/v1/admin/mcp-servers/{server_id}")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+    def ensure_skill(self, *, skill_id: str, name: str, content: str) -> dict:
+        # Skills route accepts unique ``id`` on POST; 409 on duplicate.
+        r = self._http.post(
+            "/api/v1/admin/skills",
+            json={"id": skill_id, "name": name, "content": content},
+        )
+        if r.status_code == 409:
+            # Fetch existing (GET by id path)
+            g = self._http.get(f"/api/v1/admin/skills/{skill_id}")
+            g.raise_for_status()
+            return g.json()
+        r.raise_for_status()
+        return r.json()
+
+    def delete_skill(self, skill_id: str) -> None:
+        r = self._http.delete(f"/api/v1/admin/skills/{skill_id}")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
+
+    def toggle_heartbeat(self, *, channel_id: str, enabled: bool) -> dict:
+        return self._post(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat/toggle",
+            json={"enabled": enabled},
+        ).json()
+
+    def create_channel_binding(
+        self,
+        *,
+        channel_id: str,
+        integration_type: str,
+        client_id: str,
+        display_name: str | None = None,
+        dispatch_config: dict | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {
+            "integration_type": integration_type,
+            "client_id": client_id,
+        }
+        if display_name:
+            body["display_name"] = display_name
+        if dispatch_config:
+            body["dispatch_config"] = dispatch_config
+        r = self._http.post(
+            f"/api/v1/channels/{channel_id}/integrations",
+            json=body,
+        )
+        # 409 means a binding with the same (channel, client_id) already exists.
+        if r.status_code == 409:
+            listing = self._http.get(f"/api/v1/channels/{channel_id}/integrations")
+            listing.raise_for_status()
+            for b in listing.json().get("bindings", []):
+                if b.get("client_id") == client_id:
+                    return b
+        r.raise_for_status()
+        return r.json()
+
     # --- auth (for JWT minting used by the browser layer) ------------------
 
     def login(self, *, email: str, password: str) -> dict:

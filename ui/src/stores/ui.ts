@@ -7,7 +7,10 @@ import {
   clampChannelPanelWidth,
 } from "../lib/channelPanelLayout";
 import {
+  defaultChannelChatPaneLayout,
+  normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
+  type ChannelChatPaneLayout,
   type ChannelSessionPanel,
 } from "../lib/channelSessionSurfaces";
 
@@ -32,6 +35,7 @@ export interface RecentPage {
 export type OmniPanelTab = "widgets" | "files" | "jump";
 
 export type { ChannelSessionPanel };
+export type { ChannelChatPaneLayout };
 
 export interface ChannelPanelPrefs {
   leftOpen: boolean;
@@ -46,8 +50,12 @@ export interface ChannelPanelPrefs {
   focusModePrior: {
     leftOpen: boolean;
     rightOpen: boolean;
+    topChromeCollapsed: boolean;
   } | null;
   sessionPanels: ChannelSessionPanel[];
+  chatPaneLayout: ChannelChatPaneLayout;
+  topChromeCollapsed: boolean;
+  collapseHintDismissed: boolean;
 }
 
 export type ChannelPanelPrefsPatch =
@@ -67,6 +75,9 @@ export function defaultChannelPanelPrefs(): ChannelPanelPrefs {
     mobileExpandedWidgetId: null,
     focusModePrior: null,
     sessionPanels: [],
+    chatPaneLayout: defaultChannelChatPaneLayout(),
+    topChromeCollapsed: false,
+    collapseHintDismissed: false,
   };
 }
 
@@ -74,6 +85,16 @@ function normalizeChannelPanelPrefs(
   prefs: Partial<ChannelPanelPrefs> | undefined,
 ): ChannelPanelPrefs {
   const base = defaultChannelPanelPrefs();
+  const rawFocusPrior = prefs?.focusModePrior;
+  const focusModePrior = rawFocusPrior
+    ? {
+        leftOpen: !!rawFocusPrior.leftOpen,
+        rightOpen: !!rawFocusPrior.rightOpen,
+        topChromeCollapsed: "topChromeCollapsed" in rawFocusPrior
+          ? !!rawFocusPrior.topChromeCollapsed
+          : base.topChromeCollapsed,
+      }
+    : null;
   return {
     ...base,
     ...(prefs ?? {}),
@@ -81,8 +102,11 @@ function normalizeChannelPanelPrefs(
     rightWidth: clampChannelPanelWidth(prefs?.rightWidth ?? base.rightWidth),
     leftTab: prefs?.leftTab ?? base.leftTab,
     mobileExpandedWidgetId: prefs?.mobileExpandedWidgetId ?? null,
-    focusModePrior: prefs?.focusModePrior ?? null,
+    focusModePrior,
     sessionPanels: normalizeChannelSessionPanels(prefs?.sessionPanels),
+    chatPaneLayout: normalizeChannelChatPaneLayout(prefs?.chatPaneLayout, prefs?.sessionPanels),
+    topChromeCollapsed: prefs?.topChromeCollapsed ?? base.topChromeCollapsed,
+    collapseHintDismissed: prefs?.collapseHintDismissed ?? base.collapseHintDismissed,
   };
 }
 

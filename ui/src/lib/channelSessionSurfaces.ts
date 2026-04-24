@@ -8,6 +8,25 @@ export type ChannelSessionPanel = Extract<ChannelSessionSurface, { kind: "channe
 export type ChannelSessionActivationIntent = "switch" | "split";
 
 export const MAX_CHANNEL_SESSION_PANELS = 2;
+export const MAX_CHANNEL_CHAT_PANES = 3;
+
+export interface ChannelChatPane {
+  id: string;
+  surface: ChannelSessionSurface;
+  channelId?: string;
+}
+
+export interface ChannelChatPaneLayout {
+  panes: ChannelChatPane[];
+  focusedPaneId: string | null;
+  widths: Record<string, number>;
+}
+
+export interface ChannelSessionPickerGroup {
+  id: "primary" | "previous" | "scratch" | "results";
+  label: string;
+  entries: ChannelSessionPickerEntry[];
+}
 
 export interface ScratchSessionLike {
   session_id?: string;
@@ -120,6 +139,167 @@ export function removeChannelSessionPanel(
       return panel.kind !== target.kind || panel.sessionId !== target.sessionId;
     })
     .slice(0, MAX_CHANNEL_SESSION_PANELS);
+}
+
+export function surfaceKey(surface: ChannelSessionSurface): string {
+  if (surface.kind === "primary") return "primary";
+  return `${surface.kind}:${surface.sessionId}`;
+}
+
+export function paneIdForSurface(surface: ChannelSessionSurface): string {
+  return surfaceKey(surface);
+}
+
+function isChannelSessionSurface(value: unknown): value is ChannelSessionSurface {
+  if (!value || typeof value !== "object" || !("kind" in value)) return false;
+  if (value.kind === "primary") return true;
+  return (value.kind === "scratch" || value.kind === "channel")
+    && "sessionId" in value
+    && typeof value.sessionId === "string"
+    && value.sessionId.length > 0;
+}
+
+function isChannelChatPane(value: unknown): value is ChannelChatPane {
+  return !!value
+    && typeof value === "object"
+    && "id" in value
+    && typeof value.id === "string"
+    && "surface" in value
+    && isChannelSessionSurface(value.surface);
+}
+
+function normalizeWidths(panes: readonly ChannelChatPane[], input: unknown): Record<string, number> {
+  const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const count = Math.max(1, panes.length);
+  const fallback = 1 / count;
+  const widths: Record<string, number> = {};
+  let total = 0;
+  for (const pane of panes) {
+    const width = typeof raw[pane.id] === "number" && Number.isFinite(raw[pane.id] as number)
+      ? Math.max(0.12, raw[pane.id] as number)
+      : fallback;
+    widths[pane.id] = width;
+    total += width;
+  }
+  if (total <= 0) {
+    for (const pane of panes) widths[pane.id] = fallback;
+    return widths;
+  }
+  for (const pane of panes) widths[pane.id] = widths[pane.id] / total;
+  return widths;
+}
+
+export function defaultChannelChatPaneLayout(): ChannelChatPaneLayout {
+  const primary: ChannelChatPane = { id: "primary", surface: { kind: "primary" } };
+  return {
+    panes: [primary],
+    focusedPaneId: primary.id,
+    widths: { [primary.id]: 1 },
+  };
+}
+
+export function normalizeChannelChatPaneLayout(
+  value: unknown,
+  legacyPanels?: unknown,
+): ChannelChatPaneLayout {
+  const raw = value && typeof value === "object" ? value as Partial<ChannelChatPaneLayout> : null;
+  let panes = Array.isArray(raw?.panes)
+    ? raw.panes.filter(isChannelChatPane)
+    : [];
+  if (panes.length === 0) {
+    panes = defaultChannelChatPaneLayout().panes;
+    for (const panel of normalizeChannelSessionPanels(legacyPanels)) {
+      panes.push({ id: paneIdForSurface(panel), surface: panel });
+    }
+  }
+  const deduped: ChannelChatPane[] = [];
+  const seen = new Set<string>();
+  for (const pane of panes) {
+    const id = pane.id || paneIdForSurface(pane.surface);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    deduped.push({ ...pane, id });
+    if (deduped.length >= MAX_CHANNEL_CHAT_PANES) break;
+  }
+  const focusedPaneId = typeof raw?.focusedPaneId === "string"
+    && deduped.some((pane) => pane.id === raw.focusedPaneId)
+    ? raw.focusedPaneId
+    : (deduped[0]?.id ?? null);
+  return {
+    panes: deduped,
+    focusedPaneId,
+    widths: normalizeWidths(deduped, raw?.widths),
+  };
+}
+
+export function addChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  surface: ChannelSessionSurface,
+): ChannelChatPaneLayout {
+  const id = paneIdForSurface(surface);
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const panes = existing.panes.some((pane) => pane.id === id)
+    ? existing.panes
+    : [...existing.panes, { id, surface }].slice(-MAX_CHANNEL_CHAT_PANES);
+  return {
+    panes,
+    focusedPaneId: id,
+    widths: normalizeWidths(panes, existing.widths),
+  };
+}
+
+export function replaceFocusedChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  surface: ChannelSessionSurface,
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const nextId = paneIdForSurface(surface);
+  const targetId = existing.focusedPaneId ?? existing.panes[0]?.id;
+  const withoutDuplicate = existing.panes.filter((pane) => pane.id !== nextId);
+  const index = Math.max(0, withoutDuplicate.findIndex((pane) => pane.id === targetId));
+  const panes = withoutDuplicate.length === 0
+    ? [{ id: nextId, surface }]
+    : withoutDuplicate.map((pane, paneIndex) => paneIndex === index ? { id: nextId, surface } : pane);
+  return {
+    panes,
+    focusedPaneId: nextId,
+    widths: normalizeWidths(panes, existing.widths),
+  };
+}
+
+export function removeChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  paneId: string,
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const panes = existing.panes.filter((pane) => pane.id !== paneId);
+  return {
+    panes,
+    focusedPaneId: panes[0]?.id ?? null,
+    widths: normalizeWidths(panes, existing.widths),
+  };
+}
+
+export function resizeChannelChatPanes(
+  layout: ChannelChatPaneLayout,
+  leftPaneId: string,
+  rightPaneId: string,
+  deltaRatio: number,
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const widths = normalizeWidths(existing.panes, existing.widths);
+  if (!(leftPaneId in widths) || !(rightPaneId in widths)) return existing;
+  const left = widths[leftPaneId];
+  const right = widths[rightPaneId];
+  const total = left + right;
+  const min = Math.min(0.4, total / 3);
+  const nextLeft = Math.max(min, Math.min(total - min, left + deltaRatio));
+  widths[leftPaneId] = nextLeft;
+  widths[rightPaneId] = total - nextLeft;
+  return {
+    ...existing,
+    widths: normalizeWidths(existing.panes, widths),
+  };
 }
 
 export function buildChannelSessionRoute(channelId: string, surface: ChannelSessionSurface): string {
@@ -344,4 +524,22 @@ export function buildChannelSessionPickerEntries({
   const q = query?.trim().toLowerCase();
   if (!q) return entries;
   return entries.filter((entry) => `${entry.label} ${entry.meta}`.toLowerCase().includes(q));
+}
+
+export function buildChannelSessionPickerGroups(
+  entries: readonly ChannelSessionPickerEntry[],
+  query?: string,
+): ChannelSessionPickerGroup[] {
+  if (query?.trim()) {
+    return [{ id: "results", label: "Results", entries: [...entries] }];
+  }
+  const primary = entries.filter((entry) => entry.kind === "primary");
+  const previous = entries.filter((entry) => entry.kind === "channel");
+  const scratch = entries.filter((entry) => entry.kind === "scratch");
+  const groups: ChannelSessionPickerGroup[] = [
+    { id: "primary", label: "Primary", entries: primary },
+    { id: "previous", label: "Previous channel sessions", entries: previous },
+    { id: "scratch", label: "Scratch", entries: scratch },
+  ];
+  return groups.filter((group) => group.entries.length > 0);
 }

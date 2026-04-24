@@ -166,6 +166,16 @@ Quick server health check showing services, containers, disk usage, and deploy i
 
 The session-local web chat plan mode described in [Plan Mode](./plan-mode.md) does not currently have a Discord slash-command equivalent.
 
+## Rich Tool Results
+
+Discord declares `rich_tool_results` and a `tool_result_rendering` support matrix in `integrations/discord/integration.yaml`. The renderer reads final `NEW_MESSAGE` metadata and applies the channel's `tool_output_display` policy:
+
+- `compact` appends a short tool-badge line to the assistant message.
+- `full` renders supported read-only tool-result envelopes as Discord embeds, then appends compact badges for unsupported envelopes.
+- `none` suppresses tool-result presentation.
+
+Discord supports the same transcript-safe envelope families as Slack: text/markdown/json, component envelopes, diff/file-listing envelopes, and selected core `view_key`s such as `core.search_results`. Interactive HTML/native widgets fall back to badges. Widget actions are not mapped to Discord buttons; approvals continue through the separate approval embed/buttons path.
+
 ## Emoji Reactions
 
 During agent processing, the bot adds emoji reactions to your message:

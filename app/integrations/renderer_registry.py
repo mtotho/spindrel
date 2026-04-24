@@ -56,8 +56,12 @@ def register(renderer: "ChannelRenderer") -> None:
         )
 
     # Resolve capabilities: YAML manifest wins over ClassVar
-    from app.services.integration_manifests import get_capabilities
+    from app.services.integration_manifests import (
+        get_capabilities,
+        get_tool_result_rendering,
+    )
     from app.domain.capability import Capability
+    from integrations.tool_output import ToolResultRenderingSupport
 
     yaml_caps = get_capabilities(integration_id)
     classvar_caps = getattr(renderer, "capabilities", None)
@@ -80,6 +84,19 @@ def register(renderer: "ChannelRenderer") -> None:
             f"renderer {type(renderer).__name__}.capabilities must be a "
             f"frozenset[Capability] or declared in integration.yaml"
         )
+
+    yaml_tool_results = get_tool_result_rendering(integration_id)
+    classvar_tool_results = getattr(renderer, "tool_result_rendering", None)
+    if yaml_tool_results is not None:
+        type(renderer).tool_result_rendering = ToolResultRenderingSupport.from_manifest(
+            yaml_tool_results
+        )
+    elif isinstance(classvar_tool_results, dict):
+        type(renderer).tool_result_rendering = ToolResultRenderingSupport.from_manifest(
+            classvar_tool_results
+        )
+    elif classvar_tool_results is None:
+        type(renderer).tool_result_rendering = None
 
     if integration_id in _registry:
         existing = type(_registry[integration_id]).__name__

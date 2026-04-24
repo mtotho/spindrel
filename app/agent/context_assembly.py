@@ -677,6 +677,1354 @@ def _inject_api_access_tools(
     return bot, {"type": "api_access_tools", "scopes": bot.api_permissions}
 
 
+# ===== Cluster 7b discovery-stage extractions =====
+#
+# Four helpers extracted from the "discovery" phase of `assemble_context`
+# (Stages 7, 8, 11, 12). They share the `_tagged_*` / `_member_*` locals
+# that get read by Stages 9 (skills), 12 (delegate index), and 18 (tool
+# retrieval), so each helper writes its outputs to a caller-supplied
+# `out_state` dict. Stays in-file for the same test-patch reason as 7a.
+
+
+async def _resolve_tagged_mentions(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: Any,
+    client_id: Any,
+    session_id: Any,
+    correlation_id: Any,
+    result: Any,
+    out_state: dict,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Resolve @mentions in the user message into skill/tool/bot tag objects.
+    Writes `tagged`, `tagged_skill_names`, `tagged_tool_names`,
+    `tagged_bot_names` to ``out_state``. Mutates ``result`` and the
+    `ephemeral_delegates` / `ephemeral_skills` context vars (side effects
+    preserved from the original inline code)."""
+    _tagged = await resolve_tags(
+        message=user_message,
+        bot_skills=bot.skill_ids,
+        bot_local_tools=bot.local_tools,
+        bot_client_tools=bot.client_tools,
+        bot_id=bot.id,
+        client_id=client_id,
+        session_id=session_id,
+    )
+    _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
+    _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
+    _tagged_bot_names = [t.name for t in _tagged if t.tag_type == "bot"]
+
+    out_state["tagged"] = _tagged
+    out_state["tagged_skill_names"] = _tagged_skill_names
+    out_state["tagged_tool_names"] = _tagged_tool_names
+    out_state["tagged_bot_names"] = _tagged_bot_names
+
+    result.tagged_tool_names = _tagged_tool_names
+    result.tagged_bot_names = _tagged_bot_names
+    if _tagged_bot_names:
+        set_ephemeral_delegates(_tagged_bot_names)
+    if _tagged_skill_names:
+        from app.agent.context import current_ephemeral_skills
+        _existing_skills = list(current_ephemeral_skills.get() or [])
+        _merged = list(dict.fromkeys(_existing_skills + _tagged_skill_names))
+        set_ephemeral_skills(_merged)
+
+    if _tagged:
+        if _tagged_skill_names:
+            _hint_lines = await _build_tagged_skill_hint_lines(_tagged_skill_names)
+            if _hint_lines:
+                messages.append({
+                    "role": "system",
+                    "content": (
+                        "Tagged skill context (explicitly requested): the user "
+                        "tagged these skills. Call "
+                        'get_skill(skill_id="...") to load any you need — '
+                        "otherwise ignore.\n\n" + "\n".join(_hint_lines)
+                    ),
+                })
+
+        yield {
+            "type": "tagged_context",
+            "tags": [t.raw for t in _tagged],
+            "skills": _tagged_skill_names,
+            "tools": _tagged_tool_names,
+            "bots": _tagged_bot_names,
+        }
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tagged_context",
+                count=len(_tagged),
+                data={
+                    "tags": [t.raw for t in _tagged],
+                    "skills": _tagged_skill_names,
+                    "tools": _tagged_tool_names,
+                    "bots": _tagged_bot_names,
+                },
+            ))
+
+
+async def _apply_ephemeral_skills(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    tagged_skill_names: list[str],
+    out_state: dict,
+) -> None:
+    """Append webhook/execution-config skills that weren't @-tagged or
+    already in bot.skills. Writes `untagged_ephemeral` to ``out_state`` for
+    Stage 9 to consume."""
+    from app.agent.context import current_ephemeral_skills
+    _ephemeral_skill_ids = list(current_ephemeral_skills.get() or [])
+    _bot_skill_ids = {s.id for s in bot.skills}
+    _untagged_ephemeral = [
+        s for s in _ephemeral_skill_ids
+        if s not in tagged_skill_names and s not in _bot_skill_ids
+    ]
+    out_state["untagged_ephemeral"] = _untagged_ephemeral
+    if _untagged_ephemeral:
+        _eph_chunks: list[str] = []
+        for _eph_id in _untagged_ephemeral:
+            _eph_chunks.extend(await fetch_skill_chunks_by_id(_eph_id))
+        if _eph_chunks:
+            messages.append({
+                "role": "system",
+                "content": "Webhook skill context:\n\n"
+                           + "\n\n---\n\n".join(_eph_chunks),
+            })
+
+
+async def _inject_multi_bot_awareness(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    channel_id: Any,
+    ch_row: Any,
+    system_preamble: Any,
+    out_state: dict,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Load channel bot members + emit a system message listing participants
+    (primary/member labels, self marker, config suffixes). Writes
+    `member_bot_ids` / `member_configs` to ``out_state`` for Stage 12."""
+    _member_bot_ids: list[str] = []
+    _member_configs: dict[str, dict] = {}
+    if channel_id:
+        try:
+            from sqlalchemy import select as _sel
+            from app.db.engine import async_session as _async_session
+            from app.db.models import ChannelBotMember as _CBM
+            async with _async_session() as _mbdb:
+                _mb_rows = (await _mbdb.execute(
+                    _sel(_CBM).where(_CBM.channel_id == channel_id)
+                )).all()
+                for (_row,) in _mb_rows:
+                    _member_bot_ids.append(_row.bot_id)
+                    _member_configs[_row.bot_id] = _row.config or {}
+        except Exception:
+            logger.debug("Failed to load channel bot members for %s", channel_id, exc_info=True)
+
+    out_state["member_bot_ids"] = _member_bot_ids
+    out_state["member_configs"] = _member_configs
+
+    if _member_bot_ids:
+        from app.agent.bots import get_bot as _get_bot_mb
+        _participant_lines: list[str] = []
+
+        _primary_bot_id = getattr(ch_row, "bot_id", None) if ch_row else None
+        _primary_bot_id = _primary_bot_id or bot.id
+
+        _all_bot_ids = [_primary_bot_id] + [mid for mid in _member_bot_ids if mid != _primary_bot_id]
+        if bot.id != _primary_bot_id and bot.id not in _all_bot_ids:
+            _all_bot_ids.append(bot.id)
+
+        for _bid in _all_bot_ids:
+            _is_primary = _bid == _primary_bot_id
+            _is_self = _bid == bot.id
+            _role_label = "primary" if _is_primary else "member"
+            _you_marker = " ← you" if _is_self else ""
+            try:
+                _mb = _get_bot_mb(_bid)
+                _cfg = _member_configs.get(_bid, {})
+                _cfg_parts: list[str] = []
+                if _cfg.get("auto_respond"):
+                    _cfg_parts.append("auto-respond")
+                if _cfg.get("response_style"):
+                    _cfg_parts.append(f"style={_cfg['response_style']}")
+                _cfg_suffix = f" [{', '.join(_cfg_parts)}]" if _cfg_parts else ""
+                _participant_lines.append(f"  - @{_bid} ({_role_label}): {_mb.name}{_cfg_suffix}{_you_marker}")
+            except Exception:
+                _participant_lines.append(f"  - @{_bid} ({_role_label}){_you_marker}")
+
+        _awareness_msg = (
+            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
+            "This channel has multiple bot participants:\n"
+            + "\n".join(_participant_lines)
+        )
+        if not system_preamble:
+            _awareness_msg += (
+                "\nYou can @-mention bots by bot_id or display name (e.g., @dev_bot or @Dev Bot) to bring them into the conversation."
+                "\nDo not @-mention yourself."
+            )
+        else:
+            _awareness_msg += (
+                "\nYou were brought into this conversation to help. Focus on responding — "
+                "do not invoke or @-mention other bots."
+            )
+        messages.append({"role": "system", "content": _awareness_msg})
+
+        yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
+
+
+def _inject_delegate_index(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    tagged_bot_names: list[str],
+    member_bot_ids: list[str],
+) -> dict[str, Any] | None:
+    """Append the delegate index system message (bot.delegate_bots + tagged
+    bots + member bots, deduped). Returns the `delegate_index` event dict or
+    None if no delegates to list."""
+    _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + tagged_bot_names + member_bot_ids))
+    _delegate_lines: list[str] = []
+    if _all_delegate_ids:
+        from app.agent.bots import get_bot as _get_bot
+        for _did in _all_delegate_ids:
+            try:
+                _db = _get_bot(_did)
+                _desc = (_db.system_prompt or "").strip().splitlines()[0][:120] if _db.system_prompt else ""
+                _delegate_lines.append(f"  [bot] {_did} — {_db.name}" + (f": {_desc}" if _desc else ""))
+            except Exception:
+                _delegate_lines.append(f"  [bot] {_did}")
+
+    if _delegate_lines:
+        _delegate_content = (
+            "Available delegates for delegate_to_agent:\n"
+            + "\n".join(_delegate_lines)
+        )
+        messages.append({
+            "role": "system",
+            "content": _delegate_content,
+        })
+        return {"type": "delegate_index", "count": len(_delegate_lines)}
+    return None
+
+
+# ===== Cluster 7c skills-stage extraction =====
+#
+# Stage 9 (Phase-3 working set + semantic discovery + ranking + auto-inject)
+# was 346 LOC inline — the largest single stage in `assemble_context`. Three
+# internal closures (`_fmt_skill_line`, `_skill_category`,
+# `_render_grouped_skill_lines`) travel with the helper as nested functions
+# since they close over `_resident_skill_ids`. Stays in-file for the same
+# test-patch reason as 7a/7b.
+
+
+async def _inject_skill_working_set(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: Any,
+    correlation_id: Any,
+    session_id: Any,
+    client_id: Any,
+    skip_skill_inject: bool,
+    tagged_skill_names: list[str],
+    untagged_ephemeral: list[str],
+    source_map: dict[str, str],
+    budget_can_afford: Any,
+    budget_consume: Any,
+    result: Any,
+    out_state: dict,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Phase-3 skill working-set + semantic discovery + auto-inject for the
+    turn. Writes `enrolled_rows`, `suggestion_rows`, `enrolled_ids`,
+    `ranked_relevant`, `auto_injected`, `auto_injected_similarities`,
+    `history_fetched_skills`, `history_skill_records` to ``out_state`` for
+    the downstream active-skills snapshot trace.
+
+    Three layers, each gated independently:
+      1. Working set — relevance-ranked list of enrolled skills. When ranking
+         is enabled and there's a user_message, skills are sorted by semantic
+         similarity and the top matches are marked as relevant.
+      2. Auto-inject — highest-confidence enrolled skill has its content
+         pre-loaded into context (eliminates get_skill round-trip).
+      3. Discovery — semantic retrieval over UNENROLLED catalog skills.
+
+    Each section runs in its own try/except so a failure in one doesn't kill
+    the others or hang the event loop on teardown."""
+    _enrolled_rows: list = []
+    _suggestion_rows: list = []
+    _enrolled_ids: list[str] = []
+    _ranked_relevant: list[str] = []
+    _auto_injected: list[str] = []
+    _auto_injected_similarities: dict[str, float] = {}
+    _history_fetched_skills: set[str] = set()
+    _history_skill_records: dict[str, dict[str, Any]] = {}
+    _skipped_in_history: list[str] = []
+    _skipped_budget: list[str] = []
+    _ranking: list[dict] = []
+
+    out_state["enrolled_rows"] = _enrolled_rows
+    out_state["suggestion_rows"] = _suggestion_rows
+    out_state["enrolled_ids"] = _enrolled_ids
+    out_state["ranked_relevant"] = _ranked_relevant
+    out_state["auto_injected"] = _auto_injected
+    out_state["auto_injected_similarities"] = _auto_injected_similarities
+    out_state["history_fetched_skills"] = _history_fetched_skills
+    out_state["history_skill_records"] = _history_skill_records
+
+    if not bot.id:
+        return
+
+    from app.agent.rag import (
+        retrieve_skill_index as _retrieve_skill_index,
+        rank_enrolled_skills as _rank_enrolled_skills,
+        fetch_skill_chunks_by_id as _fetch_skill_chunks,
+    )
+    from sqlalchemy import select as _sa_select
+    from app.db.engine import async_session as _async_session
+    from app.db.models import Skill as _SkillRow
+
+    _assistant_msgs_ago = 0
+    for _hmsg in reversed(messages):
+        if _hmsg.get("role") not in ("assistant", "bot"):
+            continue
+        for _htc in reversed(_hmsg.get("tool_calls") or []):
+            _hfn = _htc.get("function") or {}
+            if _hfn.get("name") != "get_skill":
+                continue
+            try:
+                _hargs = json.loads(_hfn.get("arguments", "{}"))
+            except (json.JSONDecodeError, TypeError):
+                continue
+            _skill_id = _hargs.get("skill_id")
+            if not _skill_id or _skill_id in _history_skill_records:
+                continue
+            _tcid = str(_htc.get("id") or "")
+            _history_skill_records[_skill_id] = {
+                "skill_id": _skill_id,
+                "source": "auto_injected" if _tcid.startswith("auto_inject_") else "loaded",
+                "messages_ago": _assistant_msgs_ago,
+            }
+            _history_fetched_skills.add(_skill_id)
+        _assistant_msgs_ago += 1
+
+    _resident_skill_ids = set(_history_skill_records.keys())
+
+    def _fmt_skill_line(r, *, relevant: bool = False, resident: bool = False) -> str:
+        prefix = "↑" if relevant else "-"
+        parts = [prefix]
+        if resident:
+            parts.append(" [loaded]")
+        parts.append(f" {r.id}: {r.name}")
+        if r.description:
+            parts.append(f" — {r.description}")
+        if r.triggers:
+            parts.append(f" [{', '.join(r.triggers)}]")
+        return "".join(parts)
+
+    def _skill_category(r) -> str:
+        cat = getattr(r, "category", None)
+        if cat:
+            return cat
+        if "/" in r.id:
+            return r.id.split("/", 1)[0]
+        return "misc"
+
+    def _render_grouped_skill_lines(rows_in_order: list, relevant_ids: set, resident_ids: set[str]) -> str:
+        categories: dict[str, list[str]] = {}
+        cat_order: list[str] = []
+        for _r in rows_in_order:
+            _c = _skill_category(_r)
+            if _c not in categories:
+                categories[_c] = []
+                cat_order.append(_c)
+            categories[_c].append(
+                _fmt_skill_line(
+                    _r,
+                    relevant=_r.id in relevant_ids,
+                    resident=_r.id in resident_ids,
+                )
+            )
+        if len(rows_in_order) < 5 or len(cat_order) < 2:
+            return "\n".join(
+                _fmt_skill_line(
+                    _r,
+                    relevant=_r.id in relevant_ids,
+                    resident=_r.id in resident_ids,
+                )
+                for _r in rows_in_order
+            )
+        if "core" in cat_order:
+            cat_order.remove("core")
+            cat_order.insert(0, "core")
+        chunks: list[str] = []
+        for _c in cat_order:
+            chunks.append(f"[{_c}]")
+            chunks.extend(categories[_c])
+        return "\n".join(chunks)
+
+    if bot.skills:
+        _enrolled_ids = [s.id for s in bot.skills]
+        out_state["enrolled_ids"] = _enrolled_ids
+        try:
+            async with _async_session() as _db:
+                _enrolled_rows = (await _db.execute(
+                    _sa_select(
+                        _SkillRow.id, _SkillRow.name, _SkillRow.description,
+                        _SkillRow.triggers, _SkillRow.category,
+                    )
+                    .where(_SkillRow.id.in_(_enrolled_ids))
+                )).all()
+        except Exception:
+            logger.warning("Skill working-set load failed", exc_info=True)
+            _enrolled_rows = []
+        out_state["enrolled_rows"] = _enrolled_rows
+
+        if _enrolled_rows:
+            if settings.SKILL_ENROLLED_RANKING_ENABLED and user_message:
+                _rank_parts: list[str] = []
+                for _msg in reversed(messages[-10:]):
+                    if _msg.get("role") in ("user", "assistant") and _msg.get("content"):
+                        _rank_parts.append(_msg["content"][:500])
+                        if len(_rank_parts) >= 3:
+                            break
+                _rank_query = "\n".join(reversed(_rank_parts)) if _rank_parts else user_message
+                try:
+                    _ranking = await _rank_enrolled_skills(
+                        _rank_query, [r.id for r in _enrolled_rows],
+                    )
+                except Exception:
+                    logger.warning("Enrolled skill ranking failed", exc_info=True)
+
+            if _ranking:
+                _rank_map = {r["skill_id"]: r for r in _ranking}
+                _ranked_relevant = [r["skill_id"] for r in _ranking if r["relevant"]]
+                out_state["ranked_relevant"] = _ranked_relevant
+                _row_map = {r.id: r for r in _enrolled_rows}
+                _sorted_ids = [r["skill_id"] for r in _ranking if r["skill_id"] in _row_map]
+                for r in _enrolled_rows:
+                    if r.id not in _rank_map:
+                        _sorted_ids.append(r.id)
+
+                _has_relevant = bool(_ranked_relevant)
+                _ordered_rows = [_row_map[sid] for sid in _sorted_ids if sid in _row_map]
+                _working_lines = _render_grouped_skill_lines(
+                    _ordered_rows, set(_ranked_relevant), _resident_skill_ids,
+                )
+                _header = (
+                    "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                    "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content. "
+                    "Answering from the description alone is the primary source of bad replies.\n"
+                    "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                    "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
+                    "Skills marked ↑ are semantically relevant to this message — load them before responding.\n"
+                    if _has_relevant else
+                    "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                    "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
+                    "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                    "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
+                )
+            else:
+                _working_lines = _render_grouped_skill_lines(
+                    list(_enrolled_rows), set(), _resident_skill_ids,
+                )
+                _header = (
+                    "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
+                    "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
+                    "Do not call get_skill again for skills marked [loaded] unless you intentionally "
+                    "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
+                )
+
+            messages.append({
+                "role": "system",
+                "content": _header + _working_lines,
+            })
+
+            if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0 and not skip_skill_inject:
+                _already_injected = (
+                    set(tagged_skill_names) | set(untagged_ephemeral) | _history_fetched_skills
+                )
+                _injected_count = 0
+                _inject_threshold = settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD
+                for _ri in _ranking:
+                    if _injected_count >= settings.SKILL_ENROLLED_AUTO_INJECT_MAX:
+                        break
+                    if _ri["similarity"] < _inject_threshold:
+                        break
+                    if source_map.get(_ri["skill_id"], "starter") not in _INJECT_ELIGIBLE_SOURCES:
+                        continue
+                    if _ri["skill_id"] in _already_injected:
+                        _skipped_in_history.append(_ri["skill_id"])
+                        continue
+                    try:
+                        _ai_chunks = await _fetch_skill_chunks(_ri["skill_id"])
+                        if _ai_chunks:
+                            _ai_content = "\n\n---\n\n".join(_ai_chunks)
+                            _ai_row = _row_map.get(_ri["skill_id"])
+                            _ai_name = _ai_row.name if _ai_row else _ri["skill_id"]
+                            _ai_formatted = f"# {_ai_name}\n\n{_ai_content}"
+                            if not budget_can_afford(_ai_formatted):
+                                _skipped_budget.append(_ri["skill_id"])
+                                break
+                            budget_consume("auto_inject_skill", _ai_formatted)
+                            result.auto_inject_skills.append({
+                                "skill_id": _ri["skill_id"],
+                                "content": _ai_formatted,
+                            })
+                            _auto_injected.append(_ri["skill_id"])
+                            _auto_injected_similarities[_ri["skill_id"]] = _safe_sim(_ri["similarity"])
+                            _injected_count += 1
+                            from app.tools.local.skills import _increment_auto_inject_count
+                            asyncio.create_task(
+                                _increment_auto_inject_count(_ri["skill_id"], bot.id)
+                            )
+                    except Exception:
+                        logger.warning(
+                            "Failed to auto-inject skill %s", _ri["skill_id"], exc_info=True,
+                        )
+
+                for _ai in _auto_injected:
+                    _ai_row = _row_map.get(_ai)
+                    _ai_sim = next((r["similarity"] for r in _ranking if r["skill_id"] == _ai), 0.0)
+                    yield {
+                        "type": "auto_inject",
+                        "skill_id": _ai,
+                        "skill_name": _ai_row.name if _ai_row else _ai,
+                        "similarity": _safe_sim(_ai_sim),
+                        "source": source_map.get(_ai, "unknown"),
+                    }
+
+    if user_message:
+        try:
+            async with _async_session() as _db:
+                _catalog_q = _sa_select(_SkillRow.id).where(
+                    ~_SkillRow.id.like("bots/%") | _SkillRow.id.like(f"bots/{bot.id}/%")
+                )
+                _catalog_ids = list((await _db.execute(_catalog_q)).scalars().all())
+
+            _enrolled_set = set(_enrolled_ids)
+            _candidate_ids = [sid for sid in _catalog_ids if sid not in _enrolled_set]
+
+            if _candidate_ids:
+                _suggestions = await _retrieve_skill_index(user_message, _candidate_ids)
+                if _suggestions:
+                    _suggestion_ids = [s["skill_id"] for s in _suggestions]
+                    async with _async_session() as _db:
+                        _suggestion_rows = (await _db.execute(
+                            _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
+                            .where(_SkillRow.id.in_(_suggestion_ids))
+                        )).all()
+        except Exception:
+            logger.warning("Skill discovery layer failed", exc_info=True)
+            _suggestion_rows = []
+        out_state["suggestion_rows"] = _suggestion_rows
+
+        if _suggestion_rows:
+            _disc_lines = "\n".join(
+                _fmt_skill_line(r) for r in _suggestion_rows
+            )
+            _disc_header = (
+                "Skills you can fetch via get_skill(skill_id=\"<id>\") "
+                "(your working set is empty — first successful fetch enrolls them):"
+                if not _enrolled_rows else
+                "Other skills you can fetch via get_skill(skill_id=\"<id>\") "
+                "(not yet in your working set; first successful fetch enrolls them):"
+            )
+            messages.append({
+                "role": "system",
+                "content": _disc_header + "\n" + _disc_lines,
+            })
+
+    if _enrolled_rows or _suggestion_rows:
+        _skill_trace_data = {
+            "enrolled_ids": [r.id for r in _enrolled_rows],
+            "suggested_ids": [r.id for r in _suggestion_rows],
+            "total_enrolled": len(_enrolled_ids),
+            "ranked_relevant": _ranked_relevant,
+            "auto_injected": _auto_injected,
+            "ranking_scores": [
+                {"skill_id": r["skill_id"], "similarity": _safe_sim(r["similarity"])}
+                for r in _ranking
+            ] if _ranking else [],
+            "skills_in_history": sorted(_history_fetched_skills) if _history_fetched_skills else [],
+            "skipped_in_history": _skipped_in_history if _skipped_in_history else [],
+            "skipped_budget": _skipped_budget if _skipped_budget else [],
+            "relevance_threshold": settings.SKILL_ENROLLED_RELEVANCE_THRESHOLD,
+            "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
+        }
+        yield {
+            "type": "skill_index",
+            "count": len(_enrolled_rows),
+            "suggestions": len(_suggestion_rows),
+            "total": len(_enrolled_ids),
+            **_skill_trace_data,
+        }
+        if correlation_id is not None:
+            asyncio.create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="skill_index",
+                count=len(_enrolled_rows),
+                data=_skill_trace_data,
+            ))
+
+
+# ===== Cluster 7d tool-retrieval extraction =====
+#
+# Stage 18 (tool retrieval + policy gate + unretrieved-tool index + discovery
+# trace, 182 LOC) was the second-largest stage in `assemble_context`. The
+# `bot.tool_retrieval` branch stays in the caller so the helper is only
+# invoked when retrieval is actually running.
+
+
+async def _run_tool_retrieval(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    user_message: Any,
+    ch_row: Any,
+    tagged_tool_names: list[str],
+    correlation_id: Any,
+    session_id: Any,
+    client_id: Any,
+    context_profile: Any,
+    inject_decisions: dict,
+    budget_can_afford: Any,
+    budget_consume: Any,
+    out_state: dict,
+) -> AsyncGenerator[dict[str, Any], None]:
+    """Tool-RAG retrieval + policy gate + pinned/retrieved merge + compact
+    unretrieved-tool index injection. Writes `pre_selected_tools`,
+    `authorized_names`, `tool_discovery_info` to ``out_state``. Only called
+    when `bot.tool_retrieval` is on — caller keeps the gate."""
+    _enrolled_tool_names: list[str] = []
+    if bot.id:
+        try:
+            from app.services.tool_enrollment import get_enrolled_tool_names as _get_enrolled_tools
+            _enrolled_tool_names = await _get_enrolled_tools(bot.id)
+        except Exception:
+            logger.warning("Failed to load enrolled tools for %s", bot.id, exc_info=True)
+
+    by_name = await _all_tool_schemas_by_name(
+        bot, enrolled_tool_names=_enrolled_tool_names,
+    ) if (
+        bot.local_tools or bot.mcp_servers or bot.client_tools
+        or bot.pinned_tools or _enrolled_tool_names
+    ) else {}
+    if "get_tool_info" not in by_name:
+        for _gti in get_local_tool_schemas(["get_tool_info"]):
+            by_name[_gti["function"]["name"]] = _gti
+    if bot.tool_discovery and "search_tools" not in by_name:
+        for _st in get_local_tool_schemas(["search_tools"]):
+            by_name[_st["function"]["name"]] = _st
+    if bot.tool_discovery:
+        for _name in ("list_tool_signatures", "run_script"):
+            if _name not in by_name:
+                for _sch in get_local_tool_schemas([_name]):
+                    by_name[_sch["function"]["name"]] = _sch
+    for _sk_name in ("get_skill", "get_skill_list"):
+        if _sk_name not in by_name:
+            for _sk_schema in get_local_tool_schemas([_sk_name]):
+                by_name[_sk_schema["function"]["name"]] = _sk_schema
+
+    _authorized_names: set[str] = set(by_name.keys())
+    out_state["authorized_names"] = _authorized_names
+
+    th = (
+        bot.tool_similarity_threshold
+        if bot.tool_similarity_threshold is not None
+        else settings.TOOL_RETRIEVAL_THRESHOLD
+    )
+    retrieved, tool_sim, tool_candidates = await retrieve_tools(
+        user_message,
+        bot.local_tools,
+        bot.mcp_servers,
+        threshold=th,
+        discover_all=bot.tool_discovery,
+    )
+    _ch_disabled_tools = set(getattr(ch_row, "local_tools_disabled", None) or []) if ch_row else set()
+    if _ch_disabled_tools:
+        retrieved = [t for t in retrieved if t.get("function", {}).get("name") not in _ch_disabled_tools]
+    if settings.TOOL_POLICY_ENABLED and retrieved:
+        from app.db.engine import async_session as _policy_session_factory
+        from app.services.tool_policies import evaluate_tool_policy
+        async with _policy_session_factory() as _pol_db:
+            _policy_allowed = []
+            for _rt in retrieved:
+                _rn = _rt.get("function", {}).get("name")
+                if _rn and _rn not in _authorized_names:
+                    _decision = await evaluate_tool_policy(_pol_db, bot.id, _rn, {})
+                    if _decision.action == "deny":
+                        continue
+                _policy_allowed.append(_rt)
+            retrieved = _policy_allowed
+    for _rt in retrieved:
+        _rn = _rt.get("function", {}).get("name")
+        if _rn:
+            _authorized_names.add(_rn)
+            if _rn not in by_name:
+                by_name[_rn] = _rt
+
+    if correlation_id is not None:
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="tool_retrieval",
+            count=len(retrieved),
+            data={"best_similarity": _safe_sim(tool_sim), "threshold": th,
+                  "selected": [t["function"]["name"] for t in retrieved],
+                  "top_candidates": tool_candidates},
+        ))
+
+    pre_selected_tools: list[dict[str, Any]] | None = None
+    if by_name:
+        _effective_pinned = list(bot.pinned_tools or []) + tagged_tool_names + ["get_tool_info"]
+        if bot.tool_discovery:
+            _effective_pinned.append("search_tools")
+            _effective_pinned.append("list_tool_signatures")
+            _effective_pinned.append("run_script")
+        if _enrolled_tool_names:
+            _effective_pinned += _enrolled_tool_names
+        if bot.skills:
+            _effective_pinned += ["get_skill", "get_skill_list"]
+        pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
+        _server_pins = {n for n in _effective_pinned if n not in by_name}
+        if _server_pins:
+            for _tool_name, _schema in by_name.items():
+                if get_mcp_server_for_tool(_tool_name) in _server_pins:
+                    pinned_list.append(_schema)
+        client_only = get_client_tool_schemas(bot.client_tools)
+        merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
+        if not merged:
+            pre_selected_tools = list(by_name.values())
+        else:
+            pre_selected_tools = merged
+
+        _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
+        _unretrieved = [
+            (n, s["function"])
+            for n, s in by_name.items()
+            if n not in _retrieved_names and n not in ("get_tool_info", "search_tools")
+        ]
+        if _unretrieved:
+            _index_lines = "\n".join(
+                f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
+            )
+            _header = (
+                "You have MORE tools available than what's currently loaded. "
+                "BEFORE producing a best-effort answer — or saying you don't have a tool — "
+                "call get_tool_info(tool_name=\"<name>\") for any entry below that could "
+                "plausibly apply. These lines are an index; the full schema is only accessible "
+                "via get_tool_info."
+            )
+            if bot.tool_discovery:
+                _header += (
+                    " If the right tool isn't in this list, call "
+                    "search_tools(query=\"...\") to semantically search the full pool "
+                    "BEFORE giving up."
+                )
+            _header += (
+                " Acting without fetching the schema when a relevant tool exists "
+                "is the primary source of wrong/missing actions.\n"
+            )
+            _tool_idx_content = _header + _index_lines
+            if not context_profile.allow_tool_index:
+                _mark_injection_decision(inject_decisions, "tool_index", "skipped_by_profile")
+            elif budget_can_afford(_tool_idx_content):
+                messages.append({"role": "system", "content": _tool_idx_content})
+                budget_consume("tool_index", _tool_idx_content)
+                _mark_injection_decision(inject_decisions, "tool_index", "admitted")
+                yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
+            else:
+                _mark_injection_decision(inject_decisions, "tool_index", "skipped_by_budget")
+                logger.info("Budget: skipping tool index hints (%d tools)", len(_unretrieved))
+        elif context_profile.allow_tool_index:
+            _mark_injection_decision(inject_decisions, "tool_index", "skipped_empty")
+
+        out_state["tool_discovery_info"] = {
+            "tool_retrieval_enabled": True,
+            "tool_discovery_enabled": bool(bot.tool_discovery),
+            "threshold": th,
+            "pool_total": len(by_name),
+            "pinned": list(bot.pinned_tools or []),
+            "included": sorted(by_name.keys()),
+            "enrolled_working_set": list(_enrolled_tool_names),
+            "retrieved": [t["function"]["name"] for t in retrieved],
+            "retrieved_count": len(retrieved),
+            "top_candidates": tool_candidates[:5] if tool_candidates else [],
+            "best_similarity": _safe_sim(tool_sim),
+            "unretrieved_count": len(_unretrieved) if _unretrieved else 0,
+        }
+
+    out_state["pre_selected_tools"] = pre_selected_tools
+
+
+# ===== Cluster 7e-a tool-exposure finalization =====
+#
+# Stages 19 (dynamic tool injection), 20 (widget-handler tools), and 21
+# (capability-gated tool exposure) together finalize the tool surface
+# exposed to the model. They all read/mutate the same two locals
+# (`pre_selected_tools`, `authorized_names`), so they extract as a single
+# helper. No yields — plain async.
+
+
+async def _finalize_exposed_tools(
+    *,
+    bot: BotConfig,
+    channel_id: Any,
+    ch_row: Any,
+    pre_selected_tools: list[dict[str, Any]] | None,
+    authorized_names: set[str] | None,
+    out_state: dict,
+) -> None:
+    # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
+    from app.agent.context import current_injected_tools
+    _injected = current_injected_tools.get()
+    if _injected:
+        _injected_names = [t["function"]["name"] for t in _injected]
+        logger.info("Injecting tools: %s", _injected_names)
+        if pre_selected_tools is not None:
+            _existing = {t["function"]["name"] for t in pre_selected_tools}
+            for t in _injected:
+                if t["function"]["name"] not in _existing:
+                    pre_selected_tools.append(t)
+
+    # Include dynamically injected tool names in the authorized set
+    if _injected and authorized_names is not None:
+        authorized_names.update(t["function"]["name"] for t in _injected)
+
+    # --- widget-handler tools (bot↔widget bridge) ---
+    # For every pinned widget whose manifest declares bot-callable handlers,
+    # surface them as `widget__<slug>__<handler>` tools. Visibility is the
+    # caller's channel dashboard + any dashboard the calling bot authored.
+    # See `app/services/widget_handler_tools.py` for visibility + dispatch.
+    if channel_id or bot.id:
+        try:
+            from app.db.engine import async_session as _wh_session_factory
+            from app.services.widget_handler_tools import list_widget_handler_tools
+            async with _wh_session_factory() as _wh_db:
+                _wh_schemas, _ = await list_widget_handler_tools(
+                    _wh_db, bot.id, str(channel_id) if channel_id else None,
+                )
+            if _wh_schemas:
+                if pre_selected_tools is None:
+                    pre_selected_tools = list(_wh_schemas)
+                else:
+                    _existing = {t["function"]["name"] for t in pre_selected_tools}
+                    for _sch in _wh_schemas:
+                        if _sch["function"]["name"] not in _existing:
+                            pre_selected_tools.append(_sch)
+                if authorized_names is None:
+                    authorized_names = set()
+                authorized_names.update(
+                    t["function"]["name"] for t in _wh_schemas
+                )
+                logger.debug(
+                    "widget_handler_tools: injected %d handler(s) for bot=%s channel=%s",
+                    len(_wh_schemas), bot.id, channel_id,
+                )
+        except Exception:
+            logger.warning(
+                "widget_handler_tools: enumeration failed; widget tools will not be surfaced this turn",
+                exc_info=True,
+            )
+
+    # --- capability-gated tool exposure ---
+    # Drop tools whose required_capabilities / required_integrations the
+    # current channel's bindings can't satisfy. Keeps respond_privately,
+    # open_modal, and slack_* surface tools out of the LLM's tool list
+    # on channels that can't honor them — rather than letting the agent
+    # call the tool and hit a runtime "unsupported" error. Structural
+    # fix for the Phase 3/4 Slack-depth bug documented in
+    # project-notes/Architecture Decisions.md (Channel binding model).
+    if ch_row is not None:
+        try:
+            from app.agent.capability_gate import build_view
+            from app.integrations import renderer_registry as _rreg
+            from app.services.dispatch_resolution import resolve_targets as _resolve_targets
+            from app.tools.registry import get_tool_capability_requirements
+
+            _targets = await _resolve_targets(ch_row)
+            _bound_ids = [iid for iid, _t in _targets]
+            _caps_map = {
+                iid: getattr(_rreg.get(iid), "capabilities", frozenset())
+                for iid in _bound_ids
+                if _rreg.get(iid) is not None
+            }
+            _view = build_view(_bound_ids, _caps_map)
+
+            def _tool_is_exposable(_name: str) -> bool:
+                _req_caps, _req_ints = get_tool_capability_requirements(_name)
+                return _view.tool_is_exposable(_req_caps, _req_ints)
+
+            if authorized_names is not None:
+                _dropped = {n for n in authorized_names if not _tool_is_exposable(n)}
+                if _dropped:
+                    authorized_names -= _dropped
+                    logger.debug(
+                        "capability_gate: dropped %d tools on channel=%s (bound=%s): %s",
+                        len(_dropped), channel_id,
+                        sorted(_view.bound_integrations), sorted(_dropped),
+                    )
+            if pre_selected_tools is not None:
+                pre_selected_tools = [
+                    _t for _t in pre_selected_tools
+                    if _tool_is_exposable(_t.get("function", {}).get("name", ""))
+                ]
+        except Exception:
+            logger.warning(
+                "capability_gate: filter failed for channel %s — continuing without gate",
+                channel_id, exc_info=True,
+            )
+
+    out_state["pre_selected_tools"] = pre_selected_tools
+    out_state["authorized_names"] = authorized_names
+
+
+# ===== Cluster 7e-b late cache-safe injections =====
+#
+# Stages 22 (datetime + conversation-gap framing), 23 (pinned widget state),
+# 24 (tool refusal guard), plus the trailing context-profile note. All four
+# share the same "cache-safety band" — they inject AFTER the tool surface
+# is finalized but BEFORE channel prompt / preamble / user message, so they
+# can't bust the prompt-cache prefix. All four mutate messages + inject_chars
+# + inject_decisions in place; plain async, no yields, no out_state.
+
+
+async def _inject_late_cache_safe_context(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    channel_id: Any,
+    ch_row: Any,
+    session_id: uuid.UUID | None,
+    authorized_names: set[str] | None,
+    context_profile: ContextProfile,
+    inject_chars: dict[str, int],
+    inject_decisions: dict,
+    budget_can_afford: Any,
+    budget_consume: Any,
+) -> None:
+    # --- datetime + conversation-gap framing (injected late to avoid busting prompt cache prefix) ---
+    if context_profile.allow_temporal_context:
+        try:
+            from zoneinfo import ZoneInfo
+            from app.services.temporal_context import (
+                ScanMessage,
+                TemporalBlockInputs,
+                build_current_time_block,
+            )
+            _tz = ZoneInfo(settings.TIMEZONE)
+            _now_local = datetime.now(_tz)
+            _now_utc = datetime.now(timezone.utc)
+
+            _last_human_dt: datetime | None = None
+            _last_non_human_dt: datetime | None = None
+            _scan_messages: list[ScanMessage] = []
+            if session_id is not None:
+                try:
+                    from sqlalchemy import select as _sa_select_t
+                    from app.db.engine import async_session as _async_session_t
+                    from app.db.models import Message as _MessageT
+                    _cutoff = _now_utc - timedelta(seconds=5)
+                    async with _async_session_t() as _tdb:
+                        _recent_rows = (await _tdb.execute(
+                            _sa_select_t(
+                                _MessageT.role,
+                                _MessageT.content,
+                                _MessageT.metadata_,
+                                _MessageT.created_at,
+                            )
+                            .where(_MessageT.session_id == session_id)
+                            .where(_MessageT.role.in_(("user", "assistant")))
+                            .where(_MessageT.created_at < _cutoff)
+                            .order_by(_MessageT.created_at.desc())
+                            .limit(15)
+                        )).all()
+
+                        for _r in _recent_rows:
+                            _meta = _r.metadata_ or {}
+                            _is_bot_sender = _meta.get("sender_type") == "bot"
+                            _is_hb = bool(_meta.get("is_heartbeat"))
+                            _is_human = _r.role == "user" and not _is_bot_sender and not _is_hb
+                            if not _is_human and _last_non_human_dt is None:
+                                _last_non_human_dt = _r.created_at
+                            if _is_human and _last_human_dt is None:
+                                _last_human_dt = _r.created_at
+                            _content = _r.content if isinstance(_r.content, str) else ""
+                            if _content:
+                                _sender_id = _meta.get("sender_id") or _meta.get("bot_id")
+                                _is_self = _r.role == "assistant" and (
+                                    _sender_id is None or _sender_id == bot.id
+                                )
+                                _scan_messages.append(ScanMessage(
+                                    role=_r.role,
+                                    content=_content,
+                                    created_at=_r.created_at,
+                                    is_human=_is_human,
+                                    is_self=_is_self,
+                                ))
+                except Exception:
+                    logger.debug("temporal_context: DB lookup failed", exc_info=True)
+
+            _time_block = build_current_time_block(TemporalBlockInputs(
+                now_local=_now_local,
+                now_utc=_now_utc,
+                last_human_dt=_last_human_dt,
+                last_non_human_dt=_last_non_human_dt,
+                recent_messages=_scan_messages,
+            ))
+            if budget_can_afford(_time_block):
+                messages.append({"role": "system", "content": _time_block})
+                budget_consume("temporal_context", _time_block)
+                inject_chars["temporal_context"] = len(_time_block)
+                _mark_injection_decision(inject_decisions, "temporal_context", "admitted")
+            else:
+                _mark_injection_decision(inject_decisions, "temporal_context", "skipped_by_budget")
+        except Exception:
+            pass
+    else:
+        _mark_injection_decision(inject_decisions, "temporal_context", "skipped_by_profile")
+
+    # --- pinned widget state (stale-but-OK, same cache-safety band as temporal) ---
+    try:
+        if ch_row is not None and context_profile.allow_pinned_widgets:
+            from app.db.engine import async_session as _pw_session
+            from app.services.widget_context import (
+                build_pinned_widget_context_snapshot,
+                fetch_channel_pin_dicts,
+                is_pinned_widget_context_enabled,
+            )
+            if not is_pinned_widget_context_enabled(getattr(ch_row, "config", None) or {}):
+                _mark_injection_decision(inject_decisions, "pinned_widgets", "skipped_by_channel_config")
+            else:
+                async with _pw_session() as _pw_db:
+                    _pins = await fetch_channel_pin_dicts(_pw_db, ch_row.id)
+                if _pins:
+                    async with _pw_session() as _pw_db:
+                        _snapshot = await build_pinned_widget_context_snapshot(
+                            _pw_db,
+                            _pins,
+                            bot_id=bot.id,
+                            channel_id=str(ch_row.id),
+                        )
+                    _widget_block = _snapshot.get("block_text")
+                    if isinstance(_widget_block, str) and _widget_block and budget_can_afford(_widget_block):
+                        messages.append({"role": "system", "content": _widget_block})
+                        budget_consume("pinned_widgets", _widget_block)
+                        inject_chars["pinned_widgets"] = len(_widget_block)
+                        _mark_injection_decision(inject_decisions, "pinned_widgets", "admitted")
+                    elif isinstance(_widget_block, str) and _widget_block:
+                        _mark_injection_decision(inject_decisions, "pinned_widgets", "skipped_by_budget")
+                    else:
+                        _mark_injection_decision(inject_decisions, "pinned_widgets", "skipped_empty")
+                else:
+                    _mark_injection_decision(inject_decisions, "pinned_widgets", "skipped_empty")
+    except Exception:
+        logger.debug("pinned_widgets: injection failed", exc_info=True)
+    if not context_profile.allow_pinned_widgets:
+        _mark_injection_decision(inject_decisions, "pinned_widgets", "skipped_by_profile")
+
+    # --- tool refusal guard (counters history poisoning from prior "I can't" turns) ---
+    # Scans recent assistant turns for refusal phrases. If any are found, injects a
+    # corrective system message; if the refusal named a tool that IS now authorized,
+    # the message names it specifically. Same cache-safety band as temporal/widgets.
+    try:
+        if authorized_names and context_profile.allow_tool_refusal_guard:
+            from app.services.tool_refusal_guard import (
+                build_tool_authority_block,
+                scan_assistant_refusals,
+            )
+            _assistant_contents = [
+                m.get("content") for m in messages
+                if isinstance(m, dict) and m.get("role") == "assistant"
+            ]
+            # Newest first — matches the 5-turn recent-window intent
+            _assistant_contents.reverse()
+            _refusal = scan_assistant_refusals(_assistant_contents, set(authorized_names))
+            _guard_block = build_tool_authority_block(_refusal)
+            if _guard_block and budget_can_afford(_guard_block):
+                messages.append({"role": "system", "content": _guard_block})
+                budget_consume("tool_refusal_guard", _guard_block)
+                inject_chars["tool_refusal_guard"] = len(_guard_block)
+                _mark_injection_decision(inject_decisions, "tool_refusal_guard", "admitted")
+                if _refusal.stale_refused:
+                    logger.info(
+                        "tool_refusal_guard: correcting stale refusals for %s on channel %s",
+                        _refusal.stale_refused, channel_id,
+                    )
+            elif _guard_block:
+                _mark_injection_decision(inject_decisions, "tool_refusal_guard", "skipped_by_budget")
+            else:
+                _mark_injection_decision(inject_decisions, "tool_refusal_guard", "skipped_empty")
+    except Exception:
+        logger.debug("tool_refusal_guard: injection failed", exc_info=True)
+    if not context_profile.allow_tool_refusal_guard:
+        _mark_injection_decision(inject_decisions, "tool_refusal_guard", "skipped_by_profile")
+
+    _context_profile_note = _build_context_profile_note(
+        context_profile=context_profile,
+        inject_decisions=inject_decisions,
+    )
+    if _context_profile_note:
+        if budget_can_afford(_context_profile_note):
+            messages.append({"role": "system", "content": _context_profile_note})
+            budget_consume("context_profile_note", _context_profile_note)
+            inject_chars["context_profile_note"] = len(_context_profile_note)
+            _mark_injection_decision(inject_decisions, "context_profile_note", "admitted")
+        else:
+            _mark_injection_decision(inject_decisions, "context_profile_note", "skipped_by_budget")
+
+
+# ===== Cluster 7e-c message assembly =====
+#
+# Stages 25-29: channel prompt, system preamble, current-turn marker, bot
+# system_prompt reinforcement, and the user message (text or audio). All five
+# mutate `messages` + `inject_chars` in place and the final stage mutates
+# `result.user_msg_index`. Plain async, no yields, no out_state.
+
+
+async def _append_prompt_and_user_message(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    channel_id: Any,
+    ch_row: Any,
+    user_message: str | None,
+    attachments: Any,
+    audio_data: str | None,
+    audio_format: str | None,
+    native_audio: bool,
+    system_preamble: str | None,
+    task_mode: bool,
+    inject_chars: dict[str, int],
+    budget_consume: Any,
+    result: Any,
+) -> None:
+    # --- channel prompt (injected just before user message) ---
+    if channel_id is not None and ch_row is not None:
+        _ch_ws_path = getattr(ch_row, "channel_prompt_workspace_file_path", None)
+        _ch_ws_id = getattr(ch_row, "channel_prompt_workspace_id", None)
+        _ch_inline = getattr(ch_row, "channel_prompt", None)
+        if _ch_ws_path and _ch_ws_id:
+            from app.services.prompt_resolution import resolve_workspace_file_prompt
+            _ch_prompt = resolve_workspace_file_prompt(str(_ch_ws_id), _ch_ws_path, _ch_inline or "")
+        else:
+            _ch_prompt = _ch_inline
+        if _ch_prompt:
+            messages.append({"role": "system", "content": _ch_prompt})
+            inject_chars["channel_prompt"] = len(_ch_prompt)
+
+    # --- system preamble (e.g. heartbeat metadata — injected before user message, after all RAG context) ---
+    if system_preamble:
+        messages.append({"role": "system", "content": system_preamble})
+        inject_chars["system_preamble"] = len(system_preamble)
+
+    # --- current-turn marker (helps models distinguish injected context from the live message) ---
+    if task_mode:
+        # Heartbeat or other system-initiated task — frame as executable task, not conversation
+        messages.append({
+            "role": "system",
+            "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
+        })
+    else:
+        messages.append({
+            "role": "system",
+            "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
+        })
+
+    # --- bot system_prompt reinforcement (recency bias) ---
+    # Repeats bot.system_prompt near the end of the message array so weaker
+    # models don't lose it under ~12KB of framework text. Disabled by default
+    # (strong models don't need it). Gated on REINFORCE_SYSTEM_PROMPT setting.
+    if settings.REINFORCE_SYSTEM_PROMPT and not task_mode:
+        _bot_sys_prompt = bot.system_prompt or ""
+        if getattr(bot, "system_prompt_workspace_file", False):
+            try:
+                from app.services.prompt_resolution import resolve_workspace_file_prompt
+                _ws_prompt = resolve_workspace_file_prompt(
+                    bot.shared_workspace_id,
+                    f"bots/{bot.id}/system_prompt.md",
+                    "",
+                )
+                if _ws_prompt:
+                    _bot_sys_prompt = _ws_prompt
+            except Exception:
+                pass
+        if _bot_sys_prompt.strip():
+            _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
+            messages.append({"role": "system", "content": _reinforce})
+            inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
+
+    # --- user message (audio or text) ---
+    if native_audio:
+        _audio_instruction = {
+            "role": "system",
+            "content": _AUDIO_TRANSCRIPT_INSTRUCTION,
+        }
+        messages.append(_audio_instruction)
+        budget_consume("base_context", _AUDIO_TRANSCRIPT_INSTRUCTION)
+        user_msg = _build_audio_user_message(audio_data, audio_format)
+        messages.append(user_msg)
+        budget_consume("current_user_message", user_msg.get("content", ""))
+        result.user_msg_index = len(messages) - 1
+    elif user_message:
+        from app.security.prompt_sanitize import sanitize_unicode
+        user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)
+        messages.append({"role": "user", "content": user_content})
+        budget_consume("current_user_message", user_content)
+        result.user_msg_index = len(messages) - 1
+    # When user_message is empty (e.g. member bot replies), no user message is
+    # appended — the system_preamble and conversation history are sufficient.
+
+
+# ===== Cluster 7e-d finalization traces =====
+#
+# Stages 30-33: store budget utilization, injection summary trace, active-skills
+# snapshot, discovery summary trace. All happen after messages are finalized.
+# Writes to `result`, fires `asyncio.create_task(_record_trace_event(...))`
+# twice, and pushes the active-skills list into the `current_skills_in_context`
+# ctxvar. No yields, no out_state.
+
+
+async def _emit_finalization_traces(
+    *,
+    bot: BotConfig,
+    correlation_id: Any,
+    session_id: Any,
+    client_id: Any,
+    context_profile: ContextProfile,
+    budget: Any,
+    inject_chars: dict[str, int],
+    inject_decisions: dict,
+    enrolled_rows: list,
+    enrolled_ids: list[str],
+    ranked_relevant: list[str],
+    auto_injected: list[str],
+    auto_injected_similarities: dict[str, float],
+    suggestion_rows: list,
+    history_fetched_skills: Any,
+    history_skill_records: dict[str, dict],
+    tool_discovery_info: dict,
+    result: Any,
+) -> None:
+    # --- store budget utilization for downstream (compaction trigger) ---
+    if budget is not None:
+        result.budget_utilization = budget.utilization
+
+    # Mirror the per-category breakdown onto the result so dry-run / preview
+    # callers can read it without scraping trace events.
+    if inject_chars:
+        result.inject_chars = dict(inject_chars)
+    if inject_decisions:
+        result.inject_decisions = dict(inject_decisions)
+
+    # --- injection summary trace ---
+    if correlation_id is not None and (inject_chars or inject_decisions):
+        _summary_data: dict[str, Any] = {
+            "breakdown": inject_chars,
+            "total_chars": sum(inject_chars.values()),
+            "context_profile": context_profile.name,
+            "context_origin": result.context_origin,
+            "context_policy": result.context_policy,
+            "decisions": inject_decisions,
+        }
+        if budget is not None:
+            _summary_data["context_budget"] = budget.to_dict()
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="context_injection_summary",
+            data=_summary_data,
+        ))
+
+    # --- active skills snapshot for UI ---
+    # Surfaces which skills are still in the LLM's context this turn (fetched via
+    # prior get_skill() calls and still sitting in conversation history). The loop
+    # consumes result.active_skills and emits an `active_skills` stream event so
+    # turn_worker can tag the assistant message metadata.
+    if history_fetched_skills:
+        _skill_name_map: dict[str, str] = {r.id: r.name for r in enrolled_rows}
+        _missing_skill_ids = [sid for sid in history_fetched_skills if sid not in _skill_name_map]
+        if _missing_skill_ids:
+            try:
+                from app.db.engine import async_session as _async_session_names
+                from app.db.models import Skill as _SkillRowForNames
+                from sqlalchemy import select as _sa_select_names
+                async with _async_session_names() as _db:
+                    _name_rows = (await _db.execute(
+                        _sa_select_names(_SkillRowForNames.id, _SkillRowForNames.name)
+                        .where(_SkillRowForNames.id.in_(_missing_skill_ids))
+                    )).all()
+                    for _nr in _name_rows:
+                        _skill_name_map[_nr.id] = _nr.name
+            except Exception:
+                logger.warning("active_skills name lookup failed", exc_info=True)
+        for _sid, _rec in sorted(
+            history_skill_records.items(),
+            key=lambda item: (
+                int(item[1].get("messages_ago", 0)),
+                str(_skill_name_map.get(item[0], item[0])).lower(),
+            ),
+        ):
+            _entry = {
+                "skill_id": _sid,
+                "skill_name": _skill_name_map.get(_sid, _sid),
+                "source": _rec.get("source", "loaded"),
+                "messages_ago": int(_rec.get("messages_ago", 0)),
+            }
+            result.skills_in_context.append(_entry)
+            if _entry["source"] == "loaded":
+                result.active_skills.append({
+                    "skill_id": _sid,
+                    "skill_name": _entry["skill_name"],
+                })
+        current_skills_in_context.set(list(result.skills_in_context))
+
+    # --- discovery summary trace (skills + tools, consolidated for at-a-glance) ---
+    # Emitted unconditionally so the UI can render a single "what did discovery do
+    # this turn" card. Complements the richer skill_index / tool_retrieval events
+    # that carry full detail.
+    if correlation_id is not None:
+        _discovery_data: dict[str, Any] = {
+            "skills": {
+                "enrolled_count": len(enrolled_ids),
+                "enrolled_in_context": len(enrolled_rows),
+                "relevant_count": len(ranked_relevant),
+                "auto_injected": [
+                    {"skill_id": sid, "similarity": auto_injected_similarities.get(sid, 0.0)}
+                    for sid in auto_injected
+                ],
+                "discoverable_unenrolled_count": len(suggestion_rows),
+                "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
+                "auto_inject_max": settings.SKILL_ENROLLED_AUTO_INJECT_MAX,
+                "ranking_enabled": settings.SKILL_ENROLLED_RANKING_ENABLED,
+                "history_fetched": sorted(history_fetched_skills) if history_fetched_skills else [],
+            },
+            "tools": tool_discovery_info,
+        }
+        asyncio.create_task(_record_trace_event(
+            correlation_id=correlation_id,
+            session_id=session_id,
+            bot_id=bot.id,
+            client_id=client_id,
+            event_type="discovery_summary",
+            data=_discovery_data,
+        ))
+
+
 async def _inject_plan_artifact(
     messages: list[dict],
     session_id: uuid.UUID | None,
@@ -1526,436 +2874,66 @@ async def assemble_context(
     )
 
     # --- @mention tag resolution ---
-    _tagged = await resolve_tags(
-        message=user_message,
-        bot_skills=bot.skill_ids,
-        bot_local_tools=bot.local_tools,
-        bot_client_tools=bot.client_tools,
-        bot_id=bot.id,
+    _tag_state: dict = {}
+    async for _evt in _resolve_tagged_mentions(
+        messages=messages,
+        bot=bot,
+        user_message=user_message,
         client_id=client_id,
         session_id=session_id,
-    )
-    _tagged_skill_names = [t.name for t in _tagged if t.tag_type == "skill"]
-    _tagged_tool_names = [t.name for t in _tagged if t.tag_type == "tool"]
-    _tagged_bot_names = [t.name for t in _tagged if t.tag_type == "bot"]
-    result.tagged_tool_names = _tagged_tool_names
-    result.tagged_bot_names = _tagged_bot_names
-    if _tagged_bot_names:
-        set_ephemeral_delegates(_tagged_bot_names)
-    if _tagged_skill_names:
-        # Merge with any pre-set ephemeral skills (e.g. from execution_config)
-        from app.agent.context import current_ephemeral_skills
-        _existing_skills = list(current_ephemeral_skills.get() or [])
-        _merged = list(dict.fromkeys(_existing_skills + _tagged_skill_names))
-        set_ephemeral_skills(_merged)
-
-    if _tagged:
-        # Tagged skills are pointers, not auto-injections. We surface a compact
-        # hint (name + truncated description) so the model can decide whether
-        # to load the skill via get_skill(skill_id=...). This avoids burning
-        # tokens on every turn when the user just wants to remind the bot a
-        # skill exists.
-        if _tagged_skill_names:
-            _hint_lines = await _build_tagged_skill_hint_lines(_tagged_skill_names)
-            if _hint_lines:
-                messages.append({
-                    "role": "system",
-                    "content": (
-                        "Tagged skill context (explicitly requested): the user "
-                        "tagged these skills. Call "
-                        'get_skill(skill_id="...") to load any you need — '
-                        "otherwise ignore.\n\n" + "\n".join(_hint_lines)
-                    ),
-                })
-
-        yield {
-            "type": "tagged_context",
-            "tags": [t.raw for t in _tagged],
-            "skills": _tagged_skill_names,
-            "tools": _tagged_tool_names,
-            "bots": _tagged_bot_names,
-        }
-        if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="tagged_context",
-                count=len(_tagged),
-                data={
-                    "tags": [t.raw for t in _tagged],
-                    "skills": _tagged_skill_names,
-                            "tools": _tagged_tool_names,
-                    "bots": _tagged_bot_names,
-                },
-            ))
+        correlation_id=correlation_id,
+        result=result,
+        out_state=_tag_state,
+    ):
+        yield _evt
+    _tagged = _tag_state.get("tagged", [])
+    _tagged_skill_names: list[str] = _tag_state.get("tagged_skill_names", [])
+    _tagged_tool_names: list[str] = _tag_state.get("tagged_tool_names", [])
+    _tagged_bot_names: list[str] = _tag_state.get("tagged_bot_names", [])
 
     # --- execution_config ephemeral skills (not already @-tagged or in bot.skills) ---
-    from app.agent.context import current_ephemeral_skills
-    _ephemeral_skill_ids = list(current_ephemeral_skills.get() or [])
-    _bot_skill_ids = {s.id for s in bot.skills}
-    _untagged_ephemeral = [
-        s for s in _ephemeral_skill_ids
-        if s not in _tagged_skill_names and s not in _bot_skill_ids
-    ]
-    if _untagged_ephemeral:
-        _eph_chunks: list[str] = []
-        for _eph_id in _untagged_ephemeral:
-            _eph_chunks.extend(await fetch_skill_chunks_by_id(_eph_id))
-        if _eph_chunks:
-            messages.append({
-                "role": "system",
-                "content": "Webhook skill context:\n\n"
-                           + "\n\n---\n\n".join(_eph_chunks),
-            })
+    _eph_state: dict = {}
+    await _apply_ephemeral_skills(
+        messages=messages,
+        bot=bot,
+        tagged_skill_names=_tagged_skill_names,
+        out_state=_eph_state,
+    )
+    _untagged_ephemeral: list[str] = _eph_state.get("untagged_ephemeral", [])
 
     # --- skills (Phase 3 working set + semantic discovery layer + ranking) ---
     #
     # Three layers, each gated independently:
-    #   1. Working set — relevance-ranked list of enrolled skills. When ranking
-    #      is enabled and there's a user_message, skills are sorted by semantic
-    #      similarity and the top matches are marked as relevant.
-    #   2. Auto-inject — highest-confidence enrolled skill has its content
-    #      pre-loaded into context (eliminates get_skill round-trip).
+    #   1. Working set — relevance-ranked list of enrolled skills.
+    #   2. Auto-inject — highest-confidence enrolled skill pre-loaded.
     #   3. Discovery — semantic retrieval over UNENROLLED catalog skills.
-    #
-    # Each section runs in its own try/except so a failure in one doesn't
-    # kill the other or hang the event loop on teardown.
-    _enrolled_rows: list = []
-    _suggestion_rows: list = []
-    _enrolled_ids: list[str] = []
-    _ranked_relevant: list[str] = []
-    _auto_injected: list[str] = []
-    _auto_injected_similarities: dict[str, float] = {}
-    _history_fetched_skills: set[str] = set()
-    _history_skill_records: dict[str, dict[str, Any]] = {}
-    _skipped_in_history: list[str] = []
     _tool_discovery_info: dict[str, Any] = {"tool_retrieval_enabled": False}
-    _skipped_budget: list[str] = []
-
-    if bot.id:
-        from app.agent.rag import (
-            retrieve_skill_index as _retrieve_skill_index,
-            rank_enrolled_skills as _rank_enrolled_skills,
-            fetch_skill_chunks_by_id as _fetch_skill_chunks,
-        )
-        from sqlalchemy import select as _sa_select
-        from app.db.engine import async_session as _async_session
-        from app.db.models import Skill as _SkillRow
-
-        # Scan the active prompt history for skills already fetched via get_skill().
-        # The reverse walk captures only the most recent resident copy for each
-        # skill, which lets us expose both source and recency to the prompt/UI.
-        _assistant_msgs_ago = 0
-        for _hmsg in reversed(messages):
-            if _hmsg.get("role") not in ("assistant", "bot"):
-                continue
-            for _htc in reversed(_hmsg.get("tool_calls") or []):
-                _hfn = _htc.get("function") or {}
-                if _hfn.get("name") != "get_skill":
-                    continue
-                try:
-                    _hargs = json.loads(_hfn.get("arguments", "{}"))
-                except (json.JSONDecodeError, TypeError):
-                    continue
-                _skill_id = _hargs.get("skill_id")
-                if not _skill_id or _skill_id in _history_skill_records:
-                    continue
-                _tcid = str(_htc.get("id") or "")
-                _history_skill_records[_skill_id] = {
-                    "skill_id": _skill_id,
-                    "source": "auto_injected" if _tcid.startswith("auto_inject_") else "loaded",
-                    "messages_ago": _assistant_msgs_ago,
-                }
-                _history_fetched_skills.add(_skill_id)
-            _assistant_msgs_ago += 1
-
-        _resident_skill_ids = set(_history_skill_records.keys())
-
-        def _fmt_skill_line(r, *, relevant: bool = False, resident: bool = False) -> str:
-            prefix = "↑" if relevant else "-"
-            parts = [prefix]
-            if resident:
-                parts.append(" [loaded]")
-            parts.append(f" {r.id}: {r.name}")
-            if r.description:
-                parts.append(f" — {r.description}")
-            if r.triggers:
-                parts.append(f" [{', '.join(r.triggers)}]")
-            return "".join(parts)
-
-        def _skill_category(r) -> str:
-            cat = getattr(r, "category", None)
-            if cat:
-                return cat
-            if "/" in r.id:
-                return r.id.split("/", 1)[0]
-            return "misc"
-
-        def _render_grouped_skill_lines(rows_in_order: list, relevant_ids: set, resident_ids: set[str]) -> str:
-            categories: dict[str, list[str]] = {}
-            cat_order: list[str] = []
-            for _r in rows_in_order:
-                _c = _skill_category(_r)
-                if _c not in categories:
-                    categories[_c] = []
-                    cat_order.append(_c)
-                categories[_c].append(
-                    _fmt_skill_line(
-                        _r,
-                        relevant=_r.id in relevant_ids,
-                        resident=_r.id in resident_ids,
-                    )
-                )
-            if len(rows_in_order) < 5 or len(cat_order) < 2:
-                return "\n".join(
-                    _fmt_skill_line(
-                        _r,
-                        relevant=_r.id in relevant_ids,
-                        resident=_r.id in resident_ids,
-                    )
-                    for _r in rows_in_order
-                )
-            if "core" in cat_order:
-                cat_order.remove("core")
-                cat_order.insert(0, "core")
-            chunks: list[str] = []
-            for _c in cat_order:
-                chunks.append(f"[{_c}]")
-                chunks.extend(categories[_c])
-            return "\n".join(chunks)
-
-        # Working set: load metadata for already-enrolled skills.
-        if bot.skills:
-            _enrolled_ids = [s.id for s in bot.skills]
-            try:
-                async with _async_session() as _db:
-                    _enrolled_rows = (await _db.execute(
-                        _sa_select(
-                            _SkillRow.id, _SkillRow.name, _SkillRow.description,
-                            _SkillRow.triggers, _SkillRow.category,
-                        )
-                        .where(_SkillRow.id.in_(_enrolled_ids))
-                    )).all()
-            except Exception:
-                logger.warning("Skill working-set load failed", exc_info=True)
-                _enrolled_rows = []
-
-            if _enrolled_rows:
-                # Rank enrolled skills by relevance when enabled and we have a query.
-                # Use recent conversation context (last 3 user/assistant messages) for
-                # the ranking query so multi-turn topic continuity is preserved — "what
-                # about timing?" in a sourdough conversation still matches sourdough skills.
-                _ranking: list[dict] = []
-                if settings.SKILL_ENROLLED_RANKING_ENABLED and user_message:
-                    _rank_parts: list[str] = []
-                    for _msg in reversed(messages[-10:]):
-                        if _msg.get("role") in ("user", "assistant") and _msg.get("content"):
-                            _rank_parts.append(_msg["content"][:500])
-                            if len(_rank_parts) >= 3:
-                                break
-                    _rank_query = "\n".join(reversed(_rank_parts)) if _rank_parts else user_message
-                    try:
-                        _ranking = await _rank_enrolled_skills(
-                            _rank_query, [r.id for r in _enrolled_rows],
-                        )
-                    except Exception:
-                        logger.warning("Enrolled skill ranking failed", exc_info=True)
-
-                if _ranking:
-                    # Build a map for ordering + relevance flag
-                    _rank_map = {r["skill_id"]: r for r in _ranking}
-                    _ranked_relevant = [r["skill_id"] for r in _ranking if r["relevant"]]
-                    # Sort rows by similarity (highest first)
-                    _row_map = {r.id: r for r in _enrolled_rows}
-                    _sorted_ids = [r["skill_id"] for r in _ranking if r["skill_id"] in _row_map]
-                    # Append any rows not in ranking results (shouldn't happen, but safe)
-                    for r in _enrolled_rows:
-                        if r.id not in _rank_map:
-                            _sorted_ids.append(r.id)
-
-                    _has_relevant = bool(_ranked_relevant)
-                    _ordered_rows = [_row_map[sid] for sid in _sorted_ids if sid in _row_map]
-                    _working_lines = _render_grouped_skill_lines(
-                        _ordered_rows, set(_ranked_relevant), _resident_skill_ids,
-                    )
-                    _header = (
-                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
-                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content. "
-                        "Answering from the description alone is the primary source of bad replies.\n"
-                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
-                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
-                        "Skills marked ↑ are semantically relevant to this message — load them before responding.\n"
-                        if _has_relevant else
-                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
-                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
-                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
-                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
-                    )
-                else:
-                    # No ranking (disabled, no user_message, or failure) — grouped flat list
-                    _working_lines = _render_grouped_skill_lines(
-                        list(_enrolled_rows), set(), _resident_skill_ids,
-                    )
-                    _header = (
-                        "BEFORE answering, scan your enrolled skills below. If any plausibly applies, "
-                        "call get_skill(skill_id=\"<id>\") FIRST — these lines are an index, NOT content.\n"
-                        "Do not call get_skill again for skills marked [loaded] unless you intentionally "
-                        "need a fresh copy with get_skill(skill_id=\"<id>\", refresh=true).\n"
-                    )
-
-                messages.append({
-                    "role": "system",
-                    "content": _header + _working_lines,
-                })
-
-                # Auto-inject: record top relevant enrolled skills for synthetic
-                # get_skill() injection by the loop (persists in conversation history).
-                # Only considers skills that passed the relevance threshold AND
-                # aren't already in context from @-tags, ephemeral injection, or
-                # prior get_skill() calls in conversation history.
-                # Budget-gated: if the skill content doesn't fit, stop.
-                if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0 and not skip_skill_inject:
-                    _already_injected = (
-                        set(_tagged_skill_names) | set(_untagged_ephemeral) | _history_fetched_skills
-                    )
-                    _injected_count = 0
-                    _inject_threshold = settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD
-                    for _ri in _ranking:
-                        if _injected_count >= settings.SKILL_ENROLLED_AUTO_INJECT_MAX:
-                            break
-                        if _ri["similarity"] < _inject_threshold:
-                            break  # sorted descending — all below are lower
-                        # Only authored/fetched/manual skills are injection-eligible;
-                        # starter/migration skills are generic utility docs.
-                        if _source_map.get(_ri["skill_id"], "starter") not in _INJECT_ELIGIBLE_SOURCES:
-                            continue
-                        if _ri["skill_id"] in _already_injected:
-                            _skipped_in_history.append(_ri["skill_id"])
-                            continue
-                        try:
-                            _ai_chunks = await _fetch_skill_chunks(_ri["skill_id"])
-                            if _ai_chunks:
-                                _ai_content = "\n\n---\n\n".join(_ai_chunks)
-                                # Format to match get_skill() output: "# Name\n\ncontent"
-                                _ai_row = _row_map.get(_ri["skill_id"])
-                                _ai_name = _ai_row.name if _ai_row else _ri["skill_id"]
-                                _ai_formatted = f"# {_ai_name}\n\n{_ai_content}"
-                                if not _budget_can_afford(_ai_formatted):
-                                    _skipped_budget.append(_ri["skill_id"])
-                                    break
-                                _budget_consume("auto_inject_skill", _ai_formatted)
-                                result.auto_inject_skills.append({
-                                    "skill_id": _ri["skill_id"],
-                                    "content": _ai_formatted,
-                                })
-                                _auto_injected.append(_ri["skill_id"])
-                                _auto_injected_similarities[_ri["skill_id"]] = _safe_sim(_ri["similarity"])
-                                _injected_count += 1
-                                from app.tools.local.skills import _increment_auto_inject_count
-                                asyncio.create_task(
-                                    _increment_auto_inject_count(_ri["skill_id"], bot.id)
-                                )
-                        except Exception:
-                            logger.warning(
-                                "Failed to auto-inject skill %s", _ri["skill_id"], exc_info=True,
-                            )
-
-                    # Emit an event for each auto-injected skill so the UI can display it
-                    for _ai in _auto_injected:
-                        _ai_row = _row_map.get(_ai)
-                        _ai_sim = next((r["similarity"] for r in _ranking if r["skill_id"] == _ai), 0.0)
-                        yield {
-                            "type": "auto_inject",
-                            "skill_id": _ai,
-                            "skill_name": _ai_row.name if _ai_row else _ai,
-                            "similarity": _safe_sim(_ai_sim),
-                            "source": _source_map.get(_ai, "unknown"),
-                        }
-
-        # Discovery layer: semantic retrieval over UNENROLLED catalog skills.
-        # Runs even when bot.skills is empty so a fresh / unbackfilled bot can
-        # still find skills. Whole block is wrapped so a missing-table error
-        # in test environments degrades gracefully without leaking the session.
-        if user_message:
-            try:
-                async with _async_session() as _db:
-                    _catalog_q = _sa_select(_SkillRow.id).where(
-                        ~_SkillRow.id.like("bots/%") | _SkillRow.id.like(f"bots/{bot.id}/%")
-                    )
-                    _catalog_ids = list((await _db.execute(_catalog_q)).scalars().all())
-
-                _enrolled_set = set(_enrolled_ids)
-                _candidate_ids = [sid for sid in _catalog_ids if sid not in _enrolled_set]
-
-                if _candidate_ids:
-                    _suggestions = await _retrieve_skill_index(user_message, _candidate_ids)
-                    if _suggestions:
-                        _suggestion_ids = [s["skill_id"] for s in _suggestions]
-                        async with _async_session() as _db:
-                            _suggestion_rows = (await _db.execute(
-                                _sa_select(_SkillRow.id, _SkillRow.name, _SkillRow.description, _SkillRow.triggers)
-                                .where(_SkillRow.id.in_(_suggestion_ids))
-                            )).all()
-            except Exception:
-                logger.warning("Skill discovery layer failed", exc_info=True)
-                _suggestion_rows = []
-
-            if _suggestion_rows:
-                _disc_lines = "\n".join(
-                    _fmt_skill_line(r) for r in _suggestion_rows
-                )
-                # Label depends on whether the bot has any enrollments yet.
-                _disc_header = (
-                    "Skills you can fetch via get_skill(skill_id=\"<id>\") "
-                    "(your working set is empty — first successful fetch enrolls them):"
-                    if not _enrolled_rows else
-                    "Other skills you can fetch via get_skill(skill_id=\"<id>\") "
-                    "(not yet in your working set; first successful fetch enrolls them):"
-                )
-                messages.append({
-                    "role": "system",
-                    "content": _disc_header + "\n" + _disc_lines,
-                })
-
-        if _enrolled_rows or _suggestion_rows:
-            _skill_trace_data = {
-                "enrolled_ids": [r.id for r in _enrolled_rows],
-                "suggested_ids": [r.id for r in _suggestion_rows],
-                "total_enrolled": len(_enrolled_ids),
-                "ranked_relevant": _ranked_relevant,
-                "auto_injected": _auto_injected,
-                "ranking_scores": [
-                    {"skill_id": r["skill_id"], "similarity": _safe_sim(r["similarity"])}
-                    for r in _ranking
-                ] if _ranking else [],
-                "skills_in_history": sorted(_history_fetched_skills) if _history_fetched_skills else [],
-                "skipped_in_history": _skipped_in_history if _skipped_in_history else [],
-                "skipped_budget": _skipped_budget if _skipped_budget else [],
-                # Thresholds frozen with the trace so the hygiene job can
-                # reproduce "ranked relevant" classification without re-reading
-                # config (which may drift over the audit window).
-                "relevance_threshold": settings.SKILL_ENROLLED_RELEVANCE_THRESHOLD,
-                "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
-            }
-            yield {
-                "type": "skill_index",
-                "count": len(_enrolled_rows),
-                "suggestions": len(_suggestion_rows),
-                "total": len(_enrolled_ids),
-                **_skill_trace_data,
-            }
-            if correlation_id is not None:
-                asyncio.create_task(_record_trace_event(
-                    correlation_id=correlation_id,
-                    session_id=session_id,
-                    bot_id=bot.id,
-                    client_id=client_id,
-                    event_type="skill_index",
-                    count=len(_enrolled_rows),
-                    data=_skill_trace_data,
-                ))
+    _ws_state: dict = {}
+    async for _evt in _inject_skill_working_set(
+        messages=messages,
+        bot=bot,
+        user_message=user_message,
+        correlation_id=correlation_id,
+        session_id=session_id,
+        client_id=client_id,
+        skip_skill_inject=skip_skill_inject,
+        tagged_skill_names=_tagged_skill_names,
+        untagged_ephemeral=_untagged_ephemeral,
+        source_map=_source_map,
+        budget_can_afford=_budget_can_afford,
+        budget_consume=_budget_consume,
+        result=result,
+        out_state=_ws_state,
+    ):
+        yield _evt
+    _enrolled_rows = _ws_state.get("enrolled_rows", [])
+    _suggestion_rows = _ws_state.get("suggestion_rows", [])
+    _enrolled_ids: list[str] = _ws_state.get("enrolled_ids", [])
+    _ranked_relevant: list[str] = _ws_state.get("ranked_relevant", [])
+    _auto_injected: list[str] = _ws_state.get("auto_injected", [])
+    _auto_injected_similarities: dict[str, float] = _ws_state.get("auto_injected_similarities", {})
+    _history_fetched_skills: set[str] = _ws_state.get("history_fetched_skills", set())
+    _history_skill_records: dict[str, dict[str, Any]] = _ws_state.get("history_skill_records", {})
 
     # --- API access tools (for bots with scoped API keys) ---
     bot, _api_event = _inject_api_access_tools(messages=messages, bot=bot)
@@ -1963,101 +2941,28 @@ async def assemble_context(
         yield _api_event
 
     # --- multi-bot channel awareness + member bot injection ---
-    _member_bot_ids: list[str] = []
-    _member_configs: dict[str, dict] = {}
-    if channel_id:
-        try:
-            from sqlalchemy import select as _sel
-            from app.db.engine import async_session as _async_session
-            from app.db.models import ChannelBotMember as _CBM
-            async with _async_session() as _mbdb:
-                _mb_rows = (await _mbdb.execute(
-                    _sel(_CBM).where(_CBM.channel_id == channel_id)
-                )).all()
-                for (_row,) in _mb_rows:
-                    _member_bot_ids.append(_row.bot_id)
-                    _member_configs[_row.bot_id] = _row.config or {}
-        except Exception:
-            logger.debug("Failed to load channel bot members for %s", channel_id, exc_info=True)
-
-    if _member_bot_ids:
-        from app.agent.bots import get_bot as _get_bot_mb
-        _participant_lines: list[str] = []
-
-        # Determine the actual primary bot from the channel row
-        _primary_bot_id = getattr(_ch_row, "bot_id", None) if _ch_row else None
-        _primary_bot_id = _primary_bot_id or bot.id  # fallback if no channel row
-
-        # Build participant list with correct primary/member labels
-        _all_bot_ids = [_primary_bot_id] + [mid for mid in _member_bot_ids if mid != _primary_bot_id]
-        # If current bot is a member (not the primary), ensure it's in the list
-        if bot.id != _primary_bot_id and bot.id not in _all_bot_ids:
-            _all_bot_ids.append(bot.id)
-
-        for _bid in _all_bot_ids:
-            _is_primary = _bid == _primary_bot_id
-            _is_self = _bid == bot.id
-            _role_label = "primary" if _is_primary else "member"
-            _you_marker = " ← you" if _is_self else ""
-            try:
-                _mb = _get_bot_mb(_bid)
-                _cfg = _member_configs.get(_bid, {})
-                _cfg_parts: list[str] = []
-                if _cfg.get("auto_respond"):
-                    _cfg_parts.append("auto-respond")
-                if _cfg.get("response_style"):
-                    _cfg_parts.append(f"style={_cfg['response_style']}")
-                _cfg_suffix = f" [{', '.join(_cfg_parts)}]" if _cfg_parts else ""
-                _participant_lines.append(f"  - @{_bid} ({_role_label}): {_mb.name}{_cfg_suffix}{_you_marker}")
-            except Exception:
-                _participant_lines.append(f"  - @{_bid} ({_role_label}){_you_marker}")
-
-        _awareness_msg = (
-            f"You are {bot.name} (bot_id: {bot.id}).\n\n"
-            "This channel has multiple bot participants:\n"
-            + "\n".join(_participant_lines)
-        )
-        # Primary bots can @-mention other bots; member bots should just respond.
-        # system_preamble is set for non-primary bots (routed, mentioned, invoked).
-        if not system_preamble:
-            _awareness_msg += (
-                "\nYou can @-mention bots by bot_id or display name (e.g., @dev_bot or @Dev Bot) to bring them into the conversation."
-                "\nDo not @-mention yourself."
-            )
-        else:
-            _awareness_msg += (
-                "\nYou were brought into this conversation to help. Focus on responding — "
-                "do not invoke or @-mention other bots."
-            )
-        messages.append({"role": "system", "content": _awareness_msg})
-
-        yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
+    _mb_state: dict = {}
+    async for _evt in _inject_multi_bot_awareness(
+        messages=messages,
+        bot=bot,
+        channel_id=channel_id,
+        ch_row=_ch_row,
+        system_preamble=system_preamble,
+        out_state=_mb_state,
+    ):
+        yield _evt
+    _member_bot_ids: list[str] = _mb_state.get("member_bot_ids", [])
+    _member_configs: dict[str, dict] = _mb_state.get("member_configs", {})
 
     # --- delegate bot index ---
-    _all_delegate_ids = list(dict.fromkeys(bot.delegate_bots + _tagged_bot_names + _member_bot_ids))
-    _delegate_lines: list[str] = []
-    _seen_delegate_ids: set[str] = set()
-    if _all_delegate_ids:
-        from app.agent.bots import get_bot as _get_bot
-        for _did in _all_delegate_ids:
-            _seen_delegate_ids.add(_did)
-            try:
-                _db = _get_bot(_did)
-                _desc = (_db.system_prompt or "").strip().splitlines()[0][:120] if _db.system_prompt else ""
-                _delegate_lines.append(f"  [bot] {_did} — {_db.name}" + (f": {_desc}" if _desc else ""))
-            except Exception:
-                _delegate_lines.append(f"  [bot] {_did}")
-
-    if _delegate_lines:
-        _delegate_content = (
-            "Available delegates for delegate_to_agent:\n"
-            + "\n".join(_delegate_lines)
-        )
-        messages.append({
-            "role": "system",
-            "content": _delegate_content,
-        })
-        yield {"type": "delegate_index", "count": len(_delegate_lines)}
+    _delegate_event = _inject_delegate_index(
+        messages=messages,
+        bot=bot,
+        tagged_bot_names=_tagged_bot_names,
+        member_bot_ids=_member_bot_ids,
+    )
+    if _delegate_event:
+        yield _delegate_event
 
     # --- DB memory injection REMOVED (deprecated — use memory_scheme='workspace-files') ---
     # --- DB RAG knowledge injection REMOVED (deprecated — use file-backed skills instead) ---
@@ -2107,639 +3012,98 @@ async def assemble_context(
     pre_selected_tools: list[dict[str, Any]] | None = None
     _authorized_names: set[str] | None = None
     if bot.tool_retrieval:
-        # Load enrolled names first so `_all_tool_schemas_by_name` can fold
-        # their MCP servers + local/client schemas into the pool. Without
-        # this, an enrolled MCP tool whose server isn't in `bot.mcp_servers`
-        # drops out of `by_name`, falls off `pinned_list`, reappears in the
-        # unretrieved index, and the model re-calls get_tool_info every turn.
-        _enrolled_tool_names: list[str] = []
-        if bot.id:
-            try:
-                from app.services.tool_enrollment import get_enrolled_tool_names as _get_enrolled_tools
-                _enrolled_tool_names = await _get_enrolled_tools(bot.id)
-            except Exception:
-                logger.warning("Failed to load enrolled tools for %s", bot.id, exc_info=True)
-
-        by_name = await _all_tool_schemas_by_name(
-            bot, enrolled_tool_names=_enrolled_tool_names,
-        ) if (
-            bot.local_tools or bot.mcp_servers or bot.client_tools
-            or bot.pinned_tools or _enrolled_tool_names
-        ) else {}
-        # Always include get_tool_info when tool retrieval is on (inspect named tools).
-        if "get_tool_info" not in by_name:
-            for _gti in get_local_tool_schemas(["get_tool_info"]):
-                by_name[_gti["function"]["name"]] = _gti
-        # search_tools only makes sense when auto-discovery is on — it searches the
-        # FULL pool, not just declared tools. Without discovery, all of the bot's
-        # tools are already known; adding search_tools is noise.
-        if bot.tool_discovery and "search_tools" not in by_name:
-            for _st in get_local_tool_schemas(["search_tools"]):
-                by_name[_st["function"]["name"]] = _st
-        # list_tool_signatures + run_script — programmatic tool composition.
-        # Only useful with discovery (the bot needs the catalog to script
-        # against). run_script is exec_capable so the policy gate still applies
-        # per call; auto-injecting the SCHEMA just makes the tool callable.
-        if bot.tool_discovery:
-            for _name in ("list_tool_signatures", "run_script"):
-                if _name not in by_name:
-                    for _sch in get_local_tool_schemas([_name]):
-                        by_name[_sch["function"]["name"]] = _sch
-        # Auto-inject get_skill + get_skill_list — skills are shared documents any bot can access
-        for _sk_name in ("get_skill", "get_skill_list"):
-            if _sk_name not in by_name:
-                for _sk_schema in get_local_tool_schemas([_sk_name]):
-                    by_name[_sk_schema["function"]["name"]] = _sk_schema
-        _authorized_names = set(by_name.keys())
-        th = (
-            bot.tool_similarity_threshold
-            if bot.tool_similarity_threshold is not None
-            else settings.TOOL_RETRIEVAL_THRESHOLD
-        )
-        retrieved, tool_sim, tool_candidates = await retrieve_tools(
-            user_message,
-            bot.local_tools,
-            bot.mcp_servers,
-            threshold=th,
-            discover_all=bot.tool_discovery,
-        )
-        # Filter discovered tools against channel disabled list
-        _ch_disabled_tools = set(getattr(_ch_row, "local_tools_disabled", None) or []) if _ch_row else set()
-        if _ch_disabled_tools:
-            retrieved = [t for t in retrieved if t.get("function", {}).get("name") not in _ch_disabled_tools]
-        # Pre-filter discovered tools against unconditional deny policies
-        if settings.TOOL_POLICY_ENABLED and retrieved:
-            from app.db.engine import async_session as _policy_session_factory
-            from app.services.tool_policies import evaluate_tool_policy
-            async with _policy_session_factory() as _pol_db:
-                _policy_allowed = []
-                for _rt in retrieved:
-                    _rn = _rt.get("function", {}).get("name")
-                    if _rn and _rn not in _authorized_names:
-                        # Discovered (not declared) — check deny policy with empty args
-                        _decision = await evaluate_tool_policy(_pol_db, bot.id, _rn, {})
-                        if _decision.action == "deny":
-                            continue
-                    _policy_allowed.append(_rt)
-                retrieved = _policy_allowed
-        # Add discovered tool names to authorized set
-        for _rt in retrieved:
-            _rn = _rt.get("function", {}).get("name")
-            if _rn:
-                _authorized_names.add(_rn)
-                if _rn not in by_name:
-                    by_name[_rn] = _rt
-
-        if correlation_id is not None:
-            asyncio.create_task(_record_trace_event(
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-                event_type="tool_retrieval",
-                count=len(retrieved),
-                data={"best_similarity": _safe_sim(tool_sim), "threshold": th,
-                      "selected": [t["function"]["name"] for t in retrieved],
-                      "top_candidates": tool_candidates},
-            ))
-        if by_name:
-            _effective_pinned = list(bot.pinned_tools or []) + _tagged_tool_names + ["get_tool_info"]
-            if bot.tool_discovery:
-                _effective_pinned.append("search_tools")
-                _effective_pinned.append("list_tool_signatures")
-                _effective_pinned.append("run_script")
-            if _enrolled_tool_names:
-                _effective_pinned += _enrolled_tool_names
-            if bot.skills:
-                _effective_pinned += ["get_skill", "get_skill_list"]
-            pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
-            # Also support server-level pinning: if a pinned entry is an MCP server name,
-            # include all tools from that server.
-            _server_pins = {n for n in _effective_pinned if n not in by_name}
-            if _server_pins:
-                for _tool_name, _schema in by_name.items():
-                    if get_mcp_server_for_tool(_tool_name) in _server_pins:
-                        pinned_list.append(_schema)
-            client_only = get_client_tool_schemas(bot.client_tools)
-            merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
-            if not merged:
-                pre_selected_tools = list(by_name.values())
-            else:
-                pre_selected_tools = merged
-
-            # Inject compact usage index for unretrieved tools from bot's declared set
-            _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
-            _unretrieved = [
-                (n, s["function"])
-                for n, s in by_name.items()
-                if n not in _retrieved_names and n not in ("get_tool_info", "search_tools")
-            ]
-            if _unretrieved:
-                _index_lines = "\n".join(
-                    f"  • {_compact_tool_usage(n, fn)}" for n, fn in _unretrieved
-                )
-                _header = (
-                    "You have MORE tools available than what's currently loaded. "
-                    "BEFORE producing a best-effort answer — or saying you don't have a tool — "
-                    "call get_tool_info(tool_name=\"<name>\") for any entry below that could "
-                    "plausibly apply. These lines are an index; the full schema is only accessible "
-                    "via get_tool_info."
-                )
-                if bot.tool_discovery:
-                    _header += (
-                        " If the right tool isn't in this list, call "
-                        "search_tools(query=\"...\") to semantically search the full pool "
-                        "BEFORE giving up."
-                    )
-                _header += (
-                    " Acting without fetching the schema when a relevant tool exists "
-                    "is the primary source of wrong/missing actions.\n"
-                )
-                _tool_idx_content = _header + _index_lines
-                # P4: expendable — skip if budget is tight
-                if not context_profile.allow_tool_index:
-                    _mark_injection_decision(_inject_decisions, "tool_index", "skipped_by_profile")
-                elif _budget_can_afford(_tool_idx_content):
-                    messages.append({"role": "system", "content": _tool_idx_content})
-                    _budget_consume("tool_index", _tool_idx_content)
-                    _mark_injection_decision(_inject_decisions, "tool_index", "admitted")
-                    yield {"type": "tool_index", "unretrieved_count": len(_unretrieved)}
-                else:
-                    _mark_injection_decision(_inject_decisions, "tool_index", "skipped_by_budget")
-                    logger.info("Budget: skipping tool index hints (%d tools)", len(_unretrieved))
-            elif context_profile.allow_tool_index:
-                _mark_injection_decision(_inject_decisions, "tool_index", "skipped_empty")
-
-            # Capture tool discovery info for discovery_summary event (emitted at end).
-            _tool_discovery_info = {
-                "tool_retrieval_enabled": True,
-                "tool_discovery_enabled": bool(bot.tool_discovery),
-                "threshold": th,
-                "pool_total": len(by_name),
-                "pinned": list(bot.pinned_tools or []),
-                "included": sorted(by_name.keys()),
-                "enrolled_working_set": list(_enrolled_tool_names),
-                "retrieved": [t["function"]["name"] for t in retrieved],
-                "retrieved_count": len(retrieved),
-                "top_candidates": tool_candidates[:5] if tool_candidates else [],
-                "best_similarity": _safe_sim(tool_sim),
-                "unretrieved_count": len(_unretrieved) if _unretrieved else 0,
-            }
-    # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
-    from app.agent.context import current_injected_tools
-    _injected = current_injected_tools.get()
-    if _injected:
-        _injected_names = [t["function"]["name"] for t in _injected]
-        logger.info("Injecting tools: %s", _injected_names)
-        if pre_selected_tools is not None:
-            _existing = {t["function"]["name"] for t in pre_selected_tools}
-            for t in _injected:
-                if t["function"]["name"] not in _existing:
-                    pre_selected_tools.append(t)
-
-    # Include dynamically injected tool names in the authorized set
-    if _injected and _authorized_names is not None:
-        _authorized_names.update(t["function"]["name"] for t in _injected)
-
-    # --- widget-handler tools (bot↔widget bridge) ---
-    # For every pinned widget whose manifest declares bot-callable handlers,
-    # surface them as `widget__<slug>__<handler>` tools. Visibility is the
-    # caller's channel dashboard + any dashboard the calling bot authored.
-    # See `app/services/widget_handler_tools.py` for visibility + dispatch.
-    if channel_id or bot.id:
-        try:
-            from app.db.engine import async_session as _wh_session_factory
-            from app.services.widget_handler_tools import list_widget_handler_tools
-            async with _wh_session_factory() as _wh_db:
-                _wh_schemas, _ = await list_widget_handler_tools(
-                    _wh_db, bot.id, str(channel_id) if channel_id else None,
-                )
-            if _wh_schemas:
-                if pre_selected_tools is None:
-                    pre_selected_tools = list(_wh_schemas)
-                else:
-                    _existing = {t["function"]["name"] for t in pre_selected_tools}
-                    for _sch in _wh_schemas:
-                        if _sch["function"]["name"] not in _existing:
-                            pre_selected_tools.append(_sch)
-                if _authorized_names is None:
-                    _authorized_names = set()
-                _authorized_names.update(
-                    t["function"]["name"] for t in _wh_schemas
-                )
-                logger.debug(
-                    "widget_handler_tools: injected %d handler(s) for bot=%s channel=%s",
-                    len(_wh_schemas), bot.id, channel_id,
-                )
-        except Exception:
-            logger.warning(
-                "widget_handler_tools: enumeration failed; widget tools will not be surfaced this turn",
-                exc_info=True,
-            )
-
-    # --- capability-gated tool exposure ---
-    # Drop tools whose required_capabilities / required_integrations the
-    # current channel's bindings can't satisfy. Keeps respond_privately,
-    # open_modal, and slack_* surface tools out of the LLM's tool list
-    # on channels that can't honor them — rather than letting the agent
-    # call the tool and hit a runtime "unsupported" error. Structural
-    # fix for the Phase 3/4 Slack-depth bug documented in
-    # project-notes/Architecture Decisions.md (Channel binding model).
-    if _ch_row is not None:
-        try:
-            from app.agent.capability_gate import build_view
-            from app.integrations import renderer_registry as _rreg
-            from app.services.dispatch_resolution import resolve_targets as _resolve_targets
-            from app.tools.registry import get_tool_capability_requirements
-
-            _targets = await _resolve_targets(_ch_row)
-            _bound_ids = [iid for iid, _t in _targets]
-            _caps_map = {
-                iid: getattr(_rreg.get(iid), "capabilities", frozenset())
-                for iid in _bound_ids
-                if _rreg.get(iid) is not None
-            }
-            _view = build_view(_bound_ids, _caps_map)
-
-            def _tool_is_exposable(_name: str) -> bool:
-                _req_caps, _req_ints = get_tool_capability_requirements(_name)
-                return _view.tool_is_exposable(_req_caps, _req_ints)
-
-            if _authorized_names is not None:
-                _dropped = {n for n in _authorized_names if not _tool_is_exposable(n)}
-                if _dropped:
-                    _authorized_names -= _dropped
-                    logger.debug(
-                        "capability_gate: dropped %d tools on channel=%s (bound=%s): %s",
-                        len(_dropped), channel_id,
-                        sorted(_view.bound_integrations), sorted(_dropped),
-                    )
-            if pre_selected_tools is not None:
-                pre_selected_tools = [
-                    _t for _t in pre_selected_tools
-                    if _tool_is_exposable(_t.get("function", {}).get("name", ""))
-                ]
-        except Exception:
-            logger.warning(
-                "capability_gate: filter failed for channel %s — continuing without gate",
-                channel_id, exc_info=True,
-            )
+        _tr_state: dict = {}
+        async for _evt in _run_tool_retrieval(
+            messages=messages,
+            bot=bot,
+            user_message=user_message,
+            ch_row=_ch_row,
+            tagged_tool_names=_tagged_tool_names,
+            correlation_id=correlation_id,
+            session_id=session_id,
+            client_id=client_id,
+            context_profile=context_profile,
+            inject_decisions=_inject_decisions,
+            budget_can_afford=_budget_can_afford,
+            budget_consume=_budget_consume,
+            out_state=_tr_state,
+        ):
+            yield _evt
+        pre_selected_tools = _tr_state.get("pre_selected_tools")
+        _authorized_names = _tr_state.get("authorized_names")
+        _tool_discovery_info = _tr_state.get("tool_discovery_info", _tool_discovery_info)
+    # --- tool-exposure finalization (dynamic injection + widget-handler tools + capability gate) ---
+    _ft_state: dict = {}
+    await _finalize_exposed_tools(
+        bot=bot,
+        channel_id=channel_id,
+        ch_row=_ch_row,
+        pre_selected_tools=pre_selected_tools,
+        authorized_names=_authorized_names,
+        out_state=_ft_state,
+    )
+    pre_selected_tools = _ft_state.get("pre_selected_tools", pre_selected_tools)
+    _authorized_names = _ft_state.get("authorized_names", _authorized_names)
 
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
 
-    # --- datetime + conversation-gap framing (injected late to avoid busting prompt cache prefix) ---
-    if context_profile.allow_temporal_context:
-        try:
-            from zoneinfo import ZoneInfo
-            from app.services.temporal_context import (
-                ScanMessage,
-                TemporalBlockInputs,
-                build_current_time_block,
-            )
-            _tz = ZoneInfo(settings.TIMEZONE)
-            _now_local = datetime.now(_tz)
-            _now_utc = datetime.now(timezone.utc)
-
-            _last_human_dt: datetime | None = None
-            _last_non_human_dt: datetime | None = None
-            _scan_messages: list[ScanMessage] = []
-            if session_id is not None:
-                try:
-                    from sqlalchemy import select as _sa_select_t
-                    from app.db.engine import async_session as _async_session_t
-                    from app.db.models import Message as _MessageT
-                    _cutoff = _now_utc - timedelta(seconds=5)
-                    async with _async_session_t() as _tdb:
-                        _recent_rows = (await _tdb.execute(
-                            _sa_select_t(
-                                _MessageT.role,
-                                _MessageT.content,
-                                _MessageT.metadata_,
-                                _MessageT.created_at,
-                            )
-                            .where(_MessageT.session_id == session_id)
-                            .where(_MessageT.role.in_(("user", "assistant")))
-                            .where(_MessageT.created_at < _cutoff)
-                            .order_by(_MessageT.created_at.desc())
-                            .limit(15)
-                        )).all()
-
-                        for _r in _recent_rows:
-                            _meta = _r.metadata_ or {}
-                            _is_bot_sender = _meta.get("sender_type") == "bot"
-                            _is_hb = bool(_meta.get("is_heartbeat"))
-                            _is_human = _r.role == "user" and not _is_bot_sender and not _is_hb
-                            if not _is_human and _last_non_human_dt is None:
-                                _last_non_human_dt = _r.created_at
-                            if _is_human and _last_human_dt is None:
-                                _last_human_dt = _r.created_at
-                            _content = _r.content if isinstance(_r.content, str) else ""
-                            if _content:
-                                _sender_id = _meta.get("sender_id") or _meta.get("bot_id")
-                                _is_self = _r.role == "assistant" and (
-                                    _sender_id is None or _sender_id == bot.id
-                                )
-                                _scan_messages.append(ScanMessage(
-                                    role=_r.role,
-                                    content=_content,
-                                    created_at=_r.created_at,
-                                    is_human=_is_human,
-                                    is_self=_is_self,
-                                ))
-                except Exception:
-                    logger.debug("temporal_context: DB lookup failed", exc_info=True)
-
-            _time_block = build_current_time_block(TemporalBlockInputs(
-                now_local=_now_local,
-                now_utc=_now_utc,
-                last_human_dt=_last_human_dt,
-                last_non_human_dt=_last_non_human_dt,
-                recent_messages=_scan_messages,
-            ))
-            if _budget_can_afford(_time_block):
-                messages.append({"role": "system", "content": _time_block})
-                _budget_consume("temporal_context", _time_block)
-                _inject_chars["temporal_context"] = len(_time_block)
-                _mark_injection_decision(_inject_decisions, "temporal_context", "admitted")
-            else:
-                _mark_injection_decision(_inject_decisions, "temporal_context", "skipped_by_budget")
-        except Exception:
-            pass
-    else:
-        _mark_injection_decision(_inject_decisions, "temporal_context", "skipped_by_profile")
-
-    # --- pinned widget state (stale-but-OK, same cache-safety band as temporal) ---
-    try:
-        if _ch_row is not None and context_profile.allow_pinned_widgets:
-            from app.db.engine import async_session as _pw_session
-            from app.services.widget_context import (
-                build_pinned_widget_context_snapshot,
-                fetch_channel_pin_dicts,
-                is_pinned_widget_context_enabled,
-            )
-            if not is_pinned_widget_context_enabled(getattr(_ch_row, "config", None) or {}):
-                _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_channel_config")
-            else:
-                async with _pw_session() as _pw_db:
-                    _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
-                if _pins:
-                    async with _pw_session() as _pw_db:
-                        _snapshot = await build_pinned_widget_context_snapshot(
-                            _pw_db,
-                            _pins,
-                            bot_id=bot.id,
-                            channel_id=str(_ch_row.id),
-                        )
-                    _widget_block = _snapshot.get("block_text")
-                    if isinstance(_widget_block, str) and _widget_block and _budget_can_afford(_widget_block):
-                        messages.append({"role": "system", "content": _widget_block})
-                        _budget_consume("pinned_widgets", _widget_block)
-                        _inject_chars["pinned_widgets"] = len(_widget_block)
-                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "admitted")
-                    elif isinstance(_widget_block, str) and _widget_block:
-                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_budget")
-                    else:
-                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
-                else:
-                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
-    except Exception:
-        logger.debug("pinned_widgets: injection failed", exc_info=True)
-    if not context_profile.allow_pinned_widgets:
-        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_profile")
-
-    # --- tool refusal guard (counters history poisoning from prior "I can't" turns) ---
-    # Scans recent assistant turns for refusal phrases. If any are found, injects a
-    # corrective system message; if the refusal named a tool that IS now authorized,
-    # the message names it specifically. Same cache-safety band as temporal/widgets.
-    try:
-        if _authorized_names and context_profile.allow_tool_refusal_guard:
-            from app.services.tool_refusal_guard import (
-                build_tool_authority_block,
-                scan_assistant_refusals,
-            )
-            _assistant_contents = [
-                m.get("content") for m in messages
-                if isinstance(m, dict) and m.get("role") == "assistant"
-            ]
-            # Newest first — matches the 5-turn recent-window intent
-            _assistant_contents.reverse()
-            _refusal = scan_assistant_refusals(_assistant_contents, set(_authorized_names))
-            _guard_block = build_tool_authority_block(_refusal)
-            if _guard_block and _budget_can_afford(_guard_block):
-                messages.append({"role": "system", "content": _guard_block})
-                _budget_consume("tool_refusal_guard", _guard_block)
-                _inject_chars["tool_refusal_guard"] = len(_guard_block)
-                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "admitted")
-                if _refusal.stale_refused:
-                    logger.info(
-                        "tool_refusal_guard: correcting stale refusals for %s on channel %s",
-                        _refusal.stale_refused, channel_id,
-                    )
-            elif _guard_block:
-                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_by_budget")
-            else:
-                _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_empty")
-    except Exception:
-        logger.debug("tool_refusal_guard: injection failed", exc_info=True)
-    if not context_profile.allow_tool_refusal_guard:
-        _mark_injection_decision(_inject_decisions, "tool_refusal_guard", "skipped_by_profile")
-
-    _context_profile_note = _build_context_profile_note(
+    # --- late cache-safe injections (temporal + pinned widgets + refusal guard + profile note) ---
+    await _inject_late_cache_safe_context(
+        messages=messages,
+        bot=bot,
+        channel_id=channel_id,
+        ch_row=_ch_row,
+        session_id=session_id,
+        authorized_names=_authorized_names,
         context_profile=context_profile,
+        inject_chars=_inject_chars,
         inject_decisions=_inject_decisions,
+        budget_can_afford=_budget_can_afford,
+        budget_consume=_budget_consume,
     )
-    if _context_profile_note:
-        if _budget_can_afford(_context_profile_note):
-            messages.append({"role": "system", "content": _context_profile_note})
-            _budget_consume("context_profile_note", _context_profile_note)
-            _inject_chars["context_profile_note"] = len(_context_profile_note)
-            _mark_injection_decision(_inject_decisions, "context_profile_note", "admitted")
-        else:
-            _mark_injection_decision(_inject_decisions, "context_profile_note", "skipped_by_budget")
 
-    # --- channel prompt (injected just before user message) ---
-    if channel_id is not None and _ch_row is not None:
-        _ch_ws_path = getattr(_ch_row, "channel_prompt_workspace_file_path", None)
-        _ch_ws_id = getattr(_ch_row, "channel_prompt_workspace_id", None)
-        _ch_inline = getattr(_ch_row, "channel_prompt", None)
-        if _ch_ws_path and _ch_ws_id:
-            from app.services.prompt_resolution import resolve_workspace_file_prompt
-            _ch_prompt = resolve_workspace_file_prompt(str(_ch_ws_id), _ch_ws_path, _ch_inline or "")
-        else:
-            _ch_prompt = _ch_inline
-        if _ch_prompt:
-            messages.append({"role": "system", "content": _ch_prompt})
-            _inject_chars["channel_prompt"] = len(_ch_prompt)
+    # --- message assembly (channel prompt + preamble + turn marker + reinforcement + user message) ---
+    await _append_prompt_and_user_message(
+        messages=messages,
+        bot=bot,
+        channel_id=channel_id,
+        ch_row=_ch_row,
+        user_message=user_message,
+        attachments=attachments,
+        audio_data=audio_data,
+        audio_format=audio_format,
+        native_audio=native_audio,
+        system_preamble=system_preamble,
+        task_mode=task_mode,
+        inject_chars=_inject_chars,
+        budget_consume=_budget_consume,
+        result=result,
+    )
 
-    # --- system preamble (e.g. heartbeat metadata — injected before user message, after all RAG context) ---
-    if system_preamble:
-        messages.append({"role": "system", "content": system_preamble})
-        _inject_chars["system_preamble"] = len(system_preamble)
 
-    # --- current-turn marker (helps models distinguish injected context from the live message) ---
-    if task_mode:
-        # Heartbeat or other system-initiated task — frame as executable task, not conversation
-        messages.append({
-            "role": "system",
-            "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
-        })
-    else:
-        messages.append({
-            "role": "system",
-            "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
-        })
-
-    # --- bot system_prompt reinforcement (recency bias) ---
-    # Repeats bot.system_prompt near the end of the message array so weaker
-    # models don't lose it under ~12KB of framework text. Disabled by default
-    # (strong models don't need it). Gated on REINFORCE_SYSTEM_PROMPT setting.
-    if settings.REINFORCE_SYSTEM_PROMPT and not task_mode:
-        _bot_sys_prompt = bot.system_prompt or ""
-        if getattr(bot, "system_prompt_workspace_file", False):
-            try:
-                from app.services.prompt_resolution import resolve_workspace_file_prompt
-                _ws_prompt = resolve_workspace_file_prompt(
-                    bot.shared_workspace_id,
-                    f"bots/{bot.id}/system_prompt.md",
-                    "",
-                )
-                if _ws_prompt:
-                    _bot_sys_prompt = _ws_prompt
-            except Exception:
-                pass
-        if _bot_sys_prompt.strip():
-            _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
-            messages.append({"role": "system", "content": _reinforce})
-            _inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
-
-    # --- user message (audio or text) ---
-    if native_audio:
-        _audio_instruction = {
-            "role": "system",
-            "content": _AUDIO_TRANSCRIPT_INSTRUCTION,
-        }
-        messages.append(_audio_instruction)
-        _budget_consume("base_context", _AUDIO_TRANSCRIPT_INSTRUCTION)
-        user_msg = _build_audio_user_message(audio_data, audio_format)
-        messages.append(user_msg)
-        _budget_consume("current_user_message", user_msg.get("content", ""))
-        result.user_msg_index = len(messages) - 1
-    elif user_message:
-        from app.security.prompt_sanitize import sanitize_unicode
-        user_content = _build_user_message_content(sanitize_unicode(user_message), attachments)
-        messages.append({"role": "user", "content": user_content})
-        _budget_consume("current_user_message", user_content)
-        result.user_msg_index = len(messages) - 1
-    # When user_message is empty (e.g. member bot replies), no user message is
-    # appended — the system_preamble and conversation history are sufficient.
-
-    # --- store budget utilization for downstream (compaction trigger) ---
-    if budget is not None:
-        result.budget_utilization = budget.utilization
-
-    # Mirror the per-category breakdown onto the result so dry-run / preview
-    # callers can read it without scraping trace events.
-    if _inject_chars:
-        result.inject_chars = dict(_inject_chars)
-    if _inject_decisions:
-        result.inject_decisions = dict(_inject_decisions)
-
-    # --- injection summary trace ---
-    if correlation_id is not None and (_inject_chars or _inject_decisions):
-        _summary_data: dict[str, Any] = {
-            "breakdown": _inject_chars,
-            "total_chars": sum(_inject_chars.values()),
-            "context_profile": context_profile.name,
-            "context_origin": result.context_origin,
-            "context_policy": result.context_policy,
-            "decisions": _inject_decisions,
-        }
-        if budget is not None:
-            _summary_data["context_budget"] = budget.to_dict()
-        asyncio.create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
-            event_type="context_injection_summary",
-            data=_summary_data,
-        ))
-
-    # --- active skills snapshot for UI ---
-    # Surfaces which skills are still in the LLM's context this turn (fetched via
-    # prior get_skill() calls and still sitting in conversation history). The loop
-    # consumes result.active_skills and emits an `active_skills` stream event so
-    # turn_worker can tag the assistant message metadata.
-    if _history_fetched_skills:
-        _skill_name_map: dict[str, str] = {r.id: r.name for r in _enrolled_rows}
-        _missing_skill_ids = [sid for sid in _history_fetched_skills if sid not in _skill_name_map]
-        if _missing_skill_ids:
-            try:
-                from app.db.engine import async_session as _async_session_names
-                from app.db.models import Skill as _SkillRowForNames
-                from sqlalchemy import select as _sa_select_names
-                async with _async_session_names() as _db:
-                    _name_rows = (await _db.execute(
-                        _sa_select_names(_SkillRowForNames.id, _SkillRowForNames.name)
-                        .where(_SkillRowForNames.id.in_(_missing_skill_ids))
-                    )).all()
-                    for _nr in _name_rows:
-                        _skill_name_map[_nr.id] = _nr.name
-            except Exception:
-                logger.warning("active_skills name lookup failed", exc_info=True)
-        for _sid, _rec in sorted(
-            _history_skill_records.items(),
-            key=lambda item: (
-                int(item[1].get("messages_ago", 0)),
-                str(_skill_name_map.get(item[0], item[0])).lower(),
-            ),
-        ):
-            _entry = {
-                "skill_id": _sid,
-                "skill_name": _skill_name_map.get(_sid, _sid),
-                "source": _rec.get("source", "loaded"),
-                "messages_ago": int(_rec.get("messages_ago", 0)),
-            }
-            result.skills_in_context.append(_entry)
-            if _entry["source"] == "loaded":
-                result.active_skills.append({
-                    "skill_id": _sid,
-                    "skill_name": _entry["skill_name"],
-                })
-        current_skills_in_context.set(list(result.skills_in_context))
-
-    # --- discovery summary trace (skills + tools, consolidated for at-a-glance) ---
-    # Emitted unconditionally so the UI can render a single "what did discovery do
-    # this turn" card. Complements the richer skill_index / tool_retrieval events
-    # that carry full detail.
-    if correlation_id is not None:
-        _discovery_data: dict[str, Any] = {
-            "skills": {
-                "enrolled_count": len(_enrolled_ids),
-                "enrolled_in_context": len(_enrolled_rows),
-                "relevant_count": len(_ranked_relevant),
-                "auto_injected": [
-                    {"skill_id": sid, "similarity": _auto_injected_similarities.get(sid, 0.0)}
-                    for sid in _auto_injected
-                ],
-                "discoverable_unenrolled_count": len(_suggestion_rows),
-                "auto_inject_threshold": settings.SKILL_ENROLLED_AUTO_INJECT_THRESHOLD,
-                "auto_inject_max": settings.SKILL_ENROLLED_AUTO_INJECT_MAX,
-                "ranking_enabled": settings.SKILL_ENROLLED_RANKING_ENABLED,
-                "history_fetched": sorted(_history_fetched_skills) if _history_fetched_skills else [],
-            },
-            "tools": _tool_discovery_info,
-        }
-        asyncio.create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
-            event_type="discovery_summary",
-            data=_discovery_data,
-        ))
+    # --- finalization traces (budget utilization + injection/discovery summary + active-skills snapshot) ---
+    await _emit_finalization_traces(
+        bot=bot,
+        correlation_id=correlation_id,
+        session_id=session_id,
+        client_id=client_id,
+        context_profile=context_profile,
+        budget=budget,
+        inject_chars=_inject_chars,
+        inject_decisions=_inject_decisions,
+        enrolled_rows=_enrolled_rows,
+        enrolled_ids=_enrolled_ids,
+        ranked_relevant=_ranked_relevant,
+        auto_injected=_auto_injected,
+        auto_injected_similarities=_auto_injected_similarities,
+        suggestion_rows=_suggestion_rows,
+        history_fetched_skills=_history_fetched_skills,
+        history_skill_records=_history_skill_records,
+        tool_discovery_info=_tool_discovery_info,
+        result=result,
+    )
 
 
 # ---------------------------------------------------------------------------

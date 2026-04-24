@@ -10,6 +10,37 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Channel chat panes are a canvas layout, while primary remains the integration delivery session
+**Decided 2026-04-24.** Channel session switching now separates three concerns: browsing sessions, arranging visible chat panes, and choosing which session is primary for integrations.
+
+**What changed.**
+- `/sessions` is the browse/switch surface. Empty state groups Primary, previous channel sessions, and scratch sessions; search stays session-oriented and can show message/section snippets under the matching session row.
+- `/split` is the add-pane surface. It opens the same picker in split mode, hides already visible sessions, and appends a chat pane on desktop.
+- The visible chat area is a persisted pane layout with up to three panes, focused-pane replacement, equal/resizable widths, pane headers, and close/rename/make-primary actions.
+- `/focus` and the This Channel palette action collapse side panels plus the floating top chip rail into a focused chat layout, then restore the prior chrome state.
+
+**Load-bearing invariants.**
+- Primary is not "the left pane"; it is the channel's integration/default delivery session. A primary pane can be hidden, and secondary panes are web-only unless promoted.
+- Switching from `/sessions` replaces the focused pane. Splitting from `/split` adds a pane; if already at three panes the user chooses which pane to replace.
+- Pane layout state is the source of truth. Legacy `sessionPanels` exists only as migration input and should not regain behavior ownership.
+- Session-picker grouping/search and pane normalization live in `channelSessionSurfaces`, not scattered across route components.
+
+### Rich tool-result rendering is an advisory integration capability with an SDK presentation boundary
+**Decided 2026-04-24.** Rich tool results are not a new delivery path. Assistant text still delivers through durable `NEW_MESSAGE`; structured tool envelopes in message metadata are optional presentation data that capable renderers may use.
+
+**What changed.**
+- `rich_tool_results` declares that a renderer can render structured tool results natively.
+- `integration.yaml:tool_result_rendering` declares the detailed support matrix: display modes, content types, view keys, fallback, placement, and limits.
+- `integrations.tool_output` owns support matching and portable read-only card normalization.
+- Slack is the v1 adapter. Unsupported envelopes fall back to compact badges; HTML/native widgets are not rendered outside the web host.
+
+**Load-bearing invariants.**
+- Text fallback is always the durable baseline.
+- `tool_result_rendering` is manifest-first; renderer ClassVars are fallback only.
+- Rich-result rendering is read-only in v1. Widget actions do not become platform buttons.
+- Approvals remain on `approval_buttons`, not generic rich-result actions.
+- Existing tools are not hidden merely because a channel lacks rich-result support.
+
 ### Light mode uses neutral surface depth, not extra accent color
 **Decided 2026-04-24.** Light mode should not solve flatness by adding decorative color to individual screens or by introducing a second global accent. Spindrel keeps one primary accent, and light-mode hierarchy comes from a cooler neutral surface ladder plus shared component primitives.
 

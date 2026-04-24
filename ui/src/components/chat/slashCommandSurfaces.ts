@@ -5,7 +5,9 @@ export type SlashCommandCapability =
   | "scratch"
   | "model"
   | "theme"
-  | "sessions";
+  | "sessions"
+  | "split"
+  | "focus";
 
 export interface ResolveSlashCommandSurfaceOptions {
   catalog: SlashCommandSpec[];

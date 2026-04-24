@@ -327,6 +327,32 @@ class TestTurnStarted:
         # Second call short-circuits — only one chat.postMessage fired.
         assert len(fake_http.calls) == 1
 
+    async def test_stuck_outbox_poll_does_not_block_placeholder(
+        self, fake_http, monkeypatch
+    ):
+        async def stuck_count_pending_outbox(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        monkeypatch.setattr(
+            slack_renderer_mod,
+            "count_pending_outbox",
+            stuck_count_pending_outbox,
+        )
+        fake_http.set_response({
+            "ok": True, "ts": "1700000000.123", "channel": "C123",
+        })
+        renderer = SlackRenderer()
+        turn_id = uuid.uuid4()
+        target = _slack_target("C123")
+
+        receipt = await asyncio.wait_for(
+            renderer.render(_turn_started_event(turn_id), target),
+            timeout=0.5,
+        )
+
+        assert receipt.success is True
+        assert len(fake_http.calls) == 1
+
 
 # ---------------------------------------------------------------------------
 # Streaming token coalesce + safety pass — THE bug fix

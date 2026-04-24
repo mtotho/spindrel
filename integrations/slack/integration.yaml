@@ -68,11 +68,34 @@ capabilities:
   - file_upload
   - file_delete
   - streaming_edit
+  - rich_tool_results
   - approval_buttons
   - display_names
   - mentions
   - ephemeral
   - modals
+
+tool_result_rendering:
+  modes: [compact, full, none]
+  content_types:
+    - text/plain
+    - text/markdown
+    - application/json
+    - application/vnd.spindrel.components+json
+    - application/vnd.spindrel.diff+text
+    - application/vnd.spindrel.file-listing+json
+  view_keys:
+    - core.search_results
+    - core.command_result
+    - core.machine_target_status
+  interactive: false
+  unsupported_fallback: badge
+  placement: same_message
+  limits:
+    max_blocks: 50
+    max_table_rows: 20
+    max_links: 10
+    max_code_chars: 2900
 
 provides:
   - target

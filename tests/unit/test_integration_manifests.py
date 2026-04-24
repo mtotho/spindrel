@@ -24,6 +24,7 @@ from app.services.integration_manifests import (
     get_all_manifests,
     get_capabilities,
     get_manifest,
+    get_tool_result_rendering,
     get_yaml_content,
     load_manifests,
     parse_integration_yaml,
@@ -31,6 +32,7 @@ from app.services.integration_manifests import (
     set_detected_provides,
     update_manifest,
     validate_capabilities,
+    validate_tool_result_rendering,
     validate_provides,
 )
 from tests.factories import build_integration_manifest
@@ -508,6 +510,26 @@ class TestGetCapabilities:
         assert get_capabilities("ghost") is None
 
 
+class TestGetToolResultRendering:
+    def test_when_declared_then_mapping_returned(self):
+        spec = {"modes": ["compact", "full"], "content_types": ["text/plain"]}
+        manifests_mod._manifests["slack"] = {
+            "id": "slack",
+            "tool_result_rendering": spec,
+        }
+
+        assert get_tool_result_rendering("slack") == spec
+
+    def test_when_missing_or_invalid_then_none(self):
+        manifests_mod._manifests["slack"] = {
+            "id": "slack",
+            "tool_result_rendering": ["bad"],
+        }
+
+        assert get_tool_result_rendering("slack") is None
+        assert get_tool_result_rendering("ghost") is None
+
+
 # ---------------------------------------------------------------------------
 # set_detected_provides — cache mutator
 # ---------------------------------------------------------------------------
@@ -679,6 +701,35 @@ class TestValidateCapabilities:
         assert not any(
             "unknown capabilities" in r.message for r in caplog.records
         )
+
+
+class TestValidateToolResultRendering:
+    def test_when_invalid_modes_then_warning_logged(self, caplog):
+        manifests_mod._manifests["slack"] = {
+            "id": "slack",
+            "tool_result_rendering": {"modes": ["full", "verbose"]},
+        }
+        caplog.set_level(logging.WARNING, logger="app.services.integration_manifests")
+
+        validate_tool_result_rendering()
+
+        assert any("tool_result_rendering.modes" in r.message for r in caplog.records)
+
+    def test_when_valid_then_silent(self, caplog):
+        manifests_mod._manifests["slack"] = {
+            "id": "slack",
+            "tool_result_rendering": {
+                "modes": ["compact", "full", "none"],
+                "content_types": ["text/plain"],
+                "view_keys": ["core.search_results"],
+                "interactive": False,
+            },
+        }
+        caplog.set_level(logging.WARNING, logger="app.services.integration_manifests")
+
+        validate_tool_result_rendering()
+
+        assert not any("tool_result_rendering" in r.message for r in caplog.records)
 
 
 class TestValidateProvides:

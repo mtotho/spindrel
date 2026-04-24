@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (Cluster 7a shipped — assemble_context now 1341 LOC, 5 setup-stage helpers extracted)
+updated: 2026-04-24 (Cluster 7 COMPLETE — assemble_context now 357 LOC, all 33 stages extracted via 16 helpers; cumulative 7a–7e-d: 1490 → 357 LOC, -76%)
 ---
 # Track — Code Quality & Refactoring
 
@@ -308,7 +308,7 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 
 | File | Function | Lines | Concern count |
 |------|----------|-------|---------------|
-| context_assembly.py | `assemble_context()` | ~~1400~~ ~~990~~ ~~1490~~ **1341** (file: ~~2730~~ **2857**) | Cluster 7a shipped 5 setup-stage helpers (Stages 1-4 + 10). Remaining 32 stages across planned Clusters 7b (stages 7-8 + 11-12 tag/multi-bot), 7c (stage 9 skills, 346 LOC), 7d (stage 18 tool retrieval, 182 LOC), 7e (stages 22-34 temporal/widgets/prompt/tracers). |
+| context_assembly.py | `assemble_context()` | ~~1400~~ ~~990~~ ~~1490~~ ~~1341~~ ~~1211~~ ~~898~~ ~~740~~ ~~654~~ ~~498~~ ~~441~~ **357** (file: ~~2730~~ ~~2857~~ ~~2963~~ ~~3013~~ ~~3047~~ ~~3083~~ ~~3122~~ ~~3167~~ **3220**) | **✅ CLUSTER 7 COMPLETE.** 16 in-file helpers extracted across 7a-7e-d covering all 33 pipeline stages. Cumulative 1490 → 357 LOC (**-76%**). Final sub-cluster 7e-d shipped Stages 30-33 finalization traces helper (105 LOC → 20 LOC caller). `assemble_context` is now a readable top-to-bottom driver: each `# --- stage ---` divider marks a helper call, and stages that aren't yet helpers (channel workspace, conversation sections, RAG, bot KB, plan artifact, memory scheme) already had their own inline helpers pre-Cluster 7. |
 | loop.py | `run_agent_tool_loop()` | ~~960~~ ~~1030~~ ~~809~~ **591** (file: ~~**1684**~~ ~~1358~~ **1136**) | Clusters 6a+6b shipped. 929 → 591 LOC (-36%). Remaining 591 LOC is cohesive per-iteration orchestration (cancellation checks, LLM streaming, dispatch, image injection, skill-nudge, cycle detection) — further reduction needs cross-iteration state objects, not more extractions. |
 | file_sync.py | `sync_all_files()` | ~518 | 5 resource types × collect-upsert-orphan-delete |
 | tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
@@ -536,7 +536,17 @@ Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clu
 - **Cluster 5 — tool_dispatch deepening — ✅ shipped 2026-04-24.** See RFC below.
 - **Cluster 6a — `run_agent_tool_loop` setup/recovery helpers — ✅ shipped 2026-04-24.** Five extractions (`_resolve_loop_config`, `_resolve_loop_tools`, `_inject_opening_skill_nudges`, `_merge_activated_tools_into_param`, `_recover_tool_calls_from_text`) into `loop_helpers.py`. 929 → 809 LOC on the orchestrator (~13%). Same-file size net-zero (helpers moved from one file to its sibling). Behavior-preserving: 87 pass / 12 fail matches baseline exactly. Dependency-injection pattern on schema-fetch callables preserves test-time patchability on `app.agent.loop.*`. See RFC below.
 - **Cluster 6b — `run_agent_tool_loop` fat-block extractions — ✅ shipped 2026-04-24.** Three extractions into `loop_helpers.py`: `_check_prompt_budget_guard` (sync, returns `PromptBudgetGate(events, should_return, wait_seconds)` dataclass — context-window hard block + TPM rate-limit wait), `_handle_no_tool_calls_path` (async generator — empty-response retry + `_finalize_response`), `_handle_loop_exit_forced_response` (async generator with mutable `out_state` dict — cycle/max-iter forced LLM call + `_finalize_response`, signals `out_state["terminated"]=True` on LLM failure so caller skips tool-enrollment flush and exits the outer generator, preserving the original `return` semantics). 809 → 591 LOC on the orchestrator (-218 LOC, 27%). Combined Cluster 6a+6b: 929 → 591 LOC (-36%). Behavior-preserving: 87 pass / 12 fail matches baseline exactly; neighbor sweep 63 passed + 4 pre-existing fails unchanged. `_llm_call` injected as `llm_call_fn` kwarg (Cluster 5/6a DI pattern) so test patches on `app.agent.loop._llm_call` still intercept. See RFC below.
-- **Cluster 7 — `assemble_context` (1490 LOC) in `context_assembly.py`.** In progress. Cluster 7a ✅ shipped 2026-04-24 (5 setup-stage helpers, 1490 → 1341 LOC). Remaining sub-clusters: 7b (tag/multi-bot), 7c (Stage 9 skills 346 LOC), 7d (Stage 18 tool retrieval 182 LOC), 7e (Stages 22-34 tail).
+- **Cluster 7 — `assemble_context` (1490 LOC) in `context_assembly.py` — ✅ COMPLETE 2026-04-24.** Eight sub-clusters shipped same day covering all 33 pipeline stages:
+  - 7a ✅ (5 setup-stage helpers, 1490 → 1341 LOC)
+  - 7b ✅ (4 discovery-stage helpers, 1341 → 1211 LOC)
+  - 7c ✅ (Stage 9 skills helper, 1211 → 898 LOC)
+  - 7d ✅ (Stage 18 tool-retrieval helper, 898 → 740 LOC — cumulative -50%)
+  - 7e-a ✅ (Stages 19+20+21 tool-exposure finalization helper, 740 → 654 LOC)
+  - 7e-b ✅ (Stages 22+23+24 + context_profile_note late cache-safe injections helper, 654 → 498 LOC — under 500)
+  - 7e-c ✅ (Stages 25-29 message assembly helper, 498 → 441 LOC)
+  - 7e-d ✅ (Stages 30-33 finalization traces helper, 441 → 357 LOC — **cumulative -76%**)
+  
+  Same-day baseline exact-match across 8 cluster runs (11 failed, 71 passed, 1 skipped in focused suite). Zero regressions. `assemble_context` is now a readable top-to-bottom driver where each `# --- stage ---` divider marks a helper call.
 - **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — touches cross-module pin semantics; deserves its own focused cluster.
 - **Terminal chat mode as CSS archetype** — currently a render-code fork (`chatMode` prop); works. Punt until a third archetype appears.
 - **LIGHT color-drift fix** — the 6 allowlisted keys (`text-dim`, `success`, `warning`, `danger`, `purple`, `danger-muted`) are a real design call between Tailwind-default shades and darker designer-chosen shades. Out of scope for a refactor; in scope for the next UI polish pass.
@@ -727,9 +737,387 @@ LOC delta: `assemble_context` 1490 → 1341 (-149 LOC, ~10%). `context_assembly.
 - No `_AssemblyCtx` dataclass refactor (see rationale above).
 
 **Out of scope (parked for future sub-clusters):**
-- **Cluster 7b** — Stages 7 (@mention tag resolution, 65 LOC) + 8 (execution_config ephemeral skills, 18 LOC) + 11 (multi-bot channel awareness, 70 LOC) + 12 (delegate bot index, 25 LOC). These four share the `_tagged_*` / `_member_*` locals and are cleanest to extract together.
+- **Cluster 7b** — ✅ shipped 2026-04-24 (see RFC below).
 - **Cluster 7c** — Stage 9 (skills working set + discovery + ranking, 346 LOC). Self-contained but large; has three internal closures (`_fmt_skill_line`, `_skill_category`, `_render_grouped_skill_lines`) that need to travel with the extraction. Dedicated session.
 - **Cluster 7d** — Stage 18 (tool retrieval + policy gate, 182 LOC). Reads `_ch_row` + complex filtering logic; too much surface for a mixed cluster.
 - **Cluster 7e** — Stages 22-34 (temporal framing, pinned widgets, refusal guard, channel prompt, preamble, user message, budget finalize, tracer emits). Homogeneous tail — all mutate `messages` + `result` + yield trace events. Batched after the fat blocks land.
 - **`_AssemblyCtx` dataclass consolidation** — deferred until all stages are extracted.
 - **4 `except Exception: pass` sites** in this file — separate quality sweep.
+
+### RFC — Cluster 7b — assemble_context discovery-stage extractions (2026-04-24)
+
+**Target**: four discovery-phase stages in `assemble_context` (`app/agent/context_assembly.py`) that share the `_tagged_*` / `_member_*` locals read by Stages 9 (skills), 12 (delegate index), and 18 (tool retrieval): Stage 7 (@mention tag resolution, ~65 LOC), Stage 8 (execution_config ephemeral skills, ~18 LOC), Stage 11 (multi-bot channel awareness, ~70 LOC), Stage 12 (delegate bot index, ~25 LOC). Post-7a starting point: `assemble_context` at 1341 LOC.
+
+**Diagnosis**: the four stages collaborate through four shared locals (`_tagged_skill_names`, `_tagged_tool_names`, `_tagged_bot_names`, `_member_bot_ids`) that are consumed again at Stage 9 (`_tagged_skill_names | _untagged_ephemeral`), Stage 12 (`_tagged_bot_names + _member_bot_ids`), and Stage 18 (`_tagged_tool_names` in `_effective_pinned`). Extracting them as a batch is cleaner than one-at-a-time because the out_state dicts chain naturally and the dependency graph stays obvious to a top-to-bottom reader of the caller.
+
+**Refactor**: four new module-level helpers in a `# ===== Cluster 7b discovery-stage extractions =====` header block positioned after the 7a block (just before `_inject_plan_artifact`):
+
+1. `_resolve_tagged_mentions(*, messages, bot, user_message, client_id, session_id, correlation_id, result, out_state) -> AsyncGenerator[dict, None]` — async generator; calls `resolve_tags`, partitions by `tag_type`, mutates `result.tagged_tool_names` / `result.tagged_bot_names`, calls `set_ephemeral_delegates` / `set_ephemeral_skills` context-var setters, appends the "Tagged skill context" system message via `_build_tagged_skill_hint_lines`, yields `tagged_context` event + fires `_record_trace_event` task. Writes `tagged`, `tagged_skill_names`, `tagged_tool_names`, `tagged_bot_names` to out_state.
+2. `_apply_ephemeral_skills(*, messages, bot, tagged_skill_names, out_state) -> None` — plain async (no yields). Reads `current_ephemeral_skills` ctxvar, filters against tagged set and `bot.skills`, calls module-level `fetch_skill_chunks_by_id` (patch-friendly), appends "Webhook skill context" system message. Writes `untagged_ephemeral` to out_state for Stage 9.
+3. `_inject_multi_bot_awareness(*, messages, bot, channel_id, ch_row, system_preamble, out_state) -> AsyncGenerator[dict, None]` — DB load of `ChannelBotMember` via lazy sqlalchemy + db-models imports, builds participant lines with primary/member labels + self marker + config suffix, appends awareness system message with branching on `system_preamble` truthiness, yields `multi_bot_awareness`. Writes `member_bot_ids` / `member_configs` to out_state.
+4. `_inject_delegate_index(*, messages, bot, tagged_bot_names, member_bot_ids) -> dict | None` — sync. Dedupes `bot.delegate_bots + tagged_bot_names + member_bot_ids`, lazy-imports `get_bot`, builds "Available delegates for delegate_to_agent" lines, appends system message. Returns `delegate_index` event or None for caller to yield.
+
+Post-refactor caller shape:
+```python
+# --- @mention tag resolution ---
+_tag_state: dict = {}
+async for _evt in _resolve_tagged_mentions(
+    messages=messages, bot=bot, user_message=user_message,
+    client_id=client_id, session_id=session_id,
+    correlation_id=correlation_id, result=result, out_state=_tag_state,
+):
+    yield _evt
+_tagged = _tag_state.get("tagged", [])
+_tagged_skill_names: list[str] = _tag_state.get("tagged_skill_names", [])
+_tagged_tool_names: list[str] = _tag_state.get("tagged_tool_names", [])
+_tagged_bot_names: list[str] = _tag_state.get("tagged_bot_names", [])
+
+# --- execution_config ephemeral skills ---
+_eph_state: dict = {}
+await _apply_ephemeral_skills(
+    messages=messages, bot=bot,
+    tagged_skill_names=_tagged_skill_names, out_state=_eph_state,
+)
+_untagged_ephemeral: list[str] = _eph_state.get("untagged_ephemeral", [])
+
+# (Stage 9 skills stays inline, pending Cluster 7c)
+# (Stage 10 api access tools already extracted in 7a)
+
+# --- multi-bot channel awareness ---
+_mb_state: dict = {}
+async for _evt in _inject_multi_bot_awareness(
+    messages=messages, bot=bot, channel_id=channel_id,
+    ch_row=_ch_row, system_preamble=system_preamble, out_state=_mb_state,
+):
+    yield _evt
+_member_bot_ids: list[str] = _mb_state.get("member_bot_ids", [])
+_member_configs: dict[str, dict] = _mb_state.get("member_configs", {})
+
+# --- delegate bot index ---
+_delegate_event = _inject_delegate_index(
+    messages=messages, bot=bot,
+    tagged_bot_names=_tagged_bot_names, member_bot_ids=_member_bot_ids,
+)
+if _delegate_event:
+    yield _delegate_event
+```
+
+LOC delta: `assemble_context` **1341 → 1211** (-130, ~10%). File **2857 → 2963** (+106 net — helpers added ~236 LOC, inline regions removed ~178 LOC). Combined 7a+7b: assemble_context 1490 → 1211 LOC (-19%).
+
+**Why in-file**: same rationale as 7a. Tests patch `app.agent.context_assembly.fetch_skill_chunks_by_id`, `_all_tool_schemas_by_name`, etc. at module level; moving the helpers would require rewriting every test's patch path.
+
+**Why `out_state: dict` again**: async generators can't `return value` — `return` only exits the generator. Any helper that yields events _and_ needs to pass back state uses the out_state pattern. Four helpers' worth of chained out_states in the caller stays readable because the dict names are topic-scoped (`_tag_state`, `_eph_state`, `_mb_state`).
+
+**Why sync `_inject_delegate_index`**: no awaits inside the underlying Stage 12 body (all sync dict/list work + sync `get_bot` lookup). Making it an async generator would add ceremony with no benefit.
+
+**Verification**:
+- Focused 9-file suite (same as 7a baseline): pre-extraction **11 failed, 71 passed, 1 skipped**; post-extraction **11 failed, 71 passed, 1 skipped** — exact match.
+- Neighbor sweep `pytest tests/unit -k "context_assembly or assembly_budget or memory_injection or kb_auto or context_profile or channel_workspace"`: **11 failed, 131 passed, 7306 deselected**. Same 11 pre-existing fails, zero new regressions.
+
+**Gotchas**:
+- Dropped one no-op local (`_seen_delegate_ids: set[str]`) that was set but never read — confirmed unused via grep; behaviorally equivalent removal.
+- `current_ephemeral_skills` is imported twice inline in the original (once in Stage 7 inside `if _tagged_skill_names:`, once at the top of Stage 8). Both got inlined into the respective helpers — no observable change.
+- `_record_trace_event` task is preserved with `asyncio.create_task` fire-and-forget pattern exactly.
+
+**Non-goals (explicit):**
+- No signature changes to `assemble_context`.
+- No test changes.
+- No behaviour changes in event ordering, ctxvar side effects, or message append order.
+
+**Out of scope (parked for future sub-clusters):**
+- **Cluster 7c** — ✅ shipped 2026-04-24 (see RFC below).
+- **Cluster 7d** — Stage 18 (tool retrieval + policy gate, 182 LOC).
+- **Cluster 7e** — Stages 22-34 tail.
+
+### RFC — Cluster 7c — assemble_context Stage 9 skills extraction (2026-04-24)
+
+**Target**: Stage 9 (Phase-3 skill working set + semantic discovery + ranking + auto-inject) in `assemble_context` — the largest single stage at 346 LOC, with three internal closures (`_fmt_skill_line`, `_skill_category`, `_render_grouped_skill_lines`). Post-7b starting point: `assemble_context` at 1211 LOC.
+
+**Diagnosis**: Stage 9 composes three independently-gated sub-layers — working-set metadata load + ranking, auto-inject into conversation history, and semantic discovery over unenrolled catalog skills — plus a `skill_index` trace yield at the end. The three internal closures are pure functions + reference-only use of `_resident_skill_ids`, so they travel cleanly into the helper as nested functions. Eight locals flow to the downstream active-skills snapshot trace (`_enrolled_rows`, `_suggestion_rows`, `_enrolled_ids`, `_ranked_relevant`, `_auto_injected`, `_auto_injected_similarities`, `_history_fetched_skills`, `_history_skill_records`), surfaced via out_state. One local — `_tool_discovery_info: {"tool_retrieval_enabled": False}` — was just a default init consumed by Stage 18, hoisted to the caller rather than passed through.
+
+**Refactor**: one new module-level helper in a `# ===== Cluster 7c skills-stage extraction =====` block positioned after the 7b block (just before `_inject_plan_artifact`):
+
+`_inject_skill_working_set(*, messages, bot, user_message, correlation_id, session_id, client_id, skip_skill_inject, tagged_skill_names, untagged_ephemeral, source_map, budget_can_afford, budget_consume, result, out_state) -> AsyncGenerator[dict, None]`
+
+The helper walks the full Stage 9 flow: reverse-walks `messages` to identify `get_skill()` history residents + builds `_history_skill_records`, loads `Skill` rows for `bot.skills`, runs `rank_enrolled_skills` against last-3-turn query context, renders the working-set lines via `_render_grouped_skill_lines` (category-grouped when >=5 rows + >=2 categories, otherwise flat), appends the working-set system message with relevance-aware headers, runs the auto-inject loop gated by `skip_skill_inject`, `SKILL_ENROLLED_AUTO_INJECT_MAX`, `SKILL_ENROLLED_AUTO_INJECT_THRESHOLD`, `_INJECT_ELIGIBLE_SOURCES`, and `budget_can_afford`, yields per-skill `auto_inject` events, runs the discovery layer against unenrolled catalog rows, appends the discovery system message, and finally yields the `skill_index` trace with the full `_skill_trace_data` payload + fires `_record_trace_event`.
+
+Post-refactor caller shape:
+```python
+# --- skills (Phase 3 working set + semantic discovery layer + ranking) ---
+_tool_discovery_info: dict[str, Any] = {"tool_retrieval_enabled": False}
+_ws_state: dict = {}
+async for _evt in _inject_skill_working_set(
+    messages=messages, bot=bot, user_message=user_message,
+    correlation_id=correlation_id, session_id=session_id, client_id=client_id,
+    skip_skill_inject=skip_skill_inject,
+    tagged_skill_names=_tagged_skill_names,
+    untagged_ephemeral=_untagged_ephemeral,
+    source_map=_source_map,
+    budget_can_afford=_budget_can_afford,
+    budget_consume=_budget_consume,
+    result=result,
+    out_state=_ws_state,
+):
+    yield _evt
+_enrolled_rows = _ws_state.get("enrolled_rows", [])
+_suggestion_rows = _ws_state.get("suggestion_rows", [])
+_enrolled_ids: list[str] = _ws_state.get("enrolled_ids", [])
+_ranked_relevant: list[str] = _ws_state.get("ranked_relevant", [])
+_auto_injected: list[str] = _ws_state.get("auto_injected", [])
+_auto_injected_similarities: dict[str, float] = _ws_state.get("auto_injected_similarities", {})
+_history_fetched_skills: set[str] = _ws_state.get("history_fetched_skills", set())
+_history_skill_records: dict[str, dict[str, Any]] = _ws_state.get("history_skill_records", {})
+```
+
+LOC delta: `assemble_context` **1211 → 898** (-313, ~26%). File **2963 → 3013** (+50 net — helper added ~350 LOC, inline region removed ~346 LOC, ~35 LOC caller added, ~12 LOC default-value hoists). Combined 7a+7b+7c: assemble_context 1490 → 898 LOC (-40%).
+
+**Why inner closures over module-level**: `_fmt_skill_line`, `_skill_category`, `_render_grouped_skill_lines` are only called from this helper and `_render_grouped_skill_lines` composes the other two. Module-level hoisting would add three more exported names to an already-long module for zero cross-helper reuse. Inner closures match the original structure.
+
+**Why hoist `_tool_discovery_info`**: it was a default init (Stage 18 unconditionally overwrites it on the tool-retrieval path, and the final active-skills-snapshot trace reads it). Keeping the default in the caller avoids threading an unused key through `_ws_state` just to pass through.
+
+**Verification**:
+- Focused 9-file suite: pre-extraction (post-7b) **11 failed, 71 passed, 1 skipped**; post-extraction **11 failed, 71 passed, 1 skipped** — exact match.
+- Neighbor sweep: **11 failed, 131 passed, 7306 deselected**. Same 11 pre-existing fails, zero new regressions.
+
+**Gotchas**:
+- Helper uses a bare `return` to exit the async generator when `bot.id` is falsy — valid Python for async generators (equivalent to `raise StopAsyncIteration`); preserves the original `if bot.id:` gate.
+- `_fetch_skill_chunks`, `_rank_enrolled_skills`, `_retrieve_skill_index` are lazy-imported inside the helper from `app.agent.rag` (three-way import via aliases, matches original). `_increment_auto_inject_count` is also lazy-imported inside the per-skill auto-inject loop.
+- `_ranking: list[dict] = []` initialized early in helper so both the "no ranking" path and the trace-data path can read it uniformly.
+
+**Non-goals (explicit):**
+- No module-level hoisting of the three formatting closures.
+- No test changes.
+- No change to auto-inject ordering, budget cutoff semantics, or trace event shape.
+
+**Out of scope (remaining sub-clusters):**
+- **Cluster 7d** — ✅ shipped 2026-04-24 (see RFC below).
+- **Cluster 7e** — Stages 22-34 tail (temporal, widgets, refusal guard, prompt, preamble, user message, budget finalize, tracers).
+
+### RFC — Cluster 7d — assemble_context Stage 18 tool-retrieval extraction (2026-04-24)
+
+**Target**: Stage 18 (tool RAG + policy gate + pinned/retrieved merge + compact unretrieved-tool index + discovery trace) in `assemble_context` — 182 LOC, the second-largest remaining stage after 7c. Post-7c starting point: `assemble_context` at 898 LOC.
+
+**Diagnosis**: Stage 18 composes four internal phases — enrolled-tool load + `by_name` pool construction (with auto-inject of `get_tool_info` / `search_tools` / `list_tool_signatures` / `run_script` / `get_skill` / `get_skill_list` when gates apply), semantic retrieval via `retrieve_tools`, channel-disabled + `TOOL_POLICY_ENABLED` deny-filter, effective-pinned ordering + `_merge_tool_schemas`, and unretrieved-tool index injection gated by `context_profile.allow_tool_index` + budget. All four phases compose through `by_name` and the discovered/retrieved sets; none depend on state outside the stage except the three outputs `pre_selected_tools` / `_authorized_names` / `_tool_discovery_info`. Gate `bot.tool_retrieval` stays in the caller so the helper is only invoked on the active path.
+
+**Refactor**: one new module-level helper in a `# ===== Cluster 7d tool-retrieval extraction =====` block positioned after the 7c block:
+
+`_run_tool_retrieval(*, messages, bot, user_message, ch_row, tagged_tool_names, correlation_id, session_id, client_id, context_profile, inject_decisions, budget_can_afford, budget_consume, out_state) -> AsyncGenerator[dict, None]`
+
+Writes `pre_selected_tools`, `authorized_names`, `tool_discovery_info` to out_state. The `bot.tool_retrieval` branch stays in the caller; entering the helper implies retrieval is on.
+
+Post-refactor caller shape:
+```python
+# --- tool retrieval (tool RAG) ---
+pre_selected_tools: list[dict[str, Any]] | None = None
+_authorized_names: set[str] | None = None
+if bot.tool_retrieval:
+    _tr_state: dict = {}
+    async for _evt in _run_tool_retrieval(
+        messages=messages, bot=bot, user_message=user_message,
+        ch_row=_ch_row, tagged_tool_names=_tagged_tool_names,
+        correlation_id=correlation_id, session_id=session_id, client_id=client_id,
+        context_profile=context_profile, inject_decisions=_inject_decisions,
+        budget_can_afford=_budget_can_afford, budget_consume=_budget_consume,
+        out_state=_tr_state,
+    ):
+        yield _evt
+    pre_selected_tools = _tr_state.get("pre_selected_tools")
+    _authorized_names = _tr_state.get("authorized_names")
+    _tool_discovery_info = _tr_state.get("tool_discovery_info", _tool_discovery_info)
+```
+
+LOC delta: `assemble_context` **898 → 740** (-158, ~18%). File **3013 → 3047** (+34 net — helper added ~182 LOC, inline region removed ~182 LOC, ~24 LOC caller added + gate preserved). Combined 7a+7b+7c+7d: assemble_context **1490 → 740 LOC (-50%)**.
+
+**Why caller keeps the gate**: `bot.tool_retrieval` is a cheap bool check. Pushing it inside would mean the helper is always called and always constructs `_tr_state` / default out_state values, which adds call overhead on the non-retrieval path without simplifying the caller — all three output locals still need their pre-gate declarations (`pre_selected_tools: list[...] | None = None`, `_authorized_names: ... | None = None`) because downstream code reads them regardless. Keeping the gate saves the function call and preserves the original structure.
+
+**Why `_tool_discovery_info` read uses `_tr_state.get(..., _tool_discovery_info)` fallback**: the helper only writes `tool_discovery_info` when `by_name` is non-empty. When `by_name` is empty the caller should keep the default init (`{"tool_retrieval_enabled": False}`) hoisted from the 7c caller block. Passing the existing value as the `.get` default is the idiomatic "keep it unless the helper provided one" pattern.
+
+**Verification**:
+- Focused 9-file suite: pre-extraction (post-7c) **11 failed, 71 passed, 1 skipped**; post-extraction **11 failed, 71 passed, 1 skipped** — exact match.
+- Neighbor sweep (excluding 6 pre-existing collection errors in `test_slack_renderer.py` / `test_discord_renderer.py` / `test_bluebubbles_renderer.py` / `test_core_renderers.py` / `test_slack_ephemeral.py` / `test_slack_tool_output_display.py` — all caused by uncommitted work in `integrations/tool_output.py` from another session, unrelated to this extraction): **11 failed, 131 passed, 7191 deselected**. Zero new regressions.
+
+**Gotchas**:
+- Stage 18's side-effect on `_authorized_names` (adding discovered tool names post-policy-filter at the "Add discovered tool names to authorized set" block) must happen AFTER the policy gate — extraction preserves that order exactly.
+- `TOOL_POLICY_ENABLED` policy call uses `_authorized_names` to distinguish "declared" tools (already in `by_name`) from "discovered" tools — only discovered tools go through `evaluate_tool_policy`. This preserves the original semantic: declared tools bypass the deny gate.
+- Capability-gate drop of non-exposable tools (line 2281+82 of the outer function, still in caller) remains downstream of the helper — it mutates `_authorized_names` and filters `pre_selected_tools` after the helper returns.
+
+**Non-goals (explicit):**
+- No policy-gate semantics changes.
+- No test changes.
+- No merge ordering change in `_merge_tool_schemas`.
+
+**Out of scope (remaining sub-cluster):**
+- **Cluster 7e** — Stages 22-34 tail (temporal framing, pinned widgets, refusal guard, channel prompt, preamble, user message, budget finalize, tracer emits). Homogeneous tail — all mutate `messages` + `result` + yield trace events.
+
+---
+
+### RFC — Cluster 7e-a — assemble_context tool-exposure finalization extraction (2026-04-24)
+
+**Scope:** Extracted Stages 19 (merge dynamically injected tools), 20 (widget-handler tools), and 21 (capability-gated tool exposure) as a single in-file helper. All three stages read/mutate the same two locals (`pre_selected_tools`, `_authorized_names`), so they factor into one helper cleanly.
+
+**Result:**
+- `assemble_context` 740 → 654 LOC (-86, ~12%).
+- File 3047 → 3083 (+36 net).
+- **Cumulative 7a+7b+7c+7d+7e-a: 1490 → 654 LOC (-56%).**
+- Focused 9-file suite: **11 failed, 71 passed, 1 skipped** (exact baseline match).
+- Neighbor sweep (`context_assembly or assembly_budget or memory_injection or kb_auto or context_profile or channel_workspace`): **11 failed, 131 passed, 7202 deselected** — zero new regressions. Pre-existing renderer-test collection errors ignored (same 6 files as 7d; not caused by this extraction).
+
+**Helper added:**
+
+`_finalize_exposed_tools(*, bot, channel_id, ch_row, pre_selected_tools, authorized_names, out_state) -> None`
+
+Plain async (no yields). Writes final `pre_selected_tools` and `authorized_names` to out_state. Lives under `# ===== Cluster 7e-a tool-exposure finalization =====` header, positioned after `_run_tool_retrieval` (7d) and before `_inject_plan_artifact`.
+
+**Caller block (13 LOC replaces ~100 LOC inline):**
+
+```python
+# --- tool-exposure finalization (dynamic injection + widget-handler tools + capability gate) ---
+_ft_state: dict = {}
+await _finalize_exposed_tools(
+    bot=bot,
+    channel_id=channel_id,
+    ch_row=_ch_row,
+    pre_selected_tools=pre_selected_tools,
+    authorized_names=_authorized_names,
+    out_state=_ft_state,
+)
+pre_selected_tools = _ft_state.get("pre_selected_tools", pre_selected_tools)
+_authorized_names = _ft_state.get("authorized_names", _authorized_names)
+
+result.pre_selected_tools = pre_selected_tools
+result.authorized_tool_names = _authorized_names
+result.effective_local_tools = list(bot.local_tools)
+```
+
+**Design choices worth remembering:**
+
+- **Plain async, not async generator**. Stages 19/20/21 have no yields. Avoided the generator-return-via-out_state pattern where a simple async function suffices.
+- **Three stages as one helper**. The alternative — three tiny helpers — would have required passing `pre_selected_tools`/`authorized_names` in and out of each and chaining them explicitly in the caller. Since all three stages share the same two mutable locals and form one conceptual phase ("finalize the exposed tool set"), merging was clearer.
+- **`out_state.get(key, default)` fallback**. Helper writes to out_state unconditionally at the end, so defaults aren't strictly needed, but `.get(..., pre_selected_tools)` preserves the pattern used by 7c/7d and keeps the caller defensive.
+- **`result.*` assignments stay in caller**. The three `result.pre_selected_tools = ...` / `result.authorized_tool_names = ...` / `result.effective_local_tools = ...` lines remain in the caller — they're the visible "commit" of the finalization phase and read as the natural closing of the section.
+
+**Non-goals (explicit):**
+- No policy-gate changes, no widget-handler contract changes, no capability-gate semantics changes.
+
+**Out of scope (remaining sub-clusters):**
+- **7e-b** — Stages 22 (temporal/conversation-gap framing), 23 (pinned widget state), 24 (tool refusal guard). ~169 LOC.
+- **7e-c** — Stages 25-29 (channel prompt, system preamble, current-turn marker, system_prompt reinforcement, user message). ~76 LOC.
+- **7e-d** — Stages 30-33 (budget finalize, injection summary trace, active-skills snapshot, discovery summary trace). ~115 LOC.
+
+---
+
+### RFC — Cluster 7e-b — assemble_context late cache-safe injections extraction (2026-04-24)
+
+**Scope:** Extracted Stages 22 (datetime + conversation-gap framing), 23 (pinned widget state), 24 (tool refusal guard), and the trailing context-profile note as a single in-file helper. All four share the "cache-safety band" — inject AFTER tool surface is finalized, BEFORE channel prompt / preamble / user message — and all mutate the same three trackers (`messages`, `inject_chars`, `inject_decisions`).
+
+**Result:**
+- `assemble_context` 654 → 498 LOC (-156, ~24%).
+- File 3083 → 3122 (+39 net).
+- **Cumulative 7a+7b+7c+7d+7e-a+7e-b: 1490 → 498 LOC (-67%, UNDER 500).**
+- Focused 9-file suite: **11 failed, 71 passed, 1 skipped** (exact baseline match).
+- Neighbor sweep: **11 failed, 131 passed, 7202 deselected** — zero new regressions.
+
+**Helper added:**
+
+`_inject_late_cache_safe_context(*, messages, bot, channel_id, ch_row, session_id, authorized_names, context_profile, inject_chars, inject_decisions, budget_can_afford, budget_consume) -> None`
+
+Plain async (no yields, no out_state). Mutates `messages`/`inject_chars`/`inject_decisions` in place via references. Under `# ===== Cluster 7e-b late cache-safe injections =====` header, positioned after `_finalize_exposed_tools` (7e-a) and before `_inject_plan_artifact`.
+
+**Caller block (14 LOC replaces 170 LOC inline):**
+
+```python
+# --- late cache-safe injections (temporal + pinned widgets + refusal guard + profile note) ---
+await _inject_late_cache_safe_context(
+    messages=messages,
+    bot=bot,
+    channel_id=channel_id,
+    ch_row=_ch_row,
+    session_id=session_id,
+    authorized_names=_authorized_names,
+    context_profile=context_profile,
+    inject_chars=_inject_chars,
+    inject_decisions=_inject_decisions,
+    budget_can_afford=_budget_can_afford,
+    budget_consume=_budget_consume,
+)
+```
+
+**Design choices worth remembering:**
+
+- **Include `context_profile_note` in the same helper**. The note summarizes decisions from Stages 22-24 into a system-message and follows the same budget/decision pattern. Extracting it separately would force the caller to read `_inject_decisions` after the helper just to pass it back in — pointless roundtrip.
+- **No out_state needed**. All mutations (`messages.append`, `inject_chars[key] = ...`, `_mark_injection_decision(inject_decisions, ...)`) go through mutable references. Plain async with no return value keeps the caller a single `await helper(...)` line.
+- **`logger` stays module-level**. Four `logger.debug`/`logger.info` calls in the helper resolve to the module-level `logger` — matches precedent from all prior 7* helpers.
+- **`_mark_injection_decision` stays module-level**. Called 12 times inside the helper; promoting it to a kwarg would be churn for zero payoff — it's a stable module-level utility.
+- **Nested imports preserved**. Each stage's `from X import Y` stays inline (temporal_context, widget_context, tool_refusal_guard) — matches existing pattern of deferring expensive imports to the branch that uses them.
+
+**Non-goals (explicit):**
+- No changes to temporal framing semantics (ScanMessage, TemporalBlockInputs, build_current_time_block).
+- No changes to pinned-widget snapshot structure.
+- No changes to tool-refusal-guard scanning logic.
+- No changes to context_profile_note rendering.
+
+**Out of scope (remaining sub-clusters):**
+- **7e-c** — Stages 25-29 (channel prompt, system preamble, current-turn marker, system_prompt reinforcement, user message). ~76 LOC.
+- **7e-d** — Stages 30-33 (budget finalize, injection summary trace, active-skills snapshot, discovery summary trace). ~115 LOC.
+
+---
+
+### RFC — Cluster 7e-c — assemble_context message assembly extraction (2026-04-24)
+
+**Scope:** Extracted Stages 25-29 (channel prompt, system preamble, current-turn marker, bot system_prompt reinforcement, user message text/audio) as a single in-file helper. These five stages are the final message-append phase — all mutate `messages` + `inject_chars`, and the last writes `result.user_msg_index`.
+
+**Result:**
+- `assemble_context` 498 → 441 LOC (-57, ~11%).
+- File 3122 → 3167 (+45 net).
+- **Cumulative 7a+7b+7c+7d+7e-a+7e-b+7e-c: 1490 → 441 LOC (-70%).**
+- Focused 9-file suite: **11 failed, 71 passed, 1 skipped** (exact baseline match).
+- Neighbor sweep: **11 failed, 131 passed, 7202 deselected** — zero new regressions.
+
+**Helper added:**
+
+`_append_prompt_and_user_message(*, messages, bot, channel_id, ch_row, user_message, attachments, audio_data, audio_format, native_audio, system_preamble, task_mode, inject_chars, budget_consume, result) -> None`
+
+Plain async. 13-kwarg signature is noisier than prior helpers because this phase ingests almost every user-turn input (text, attachments, audio, preamble, task_mode) — but that's the natural shape, not accidental coupling.
+
+**Non-goals (explicit):**
+- No changes to `resolve_workspace_file_prompt`, `sanitize_unicode`, `_build_audio_user_message`, `_build_user_message_content`.
+- No changes to the turn-marker wording or the REINFORCE_SYSTEM_PROMPT gate.
+- `user_msg_index` continues to be set exactly once (either audio branch or text branch).
+
+**Out of scope (remaining sub-cluster):**
+- **7e-d** — Stages 30-33 (budget finalize, injection summary trace, active-skills snapshot, discovery summary trace). ~115 LOC. Tracer tail.
+
+---
+
+### RFC — Cluster 7e-d — assemble_context finalization traces extraction (2026-04-24) — CLUSTER 7 COMPLETE
+
+**Scope:** Extracted Stages 30-33 (store budget utilization, injection summary trace, active-skills snapshot, discovery summary trace) as the final in-file helper. This closes Cluster 7.
+
+**Result:**
+- `assemble_context` 441 → 357 LOC (-84, ~19%).
+- File 3167 → 3220 (+53 net).
+- **Cumulative 7a+7b+7c+7d+7e-a+7e-b+7e-c+7e-d: 1490 → 357 LOC (-76%).**
+- Focused 9-file suite: **11 failed, 71 passed, 1 skipped** (exact baseline match).
+- Neighbor sweep: **11 failed, 131 passed, 7202 deselected** — zero new regressions.
+
+**Helper added:**
+
+`_emit_finalization_traces(*, bot, correlation_id, session_id, client_id, context_profile, budget, inject_chars, inject_decisions, enrolled_rows, enrolled_ids, ranked_relevant, auto_injected, auto_injected_similarities, suggestion_rows, history_fetched_skills, history_skill_records, tool_discovery_info, result) -> None`
+
+Plain async. 18-kwarg signature — wide because the discovery_summary trace aggregates skill data from 7c (`enrolled_rows`, `enrolled_ids`, `ranked_relevant`, `auto_injected`, `auto_injected_similarities`, `suggestion_rows`, `history_fetched_skills`, `history_skill_records`) and tool data from 7d (`tool_discovery_info`). That's not coupling — that's the natural shape of a "summary emit" helper that reads everything discovery produced.
+
+**Design choices worth remembering:**
+
+- **Two `asyncio.create_task(_record_trace_event(...))` fire-and-forget emits**. Preserved exactly — no await, no error handling added. The original behavior was "emit and move on"; helper extraction didn't change it.
+- **Active-skills snapshot stays in the same helper**. Logical grouping: the summary traces and the skills-in-context ctxvar update all happen at "end of assembly." Splitting would mean the caller has to hold `enrolled_rows` + `history_skill_records` twice — once for the snapshot helper and once for the discovery summary helper.
+- **`current_skills_in_context.set(list(...))` stays inside**. Ctxvar mutation is atomic with the `result.skills_in_context.append()` that populates it.
+
+**Cluster 7 retrospective:**
+
+Same-day execution across 8 sub-clusters (7a, 7b, 7c, 7d, 7e-a, 7e-b, 7e-c, 7e-d) — all behavior-preserving with exact baseline match every time. 16 new helpers added to the module, no signature changes to `assemble_context` or `AssemblyResult`. The caller is now a linear driver where each stage-divider comment marks a helper call; readers can scan top-to-bottom to see the 33-stage pipeline without getting lost in stage internals.
+
+**Non-goals (explicit):**
+- No `_AssemblyCtx` dataclass refactor — per 7a plan, left as potential follow-up.
+- No consolidation of out_state dicts across helpers — each helper's state scope is deliberately topic-scoped (`_ch_state`, `_skill_state`, `_ws_state`, `_tr_state`, `_ft_state`).
+- No re-ordering of stages — every helper was extracted in-place.
+- No test changes — baseline identity preserved across all 8 sub-clusters.

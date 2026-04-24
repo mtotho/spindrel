@@ -1,8 +1,10 @@
+import { ChannelFilesWidget } from "./ChannelFilesWidget";
 import type { ReactNode } from "react";
 import { ContextTrackerWidget } from "./ContextTrackerWidget";
 import { MachineControlWidget } from "./MachineControlWidget";
 import { NotesWidget } from "./NotesWidget";
 import { PlanQuestionsWidget } from "./PlanQuestionsWidget";
+import { PinnedFilesWidget } from "./PinnedFilesWidget";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
 import { StandingOrderWidget } from "./StandingOrderWidget";
 import { TodoWidget } from "./TodoWidget";
@@ -12,10 +14,12 @@ import { UsageForecastWidget } from "./UsageForecastWidget";
 type NativeWidgetComponent = (props: NativeAppRendererProps) => ReactNode;
 
 const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
+  "core/channel_files_native": ChannelFilesWidget,
   "core/plan_questions": PlanQuestionsWidget,
   "core/context_tracker": ContextTrackerWidget,
   "core/machine_control_native": MachineControlWidget,
   "core/notes_native": NotesWidget,
+  "core/pinned_files_native": PinnedFilesWidget,
   "core/todo_native": TodoWidget,
   "core/usage_forecast_native": UsageForecastWidget,
   "core/upcoming_activity_native": UpcomingActivityWidget,
