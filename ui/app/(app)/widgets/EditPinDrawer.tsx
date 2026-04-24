@@ -21,6 +21,7 @@ import {
   type PinScope,
 } from "./PinScopePicker";
 import { WidgetContractCard } from "./WidgetContractCard";
+import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
 
 const HTML_INTERACTIVE_CT = "application/vnd.spindrel.html+interactive";
 
@@ -551,35 +552,37 @@ export function EditPinDrawer({ pinId, onClose, preset }: Props) {
                       {required ? <span className="ml-1 text-danger">*</span> : null}
                     </span>
                     {enumValues.length > 0 ? (
-                      <select
+                      <SelectDropdown
                         value={rawValue === undefined ? "" : String(rawValue)}
-                        onChange={(e) => {
-                          const nextRaw = e.target.value;
+                        options={[
+                          ...(!required ? [{ value: "", label: "Unset" }] : []),
+                          ...enumValues.map((item) => ({
+                            value: String(item),
+                            label: String(item),
+                          })),
+                        ]}
+                        onChange={(nextRaw) => {
                           const matched = enumValues.find((item) => String(item) === nextRaw);
                           setConfigFieldValue(fieldId, matched);
                         }}
-                        className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
-                      >
-                        {!required && <option value="">Unset</option>}
-                        {enumValues.map((item) => (
-                          <option key={String(item)} value={String(item)}>
-                            {String(item)}
-                          </option>
-                        ))}
-                      </select>
+                        size="sm"
+                        popoverWidth="trigger"
+                      />
                     ) : field.type === "boolean" ? (
-                      <select
+                      <SelectDropdown
                         value={rawValue === undefined ? "" : rawValue ? "true" : "false"}
-                        onChange={(e) => {
-                          if (e.target.value === "") setConfigFieldValue(fieldId, undefined);
-                          else setConfigFieldValue(fieldId, e.target.value === "true");
+                        options={[
+                          ...(!required ? [{ value: "", label: "Unset" }] : []),
+                          { value: "true", label: "True" },
+                          { value: "false", label: "False" },
+                        ]}
+                        onChange={(nextRaw) => {
+                          if (nextRaw === "") setConfigFieldValue(fieldId, undefined);
+                          else setConfigFieldValue(fieldId, nextRaw === "true");
                         }}
-                        className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
-                      >
-                        {!required && <option value="">Unset</option>}
-                        <option value="true">True</option>
-                        <option value="false">False</option>
-                      </select>
+                        size="sm"
+                        popoverWidth="trigger"
+                      />
                     ) : (
                       <input
                         value={rawValue === undefined ? "" : String(rawValue)}

@@ -14,11 +14,12 @@ test("buildRemoteEnrollCommand emits a ready-to-run enroll curl with optional la
     providerId: "local_companion",
     apiKey: "sp_test_123",
     label: "Desk Mac",
+    config: { host: "10.0.0.8", username: "matt" },
   });
 
   assert.match(command, /Authorization: Bearer sp_test_123/);
   assert.match(command, /\/api\/v1\/admin\/machines\/providers\/local_companion\/enroll/);
-  assert.match(command, /-d '\{"label":"Desk Mac"\}'/);
+  assert.match(command, /-d '\{"label":"Desk Mac","config":\{"host":"10\.0\.0\.8","username":"matt"\}\}'/);
 });
 
 test("buildRemoteEnrollCommand shell-escapes apostrophes in labels", () => {

@@ -24,6 +24,18 @@ def test_resolve_context_profile_maps_origins():
     assert resolve_context_profile(origin="chat").name == "chat"
 
 
+def test_task_none_overrides_keep_iterations():
+    """Hygiene / subagent runs sweep many channels per turn — the profile
+    must keep more tool-result iterations than the short-chat default."""
+    assert get_context_profile("task_none").keep_iterations_override == 8
+
+
+def test_chat_profile_inherits_global_keep_iterations():
+    """Chat profile must NOT override — it uses the global setting (2) so
+    normal turns stay compact."""
+    assert get_context_profile("chat").keep_iterations_override is None
+
+
 def test_trim_messages_to_recent_turns_preserves_system_prefix():
     messages = [
         {"role": "system", "content": "system"},

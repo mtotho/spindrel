@@ -423,3 +423,31 @@ class TestDualRootPathResolution:
         assert result == file_content
         # Should resolve using owner_bot_id, not the caller's bot_id
         mock_ws.get_workspace_root.assert_called_once_with("owner_bot", owner_bot)
+
+
+class TestMultiChannelFanout:
+    """channel_ids=[...] loops the single-channel path and stitches per-channel
+    markdown. Keeps hygiene runs that sweep 3–5 channels at 1 iteration."""
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_channel_ids_returns_helpful_error(self):
+        out = await read_conversation_history(
+            section="index", channel_ids=[" ", "", None],  # type: ignore[list-item]
+        )
+        assert "empty" in out.lower()
+
+    @pytest.mark.asyncio
+    async def test_too_many_channels_rejected(self):
+        out = await read_conversation_history(
+            section="index",
+            channel_ids=[str(uuid.uuid4()) for _ in range(11)],
+        )
+        assert "too large" in out
+
+    @pytest.mark.asyncio
+    async def test_tool_section_not_supported_in_multi_channel(self):
+        out = await read_conversation_history(
+            section="tool:some-id",
+            channel_ids=[str(uuid.uuid4()), str(uuid.uuid4())],
+        )
+        assert "tool:<id>" in out or "single channel_id" in out

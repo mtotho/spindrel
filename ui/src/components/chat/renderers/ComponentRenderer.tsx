@@ -34,6 +34,7 @@ import type { WidgetAction } from "../../../types/api";
 import { MarkdownContent } from "../MarkdownContent";
 import type { HostSurface, WidgetLayout } from "./InteractiveHtmlRenderer";
 import type { PresentationFamily } from "@/src/lib/widgetHostPolicy";
+import { getAuthToken, useAuthStore } from "../../../stores/auth";
 
 // ── Widget action context ──
 
@@ -130,11 +131,31 @@ interface CodeNode extends ComponentBase {
   language?: string;
 }
 
+interface ImageOverlayRect {
+  x: number | string;
+  y: number | string;
+  w: number | string;
+  h: number | string;
+  label?: string;
+  color?: SemanticSlot;
+}
+
 interface ImageNode extends ComponentBase {
   type: "image";
   url: string;
   alt?: string;
   height?: number;
+  /** CSS `aspect-ratio` string, e.g. `"16 / 9"`. When set, the wrapper reserves
+   *  the aspect-ratio box and avoids layout shift during blob fetches. */
+  aspect_ratio?: string;
+  /** `"none"` (default) renders the URL as a plain `<img src>`. `"bearer"`
+   *  fetches the URL with the viewer's bearer token and renders the blob. */
+  auth?: "none" | "bearer";
+  /** When true, clicking the image opens a full-viewport lightbox. */
+  lightbox?: boolean;
+  /** Detection/annotation rectangles drawn over the image. Coords are
+   *  normalized (0..1) so overlays survive resolution changes. */
+  overlays?: ImageOverlayRect[];
 }
 
 interface StatusNode extends ComponentBase {
@@ -755,27 +776,234 @@ function CodeBlock({ node, t }: { node: CodeNode; t: ThemeTokens }) {
 }
 
 function ImageBlock({ node, t }: { node: ImageNode; t: ThemeTokens }) {
+  const authMode = node.auth ?? "none";
+  const resolvedUrl = useAuthedImageUrl(node.url, authMode);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+
+  const canLightbox = node.lightbox === true;
+  const hasAspectRatio = typeof node.aspect_ratio === "string" && node.aspect_ratio.length > 0;
+
+  const overlays = Array.isArray(node.overlays)
+    ? node.overlays.filter((o) => o && typeof o === "object")
+    : [];
+
+  return (
+    <>
+      <div
+        style={{
+          borderRadius: 6,
+          overflow: "hidden",
+          border: `1px solid ${t.surfaceBorder}`,
+          background: t.codeBg,
+          position: "relative",
+          aspectRatio: hasAspectRatio ? node.aspect_ratio : undefined,
+          cursor: canLightbox ? "zoom-in" : undefined,
+        }}
+        onClick={canLightbox ? () => setLightboxOpen(true) : undefined}
+        role={canLightbox ? "button" : undefined}
+        tabIndex={canLightbox ? 0 : undefined}
+        onKeyDown={
+          canLightbox
+            ? (ev) => {
+                if (ev.key === "Enter" || ev.key === " ") {
+                  ev.preventDefault();
+                  setLightboxOpen(true);
+                }
+              }
+            : undefined
+        }
+      >
+        {resolvedUrl ? (
+          <img
+            src={resolvedUrl}
+            alt={node.alt ?? ""}
+            style={{
+              display: "block",
+              width: hasAspectRatio ? "100%" : undefined,
+              height: hasAspectRatio ? "100%" : undefined,
+              maxWidth: "100%",
+              maxHeight: hasAspectRatio ? undefined : node.height ?? 400,
+              objectFit: hasAspectRatio ? "cover" : "contain",
+            }}
+          />
+        ) : (
+          <div
+            style={{
+              width: "100%",
+              height: hasAspectRatio ? "100%" : node.height ?? 200,
+              background: t.codeBg,
+            }}
+          />
+        )}
+
+        {overlays.length > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+            }}
+          >
+            {overlays.map((o, i) => (
+              <OverlayRect key={i} overlay={o} t={t} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {lightboxOpen && resolvedUrl && (
+        <Lightbox url={resolvedUrl} alt={node.alt ?? ""} onClose={() => setLightboxOpen(false)} t={t} />
+      )}
+    </>
+  );
+}
+
+function clampUnit(v: number | string | undefined): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) : NaN;
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function OverlayRect({ overlay, t }: { overlay: ImageOverlayRect; t: ThemeTokens }) {
+  const x = clampUnit(overlay.x);
+  const y = clampUnit(overlay.y);
+  const w = clampUnit(overlay.w);
+  const h = clampUnit(overlay.h);
+  if (w === 0 || h === 0) return null;
+  const strokeColor = slotColor(overlay.color, t);
+
   return (
     <div
       style={{
-        borderRadius: 6,
-        overflow: "hidden",
-        border: `1px solid ${t.surfaceBorder}`,
-        background: t.codeBg,
+        position: "absolute",
+        left: `${x * 100}%`,
+        top: `${y * 100}%`,
+        width: `${w * 100}%`,
+        height: `${h * 100}%`,
+        border: `2px solid ${strokeColor}`,
+        borderRadius: 3,
+        boxSizing: "border-box",
+        background: `${strokeColor}14`,
+      }}
+    >
+      {overlay.label && (
+        <span
+          style={{
+            position: "absolute",
+            top: -2,
+            left: 0,
+            transform: "translateY(-100%)",
+            background: strokeColor,
+            color: t.surface,
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "1px 5px",
+            borderRadius: 3,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {overlay.label}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Lightbox({
+  url,
+  alt,
+  onClose,
+  t,
+}: {
+  url: string;
+  alt: string;
+  onClose: () => void;
+  t: ThemeTokens;
+}) {
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.9)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        cursor: "zoom-out",
       }}
     >
       <img
-        src={node.url}
-        alt={node.alt ?? ""}
+        src={url}
+        alt={alt}
         style={{
-          display: "block",
           maxWidth: "100%",
-          maxHeight: node.height ?? 400,
+          maxHeight: "92vh",
+          borderRadius: 6,
           objectFit: "contain",
+          boxShadow: `0 6px 20px rgba(0,0,0,0.4)`,
+          background: t.surface,
         }}
       />
     </div>
   );
+}
+
+/** Resolve an image URL to a renderable src.
+ *
+ *  - `auth: "none"`: passes through unchanged — the browser renders directly.
+ *  - `auth: "bearer"`: fetches with the viewer's bearer token, converts the
+ *    response to an object URL. Revokes the object URL on unmount / url change
+ *    so long-lived dashboards don't leak blob memory.
+ */
+function useAuthedImageUrl(url: string, authMode: "none" | "bearer"): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authMode !== "bearer") {
+      setBlobUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let objectUrl: string | null = null;
+
+    async function load() {
+      const token = getAuthToken();
+      const { serverUrl } = useAuthStore.getState();
+      const base = serverUrl ?? "";
+      const absolute = /^https?:\/\//i.test(url) ? url : `${base}${url}`;
+      try {
+        const res = await fetch(absolute, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      } catch {
+        if (!cancelled) setBlobUrl(null);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url, authMode]);
+
+  return authMode === "bearer" ? blobUrl : url;
 }
 
 function StatusBadge({ node, t, ctx }: { node: StatusNode; t: ThemeTokens; ctx: ComponentRenderContext }) {

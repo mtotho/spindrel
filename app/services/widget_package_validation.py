@@ -364,3 +364,12 @@ def _extract_top_level_names(code: str | None) -> set[str]:
                 if isinstance(target, ast.Name):
                     names.add(target.id)
     return names
+
+
+# ── Public re-export (Cluster 4B.1) ──
+#
+# widget_templates (and some tests) validate already-parsed widget
+# definitions without re-parsing YAML. Expose under a public name so
+# the widget_private_import drift test stays green.
+
+validate_parsed_definition = _validate_parsed_definition

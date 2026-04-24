@@ -21,9 +21,10 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy import select
+
+from app.domain.errors import DomainError
 
 from app.db.models import WidgetDashboardPin
 from app.services.dashboard_pins import (
@@ -63,9 +64,9 @@ class TestCrossDashboardIsolation:
         )
         items = [{"id": str(pin.id), "x": 0, "y": 0, "w": 4, "h": 3}]
 
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await apply_layout_bulk(db_session, items, dashboard_key="default")
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
         assert str(pin.id) in exc.value.detail
 
     @pytest.mark.asyncio
@@ -96,9 +97,9 @@ class TestCrossDashboardIsolation:
             {"id": str(good_pin.id), "x": 0, "y": 0, "w": 4, "h": 3},
             {"id": str(foreign_pin.id), "x": 4, "y": 0, "w": 4, "h": 3},
         ]
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await apply_layout_bulk(db_session, items, dashboard_key="default")
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
         # good_pin must not have been committed
         rows = await list_pins(db_session)
         for row in rows:
@@ -148,9 +149,9 @@ class TestEmptyItems:
     @pytest.mark.asyncio
     async def test_non_list_items_rejected(self, db_session):
         """Non-list items argument raises 400."""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await apply_layout_bulk(db_session, {"id": "x"})  # type: ignore[arg-type]
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +166,9 @@ class TestCoordinateValidation:
             db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
         )
         items = [{"id": str(pin.id), "x": -1, "y": 0, "w": 4, "h": 3}]
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await apply_layout_bulk(db_session, items)
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
 
     @pytest.mark.asyncio
     async def test_missing_coordinate_key_rejected(self, db_session):
@@ -175,6 +176,6 @@ class TestCoordinateValidation:
             db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
         )
         items = [{"id": str(pin.id), "x": 0, "y": 0, "w": 4}]  # missing h
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await apply_layout_bulk(db_session, items)
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400

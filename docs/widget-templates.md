@@ -171,6 +171,33 @@ Useful optional fields:
 | `toggle` | `description` | Secondary text under the subject label. |
 | `toggle` | `on_label` / `off_label` | State text when `description` is not provided. |
 
+### `image` primitive
+
+Renders an image with optional aspect-ratio reservation, authenticated
+blob fetch, detection/annotation overlays, and click-to-lightbox.
+
+```yaml
+- type: image
+  url: "/api/v1/attachments/{{attachment_id}}/file"   # required
+  alt: "Driveway camera"                               # optional a11y text
+  aspect_ratio: "16 / 9"                               # CSS aspect-ratio string
+  auth: bearer                                         # "none" (default) | "bearer"
+  lightbox: true                                       # click opens full-viewport view
+  overlays:                                            # optional detection rects
+    - {x: 0.12, y: 0.30, w: 0.18, h: 0.42, label: "person", color: accent}
+```
+
+| Field | Notes |
+|---|---|
+| `url` | Absolute or server-relative. Passed to `<img src>` directly when `auth: none`; fetched with the viewer bearer and rendered via a blob URL when `auth: bearer`. |
+| `alt` | Accessibility label. Optional. |
+| `aspect_ratio` | CSS `aspect-ratio` string (e.g. `"16 / 9"`, `"4 / 3"`, `"1 / 1"`). When set, the wrapper reserves the aspect-ratio box so blob fetches don't cause layout shift. |
+| `auth` | `"none"` (default) renders directly. `"bearer"` fetches with the viewer's bearer token — required for `/api/v1/attachments/...` and other auth-gated endpoints. |
+| `lightbox` | When `true`, clicking the image opens a full-viewport lightbox. Escape or backdrop-click closes it. |
+| `overlays` | List of normalized-coords rectangles overlaid on the image. `x`/`y`/`w`/`h` are 0..1 fractions of the image dimensions, so overlays survive resolution changes. `color` uses the `SemanticSlot` vocabulary (`accent`/`success`/`warning`/`danger`/`info`/`muted`). |
+
+Entropy-minimization note: `auth` matches HTTP `Authorization: Bearer` vocabulary (`"none" | "bearer"`). Unknown values fail at registration time — drift like `auth: blob` or `auth: token` is rejected with a precise error.
+
 ### State polling
 
 Add a `state_poll` block to refresh a pinned widget's state by calling

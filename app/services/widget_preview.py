@@ -21,7 +21,10 @@ from app.services.widget_package_loader import (
     rewrite_refs_for_preview,
 )
 from app.services.widget_package_validation import validate_package
-from app.services.widget_templates import _substitute, _substitute_string
+from app.services.widget_templates import (
+    substitute,
+    substitute_string,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +64,10 @@ def render_preview_envelope(
     source_bot_id: str | None = None,
     source_channel_id: str | None = None,
 ) -> PreviewEnvelope:
-    from app.services.widget_templates import _apply_code_transform, _build_html_widget_body
+    from app.services.widget_templates import (
+        apply_code_transform,
+        build_html_widget_body,
+    )
 
     data = dict(sample_payload) if isinstance(sample_payload, dict) else {}
     default_config = widget_def.get("default_config") or {}
@@ -71,7 +77,7 @@ def render_preview_envelope(
     display_label = None
     raw_label = widget_def.get("display_label")
     if isinstance(raw_label, str):
-        resolved = _substitute_string(raw_label, data_with_config)
+        resolved = substitute_string(raw_label, data_with_config)
         if isinstance(resolved, str) and resolved.strip():
             display_label = resolved.strip()
 
@@ -80,7 +86,7 @@ def render_preview_envelope(
 
     html_template = widget_def.get("html_template")
     if isinstance(html_template, dict) and isinstance(html_template.get("body"), str):
-        body = _build_html_widget_body(html_template["body"], data)
+        body = build_html_widget_body(html_template["body"], data)
         return PreviewEnvelope(
             content_type=widget_def.get(
                 "content_type", "application/vnd.spindrel.html+interactive",
@@ -95,7 +101,7 @@ def render_preview_envelope(
         )
 
     template = widget_def.get("template") or {}
-    filled = _substitute(copy.deepcopy(template), data_with_config)
+    filled = substitute(copy.deepcopy(template), data_with_config)
     if not isinstance(filled, dict):
         filled = {}
 
@@ -104,7 +110,7 @@ def render_preview_envelope(
         components = filled.get("components")
         base_components = components if isinstance(components, list) else []
         filled["v"] = 1
-        filled["components"] = _apply_code_transform(transform_ref, data_with_config, base_components)
+        filled["components"] = apply_code_transform(transform_ref, data_with_config, base_components)
 
     return PreviewEnvelope(
         content_type=widget_def.get(
@@ -163,13 +169,11 @@ async def preview_active_widget_for_tool(
                 _, preview_mod_name = load_preview_module(pkg.python_code)
             widget_def = rewrite_refs_for_preview(widget_def, preview_mod_name)
         else:
-            from app.services.widget_templates import _widget_templates
+            from app.services.widget_templates import (
+                get_widget_template_with_bare_fallback,
+            )
 
-            entry = _widget_templates.get(tool_name)
-            if entry is None:
-                bare = tool_name.split("-", 1)[1] if "-" in tool_name else None
-                if bare:
-                    entry = _widget_templates.get(bare)
+            entry = get_widget_template_with_bare_fallback(tool_name)
             if entry is None:
                 return PreviewOut(
                     ok=False,

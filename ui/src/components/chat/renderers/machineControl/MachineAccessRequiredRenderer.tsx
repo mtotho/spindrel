@@ -21,7 +21,7 @@ export function MachineAccessRequiredRenderer({
   const live = useSessionMachineTarget(sessionId, Boolean(sessionId));
   const liveState = live.data;
   const targets = liveState?.targets ?? initial.targets ?? [];
-  const connectedTargets = targets.filter((target) => target.connected);
+  const readyTargets = targets.filter((target) => target.ready);
   const lease = liveState?.lease ?? initial.lease ?? null;
   const reason = initial.reason ?? "Grant machine access for this session before using that tool.";
   const grantLease = useGrantSessionMachineTargetLease(sessionId ?? "");
@@ -52,7 +52,7 @@ export function MachineAccessRequiredRenderer({
     }
   }
 
-  const singleConnected = connectedTargets.length === 1 ? connectedTargets[0] : null;
+  const singleReady = readyTargets.length === 1 ? readyTargets[0] : null;
 
   return (
     <div style={{ ...machineCardStyle(t), display: "flex", flexDirection: "column", gap: 10 }}>
@@ -81,20 +81,20 @@ export function MachineAccessRequiredRenderer({
         </div>
       ) : null}
 
-      {singleConnected ? (
+      {singleReady ? (
         <div style={{ ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, color: t.text }}>{singleConnected.label || singleConnected.target_id}</div>
+              <div style={{ fontWeight: 600, color: t.text }}>{singleReady.label || singleReady.target_id}</div>
               <div style={machineMetaTextStyle(t)}>
-                {[singleConnected.provider_label, singleConnected.hostname, singleConnected.platform].filter(Boolean).join(" · ") || singleConnected.target_id}
+                {[singleReady.provider_label, singleReady.hostname, singleReady.platform].filter(Boolean).join(" · ") || singleReady.target_id}
               </div>
             </div>
             {canMutate ? (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void handleUse(singleConnected)}
+                onClick={() => void handleUse(singleReady)}
                 style={machineButtonStyle(t, "primary", busy)}
               >
                 Use machine
@@ -102,12 +102,12 @@ export function MachineAccessRequiredRenderer({
             ) : null}
           </div>
         </div>
-      ) : connectedTargets.length > 1 ? (
+      ) : readyTargets.length > 1 ? (
         <div style={{ ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>
           <div style={{ fontSize: 11, color: t.textDim, marginBottom: 2 }}>
-            Choose a connected machine for this session.
+            Choose a ready machine for this session.
           </div>
-          {connectedTargets.map((target, index) => (
+          {readyTargets.map((target, index) => (
             <MachineTargetRow
               key={`${target.provider_id}:${target.target_id}`}
               target={target}
@@ -123,7 +123,7 @@ export function MachineAccessRequiredRenderer({
       ) : (
         <div style={{ ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>
           <div style={{ fontSize: 11, color: t.textDim, lineHeight: "17px" }}>
-            No connected machines are available right now.
+            No ready machines are available right now.
           </div>
           <div style={{ marginTop: 8 }}>
             <a

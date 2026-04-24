@@ -53,44 +53,39 @@ export interface TasksResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Color maps — `fg` is still used by status dots and other inline-style consumers
+// Color maps — `fg` is still used by status dots and older inline-style consumers.
+// New visible chrome should use the token-backed `tw` / `iconClass` classes.
 // ---------------------------------------------------------------------------
 export const TYPE_BADGE_COLORS: Record<string, { bg: string; fg: string; tw: string }> = {
-  scheduled:  { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6", tw: "bg-blue-500/[0.12] text-blue-600 dark:text-blue-400" },
-  heartbeat:  { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04", tw: "bg-yellow-500/[0.12] text-yellow-700 dark:text-yellow-400" },
-  memory_hygiene: { bg: "rgba(168,85,247,0.12)", fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
-  delegation: { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
-  exec:       { bg: "rgba(107,114,128,0.12)", fg: "#6b7280", tw: "bg-gray-500/[0.12] text-gray-600 dark:text-gray-400" },
-  callback:   { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626", tw: "bg-red-500/[0.12] text-red-600 dark:text-red-400" },
-  api:        { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a", tw: "bg-green-500/[0.12] text-green-700 dark:text-green-400" },
-  workflow:   { bg: "rgba(249,115,22,0.12)",  fg: "#ea580c", tw: "bg-orange-500/[0.12] text-orange-700 dark:text-orange-400" },
-  agent:      { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af", tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
-  pipeline:   { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea", tw: "bg-purple-500/[0.12] text-purple-700 dark:text-purple-400" },
+  scheduled:  { bg: "rgb(var(--color-accent) / 0.10)",  fg: "rgb(var(--color-accent))", tw: "bg-accent/10 text-accent" },
+  heartbeat:  { bg: "rgb(var(--color-warning) / 0.10)", fg: "rgb(var(--color-warning-muted))", tw: "bg-warning/10 text-warning-muted" },
+  memory_hygiene: { bg: "rgb(var(--color-purple) / 0.10)", fg: "rgb(var(--color-purple))", tw: "bg-purple/10 text-purple" },
+  delegation: { bg: "rgb(var(--color-purple) / 0.10)",  fg: "rgb(var(--color-purple))", tw: "bg-purple/10 text-purple" },
+  exec:       { bg: "rgb(var(--color-surface-overlay))", fg: "rgb(var(--color-text-dim))", tw: "bg-surface-overlay text-text-dim" },
+  callback:   { bg: "rgb(var(--color-danger) / 0.10)", fg: "rgb(var(--color-danger))", tw: "bg-danger/10 text-danger" },
+  api:        { bg: "rgb(var(--color-success) / 0.10)", fg: "rgb(var(--color-success))", tw: "bg-success/10 text-success" },
+  workflow:   { bg: "rgb(var(--color-warning) / 0.10)", fg: "rgb(var(--color-warning-muted))", tw: "bg-warning/10 text-warning-muted" },
+  agent:      { bg: "rgb(var(--color-surface-overlay))", fg: "rgb(var(--color-text-dim))", tw: "bg-surface-overlay text-text-dim" },
+  pipeline:   { bg: "rgb(var(--color-purple) / 0.10)",  fg: "rgb(var(--color-purple))", tw: "bg-purple/10 text-purple" },
 };
 
-export const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string; tw: string }> = {
-  pending:   { bg: "rgba(107,114,128,0.12)", fg: "#6b7280",  icon: Clock,        label: "Pending",   tw: "bg-gray-500/[0.12] text-gray-600 dark:text-gray-400" },
-  running:   { bg: "rgba(59,130,246,0.12)",  fg: "#3b82f6",  icon: Loader2,      label: "Running",   tw: "bg-blue-500/[0.12] text-blue-600 dark:text-blue-400" },
-  complete:  { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a",  icon: CheckCircle2, label: "Complete",  tw: "bg-green-500/[0.12] text-green-700 dark:text-green-400" },
-  failed:    { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626",  icon: AlertCircle,  label: "Failed",    tw: "bg-red-500/[0.12] text-red-600 dark:text-red-400" },
-  active:    { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04",  icon: RefreshCw,    label: "Active",    tw: "bg-yellow-500/[0.12] text-yellow-700 dark:text-yellow-400" },
-  upcoming:  { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: Clock,        label: "Upcoming",  tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
-  cancelled: { bg: "rgba(107,114,128,0.08)", fg: "#9ca3af",  icon: XCircle,      label: "Cancelled", tw: "bg-gray-500/[0.08] text-gray-500 dark:text-gray-400" },
+export const STATUS_CFG: Record<string, { bg: string; fg: string; icon: any; label: string; tw: string; iconClass: string }> = {
+  pending:   { bg: "rgb(var(--color-surface-overlay))", fg: "rgb(var(--color-text-dim))", icon: Clock,        label: "Pending",   tw: "bg-surface-overlay text-text-dim", iconClass: "text-text-dim" },
+  running:   { bg: "rgb(var(--color-accent) / 0.10)",  fg: "rgb(var(--color-accent))", icon: Loader2,      label: "Running",   tw: "bg-accent/10 text-accent", iconClass: "text-accent" },
+  complete:  { bg: "rgb(var(--color-success) / 0.10)", fg: "rgb(var(--color-success))", icon: CheckCircle2, label: "Complete",  tw: "bg-success/10 text-success", iconClass: "text-success" },
+  failed:    { bg: "rgb(var(--color-danger) / 0.10)", fg: "rgb(var(--color-danger))", icon: AlertCircle,  label: "Failed",    tw: "bg-danger/10 text-danger", iconClass: "text-danger" },
+  active:    { bg: "rgb(var(--color-warning) / 0.10)", fg: "rgb(var(--color-warning-muted))", icon: RefreshCw,    label: "Active",    tw: "bg-warning/10 text-warning-muted", iconClass: "text-warning-muted" },
+  upcoming:  { bg: "rgb(var(--color-surface-overlay))", fg: "rgb(var(--color-text-dim))", icon: Clock,        label: "Upcoming",  tw: "bg-surface-overlay text-text-dim", iconClass: "text-text-dim" },
+  cancelled: { bg: "rgb(var(--color-surface-overlay))", fg: "rgb(var(--color-text-dim))", icon: XCircle,      label: "Cancelled", tw: "bg-surface-overlay text-text-dim", iconClass: "text-text-dim" },
 };
 
 export const BOT_COLORS = [
-  { bg: "rgba(59,130,246,0.12)", border: "#3b82f6", dot: "#3b82f6", fg: "#2563eb" },
-  { bg: "rgba(168,85,247,0.12)", border: "#a855f7", dot: "#a855f7", fg: "#9333ea" },
-  { bg: "rgba(236,72,153,0.12)", border: "#ec4899", dot: "#ec4899", fg: "#db2777" },
-  { bg: "rgba(239,68,68,0.12)",  border: "#ef4444", dot: "#ef4444", fg: "#dc2626" },
-  { bg: "rgba(249,115,22,0.12)", border: "#f97316", dot: "#f97316", fg: "#ea580c" },
-  { bg: "rgba(234,179,8,0.12)",  border: "#eab308", dot: "#eab308", fg: "#ca8a04" },
-  { bg: "rgba(34,197,94,0.12)",  border: "#22c55e", dot: "#22c55e", fg: "#16a34a" },
-  { bg: "rgba(20,184,166,0.12)", border: "#14b8a6", dot: "#14b8a6", fg: "#0d9488" },
-  { bg: "rgba(6,182,212,0.12)",  border: "#06b6d4", dot: "#06b6d4", fg: "#0891b2" },
-  { bg: "rgba(99,102,241,0.12)", border: "#6366f1", dot: "#6366f1", fg: "#4f46e5" },
-  { bg: "rgba(244,63,94,0.12)",  border: "#f43f5e", dot: "#f43f5e", fg: "#e11d48" },
-  { bg: "rgba(132,204,22,0.12)", border: "#84cc16", dot: "#84cc16", fg: "#65a30d" },
+  { bg: "rgb(var(--color-accent) / 0.10)", border: "rgb(var(--color-accent))", dot: "rgb(var(--color-accent))", fg: "rgb(var(--color-accent))" },
+  { bg: "rgb(var(--color-purple) / 0.10)", border: "rgb(var(--color-purple))", dot: "rgb(var(--color-purple))", fg: "rgb(var(--color-purple))" },
+  { bg: "rgb(var(--color-success) / 0.10)", border: "rgb(var(--color-success))", dot: "rgb(var(--color-success))", fg: "rgb(var(--color-success))" },
+  { bg: "rgb(var(--color-warning) / 0.10)", border: "rgb(var(--color-warning-muted))", dot: "rgb(var(--color-warning-muted))", fg: "rgb(var(--color-warning-muted))" },
+  { bg: "rgb(var(--color-danger) / 0.10)", border: "rgb(var(--color-danger))", dot: "rgb(var(--color-danger))", fg: "rgb(var(--color-danger))" },
+  { bg: "rgb(var(--color-surface-overlay))", border: "rgb(var(--color-text-dim))", dot: "rgb(var(--color-text-dim))", fg: "rgb(var(--color-text-dim))" },
 ];
 
 export function botColor(botId: string) {
@@ -119,7 +114,7 @@ export function TypeBadge({ type }: { type: string }) {
   const c = TYPE_BADGE_COLORS[type] || TYPE_BADGE_COLORS.agent;
   const label = TYPE_LABELS[type] || type;
   return (
-    <span className={`inline-block px-1.5 py-px rounded text-[9px] font-semibold uppercase tracking-wider ${c.tw}`}>
+    <span className={`inline-block rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider ${c.tw}`}>
       {label}
     </span>
   );
@@ -129,7 +124,7 @@ export function TaskStatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CFG[status] || STATUS_CFG.pending;
   const Icon = cfg.icon;
   return (
-    <span className={`inline-flex flex-row items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold shrink-0 whitespace-nowrap ${cfg.tw}`}>
+    <span className={`inline-flex shrink-0 flex-row items-center gap-1 whitespace-nowrap rounded px-2 py-0.5 text-[10px] font-semibold ${cfg.tw}`}>
       <Icon size={10} />
       {cfg.label}
     </span>

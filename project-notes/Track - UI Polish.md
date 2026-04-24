@@ -1,12 +1,28 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-23 (Pass 4a: agent/channel tab supplements — ParticipantsTab + ToolsOverrideTab migrated)
+updated: 2026-04-24 (shared select dropdown + prompt editor catalog)
 ---
 # Track — UI Polish
 
 ## Motivation
 Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Design Reference]]). First pass focuses on the chat page — structural polish, not a full redesign.
+
+## Shared Control System Reset (2026-04-24)
+
+- [x] Added canonical `SelectDropdown` and migrated the shared model, bot, channel, tool, workflow, and static select wrappers onto it so dropdown chrome, width, selected state, and search behavior are no longer rebuilt per picker.
+- [x] Continued dropdown consolidation across prompt templates, task step editing, widget preset configuration, pin-scope bot choice, and widget schema enum/boolean fields so future visual refinements land in the shared primitive.
+- [x] Started the Automation > Tasks pass by moving recurrence units, skill chips, and tool multi-pickers to `SelectDropdown`, and lowering the date-time picker popover chrome.
+- [x] Promoted date/time controls into the shared catalog: quiet hours now uses `TimePicker` instead of native `type=time`, and `DateTimePicker` has a lower-chrome selected-summary/calendar/quick-pick surface.
+- [x] Continued the Memory tab pass by constraining full-row select/model popovers and moving Backfill, Archived Sections, Section Index preview, and Compaction Activity onto shared low-chrome action/status/row primitives.
+- [x] Cleaned up Participants by moving primary/member rows and the add-bot picker to shared row/action/pill primitives.
+- [x] Clarified Member Bots passive-context behavior in settings and docs so @-mention routing is not confused with isolation from memory compaction or dreaming/learning.
+- [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
+- [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
+- [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.
+- [x] Trimmed the command palette browse defaults so per-channel `Settings · #channel` entries stay searchable and recent-eligible but no longer appear beside every `Chat · #channel` row in the empty Ctrl+K listing.
+- [x] Collapsed noisy command-palette detail families in the empty browse view: tool detail rows, policy detail rows, and recent trace rows now sit behind `Show ...` toggles, while typed search bypasses the collapse and queries the full catalog.
+- [x] Clarified the composer plan control: inactive chat now shows `Start plan` / `Resume plan` as direct actions, while active plan modes show semantic status labels (`Planning`, `Executing`, `Blocked`, `Done`) and keep the dropdown only for active-mode actions.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 
@@ -207,6 +223,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Terminal truncated-output affordances are text-only stacked actions** — truncated previews render the preview first, then put `Show full output` on its own non-wrapping line without button chrome, while default mode keeps its existing inline button treatment.
 - [x] **Non-diff transcript tools now keep useful inline detail after settle/reload** — `tool_presentation.py` now emits `preview_text` for `get_current_local_time` / `get_current_time`, `get_skill` / `load_skill`, and generic transcript rows, and the shared transcript-row model carries that preview inline or via expansion instead of degrading to lightweight settled rows.
 - [x] **Default-mode composer width is now centralized instead of page-wrapper drift** — `ChatComposerShell` owns the `max-w-[820px] px-4` constraint and wraps every `MessageInput` mount in the main channel page and `ChatSession`, so default mode follows one width/container path while terminal mode remains a pass-through shell.
+- [x] **Default mobile composer gutters and send button tightened** — mobile default chat now uses a narrower shared `ChatComposerShell` gutter plus reduced input-card side padding, and the default send button drops the accent→purple gradient/fill for a backgroundless ghost icon with token accent/danger state. Terminal mode remains on its existing pass-through/simple treatment.
 - [x] **Session plan cards now preserve historical revisions instead of collapsing to “latest only”** — `PlanResultRenderer` keeps the transcript card’s published revision as the display artifact, while `useSessionPlanMode` supplies current session state/revision metadata separately so old plan cards render as historical views instead of silently acting on the newest draft.
 - [x] **Session plan state is now event-driven instead of 3s polling** — `useSessionPlanMode` subscribes to session SSE, consumes `session_plan_updated`, and updates both plan-state + plan queries from the pushed payload; stale-revision conflicts now surface explicitly instead of quietly invalidating beneath old cards.
 - [x] **Plan revision history/diff is visible in the chat surface** — session plan responses now carry snapshot-backed revision metadata, `SessionPlanCard` renders a revision-history section, and the card can fetch/display unified diffs between revisions without leaving the transcript.
@@ -293,8 +310,8 @@ First application of `spindrel-ui` SKILL (shipped same day) to a real screen. St
 
 ### Deferred to next opportunistic pass (still in SKILL §8)
 - `ChannelHeader.tsx` (chat-view header) inline hex at lines ~219 (`#f87171`, `#fbbf24`) + `animate-pulse` at ~495.
-- Deeper tab panels: `HeartbeatTab`, `PipelinesTab`, `TasksTab`, `ToolsOverrideTab`, `AttachmentsTab`, `IntegrationsTab`, `HistoryTab`, `ChannelWorkspaceTab`, `ChannelFileBrowser`, `ContextTab`, `LogsTab`, `AutomationTabSections`, `AgentTabSections` — all still on `useThemeTokens()`. Migrate on next touch.
-- Other SKILL §8 debt entries (`MarkdownContent`, `StepsJsonEditor`, `SystemPauseBanner`, `ApprovalToast`, `MemoryHygieneGroupBanner`, `DelegationCard`, `IndexStatusBadge`, `ToolsInContextPanel`, `TaskConstants`, `TaskStepEditor`).
+- Deeper tab panels remaining after later Pass 4 updates: `HeartbeatTab`, `PipelinesTab`, `AttachmentsTab`, `HistoryTab`, `ChannelWorkspaceTab`, `ChannelFileBrowser`, `ContextTab`, `LogsTab`, `AutomationTabSections`, `AgentTabSections`. Migrate on next touch.
+- Other SKILL §8 debt entries (`MarkdownContent`, `StepsJsonEditor`, `SystemPauseBanner`, `ApprovalToast`, `MemoryHygieneGroupBanner`, `DelegationCard`, `IndexStatusBadge`, `ToolsInContextPanel`, `TaskStepEditor`).
 
 ### Verification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
@@ -316,7 +333,7 @@ Finishes the first-landing continuity started in Pass 3 — when a user opens se
 - 0 `useThemeTokens()` callers and 0 inline hex in `ParticipantsTab.tsx`, `ToolsOverrideTab.tsx`, `IntegrationsTab.tsx`.
 
 ### Deferred (updated)
-Pass 4b candidates (Automation + Memory block): `HistoryTab`, `HeartbeatTab` (+ `HeartbeatHistoryList`, `HeartbeatContextPreview`), `PipelinesTab` (+ `PipelineRunLive`, `PipelineRunPreRun`), `TasksTab`, `QuietHoursPicker`.
+Pass 4b/4c remaining candidates (Automation + Memory block): `HistoryTab`, `HeartbeatTab` (+ `HeartbeatHistoryList`, `HeartbeatContextPreview`), `PipelinesTab` (+ `PipelineRunLive`, `PipelineRunPreRun`), `QuietHoursPicker`.
 Pass 4c candidate (dirtiest, 10 hex): `ContextTab.tsx`.
 Pass 4d (multi-session, own plan): `ChannelWorkspaceTab` + `AttachmentsTab` + file-browser trio.
 
@@ -324,3 +341,55 @@ Pass 4d (multi-session, own plan): `ChannelWorkspaceTab` + `AttachmentsTab` + fi
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean (exit 0).
 - [x] 0 `useThemeTokens` / 0 `style={{` / 0 inline hex in the 3 touched files.
 - [ ] Visual dark/light toggle pass (manual, by user).
+
+## Pass 4b: UI design guide reset + integration control proof (2026-04-24)
+
+Corrective pass after the canonical guide and project skill failed to prevent gradient/shadow settings chrome. The existing chat channel header is explicitly preserved as a reference surface.
+
+### Shipped
+- [x] **`docs/guides/ui-design.md` reset** — surface taxonomy is now command / app-shell-content / control. Added control-surface rules, a chrome-budget rule, and an explicit note that sidebar, rail, channel header, and terminal mini-chat are reference surfaces. Decorative gradients/shadowed CTAs are banned for settings/admin/control surfaces.
+- [x] **`spindrel-ui` skill corrected** — removed the non-canonical "signature moves" section that required accent→purple gradients and shadow stacks. The skill now derives from the guide instead of extending it.
+- [x] **Low-chrome settings actions** — `SettingsControls.ActionButton` primary variant now uses transparent accent text with tonal hover (`bg-transparent text-accent hover:bg-accent/[0.08]`). Filled accent buttons are no longer the default for routine settings rows.
+- [x] **Channel tab dispatcher binding proof** — `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker` now use Tailwind tokens, low-radius control chrome, no inline style color machinery, and no repeated list dividers. This completes the Channel tab proof path with `ParticipantsTab` + `BindingsSection`.
+- [x] **Agent tab visible example** — `ActivationCard`, `ActivationConfigFields`, and `ActivationsSection` now show the same control-surface language directly on the Integration Add-ons list: borderless tonal rows, inline accent actions, small status dot/chip, one divider only for expanded config, token-only autosave status, and a split Added/Available flow with a quiet filter for larger catalogs.
+- [x] **Channel Tasks tab proof** — `TasksTab` now uses a quiet segmented filter, grouped task sections (`Needs attention`, `Active`, `Other tasks`), low-chrome task rows, token-backed status/type badges, and no `useThemeTokens()`/inline style color machinery in the visible task list path. `TaskConstants` also dropped Bootstrap-blue status/type badge classes in favor of semantic tokens.
+
+### Invariants established
+- Channel header is not part of the redesign target; preserve it unless a future task explicitly asks to change header behavior.
+- Control-surface work must pass the chrome budget: spacing/typography first, then tonal step, then one neutral hairline. No border + shadow + gradient stacks.
+- Routine control actions must not use Bootstrap-like filled blue rectangles. The default is inline/ghost accent text; filled accent is reserved for rare final confirmation moments.
+- Control-surface work must improve flow when needed, not only row styling. Mixed current/available catalogs should be grouped and searchable before polishing row chrome.
+- Integration settings flow has 0 `useThemeTokens()` callers across `ActivationsSection`, `ActivationCard`, `ActivationConfigFields`, `BindingsSection`, `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker`.
+- Channel Tasks proof path has 0 `useThemeTokens()`, inline hex, Bootstrap-blue classes, `rgba(...)`, gradients, or decorative shadows across `TasksTab`, `TaskCardRow`, `TaskConstants`, and `Spinner`; remaining inline styles there are dynamic sizing/color plumbing for spinner/bot-dot primitives only.
+
+### Deferred
+- Manual dark/light visual review remains user-run.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean after guide reset + binding proof; clean again after activation proof; clean again after Tasks tab proof.
+- [x] `git -C /home/mtoth/personal/agent-server diff --check` on touched files — clean.
+- [x] `git -C /home/mtoth/personal/vault diff --check` on touched vault files — clean.
+- [x] Targeted grep checks for `useThemeTokens`, inline hex, `bg-gradient`, decorative `shadow-`, and inline style in the integration proof files — 0 matches.
+
+## Pass 4c: Channel settings shared control primitives (2026-04-24)
+
+Follow-through on Pass 4b after visual review showed piecemeal tab work was not enough. This pass makes the settings page harder to drift by moving common control-surface shapes into shared primitives and applying them across multiple tabs.
+
+### Shipped
+- [x] **Shared low-chrome primitives** — `SettingsControls` now owns group labels, quiet search, segmented filters, control rows, and stat grids in addition to action buttons/badges/banners.
+- [x] **Holistic channel settings sweep** — Dashboard, Pipelines, Attachments, Knowledge/workspace, Logs, Context, Automation/Heartbeat, Tools/Add Skills, and top-level Memory/History surfaces now use the shared low-chrome vocabulary instead of bespoke bordered rows/search/buttons.
+- [x] **Automation/Memory proof path** — Heartbeat mode switch, run controls, quiet hours, context/template previews, recent heartbeat runs, history mode, and section search now avoid filled blue actions and older theme-token card chrome.
+- [x] **Action semantics tightened** — `TurnCard` is keyboard-activatable without being a nested button wrapper, and routine settings actions remain transparent/tonal rather than Bootstrap-like filled CTAs.
+
+### Invariants established
+- New settings/admin control surfaces should compose `SettingsGroupLabel`, `SettingsSearchBox`, `SettingsSegmentedControl`, `SettingsControlRow`, `SettingsStatGrid`, `ActionButton`, `StatusBadge`, and `InfoBanner` before introducing new local chrome.
+- Settings search/filter/action rows should be flow improvements first, styling second: split current vs available catalogs, add quiet filters for large lists, and avoid one flat add/remove stack.
+- The existing channel header remains a reference surface and was intentionally not redesigned in this pass.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean again after Memory/Automation follow-up edits.
+
+## Small copy fixes (2026-04-24)
+
+- [x] `/settings` Chat History `Compaction Model` description is provider-neutral now: "Model used for context compaction." The old "LiteLLM model alias" wording was misleading because the shared picker spans all LLM providers.

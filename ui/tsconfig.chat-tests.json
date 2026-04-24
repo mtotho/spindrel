@@ -34,6 +34,8 @@
     "src/lib/historyModeMeta.test.ts",
     "src/components/chat/slashCommandRequest.ts",
     "src/components/chat/slashCommandRequest.test.ts",
+    "src/components/chat/planControl.ts",
+    "src/components/chat/planControl.test.ts",
     "src/components/chat/sessionMessageSync.ts",
     "src/components/chat/sessionMessageSync.test.ts",
     "src/components/chat/messageJsonCopy.ts",

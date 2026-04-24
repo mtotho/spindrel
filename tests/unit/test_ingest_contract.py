@@ -289,29 +289,25 @@ class TestEmptySenderDisplayName:
 
 
 class TestDoubleAttributionDrift:
-    """Idempotency guard only catches the EXACT prefix already present.
+    """Regression guard for the I.5 fix (2026-04-23).
 
-    If ``Message.content`` was previously attributed as ``[Alice]: hi`` but
-    the new metadata says ``sender_display_name="Alicia"``, the guard does
-    not fire:
-        - content.startswith("[Alicia]:") → False (name differs)
-        - legacy_prefix = "[Alicia]:" ← wrong (legacy_prefix is the NEW name)
+    The old guard only checked the CURRENT sender's name, so when metadata
+    carried a renamed user (``Alice`` → ``Alicia``) and the stored content
+    already had ``[Alice]: hi``, the guard missed and produced
+    ``[Alicia]: [Alice]: hi`` — double prefix with mismatched names.
 
-    Result: content becomes ``[Alicia]: [Alice]: hi`` — double-prefix with
-    inconsistent names.  This is a real name-drift bug.  Pinned here so it
-    breaks a test when fixed.
+    The fix replaces the single-name check with a generic regex
+    ``^\\[[^\\]]+\\]:\\s`` that matches ANY existing attribution prefix —
+    first attribution wins, so the stored prefix stays intact and no
+    second prefix is prepended.
     """
 
-    def test_different_sender_name_produces_double_prefix(self):
-        """Pinning current (broken) behavior: different name → double prefix.
+    def test_different_sender_name_first_attribution_wins(self):
+        """Metadata-name drift (``Alice`` → ``Alicia``) must NOT double-prefix.
 
-        Bug path (app/routers/chat/_context.py:54-56):
-        - prefix = "[Alicia]:"
-        - legacy_prefix = "[Alicia]:"  ← same as prefix (no mention_token)
-        - content starts with "[Alice]:" not "[Alicia]:" → guard misses → prefix added
-
-        When this is fixed: update assertion to ``== "[Alice]: hi"`` (keep
-        original name) or ``== "[Alicia]: hi"`` (replace with new name).
+        Before the fix: content became ``[Alicia]: [Alice]: hi``.
+        After the fix: the existing ``[Alice]:`` prefix is detected by
+        ``_ATTRIBUTION_PREFIX_RE`` and the new prefix is skipped.
         """
         msgs = [
             {
@@ -321,12 +317,21 @@ class TestDoubleAttributionDrift:
             }
         ]
         _apply_user_attribution(msgs)
-        # Pinning current behavior (the bug): double prefix with mismatched names.
-        assert msgs[0]["content"] == "[Alicia]: [Alice]: hi", (
-            "Double-prefix drift behavior changed — update this test to reflect "
-            "the new (hopefully correct) idempotency behavior and remove from "
-            "Loose Ends once the fix is verified."
-        )
+        assert msgs[0]["content"] == "[Alice]: hi"
+
+    def test_existing_mention_token_prefix_also_respected(self):
+        """Mention-token shape ``[Alice (<@U123>)]:`` also counts as an
+        existing attribution prefix — the regex must match the bracketed
+        span regardless of internal punctuation."""
+        msgs = [
+            {
+                "role": "user",
+                "content": "[Alice (<@U123>)]: hi",
+                "_metadata": {"sender_display_name": "Alicia"},
+            }
+        ]
+        _apply_user_attribution(msgs)
+        assert msgs[0]["content"] == "[Alice (<@U123>)]: hi"
 
     def test_same_sender_name_remains_idempotent(self):
         """Same name with existing prefix: stays untouched — this is correct."""

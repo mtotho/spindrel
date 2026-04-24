@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { ActionButton, SettingsControlRow, SettingsSearchBox, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
-import { Search } from "lucide-react";
 
 type SearchResult = {
   section: {
@@ -19,7 +17,6 @@ type SearchResult = {
 };
 
 export function SectionSearch({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,91 +46,69 @@ export function SectionSearch({ channelId }: { channelId: string }) {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.5" }}>
+    <div className="flex flex-col gap-2">
+      <div className="text-[11px] leading-relaxed text-text-muted">
         Search archived sections by topic, transcript content, or semantic similarity.
-        This uses the same search the bot sees via <code style={{ color: t.codeText }}>read_conversation_history</code>.
+        This uses the same search the bot sees via <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history</code>.
       </div>
-      <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
-        <div style={{
-          flex: 1, display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-          background: t.inputBg, border: `1px solid ${t.inputBorder}`,
-          borderRadius: 6, padding: "6px 10px",
-        }}>
-          <Search size={14} color={t.textDim} />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }}
-            placeholder="Search sections..."
-            style={{
-              flex: 1, background: "none", border: "none", outline: "none",
-              color: t.text, fontSize: 12, fontFamily: "inherit",
-            }}
-          />
-        </div>
-        <button
-          onClick={doSearch}
+      <div className="flex items-center gap-1.5">
+        <SettingsSearchBox
+          value={query}
+          onChange={setQuery}
+          onKeyDown={(e) => { if (e.key === "Enter") doSearch(); }}
+          placeholder="Search sections..."
+        />
+        <ActionButton
+          label={loading ? "Searching..." : "Search"}
+          onPress={doSearch}
           disabled={loading || !query.trim()}
-          style={{
-            padding: "6px 14px", borderRadius: 6, border: "none",
-            background: t.accent, color: "#fff", fontSize: 11, fontWeight: 600,
-            cursor: loading || !query.trim() ? "not-allowed" : "pointer",
-            opacity: loading || !query.trim() ? 0.5 : 1,
-          }}
-        >
-          {loading ? <Spinner size={14} color="#fff" /> : "Search"}
-        </button>
+          variant="primary"
+          size="small"
+        />
       </div>
 
       {error && (
-        <div style={{ fontSize: 11, color: t.danger, padding: "4px 0" }}>{error}</div>
+        <div className="py-1 text-[11px] text-danger">{error}</div>
       )}
 
       {results !== null && results.length === 0 && (
-        <div style={{ fontSize: 11, color: t.textDim, padding: "4px 0" }}>
+        <div className="py-1 text-[11px] text-text-dim">
           No sections found matching your query.
         </div>
       )}
 
       {results && results.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" }}>
+        <div className="flex max-h-[400px] flex-col gap-1 overflow-y-auto">
           {results.map((r) => {
             const dateStr = r.section.period_start
               ? new Date(r.section.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
               : "";
             const badge = sourceLabel(r.source);
             return (
-              <div key={r.section.id} style={{
-                padding: "8px 12px", background: t.inputBg,
-                border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6,
-              }}>
-                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 10, color: t.textDim }}>#{r.section.sequence}</span>
-                  <span style={{ fontSize: 12, color: t.text, flex: 1 }}>{r.section.title}</span>
-                  {badge && (
-                    <span style={{
-                      fontSize: 9, color: t.accent, background: t.accentSubtle,
-                      padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                    }}>{badge}</span>
-                  )}
-                  <span style={{ fontSize: 10, color: t.textDim }}>{r.section.message_count} msgs</span>
-                  {dateStr && <span style={{ fontSize: 10, color: t.textDim }}>{dateStr}</span>}
-                </div>
-                <div style={{ fontSize: 11, color: t.textMuted, marginTop: 4, lineHeight: "1.4" }}>
+              <SettingsControlRow
+                key={r.section.id}
+                leading={<span className="font-mono text-[10px] text-text-dim">#{r.section.sequence}</span>}
+                title={r.section.title}
+                description={
+                  <div className="space-y-1">
+                    <div>
                   {r.section.summary.length > 200 ? r.section.summary.slice(0, 200) + "..." : r.section.summary}
-                </div>
+                    </div>
                 {r.snippet && (
-                  <div style={{
-                    marginTop: 4, padding: "4px 8px", background: t.codeBg,
-                    border: `1px solid ${t.codeBorder}`, borderRadius: 4,
-                    fontSize: 10, color: t.textMuted, fontFamily: "monospace",
-                    lineHeight: "1.4", whiteSpace: "pre-wrap",
-                  }}>
+                      <div className="whitespace-pre-wrap rounded bg-surface/80 px-2 py-1 font-mono text-[10px] leading-snug text-text-muted">
                     {r.snippet}
                   </div>
                 )}
-              </div>
+                  </div>
+                }
+                meta={
+                  <div className="flex items-center gap-2">
+                    {badge && <StatusBadge label={badge} variant="info" />}
+                    <span>{r.section.message_count} msgs</span>
+                    {dateStr && <span>{dateStr}</span>}
+                  </div>
+                }
+              />
             );
           })}
         </div>

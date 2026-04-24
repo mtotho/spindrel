@@ -5,7 +5,7 @@ all share. They replace the untyped ``dict`` payloads and
 ``dispatch_config: dict`` that the deleted ``app.agent.dispatchers``
 Protocol used.
 
-See vault/Projects/agent-server/Track - Integration Delivery.md for the
+See ``project-notes/Track - Integration Delivery.md`` for the
 broader rationale and the phase-by-phase plan.
 
 Integration-specific target classes (SlackTarget, DiscordTarget,

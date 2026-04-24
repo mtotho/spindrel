@@ -1,76 +1,67 @@
 import { useState } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannelContextBreakdown, type ContextBreakdownMode } from "@/src/api/hooks/useChannels";
-import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import { Section, EmptyState, Toggle } from "@/src/components/shared/FormControls";
+import {
+  SettingsControlRow,
+  SettingsSegmentedControl,
+  SettingsStatGrid,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
 
-// ---------------------------------------------------------------------------
-// Category & source badge colors (only used by this tab)
-// ---------------------------------------------------------------------------
-// Category and source colors moved into components that need theme tokens
-
-const ROLE_COLORS: Record<string, { bg: string; fg: string; border: string }> = {
-  system:    { bg: "#0d1117", fg: "#8b949e", border: "#1e3a5f" },
-  user:      { bg: "#111a11", fg: "#a3d9a5", border: "#2d5a30" },
-  assistant: { bg: "#1a1117", fg: "#d4a0c8", border: "#5b2350" },
-  tool:      { bg: "#1a1700", fg: "#c9b87c", border: "#5b4f1e" },
+const CATEGORY_CLASS: Record<string, { bar: string; dot: string; badge: "info" | "success" | "warning" | "purple" | "neutral" }> = {
+  static: { bar: "bg-accent", dot: "bg-accent", badge: "info" },
+  rag: { bar: "bg-success", dot: "bg-success", badge: "success" },
+  conversation: { bar: "bg-warning", dot: "bg-warning", badge: "warning" },
+  compaction: { bar: "bg-purple", dot: "bg-purple", badge: "purple" },
 };
 
-// ---------------------------------------------------------------------------
-// Context Block — individual collapsible block in the preview
-// ---------------------------------------------------------------------------
-function ContextBlock({ block, colors, isPlaceholder }: {
+const ROLE_BADGE: Record<string, "info" | "success" | "purple" | "warning" | "neutral"> = {
+  system: "info",
+  user: "success",
+  assistant: "purple",
+  tool: "warning",
+};
+
+function ContextBlock({
+  block,
+  isPlaceholder,
+}: {
   block: { label: string; role: string; content: string };
-  colors: { bg: string; fg: string; border: string };
   isPlaceholder: boolean;
 }) {
-  const t = useThemeTokens();
   const [open, setOpen] = useState(false);
   const truncated = block.content.length > 200 && !open;
-  const displayContent = truncated ? block.content.slice(0, 200) + "..." : block.content;
+  const displayContent = truncated ? `${block.content.slice(0, 200)}...` : block.content;
 
   return (
-    <div style={{
-      background: colors.bg, border: `1px solid ${colors.border}`,
-      borderRadius: 6, overflow: "hidden",
-    }}>
+    <SettingsControlRow className="flex flex-col gap-2">
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-          width: "100%", padding: "6px 10px", border: "none", cursor: "pointer",
-          background: "transparent",
-        }}
+        className="flex w-full items-center justify-between gap-3 text-left"
       >
-        <span style={{ fontSize: 10, fontWeight: 700, color: colors.fg, letterSpacing: "0.03em" }}>
-          {block.label}
+        <span className="inline-flex items-center gap-2">
+          <StatusBadge label={block.role} variant={ROLE_BADGE[block.role] ?? "neutral"} />
+          <span className="text-[11px] font-semibold text-text">{block.label}</span>
         </span>
-        <span style={{ fontSize: 10, color: t.textDim }}>
-          {block.content.length.toLocaleString()} chars
-          {open ? " \u25b2" : " \u25bc"}
+        <span className="text-[10px] text-text-dim">
+          {block.content.length.toLocaleString()} chars {open ? "▲" : "▼"}
         </span>
       </button>
-      <div style={{
-        padding: "6px 10px 8px", fontFamily: "monospace", fontSize: 11,
-        color: isPlaceholder ? t.textDim : colors.fg,
-        fontStyle: isPlaceholder ? "italic" : "normal",
-        whiteSpace: "pre-wrap", lineHeight: "1.5",
-        maxHeight: open ? "none" : 120, overflow: "hidden",
-      }}>
+      <div
+        className={`max-h-[120px] overflow-hidden whitespace-pre-wrap font-mono text-[11px] leading-relaxed ${isPlaceholder ? "italic text-text-dim" : "text-text-muted"} ${open ? "max-h-none" : ""}`}
+      >
         {displayContent}
       </div>
-    </div>
+    </SettingsControlRow>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Context Preview — renders all injected system messages
-// ---------------------------------------------------------------------------
 function ContextPreview({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const [includeHistory, setIncludeHistory] = useState(false);
   const [expanded, setExpanded] = useState(true);
 
@@ -87,362 +78,241 @@ function ContextPreview({ channelId }: { channelId: string }) {
 
   return (
     <Section title="Context Preview">
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <div className="flex flex-wrap items-center gap-3">
         <button
+          type="button"
           onClick={() => setExpanded(!expanded)}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-            padding: "5px 12px", fontSize: 11, fontWeight: 600,
-            border: `1px solid ${t.surfaceBorder}`, borderRadius: 5,
-            background: "transparent", color: t.textMuted, cursor: "pointer",
-          }}
+          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted transition-colors hover:bg-surface-overlay/50 hover:text-text"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {expanded ? "Collapse" : "Expand"}
         </button>
-
-        <label style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={includeHistory}
-            onChange={(e) => setIncludeHistory(e.target.checked)}
-            style={{ accentColor: t.accent }}
-          />
-          Include conversation messages
-        </label>
-
+        <Toggle
+          value={includeHistory}
+          onChange={setIncludeHistory}
+          label="Include conversation messages"
+        />
         {data && (
-          <span style={{ fontSize: 11, color: t.textDim, marginLeft: "auto" }}>
+          <span className="ml-auto text-[11px] text-text-dim">
             ~{data.total_chars.toLocaleString()} chars / ~{data.total_tokens_approx.toLocaleString()} tokens
           </span>
         )}
       </div>
 
-      {isLoading && <Spinner color={t.accent} />}
+      {isLoading && <Spinner />}
 
       {expanded && data && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div className="flex flex-col gap-1.5">
           {data.blocks.map((block, i) => {
-            const colors = ROLE_COLORS[block.role] || ROLE_COLORS.system;
             const isPlaceholder = block.content.startsWith("[") && block.content.endsWith("]");
-            return (
-              <ContextBlock key={`sys-${i}`} block={block} colors={colors} isPlaceholder={isPlaceholder} />
-            );
+            return <ContextBlock key={`sys-${i}`} block={block} isPlaceholder={isPlaceholder} />;
           })}
 
           {data.conversation.length > 0 && (
             <>
-              <div style={{
-                fontSize: 10, fontWeight: 700, color: t.textDim, letterSpacing: "0.05em",
-                textTransform: "uppercase", marginTop: 8, marginBottom: 2,
-              }}>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
                 Conversation Messages ({data.conversation.length})
               </div>
-              {data.conversation.map((block, i) => {
-                const colors = ROLE_COLORS[block.role] || ROLE_COLORS.system;
-                return (
-                  <ContextBlock key={`conv-${i}`} block={block} colors={colors} isPlaceholder={false} />
-                );
-              })}
+              {data.conversation.map((block, i) => (
+                <ContextBlock key={`conv-${i}`} block={block} isPlaceholder={false} />
+              ))}
             </>
           )}
         </div>
       )}
 
-      <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 6 }}>
-        This preview shows all deterministic injections. RAG-dependent blocks (memories, knowledge, workspace files) vary per query and are shown as placeholders.
+      <div className="text-[10px] italic text-text-dim">
+        This preview shows deterministic injections. RAG-dependent blocks vary by query and are shown as placeholders.
       </div>
     </Section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Context Tab
-// ---------------------------------------------------------------------------
 export function ContextTab({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const [mode, setMode] = useState<ContextBreakdownMode>("last_turn");
   const { data, isLoading } = useChannelContextBreakdown(channelId, mode);
-  const fmtNum = (value?: number | null) => (value == null ? "\u2014" : value.toLocaleString());
-  const fmtPct = (value?: number | null) => (value == null ? "\u2014" : `${Math.round(value * 100)}%`);
+  const fmtNum = (value?: number | null) => (value == null ? "—" : value.toLocaleString());
+  const fmtPct = (value?: number | null) => (value == null ? "—" : `${Math.round(value * 100)}%`);
 
-  const CATEGORY_COLORS: Record<string, { bar: string; dot: string }> = {
-    static:       { bar: t.accent, dot: "#60a5fa" },
-    rag:          { bar: t.success, dot: "#4ade80" },
-    conversation: { bar: "#f59e0b", dot: t.warningMuted },
-    compaction:   { bar: t.purple, dot: "#9333ea" },
-  };
-
-  const SOURCE_BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-    channel: { bg: t.accentMuted, fg: t.accent },
-    bot:     { bg: "#365314", fg: "#65a30d" },
-    global:  { bg: t.surfaceBorder, fg: t.textMuted },
-  };
-
-  if (isLoading) return <Spinner color={t.accent} />;
+  if (isLoading) return <Spinner />;
   if (!data) return <EmptyState message="No context data available." />;
 
   const legend = [
-    { key: "static", label: "Static", color: CATEGORY_COLORS.static.bar },
-    { key: "rag", label: "RAG", color: CATEGORY_COLORS.rag.bar },
-    { key: "conversation", label: "Conversation", color: CATEGORY_COLORS.conversation.bar },
-    { key: "compaction", label: "Compaction", color: CATEGORY_COLORS.compaction.bar },
+    { key: "static", label: "Static" },
+    { key: "rag", label: "RAG" },
+    { key: "conversation", label: "Conversation" },
+    { key: "compaction", label: "Compaction" },
   ];
 
   return (
-    <>
-      {/* Mode toggle: Last turn (matches header) vs Next-turn forecast */}
-      <div style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-        padding: "8px 12px", marginBottom: 12,
-        background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
-      }}>
-        <div style={{ display: "flex", flexDirection: "row", gap: 0, borderRadius: 6, overflow: "hidden", border: `1px solid ${t.surfaceBorder}` }}>
-          {(["last_turn", "next_turn"] as const).map((m) => {
-            const active = mode === m;
-            return (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                style={{
-                  padding: "5px 12px", fontSize: 11, fontWeight: 600,
-                  background: active ? t.accent : "transparent",
-                  color: active ? "#fff" : t.textMuted,
-                  border: "none", cursor: "pointer",
-                }}
-              >
-                {m === "last_turn" ? "Last turn" : "Next-turn forecast"}
-              </button>
-            );
-          })}
-        </div>
-        <div style={{ fontSize: 11, color: t.textDim, flex: 1 }}>
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <SettingsSegmentedControl
+          value={mode}
+          onChange={setMode}
+          options={[
+            { key: "last_turn", label: "Last turn" },
+            { key: "next_turn", label: "Next-turn forecast" },
+          ]}
+        />
+        <div className="max-w-[65ch] text-[11px] leading-relaxed text-text-dim">
           {mode === "last_turn"
-            ? "Total tokens reflect what the most recent turn actually consumed (matches the chat header)."
-            : "Total tokens are a forecast of what the next turn would consume given the current configuration."}
+            ? "Total tokens reflect what the most recent turn actually consumed and match the chat header."
+            : "Total tokens forecast what the next turn would consume with the current configuration."}
         </div>
       </div>
 
-      {/* Summary card */}
       <Section title="Summary">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-          {[
-            ["Total Tokens", `~${data.total_tokens_approx.toLocaleString()}`],
-            ["Total Chars", data.total_chars.toLocaleString()],
-            ["Bot", data.bot_id],
-            ["Profile", data.context_profile ?? "unknown"],
-            ["Origin", data.context_origin ?? "chat"],
-            ["Live Turns", data.live_history_turns == null ? "full" : String(data.live_history_turns)],
-            ["Conversation", data.session_id ? data.session_id.slice(0, 8) + "..." : "none"],
-          ].map(([label, val]) => (
-            <div key={String(label)} style={{
-              padding: "12px 14px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
-            }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: t.text }}>{val}</div>
-              <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
-            </div>
-          ))}
-        </div>
+        <SettingsStatGrid
+          items={[
+            { label: "Total Tokens", value: `~${data.total_tokens_approx.toLocaleString()}`, tone: "accent" },
+            { label: "Total Chars", value: data.total_chars.toLocaleString() },
+            { label: "Bot", value: data.bot_id },
+            { label: "Profile", value: data.context_profile ?? "unknown" },
+            { label: "Origin", value: data.context_origin ?? "chat" },
+            { label: "Live Turns", value: data.live_history_turns == null ? "full" : String(data.live_history_turns) },
+            { label: "Conversation", value: data.session_id ? `${data.session_id.slice(0, 8)}...` : "none" },
+          ]}
+        />
       </Section>
 
       {data.context_budget && (
         <Section title="Prompt Budget">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-            {[
-              ["Profile", data.context_budget.context_profile ?? data.context_profile ?? "\u2014"],
-              ["Origin", data.context_budget.context_origin ?? data.context_origin ?? "\u2014"],
-              ["History Turns", data.context_budget.live_history_turns == null ? "full" : String(data.context_budget.live_history_turns)],
-              ["Estimate Gross", fmtNum(data.context_budget.estimate?.gross_prompt_tokens)],
-              ["Estimate Util.", fmtPct(data.context_budget.estimate?.utilization)],
-              ["Last Gross", fmtNum(data.context_budget.usage?.gross_prompt_tokens)],
-              ["Last Current", fmtNum(data.context_budget.usage?.current_prompt_tokens)],
-              ["Last Cached", fmtNum(data.context_budget.usage?.cached_prompt_tokens)],
-              ["Last Completion", fmtNum(data.context_budget.usage?.completion_tokens)],
-              ["Window", fmtNum(data.context_budget.estimate?.total_tokens ?? data.context_budget.usage?.total_tokens)],
-            ].map(([label, val]) => (
-              <div key={String(label)} style={{
-                padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
-              }}>
-                <div style={{ fontSize: 16, fontWeight: 600, color: t.text }}>{String(val)}</div>
-                <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", marginTop: 8 }}>
+          <SettingsStatGrid
+            items={[
+              { label: "Profile", value: data.context_budget.context_profile ?? data.context_profile ?? "—" },
+              { label: "Origin", value: data.context_budget.context_origin ?? data.context_origin ?? "—" },
+              { label: "History Turns", value: data.context_budget.live_history_turns == null ? "full" : String(data.context_budget.live_history_turns) },
+              { label: "Estimate Gross", value: fmtNum(data.context_budget.estimate?.gross_prompt_tokens) },
+              { label: "Estimate Util.", value: fmtPct(data.context_budget.estimate?.utilization) },
+              { label: "Last Gross", value: fmtNum(data.context_budget.usage?.gross_prompt_tokens) },
+              { label: "Last Current", value: fmtNum(data.context_budget.usage?.current_prompt_tokens) },
+              { label: "Last Cached", value: fmtNum(data.context_budget.usage?.cached_prompt_tokens) },
+              { label: "Last Completion", value: fmtNum(data.context_budget.usage?.completion_tokens) },
+              { label: "Window", value: fmtNum(data.context_budget.estimate?.total_tokens ?? data.context_budget.usage?.total_tokens) },
+            ]}
+          />
+          <div className="text-[11px] italic text-text-dim">
             Gross prompt tokens stay aligned with the header pill. Current and cached splits come from the latest API usage when available.
           </div>
         </Section>
       )}
 
-      {/* Stacked bar */}
       <Section title="Proportions">
-        <div style={{ display: "flex", flexDirection: "row", height: 28, borderRadius: 6, overflow: "hidden", background: t.surfaceRaised }}>
+        <div className="flex h-7 overflow-hidden rounded-md bg-surface-raised/40">
           {data.categories
             .filter((c) => c.percentage > 0)
             .map((c) => (
               <div
                 key={c.key}
                 title={`${c.label}: ${c.percentage}%`}
-                style={{
-                  width: `${c.percentage}%`,
-                  background: CATEGORY_COLORS[c.category]?.bar || t.textDim,
-                  minWidth: c.percentage > 0.5 ? 3 : 0,
-                }}
+                className={CATEGORY_CLASS[c.category]?.bar ?? "bg-text-dim"}
+                style={{ width: `${c.percentage}%`, minWidth: c.percentage > 0.5 ? 3 : 0 }}
               />
             ))}
         </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 16, marginTop: 8 }}>
+        <div className="flex flex-wrap gap-4">
           {legend.map((l) => (
-            <div key={l.key} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, fontSize: 11, color: t.textMuted }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: l.color }} />
+            <div key={l.key} className="flex items-center gap-1.5 text-[11px] text-text-muted">
+              <div className={`h-2 w-2 rounded-full ${CATEGORY_CLASS[l.key]?.dot ?? "bg-text-dim"}`} />
               {l.label}
             </div>
           ))}
         </div>
       </Section>
 
-      {/* Category list */}
       <Section title="Components">
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <div className="flex flex-col gap-1.5">
           {data.categories.map((c) => (
-            <div key={c.key} style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-              padding: "10px 12px", background: t.surfaceRaised, borderRadius: 6, border: `1px solid ${t.surfaceOverlay}`,
-            }}>
-              <div style={{
-                width: 8, height: 8, borderRadius: 4, flexShrink: 0,
-                background: CATEGORY_COLORS[c.category]?.dot || t.textDim,
-              }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>{c.label}</div>
-                <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>{c.description}</div>
+            <SettingsControlRow key={c.key} className="flex items-center gap-3">
+              <div className={`h-2 w-2 shrink-0 rounded-full ${CATEGORY_CLASS[c.category]?.dot ?? "bg-text-dim"}`} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold text-text">{c.label}</div>
+                <div className="mt-0.5 text-[11px] text-text-dim">{c.description}</div>
               </div>
-              <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: t.text }}>~{c.tokens_approx.toLocaleString()} tok</div>
-                <div style={{ fontSize: 11, color: t.textDim }}>{c.percentage}%</div>
+              <div className="shrink-0 text-right">
+                <div className="text-[13px] font-semibold text-text">~{c.tokens_approx.toLocaleString()} tok</div>
+                <div className="text-[11px] text-text-dim">{c.percentage}%</div>
               </div>
-            </div>
+            </SettingsControlRow>
           ))}
         </div>
       </Section>
 
-      {/* Compaction state */}
       {data.compaction && (
         <Section title="Compaction">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-            {[
-              ["Enabled", data.compaction.enabled ? "Yes" : "No"],
-              ["Has Summary", data.compaction.has_summary ? `Yes (${data.compaction.summary_chars.toLocaleString()} chars)` : "No"],
-              ["Total Messages", data.compaction.total_messages],
-              ["Since Watermark", data.compaction.messages_since_watermark],
-              ["Interval", data.compaction.compaction_interval],
-              ["Keep Turns", data.compaction.compaction_keep_turns],
-              ["Turns Until Next", data.compaction.turns_until_next ?? "N/A"],
-            ].map(([label, val]) => (
-              <div key={String(label)} style={{
-                padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
-              }}>
-                <div style={{ fontSize: 16, fontWeight: 600, color: t.text }}>{String(val)}</div>
-                <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
+          <SettingsStatGrid
+            items={[
+              { label: "Enabled", value: data.compaction.enabled ? "Yes" : "No", tone: data.compaction.enabled ? "success" : "default" },
+              { label: "Has Summary", value: data.compaction.has_summary ? `Yes (${data.compaction.summary_chars.toLocaleString()} chars)` : "No" },
+              { label: "Total Messages", value: data.compaction.total_messages },
+              { label: "Since Watermark", value: data.compaction.messages_since_watermark },
+              { label: "Interval", value: data.compaction.compaction_interval },
+              { label: "Keep Turns", value: data.compaction.compaction_keep_turns },
+              { label: "Turns Until Next", value: data.compaction.turns_until_next ?? "N/A" },
+            ]}
+          />
         </Section>
       )}
 
-      {/* Context compression (ephemeral, per-turn) */}
       {data.compression && (
         <Section title="Context Compression">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-            {[
-              ["Enabled", data.compression.enabled ? "Yes" : "No"],
-              ["Model", data.compression.model || "\u2014"],
-              ["Threshold", `${data.compression.threshold.toLocaleString()} chars`],
-              ["Keep Turns", data.compression.keep_turns],
-              ["Conv. Chars", data.compression.conversation_chars.toLocaleString()],
-              ["Would Compress", data.compression.would_compress ? "Yes" : "No"],
-            ].map(([label, val]) => (
-              <div key={String(label)} style={{
-                padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
-              }}>
-                <div style={{
-                  fontSize: 16, fontWeight: 600,
-                  color: label === "Would Compress" && data.compression?.would_compress ? t.success : t.text,
-                }}>{String(val)}</div>
-                <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", marginTop: 8 }}>
-            Compression is ephemeral \u2014 it summarises older conversation via a cheap model each turn without modifying stored messages.
+          <SettingsStatGrid
+            items={[
+              { label: "Enabled", value: data.compression.enabled ? "Yes" : "No", tone: data.compression.enabled ? "success" : "default" },
+              { label: "Model", value: data.compression.model || "—" },
+              { label: "Threshold", value: `${data.compression.threshold.toLocaleString()} chars` },
+              { label: "Keep Turns", value: data.compression.keep_turns },
+              { label: "Conv. Chars", value: data.compression.conversation_chars.toLocaleString() },
+              { label: "Would Compress", value: data.compression.would_compress ? "Yes" : "No", tone: data.compression.would_compress ? "success" : "default" },
+            ]}
+          />
+          <div className="text-[11px] italic text-text-dim">
+            Compression is ephemeral: it summarizes older conversation each turn without modifying stored messages.
           </div>
         </Section>
       )}
 
-      {/* RAG Re-ranking */}
       {data.reranking && (
         <Section title="RAG Re-ranking">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 12 }}>
-            {[
-              ["Enabled", data.reranking.enabled ? "Yes" : "No"],
-              ["Model", data.reranking.model || "\u2014"],
-              ["Threshold", `${data.reranking.threshold_chars.toLocaleString()} chars`],
-              ["Max Chunks", data.reranking.max_chunks],
-              ["RAG Chars", data.reranking.total_rag_chars.toLocaleString()],
-              ["Would Rerank", data.reranking.would_rerank ? "Yes" : "No"],
-            ].map(([label, val]) => (
-              <div key={String(label)} style={{
-                padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8, border: `1px solid ${t.surfaceOverlay}`,
-              }}>
-                <div style={{
-                  fontSize: 16, fontWeight: 600,
-                  color: label === "Would Rerank" && data.reranking.would_rerank ? t.success : t.text,
-                }}>{String(val)}</div>
-                <div style={{ fontSize: 11, color: t.textDim, marginTop: 2 }}>{label}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", marginTop: 8 }}>
-            Re-ranking uses an LLM to filter RAG chunks across all sources, keeping only the most relevant for the query.
+          <SettingsStatGrid
+            items={[
+              { label: "Enabled", value: data.reranking.enabled ? "Yes" : "No", tone: data.reranking.enabled ? "success" : "default" },
+              { label: "Model", value: data.reranking.model || "—" },
+              { label: "Threshold", value: `${data.reranking.threshold_chars.toLocaleString()} chars` },
+              { label: "Max Chunks", value: data.reranking.max_chunks },
+              { label: "RAG Chars", value: data.reranking.total_rag_chars.toLocaleString() },
+              { label: "Would Rerank", value: data.reranking.would_rerank ? "Yes" : "No", tone: data.reranking.would_rerank ? "success" : "default" },
+            ]}
+          />
+          <div className="text-[11px] italic text-text-dim">
+            Re-ranking uses an LLM to filter RAG chunks across all sources.
           </div>
         </Section>
       )}
 
-      {/* Effective settings */}
       {data.effective_settings && (
         <Section title="Effective Settings">
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {Object.entries(data.effective_settings).map(([key, setting]) => {
-              const badge = SOURCE_BADGE_COLORS[setting.source] || SOURCE_BADGE_COLORS.global;
-              return (
-                <div key={key} style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-                  padding: "8px 12px", background: t.surfaceRaised, borderRadius: 6, border: `1px solid ${t.surfaceOverlay}`,
-                }}>
-                  <span style={{ fontSize: 12, color: t.textMuted, fontFamily: "monospace" }}>{key}</span>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 12, color: t.text }}>{String(setting.value)}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4,
-                      background: badge.bg, color: badge.fg,
-                    }}>
-                      {setting.source}
-                    </span>
-                  </div>
+          <div className="flex flex-col gap-1.5">
+            {Object.entries(data.effective_settings).map(([key, setting]) => (
+              <SettingsControlRow key={key} className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[12px] text-text-muted">{key}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-text">{String(setting.value)}</span>
+                  <StatusBadge
+                    label={setting.source}
+                    variant={setting.source === "channel" ? "info" : setting.source === "bot" ? "success" : "neutral"}
+                  />
                 </div>
-              );
-            })}
+              </SettingsControlRow>
+            ))}
           </div>
         </Section>
       )}
 
-      {/* Disclaimer */}
-      <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic", marginTop: 4 }}>
-        {data.disclaimer}
-      </div>
+      <div className="text-[11px] italic text-text-dim">{data.disclaimer}</div>
 
-      {/* Full context preview */}
       <ContextPreview channelId={channelId} />
-    </>
+    </div>
   );
 }

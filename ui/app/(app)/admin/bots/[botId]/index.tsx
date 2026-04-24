@@ -20,6 +20,8 @@ import type { BotConfig, BotEditorData } from "@/src/types/api";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
 import { buildRecentHref } from "@/src/lib/recentPages";
+import { buildBotSavePayload } from "@/src/lib/botEditorPayload";
+import { ApiError } from "@/src/api/client";
 import { MemorySection } from "./MemoryKnowledgeSections";
 import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
 import { BigTextarea } from "./BigTextarea";
@@ -110,25 +112,37 @@ export default function BotEditorScreen() {
   const saveMutation = isNew ? createMutation : updateMutation;
 
   const handleSave = useCallback(async () => {
-    if (!draft) return;
-    const payload: any = { ...draft };
-    if (draft.memory) { payload.memory_config = draft.memory; delete payload.memory; }
-    if (!isNew) { delete payload.id; }
-    delete payload.created_at; delete payload.updated_at;
-    for (const key of Object.keys(payload)) { if (payload[key] === undefined) delete payload[key]; }
+    if (!draft || !editorData) return;
+    const payload = buildBotSavePayload({
+      draft,
+      original: editorData.bot,
+      isNew,
+    });
     try {
       if (isNew) {
-        if (!payload.id || !payload.name || !payload.model) return;
-        await createMutation.mutateAsync(payload);
-        navigate(`/admin/bots/${payload.id}`);
+        const id = typeof payload.id === "string" ? payload.id : "";
+        const name = typeof payload.name === "string" ? payload.name : "";
+        const model = typeof payload.model === "string" ? payload.model : "";
+        if (!id || !name || !model) return;
+        await createMutation.mutateAsync(
+          { ...payload, id, name, model } as Partial<BotConfig> & { id: string; name: string; model: string },
+        );
+        navigate(`/admin/bots/${id}`);
       } else {
-        await updateMutation.mutateAsync(payload);
+        await updateMutation.mutateAsync(payload as Partial<BotConfig>);
       }
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (_) { /* handled by mutation state */ }
-  }, [draft, isNew, createMutation, updateMutation, navigate]);
+  }, [draft, editorData, isNew, createMutation, updateMutation, navigate]);
+
+  const saveErrorMessage = useMemo(() => {
+    const err = saveMutation.error;
+    if (!err) return null;
+    if (err instanceof ApiError) return err.detail || err.message;
+    return (err as Error)?.message || "Failed to save";
+  }, [saveMutation.error]);
 
   const matchingSections = useMemo(() => {
     if (!filter) return new Set<SectionKey>(SECTIONS.map((s) => s.key));
@@ -232,7 +246,7 @@ export default function BotEditorScreen() {
 
       {saveMutation.isError && (
         <div style={{ padding: "8px 16px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
-          {(saveMutation.error as Error)?.message || "Failed to save"}
+          {saveErrorMessage}
         </div>
       )}
 

@@ -1,0 +1,58 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from integrations.local_companion import machine_control as local_companion_machine_control
+from integrations.local_companion import router as local_companion_router
+
+
+class _FakeDb:
+    pass
+
+
+@pytest.mark.asyncio
+async def test_local_companion_enroll_returns_curl_bootstrap_launch_command(monkeypatch):
+    saved_targets: list[dict] = []
+    enabled_states: list[tuple[str, str]] = []
+
+    async def _fake_save_targets(_db, targets):
+        saved_targets[:] = list(targets)
+
+    async def _fake_set_status(integration_id: str, status: str):
+        enabled_states.append((integration_id, status))
+
+    monkeypatch.setattr(local_companion_machine_control, "_save_targets", _fake_save_targets)
+    monkeypatch.setattr(local_companion_machine_control, "get_registered_targets", lambda: [])
+    monkeypatch.setattr(local_companion_machine_control, "get_status", lambda _integration_id: "disabled")
+    monkeypatch.setattr(local_companion_machine_control, "set_status", _fake_set_status)
+    monkeypatch.setattr(local_companion_machine_control.secrets, "token_urlsafe", lambda _n: "token-123")
+
+    provider = local_companion_machine_control.LocalCompanionMachineControlProvider()
+
+    payload = await provider.enroll(
+        _FakeDb(),
+        server_base_url="http://10.10.30.208:8000/",
+        label="Desk",
+    )
+
+    command = payload["launch"]["example_command"]
+
+    assert "curl -fsSL http://10.10.30.208:8000/integrations/local_companion/client.py" in command
+    assert "-o /tmp/spindrel-local-companion.py" in command
+    assert "python /tmp/spindrel-local-companion.py" in command
+    assert "--server-url http://10.10.30.208:8000" in command
+    assert "--target-id " in command
+    assert "--token token-123" in command
+    assert "-m integrations.local_companion.client" not in command
+    assert "--server " not in command
+    assert saved_targets
+    assert enabled_states == [("local_companion", "enabled")]
+
+
+def test_local_companion_router_serves_client_script_file():
+    response = local_companion_router.download_client_script()
+
+    assert Path(response.path) == Path(local_companion_router.__file__).with_name("client.py")
+    assert response.filename == "spindrel-local-companion.py"

@@ -1,8 +1,8 @@
-import { useState, useRef, useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { FileText } from "lucide-react";
 import { usePromptTemplates } from "../../api/hooks/usePromptTemplates";
-import { useThemeTokens } from "../../theme/tokens";
 import type { PromptTemplate } from "../../types/api";
-import { createPortal } from "react-dom";
+import { SelectDropdown, type SelectDropdownOption } from "./SelectDropdown";
 
 interface Props {
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -11,11 +11,11 @@ interface Props {
   workspaceId?: string;
 }
 
+interface PromptTemplateOption extends SelectDropdownOption {
+  template: PromptTemplate;
+}
+
 export function PromptTemplateSelector({ textareaRef, value, onChange, workspaceId }: Props) {
-  const t = useThemeTokens();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const btnRef = useRef<HTMLButtonElement>(null);
   const { data: templates } = usePromptTemplates(workspaceId);
 
   const insertTemplate = useCallback(
@@ -36,199 +36,65 @@ export function PromptTemplateSelector({ textareaRef, value, onChange, workspace
       } else {
         onChange(value + insertText);
       }
-      setOpen(false);
-      setSearch("");
     },
     [textareaRef, value, onChange]
   );
 
+  const options = useMemo<PromptTemplateOption[]>(
+    () =>
+      (templates ?? []).map((tpl) => {
+        const category = tpl.category || "Uncategorized";
+        return {
+          value: tpl.id,
+          label: tpl.name,
+          description: tpl.description || undefined,
+          meta: tpl.workspace_id ? "workspace" : undefined,
+          group: category,
+          groupLabel: category,
+          searchText: `${tpl.name} ${category} ${tpl.description ?? ""} ${tpl.content.slice(0, 160)}`,
+          template: tpl,
+        };
+      }),
+    [templates]
+  );
+
   if (!templates || templates.length === 0) return null;
 
-  const q = search.toLowerCase();
-  const filtered = q
-    ? templates.filter(
-        (tpl) =>
-          tpl.name.toLowerCase().includes(q) ||
-          (tpl.category || "").toLowerCase().includes(q) ||
-          (tpl.description || "").toLowerCase().includes(q)
-      )
-    : templates;
-
-  // Group by category
-  const grouped = new Map<string, PromptTemplate[]>();
-  for (const tpl of filtered) {
-    const cat = tpl.category || "Uncategorized";
-    if (!grouped.has(cat)) grouped.set(cat, []);
-    grouped.get(cat)!.push(tpl);
-  }
-
   return (
-    <div style={{ position: "relative", display: "inline-block" }}>
-      <button
-        ref={btnRef}
-        onClick={() => setOpen(!open)}
-        title="Insert prompt template"
-        style={{
-          display: "inline-flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 4,
-          padding: "3px 8px",
-          fontSize: 11,
-          fontWeight: 600,
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 4,
-          background: open ? t.surfaceRaised : "transparent",
-          color: t.textMuted,
-          cursor: "pointer",
-        }}
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-          <polyline points="14 2 14 8 20 8" />
-          <line x1="12" y1="18" x2="12" y2="12" />
-          <line x1="9" y1="15" x2="15" y2="15" />
-        </svg>
-        Template
-      </button>
-
-      {open && typeof document !== "undefined" &&
-        (() => {          return createPortal(
-            <>
-              <div
-                onClick={() => { setOpen(false); setSearch(""); }}
-                style={{ position: "fixed", inset: 0, zIndex: 10010 }}
-              />
-              <div
-                style={{
-                  position: "fixed",
-                  top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-                  left: btnRef.current?.getBoundingClientRect().left ?? 0,
-                  width: 340,
-                  maxHeight: 380,
-                  zIndex: 10011,
-                  background: t.surfaceRaised,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  borderRadius: 8,
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                {/* Search */}
-                <div style={{ padding: "8px 10px", borderBottom: `1px solid ${t.surfaceOverlay}` }}>
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search templates..."
-                    autoFocus
-                    style={{
-                      width: "100%",
-                      background: t.inputBg,
-                      border: `1px solid ${t.surfaceBorder}`,
-                      borderRadius: 4,
-                      padding: "5px 8px",
-                      fontSize: 12,
-                      color: t.text,
-                      outline: "none",
-                    }}
-                  />
-                </div>
-                {/* List */}
-                <div style={{ flex: 1, overflowY: "auto", padding: "4px 0" }}>
-                  {filtered.length === 0 && (
-                    <div style={{ padding: "16px 12px", textAlign: "center", color: t.textDim, fontSize: 12 }}>
-                      No templates found
-                    </div>
-                  )}
-                  {Array.from(grouped.entries()).map(([cat, items]) => (
-                    <div key={cat}>
-                      <div
-                        style={{
-                          padding: "6px 12px 2px",
-                          fontSize: 9,
-                          fontWeight: 700,
-                          color: t.textDim,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.05em",
-                        }}
-                      >
-                        {cat}
-                      </div>
-                      {items.map((tpl) => (
-                        <button
-                          key={tpl.id}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            insertTemplate(tpl);
-                          }}
-                          style={{
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 2,
-                            width: "100%",
-                            padding: "6px 12px",
-                            background: "transparent",
-                            border: "none",
-                            cursor: "pointer",
-                            textAlign: "left",
-                          }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = t.surfaceOverlay)}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
-                              {tpl.name}
-                            </span>
-                            {tpl.workspace_id && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  padding: "1px 4px",
-                                  borderRadius: 3,
-                                  background: t.accentSubtle,
-                                  color: t.accent,
-                                }}
-                              >
-                                workspace
-                              </span>
-                            )}
-                          </div>
-                          {tpl.description && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: t.textDim,
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {tpl.description}
-                            </span>
-                          )}
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: t.textDim,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                              fontFamily: "monospace",
-                            }}
-                          >
-                            {tpl.content.slice(0, 80)}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
+    <div className="inline-block min-w-[118px]">
+      <SelectDropdown
+        value={null}
+        options={options}
+        onChange={(_, option) => insertTemplate((option as PromptTemplateOption).template)}
+        placeholder="Template"
+        searchable
+        searchPlaceholder="Search templates..."
+        emptyLabel="No templates found"
+        size="compact"
+        popoverWidth={340}
+        maxHeight={380}
+        leadingIcon={<FileText size={12} className="text-text-dim" />}
+        renderOption={(option) => {
+          const tpl = (option as PromptTemplateOption).template;
+          return (
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-[12px] font-semibold text-text">{tpl.name}</span>
+                {tpl.workspace_id && (
+                  <span className="shrink-0 rounded-sm bg-accent/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-accent/80">
+                    workspace
+                  </span>
+                )}
               </div>
-            </>,
-            document.body
+              {tpl.description && (
+                <div className="truncate pt-0.5 text-[11px] text-text-muted">{tpl.description}</div>
+              )}
+              <div className="truncate pt-1 font-mono text-[10px] text-text-dim">{tpl.content.slice(0, 80)}</div>
+            </div>
           );
-        })()}
+        }}
+        triggerClassName="min-h-[26px] border-surface-border/70 bg-transparent text-text-muted hover:bg-surface-overlay/40"
+      />
     </div>
   );
 }

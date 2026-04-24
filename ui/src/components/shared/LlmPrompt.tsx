@@ -122,7 +122,6 @@ export function GenerateButton({
   onChange: (text: string) => void;
   size?: "small" | "normal";
 }) {
-  const t = useThemeTokens();
   const gen = useGeneratePrompt();
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
   const [showGuidance, setShowGuidance] = useState(false);
@@ -156,19 +155,15 @@ export function GenerateButton({
   }, [gen, fieldType, botId, channelId, generateContext, value, onChange]);
 
   const isSmall = size === "small";
-  const baseStyle: React.CSSProperties = isSmall
-    ? {
-        background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-        color: t.textDim, fontSize: 11, padding: "2px 8px", cursor: "pointer",
-        transition: "all 0.15s", whiteSpace: "nowrap",
-      }
-    : {
-        background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-        color: t.textMuted, fontSize: 13, padding: "6px 16px", cursor: "pointer",
-        transition: "all 0.15s", fontWeight: 600, whiteSpace: "nowrap",
-      };
-
-  const flashColor = flash === "success" ? t.success : flash === "error" ? t.danger : undefined;
+  const buttonClass =
+    `inline-flex items-center justify-center rounded-md bg-transparent font-semibold transition-colors ` +
+    `focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 disabled:cursor-wait disabled:opacity-60 ` +
+    (isSmall ? "min-h-[28px] px-2 text-[11px] " : "min-h-[36px] px-3 text-[12px] ") +
+    (flash === "success"
+      ? "text-success hover:bg-success/10"
+      : flash === "error"
+        ? "text-danger hover:bg-danger/10"
+        : "text-text-dim hover:bg-surface-overlay/50 hover:text-text-muted");
 
   return (
     <div style={{ position: "relative", display: "inline-block" }}>
@@ -176,36 +171,22 @@ export function GenerateButton({
         ref={btnRef}
         onClick={() => setShowGuidance(!showGuidance)}
         disabled={gen.isPending}
-        style={{
-          ...baseStyle,
-          ...(flash ? { borderColor: flashColor, color: flashColor } : {}),
-          ...(gen.isPending ? { opacity: 0.6, cursor: "wait" } : {}),
-        }}
-        onMouseEnter={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; } }}
-        onMouseLeave={(e) => { if (!gen.isPending && !flash) { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = isSmall ? t.textDim : t.textMuted; } }}
+        className={buttonClass}
       >
         {gen.isPending ? "Generating..." : flash === "success" ? "Done!" : flash === "error" ? "Failed" : "Generate"}
       </button>
 
       {showGuidance && !gen.isPending && typeof document !== "undefined" && (() => {        return createPortal(
           <>
-            <div onClick={() => { setShowGuidance(false); setGuidance(""); }} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
-            <div style={{
-              position: "fixed",
-              top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
-              left: Math.min(btnRef.current?.getBoundingClientRect().left ?? 0, window.innerWidth - 320),
-              width: 300,
-              zIndex: 10011,
-              background: t.surfaceRaised,
-              border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 8,
-              boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-              padding: 10,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>What should be generated?</div>
+            <div onClick={() => { setShowGuidance(false); setGuidance(""); }} className="fixed inset-0 z-[10010]" />
+            <div
+              className="fixed z-[10011] flex w-[300px] flex-col gap-2 rounded-md border border-surface-border bg-surface-raised p-2.5 ring-1 ring-black/10"
+              style={{
+                top: (btnRef.current?.getBoundingClientRect().bottom ?? 0) + 4,
+                left: Math.min(btnRef.current?.getBoundingClientRect().left ?? 0, window.innerWidth - 320),
+              }}
+            >
+              <div className="text-[11px] font-semibold text-text-muted">What should be generated?</div>
               <input
                 type="text"
                 autoFocus
@@ -216,29 +197,18 @@ export function GenerateButton({
                   if (e.key === "Escape") { setShowGuidance(false); setGuidance(""); }
                 }}
                 placeholder="Optional — describe what you want..."
-                style={{
-                  background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                  padding: "6px 10px", fontSize: 12, color: t.text, outline: "none", width: "100%",
-                }}
+                className="min-h-[34px] w-full rounded-md bg-input px-2.5 text-[12px] text-text outline-none placeholder:text-text-dim focus:ring-2 focus:ring-accent/25"
               />
-              <div style={{ display: "flex", flexDirection: "row", justifyContent: "flex-end", gap: 6 }}>
+              <div className="flex justify-end gap-1.5">
                 <button
                   onClick={() => { setShowGuidance(false); setGuidance(""); }}
-                  style={{
-                    padding: "4px 10px", fontSize: 11,
-                    background: "transparent", border: `1px solid ${t.surfaceBorder}`,
-                    borderRadius: 4, color: t.textMuted, cursor: "pointer",
-                  }}
+                  className="min-h-[30px] rounded-md px-2.5 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => handleGenerate(guidance)}
-                  style={{
-                    padding: "4px 12px", fontSize: 11, fontWeight: 600,
-                    background: t.accent, color: "#fff", border: "none",
-                    borderRadius: 4, cursor: "pointer",
-                  }}
+                  className="min-h-[30px] rounded-md px-2.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
                 >
                   Go
                 </button>
@@ -252,6 +222,8 @@ export function GenerateButton({
   );
 }
 
+const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
+
 // ---------------------------------------------------------------------------
 // Autocomplete dropdown (portal-based)
 // ---------------------------------------------------------------------------
@@ -264,6 +236,7 @@ export function AutocompleteMenu({
   onHover,
   onClose,
   anchor,
+  chatMode = "default",
 }: {
   show: boolean;
   items: CompletionItem[];
@@ -273,8 +246,10 @@ export function AutocompleteMenu({
   onHover: (i: number) => void;
   onClose: () => void;
   anchor?: "top" | "bottom";
+  chatMode?: "default" | "terminal";
 }) {
   const t = useThemeTokens();
+  const isTerminal = chatMode === "terminal";
   if (!show || items.length === 0 || typeof document === "undefined") return null;  const posStyle: React.CSSProperties =
     anchor === "bottom"
       ? { bottom: window.innerHeight - menuPos.top }
@@ -305,18 +280,16 @@ export function AutocompleteMenu({
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 10010 }} />
       <div
+        className={[
+          "fixed z-[10011] overflow-y-auto bg-surface-raised max-h-[240px]",
+          isTerminal
+            ? "rounded-none border-t border-surface-border/60"
+            : "rounded-md border border-surface-border",
+        ].join(" ")}
         style={{
-          position: "fixed",
           ...posStyle,
           left: menuPos.left,
           width: menuPos.width,
-          maxHeight: 240,
-          zIndex: 10011,
-          background: t.surfaceRaised,
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 8,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          overflowY: "auto",
         }}
       >
         {items.map((item, i) => {
@@ -338,17 +311,11 @@ export function AutocompleteMenu({
               key={item.value}
               onMouseDown={(e) => { e.preventDefault(); onSelect(item); }}
               onMouseEnter={() => onHover(i)}
-              style={{
-                padding: "7px 12px",
-                paddingLeft: 12 + packIndent,
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "flex-start",
-                gap: 9,
-                background: isActive ? t.surfaceOverlay : "transparent",
-                position: "relative",
-              }}
+              className={[
+                "flex flex-row items-start gap-[9px] cursor-pointer relative py-[7px] pr-3 transition-colors duration-100",
+                isActive ? "bg-surface-overlay/60" : "bg-transparent",
+              ].join(" ")}
+              style={{ paddingLeft: 12 + packIndent }}
             >
               {meta.isPackChild && (
                 <span
@@ -376,40 +343,43 @@ export function AutocompleteMenu({
                   {badgeText}
                 </span>
               )}
-              <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flex: 1, gap: 1 }}>
-                <span style={{
-                  fontSize: 13, fontWeight: meta.isPackIndex ? 700 : 600, color: t.text,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
+              <div className="flex flex-col min-w-0 flex-1 gap-[1px]">
+                <span
+                  className="text-[13px] text-text overflow-hidden text-ellipsis whitespace-nowrap"
+                  style={{
+                    fontWeight: meta.isPackIndex ? 700 : 600,
+                    fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined,
+                  }}
+                >
                   {leaf}
                 </span>
                 {meta.isPackIndex && childCount > 0 ? (
-                  <span style={{
-                    fontSize: 11, color: TAG_COLORS.pack.fg, fontWeight: 500,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <span
+                    className="text-[11px] font-medium overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ color: TAG_COLORS.pack.fg }}
+                  >
                     Index only · {childCount} sub-skill{childCount === 1 ? "" : "s"} loaded on demand
                   </span>
                 ) : hasSubPath && !meta.isPackChild ? (
-                  <span style={{
-                    fontFamily: "monospace", fontSize: 10, color: t.textDim,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <span
+                    className="text-[10px] text-text-dim overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ fontFamily: TERMINAL_FONT_STACK }}
+                  >
                     {path}
                   </span>
                 ) : null}
                 {item.description ? (
-                  <span style={{
-                    fontSize: 11, color: t.textDim,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <span
+                    className="text-[11px] text-text-dim overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined }}
+                  >
                     {item.description}
                   </span>
                 ) : (!hasSubPath && item.label !== item.value) ? (
-                  <span style={{
-                    fontSize: 11, color: t.textDim,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                  }}>
+                  <span
+                    className="text-[11px] text-text-dim overflow-hidden text-ellipsis whitespace-nowrap"
+                    style={{ fontFamily: isTerminal ? TERMINAL_FONT_STACK : undefined }}
+                  >
                     {item.label}
                   </span>
                 ) : null}
@@ -521,7 +491,6 @@ function FullscreenEditor({
   channelId?: string;
   onClose: () => void;
 }) {
-  const t = useThemeTokens();
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -529,37 +498,26 @@ function FullscreenEditor({
 
   if (typeof document === "undefined") return null;
   return createPortal(
-    <div style={{
-      position: "fixed", inset: 0, zIndex: 10000,
-      background: "rgba(0,0,0,0.8)", display: "flex", flexDirection: "column",
-    }}>
-      {/* Header */}
-      <div style={{
-        display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-        padding: "12px 20px", borderBottom: `1px solid ${t.surfaceBorder}`,
-      }}>
-        <div style={{ color: t.text, fontSize: 14, fontWeight: 600 }}>
-          {label || "Edit Prompt"}
-          <span style={{ color: t.textDim, fontWeight: 400, fontSize: 12, marginLeft: 8 }}>(type @ to insert tags, Esc to close)</span>
+    <div className="fixed inset-0 z-[10000] flex flex-col bg-surface">
+      <div className="flex min-h-[52px] items-center justify-between gap-3 px-4">
+        <div className="min-w-0">
+          <div className="truncate text-[14px] font-semibold text-text">{label || "Edit Prompt"}</div>
+          <div className="text-[11px] text-text-dim">Type @ to insert context tags. Esc closes the editor.</div>
         </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
+        <div className="flex shrink-0 items-center gap-1.5">
           {(generateContext || fieldType) && (
             <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} size="normal" />
           )}
           <button
             onClick={onClose}
-            style={{
-              background: t.accent, color: "#fff", border: "none", borderRadius: 6,
-              padding: "6px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer",
-            }}
+            className="min-h-[36px] rounded-md px-3 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
           >
             Done
           </button>
         </div>
       </div>
 
-      {/* Editor */}
-      <div ref={containerRef} style={{ flex: 1, padding: 20, display: "flex", flexDirection: "column" }}>
+      <div ref={containerRef} className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         <textarea
           ref={textareaRef}
           value={value}
@@ -568,19 +526,10 @@ function FullscreenEditor({
           onBlur={() => setTimeout(() => ac.setShowMenu(false), 200)}
           placeholder={placeholder}
           autoFocus
-          style={{
-            flex: 1, width: "100%",
-            fontFamily: "monospace", fontSize: 16, lineHeight: "1.6",
-            padding: "16px 20px", borderRadius: 10,
-            border: `1px solid ${t.surfaceBorder}`, background: t.surface, color: t.text,
-            resize: "none", outline: "none",
-          }}
-          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
-          onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
+          className="min-h-0 flex-1 resize-none rounded-md bg-input px-4 py-3 font-mono text-[16px] leading-[1.6] text-text outline-none placeholder:text-text-dim focus:ring-2 focus:ring-accent/25"
         />
-        {/* Character / token count */}
-        <div style={{ display: "flex", justifyContent: "flex-end", padding: "6px 4px 0" }}>
-          <span style={{ fontSize: 11, color: t.textDim }}>
+        <div className="flex justify-end px-1 pt-1.5">
+          <span className="text-[11px] text-text-dim">
             {value.length} chars &middot; ~{Math.ceil(value.length / 4)} tokens
           </span>
         </div>
@@ -601,9 +550,9 @@ function FullscreenEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Main LlmPrompt component
+// Main prompt editor component
 // ---------------------------------------------------------------------------
-export function LlmPrompt({
+export function PromptEditor({
   value,
   onChange,
   label,
@@ -615,41 +564,34 @@ export function LlmPrompt({
   botId,
   channelId,
 }: Props) {
-  const t = useThemeTokens();
   const { data: completions } = useCompletions();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const ac = usePromptAutocomplete(textareaRef, containerRef, value, onChange, completions);
+  const minHeight = Math.max(160, rows * 28);
 
   return (
-    <div>
-      {label && (
-        <div style={{ color: t.textMuted, fontSize: 12, marginBottom: 4, fontWeight: 500, display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <span>
-            {label}{" "}
-            <span style={{ color: t.textDim, fontWeight: 400 }}>(type @ to insert tags)</span>
-          </span>
-          <div style={{ display: "flex", flexDirection: "row", gap: 6, alignItems: "center" }}>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-h-[30px] items-center justify-between gap-2">
+        <div className="min-w-0">
+          {label && <div className="truncate text-[12px] font-medium text-text-muted">{label}</div>}
+          <div className="text-[11px] text-text-dim">Type @ to insert tags</div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
             {(generateContext || fieldType) && (
               <GenerateButton generateContext={generateContext} fieldType={fieldType} botId={botId} channelId={channelId} value={value} onChange={onChange} />
             )}
             <button
+              type="button"
               onClick={() => setExpanded(true)}
-              style={{
-                background: "none", border: `1px solid ${t.surfaceBorder}`, borderRadius: 4,
-                color: t.textDim, fontSize: 11, padding: "2px 8px", cursor: "pointer",
-                transition: "all 0.15s",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.textDim; e.currentTarget.style.color = t.textMuted; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = t.textDim; }}
+              className="min-h-[28px] rounded-md bg-transparent px-2 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
             >
               Expand
             </button>
-          </div>
         </div>
-      )}
-      <div ref={containerRef}>
+      </div>
+      <div ref={containerRef} className="rounded-md bg-input focus-within:ring-2 focus-within:ring-accent/25">
         <textarea
           ref={textareaRef}
           value={value}
@@ -658,22 +600,15 @@ export function LlmPrompt({
           onBlur={() => setTimeout(() => ac.setShowMenu(false), 200)}
           placeholder={placeholder}
           rows={rows}
-          style={{
-            fontFamily: "monospace", fontSize: 16, lineHeight: "1.5",
-            padding: "8px 12px", borderRadius: 8, width: "100%",
-            border: `1px solid ${t.surfaceBorder}`, background: t.inputBg, color: t.text,
-            resize: "vertical", outline: "none", transition: "border-color 0.15s",
-          }}
-          onFocus={(e) => { e.target.style.borderColor = t.accent; }}
-          onBlurCapture={(e) => { e.target.style.borderColor = t.surfaceBorder; }}
+          style={{ minHeight }}
+          className="block w-full resize-y rounded-md bg-transparent px-3 py-2.5 font-mono text-[16px] leading-[1.55] text-text outline-none placeholder:text-text-dim"
         />
       </div>
-      {/* Character / token count */}
-      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+      <div className="flex items-center justify-between gap-3">
         {helpText ? (
-          <span style={{ color: t.textDim, fontSize: 11 }}>{helpText}</span>
+          <span className="min-w-0 text-[11px] text-text-dim">{helpText}</span>
         ) : <span />}
-        <span style={{ fontSize: 11, color: t.textDim }}>
+        <span className="shrink-0 text-[11px] text-text-dim">
           {value.length} chars &middot; ~{Math.ceil(value.length / 4)} tokens
         </span>
       </div>
@@ -703,4 +638,9 @@ export function LlmPrompt({
       )}
     </div>
   );
+}
+
+// Backward-compatible name for existing callers.
+export function LlmPrompt(props: Props) {
+  return <PromptEditor {...props} />;
 }

@@ -242,10 +242,16 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                 "action": {
                     "type": "string",
                     "enum": [
-                        "create", "update", "list", "get", "delete", "patch", "merge", "restore",
+                        "create", "update", "upsert",
+                        "list", "get", "delete", "patch", "merge", "restore",
                         "get_script", "add_script", "update_script", "delete_script",
                     ],
-                    "description": "The action to perform. delete archives the skill (reversible via restore).",
+                    "description": (
+                        "The action to perform. `upsert` creates the skill if it doesn't "
+                        "exist and updates it if it does — prefer this over `create` when "
+                        "you're not sure, since `create` errors on duplicates and costs a "
+                        "round-trip. `delete` archives the skill (reversible via restore)."
+                    ),
                 },
                 "name": {
                     "type": "string",
@@ -326,9 +332,11 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "List of skill names to merge (for merge action). "
-                        "The source skills are deleted after merge. "
-                        "Provide name + title + content for the merged result."
+                        "For merge action: source skills to merge (deleted after merge; "
+                        "provide `name` + `title` + `content` for the merged result). "
+                        "For get action: batch-fetch multiple skill bodies in one call "
+                        "(returns `{skills: [...], missing: [...]}`). Cap 50. "
+                        "Prefer this over issuing N sequential `action=\"get\"` calls."
                     ),
                 },
             },
@@ -381,7 +389,7 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
             "required": ["skills"],
         },
         {
-            "description": "get action",
+            "description": "get action (single name)",
             "type": "object",
             "properties": {
                 "id": {"type": "string"},
@@ -402,6 +410,28 @@ def _build_content(title: str, content: str, triggers: str = "", category: str =
                 },
             },
             "required": ["id", "content"],
+        },
+        {
+            "description": "get action (batch via names=[...])",
+            "type": "object",
+            "properties": {
+                "skills": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "name": {"type": "string"},
+                            "content": {"type": "string"},
+                            "updated_at": {"type": ["string", "null"]},
+                            "scripts": {"type": "array"},
+                        },
+                        "required": ["id", "content"],
+                    },
+                },
+                "missing": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["skills", "missing"],
         },
         {
             "description": "get_script action",
@@ -533,6 +563,35 @@ async def manage_bot_skill(
 
     # --- GET ---
     if action == "get":
+        # Batch form: action="get" + names=[...] — fetch several skills in
+        # one call so hygiene / skill-review runs don't burn an iteration
+        # per skill body. Single-name form below is preserved unchanged.
+        if names:
+            if len(names) > 50:
+                return json.dumps({
+                    "error": f"Too many names ({len(names)}). Cap is 50 for batch get.",
+                }, ensure_ascii=False)
+            async with async_session() as db:
+                out: list[dict] = []
+                missing: list[str] = []
+                for n in names:
+                    sid, err = _safe_skill_id(bot_id, n)
+                    if err or sid is None:
+                        missing.append(n)
+                        continue
+                    row = await db.get(SkillRow, sid)
+                    if row is None:
+                        missing.append(n)
+                        continue
+                    out.append({
+                        "id": row.id,
+                        "name": row.name,
+                        "content": row.content,
+                        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+                        "scripts": _summarize_scripts(row.scripts),
+                    })
+            return json.dumps({"skills": out, "missing": missing}, ensure_ascii=False)
+
         if not name:
             return json.dumps({"error": "name is required for get action."}, ensure_ascii=False)
         skill_id, err = _safe_skill_id(bot_id, name)
@@ -572,6 +631,19 @@ async def manage_bot_skill(
             "script_body": script_row.get("script", ""),
             "script_timeout_s": script_row.get("timeout_s"),
         }, ensure_ascii=False)
+
+    # --- UPSERT ---
+    # Resolves to create-or-update based on existence, so callers don't have
+    # to round-trip to check first. Falls through to the regular branches.
+    if action == "upsert":
+        if not name:
+            return json.dumps({"error": "name is required for upsert action."}, ensure_ascii=False)
+        skill_id, err = _safe_skill_id(bot_id, name)
+        if err:
+            return err
+        async with async_session() as db:
+            existing = await db.get(SkillRow, skill_id)
+        action = "update" if existing else "create"
 
     # --- CREATE ---
     if action == "create":
@@ -1015,8 +1087,8 @@ async def manage_bot_skill(
 
     return json.dumps({
         "error": (
-            f"Unknown action: {action}. Use create, update, list, get, delete, patch, merge, "
-            "restore, get_script, add_script, update_script, or delete_script."
+            f"Unknown action: {action}. Use create, update, upsert, list, get, delete, "
+            "patch, merge, restore, get_script, add_script, update_script, or delete_script."
         ),
     }, ensure_ascii=False)
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from app.agent.bots import get_bot, list_bots
+from app.domain.errors import DomainError
 from app.db.models import (
     Bot as BotRow,
     SandboxProfile,
@@ -73,7 +74,7 @@ async def admin_bot_detail(
     from app.agent.persona import get_persona, resolve_workspace_persona
     try:
         bot = get_bot(bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=404, detail=f"Bot not found: {bot_id}")
     persona_content = await get_persona(bot_id)
     ws_persona = resolve_workspace_persona(bot.shared_workspace_id, bot_id)

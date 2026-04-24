@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useThemeTokens } from "../../theme/tokens";
 
 /** Quick presets — label + 5-field cron expression. */
 export const CRON_PRESETS: { label: string; expr: string }[] = [
@@ -52,42 +51,34 @@ export function CronInput({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
-  const t = useThemeTokens();
   const shape = useMemo(() => parseCronShape(value), [value]);
   const label = useMemo(() => humanLabelFor(value), [value]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="flex flex-col gap-2">
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         spellCheck={false}
-        style={{
-          background: t.inputBg,
-          border: `1px solid ${shape.valid ? t.inputBorder : t.dangerBorder}`,
-          borderRadius: 8,
-          padding: "8px 12px",
-          color: t.inputText,
-          fontSize: 14,
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-          outline: "none",
-          width: "100%",
-        }}
+        className={
+          `w-full rounded-md border bg-input px-3 py-2 font-mono text-[14px] text-text outline-none transition-colors ` +
+          (shape.valid ? "border-input-border focus:border-accent" : "border-danger/50 focus:border-danger")
+        }
       />
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, fontSize: 12 }}>
+      <div className="flex items-center gap-2 text-[12px]">
         {!shape.valid && value.trim() ? (
-          <span style={{ color: t.danger }}>invalid: {shape.reason}</span>
+          <span className="text-danger">invalid: {shape.reason}</span>
         ) : label ? (
-          <span style={{ color: t.textDim }}>{label}</span>
+          <span className="text-text-dim">{label}</span>
         ) : shape.valid ? (
-          <span style={{ color: t.textDim }}>custom schedule</span>
+          <span className="text-text-dim">custom schedule</span>
         ) : (
-          <span style={{ color: t.textDim }}>5-field cron (minute hour dom month dow)</span>
+          <span className="text-text-dim">5-field cron (minute hour dom month dow)</span>
         )}
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div className="flex flex-wrap gap-1.5">
         {CRON_PRESETS.map((p) => {
           const active = p.expr === (value ?? "").trim();
           return (
@@ -95,16 +86,10 @@ export function CronInput({
               key={p.expr}
               type="button"
               onClick={() => onChange(p.expr)}
-              style={{
-                background: active ? t.accentSubtle : t.surfaceRaised,
-                border: `1px solid ${active ? t.accentBorder : t.surfaceBorder}`,
-                color: active ? t.accent : t.textMuted,
-                borderRadius: 999,
-                padding: "3px 10px",
-                fontSize: 11,
-                fontWeight: 500,
-                cursor: "pointer",
-              }}
+              className={
+                `rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ` +
+                (active ? "bg-accent/10 text-accent" : "bg-surface-raised/50 text-text-muted hover:bg-surface-overlay/60")
+              }
             >
               {p.label}
             </button>

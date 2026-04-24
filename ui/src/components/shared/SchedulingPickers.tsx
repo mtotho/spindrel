@@ -7,6 +7,7 @@
 import { useMemo } from "react";
 import { FormRow } from "./FormControls";
 import { DateTimePicker } from "./DateTimePicker";
+import { SelectDropdown } from "./SelectDropdown";
 import { parseRecurrenceMs, isValidRecurrence } from "@/app/(app)/admin/tasks/taskUtils";
 
 // ---------------------------------------------------------------------------
@@ -61,8 +62,8 @@ export function ScheduledAtPicker({ value, onChange }: { value: string; onChange
       <div className="flex flex-row items-center gap-2">
         <button
           onClick={() => onChange("")}
-          className={`px-3.5 py-1.5 text-xs font-semibold border-none cursor-pointer rounded-md shrink-0 transition-colors ${
-            isNow ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text"
+          className={`shrink-0 cursor-pointer rounded-md border border-transparent px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+            isNow ? "bg-accent/[0.08] text-accent" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
           }`}
         >
           Now
@@ -120,8 +121,8 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
         <div className="flex flex-row items-center gap-2">
           <button
             onClick={handleToggle}
-            className={`px-3.5 py-1.5 text-xs font-semibold border-none cursor-pointer rounded-md shrink-0 transition-colors ${
-              hasRecurrence ? "bg-warning/10 text-warning" : "bg-surface-raised text-text-muted hover:text-text"
+            className={`shrink-0 cursor-pointer rounded-md border border-transparent px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              hasRecurrence ? "bg-warning/10 text-warning" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
             }`}
           >
             {hasRecurrence ? "Repeating" : "No repeat"}
@@ -138,15 +139,15 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
                   isValid ? "border-surface-border" : "border-danger"
                 }`}
               />
-              <select
+              <div className="w-[112px]">
+                <SelectDropdown
                 value={unitValue}
-                onChange={(e) => handleUnitChange(e.target.value)}
-                className="px-2 py-1.5 text-[13px] bg-input border border-surface-border rounded-md text-text outline-none cursor-pointer focus:border-accent/40"
-              >
-                {RECURRENCE_UNITS.map((u) => (
-                  <option key={u.value} value={u.value}>{u.label}</option>
-                ))}
-              </select>
+                  options={RECURRENCE_UNITS}
+                  onChange={handleUnitChange}
+                  size="compact"
+                  popoverWidth="trigger"
+                />
+              </div>
             </div>
           )}
         </div>

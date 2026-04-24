@@ -474,15 +474,15 @@ class TestSlugProtection:
         """A slug containing a colon (``channel:abc``) fails ``_SLUG_RE``
         because colon is not in ``[a-z0-9-]``.
         """
-        from fastapi import HTTPException
+        from app.domain.errors import DomainError
 
         from app.services.dashboards import create_dashboard
 
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(DomainError) as excinfo:
             await create_dashboard(
                 db_session, slug="channel:abc", name="Should fail"
             )
-        assert excinfo.value.status_code == 400
+        assert excinfo.value.http_status == 400
         # Blocked by regex — message says "lowercase letters, digits, or dashes".
         assert "channel" in excinfo.value.detail.lower() or "slug" in excinfo.value.detail.lower()
 
@@ -495,20 +495,20 @@ class TestSlugProtection:
         If this test fails it means the channel-prefix error message was
         returned — that implies the regex was widened to allow colons.
         """
-        from fastapi import HTTPException
+        from app.domain.errors import DomainError
 
         from app.services.dashboards import create_dashboard, CHANNEL_SLUG_PREFIX
 
         # Build a slug that starts with "channel:" — colon blocks regex.
         slug = f"{CHANNEL_SLUG_PREFIX}testchannel"
 
-        with pytest.raises(HTTPException) as excinfo:
+        with pytest.raises(DomainError) as excinfo:
             await create_dashboard(db_session, slug=slug, name="Fail")
 
         # Regex fires first — message is about slug format, not channel prefix.
         # If the message says "'channel:*' slugs are reserved", the explicit
         # guard is now reachable — update this test.
-        assert excinfo.value.status_code == 400
+        assert excinfo.value.http_status == 400
         assert "channel:" not in excinfo.value.detail, (
             "The explicit channel-prefix guard at dashboards.py:210 is now reachable "
             "— the slug regex was likely widened. Remove the 'dead code' comment and "

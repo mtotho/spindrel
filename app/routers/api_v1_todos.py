@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+from app.domain.errors import DomainError
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,7 +71,7 @@ async def create_todo(
     # Validate bot exists
     try:
         get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     todo = Todo(

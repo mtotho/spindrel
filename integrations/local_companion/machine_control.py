@@ -5,7 +5,6 @@ import secrets
 import uuid
 from typing import Any
 
-from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.integration_settings import get_status, get_value, set_status, update_settings
@@ -57,6 +56,15 @@ def _dump_targets(targets: list[dict[str, Any]]) -> str:
     return json.dumps(targets, ensure_ascii=False)
 
 
+def _build_example_command(server_url: str, *, target_id: str, token: str) -> str:
+    client_url = f"{server_url}/integrations/local_companion/client.py"
+    return (
+        f"curl -fsSL {client_url} -o /tmp/spindrel-local-companion.py && "
+        "python /tmp/spindrel-local-companion.py "
+        f"--server-url {server_url} --target-id {target_id} --token {token}"
+    )
+
+
 def get_registered_targets() -> list[dict[str, Any]]:
     return _parse_targets(get_value("local_companion", TARGETS_KEY, "[]"))
 
@@ -86,27 +94,54 @@ class LocalCompanionMachineControlProvider:
                 return target
         return None
 
-    def get_target_connection(self, target_id: str) -> dict[str, Any] | None:
+    def get_target_status(self, target_id: str) -> dict[str, Any] | None:
         conn = bridge.get_target_connection(target_id)
-        if conn is None:
+        target = self.get_target(target_id)
+        if target is None:
             return None
+        if conn is None:
+            return {
+                "ready": False,
+                "status": "offline",
+                "reason": "The companion is not currently connected.",
+                "checked_at": target.get("last_seen_at"),
+                "handle_id": None,
+            }
         return {
-            "target_id": conn.target_id,
-            "connection_id": conn.connection_id,
-            "label": conn.label,
-            "hostname": conn.hostname,
-            "platform": conn.platform,
-            "capabilities": list(conn.capabilities),
-            "pending": len(conn.pending),
+            "ready": True,
+            "status": "connected",
+            "reason": None,
+            "checked_at": _utc_now_iso(),
+            "handle_id": conn.connection_id,
+        }
+
+    async def probe_target(
+        self,
+        db: AsyncSession,
+        *,
+        target_id: str,
+    ) -> dict[str, Any]:
+        _ = db
+        target = self.get_target(target_id)
+        if target is None:
+            raise ValueError("Unknown machine target.")
+        return self.get_target_status(target_id) or {
+            "ready": False,
+            "status": "offline",
+            "reason": "The companion is not currently connected.",
+            "checked_at": target.get("last_seen_at"),
+            "handle_id": None,
         }
 
     async def enroll(
         self,
         db: AsyncSession,
-        request: Request,
         *,
+        server_base_url: str,
         label: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        _ = config
         targets = get_registered_targets()
         target_id = str(uuid.uuid4())
         token = secrets.token_urlsafe(32)
@@ -128,16 +163,14 @@ class LocalCompanionMachineControlProvider:
         if get_status("local_companion") != "enabled":
             await set_status("local_companion", "enabled")
 
-        server_url = str(request.base_url).rstrip("/")
+        server_url = server_base_url.rstrip("/")
         return {
             "target": {k: v for k, v in target.items() if k != "token"},
             "launch": {
                 "token": token,
                 "websocket_path": "/integrations/local_companion/ws",
-                "example_command": (
-                    "python -m integrations.local_companion.client "
-                    f"--server-url {server_url} --target-id {target_id} --token {token}"
-                ),
+                "download_url": f"{server_url}/integrations/local_companion/client.py",
+                "example_command": _build_example_command(server_url, target_id=target_id, token=token),
             },
         }
 

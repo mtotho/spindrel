@@ -161,6 +161,7 @@ export default function ChannelSettingsScreen() {
         passive_memory: settings.passive_memory,
         allow_bot_messages: settings.allow_bot_messages,
         workspace_rag: settings.workspace_rag,
+        pinned_widget_context_enabled: settings.pinned_widget_context_enabled,
         thinking_display: settings.thinking_display,
         tool_output_display: settings.tool_output_display,
         max_iterations: settings.max_iterations,

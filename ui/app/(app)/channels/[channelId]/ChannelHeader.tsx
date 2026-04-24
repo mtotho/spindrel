@@ -14,7 +14,6 @@ import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemer
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
-import { MachineTargetChip } from "./MachineTargetChip";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
 
 export interface ChannelHeaderProps {
@@ -581,10 +580,6 @@ export function ChannelHeader({
             }}
           />
         </div>
-      )}
-
-      {!isMobile && sessionId && isAdmin && !scratchFullpageMode && (
-        <MachineTargetChip sessionId={sessionId} />
       )}
 
       {/* Settings — primary chrome. */}

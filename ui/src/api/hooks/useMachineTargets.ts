@@ -20,6 +20,12 @@ export interface MachineTarget {
   capabilities: string[];
   enrolled_at?: string | null;
   last_seen_at?: string | null;
+  ready: boolean;
+  status?: string | null;
+  status_label?: string | null;
+  reason?: string | null;
+  checked_at?: string | null;
+  handle_id?: string | null;
   connected: boolean;
   connection_id?: string | null;
   metadata?: Record<string, unknown> | null;
@@ -33,6 +39,12 @@ export interface SessionMachineTargetLease {
   granted_at: string;
   expires_at: string;
   capabilities: string[];
+  handle_id?: string | null;
+  ready?: boolean;
+  status?: string | null;
+  status_label?: string | null;
+  reason?: string | null;
+  checked_at?: string | null;
   connection_id?: string | null;
   connected: boolean;
   provider_label?: string | null;
@@ -43,6 +55,19 @@ export interface SessionMachineTargetState {
   session_id: string;
   lease?: SessionMachineTargetLease | null;
   targets: MachineTarget[];
+  ready_target_count?: number | null;
+  connected_target_count?: number | null;
+}
+
+export interface MachineControlEnrollField {
+  key: string;
+  type?: string | null;
+  label?: string | null;
+  description?: string | null;
+  required?: boolean;
+  default?: string | number | boolean | null;
+  secret?: boolean;
+  options?: Array<{ value: string; label: string }>;
 }
 
 export interface MachineProviderState {
@@ -52,12 +77,15 @@ export interface MachineProviderState {
   integration_id: string;
   integration_name: string;
   integration_status: string;
+  config_ready: boolean;
   supports_enroll: boolean;
   supports_remove_target: boolean;
   integration_admin_href: string;
+  enroll_fields?: MachineControlEnrollField[] | null;
   metadata?: Record<string, unknown> | null;
   targets: MachineTarget[];
   target_count: number;
+  ready_target_count: number;
   connected_target_count: number;
 }
 
@@ -66,7 +94,7 @@ export interface MachineProviderListResponse {
 }
 
 export interface MachineTargetEnrollment {
-  provider: Omit<MachineProviderState, "targets" | "target_count" | "connected_target_count">;
+  provider: Omit<MachineProviderState, "targets" | "target_count" | "ready_target_count" | "connected_target_count">;
   target: MachineTarget;
   launch?: {
     token?: string;
@@ -74,6 +102,11 @@ export interface MachineTargetEnrollment {
     example_command?: string;
   } | null;
   metadata?: Record<string, unknown> | null;
+}
+
+export interface MachineTargetProbeResult {
+  provider: Omit<MachineProviderState, "targets" | "target_count" | "ready_target_count" | "connected_target_count">;
+  target: MachineTarget;
 }
 
 export function useSessionMachineTarget(sessionId: string | null | undefined, enabled = true) {
@@ -128,10 +161,38 @@ export function useAdminMachines(enabled = true) {
 export function useEnrollMachineTarget(providerId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body?: { label?: string | null }) =>
+    mutationFn: (body?: { label?: string | null; config?: Record<string, unknown> | null }) =>
       apiFetch<MachineTargetEnrollment>(adminMachineEnrollPath(providerId), {
         method: "POST",
         body: JSON.stringify(body ?? {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-machines"] });
+      qc.invalidateQueries({ queryKey: ["session-machine-target"] });
+    },
+  });
+}
+
+export function useProbeMachineTarget(providerId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (targetId: string) =>
+      apiFetch<MachineTargetProbeResult>(adminMachineTargetPath(providerId, targetId) + "/probe", {
+        method: "POST",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-machines"] });
+      qc.invalidateQueries({ queryKey: ["session-machine-target"] });
+    },
+  });
+}
+
+export function useProbeAnyMachineTarget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ providerId, targetId }: { providerId: string; targetId: string }) =>
+      apiFetch<MachineTargetProbeResult>(adminMachineTargetPath(providerId, targetId) + "/probe", {
+        method: "POST",
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin-machines"] });

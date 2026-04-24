@@ -149,11 +149,63 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
   - active presence
   - an unexpired lease for the current session
   - the same leasing user
-  - a currently connected target
+  - a freshly ready target after provider validation
 - Autonomous origins (`heartbeat`, `task`, `subagent`, hygiene-style runs) are denied even if other context exists.
 - API-key/script surfaces do not gain local-machine power by virtue of being able to call tools.
 - Future implementations such as SSH should plug into the same provider contract instead of inventing parallel machine-control stacks.
 - SSH, browser control, file sync, or other desktop automation should reuse the same machine-target + lease abstraction instead of inventing parallel consent paths.
+
+### Machine-control readiness is provider-generic probe state, and provider credentials live in persistent settings
+**Decided 2026-04-24.** The machine-control contract no longer treats "connected companion socket" as the universal runtime truth.
+
+**What changed.**
+- Providers now expose cached status plus a fresh `probe_target()` path instead of a core contract centered on `get_target_connection()`.
+- Canonical target/lease payload fields are now:
+  - `ready`
+  - `status`
+  - `reason`
+  - `checked_at`
+  - `handle_id`
+- Compatibility aliases such as `connected` / `connection_id` remain only as transitional read surfaces.
+- Lease grant and lease-gated execution now require a fresh successful provider probe.
+- Shared inspect-command validation moved into core before provider dispatch.
+- `ssh` shipped as the second provider on this contract.
+- Provider credentials/trust for durable machine access live in app-managed integration settings, not ephemeral container filesystem state.
+
+**Why.**
+- The previous contract was shaped too tightly around `local_companion` and a live websocket.
+- SSH and future providers still need one common UX and policy surface, but they do not all keep a live connection object.
+- The real cross-provider gate is "can this target execute right now?", not "does this provider happen to have a socket?"
+- Durable machine setup cannot disappear on container rebuild; app-managed settings are the correct persistence boundary.
+
+**Load-bearing invariants.**
+- `ready` is the canonical cross-provider execution gate.
+- UI may render cached readiness, but lease grant and lease-gated execution must require a fresh provider probe.
+- A provider may implement readiness via a live connection, an on-demand probe, or another transport-specific check, but core policy must stay transport-agnostic.
+- Durable provider credentials/trust belong in integration settings or another persistent app-managed store, not runtime temp files or container-local mutable state.
+- Runtime temp files are allowed only as short-lived materialization for subprocesses and must be deleted after use.
+
+### Machine-control UX is transcript-first, with optional pinned widget convenience and no default chat-header chrome
+**Decided 2026-04-24.** Machine control should not surface as ambient top-right chat chrome.
+
+**What changed.**
+- Removed the default session-scoped machine chip from `ChannelHeader`.
+- Added `core/machine_control_native` as a channel-scoped native widget users may pin explicitly.
+- Kept required lease and execution flows in transcript/result surfaces:
+  - `core.machine_access_required`
+  - `core.machine_target_status`
+  - `core.command_result`
+
+**Why.**
+- Header chrome implied ambient machine capability and introduced distracting load/flicker behavior.
+- The important actions are session-specific and task-specific, so transcript surfaces are the right primary consent path.
+- A widget is a better secondary surface because it is explicit, pinnable, and already fits the host’s native React/widget architecture.
+
+**Load-bearing invariants.**
+- Machine control does not mount as default chat-header chrome.
+- Required machine-control interactions stay transcript-first.
+- Any persistent machine-control affordance in the channel workspace should use the native widget system rather than bespoke header controls.
+- `core/machine_control_native` is convenience UI only and must not export pinned-widget context into the prompt.
 
 ### Sub-agents are experimental readonly sidecars, not a default orchestration primitive
 **Decided 2026-04-23.** `spawn_subagents` is no longer treated as a generally encouraged prompt-level tool.

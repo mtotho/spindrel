@@ -22,7 +22,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 
 from app.db.models import WidgetInstance
 from app.services.dashboard_pins import create_pin, list_pins

@@ -55,10 +55,12 @@ AUTH_HEADERS = {"Authorization": "Bearer test-key"}
 def _build_test_app():
     """Build a minimal FastAPI app with only the routers under test."""
     from fastapi import FastAPI
+    from app.domain.errors import install_domain_error_handler
     from app.routers.api_v1 import router as api_v1_router
     from app.routers.chat import router as chat_router
 
     test_app = FastAPI()
+    install_domain_error_handler(test_app)
     test_app.include_router(api_v1_router)
     test_app.include_router(chat_router)
     return test_app

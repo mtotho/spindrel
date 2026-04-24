@@ -267,9 +267,13 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
     """Build a markdown snapshot of the bot's enrolled working set.
 
     Includes ALL enrolled skills (authored + catalog) in a unified list with
-    source, age, per-bot fetch count, and global surface count.
+    source, age, per-bot fetch count, and global surface count. Authored
+    skills (id starts with ``bots/<bot_id>/``) get extra fields the skill
+    review bot would otherwise have to call ``manage_bot_skill(action="list")``
+    to see: category, stale, and attached-script count.
     """
     from app.db.models import BotSkillEnrollment, Skill as SkillRow
+    from app.tools.local.bot_skills import _extract_frontmatter, _is_stale
 
     now_utc = datetime.now(timezone.utc)
 
@@ -286,6 +290,8 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
             SkillRow.surface_count,
             SkillRow.last_surfaced_at,
             SkillRow.created_at,
+            SkillRow.content,
+            SkillRow.scripts,
         )
         .join(SkillRow, SkillRow.id == BotSkillEnrollment.skill_id)
         .where(
@@ -294,6 +300,8 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         )
         .order_by(BotSkillEnrollment.fetch_count.asc(), SkillRow.surface_count.asc())
     )).all()
+
+    authored_prefix = f"bots/{bot_id}/"
 
     if not rows:
         return "## Working set\n\n_(no enrolled skills — nothing to prune)_"
@@ -308,6 +316,8 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
         "- `auto-injected Nx` = how many times the system pre-loaded this skill into your context (relevant to user query, counts as real usage)",
         "- `global Nx` = how many times ANY bot fetched this skill (fleet-wide, ambiguous)",
         "- `source=authored` = you wrote this skill; requires override reason to prune",
+        "- `category` / `stale` / `scripts` appear on authored skills only — everything "
+        "you'd call `manage_bot_skill(action=\"list\")` for is already here, so don't.",
         "- Skills enrolled < 7 days ago are protected and require override reason to prune",
         "- A skill with 0 fetches but auto-injections is actively used — do NOT prune it",
         "",
@@ -322,11 +332,25 @@ async def _build_working_set_snapshot(bot_id: str, db: AsyncSession) -> str:
             all_protected = False
         prot_tag = " **[protected]**" if protected else ""
         last_ai = r.last_auto_injected_at.date().isoformat() if r.last_auto_injected_at else "never"
+
+        # Authored-skill extras (category, stale, script_count) so the bot
+        # doesn't need manage_bot_skill(action="list") for these fields.
+        extras = ""
+        if r.skill_id.startswith(authored_prefix):
+            fm = _extract_frontmatter(r.content) if r.content else {}
+            category = fm.get("category", "") or "—"
+            stale = _is_stale(r.created_at, r.last_surfaced_at, r.surface_count)
+            script_count = len(r.scripts or [])
+            extras = (
+                f", category={category}, stale={str(stale).lower()}, "
+                f"scripts={script_count}"
+            )
+
         lines.append(
             f"- `{r.skill_id}` ({r.name}) — you fetched {r.fetch_count}x (last: {last_fetched}), "
             f"auto-injected {r.auto_inject_count}x (last: {last_ai}), "
             f"global {r.surface_count}x, enrolled {enrolled} ({age_days}d ago), "
-            f"source={r.source}{prot_tag}"
+            f"source={r.source}{extras}{prot_tag}"
         )
 
     if all_protected:

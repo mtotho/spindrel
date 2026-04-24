@@ -1653,6 +1653,10 @@ async def task_worker() -> None:
             # Then fire any widget @on_cron handlers whose schedule is due
             from app.services.widget_cron import spawn_due_widget_crons
             await spawn_due_widget_crons()
+            # Native-widget cron path (Standing Orders, etc.) — parallel to
+            # the HTML @on_cron lane; queries WidgetInstance rows directly.
+            from app.services.standing_orders import spawn_due_native_widget_ticks
+            await spawn_due_native_widget_ticks()
             # Then fetch and run all due concrete tasks
             due = await fetch_due_tasks()
             for task in due:

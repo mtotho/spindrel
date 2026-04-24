@@ -11,6 +11,7 @@ from app.services.machine_control import (
     build_targets_status,
     get_provider,
     get_target_by_id,
+    validate_inspect_command,
     validate_current_execution_policy,
 )
 from app.tools.registry import register
@@ -110,11 +111,12 @@ async def machine_status() -> str:
     else:
         async with async_session() as db:
             session = await db.get(Session, session_id)
-            if session is None:
-                payload = {"session_id": str(session_id), "targets": build_targets_status(), "lease": None}
-            else:
-                payload = await build_session_machine_target_payload(db, session=session)
-    payload["connected_target_count"] = sum(1 for target in payload["targets"] if target.get("connected"))
+        if session is None:
+            payload = {"session_id": str(session_id), "targets": build_targets_status(), "lease": None}
+        else:
+            payload = await build_session_machine_target_payload(db, session=session)
+    payload["ready_target_count"] = sum(1 for target in payload["targets"] if target.get("ready"))
+    payload["connected_target_count"] = payload["ready_target_count"]
     envelope = _components_envelope(
         plain_body="Machine control status",
         display_label="Machine Control",
@@ -173,6 +175,10 @@ async def machine_inspect_command(command: str) -> str:
     resolution = await validate_current_execution_policy("live_target_lease")
     if not resolution.allowed or resolution.lease is None:
         return json.dumps({"error": "local_control_required", "message": resolution.reason}, ensure_ascii=False)
+    try:
+        validate_inspect_command(command)
+    except ValueError as exc:
+        return json.dumps({"error": "machine_control_error", "message": str(exc)}, ensure_ascii=False)
     lease = resolution.lease
     provider = get_provider(lease["provider_id"])
     try:

@@ -62,6 +62,16 @@ export interface IntegrationMachineControlInfo {
   provider_id: string;
   label: string;
   driver: string;
+  enroll_fields?: Array<{
+    key: string;
+    type?: string | null;
+    label?: string | null;
+    description?: string | null;
+    required?: boolean;
+    default?: string | number | boolean | null;
+    secret?: boolean;
+    options?: Array<{ value: string; label: string }>;
+  }> | null;
   metadata?: Record<string, unknown> | null;
 }
 

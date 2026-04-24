@@ -1,15 +1,32 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useMemo, useState } from "react";
 import {
-  ChevronRight, ExternalLink, FileText, FolderClosed, Plus, X, RefreshCw, FolderSearch, BookOpen,
+  BookOpen,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  FolderClosed,
+  FolderSearch,
+  Plus,
+  RefreshCw,
+  X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  Section, EmptyState, TextInput, FormRow, SelectInput,
+  Section,
+  EmptyState,
+  TextInput,
+  FormRow,
+  SelectInput,
+  Row,
+  Col,
 } from "@/src/components/shared/FormControls";
-import { ActionButton, AdvancedSection } from "@/src/components/shared/SettingsControls";
+import {
+  ActionButton,
+  AdvancedSection,
+  SettingsControlRow,
+} from "@/src/components/shared/SettingsControls";
 import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
@@ -55,9 +72,7 @@ function relativeToRoot(path: string, rootPath: string): string {
 
 function buildBreadcrumbs(path: string, rootPath: string): Array<{ label: string; path: string }> {
   const relative = relativeToRoot(path, rootPath);
-  if (relative === "/") {
-    return [{ label: KB_FOLDER_NAME, path: rootPath }];
-  }
+  if (relative === "/") return [{ label: KB_FOLDER_NAME, path: rootPath }];
   const parts = relative.split("/").filter(Boolean);
   const crumbs = [{ label: KB_FOLDER_NAME, path: rootPath }];
   let current = stripLeadingSlash(rootPath);
@@ -68,38 +83,47 @@ function buildBreadcrumbs(path: string, rootPath: string): Array<{ label: string
   return crumbs;
 }
 
-
-// ---------------------------------------------------------------------------
-// File content viewer
-// ---------------------------------------------------------------------------
 function FileViewer({ workspaceId, path }: { workspaceId: string; path: string }) {
-  const t = useThemeTokens();
   const { data, isLoading } = useWorkspaceFileContent(workspaceId, path);
 
-  if (isLoading) return <div style={{ padding: 16, display: "flex", flexDirection: "row", justifyContent: "center" }}><Spinner color={t.accent} /></div>;
-  if (!data) return <span style={{ color: t.textDim, padding: 16, fontSize: 12 }}>File not found</span>;
+  if (isLoading) {
+    return (
+      <div className="flex justify-center p-4">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (!data) return <span className="block p-4 text-[12px] text-text-dim">File not found</span>;
 
   return (
-    <div style={{
-      backgroundColor: t.surfaceOverlay,
-      borderRadius: 6,
-      padding: 12,
-      maxHeight: 400,
-      overflow: "scroll" as any,
-    }}>
-      <span style={{ color: t.textDim, fontSize: 11, marginBottom: 8, fontWeight: "600" }}>
-        {path}
-      </span>
-      <pre style={{ color: t.text, fontSize: 12, fontFamily: "monospace", margin: 0, whiteSpace: "pre-wrap" }}>
+    <div className="max-h-[400px] overflow-auto rounded-md bg-surface-raised/40 p-3">
+      <div className="mb-2 font-mono text-[11px] font-semibold text-text-dim">{path}</div>
+      <pre className="m-0 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-text">
         {data.content}
       </pre>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Knowledge Base — convention-based auto-indexed folder (primary surface)
-// ---------------------------------------------------------------------------
+function InlineLink({
+  to,
+  children,
+}: {
+  to: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      to={to}
+      className="inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
+    >
+      <ExternalLink size={12} />
+      {children}
+    </Link>
+  );
+}
+
 function KnowledgeBaseSection({
   workspaceId,
   channelId,
@@ -117,7 +141,6 @@ function KnowledgeBaseSection({
   selectedPath: string | null;
   onSelectPath: (path: string | null) => void;
 }) {
-  const t = useThemeTokens();
   const rootPath = `/channels/${channelId}/${KB_FOLDER_NAME}`;
   const [currentPath, setCurrentPath] = useState(rootPath);
   const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId, dirForApi(currentPath));
@@ -129,219 +152,88 @@ function KnowledgeBaseSection({
       return a.name.localeCompare(b.name);
     });
   }, [data?.entries]);
+
   const folderCount = entries.filter((entry) => entry.is_dir).length;
   const fileCount = entries.length - folderCount;
   const breadcrumbs = useMemo(() => buildBreadcrumbs(currentPath, rootPath), [currentPath, rootPath]);
   const parentPath = breadcrumbs.length > 1 ? breadcrumbs[breadcrumbs.length - 2].path : null;
-  const guideRows = [
-    {
-      label: "Channel knowledge",
-      body: "Files in this folder are auto-indexed and relevant excerpts are auto-retrieved into channel turns. The model sees only matching chunks, not the whole folder.",
-    },
-    {
-      label: "Bot knowledge",
-      body: botKnowledgeAutoRetrieval === false
-        ? "Bot-wide reference docs live in the bot's own `knowledge-base/` folder and travel across channels. This bot is currently in search-only mode, so those files stay available through `search_bot_knowledge` but are not auto-retrieved."
-        : "Bot-wide reference docs live in the bot's own `knowledge-base/` folder and travel across channels. Matching excerpts are auto-retrieved before broad workspace search, and deeper follow-ups should use `search_bot_knowledge`.",
-    },
-    {
-      label: "Use these tools",
-      body: "`search_channel_knowledge` is the narrow lookup for this folder. `search_bot_knowledge` is for facts that should follow the bot everywhere. `search_channel_workspace` is broader and better for 'where did we put X?' questions.",
-    },
-    {
-      label: "What belongs here",
-      body: "Put stable reference material here: decisions, runbooks, specs, glossaries, operating notes, and curated lists the bot may need again. Subfolders are organizational only; indexing is recursive.",
-    },
-    {
-      label: "What belongs elsewhere",
-      body: "Keep short behavioral notes in `memory.md`. Keep transient notes, working files, and one-off outputs in the normal workspace/files surface.",
-    },
-  ] as const;
-  const openWorkspaceButton = workspaceId ? (
-    <Link
-      to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}
-      style={{
-        display: "inline-flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 6,
-        minHeight: 36,
-        paddingLeft: 12,
-        paddingRight: 12,
-        borderRadius: 7,
-        border: `1px solid ${t.surfaceBorder}`,
-        backgroundColor: t.surfaceOverlay,
-        color: t.text,
-        fontSize: 12,
-        fontWeight: 600,
-        textDecoration: "none",
-      }}
-    >
-      <ExternalLink size={13} color={t.accent} />
-      Open KB In Workspace
-    </Link>
-  ) : null;
   const botKnowledgePath = botId
     ? (sharedWorkspaceId ? `bots/${botId}/${KB_FOLDER_NAME}/` : `${KB_FOLDER_NAME}/`)
     : null;
 
+  const guideRows = [
+    ["Channel knowledge", "Auto-indexed and channel-scoped. The bot sees matching excerpts, not the whole folder."],
+    ["Bot knowledge", botKnowledgeAutoRetrieval === false
+      ? "Bot-wide docs are searchable only for this bot."
+      : "Bot-wide docs are auto-retrieved before broad workspace search."],
+    ["Tools", "`search_channel_knowledge` for this folder. `search_bot_knowledge` for reusable bot facts."],
+    ["Best fit", "Stable reference material: decisions, runbooks, specs, glossaries, and operating notes."],
+  ] as const;
+
   return (
     <Section
       title="Knowledge Base"
-      description={
-        "This channel's `knowledge-base/` is the durable reference layer for room-specific facts. It is auto-indexed, channel-scoped, and used by semantic retrieval plus the narrow knowledge search tools."
-      }
-      action={openWorkspaceButton}
+      description="This channel's `knowledge-base/` is the durable reference layer for room-specific facts. It is auto-indexed, channel-scoped, and used by semantic retrieval plus the narrow knowledge search tools."
+      action={workspaceId ? (
+        <InlineLink to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}>
+          Open KB in workspace
+        </InlineLink>
+      ) : undefined}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 10,
-            padding: 12,
-            borderRadius: 8,
-            backgroundColor: t.surfaceOverlay,
-          }}
-        >
-          <BookOpen size={18} color={t.accent} />
-          <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-            <span style={{ color: t.text, fontSize: 13, fontWeight: "600", fontFamily: "monospace" }}>
+      <div className="flex flex-col gap-5">
+        <SettingsControlRow className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent/10">
+            <BookOpen size={17} className="text-accent" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-[13px] font-semibold text-text">
               channels/{channelId}/{KB_FOLDER_NAME}/
-            </span>
-            <span style={{ color: t.textDim, fontSize: 11 }}>
-              Indexed recursively. Relevant excerpts are pulled into channel context automatically; deeper lookups use `search_channel_knowledge`.
-            </span>
-          </div>
-        </div>
-
-        {botId && botKnowledgePath ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              gap: 12,
-              alignItems: "center",
-              padding: "10px 12px",
-              borderRadius: 8,
-              backgroundColor: t.surfaceOverlay,
-              border: `1px solid ${t.surfaceBorder}`,
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 280, display: "flex", flexDirection: "column", gap: 3 }}>
-              <span style={{ color: t.text, fontSize: 12, fontWeight: 600 }}>
-                Bot knowledge layer
-              </span>
-              <span style={{ color: t.textDim, fontSize: 11 }}>
-                <span style={{ fontFamily: "monospace", color: t.textMuted }}>{botKnowledgePath}</span>
-                {" "}· {botKnowledgeAutoRetrieval === false ? "Search only" : "Auto-retrieved + searchable"}
-              </span>
             </div>
-            <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-              <Link
-                to={`/admin/bots/${botId}`}
-                style={{
-                  display: "inline-flex",
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 6,
-                  minHeight: 32,
-                  paddingLeft: 10,
-                  paddingRight: 10,
-                  borderRadius: 7,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  backgroundColor: t.surfaceRaised,
-                  color: t.text,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                <ExternalLink size={12} color={t.accent} />
-                Bot Workspace
-              </Link>
-              {workspaceId ? (
-                <Link
-                  to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(`/${botKnowledgePath.replace(/\/$/, "")}`)}`}
-                  style={{
-                    display: "inline-flex",
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 6,
-                    minHeight: 32,
-                    paddingLeft: 10,
-                    paddingRight: 10,
-                    borderRadius: 7,
-                    border: `1px solid ${t.surfaceBorder}`,
-                    backgroundColor: t.surfaceRaised,
-                    color: t.text,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    textDecoration: "none",
-                  }}
-                >
-                  <ExternalLink size={12} color={t.accent} />
-                  Open Bot KB
-                </Link>
-              ) : null}
+            <div className="mt-0.5 text-[11px] text-text-dim">
+              Indexed recursively. Relevant excerpts are pulled into channel context automatically.
             </div>
           </div>
-        ) : null}
+        </SettingsControlRow>
 
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            borderRadius: 7,
-            overflow: "hidden",
-            backgroundColor: t.surfaceOverlay,
-            border: `1px solid ${t.surfaceBorder}`,
-          }}
-        >
-          {guideRows.map((row, index) => (
-            <div
-              key={row.label}
-              style={{
-                padding: "10px 12px",
-                display: "flex",
-                flexDirection: "row",
-                gap: 12,
-                alignItems: "flex-start",
-                borderTop: index === 0 ? "none" : `1px solid ${t.surfaceBorder}`,
-              }}
-            >
-              <span style={{ color: t.textMuted, fontSize: 11, fontWeight: 600, width: 120, flexShrink: 0 }}>
-                {row.label}
-              </span>
-              <span style={{ color: t.textDim, fontSize: 12, lineHeight: 1.5, maxWidth: 760 }}>
-                {row.body}
-              </span>
+        {botId && botKnowledgePath && (
+          <SettingsControlRow className="flex flex-wrap items-center gap-3">
+            <div className="min-w-[260px] flex-1">
+              <div className="text-[12px] font-semibold text-text">Bot knowledge layer</div>
+              <div className="mt-0.5 text-[11px] text-text-dim">
+                <span className="font-mono text-text-muted">{botKnowledgePath}</span>
+                {" · "}
+                {botKnowledgeAutoRetrieval === false ? "Search only" : "Auto-retrieved + searchable"}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <InlineLink to={`/admin/bots/${botId}`}>Bot workspace</InlineLink>
+              {workspaceId && (
+                <InlineLink to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(`/${botKnowledgePath.replace(/\/$/, "")}`)}`}>
+                  Open bot KB
+                </InlineLink>
+              )}
+            </div>
+          </SettingsControlRow>
+        )}
+
+        <div className="grid gap-x-8 gap-y-2 md:grid-cols-2">
+          {guideRows.map(([label, body]) => (
+            <div key={label} className="grid grid-cols-[128px_minmax(0,1fr)] gap-3 py-1">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">{label}</div>
+              <div className="text-[12px] leading-relaxed text-text-dim">{body}</div>
             </div>
           ))}
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            padding: 12,
-            borderRadius: 8,
-            backgroundColor: t.surfaceOverlay,
-          }}
-        >
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 0 }}>
-              <span style={{ color: t.text, fontSize: 13, fontWeight: 600, display: "block" }}>
-                Contents
-              </span>
-              <span style={{ color: t.textDim, fontSize: 11 }}>
+        <div className="flex flex-col gap-3 rounded-md bg-surface-raised/30 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-text">Contents</div>
+              <div className="mt-0.5 text-[11px] text-text-dim">
                 {folderCount} folder{folderCount === 1 ? "" : "s"} · {fileCount} file{fileCount === 1 ? "" : "s"} in {breadcrumbs[breadcrumbs.length - 1]?.label ?? KB_FOLDER_NAME}
-              </span>
+              </div>
             </div>
-            {workspaceId ? (
+            {workspaceId && (
               <ActionButton
                 label="Refresh"
                 variant="secondary"
@@ -349,14 +241,14 @@ function KnowledgeBaseSection({
                 onPress={() => { void refetch(); }}
                 icon={<RefreshCw size={13} />}
               />
-            ) : null}
+            )}
           </div>
 
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <div className="flex flex-wrap items-center gap-1.5">
             {breadcrumbs.map((crumb, index) => {
               const isActive = index === breadcrumbs.length - 1;
               return (
-                <div key={crumb.path} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <span key={crumb.path} className="inline-flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -364,69 +256,50 @@ function KnowledgeBaseSection({
                       onSelectPath(null);
                     }}
                     disabled={isActive}
-                    style={{
-                      border: "none",
-                      background: "transparent",
-                      padding: 0,
-                      color: isActive ? t.text : t.textDim,
-                      fontSize: 12,
-                      fontWeight: isActive ? 600 : 500,
-                      cursor: isActive ? "default" : "pointer",
-                    }}
+                    className={`font-mono text-[12px] transition-colors ${isActive ? "cursor-default text-text" : "text-text-dim hover:text-accent"}`}
                   >
                     {crumb.label}
                   </button>
-                  {index < breadcrumbs.length - 1 ? <ChevronRight size={12} color={t.textDim} /> : null}
-                </div>
+                  {index < breadcrumbs.length - 1 && <ChevronRight size={12} className="text-text-dim" />}
+                </span>
               );
             })}
           </div>
 
-          {parentPath ? (
+          {parentPath && (
             <button
               type="button"
               onClick={() => {
                 setCurrentPath(parentPath);
                 onSelectPath(null);
               }}
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                border: "none",
-                background: "transparent",
-                padding: 0,
-                color: t.textDim,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
+              className="inline-flex w-fit items-center gap-1.5 text-[12px] text-text-dim transition-colors hover:text-text-muted"
             >
-              <ChevronRight size={12} color={t.textDim} style={{ transform: "rotate(180deg)" }} />
+              <ChevronRight size={12} className="rotate-180" />
               Up one level
             </button>
-          ) : null}
+          )}
 
           {!workspaceId ? (
             <EmptyState message="This channel does not currently have a workspace attached, so the knowledge base contents cannot be browsed here." />
           ) : isLoading ? (
-            <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
-              <Spinner color={t.accent} />
+            <div className="flex justify-center p-6">
+              <Spinner />
             </div>
           ) : entries.length === 0 ? (
             <EmptyState message="No knowledge-base files yet. Drop reference docs here and they will start indexing automatically." />
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div className="flex flex-col gap-1.5">
               {entries.map((entry: WorkspaceFileEntry) => {
                 const fullPath = ensureLeadingSlash(entry.path);
                 const isSelected = !entry.is_dir && selectedPath === fullPath;
                 const metaLabel = entry.is_dir
-                  ? `${relativeToRoot(entry.path, rootPath)}`
+                  ? relativeToRoot(entry.path, rootPath)
                   : `${relativeToRoot(entry.path, rootPath)} · ${formatBytes(entry.size)}`;
                 return (
-                  <button
+                  <SettingsControlRow
                     key={fullPath}
-                    type="button"
+                    active={isSelected}
                     onClick={() => {
                       if (entry.is_dir) {
                         setCurrentPath(fullPath);
@@ -435,37 +308,23 @@ function KnowledgeBaseSection({
                         onSelectPath(fullPath);
                       }
                     }}
-                    style={{
-                      display: "flex",
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      borderRadius: 7,
-                      border: `1px solid ${isSelected ? t.accentBorder : "transparent"}`,
-                      backgroundColor: isSelected ? t.accentSubtle : t.surfaceRaised,
-                      cursor: "pointer",
-                    }}
+                    className="flex items-center gap-2.5"
                   >
                     {entry.is_dir ? (
-                      <FolderClosed size={16} color={t.accent} />
+                      <FolderClosed size={16} className="shrink-0 text-accent" />
                     ) : (
-                      <FileText size={16} color={t.textDim} />
+                      <FileText size={16} className="shrink-0 text-text-dim" />
                     )}
-                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ color: t.text, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] font-medium text-text">
                         {entry.display_name || entry.name}
-                      </span>
-                      <span style={{ color: t.textDim, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {metaLabel}
-                      </span>
+                      </div>
+                      <div className="mt-0.5 truncate text-[11px] text-text-dim">{metaLabel}</div>
                     </div>
-                    <span style={{ color: t.textMuted, fontSize: 11, flexShrink: 0 }}>
+                    <span className="shrink-0 text-[11px] text-text-muted">
                       {entry.is_dir ? "Open" : formatBytes(entry.size)}
                     </span>
-                  </button>
+                  </SettingsControlRow>
                 );
               })}
             </div>
@@ -476,22 +335,15 @@ function KnowledgeBaseSection({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Helper: display value with inherited default
-// ---------------------------------------------------------------------------
 function DefaultHint({ value, defaultValue, label }: { value: string | undefined | null; defaultValue: string; label?: string }) {
-  const t = useThemeTokens();
   if (value) return null;
   return (
-    <span style={{ color: t.textDim, fontSize: 10, fontStyle: "italic" }}>
+    <span className="text-[10px] italic text-text-dim">
       {label ? `${label}: ` : ""}{defaultValue}
     </span>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Indexed Directories section
-// ---------------------------------------------------------------------------
 function IndexedDirectoriesSection({
   segments,
   onChange,
@@ -503,7 +355,6 @@ function IndexedDirectoriesSection({
   channelId: string;
   defaults: SegmentDefaults | null | undefined;
 }) {
-  const t = useThemeTokens();
   const [adding, setAdding] = useState(false);
   const [newPath, setNewPath] = useState("");
   const [newPatterns, setNewPatterns] = useState("");
@@ -526,19 +377,15 @@ function IndexedDirectoriesSection({
     const trimmed = newPath.trim().replace(/^\/+|\/+$/g, "");
     if (!trimmed) return;
     const seg: IndexSegment = { path_prefix: trimmed };
-    if (newPatterns.trim()) {
-      seg.patterns = newPatterns.split(",").map((p) => p.trim()).filter(Boolean);
-    }
-    if (newModel.trim()) {
-      seg.embedding_model = newModel.trim();
-    }
+    if (newPatterns.trim()) seg.patterns = newPatterns.split(",").map((p) => p.trim()).filter(Boolean);
+    if (newModel.trim()) seg.embedding_model = newModel.trim();
     if (newTopK.trim()) {
       const parsed = parseInt(newTopK.trim(), 10);
-      if (!isNaN(parsed) && parsed > 0) seg.top_k = parsed;
+      if (!Number.isNaN(parsed) && parsed > 0) seg.top_k = parsed;
     }
     if (newThreshold.trim()) {
       const parsed = parseFloat(newThreshold.trim());
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) seg.similarity_threshold = parsed;
+      if (!Number.isNaN(parsed) && parsed >= 0 && parsed <= 1) seg.similarity_threshold = parsed;
     }
     onChange([...segments, seg]);
     setNewPath("");
@@ -558,189 +405,125 @@ function IndexedDirectoriesSection({
       title="Custom Indexed Directories"
       description="Advanced — for external repos or when you need a non-default embedding model per prefix. Most channels only need the Knowledge Base above; files you drop there are indexed automatically."
       action={
-        <div style={{ display: "flex", flexDirection: "row", gap: 6 }}>
-          <button type="button"
-            onClick={() => reindexMutation.mutate()}
-            disabled={reindexMutation.isPending || segments.length === 0}
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 4,
-              paddingLeft: 8, paddingRight: 8,
-              paddingTop: 4, paddingBottom: 4,
-              borderRadius: 4,
-              backgroundColor: t.surfaceOverlay,
-              opacity: reindexMutation.isPending || segments.length === 0 ? 0.5 : 1,
-            }}
-          >
-            <RefreshCw size={12} color={t.accent} />
-            <span style={{ color: t.accent, fontSize: 11, fontWeight: "600" }}>
-              {reindexMutation.isPending ? "Reindexing..." : "Reindex"}
-            </span>
-          </button>
-        </div>
+        <ActionButton
+          label={reindexMutation.isPending ? "Reindexing..." : "Reindex"}
+          onPress={() => reindexMutation.mutate()}
+          disabled={reindexMutation.isPending || segments.length === 0}
+          variant="secondary"
+          size="small"
+          icon={<RefreshCw size={12} />}
+        />
       }
     >
-      {segments.length === 0 && !adding && (
-        <EmptyState message="No indexed directories configured. Add one to enable automatic semantic retrieval from those files." />
-      )}
+      <div className="flex flex-col gap-2">
+        {segments.length === 0 && !adding && (
+          <EmptyState message="No indexed directories configured. Add one to enable automatic semantic retrieval from those files." />
+        )}
 
-      {segments.map((seg, i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 8,
-            paddingTop: 6, paddingBottom: 6,
-            paddingLeft: 10, paddingRight: 10,
-            borderRadius: 6,
-            backgroundColor: t.surfaceOverlay,
-            marginBottom: 4,
-          }}
-        >
-          <FolderSearch size={14} color={t.accent} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ color: t.text, fontSize: 13, fontFamily: "monospace", fontWeight: "500" }}>
-              {seg.path_prefix}
-            </span>
-            <span style={{ color: t.textDim, fontSize: 11 }}>
-              patterns: {seg.patterns?.join(", ") || defaultPatterns}
-              {" "}&middot;{" "}
-              model: {seg.embedding_model || defaultModel}
-              {" "}&middot;{" "}
-              top_k: {seg.top_k ?? defaultTopK}
-              {" "}&middot;{" "}
-              threshold: {seg.similarity_threshold ?? defaultThreshold}
-            </span>
-          </div>
-          <button type="button" onClick={() => handleRemove(i)} style={{ padding: 4 }}>
-            <X size={13} color={t.danger} />
-          </button>
-        </div>
-      ))}
-
-      {adding ? (
-        <div style={{
-          display: "flex",
-          gap: 8,
-          padding: 10,
-          borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-        }}>
-          <FormRow label="Path prefix" description="Relative to channel workspace, e.g. data/repo">
-            <TextInput
-              value={newPath}
-              onChangeText={setNewPath}
-              placeholder="data/repo"
-            />
-          </FormRow>
-          <FormRow label="Patterns (optional)" description="Comma-separated globs. Prefix with ! to exclude (e.g. !**/test/**)">
-            <TextInput
-              value={newPatterns}
-              onChangeText={setNewPatterns}
-              placeholder={defaultPatterns}
-            />
-            <DefaultHint value={newPatterns} defaultValue={defaultPatterns} label="Inherited" />
-          </FormRow>
-          <FormRow label="Embedding model (optional)">
-            <LlmModelDropdown
-              value={newModel}
-              onChange={setNewModel}
-              placeholder={defaultModel}
-              allowClear
-              variant="embedding"
-            />
-            <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
-          </FormRow>
-          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <FormRow label="Top K (optional)" description="Max results returned">
-                <TextInput
-                  value={newTopK}
-                  onChangeText={setNewTopK}
-                  placeholder={String(defaultTopK)}
-                />
-                <DefaultHint value={newTopK} defaultValue={String(defaultTopK)} label="Inherited" />
-              </FormRow>
+        {segments.map((seg, i) => (
+          <SettingsControlRow key={i} className="flex items-center gap-2">
+            <FolderSearch size={14} className="shrink-0 text-accent" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate font-mono text-[13px] font-medium text-text">{seg.path_prefix}</div>
+              <div className="truncate text-[11px] text-text-dim">
+                patterns: {seg.patterns?.join(", ") || defaultPatterns}
+                {" · "}
+                model: {seg.embedding_model || defaultModel}
+                {" · "}
+                top_k: {seg.top_k ?? defaultTopK}
+                {" · "}
+                threshold: {seg.similarity_threshold ?? defaultThreshold}
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <FormRow label="Similarity threshold (optional)" description="Min cosine similarity (0-1)">
-                <TextInput
-                  value={newThreshold}
-                  onChangeText={setNewThreshold}
-                  placeholder={String(defaultThreshold)}
-                />
-                <DefaultHint value={newThreshold} defaultValue={String(defaultThreshold)} label="Inherited" />
-              </FormRow>
+            <button
+              type="button"
+              onClick={() => handleRemove(i)}
+              className="inline-flex p-1 text-text-dim transition-colors hover:text-danger"
+              aria-label="Remove indexed directory"
+            >
+              <X size={13} />
+            </button>
+          </SettingsControlRow>
+        ))}
+
+        {adding ? (
+          <div className="flex flex-col gap-3 rounded-md border border-surface-border bg-surface-raised/40 p-3">
+            <FormRow label="Path prefix" description="Relative to channel workspace, e.g. data/repo">
+              <TextInput value={newPath} onChangeText={setNewPath} placeholder="data/repo" />
+            </FormRow>
+            <FormRow label="Patterns (optional)" description="Comma-separated globs. Prefix with ! to exclude.">
+              <TextInput value={newPatterns} onChangeText={setNewPatterns} placeholder={defaultPatterns} />
+              <DefaultHint value={newPatterns} defaultValue={defaultPatterns} label="Inherited" />
+            </FormRow>
+            <FormRow label="Embedding model (optional)">
+              <LlmModelDropdown
+                value={newModel}
+                onChange={setNewModel}
+                placeholder={defaultModel}
+                allowClear
+                variant="embedding"
+              />
+              <DefaultHint value={newModel} defaultValue={defaultModel} label="Inherited" />
+            </FormRow>
+            <Row>
+              <Col>
+                <FormRow label="Top K (optional)" description="Max results returned">
+                  <TextInput value={newTopK} onChangeText={setNewTopK} placeholder={String(defaultTopK)} />
+                  <DefaultHint value={newTopK} defaultValue={String(defaultTopK)} label="Inherited" />
+                </FormRow>
+              </Col>
+              <Col>
+                <FormRow label="Similarity threshold (optional)" description="Min cosine similarity (0-1)">
+                  <TextInput value={newThreshold} onChangeText={setNewThreshold} placeholder={String(defaultThreshold)} />
+                  <DefaultHint value={newThreshold} defaultValue={String(defaultThreshold)} label="Inherited" />
+                </FormRow>
+              </Col>
+            </Row>
+            <div className="flex flex-wrap gap-2">
+              <ActionButton label="Add" onPress={handleAdd} disabled={!newPath.trim()} size="small" />
+              <ActionButton
+                label="Cancel"
+                onPress={() => {
+                  setAdding(false);
+                  setNewPath("");
+                  setNewPatterns("");
+                  setNewModel("");
+                  setNewTopK("");
+                  setNewThreshold("");
+                }}
+                variant="secondary"
+                size="small"
+              />
             </div>
           </div>
-          <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
-            <button type="button"
-              onClick={handleAdd}
-              disabled={!newPath.trim()}
-              style={{
-                paddingLeft: 12, paddingRight: 12,
-                paddingTop: 6, paddingBottom: 6,
-                borderRadius: 6,
-                backgroundColor: t.accent,
-                opacity: newPath.trim() ? 1 : 0.5,
-              }}
-            >
-              <span style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Add</span>
-            </button>
-            <button type="button"
-              onClick={() => { setAdding(false); setNewPath(""); setNewPatterns(""); setNewModel(""); setNewTopK(""); setNewThreshold(""); }}
-              style={{ paddingLeft: 12, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 6 }}
-            >
-              <span style={{ color: t.textMuted, fontSize: 12 }}>Cancel</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <button type="button"
-          onClick={() => setAdding(true)}
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            paddingTop: 8, paddingBottom: 8,
-            paddingLeft: 10, paddingRight: 10,
-          }}
-        >
-          <Plus size={14} color={t.accent} />
-          <span style={{ color: t.accent, fontSize: 12, fontWeight: "600" }}>Add Directory</span>
-        </button>
-      )}
+        ) : (
+          <ActionButton
+            label="Add Directory"
+            onPress={() => setAdding(true)}
+            size="small"
+            icon={<Plus size={14} />}
+          />
+        )}
 
-      {defaults && segments.length === 0 && !adding && (
-        <div style={{ marginTop: 4, paddingLeft: 4, paddingRight: 4 }}>
-          <span style={{ color: t.textDim, fontSize: 10, lineHeight: 16 }}>
+        {defaults && segments.length === 0 && !adding && (
+          <div className="px-1 text-[10px] leading-relaxed text-text-dim">
             Defaults from bot workspace config: top_k={defaultTopK}, threshold={defaultThreshold}, model={defaultModel}
-          </span>
-        </div>
-      )}
+          </div>
+        )}
 
-      {reindexMutation.isSuccess && (
-        <span style={{ color: t.success, fontSize: 11, marginTop: 4 }}>
-          Reindex complete
-        </span>
-      )}
-      {reindexMutation.isError && (
-        <span style={{ color: t.danger, fontSize: 11, marginTop: 4 }}>
-          Reindex failed: {(reindexMutation.error as Error)?.message || "Unknown error"}
-        </span>
-      )}
+        {reindexMutation.isSuccess && (
+          <span className="text-[11px] text-success">Reindex complete</span>
+        )}
+        {reindexMutation.isError && (
+          <span className="text-[11px] text-danger">
+            Reindex failed: {(reindexMutation.error as Error)?.message || "Unknown error"}
+          </span>
+        )}
+      </div>
     </Section>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main tab
-// ---------------------------------------------------------------------------
 export function ChannelWorkspaceTab({
   form,
   patch,
@@ -785,17 +568,13 @@ export function ChannelWorkspaceTab({
       <AdvancedSection title="Advanced Workspace Settings">
         <Section
           title="Organization Template"
-          description="Optional template defining how workspace files should be structured. Integrations with capabilities (e.g. Mission Control) teach file organization automatically."
+          description="Optional template defining how workspace files should be structured. Integrations with capabilities teach file organization automatically."
         >
           <WorkspaceSchemaEditor
             templateId={form.workspace_schema_template_id ?? null}
             schemaContent={form.workspace_schema_content ?? null}
-            onTemplateChange={(id) => {
-              patch("workspace_schema_template_id", id);
-            }}
-            onContentChange={(content) => {
-              patch("workspace_schema_content", content);
-            }}
+            onTemplateChange={(id) => patch("workspace_schema_template_id", id)}
+            onContentChange={(content) => patch("workspace_schema_content", content)}
           />
         </Section>
 
@@ -808,9 +587,9 @@ export function ChannelWorkspaceTab({
 
         {hasSharedWorkspace && (
           <Section title="Shared Workspace Overrides" description="Override workspace-level settings for this channel. These control features inherited from the bot's shared workspace.">
-            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenated after.">
+            <FormRow label="Workspace base prompt" description="common/prompts/base.md from the workspace replaces the global base prompt. Per-bot additions concatenate after.">
               <SelectInput
-                value={form.workspace_base_prompt_enabled === null || form.workspace_base_prompt_enabled === undefined ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
+                value={form.workspace_base_prompt_enabled == null ? "inherit" : form.workspace_base_prompt_enabled ? "on" : "off"}
                 options={[
                   { label: "Inherit from workspace", value: "inherit" },
                   { label: "Enabled", value: "on" },

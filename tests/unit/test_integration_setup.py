@@ -158,3 +158,15 @@ class TestDiscoverSetupStatus:
         assert "machine_control" in companion.get("provides", [])
         assert companion["machine_control"]["provider_id"] == "local_companion"
         assert companion["machine_control"]["driver"] == "companion"
+
+    def test_ssh_exposes_machine_control_metadata(self):
+        from integrations import discover_setup_status
+
+        results = discover_setup_status()
+        ssh = next((r for r in results if r["id"] == "ssh"), None)
+
+        assert ssh is not None
+        assert "machine_control" in ssh.get("provides", [])
+        assert ssh["machine_control"]["provider_id"] == "ssh"
+        assert ssh["machine_control"]["driver"] == "ssh"
+        assert isinstance(ssh["machine_control"].get("enroll_fields"), list)

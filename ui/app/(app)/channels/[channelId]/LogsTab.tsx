@@ -2,42 +2,43 @@ import { useState, useMemo, useCallback } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, Search, AlertTriangle, Wrench, X } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { ExternalLink, AlertTriangle, Wrench, X } from "lucide-react";
 import { EmptyState } from "@/src/components/shared/FormControls";
+import {
+  ActionButton,
+  SettingsSearchBox,
+  SettingsSegmentedControl,
+} from "@/src/components/shared/SettingsControls";
 import { TurnCard } from "@/src/components/shared/TurnCard";
 import { useTurns } from "@/src/api/hooks/useTurns";
 
 const PAGE_SIZE = 20;
+type LogFilter = "all" | "errors" | "tools";
 
 export function LogsTab({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const navigate = useNavigate();
   const { width } = useWindowSize();
   const isMobile = width < 768;
 
   const [searchText, setSearchText] = useState("");
-  const [errorOnly, setErrorOnly] = useState(false);
-  const [toolCallsOnly, setToolCallsOnly] = useState(false);
+  const [filter, setFilter] = useState<LogFilter>("all");
   const [beforeCursor, setBeforeCursor] = useState<string | undefined>(undefined);
 
   const params = useMemo(() => ({
     count: PAGE_SIZE,
     channel_id: channelId,
     ...(searchText ? { search: searchText } : {}),
-    ...(errorOnly ? { has_error: true as const } : {}),
-    ...(toolCallsOnly ? { has_tool_calls: true as const } : {}),
+    ...(filter === "errors" ? { has_error: true as const } : {}),
+    ...(filter === "tools" ? { has_tool_calls: true as const } : {}),
     ...(beforeCursor ? { before: beforeCursor } : {}),
-  }), [channelId, searchText, errorOnly, toolCallsOnly, beforeCursor]);
+  }), [beforeCursor, channelId, filter, searchText]);
 
   const { data, isLoading } = useTurns(params);
-
-  const hasFilters = !!(searchText || errorOnly || toolCallsOnly);
+  const hasFilters = !!(searchText || filter !== "all");
 
   const clearFilters = useCallback(() => {
     setSearchText("");
-    setErrorOnly(false);
-    setToolCallsOnly(false);
+    setFilter("all");
     setBeforeCursor(undefined);
   }, []);
 
@@ -48,80 +49,59 @@ export function LogsTab({ channelId }: { channelId: string }) {
     }
   }, [data]);
 
-  if (isLoading && !data) return <Spinner color={t.accent} />;
+  if (isLoading && !data) return <Spinner />;
 
   return (
-    <>
-      {/* Compact filter bar */}
-      <div style={{
-        display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center",
-        marginBottom: 12,
-      }}>
-        <div style={{ position: "relative", flex: isMobile ? "1 1 100%" : "0 0 auto" }}>
-          <Search size={12} style={{ position: "absolute", left: 8, top: 8, color: t.textDim }} />
-          <input
-            value={searchText}
-            onChange={(e) => { setSearchText(e.target.value); setBeforeCursor(undefined); }}
-            placeholder="Search messages..."
-            style={{
-              background: t.surfaceRaised, color: t.text, border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 6, padding: "5px 10px 5px 26px", fontSize: 12, outline: "none",
-              width: isMobile ? "100%" : 200,
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <SettingsSearchBox
+          value={searchText}
+          onChange={(value) => {
+            setSearchText(value);
+            setBeforeCursor(undefined);
+          }}
+          placeholder="Search messages..."
+          className={isMobile ? "w-full" : "w-64"}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <SettingsSegmentedControl
+            value={filter}
+            onChange={(next) => {
+              setFilter(next);
+              setBeforeCursor(undefined);
             }}
+            options={[
+              { key: "all", label: "All" },
+              { key: "errors", label: "Errors" },
+              { key: "tools", label: "Tools" },
+            ]}
           />
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex min-h-[34px] items-center gap-1 rounded-md px-2.5 text-[12px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
+            >
+              <X size={12} />
+              Clear
+            </button>
+          )}
         </div>
-
-        <button
-          onClick={() => { setErrorOnly(!errorOnly); setBeforeCursor(undefined); }}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-            background: errorOnly ? t.dangerSubtle : t.surfaceRaised,
-            border: `1px solid ${errorOnly ? t.danger : t.surfaceBorder}`,
-            borderRadius: 6, padding: "5px 10px", fontSize: 12,
-            color: errorOnly ? t.danger : t.textMuted, cursor: "pointer",
-          }}
-        >
-          <AlertTriangle size={11} /> Errors
-        </button>
-
-        <button
-          onClick={() => { setToolCallsOnly(!toolCallsOnly); setBeforeCursor(undefined); }}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-            background: toolCallsOnly ? t.purpleSubtle : t.surfaceRaised,
-            border: `1px solid ${toolCallsOnly ? t.purple : t.surfaceBorder}`,
-            borderRadius: 6, padding: "5px 10px", fontSize: 12,
-            color: toolCallsOnly ? t.purple : t.textMuted, cursor: "pointer",
-          }}
-        >
-          <Wrench size={11} /> Tools
-        </button>
-
-        {hasFilters && (
-          <button
-            onClick={clearFilters}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              background: "none", border: "none", color: t.textDim, cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            <X size={12} /> Clear
-          </button>
-        )}
       </div>
 
-      {/* Turns list */}
       {data && data.turns.length > 0 && (
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6 }}>
-          {data.turns.length}{data.turns.length >= PAGE_SIZE ? "+" : ""} turns
+        <div className="flex items-center gap-2 text-[11px] text-text-dim">
+          <span>{data.turns.length}{data.turns.length >= PAGE_SIZE ? "+" : ""} turns</span>
+          {filter === "errors" && (
+            <span className="inline-flex items-center gap-1 text-danger"><AlertTriangle size={11} /> errors only</span>
+          )}
+          {filter === "tools" && (
+            <span className="inline-flex items-center gap-1 text-purple"><Wrench size={11} /> tools only</span>
+          )}
         </div>
       )}
-      <div style={{
-        display: "flex", flexDirection: "column",
-        borderRadius: 8, overflow: "hidden",
-        border: `1px solid ${t.surfaceRaised}`,
-      }}>
+
+      <div className="flex flex-col gap-1.5">
         {data?.turns.map((turn) => (
           <TurnCard
             key={turn.correlation_id}
@@ -137,34 +117,20 @@ export function LogsTab({ channelId }: { channelId: string }) {
         )}
       </div>
 
-      {/* Load more */}
       {data && data.turns.length >= PAGE_SIZE && (
-        <div style={{ display: "flex", flexDirection: "row", justifyContent: "center", padding: "16px 0" }}>
-          <button
-            onClick={handleLoadMore}
-            style={{
-              background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 6, padding: "8px 24px", fontSize: 12, color: t.textMuted,
-              cursor: "pointer",
-            }}
-          >
-            Load older turns
-          </button>
+        <div className="flex justify-center py-2">
+          <ActionButton label="Load older turns" onPress={handleLoadMore} variant="secondary" />
         </div>
       )}
 
-      {/* Link to admin logs */}
       <button
         type="button"
         onClick={() => navigate(`/admin/logs?channel_id=${channelId}`)}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-          alignSelf: "flex-start", marginTop: 4, background: "none", border: "none", cursor: "pointer", padding: 0,
-        }}
+        className="inline-flex w-fit items-center gap-1.5 rounded-md px-0 py-1 text-[13px] font-semibold text-accent transition-colors hover:text-accent-hover"
       >
-        <span style={{ fontSize: 13, color: t.accent }}>View all in Logs</span>
-        <ExternalLink size={12} color={t.accent} />
+        View all in Logs
+        <ExternalLink size={12} />
       </button>
-    </>
+    </div>
   );
 }

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import re
+import shlex
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -16,7 +17,7 @@ from app.agent.context import current_run_origin, current_session_id, current_us
 from app.db.models import Session, User
 from app.services import presence
 from app.services.integration_manifests import get_manifest
-from app.services.integration_settings import get_status
+from app.services.integration_settings import get_status, is_configured
 from integrations import _import_module, _iter_integration_candidates
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,8 @@ MAX_LEASE_TTL_SECONDS = 3600
 LEGACY_PROVIDER_ID = "local_companion"
 _AUTONOMOUS_ORIGINS = frozenset({"heartbeat", "task", "subagent", "hygiene"})
 _PROVIDER_CACHE: dict[str, "MachineControlProvider"] = {}
+DEFAULT_INSPECT_PREFIXES = ("pwd", "ls", "git", "cat", "head", "tail", "find", "rg", "ps", "which")
+_INSPECT_COMPOSITION_RE = re.compile(r"[;&|><`$()]")
 
 
 @runtime_checkable
@@ -41,14 +44,22 @@ class MachineControlProvider(Protocol):
 
     def get_target(self, target_id: str) -> dict[str, Any] | None: ...
 
-    def get_target_connection(self, target_id: str) -> dict[str, Any] | None: ...
+    def get_target_status(self, target_id: str) -> dict[str, Any] | None: ...
+
+    async def probe_target(
+        self,
+        db: AsyncSession,
+        *,
+        target_id: str,
+    ) -> dict[str, Any]: ...
 
     async def enroll(
         self,
         db: AsyncSession,
-        request: Request,
         *,
+        server_base_url: str,
         label: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
     async def remove_target(self, db: AsyncSession, target_id: str) -> bool: ...
@@ -76,6 +87,24 @@ class ExecutionPolicyResolution:
     session: Session | None = None
     user: User | None = None
     lease: dict[str, Any] | None = None
+
+
+def validate_inspect_command(
+    command: str,
+    *,
+    allowed_prefixes: tuple[str, ...] = DEFAULT_INSPECT_PREFIXES,
+) -> None:
+    stripped = command.strip()
+    if not stripped:
+        raise ValueError("inspect command cannot be empty")
+    if _INSPECT_COMPOSITION_RE.search(stripped):
+        raise ValueError("inspect command cannot use shell composition characters")
+    parts = shlex.split(stripped)
+    if not parts:
+        raise ValueError("inspect command cannot be empty")
+    binary = parts[0]
+    if binary not in allowed_prefixes:
+        raise ValueError(f"inspect command '{binary}' is not allowed")
 
 
 def _utc_now() -> datetime:
@@ -124,6 +153,52 @@ def _provider_driver(provider_id: str, provider: MachineControlProvider | None =
 
 def _provider_admin_href(provider_id: str) -> str:
     return f"/admin/integrations/{provider_id}"
+
+
+def _provider_enroll_fields(provider_id: str) -> list[dict[str, Any]]:
+    block = _provider_block(provider_id)
+    fields = block.get("enroll_fields")
+    if not isinstance(fields, list):
+        return []
+    return [field for field in fields if isinstance(field, dict)]
+
+
+def _normalize_target_status(
+    status: dict[str, Any] | None,
+    *,
+    driver: str,
+    last_seen_at: str | None = None,
+) -> dict[str, Any]:
+    raw = status if isinstance(status, dict) else {}
+    ready = bool(raw.get("ready"))
+    status_value = str(raw.get("status") or ("connected" if ready and driver == "companion" else "reachable" if ready else "unknown"))
+    reason = raw.get("reason")
+    checked_at = raw.get("checked_at") or last_seen_at
+    handle_id = raw.get("handle_id") or raw.get("connection_id")
+
+    if driver == "companion":
+        if ready:
+            status_label = "Connected"
+        else:
+            status_label = "Offline"
+            if status_value == "unknown":
+                status_value = "offline"
+    else:
+        if ready:
+            status_label = "Reachable"
+            if status_value == "unknown":
+                status_value = "reachable"
+        else:
+            status_label = "Unreachable" if status_value in {"unreachable", "failed"} else "Unknown"
+
+    return {
+        "ready": ready,
+        "status": status_value,
+        "status_label": status_label,
+        "reason": str(reason) if reason else None,
+        "checked_at": checked_at,
+        "handle_id": str(handle_id) if handle_id else None,
+    }
 
 
 def list_provider_ids() -> list[str]:
@@ -178,21 +253,33 @@ def _public_target_payload(
     target: dict[str, Any],
     *,
     provider: MachineControlProvider | None = None,
-    connection: dict[str, Any] | None = None,
+    runtime_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    driver = str(target.get("driver") or _provider_driver(provider_id, provider))
+    normalized = _normalize_target_status(
+        runtime_status,
+        driver=driver,
+        last_seen_at=target.get("last_seen_at"),
+    )
     return {
         "provider_id": provider_id,
         "provider_label": _provider_label(provider_id, provider),
         "target_id": str(target.get("target_id") or ""),
-        "driver": str(target.get("driver") or _provider_driver(provider_id, provider)),
+        "driver": driver,
         "label": str(target.get("label") or target.get("hostname") or target.get("target_id") or ""),
         "hostname": str(target.get("hostname") or ""),
         "platform": str(target.get("platform") or ""),
         "capabilities": [str(v) for v in (target.get("capabilities") or []) if str(v).strip()],
         "enrolled_at": target.get("enrolled_at"),
         "last_seen_at": target.get("last_seen_at"),
-        "connected": connection is not None,
-        "connection_id": connection.get("connection_id") if connection else None,
+        "ready": normalized["ready"],
+        "status": normalized["status"],
+        "status_label": normalized["status_label"],
+        "reason": normalized["reason"],
+        "checked_at": normalized["checked_at"],
+        "handle_id": normalized["handle_id"],
+        "connected": normalized["ready"],
+        "connection_id": normalized["handle_id"],
         "metadata": target.get("metadata") if isinstance(target.get("metadata"), dict) else None,
     }
 
@@ -207,9 +294,11 @@ def _provider_summary(provider_id: str, provider: MachineControlProvider) -> dic
         "integration_id": provider_id,
         "integration_name": manifest.get("name") or provider_id,
         "integration_status": get_status(provider_id),
+        "config_ready": is_configured(provider_id),
         "supports_enroll": bool(getattr(provider, "supports_enroll", False)),
         "supports_remove_target": bool(getattr(provider, "supports_remove_target", False)),
         "integration_admin_href": _provider_admin_href(provider_id),
+        "enroll_fields": _provider_enroll_fields(provider_id),
         "metadata": block.get("metadata") if isinstance(block.get("metadata"), dict) else None,
     }
 
@@ -232,7 +321,7 @@ def build_targets_status(*, provider_id: str | None = None) -> list[dict[str, An
                     current_provider_id,
                     target,
                     provider=provider,
-                    connection=provider.get_target_connection(target_id),
+                    runtime_status=provider.get_target_status(target_id),
                 ),
             )
     return rows
@@ -251,7 +340,8 @@ def build_providers_status() -> list[dict[str, Any]]:
             **_provider_summary(provider_id, provider),
             "targets": targets,
             "target_count": len(targets),
-            "connected_target_count": sum(1 for target in targets if target.get("connected")),
+            "ready_target_count": sum(1 for target in targets if target.get("ready")),
+            "connected_target_count": sum(1 for target in targets if target.get("ready")),
         })
     return rows
 
@@ -265,7 +355,7 @@ def get_target_by_id(provider_id: str, target_id: str) -> dict[str, Any] | None:
         provider_id,
         target,
         provider=provider,
-        connection=provider.get_target_connection(target_id),
+        runtime_status=provider.get_target_status(target_id),
     )
 
 
@@ -292,6 +382,7 @@ def get_session_lease(session: Session | None) -> dict[str, Any] | None:
         "granted_at": granted_at,
         "expires_at": expires_at,
         "capabilities": [str(v) for v in (raw.get("capabilities") or []) if str(v).strip()],
+        "handle_id": raw.get("handle_id") or raw.get("connection_id"),
         "connection_id": raw.get("connection_id"),
     }
 
@@ -301,11 +392,16 @@ def session_lease_payload(session: Session | None) -> dict[str, Any] | None:
     if lease is None:
         return None
     provider = get_provider(lease["provider_id"])
-    conn = provider.get_target_connection(lease["target_id"])
     target = get_target_by_id(lease["provider_id"], lease["target_id"]) or {}
     return {
         **lease,
-        "connected": conn is not None,
+        "ready": bool(target.get("ready")),
+        "status": target.get("status"),
+        "status_label": target.get("status_label"),
+        "reason": target.get("reason"),
+        "checked_at": target.get("checked_at"),
+        "handle_id": target.get("handle_id") or lease.get("handle_id"),
+        "connected": bool(target.get("ready")),
         "provider_label": _provider_label(lease["provider_id"], provider),
         "target_label": target.get("label") or lease["target_id"],
     }
@@ -355,9 +451,13 @@ async def grant_session_lease(
     target = provider.get_target(target_id)
     if target is None:
         raise ValueError("Unknown machine target.")
-    connection = provider.get_target_connection(target_id)
-    if connection is None:
-        raise ValueError("Selected machine target is not connected.")
+    probed = _normalize_target_status(
+        await provider.probe_target(db, target_id=target_id),
+        driver=_provider_driver(provider_id, provider),
+        last_seen_at=target.get("last_seen_at"),
+    )
+    if not probed["ready"]:
+        raise ValueError(str(probed["reason"] or "Selected machine target is not ready."))
     conflict = await _find_conflicting_lease(
         db,
         provider_id=provider_id,
@@ -375,7 +475,8 @@ async def grant_session_lease(
         "granted_at": _utc_now_iso(),
         "expires_at": (_utc_now() + timedelta(seconds=ttl_seconds)).isoformat(),
         "capabilities": [str(v) for v in (target.get("capabilities") or []) if str(v).strip()],
-        "connection_id": connection.get("connection_id"),
+        "handle_id": probed.get("handle_id"),
+        "connection_id": probed.get("handle_id"),
     }
     meta[LEASE_METADATA_KEY] = lease
     session.metadata_ = meta
@@ -398,10 +499,14 @@ async def build_session_machine_target_payload(
             clear_session_lease(session)
             await db.commit()
             await db.refresh(session)
+    targets = build_targets_status()
+    ready_target_count = sum(1 for target in targets if target.get("ready"))
     return {
         "session_id": str(session.id),
         "lease": session_lease_payload(session),
-        "targets": build_targets_status(),
+        "targets": targets,
+        "ready_target_count": ready_target_count,
+        "connected_target_count": ready_target_count,
     }
 
 
@@ -427,7 +532,7 @@ async def build_machine_access_required_payload(
         targets = build_targets_status()
         resolved_session_id = str(session_id) if session_id else None
 
-    connected_targets = [target for target in targets if target.get("connected")]
+    ready_targets = [target for target in targets if target.get("ready")]
     return {
         "reason": reason,
         "execution_policy": execution_policy,
@@ -435,8 +540,10 @@ async def build_machine_access_required_payload(
         "session_id": resolved_session_id,
         "lease": lease,
         "targets": targets,
-        "connected_targets": connected_targets,
-        "connected_target_count": len(connected_targets),
+        "ready_targets": ready_targets,
+        "ready_target_count": len(ready_targets),
+        "connected_targets": ready_targets,
+        "connected_target_count": len(ready_targets),
         "admin_machines_href": "/admin/machines",
         "integration_admin_href": "/admin/machines",
     }
@@ -514,11 +621,21 @@ async def validate_current_execution_policy(
                 reason="The machine-control lease for this session has expired. Grant it again.",
             )
         provider = get_provider(lease["provider_id"])
-        conn = provider.get_target_connection(lease["target_id"])
-        if conn is None:
+        target = provider.get_target(lease["target_id"])
+        if target is None:
             return ExecutionPolicyResolution(
                 allowed=False,
-                reason="The leased machine target is not currently connected.",
+                reason="The leased machine target no longer exists.",
+            )
+        probed = _normalize_target_status(
+            await provider.probe_target(db, target_id=lease["target_id"]),
+            driver=_provider_driver(lease["provider_id"], provider),
+            last_seen_at=target.get("last_seen_at"),
+        )
+        if not probed["ready"]:
+            return ExecutionPolicyResolution(
+                allowed=False,
+                reason=str(probed["reason"] or "The leased machine target is not currently ready."),
             )
         return ExecutionPolicyResolution(
             allowed=True,
@@ -530,15 +647,16 @@ async def validate_current_execution_policy(
 
 async def enroll_machine_target(
     db: AsyncSession,
-    request: Request,
     *,
     provider_id: str,
+    server_base_url: str,
     label: str | None = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     provider = get_provider(provider_id)
     if not provider.supports_enroll:
         raise ValueError(f"Provider '{provider_id}' does not support enrollment.")
-    enrolled = await provider.enroll(db, request, label=label)
+    enrolled = await provider.enroll(db, server_base_url=server_base_url, label=label, config=config)
     target = enrolled.get("target")
     if not isinstance(target, dict):
         raise RuntimeError(f"Provider '{provider_id}' returned an invalid enrollment payload.")
@@ -549,10 +667,33 @@ async def enroll_machine_target(
             provider_id,
             target,
             provider=provider,
-            connection=provider.get_target_connection(target_id) if target_id else None,
+            runtime_status=provider.get_target_status(target_id) if target_id else None,
         ),
         "launch": enrolled.get("launch") if isinstance(enrolled.get("launch"), dict) else None,
         "metadata": enrolled.get("metadata") if isinstance(enrolled.get("metadata"), dict) else None,
+    }
+
+
+async def probe_machine_target(
+    db: AsyncSession,
+    *,
+    provider_id: str,
+    target_id: str,
+) -> dict[str, Any]:
+    provider = get_provider(provider_id)
+    target = provider.get_target(target_id)
+    if target is None:
+        raise ValueError("Unknown machine target.")
+    runtime_status = await provider.probe_target(db, target_id=target_id)
+    refreshed = provider.get_target(target_id) or target
+    return {
+        "provider": _provider_summary(provider_id, provider),
+        "target": _public_target_payload(
+            provider_id,
+            refreshed,
+            provider=provider,
+            runtime_status=runtime_status,
+        ),
     }
 
 

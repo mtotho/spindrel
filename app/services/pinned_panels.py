@@ -15,12 +15,12 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.engine import async_session
+from app.domain.errors import NotFoundError, UnprocessableError
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ async def _require_channel(db: AsyncSession, channel_id: uuid.UUID):
 
     channel = await db.get(Channel, channel_id)
     if channel is None:
-        raise HTTPException(404, "Channel not found")
+        raise NotFoundError("Channel not found")
     return channel
 
 
@@ -134,7 +134,7 @@ async def ensure_pinned_files_widget_pin(
 
     instance = await _get_pinned_files_instance(db, channel_id)
     if instance is None:
-        raise HTTPException(404, "Pinned files widget instance not found")
+        raise NotFoundError("Pinned files widget instance not found")
 
     dashboard_key = _channel_dashboard_key(channel_id)
     existing_pin = (
@@ -176,7 +176,7 @@ async def pin_file_for_channel(
 
     normalized_path = str(path or "").strip()
     if not normalized_path:
-        raise HTTPException(422, "path is required")
+        raise UnprocessableError("path is required")
 
     await _require_channel(db, channel_id)
     instance = await get_or_create_native_widget_instance(
@@ -213,17 +213,17 @@ async def unpin_file_for_channel(
 ) -> dict[str, Any]:
     normalized_path = str(path or "").strip()
     if not normalized_path:
-        raise HTTPException(422, "path is required")
+        raise UnprocessableError("path is required")
 
     await _require_channel(db, channel_id)
     instance = await _get_pinned_files_instance(db, channel_id)
     if instance is None:
-        raise HTTPException(404, "File is not pinned")
+        raise NotFoundError("File is not pinned")
 
     state = _normalize_pinned_files_state(instance.state)
     items = [item for item in state["pinned_files"] if item["path"] != normalized_path]
     if len(items) == len(state["pinned_files"]):
-        raise HTTPException(404, "File is not pinned")
+        raise NotFoundError("File is not pinned")
     state["pinned_files"] = items
     if state.get("active_path") == normalized_path:
         state["active_path"] = items[0]["path"] if items else None

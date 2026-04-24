@@ -8,6 +8,7 @@
  * drive the scope chip (``@bot`` vs ``as you``).
  */
 import type React from "react";
+import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
 
 export type PinScope = { kind: "user" } | { kind: "bot"; botId: string };
 
@@ -69,18 +70,22 @@ export function PinScopePicker({ scope, onChange, bots, bare = false, disabled =
             Every viewer sees the same data through the bot's credentials.
           </span>
           {scope.kind === "bot" && bots && bots.length > 0 && (
-            <select
-              className="mt-1 w-full rounded border border-surface-border bg-surface-raised px-2 py-1 text-[12px] text-text"
-              value={scope.botId || firstBotId}
-              onChange={(e) => onChange({ kind: "bot", botId: e.target.value })}
-              disabled={disabled}
-            >
-              {bots.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.display_name || b.name || b.id}
-                </option>
-              ))}
-            </select>
+            <div className="mt-1">
+              <SelectDropdown
+                value={scope.botId || firstBotId}
+                options={bots.map((bot) => ({
+                  value: bot.id,
+                  label: bot.display_name || bot.name || bot.id,
+                  searchText: `${bot.display_name ?? ""} ${bot.name ?? ""} ${bot.id}`,
+                }))}
+                onChange={(botId) => onChange({ kind: "bot", botId })}
+                disabled={disabled}
+                searchable
+                searchPlaceholder="Search bots..."
+                size="compact"
+                popoverWidth="content"
+              />
+            </div>
           )}
         </span>
       </label>

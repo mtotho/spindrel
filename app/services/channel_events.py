@@ -35,7 +35,7 @@ The bus deals exclusively in `app.domain.channel_events.ChannelEvent`
 and no legacy envelope wrapping. The single ``event_to_sse_dict`` helper
 serializes events for the browser SSE wire.
 
-See `vault/Projects/agent-server/Track - Integration Delivery.md` for
+See `project-notes/Track - Integration Delivery.md` for
 the broader rationale.
 """
 from __future__ import annotations

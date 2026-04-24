@@ -4,17 +4,39 @@ from __future__ import annotations
 import copy
 import json
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import HTTPException
+from app.domain.errors import NotFoundError, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import WidgetDashboardPin, WidgetInstance
 from app.services.widget_contracts import build_native_widget_contract, build_widget_presentation
+
+
+NativeWidgetCronHandler = Callable[[AsyncSession, "WidgetInstance"], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class NativeWidgetCronSpec:
+    """Cron contract for a native widget that ticks on a schedule.
+
+    Only native widgets that declare this on their ``NativeWidgetSpec`` are
+    candidates for the native-cron dispatcher in ``widget_cron.py``. The
+    handler runs under the owning bot scope, can mutate ``instance.state``
+    (must call ``flag_modified(instance, "state")``), and is responsible for
+    rewriting ``state["next_tick_at"]`` when it wants to run again. Missing
+    or past ``next_tick_at`` + ``status == "running"`` is how the scheduler
+    knows an instance is due.
+    """
+
+    handler: NativeWidgetCronHandler
+    default_interval_seconds: int = 60
+    max_wall_seconds: float = 2.0
 
 
 NATIVE_APP_CONTENT_TYPE = "application/vnd.spindrel.native-app+json"
@@ -60,6 +82,7 @@ class NativeWidgetSpec:
     panel_title: str | None = None
     show_panel_title: bool | None = None
     catalog_visible: bool = True
+    cron: NativeWidgetCronSpec | None = None
 
     def catalog_entry(self) -> dict[str, Any]:
         return {
@@ -359,6 +382,66 @@ _PINNED_FILES_ACTIONS = (
 )
 
 
+def _standing_order_cron_spec() -> "NativeWidgetCronSpec":
+    # Lazy to avoid importing ``standing_orders`` at module load — the
+    # registry is evaluated at import time, but cron dispatch is a runtime
+    # concern. Standing Orders imports ``native_app_widgets`` lazily, so
+    # top-level symmetry isn't free; keep the import here.
+    from app.services.standing_orders import on_tick as _standing_order_on_tick
+
+    return NativeWidgetCronSpec(handler=_standing_order_on_tick, default_interval_seconds=60)
+
+
+_STANDING_ORDER_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="pause",
+        description="Pause a running standing order. Its cron stops firing until resumed.",
+        args_schema={"type": "object", "properties": {}},
+        returns_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="resume",
+        description="Resume a paused standing order. Reschedules the next tick.",
+        args_schema={"type": "object", "properties": {}},
+        returns_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string"}, "next_tick_at": {"type": ["string", "null"]}},
+            "required": ["status"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="cancel",
+        description="Cancel a standing order. Terminal — it will not tick again.",
+        args_schema={"type": "object", "properties": {}},
+        returns_schema={
+            "type": "object",
+            "properties": {"status": {"type": "string"}},
+            "required": ["status"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="edit_goal",
+        description="Rewrite the human-readable goal shown on the tile.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "goal": {"type": "string", "description": "New goal text."},
+            },
+            "required": ["goal"],
+        },
+        returns_schema={
+            "type": "object",
+            "properties": {"goal": {"type": "string"}},
+            "required": ["goal"],
+        },
+    ),
+)
+
+
 _REGISTRY: dict[str, NativeWidgetSpec] = {
     "core/notes_native": NativeWidgetSpec(
         widget_ref="core/notes_native",
@@ -484,6 +567,61 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Upcoming activity",
         show_panel_title=True,
     ),
+    "core/machine_control_native": NativeWidgetSpec(
+        widget_ref="core/machine_control_native",
+        name="machine_control_native",
+        display_label="Machine control",
+        description="First-party native session-scoped machine lease and target control surface.",
+        icon="monitor-cog",
+        supported_scopes=("channel",),
+        layout_hints={"preferred_zone": "dock", "min_cells": {"w": 4, "h": 3}, "max_cells": {"w": 12, "h": 6}},
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        context_export={"enabled": False, "summary_kind": "server_provider", "hint_kind": "none"},
+        panel_title="Machine control",
+        show_panel_title=True,
+    ),
+    "core/standing_order_native": NativeWidgetSpec(
+        widget_ref="core/standing_order_native",
+        name="standing_order_native",
+        display_label="Standing order",
+        description=(
+            "A bot-spawned durable work item that ticks on a schedule. Watches, polls, "
+            "or waits without consuming an LLM turn per tick, and pings back in chat "
+            "when it completes. Cancellable by the channel owner at any time."
+        ),
+        icon="alarm-clock",
+        supported_scopes=("channel", "dashboard"),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}, "max_cells": {"w": 8, "h": 6}},
+        default_state={
+            "goal": "",
+            "status": "running",
+            "strategy": "timer",
+            "strategy_args": {},
+            "strategy_state": {},
+            "interval_seconds": 60,
+            "iterations": 0,
+            "max_iterations": 1000,
+            "completion": {},
+            "log": [],
+            "message_on_complete": None,
+            "owning_bot_id": "",
+            "owning_channel_id": "",
+            "created_at": "",
+            "updated_at": "",
+            "next_tick_at": None,
+            "last_tick_at": None,
+            "terminal_reason": None,
+        },
+        actions=_STANDING_ORDER_ACTIONS,
+        context_export={"enabled": True, "summary_kind": "native_state", "hint_kind": "invoke_widget_action"},
+        panel_title="Standing order",
+        show_panel_title=True,
+        cron=_standing_order_cron_spec(),
+    ),
 }
 
 
@@ -532,7 +670,7 @@ def build_native_widget_preview_envelope(
 ) -> dict[str, Any]:
     spec = get_native_widget_spec(widget_ref)
     if spec is None:
-        raise HTTPException(404, f"Unknown native widget: {widget_ref!r}")
+        raise NotFoundError(f"Unknown native widget: {widget_ref!r}")
     body = {
         "widget_ref": widget_ref,
         "widget_kind": "native_app",
@@ -567,11 +705,10 @@ async def get_or_create_native_widget_instance(
 ) -> WidgetInstance:
     spec = get_native_widget_spec(widget_ref)
     if spec is None:
-        raise HTTPException(404, f"Unknown native widget: {widget_ref!r}")
+        raise NotFoundError(f"Unknown native widget: {widget_ref!r}")
     scope_kind, scope_ref = _scope_for_dashboard(dashboard_key, source_channel_id)
     if scope_kind not in spec.supported_scopes:
-        raise HTTPException(
-            400,
+        raise ValidationError(
             f"Native widget {widget_ref!r} does not support scope {scope_kind!r}",
         )
 
@@ -638,26 +775,26 @@ def _validate_args_against_schema(
     props = schema.get("properties") or {}
     for key in required:
         if key not in args:
-            raise HTTPException(400, f"Missing required action arg: {key}")
+            raise ValidationError(f"Missing required action arg: {key}")
     for key, value in args.items():
         prop = props.get(key)
         if not isinstance(prop, dict):
             continue
         typ = prop.get("type")
         if typ == "string" and not isinstance(value, str):
-            raise HTTPException(400, f"Action arg {key!r} must be a string")
+            raise ValidationError(f"Action arg {key!r} must be a string")
         if typ == "boolean" and not isinstance(value, bool):
-            raise HTTPException(400, f"Action arg {key!r} must be a boolean")
+            raise ValidationError(f"Action arg {key!r} must be a boolean")
         if typ == "integer" and not (isinstance(value, int) and not isinstance(value, bool)):
-            raise HTTPException(400, f"Action arg {key!r} must be an integer")
+            raise ValidationError(f"Action arg {key!r} must be an integer")
         if typ == "number" and not (
             (isinstance(value, int) and not isinstance(value, bool)) or isinstance(value, float)
         ):
-            raise HTTPException(400, f"Action arg {key!r} must be a number")
+            raise ValidationError(f"Action arg {key!r} must be a number")
         if typ == "object" and not isinstance(value, dict):
-            raise HTTPException(400, f"Action arg {key!r} must be an object")
+            raise ValidationError(f"Action arg {key!r} must be an object")
         if typ == "array" and not isinstance(value, list):
-            raise HTTPException(400, f"Action arg {key!r} must be an array")
+            raise ValidationError(f"Action arg {key!r} must be an array")
 
 
 def _todo_state(instance: WidgetInstance) -> dict[str, Any]:
@@ -726,15 +863,15 @@ def _find_pinned_file(items: list[dict[str, str]], path: str) -> tuple[int, dict
     for idx, item in enumerate(items):
         if item["path"] == path:
             return idx, item
-    raise HTTPException(404, f"unknown pinned file path: {path}")
+    raise NotFoundError(f"unknown pinned file path: {path}")
 
 
 def _require_todo_title(args: dict[str, Any] | None) -> str:
     title = str((args or {}).get("title") or "").strip()
     if not title:
-        raise HTTPException(400, "title is required")
+        raise ValidationError("title is required")
     if len(title) > 500:
-        raise HTTPException(400, "title is too long (max 500 chars)")
+        raise ValidationError("title is too long (max 500 chars)")
     return title
 
 
@@ -742,7 +879,7 @@ def _find_todo_item(items: list[dict[str, Any]], item_id: str) -> tuple[int, dic
     for idx, item in enumerate(items):
         if item["id"] == item_id:
             return idx, item
-    raise HTTPException(404, f"unknown todo item id: {item_id}")
+    raise NotFoundError(f"unknown todo item id: {item_id}")
 
 
 async def _dispatch_notes_action(
@@ -765,7 +902,7 @@ async def _dispatch_notes_action(
         body = ""
         result = {"cleared": True}
     else:
-        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+        raise NotFoundError(f"Unsupported native widget action: {action!r}")
     state["body"] = body
     state["created_at"] = created_at
     state["updated_at"] = updated_at
@@ -801,7 +938,7 @@ async def _dispatch_todo_action(
     elif action == "toggle_item":
         item_id = str((args or {}).get("id") or "").strip()
         if not item_id:
-            raise HTTPException(400, "id is required")
+            raise ValidationError("id is required")
         idx, current = _find_todo_item(items, item_id)
         next_done = not current["done"] if "done" not in (args or {}) else bool((args or {})["done"])
         current = copy.deepcopy(current)
@@ -813,7 +950,7 @@ async def _dispatch_todo_action(
     elif action == "rename_item":
         item_id = str((args or {}).get("id") or "").strip()
         if not item_id:
-            raise HTTPException(400, "id is required")
+            raise ValidationError("id is required")
         title = _require_todo_title(args)
         idx, current = _find_todo_item(items, item_id)
         current = copy.deepcopy(current)
@@ -825,7 +962,7 @@ async def _dispatch_todo_action(
     elif action == "delete_item":
         item_id = str((args or {}).get("id") or "").strip()
         if not item_id:
-            raise HTTPException(400, "id is required")
+            raise ValidationError("id is required")
         idx, _current = _find_todo_item(items, item_id)
         del items[idx]
         items = _normalize_todo_items(items)
@@ -835,9 +972,9 @@ async def _dispatch_todo_action(
         open_items = [item for item in items if not item["done"]]
         completed_items = [item for item in items if item["done"]]
         if ordered_ids != [item["id"] for item in open_items] and set(ordered_ids) != {item["id"] for item in open_items}:
-            raise HTTPException(400, "ordered_ids must list each open item exactly once")
+            raise ValidationError("ordered_ids must list each open item exactly once")
         if len(ordered_ids) != len(open_items):
-            raise HTTPException(400, "ordered_ids must list each open item exactly once")
+            raise ValidationError("ordered_ids must list each open item exactly once")
         lookup = {item["id"]: item for item in open_items}
         items = [lookup[item_id] for item_id in ordered_ids] + completed_items
         items = _normalize_todo_items(items)
@@ -848,7 +985,7 @@ async def _dispatch_todo_action(
         items = _normalize_todo_items(items)
         result = {"cleared": cleared, "items": items}
     else:
-        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+        raise NotFoundError(f"Unsupported native widget action: {action!r}")
 
     state["items"] = items
     state["created_at"] = created_at
@@ -870,7 +1007,7 @@ async def _dispatch_pinned_files_action(
     items = list(state.get("pinned_files") or [])
     path = str((args or {}).get("path") or "").strip()
     if not path:
-        raise HTTPException(400, "path is required")
+        raise ValidationError("path is required")
 
     if action == "set_active_path":
         _find_pinned_file(items, path)
@@ -891,7 +1028,7 @@ async def _dispatch_pinned_files_action(
             "pinned_files": items,
         }
     else:
-        raise HTTPException(404, f"Unsupported native widget action: {action!r}")
+        raise NotFoundError(f"Unsupported native widget action: {action!r}")
 
     instance.state = state
     flag_modified(instance, "state")
@@ -910,6 +1047,63 @@ async def _dispatch_pinned_files_action(
     return result
 
 
+async def _dispatch_standing_order_action(
+    db: AsyncSession,
+    instance: WidgetInstance,
+    action: str,
+    args: dict[str, Any] | None,
+) -> Any:
+    state = copy.deepcopy(instance.state or {})
+    current_status = str(state.get("status") or "running")
+    now = _now_iso()
+
+    if action == "pause":
+        if current_status not in ("running", "paused"):
+            raise ValidationError(
+                f"Cannot pause a standing order in status {current_status!r}",
+            )
+        state["status"] = "paused"
+        state["updated_at"] = now
+        result: Any = {"status": "paused"}
+    elif action == "resume":
+        if current_status != "paused":
+            raise ValidationError(
+                f"Cannot resume a standing order in status {current_status!r}",
+            )
+        interval = int(state.get("interval_seconds") or 60)
+        next_tick = (datetime.now(timezone.utc) + timedelta(seconds=interval)).isoformat()
+        state["status"] = "running"
+        state["next_tick_at"] = next_tick
+        state["updated_at"] = now
+        result = {"status": "running", "next_tick_at": next_tick}
+    elif action == "cancel":
+        if current_status in ("done", "cancelled", "failed"):
+            raise ValidationError(
+                f"Standing order is already terminal (status={current_status!r})",
+            )
+        state["status"] = "cancelled"
+        state["next_tick_at"] = None
+        state["terminal_reason"] = "cancelled by user"
+        state["updated_at"] = now
+        result = {"status": "cancelled"}
+    elif action == "edit_goal":
+        new_goal = str((args or {}).get("goal") or "").strip()
+        if not new_goal:
+            raise ValidationError("edit_goal requires a non-empty 'goal'")
+        if len(new_goal) > 500:
+            raise ValidationError("goal must be 500 characters or fewer")
+        state["goal"] = new_goal
+        state["updated_at"] = now
+        result = {"goal": new_goal}
+    else:
+        raise NotFoundError(f"Unsupported standing order action: {action!r}")
+
+    instance.state = state
+    flag_modified(instance, "state")
+    await db.flush()
+    return result
+
+
 async def dispatch_native_widget_action(
     db: AsyncSession,
     *,
@@ -919,11 +1113,10 @@ async def dispatch_native_widget_action(
 ) -> Any:
     spec = get_native_widget_spec(instance.widget_ref)
     if spec is None:
-        raise HTTPException(404, f"Unknown native widget: {instance.widget_ref!r}")
+        raise NotFoundError(f"Unknown native widget: {instance.widget_ref!r}")
     action_spec = next((candidate for candidate in spec.actions if candidate.id == action), None)
     if action_spec is None:
-        raise HTTPException(
-            404,
+        raise NotFoundError(
             f"Unknown action {action!r} for native widget {instance.widget_ref!r}",
         )
     _validate_args_against_schema(action_spec.args_schema, args or {})
@@ -934,8 +1127,10 @@ async def dispatch_native_widget_action(
         return await _dispatch_todo_action(db, instance, action, args)
     if instance.widget_ref == "core/pinned_files_native":
         return await _dispatch_pinned_files_action(db, instance, action, args)
+    if instance.widget_ref == "core/standing_order_native":
+        return await _dispatch_standing_order_action(db, instance, action, args)
 
-    raise HTTPException(404, f"No native action dispatcher registered for {instance.widget_ref!r}")
+    raise NotFoundError(f"No native action dispatcher registered for {instance.widget_ref!r}")
 
 
 async def get_widget_instance(

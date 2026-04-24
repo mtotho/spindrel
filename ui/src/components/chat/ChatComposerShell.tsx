@@ -11,5 +11,5 @@ export function ChatComposerShell({
     return <>{children}</>;
   }
 
-  return <div className="w-full mx-auto max-w-[820px] px-4">{children}</div>;
+  return <div className="w-full mx-auto max-w-[820px] px-2 sm:px-4">{children}</div>;
 }

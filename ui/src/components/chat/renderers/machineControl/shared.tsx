@@ -4,6 +4,7 @@ import type { ThemeTokens } from "@/src/theme/tokens";
 import type { MachineTarget, SessionMachineTargetLease, SessionMachineTargetState } from "@/src/api/hooks/useMachineTargets";
 
 export type MachineTargetStatusPayload = SessionMachineTargetState & {
+  ready_target_count?: number;
   connected_target_count?: number;
 };
 
@@ -30,6 +31,8 @@ export type MachineAccessRequiredPayload = {
   session_id?: string | null;
   lease?: SessionMachineTargetLease | null;
   targets?: MachineTarget[];
+  ready_targets?: MachineTarget[];
+  ready_target_count?: number;
   connected_targets?: MachineTarget[];
   connected_target_count?: number;
   admin_machines_href?: string;
@@ -55,6 +58,9 @@ export function coerceMachineTargetState(value: unknown): MachineTargetStatusPay
     session_id: typeof payload.session_id === "string" ? payload.session_id : "",
     lease: isMachineLease(payload.lease) ? payload.lease : null,
     targets: coerceMachineTargets(payload.targets),
+    ready_target_count: typeof payload.ready_target_count === "number"
+      ? payload.ready_target_count
+      : undefined,
     connected_target_count: typeof payload.connected_target_count === "number"
       ? payload.connected_target_count
       : undefined,
@@ -70,6 +76,10 @@ export function coerceMachineAccessRequiredPayload(value: unknown): MachineAcces
     session_id: typeof payload.session_id === "string" ? payload.session_id : null,
     lease: isMachineLease(payload.lease) ? payload.lease : null,
     targets: coerceMachineTargets(payload.targets),
+    ready_targets: coerceMachineTargets(payload.ready_targets),
+    ready_target_count: typeof payload.ready_target_count === "number"
+      ? payload.ready_target_count
+      : undefined,
     connected_targets: coerceMachineTargets(payload.connected_targets),
     connected_target_count: typeof payload.connected_target_count === "number"
       ? payload.connected_target_count
@@ -176,6 +186,8 @@ export function MachineLeaseSummary({
         {lease.target_label || lease.target_id}
       </div>
       <div style={machineMetaTextStyle(t)}>
+        {(lease.status_label || (lease.ready ? "Ready" : "Unavailable"))}
+        {" · "}
         Lease expires {expiresAt ?? lease.expires_at}
       </div>
     </div>
@@ -201,6 +213,7 @@ export function MachineTargetRow({
 }) {
   const isActive = activeLeaseTargetId === target.target_id;
   const meta = [target.provider_label, target.hostname, target.platform].filter(Boolean).join(" · ");
+  const statusLabel = target.status_label || (target.ready ? "Ready" : "Unavailable");
   return (
     <div
       style={{
@@ -219,18 +232,23 @@ export function MachineTargetRow({
           </span>
           <span style={{
             ...machineMetaTextStyle(t),
-            color: target.connected ? t.success : t.textMuted,
+            color: target.ready ? t.success : t.textMuted,
             whiteSpace: "nowrap",
           }}
           >
-            {target.connected ? "Connected" : "Offline"}
+            {statusLabel}
           </span>
         </div>
         <div style={machineMetaTextStyle(t)}>
           {meta || target.target_id}
         </div>
+        {target.reason ? (
+          <div style={machineMetaTextStyle(t)}>
+            {target.reason}
+          </div>
+        ) : null}
       </div>
-      {target.connected ? (
+      {target.ready ? (
         isActive ? (
           <button
             type="button"

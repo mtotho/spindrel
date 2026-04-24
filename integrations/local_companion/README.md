@@ -1,8 +1,8 @@
 # local_companion
 
-`local_companion` is the first machine-control provider for Spindrel.
+`local_companion` is the paired-machine machine-control provider for Spindrel.
 
-It does not own the machine-control feature. Core owns the machine tools, leases, admin machine center, and transcript UX. This integration supplies one provider implementation: a paired companion process that runs on the target machine, opens an outbound WebSocket to the server, and executes bounded shell requests for the leased target.
+It does not own the machine-control feature. Core owns the machine tools, leases, admin machine center, and transcript UX. This integration supplies one provider implementation: a paired companion process that runs on the target machine, opens an outbound WebSocket to the server, and executes bounded shell requests for the leased target. `ssh` is the sibling headless-machine provider on the same core contract.
 
 ## Architecture
 
@@ -22,6 +22,7 @@ chat / plan session
 - `bridge.py` keeps the live target connection registry in memory.
 - `client.py` is the companion process you run on the target machine.
 - Core tools live in `app/tools/local/machine_control.py` as `machine_status`, `machine_inspect_command`, and `machine_exec_command`.
+- Core treats this provider as ready when the live companion connection is present and fresh.
 
 ## Operator flow
 
@@ -49,11 +50,13 @@ The canonical architecture and end-user flow live in [docs/guides/local-machine-
 
 ## Client launch
 
-The enrollment response includes `target_id`, `token`, and an example command. The companion is a Python entrypoint:
+The enrollment response includes `target_id`, `token`, and an example command. The current bootstrap path downloads the companion script directly from the server, then runs it locally with Python.
 
 ```bash
-python -m integrations.local_companion.client \
-  --server http://localhost:8000 \
+curl -fsSL http://localhost:8000/integrations/local_companion/client.py \
+  -o /tmp/spindrel-local-companion.py && \
+python /tmp/spindrel-local-companion.py \
+  --server-url http://localhost:8000 \
   --target-id <target_id> \
   --token <token>
 ```
@@ -76,6 +79,6 @@ Run it in the foreground first so you can verify pairing, then wrap it in your o
 ## Limits
 
 - Bridge state is in-memory in this build; multi-worker deployments need an external broker before this becomes horizontally safe.
-- `driver="companion"` is the only shipped machine-target driver right now. SSH is a future sibling driver, not part of this integration.
+- `driver="companion"` is one shipped machine-target driver. `ssh` is the sibling headless-machine driver, not part of this integration.
 - This integration is shell-first. File and desktop capabilities should reuse the same target + lease model rather than bypassing it.
 - Machine enrollment/removal still live under `Admin > Machines`; the integration detail page now offers a provider-specific helper that calls the same core enroll flow and can generate a ready launch command or remote-enroll curl.

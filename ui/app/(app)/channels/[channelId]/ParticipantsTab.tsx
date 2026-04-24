@@ -16,7 +16,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import {
   Section, FormRow, SelectInput, Toggle, EmptyState,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection } from "@/src/components/shared/SettingsControls";
+import { ActionButton, AdvancedSection, QuietPill, SettingsControlRow, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import type { ChannelBotMember, ChannelBotMemberConfig } from "@/src/types/api";
@@ -59,31 +59,21 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
         title="Participants"
         description="Bots that can respond in this channel. The primary agent owns the channel; members respond on @-mention."
       >
-        <div className="flex items-center gap-3 rounded-md border border-surface-border bg-surface-raised px-3.5 py-3">
-          <div className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-surface-overlay">
-            <Bot size={18} className="text-text" />
-            <span
-              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-success ring-2 ring-surface-raised"
-              aria-hidden
-              title="Active"
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="truncate text-[14px] font-semibold text-text tracking-[-0.01em]">
-              {primaryBot?.name || primaryBotId}
-            </div>
-            <div className="mt-0.5 text-[11px] text-text-dim">
-              Primary agent · owns this channel
-            </div>
-          </div>
-          <Link
-            to={`/admin/bots/${primaryBotId}`}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-accent hover:bg-surface-overlay/60 transition-colors"
-          >
-            <ExternalLink size={11} />
-            <span>Open config</span>
-          </Link>
-        </div>
+        <SettingsControlRow
+          leading={<Bot size={14} />}
+          title={primaryBot?.name || primaryBotId}
+          description="Primary agent - owns this channel"
+          meta={<StatusBadge label="active" variant="success" />}
+          action={
+            <Link
+              to={`/admin/bots/${primaryBotId}`}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-accent hover:bg-surface-overlay/60 transition-colors"
+            >
+              <ExternalLink size={11} />
+              <span>Open config</span>
+            </Link>
+          }
+        />
       </Section>
 
       {/* Member bots */}
@@ -92,17 +82,22 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
         description="Additional agents that respond when @-mentioned."
         action={
           availableBots.length > 0 && !showPicker ? (
-            <button
-              type="button"
-              onClick={() => setShowPicker(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-surface-border bg-transparent px-2.5 py-1 text-[12px] font-medium text-accent hover:bg-surface-overlay/60 transition-colors"
-            >
-              <Plus size={12} />
-              Add Bot
-            </button>
+            <ActionButton
+              label="Add Bot"
+              onPress={() => setShowPicker(true)}
+              icon={<Plus size={12} />}
+              size="small"
+            />
           ) : undefined
         }
       >
+        <div className="max-w-[76ch] text-[12px] leading-relaxed text-text-dim">
+          Member bots are still channel participants for passive context. Even when
+          they only answer on @-mention, channel activity can be included in their
+          memory compaction and dreaming/learning jobs according to passive-memory
+          and bot learning settings.
+        </div>
+
         {showPicker && (
           <BotPicker
             bots={availableBots}
@@ -116,7 +111,7 @@ export function ParticipantsTab({ channelId, primaryBotId }: Props) {
         )}
 
         {members.length === 0 && !showPicker && (
-          <EmptyState message="Add bots to this channel. Members respond when @-mentioned in chat." />
+          <EmptyState message="Add bots to this channel. Members respond when @-mentioned, but still share passive channel context for memory and learning." />
         )}
 
         {members.map((m) => (
@@ -163,26 +158,20 @@ function BotPicker({
   isPending: boolean;
 }) {
   return (
-    <div className="overflow-hidden rounded-md border border-surface-border bg-surface-raised">
+    <div className="flex flex-col gap-1">
       {bots.map((b) => (
-        <button
+        <SettingsControlRow
           key={b.id}
-          type="button"
           onClick={() => onSelect(b.id)}
           disabled={isPending}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-text hover:bg-accent/[0.08] disabled:cursor-wait transition-colors"
-        >
-          <Bot size={14} className="text-text-dim" />
-          {b.name}
-        </button>
+          leading={<Bot size={14} />}
+          title={b.name}
+          compact
+        />
       ))}
-      <button
-        type="button"
-        onClick={onCancel}
-        className="w-full px-3 py-1.5 text-center text-[11px] text-text-dim hover:bg-surface-overlay/60 transition-colors"
-      >
-        Cancel
-      </button>
+      <div>
+        <ActionButton label="Cancel" onPress={onCancel} variant="ghost" size="small" />
+      </div>
     </div>
   );
 }
@@ -211,11 +200,11 @@ function MemberCard({
   if (cfg.max_rounds) badges.push(`${cfg.max_rounds} rounds`);
 
   return (
-    <div className="overflow-hidden rounded-md border border-surface-border bg-surface-raised">
+    <div className="overflow-hidden rounded-md bg-surface-raised/40">
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-overlay/60 transition-colors"
+        className="grid min-h-[38px] w-full grid-cols-[16px_20px_minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-surface-overlay/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 max-sm:grid-cols-[16px_20px_minmax(0,1fr)_auto_auto]"
       >
         {expanded ? (
           <ChevronDown size={12} className="text-text-dim shrink-0" />
@@ -230,18 +219,13 @@ function MemberCard({
             className={`absolute -right-1 -top-1 h-1.5 w-1.5 rounded-full ring-2 ring-surface-raised ${cfg.auto_respond ? "bg-accent" : "bg-text-dim/60"}`}
           />
         </div>
-        <span className="flex-1 min-w-0 truncate text-[13px] font-medium text-text">
+        <span className="min-w-0 truncate text-[13px] font-medium text-text">
           {member.bot_name || member.bot_id}
         </span>
         {!expanded && badges.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="hidden items-center justify-end gap-1 sm:flex">
             {badges.map((b) => (
-              <span
-                key={b}
-                className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim"
-              >
-                {b}
-              </span>
+              <QuietPill key={b} label={b} title={b} />
             ))}
           </div>
         )}
@@ -361,6 +345,7 @@ function MemberConfigForm({
               onChange={(modelId) => onUpdate({ model_override: modelId || null })}
               placeholder="Inherit from bot"
               allowClear
+              className="md:max-w-[560px]"
             />
           </FormRow>
 

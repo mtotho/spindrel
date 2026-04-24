@@ -1,7 +1,7 @@
 """Add outbox table for durable channel-event delivery.
 
 Phase D of the Integration Delivery Layer Refactor (see
-``vault/Projects/agent-server/Track - Integration Delivery.md``).
+``project-notes/Track - Integration Delivery.md``).
 
 The outbox is the durability layer for the channel-events bus. Today,
 ``persist_turn`` calls ``publish_message`` after committing the message rows

@@ -169,7 +169,7 @@ Some surfaces are owned by their own canonical docs. This guide points at them �
 | Tool discovery, skill enrollment, MCP residency | [`discovery-and-enrollment.md`](discovery-and-enrollment.md) |
 | Context admission + history profiles | [`context-management.md`](context-management.md) |
 | UI archetypes, design tokens, surface conventions | [`ui-design.md`](ui-design.md) |
-| Capability gating, platform depth (Slack → Discord → BlueBubbles recipe) | Integration Depth Playbook (vault: `Projects/agent-server/Integration Depth Playbook.md`) |
+| Capability gating, platform depth (Slack → Discord → BlueBubbles recipe) | [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md) |
 | Webhook signing + lifecycle events | [`webhooks.md`](webhooks.md) |
 | Custom tools (registration, schema, injection) | [`custom-tools.md`](custom-tools.md) |
 | How a channel activates an integration (tools/skills/MCP injection) | [`templates-and-activation.md`](../integrations/activation-and-templates.md) |
@@ -183,7 +183,7 @@ Capabilities declare what a renderer can do. The dispatcher reads declared capab
 - **Over-declaration is a silent bug.** Declared capability with no handler branch = events silently dropped.
 - **Under-declaration is a missed affordance.** Platform supports modals but you didn't declare `MODALS`? The `open_modal` tool short-circuits with `unsupported=True`.
 
-For the full list of capabilities and the Slack pilot's 5-phase depth recipe, see the Integration Depth Playbook (vault: `Projects/agent-server/Integration Depth Playbook.md`).
+For the full list of capabilities and the Slack pilot's 5-phase depth recipe, see [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md).
 
 ## Lifecycle hooks
 
@@ -309,13 +309,7 @@ A BlueBubbles-era extension point that rendered a status strip, side panel, inpu
 
 **Why it's gone.** The widget / dashboard system covers the same use cases with durable pins, a richer component DSL, and dashboard placement. Two parallel "stuff appears alongside chat" surfaces is drift.
 
-**Replacement pattern.** Each former HUD item becomes a dashboard-pinnable widget (authored via [`widget-system.md`](widget-system.md)):
-
-| Former HUD | Replacement |
-|---|---|
-| `bluebubbles.bb-status` | Native or tool-result widget — connected badge + pause/resume actions |
-| `bluebubbles.bb-echo-diag` | Dashboard-pinnable widget with per-chat cooldown breakdown |
-| `ingestion.feed-status` | Dashboard card with Processed / Quarantined / Classifier error counts |
+**If you want something HUD-shaped back.** Author it as a standalone HTML widget under `integrations/<id>/widgets/<name>.html`. The scanner discovers it automatically, publishes it to the library with `source="integration"`, and it's pinnable on channel dashboards. It can poll its own data via `window.spindrel.api("/integrations/<id>/...")` at any cadence. See [`widget-system.md` § How to choose the right lane](widget-system.md#how-to-choose-the-right-lane).
 
 The keys no longer parse; no YAML block, backend discovery, router endpoint, UI hook, or type lingers. Do not reintroduce them.
 
@@ -326,7 +320,7 @@ The keys no longer parse; no YAML block, backend discovery, router endpoint, UI 
 - [`docs/integrations/activation-and-templates.md`](../integrations/activation-and-templates.md) — activation manifest + template compatibility.
 - [`docs/integrations/example.md`](../integrations/example.md) — minimal `integrations/example/` scaffold.
 - [`docs/integrations/message-ingest-contract.md`](../integrations/message-ingest-contract.md) — message-ingestion API contract.
-- Integration Depth Playbook (vault: `Projects/agent-server/Integration Depth Playbook.md`) — platform-depth recipe.
+- [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md) — platform-depth recipe.
 - [`docs/guides/widget-system.md`](widget-system.md) — widget contracts and host policy.
 - [`docs/guides/discovery-and-enrollment.md`](discovery-and-enrollment.md) — tool/skill/MCP residency.
 - [`docs/guides/webhooks.md`](webhooks.md) — webhook signing + lifecycle event forwarding.

@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
 
 interface Props {
   schema: Record<string, any> | null | undefined;
@@ -78,20 +78,19 @@ export function ToolArgsForm({ schema, values, onChange }: Props) {
           return (
             <label key={key} className="flex flex-col gap-1">
               {label}
-              <select
+              <SelectDropdown
                 value={current == null ? "" : String(current)}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
-                  update(key, e.target.value === "" ? undefined : e.target.value)
-                }
-                className="rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-[13px] text-text outline-none focus:border-accent/40"
-              >
-                <option value="">—</option>
-                {spec.enum.map((v: string) => (
-                  <option key={String(v)} value={String(v)}>
-                    {String(v)}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: "", label: "-" },
+                  ...spec.enum.map((v: string) => ({
+                    value: String(v),
+                    label: String(v),
+                  })),
+                ]}
+                onChange={(next) => update(key, next === "" ? undefined : next)}
+                size="sm"
+                popoverWidth="trigger"
+              />
               {spec.description && (
                 <span className="text-[11px] text-text-dim">{spec.description}</span>
               )}

@@ -24,6 +24,7 @@ import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { UserSelect } from "@/src/components/shared/UserSelect";
+import { BotPicker } from "@/src/components/shared/BotPicker";
 import type { ChannelSettings } from "@/src/types/api";
 
 function TagEditor({
@@ -302,10 +303,11 @@ export function AgentIdentitySection({
   return (
     <Section title="Agent">
       <FormRow label="Bot" description="Select which bot owns this channel conversation.">
-        <SelectInput
+        <BotPicker
           value={form.bot_id ?? ""}
           onChange={(v) => patch("bot_id", v as ChannelSettings["bot_id"])}
-          options={bots?.map((b) => ({ label: `${b.name} (${b.id})`, value: b.id })) ?? []}
+          bots={bots ?? []}
+          placeholder="Select bot..."
         />
       </FormRow>
       {form.bot_id && settings.bot_id && form.bot_id !== settings.bot_id && (
@@ -443,6 +445,12 @@ export function AgentBehaviorSection({
         onChange={(v) => patch("workspace_rag", v as ChannelSettings["workspace_rag"])}
         label="Workspace RAG"
         description="Auto-inject relevant workspace files into context each turn."
+      />
+      <Toggle
+        value={form.pinned_widget_context_enabled ?? true}
+        onChange={(v) => patch("pinned_widget_context_enabled", v as ChannelSettings["pinned_widget_context_enabled"])}
+        label="Pinned widget context"
+        description="Allow pinned channel widgets to contribute summaries and action hints to chat context."
       />
       <FormRow label="Integration thinking display" description="How intermediate thinking is shown in integrations like Slack or Discord. Web chat uses the built-in transcript layout.">
         <SelectInput

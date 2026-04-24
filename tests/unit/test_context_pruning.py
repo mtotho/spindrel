@@ -444,6 +444,10 @@ class TestRetrievalPointers:
         assert "get_skill" in STICKY_TOOL_NAMES
         assert "get_skill_list" in STICKY_TOOL_NAMES
 
+    def test_sticky_tool_names_includes_memory_file(self):
+        """get_memory_file is sticky so hygiene runs don't re-fetch MEMORY.md."""
+        assert "get_memory_file" in STICKY_TOOL_NAMES
+
     def test_mixed_record_id_and_no_record_id(self):
         """Messages with and without record IDs should get appropriate markers."""
         record_id = "abc12345-1234-1234-1234-123456789abc"

@@ -177,7 +177,7 @@ Widget vocabulary separates three orthogonal axes. A confusion between them is t
 | Term | Definition | Aliases to avoid |
 |---|---|---|
 | **LLM provider** | An entry in `ProviderModel`: `openai`, `anthropic`, `ollama`, `openai-subscription`, etc. Carries a `prompt_style` capability flag (markdown / xml / structured). | model vendor |
-| **Machine-control provider** | A driver for local/remote machine targets under `app/services/machine_control/*`. `local_companion` is the first; SSH is pending. Targets addressed as `(provider_id, target_id)`. | device provider, agent |
+| **Machine-control provider** | A driver for local/remote machine targets under `app/services/machine_control/*`. `local_companion` and `ssh` are the first shipped providers. Targets are addressed as `(provider_id, target_id)`. | device provider, agent |
 | **reasoning_effort** / **effort** | The unified reasoning knob — `off` / `low` / `medium` / `high`. Set via `/effort` slash command. | thinking level |
 
 ---
@@ -203,7 +203,7 @@ These are terms that have bitten Spindrel work before. Call them out explicitly 
 
 ## Relationships
 
-- A **Channel** has zero or more **Bots** as participants, one **Dashboard**, and zero or one active **Binding** per **Integration**.
+- A **Channel** has zero or more **Bots** as participants, one **Dashboard**, and zero or one active **Binding** per **Integration**. Member Bots can receive active turns through routing such as @-mention, and can also absorb passive channel context for memory/dreaming according to passive-memory and bot learning settings.
 - A **Session** belongs to exactly one **Channel**; **Sub-sessions** point to a parent **Message** on that Session.
 - A **Turn** produces one or more **Iterations**; each Iteration may load **Skills** (becoming **Resident**) and call **Tools** (whose schemas may be **Loaded**).
 - A **Pin** references a **Widget definition** and carries a **Widget origin** describing its **Instantiation kind**; the host combines that with a **Placement zone** to produce a **Resolved host policy**.

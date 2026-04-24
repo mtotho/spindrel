@@ -1,16 +1,17 @@
 # CLAUDE.md
 
-## Project Knowledge
+## Entry Point
 
-Detailed project knowledge lives in an Obsidian vault at `../vault/Projects/agent-server/`. On session start, read **Tier 1 files**: `Roadmap.md` (current state) and `Loose Ends.md` (open bugs). Read Track files only when touching that area.
+For repo-wide work, start with this file, then open [`docs/guides/index.md`](docs/guides/index.md) and the matching canonical guide for the area you are touching.
 
-**Cleanup is same-edit, not later.** When you fix a bug from Loose Ends → move it to Fix Log in the same edit. When all track phases ship → close the track immediately. See `dotfiles/claude/rules/vault-updates.md` for the full vault organization system (document taxonomy, track lifecycle, cleanup discipline).
+Keep public, reusable process in `docs/guides/`. Local workspace state and private session workflow belong in workspace-level agent instructions, not in this public repo file.
 
 ## Canonical Guides
 
 Index: [`docs/guides/index.md`](docs/guides/index.md). Read the matching guide before touching these areas — they win against every other doc when they disagree.
 
 - [`docs/guides/context-management.md`](docs/guides/context-management.md) — context admission + history profiles
+- [`docs/guides/development-process.md`](docs/guides/development-process.md) — review triage, Agent Briefs, contract/red-line review, out-of-scope decisions
 - [`docs/guides/discovery-and-enrollment.md`](docs/guides/discovery-and-enrollment.md) — tool / skill / MCP residency + enrollment
 - [`docs/guides/widget-system.md`](docs/guides/widget-system.md) — widget contracts, origins, presentation, host policy
 - [`docs/guides/ui-design.md`](docs/guides/ui-design.md) — UI archetypes, design tokens, anti-patterns

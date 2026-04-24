@@ -80,10 +80,10 @@ def _load_manifest_safely(pin: WidgetDashboardPin):
     rather than fail the turn — one broken pin shouldn't poison the whole
     tool pool.
     """
-    from app.services.widget_py import _resolve_bundle_dir
+    from app.services.widget_py import resolve_bundle_dir
 
     try:
-        bundle_dir = _resolve_bundle_dir(pin)
+        bundle_dir = resolve_bundle_dir(pin)
     except (ValueError, FileNotFoundError) as exc:
         logger.debug("widget handler scan: skipping pin %s (bundle: %s)", pin.id, exc)
         return None, None

@@ -44,8 +44,6 @@ export const useUIStore = create()(persist((set) => ({
     omniPanelTab: "widgets",
     channelPanelPrefs: {},
     filesFocusTick: 0,
-    hudCollapsedChannels: [],
-    hudExpandedOnMobile: [],
     recentPages: [],
     toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
     setSidebarWidth: (width) => set({
@@ -155,16 +153,6 @@ export const useUIStore = create()(persist((set) => ({
         }
         return { fileExplorerOpen: true, omniPanelTab: "widgets" };
     }),
-    toggleHudCollapsed: (channelId) => set((s) => ({
-        hudCollapsedChannels: s.hudCollapsedChannels.includes(channelId)
-            ? s.hudCollapsedChannels.filter((id) => id !== channelId)
-            : [...s.hudCollapsedChannels, channelId],
-    })),
-    toggleHudExpandedOnMobile: (channelId) => set((s) => ({
-        hudExpandedOnMobile: s.hudExpandedOnMobile.includes(channelId)
-            ? s.hudExpandedOnMobile.filter((id) => id !== channelId)
-            : [...s.hudExpandedOnMobile, channelId],
-    })),
     recordPageVisit: (href) => set((s) => {
         const canonicalHref = canonicalizePaletteHref(href);
         const route = resolvePaletteRoute(canonicalHref);
@@ -206,8 +194,6 @@ export const useUIStore = create()(persist((set) => ({
         rightDockHidden: state.rightDockHidden,
         omniPanelTab: state.omniPanelTab,
         channelPanelPrefs: state.channelPanelPrefs,
-        hudCollapsedChannels: state.hudCollapsedChannels,
-        hudExpandedOnMobile: state.hudExpandedOnMobile,
         recentPages: state.recentPages,
     }),
     // Migrate old string[] format to RecentPage[]

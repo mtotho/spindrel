@@ -278,6 +278,26 @@ textarea::placeholder {
 }
 .thinking-pulse { animation: thinking-pulse-kf 1.5s ease-in-out infinite; }
 
+/* /find jump-to-message highlight — brief accent pulse on the target row
+ * after a smooth-scroll lands. Color tokens are space-separated rgb triples
+ * (Tailwind convention), so we wrap in rgb(... / alpha) here. */
+@keyframes msg-highlight-pulse {
+  0%   { background-color: rgb(var(--color-accent) / 0.14); }
+  40%  { background-color: rgb(var(--color-accent) / 0.10); }
+  100% { background-color: transparent; }
+}
+.msg-highlight {
+  animation: msg-highlight-pulse 1.6s ease-out both;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg-highlight {
+    animation: none;
+    background-color: rgb(var(--color-accent) / 0.10);
+    transition: background-color 600ms ease-out;
+  }
+}
+
 /* Skill pill entrance — staggered fade-slide */
 @keyframes skill-pill-in {
   from { opacity: 0; transform: translateX(-6px); }
@@ -498,4 +518,31 @@ textarea::placeholder {
 }
 .react-grid-layout:not(.rgl-edit-mode) .react-grid-placeholder {
   display: none !important;
+}
+
+/* Edit-mode tile affordance. Channel dashboards can have `borderless` chrome
+ * turned on, which removes the widget card's own border — during drag/resize
+ * that makes it impossible to see what you're grabbing. These rules draw a
+ * temporary outline on the active tile (drag OR resize) and a faint hover
+ * outline at rest so tile bounds are always discoverable in edit mode. */
+.rgl-edit-mode > .react-grid-item:hover {
+  outline: 1px dashed rgba(99, 102, 241, 0.35);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+.rgl-edit-mode > .react-grid-item.resizing,
+.rgl-edit-mode > .react-grid-item.react-draggable-dragging {
+  outline: 2px solid rgba(99, 102, 241, 0.75);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+  z-index: 3;
+}
+/* Nudge the default `se` resize handle so it's visible on borderless tiles —
+ * the library renders it as a 20px hit area with a faint corner glyph. Bump
+ * the opacity/size in edit mode so users can actually see where to grab. */
+.rgl-edit-mode > .react-grid-item > .react-resizable-handle {
+  opacity: 0.6;
+}
+.rgl-edit-mode > .react-grid-item:hover > .react-resizable-handle {
+  opacity: 1;
 }

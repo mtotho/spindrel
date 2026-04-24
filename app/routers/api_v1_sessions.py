@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.models import Attachment, Attachment as AttachmentModel, Channel, Message, Session, Task, ToolCall
+from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
 from app.services.api_keys import has_scope
 from app.services.sessions import store_passive_message
@@ -337,7 +338,7 @@ async def create_session(
 
     try:
         get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     # load_or_create handles upsert; locked=True for integration sessions
@@ -374,7 +375,7 @@ async def create_ephemeral_session(
 
     try:
         get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     if body.parent_channel_id is not None:
@@ -430,7 +431,7 @@ async def get_current_scratch_session(
 
     try:
         get_bot(bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {bot_id}")
 
     channel = await db.get(Channel, parent_channel_id)
@@ -515,7 +516,7 @@ async def reset_scratch_session(
 
     try:
         get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     channel = await db.get(Channel, body.parent_channel_id)
@@ -1103,6 +1104,7 @@ async def session_config_overhead(
         "audio_input": bot.audio_input or "transcribe",
         "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
         "pinned_widgets": channel_pinned_widgets,
+        "channel_config": channel.config if channel is not None else {},
     }
 
     result = await estimate_bot_context(draft=draft, bot_id=bot.id)

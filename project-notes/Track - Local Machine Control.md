@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-23 (phase 6 core provider architecture shipped)
+updated: 2026-04-24 (phase 7 ssh provider + transcript-first widget UX shipped)
 ---
 # Track — Local Machine Control
 
@@ -14,13 +14,14 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 
 - Machine control is a core subsystem, not a `local_companion` feature with bespoke core UI.
 - Targets are addressed as `(provider_id, target_id)`.
-- v1 ships one provider: `local_companion` with `driver="companion"`.
-- SSH is deferred as a second provider on the same contract.
+- Shipped providers are `local_companion` with `driver="companion"` and `ssh` with `driver="ssh"`.
+- Cross-provider readiness is based on a fresh provider probe or live-status check, not a companion-specific connection concept.
 - One session can lease one target at a time. One target can be leased by only one session at a time.
 - Lease-gated tools are denied unless there is a live JWT user, active presence, and a valid session lease for the same user.
 - Lease state lives in `Session.metadata_["machine_target_lease"]`.
 - Core owns the machine tools, admin APIs, session APIs, transcript/result UX, and admin machine center.
 - Integrations implement a typed machine-control provider contract and may expose provider-specific transport/settings surfaces, but they do not own machine CRUD UX.
+- Provider-level credentials and trust material live in app-managed integration settings so setup survives container rebuilds.
 
 ## Status
 
@@ -32,6 +33,8 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 4 | Canonical docs + architecture linking | ✅ shipped 2026-04-23 |
 | 5A | Rich result UX, transcript grant flow, operator docs, agent skill | ✅ shipped 2026-04-23 |
 | 6 | Core provider architecture, `/admin/machines`, renderer extraction, tool rename | ✅ shipped 2026-04-23 |
+| 7 | Provider-generic readiness contract, SSH provider, probe UX | ✅ shipped 2026-04-24 |
+| 8 | Transcript-first UX, header chrome removal, optional native widget | ✅ shipped 2026-04-24 |
 
 ## What Shipped
 
@@ -88,6 +91,42 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - `Admin > Integrations > Local Companion` now has a provider-aware quick-setup card that calls the same core enroll API and can generate a ready launch command
   - `/admin/machines` was moved onto the normal padded admin content width instead of rendering edge-to-edge
   - corrected a UI API regression where machine-control hooks were calling `/admin/machines` directly instead of `/api/v1/admin/machines`, which caused real browser 404s on enroll; paths are now centralized in a tested helper
+  - corrected the companion bootstrap path again: setup surfaces now generate a real zero-repo `curl -fsSL {server}/integrations/local_companion/client.py -o /tmp/spindrel-local-companion.py && python /tmp/spindrel-local-companion.py ...` command instead of repo-dependent Python module invocations
+
+### Phase 7 — SSH provider and provider-generic readiness
+
+- Core provider contract no longer assumes every provider has a live connection object.
+- Readiness is now provider-generic:
+  - cached target status is rendered in the UI
+  - lease grant and lease-gated execution require a fresh provider probe
+- Target payloads and lease payloads now expose canonical readiness fields:
+  - `ready`
+  - `status`
+  - `reason`
+  - `checked_at`
+  - `handle_id`
+- Added a shared core inspect validator so readonly shell semantics are enforced before provider dispatch.
+- Added `POST /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}/probe`.
+- Shipped `integrations/ssh/` as the second provider:
+  - provider-defined enrollment fields for `host`, `username`, `port`, and optional default `working_dir`
+  - provider-level secrets in integration settings: private key, `known_hosts`, and timeout/output caps
+  - strict non-interactive OpenSSH subprocess execution with one fresh session per probe/command
+  - cached target metadata refresh for hostname, platform, readiness, and failure reason
+- `Admin > Machines` now renders provider-defined enroll fields generically and exposes per-target `Probe`.
+- SSH settings are stored in app-managed integration settings rather than ephemeral container filesystem state, so container rebuilds do not wipe setup.
+
+### Phase 8 — Transcript-first machine UX and optional native widget
+
+- Removed the default machine-control affordance from chat header chrome.
+- Machine control is now explicitly transcript-first:
+  - required grant/revoke flows stay in `core.machine_access_required`
+  - status/result flows stay in `core.machine_target_status` and `core.command_result`
+- Added `core/machine_control_native` as an optional channel-scoped native widget:
+  - manual pin only
+  - session-aware status + controls
+  - per-target `Use`, `Revoke`, and `Probe`
+  - no pinned-widget context export
+- New invariant: machine control may appear in chat chrome only when intentionally pinned as a widget or rendered in transcript/result surfaces, not as a default top-right header icon.
 
 ## Current Architecture Shape
 
@@ -103,10 +142,11 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
   - `integrations/local_companion/router.py`
   - `integrations/local_companion/bridge.py`
   - `integrations/local_companion/client.py`
+  - `integrations/ssh/machine_control.py`
 
 ## Deferred
 
-- SSH provider on the same machine-control contract.
+- Stronger standalone packaging for the companion client; v1 bootstrap no longer requires a repo checkout, but it still assumes Python plus the `websockets` dependency on the target machine.
 - Shared lease/consent model for `browser_live` if that path should converge.
 - Richer machine capabilities beyond shell once the provider contract settles.
 - Multi-worker/shared-broker support for live provider connection state.
@@ -115,5 +155,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 
 - `pytest tests/unit/test_local_machine_control_phase5a.py -q`
 - `pytest tests/unit/test_machine_target_sessions.py -q`
+- `pytest tests/unit/test_machine_control_drift.py tests/unit/test_local_companion_provider.py tests/unit/test_ssh_provider.py tests/unit/test_integration_setup.py::TestDiscoverSetupStatus::test_local_companion_exposes_machine_control_metadata tests/unit/test_integration_setup.py::TestDiscoverSetupStatus::test_ssh_exposes_machine_control_metadata -q`
 - `cd agent-server/ui && node --test src/components/chat/renderArchitecture.test.ts 'app/(app)/channels/[channelId]/sessionHeaderChrome.test.ts'`
+- `cd agent-server/ui && node --test src/lib/machineControlSetup.test.ts`
 - `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false`

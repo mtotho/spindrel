@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException
+from app.domain.errors import ConflictError, NotFoundError, UnprocessableError, ValidationError
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.agent.bots import get_bot
@@ -814,7 +814,7 @@ def record_plan_semantic_review(
     review_copy = copy.deepcopy(review if isinstance(review, dict) else {})
     verdict = str(review_copy.get("verdict") or "").strip()
     if verdict not in _VALID_PLAN_SEMANTIC_VERDICTS:
-        raise HTTPException(status_code=422, detail=f"Invalid semantic review verdict: {verdict or 'missing'}")
+        raise UnprocessableError(f"Invalid semantic review verdict: {verdict or 'missing'}")
 
     review_copy["semantic_status"] = _semantic_status_from_review(review_copy)
     review_copy["created_at"] = str(review_copy.get("created_at") or _utc_now_iso())
@@ -887,25 +887,25 @@ def record_plan_progress_outcome(
 ) -> dict[str, Any]:
     outcome = str(outcome or "").strip()
     if outcome not in _VALID_PLAN_PROGRESS_OUTCOMES:
-        raise HTTPException(status_code=422, detail=f"Invalid plan progress outcome: {outcome}")
+        raise UnprocessableError(f"Invalid plan progress outcome: {outcome}")
     summary_text = (summary or "").strip()
     if not summary_text:
-        raise HTTPException(status_code=422, detail="Plan progress summary is required.")
+        raise UnprocessableError("Plan progress summary is required.")
 
     plan = load_session_plan(session, required=True)
     assert plan is not None
     mode = get_session_plan_mode(session)
     if mode not in {PLAN_MODE_EXECUTING, PLAN_MODE_BLOCKED}:
-        raise HTTPException(status_code=409, detail="Plan progress can only be recorded while executing or blocked.")
+        raise ConflictError("Plan progress can only be recorded while executing or blocked.")
     _ensure_plan_is_approved_for_execution(session, plan)
 
     resolved_step_id = (step_id or "").strip() or _current_or_next_step_id(plan)
     if resolved_step_id and all(step.id != resolved_step_id for step in plan.steps):
-        raise HTTPException(status_code=404, detail=f"Plan step not found: {resolved_step_id}")
+        raise NotFoundError(f"Plan step not found: {resolved_step_id}")
     if outcome in {PLAN_PROGRESS_OUTCOME_STEP_DONE, PLAN_PROGRESS_OUTCOME_BLOCKED} and not resolved_step_id:
-        raise HTTPException(status_code=422, detail=f"{outcome} requires a plan step.")
+        raise UnprocessableError(f"{outcome} requires a plan step.")
     if outcome == PLAN_PROGRESS_OUTCOME_NO_PROGRESS and not (evidence or status_note):
-        raise HTTPException(status_code=422, detail="no_progress requires evidence or a status note.")
+        raise UnprocessableError("no_progress requires evidence or a status note.")
 
     if outcome == PLAN_PROGRESS_OUTCOME_STEP_DONE:
         plan = update_plan_step_status(
@@ -1042,7 +1042,7 @@ def _plan_channel_id(session: Session) -> uuid.UUID | None:
 def build_plan_path(session: Session, task_slug: str) -> str:
     channel_id = _plan_channel_id(session)
     if channel_id is None:
-        raise HTTPException(status_code=400, detail="Plan mode requires a channel-backed session.")
+        raise ValidationError("Plan mode requires a channel-backed session.")
     bot = get_bot(session.bot_id)
     ws_root = ensure_channel_workspace(str(channel_id), bot)
     plan_dir = os.path.join(ws_root, ".sessions", str(session.id), "plans")
@@ -1100,16 +1100,16 @@ def load_session_plan(session: Session, *, required: bool = False) -> SessionPla
     path = get_session_active_plan_path(session)
     if not path:
         if required:
-            raise HTTPException(status_code=404, detail="Session has no active plan.")
+            raise NotFoundError("Session has no active plan.")
         return None
     if not os.path.isfile(path):
         if required:
-            raise HTTPException(status_code=404, detail="Active plan file is missing.")
+            raise NotFoundError("Active plan file is missing.")
         return None
     try:
         return parse_plan_markdown(Path(path).read_text(), path=path)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=f"Invalid active plan file: {exc}")
+        raise ConflictError(f"Invalid active plan file: {exc}")
 
 
 def _plan_file_timestamp(path: str) -> str | None:
@@ -1122,12 +1122,12 @@ def _plan_file_timestamp(path: str) -> str | None:
 def _load_plan_from_path(path: str, *, required: bool = False) -> SessionPlan | None:
     if not os.path.isfile(path):
         if required:
-            raise HTTPException(status_code=404, detail="Requested plan revision is missing.")
+            raise NotFoundError("Requested plan revision is missing.")
         return None
     try:
         return parse_plan_markdown(Path(path).read_text(), path=path)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail=f"Invalid plan revision file: {exc}")
+        raise ConflictError(f"Invalid plan revision file: {exc}")
 
 
 def load_session_plan_revision(
@@ -1139,7 +1139,7 @@ def load_session_plan_revision(
 ) -> SessionPlan | None:
     if revision <= 0:
         if required:
-            raise HTTPException(status_code=404, detail="Requested plan revision is invalid.")
+            raise NotFoundError("Requested plan revision is invalid.")
         return None
     task_slug = (session.metadata_ or {}).get(PLAN_SLUG_METADATA_KEY)
     current_revision = (session.metadata_ or {}).get(PLAN_REVISION_METADATA_KEY)
@@ -1157,7 +1157,7 @@ def load_session_plan_revision(
     if current_revision and int(current_revision) == revision:
         return current_plan
     if required:
-        raise HTTPException(status_code=404, detail="Requested plan revision was not found.")
+        raise NotFoundError("Requested plan revision was not found.")
     return None
 
 
@@ -1451,7 +1451,7 @@ def update_session_plan(
     plan = load_session_plan(session, required=True)
     assert plan is not None
     if revision != plan.revision:
-        raise HTTPException(status_code=409, detail=f"Revision mismatch. Expected {plan.revision}.")
+        raise ConflictError(f"Revision mismatch. Expected {plan.revision}.")
     if title is not None and title.strip():
         plan.title = title.strip()
     if summary is not None:
@@ -1481,7 +1481,7 @@ def _validate_plan_for_execution(plan: SessionPlan) -> None:
     validation = validate_plan_for_approval(plan)
     if not validation["ok"]:
         messages = "; ".join(issue["message"] for issue in validation["issues"] if issue["severity"] == PLAN_VALIDATION_ERROR)
-        raise HTTPException(status_code=422, detail=messages or "Plan is not ready for execution.")
+        raise UnprocessableError(messages or "Plan is not ready for execution.")
 
 
 def _is_placeholder_text(value: str | None, placeholders: set[str]) -> bool:
@@ -1650,17 +1650,13 @@ def _accepted_plan_revision(session: Session) -> int:
 def _ensure_plan_is_approved_for_execution(session: Session, plan: SessionPlan) -> int:
     accepted_revision = _accepted_plan_revision(session)
     if accepted_revision <= 0:
-        raise HTTPException(
-            status_code=409,
-            detail="Execution status cannot change until the current plan revision is approved.",
+        raise ConflictError(
+            "Execution status cannot change until the current plan revision is approved.",
         )
     if plan.revision != accepted_revision:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Execution status applies only to accepted revision {accepted_revision}. "
-                f"Revision {plan.revision} is still a draft."
-            ),
+        raise ConflictError(
+            f"Execution status applies only to accepted revision {accepted_revision}. "
+            f"Revision {plan.revision} is still a draft.",
         )
     return accepted_revision
 
@@ -1726,13 +1722,13 @@ def update_plan_step_status(
     note: str | None = None,
 ) -> SessionPlan:
     if status not in _VALID_STEP_STATUSES:
-        raise HTTPException(status_code=422, detail=f"Invalid step status: {status}")
+        raise UnprocessableError(f"Invalid step status: {status}")
     plan = load_session_plan(session, required=True)
     assert plan is not None
     _ensure_plan_is_approved_for_execution(session, plan)
     step = next((item for item in plan.steps if item.id == step_id), None)
     if step is None:
-        raise HTTPException(status_code=404, detail="Plan step not found.")
+        raise NotFoundError("Plan step not found.")
     step.status = status
     if note is not None:
         step.note = note.strip() or None
@@ -1773,19 +1769,19 @@ def request_plan_replan(
     plan = load_session_plan(session, required=True)
     assert plan is not None
     if revision is not None and revision != plan.revision:
-        raise HTTPException(status_code=409, detail=f"Revision mismatch. Expected {plan.revision}.")
+        raise ConflictError(f"Revision mismatch. Expected {plan.revision}.")
     accepted_revision = _accepted_plan_revision(session)
     if accepted_revision <= 0:
-        raise HTTPException(status_code=409, detail="Only an accepted plan can be marked for replanning.")
+        raise ConflictError("Only an accepted plan can be marked for replanning.")
 
     affected = [item.strip() for item in (affected_step_ids or []) if item and item.strip()]
     unknown = [step_id for step_id in affected if all(step.id != step_id for step in plan.steps)]
     if unknown:
-        raise HTTPException(status_code=404, detail=f"Unknown plan step ids: {', '.join(unknown)}")
+        raise NotFoundError(f"Unknown plan step ids: {', '.join(unknown)}")
 
     reason_text = reason.strip()
     if not reason_text:
-        raise HTTPException(status_code=422, detail="Replan reason is required.")
+        raise UnprocessableError("Replan reason is required.")
     evidence_text = (evidence or "").strip() or None
 
     for step in plan.steps:

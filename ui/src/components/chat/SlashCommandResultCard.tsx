@@ -1,5 +1,10 @@
-import type { ContextSummaryPayload, Message } from "../../types/api";
+import type {
+  ContextSummaryPayload,
+  Message,
+  SlashCommandFindResultsPayload,
+} from "../../types/api";
 import { useThemeTokens } from "../../theme/tokens";
+import { FindResultsRenderer } from "./renderers/FindResultsRenderer";
 
 interface Props {
   message: Message;
@@ -15,10 +20,40 @@ function fmtPct(n?: number | null) {
   return `${Math.round(n * 100)}%`;
 }
 
+function formatPinnedSkipReason(reason: string) {
+  switch (reason) {
+    case "channel_disabled":
+      return "channel disabled";
+    case "profile_disabled":
+      return "profile disabled";
+    case "export_disabled":
+      return "export disabled";
+    case "no_summary":
+      return "no summary";
+    case "trimmed":
+      return "trimmed";
+    default:
+      return reason;
+  }
+}
+
 export function SlashCommandResultCard({ message }: Props) {
+  const resultType = (message.metadata?.result_type ?? "context_summary") as string;
+  const rawPayload = message.metadata?.payload ?? {};
+
+  if (resultType === "find_results") {
+    return <FindResultsRenderer payload={rawPayload as SlashCommandFindResultsPayload} />;
+  }
+
+  // Default: context_summary (also used by /help and /context)
+  return <ContextSummaryCard message={message} />;
+}
+
+function ContextSummaryCard({ message }: Props) {
   const t = useThemeTokens();
   const payload = (message.metadata?.payload ?? {}) as ContextSummaryPayload;
   const budget = payload.budget ?? null;
+  const pinned = payload.pinned_widget_context ?? null;
   const pct = budget?.utilization ?? null;
   const barColor =
     pct != null && pct >= 0.8 ? "#ef4444" : pct != null && pct >= 0.5 ? "#f59e0b" : t.accent;
@@ -95,6 +130,48 @@ export function SlashCommandResultCard({ message }: Props) {
               <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>{cat.description}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {pinned && (
+        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12 }}>
+            <span style={{ color: t.text }}>Pinned widget context</span>
+            <span style={{ color: t.textDim }}>
+              {pinned.enabled ? `${pinned.exported_count}/${pinned.total_pins} exported` : "disabled"}
+              {pinned.enabled && pinned.total_chars > 0 ? ` · ${fmtTokens(pinned.total_chars)} chars` : ""}
+            </span>
+          </div>
+          {!pinned.enabled && (
+            <div style={{ fontSize: 12, color: t.textMuted }}>
+              This channel has pinned-widget context disabled.
+            </div>
+          )}
+          {pinned.enabled && pinned.rows.length === 0 && (
+            <div style={{ fontSize: 12, color: t.textMuted }}>
+              No pinned widgets are currently exporting context.
+            </div>
+          )}
+          {pinned.enabled && pinned.rows.length > 0 && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {pinned.rows.slice(0, 4).map((row) => (
+                <div key={row.pin_id} style={{ display: "grid", gap: 2 }}>
+                  <div style={{ fontSize: 12, color: t.text }}>{row.label}</div>
+                  <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.45 }}>{row.summary}</div>
+                  {row.hint && (
+                    <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.4 }}>
+                      Hint: {row.hint}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {pinned.skipped.length > 0 && (
+            <div style={{ fontSize: 11, color: t.textDim, lineHeight: 1.4 }}>
+              Skipped: {pinned.skipped.slice(0, 4).map((item) => `${item.label} (${formatPinnedSkipReason(item.reason)})`).join(" · ")}
+            </div>
+          )}
         </div>
       )}
 

@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { StatusBadge } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SettingsGroupLabel, StatusBadge } from "@/src/components/shared/SettingsControls";
 import type { HeartbeatHistoryRun } from "@/src/types/api";
 
 function fmtDuration(ms: number | null | undefined): string {
@@ -18,97 +17,75 @@ function fmtTokens(n: number): string {
 }
 
 export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHistoryRun[]; isWide?: boolean }) {
-  const t = useThemeTokens();
   const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <>
-      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
-        Recent Runs
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <SettingsGroupLabel label="Recent Runs" />
+      <div className="flex flex-col gap-1">
         {history.map((hb) => {
           const isExpanded = expandedId === hb.id;
           const hasContent = hb.result || hb.error || hb.correlation_id;
           return (
             <div key={hb.id}>
-              <div
+              <button
+                type="button"
                 onClick={() => hasContent && setExpandedId(isExpanded ? null : hb.id)}
-                style={{
-                  display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-                  padding: "8px 12px", background: isExpanded ? t.surfaceOverlay : t.surfaceRaised,
-                  borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                  border: `1px solid ${isExpanded ? t.accent : t.surfaceOverlay}`,
-                  cursor: hasContent ? "pointer" : "default",
-                  transition: "background 0.1s, border-color 0.1s",
-                }}
+                className={
+                  `flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition-colors ` +
+                  `${isExpanded ? "bg-surface-overlay/60" : "bg-surface-raised/40 hover:bg-surface-overlay/45"} ` +
+                  `${hasContent ? "cursor-pointer" : "cursor-default"}`
+                }
               >
-                <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <div className="flex min-w-0 items-center gap-2">
                   {hasContent && (
                     isExpanded
-                      ? <ChevronDown size={12} color={t.textDim} />
-                      : <ChevronRight size={12} color={t.textDim} />
+                      ? <ChevronDown size={12} className="shrink-0 text-text-dim" />
+                      : <ChevronRight size={12} className="shrink-0 text-text-dim" />
                   )}
-                  <span style={{ fontSize: 12, color: t.textMuted }}>
+                  <span className="truncate text-xs text-text-muted">
                     {new Date(hb.run_at).toLocaleString()}
                   </span>
                   {hb.completed_at && (
-                    <span style={{ fontSize: 10, color: t.textDim }}>
+                    <span className="shrink-0 text-[10px] text-text-dim">
                       ({Math.round((new Date(hb.completed_at).getTime() - new Date(hb.run_at).getTime()) / 1000)}s)
                     </span>
                   )}
                 </div>
-                <StatusBadge
-                  label={hb.status}
-                  variant={hb.status === "complete" ? "success" : hb.status === "failed" ? "danger" : "neutral"}
-                />
-                {hb.repetition_detected && (
-                  <span style={{
-                    fontSize: 10, padding: "2px 8px", borderRadius: 4, fontWeight: 600,
-                    background: t.warningSubtle, color: t.warningMuted,
-                    display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-                  }}>
-                    <AlertTriangle size={10} /> repetitive
-                  </span>
-                )}
-              </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <StatusBadge
+                    label={hb.status}
+                    variant={hb.status === "complete" ? "success" : hb.status === "failed" ? "danger" : "neutral"}
+                  />
+                  {hb.repetition_detected && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-warning-muted">
+                      <AlertTriangle size={10} /> repetitive
+                    </span>
+                  )}
+                </div>
+              </button>
               {isExpanded && (
-                <div style={{
-                  padding: "10px 12px", background: t.codeBg,
-                  borderRadius: "0 0 6px 6px",
-                  border: `1px solid ${t.accent}`, borderTop: "none",
-                }}>
+                <div className="rounded-md bg-surface/80 px-3 py-2.5">
                   {hb.error && (
-                    <div style={{
-                      fontSize: 12, color: t.danger, marginBottom: 8,
-                      padding: "6px 8px", background: t.dangerSubtle, borderRadius: 4, border: `1px solid ${t.dangerBorder}`,
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
+                    <div className="mb-2 whitespace-pre-wrap break-words rounded-md bg-danger/10 px-2 py-1.5 text-xs text-danger">
                       {hb.error}
                     </div>
                   )}
                   {hb.result && (
-                    <div style={{
-                      fontSize: 12, color: t.text, lineHeight: 1.5,
-                      maxHeight: 200, overflowY: "auto",
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
+                    <div className="max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-text">
                       {hb.result}
                     </div>
                   )}
                   {(hb.iterations > 0 || hb.total_tokens > 0 || hb.duration_ms != null) && (
-                    <div style={{
-                      display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-                      marginTop: 8, fontSize: 10, color: t.textDim,
-                    }}>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-text-dim">
                       {hb.duration_ms != null && (
-                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                        <span className="inline-flex items-center gap-1">
                           <Clock size={10} /> {fmtDuration(hb.duration_ms)}
                         </span>
                       )}
                       {hb.total_tokens > 0 && (
-                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                        <span className="inline-flex items-center gap-1">
                           <Zap size={10} /> {fmtTokens(hb.total_tokens)} tokens
                         </span>
                       )}
@@ -121,19 +98,18 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                     <ToolCallsList toolCalls={hb.tool_calls as any} isWide={isWide} />
                   )}
                   {hb.correlation_id && (
-                    <div
-                      onClick={() => navigate(`/admin/logs/${hb.correlation_id}`)}
-                      style={{
-                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 5,
-                        marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",
-                      }}
-                    >
-                      <ExternalLink size={11} color={t.accent} />
-                      View trace
+                    <div className="mt-2">
+                      <ActionButton
+                        label="View trace"
+                        onPress={() => navigate(`/admin/logs/${hb.correlation_id}`)}
+                        icon={<ExternalLink size={11} />}
+                        variant="primary"
+                        size="small"
+                      />
                     </div>
                   )}
                   {!hb.result && !hb.error && (
-                    <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>No output recorded</div>
+                    <div className="text-[11px] italic text-text-dim">No output recorded</div>
                   )}
                 </div>
               )}

@@ -23,7 +23,7 @@ import uuid
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
+from app.domain.errors import DomainError
 from sqlalchemy import select
 
 from app.db.models import WidgetDashboard, WidgetDashboardPin
@@ -119,7 +119,8 @@ async def test_resolve_binding_options_isolates_per_source_http_failure(
 
     async def _exec(tool_name, _args, bot_id=None, channel_id=None):
         if tool_name == "tool_a":
-            raise HTTPException(503, f"{tool_name} upstream unavailable")
+            from app.domain.errors import InternalError
+            raise InternalError(f"{tool_name} upstream unavailable")
         return ({"result": "raw_b"}, None)
 
     monkeypatch.setattr(
@@ -314,9 +315,9 @@ async def test_pin_widget_origin_survives_preset_removal_from_manifest(
     )
 
     # Lookup against the live manifest now 404s — the preset is truly gone.
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         get_widget_preset("demo-two-source")
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404
 
     # But the pin's snapshot is durable.
     refetched = await get_pin(db_session, pin_id)

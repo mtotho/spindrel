@@ -789,6 +789,7 @@ def discover_setup_status(base_url: str = "") -> list[dict]:
                     "provider_id": str(mc.get("provider_id") or integration_id),
                     "label": str(mc.get("label") or entry["name"]),
                     "driver": str(mc.get("driver") or "unknown"),
+                    "enroll_fields": mc.get("enroll_fields") if isinstance(mc.get("enroll_fields"), list) else None,
                     "metadata": mc.get("metadata") if isinstance(mc.get("metadata"), dict) else None,
                 }
 

@@ -72,6 +72,12 @@ Current behavior:
 - passive/ambient channel messages are formatted into a separate system block
 - active history is filtered before it reaches the model
 
+In multi-bot channels, member bots are still channel participants for context
+and memory purposes. A member bot may only actively answer on @-mention or
+auto-response rules, but channel messages can still be passively stored and
+included in memory compaction or dreaming/learning jobs when the channel's
+passive-memory and bot learning settings allow it.
+
 Important replay rules now in place:
 
 - rows marked `metadata.hidden` are excluded from LLM reload

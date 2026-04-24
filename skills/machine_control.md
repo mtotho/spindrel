@@ -33,8 +33,9 @@ Always make that distinction explicit in your reasoning and wording.
 Use first. It tells you:
 
 - which targets are enrolled
-- which are connected
+- which are ready
 - whether the current session already has a lease
+- which provider owns the selected target
 
 ### `machine_inspect_command`
 
@@ -64,7 +65,7 @@ Be explicit about `working_dir` whenever it matters.
 - State which machine you are acting on if multiple targets could exist.
 - Confirm the working directory before running project-sensitive commands.
 - Prefer small inspection steps over one giant shell command.
-- Surface lease/connection blockers plainly instead of pretending the tool is broken.
+- Surface lease/readiness blockers plainly instead of pretending the tool is broken.
 
 ## `run_script`
 

@@ -1,7 +1,6 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useRef } from "react";
 import { Trash2, Upload, Paperclip, FileText, Image, Music, Video, File } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
   useChannelAttachments,
@@ -10,11 +9,11 @@ import {
   useDeleteAttachment,
 } from "@/src/api/hooks/useAttachments";
 import { EmptyState, Section, SelectInput } from "@/src/components/shared/FormControls";
-import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SettingsControlRow, SettingsStatGrid, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { formatBytes } from "@/src/utils/format";
 
-const TYPE_ICONS: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+const TYPE_ICONS: Record<string, React.ComponentType<{ size?: number; className?: string }>> = {
   image: Image,
   text: FileText,
   audio: Music,
@@ -23,7 +22,6 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ size: number; color: stri
 };
 
 export function AttachmentsTab({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const { data: stats } = useChannelAttachmentStats(channelId);
   const { data: attachments, isLoading } = useChannelAttachments(channelId);
@@ -61,8 +59,8 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
       title="Attachments"
       description="Files uploaded directly to this channel. They remain available to the channel and can be filtered by type."
       action={
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: isMobile ? "flex-start" : "flex-end" }}>
-          <div style={{ minWidth: 152 }}>
+        <div className={`flex flex-wrap items-center gap-2 ${isMobile ? "justify-start" : "justify-end"}`}>
+          <div className="min-w-[152px]">
             <SelectInput
               value={filterType}
               onChange={setFilterType}
@@ -81,118 +79,60 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
             onPress={() => fileRef.current?.click()}
             disabled={upload.isPending}
             size="small"
-            icon={<Upload size={13} color="#fff" />}
+            icon={<Upload size={13} />}
           />
           <input
             ref={fileRef}
             type="file"
             onChange={handleUpload}
-            style={{ display: "none" }}
+            className="hidden"
           />
         </div>
       }
     >
       {stats && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: isMobile ? "repeat(2, minmax(0, 1fr))" : "repeat(4, minmax(0, 1fr))",
-            gap: 8,
-          }}
-        >
-          {[
+        <SettingsStatGrid
+          items={[
             { label: "Count", value: String(stats.total_count) },
             { label: "With data", value: String(stats.with_file_data_count) },
             { label: "Size", value: formatBytes(stats.total_size_bytes) },
             ...(stats.effective_config.retention_days != null
               ? [{ label: "Retention", value: `${stats.effective_config.retention_days}d` }]
               : []),
-          ].map((item) => (
-            <div
-              key={item.label}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 6,
-                border: `1px solid ${t.surfaceBorder}`,
-                background: t.surface,
-              }}
-            >
-              <div style={{ fontSize: 11, color: t.textDim }}>{item.label}</div>
-              <div style={{ marginTop: 4, fontSize: 14, fontWeight: 600, color: t.text, fontFamily: "monospace" }}>
-                {item.value}
-              </div>
-            </div>
-          ))}
-        </div>
+          ]}
+        />
       )}
 
       {upload.isError && (
-        <span style={{ fontSize: 11, color: t.danger }}>{(upload.error as Error).message}</span>
+        <span className="text-[11px] text-danger">{(upload.error as Error).message}</span>
       )}
 
       {isLoading ? (
-        <div style={{ display: "flex", padding: 24, alignItems: "center" }}>
-          <Spinner color={t.accent} />
+        <div className="flex items-center p-6">
+          <Spinner />
         </div>
       ) : !filtered?.length ? (
         <EmptyState message={filterType ? "No attachments match this filter." : "No attachments in this channel."} />
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {filtered.map((att) => {
             const Icon = TYPE_ICONS[att.type] || Paperclip;
             return (
-              <div
+              <SettingsControlRow
                 key={att.id}
-                style={{
-                padding: "10px 12px",
-                background: t.surfaceRaised,
-                borderRadius: 6,
-                border: `1px solid ${t.surfaceBorder}`,
-                  display: "flex",
-                  flexDirection: "row",
-                  gap: 10,
-                  alignItems: "center",
-                }}
+                className="flex items-center gap-2.5"
               >
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: 6,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: t.surfaceOverlay,
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon size={15} color={t.textMuted} />
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay/60">
+                  <Icon size={15} className="text-text-muted" />
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                    <span style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: t.text,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      minWidth: 0,
-                    }}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="min-w-0 truncate text-[12px] font-semibold text-text">
                       {att.filename}
                     </span>
-                    <span style={{
-                      padding: "2px 7px",
-                      borderRadius: 999,
-                      fontSize: 9,
-                      fontWeight: 600,
-                      background: t.accentSubtle,
-                      color: t.accent,
-                    }}>
-                      {att.type}
-                    </span>
+                    <StatusBadge label={att.type} variant="info" />
                   </div>
-                  <div style={{ display: "flex", flexDirection: "row", gap: 10, fontSize: 10, color: t.textDim, marginTop: 3, flexWrap: "wrap" }}>
+                  <div className="mt-0.5 flex flex-wrap gap-2.5 text-[10px] text-text-dim">
                     <span>{formatBytes(att.size_bytes)}</span>
                     <span>{new Date(att.created_at).toLocaleDateString()}</span>
                   </div>
@@ -205,7 +145,7 @@ export function AttachmentsTab({ channelId }: { channelId: string }) {
                   size="small"
                   icon={<Trash2 size={12} />}
                 />
-              </div>
+              </SettingsControlRow>
             );
           })}
         </div>

@@ -10,8 +10,6 @@ rows from ``tests/factories``. The only remaining MagicMock usage is:
   SQLite, so we feed canned execute results. This is an acceptable exception
   per ``testing-python/SKILL.md`` E.1.
 - ``TestBotChannelFilter`` — the SQL builder itself is the unit under test.
-
-See ``vault/Projects/agent-server/Test Audit - Deep Review.md`` section 5.
 """
 from __future__ import annotations
 
@@ -24,7 +22,14 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models import Session, Message, Task
-from tests.factories import build_bot, build_channel, build_channel_bot_member
+from tests.factories import (
+    build_bot,
+    build_bot_skill,
+    build_bot_skill_enrollment,
+    build_channel,
+    build_channel_bot_member,
+    build_skill,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -805,8 +810,10 @@ class TestHygienePromptContent:
 
     def test_has_archive_tool_guidance(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert 'operation="mkdir"' in DEFAULT_MEMORY_HYGIENE_PROMPT
-        assert 'operation="move"' in DEFAULT_MEMORY_HYGIENE_PROMPT
+        # Prompt guides bots to the idempotent single-call archive op
+        # instead of the old per-file mkdir + move dance.
+        assert 'operation="archive_older_than"' in DEFAULT_MEMORY_HYGIENE_PROMPT
+        assert 'older_than_days=14' in DEFAULT_MEMORY_HYGIENE_PROMPT
 
     def test_maintenance_does_not_have_skill_hygiene(self):
         from app.config import DEFAULT_MEMORY_HYGIENE_PROMPT
@@ -1276,3 +1283,72 @@ class TestDiscoveryAuditSnapshot:
         out = await _build_discovery_audit_snapshot("test-bot", db)
         assert "`ghost_skill` ((unknown))" in out
         assert "gap 8" in out
+
+
+class TestWorkingSetSnapshotEnrichment:
+    """The Working Set snapshot must include category / stale / script_count
+    for authored skills so the skill-review bot can skip the redundant
+    `manage_bot_skill(action="list")` call seen in the 2026-04-23 trace.
+    """
+
+    @pytest.mark.asyncio
+    async def test_authored_skill_reports_category_stale_scripts(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import _build_working_set_snapshot
+
+        bot_id = "wstest"
+        # Authored skill with frontmatter category and one script.
+        body = (
+            "---\n"
+            "name: Authored Widget Skill\n"
+            "category: troubleshooting\n"
+            "---\n\n"
+            "# Authored Widget Skill\n\n"
+            "Actionable steps follow."
+        )
+        skill = build_bot_skill(
+            bot_id=bot_id, name="widget-fixer", content=body,
+            category="troubleshooting",
+            scripts=[{"name": "noop", "description": "noop", "script": "pass"}],
+        )
+        db_session.add(skill)
+        db_session.add(build_bot_skill_enrollment(
+            bot_id=bot_id, skill_id=skill.id, source="authored",
+        ))
+        await db_session.commit()
+
+        out = await _build_working_set_snapshot(bot_id, db_session)
+
+        # Category from frontmatter, stale rendered lowercase boolean, scripts count.
+        assert "category=troubleshooting" in out
+        assert "stale=" in out
+        assert "scripts=1" in out
+        # The old guidance about `action="list"` redundancy appears.
+        assert 'manage_bot_skill(action="list")' in out
+
+    @pytest.mark.asyncio
+    async def test_catalog_skill_skips_authored_only_fields(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import _build_working_set_snapshot
+
+        bot_id = "wstest2"
+        catalog = build_skill(id="skills/catalog_thing", name="Catalog Thing")
+        db_session.add(catalog)
+        db_session.add(build_bot_skill_enrollment(
+            bot_id=bot_id, skill_id=catalog.id, source="fetched",
+        ))
+        await db_session.commit()
+
+        out = await _build_working_set_snapshot(bot_id, db_session)
+
+        # Catalog skills don't get category / stale / scripts embedded fields.
+        # The line for the catalog skill should not carry them.
+        catalog_line = next(
+            line for line in out.splitlines()
+            if "`skills/catalog_thing`" in line
+        )
+        assert "category=" not in catalog_line
+        assert "stale=" not in catalog_line
+        assert "scripts=" not in catalog_line

@@ -1,6 +1,6 @@
 """Publisher-side ephemeral dispatch — strict-deliver, no broadcast fallback.
 
-See ``vault/Projects/agent-server/Architecture Decisions.md`` (Channel
+See ``project-notes/Architecture Decisions.md`` (Channel
 binding model) and ``app/services/ephemeral_dispatch.py`` docstring.
 """
 from __future__ import annotations

@@ -289,3 +289,66 @@ async def test_planning_profile_skips_pinned_widget_injection_even_when_pins_exi
         and "The user has these widgets pinned" in m["content"]
         for m in messages
     )
+
+
+@pytest.mark.asyncio
+async def test_channel_toggle_skips_pinned_widget_injection_even_when_pins_exist():
+    channel_row = _fake_channel()
+    channel_row.config = {"pinned_widget_context_enabled": False}
+    bot = _minimal_bot()
+    messages: list[dict] = []
+    result = AssemblyResult()
+    pins = [
+        {
+            "id": "p1",
+            "tool_name": "get_weather",
+            "display_name": "Weather",
+            "bot_id": "bot-a",
+            "widget_contract": {
+                "context_export": {
+                    "enabled": True,
+                    "summary_kind": "plain_body",
+                    "hint_kind": "none",
+                },
+            },
+            "envelope": {
+                "display_label": "Seattle",
+                "plain_body": "52F cloudy",
+            },
+            "position": 0,
+            "pinned_at": "2026-04-17T12:00:00+00:00",
+            "config": {},
+        },
+    ]
+
+    with patch(
+        "app.db.engine.async_session",
+        new=_fake_session_factory(channel_row),
+    ), patch(
+        "app.services.widget_context.fetch_channel_pin_dicts",
+        new=AsyncMock(return_value=pins),
+    ), patch(
+        "app.agent.hooks.fire_hook", new_callable=AsyncMock,
+    ), patch(
+        "app.agent.recording._record_trace_event", new_callable=AsyncMock,
+    ):
+        await _drain(assemble_context(
+            messages=messages,
+            bot=bot,
+            user_message="hi",
+            session_id=None,
+            client_id=None,
+            correlation_id=None,
+            channel_id=channel_row.id,
+            audio_data=None,
+            audio_format=None,
+            attachments=None,
+            native_audio=False,
+            result=result,
+        ))
+
+    assert not any(
+        isinstance(m.get("content"), str)
+        and "The user has these widgets pinned" in m["content"]
+        for m in messages
+    )

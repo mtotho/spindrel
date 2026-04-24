@@ -42,9 +42,13 @@ import {
 import { useThemeTokens } from "@/src/theme/tokens";
 import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
-import type { Message } from "@/src/types/api";
+import type { Message, SlashCommandId } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
 import { useSlashCommandExecutor } from "./useSlashCommandExecutor";
+import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
+import { useModelGroups } from "@/src/api/hooks/useModels";
+import { resolveProviderForModel } from "./slashArgSources";
+import { useThemeStore } from "@/src/stores/theme";
 import { useSessionPlanMode } from "@/app/(app)/channels/[channelId]/useSessionPlanMode";
 import { buildRecentHref, formatSessionRecentLabel } from "@/src/lib/recentPages";
 import { isTranscriptFlowComposer } from "./chatModes";
@@ -374,29 +378,71 @@ function ChannelChatSession({
     [srcHandleSend],
   );
 
+  const channelSlashCatalog = useSlashCommandList();
+  const { data: channelModelGroups } = useModelGroups();
+  const channelSlashLocalHandlers = useMemo(
+    () => ({
+      clear: async () => {
+        await apiFetch(`/channels/${source.channelId}/reset`, { method: "POST" });
+        useChatStore.getState().setMessages(source.channelId, []);
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
+      },
+      scratch: async () => {
+        if (!src.bot_id) return;
+        const qs = new URLSearchParams({
+          parent_channel_id: source.channelId,
+          bot_id: src.bot_id,
+        });
+        const scratch = await apiFetch<{ session_id: string }>(
+          `/sessions/scratch/current?${qs.toString()}`,
+        );
+        navigate(`/channels/${source.channelId}/session/${scratch.session_id}?scratch=true`);
+      },
+      model: (args: string[]) => {
+        if (!args[0]) return;
+        const providerId = resolveProviderForModel(args[0], channelModelGroups);
+        src.setModelOverride(args[0], providerId ?? null);
+      },
+      theme: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const store = useThemeStore.getState();
+        if (arg === "light" || arg === "dark") {
+          store.setMode(arg);
+        } else {
+          store.toggle();
+        }
+      },
+    }),
+    [channelModelGroups, navigate, queryClient, source.channelId, src],
+  );
+
+  const channelAvailableSlashCommands: SlashCommandId[] = useMemo(
+    () => [
+      "help",
+      "stop",
+      "context",
+      "scratch",
+      "clear",
+      "compact",
+      "plan",
+      "find",
+      "rename",
+      "model",
+      "mode",
+      "theme",
+    ],
+    [],
+  );
+
   const handleSlashCommand = useSlashCommandExecutor({
-    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan"],
+    availableCommands: channelAvailableSlashCommands,
+    catalog: channelSlashCatalog,
     surface: "channel",
     channelId: source.channelId,
     sessionId: src.sessionId,
     onSyntheticMessage: (message) => addMessage(source.channelId, message),
-    onScratch: async () => {
-      if (!src.bot_id) return;
-      const qs = new URLSearchParams({
-        parent_channel_id: source.channelId,
-        bot_id: src.bot_id,
-      });
-      const scratch = await apiFetch<{ session_id: string }>(
-        `/sessions/scratch/current?${qs.toString()}`,
-      );
-      navigate(`/channels/${source.channelId}/session/${scratch.session_id}?scratch=true`);
-    },
-    onClear: async () => {
-      await apiFetch(`/channels/${source.channelId}/reset`, { method: "POST" });
-      useChatStore.getState().setMessages(source.channelId, []);
-      queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-      queryClient.invalidateQueries({ queryKey: ["channel", source.channelId] });
-    },
+    localHandlers: channelSlashLocalHandlers,
     onSideEffect: async (result) => {
       if (result.command_id === "stop") {
         src.syncCancelledState();
@@ -820,11 +866,32 @@ function EphemeralChatSession({
     useChatStore.getState().clearProcessing(sessionId);
     qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
   }, [qc, sessionId]);
+  const sessionSlashCatalog = useSlashCommandList();
+  const sessionAvailableSlashCommands: SlashCommandId[] = useMemo(
+    () => (sessionId ? ["help", "context", "stop", "rename", "theme"] : []),
+    [sessionId],
+  );
+  const sessionSlashLocalHandlers = useMemo(
+    () => ({
+      theme: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const store = useThemeStore.getState();
+        if (arg === "light" || arg === "dark") {
+          store.setMode(arg);
+        } else {
+          store.toggle();
+        }
+      },
+    }),
+    [],
+  );
   const handleSessionSlashCommand = useSlashCommandExecutor({
-    availableCommands: sessionId ? ["context", "stop"] : [],
+    availableCommands: sessionAvailableSlashCommands,
+    catalog: sessionSlashCatalog,
     surface: "session",
     sessionId: sessionId ?? undefined,
     onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
+    localHandlers: sessionSlashLocalHandlers,
     onSideEffect: async (result) => {
       if (result.command_id === "stop") syncSessionCancelledState();
     },
@@ -1331,11 +1398,32 @@ function ThreadChatSession({
     useChatStore.getState().clearProcessing(storeKey);
     qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
   }, [effectiveSessionId, qc, storeKey]);
+  const threadSlashCatalog = useSlashCommandList();
+  const threadAvailableSlashCommands: SlashCommandId[] = useMemo(
+    () => (effectiveSessionId ? ["help", "context", "stop", "rename", "theme"] : []),
+    [effectiveSessionId],
+  );
+  const threadSlashLocalHandlers = useMemo(
+    () => ({
+      theme: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const store = useThemeStore.getState();
+        if (arg === "light" || arg === "dark") {
+          store.setMode(arg);
+        } else {
+          store.toggle();
+        }
+      },
+    }),
+    [],
+  );
   const handleThreadSlashCommand = useSlashCommandExecutor({
-    availableCommands: effectiveSessionId ? ["context", "stop"] : [],
+    availableCommands: threadAvailableSlashCommands,
+    catalog: threadSlashCatalog,
     surface: "session",
     sessionId: effectiveSessionId ?? undefined,
     onSyntheticMessage: (message) => setSlashSyntheticMessages((prev) => [message, ...prev]),
+    localHandlers: threadSlashLocalHandlers,
     onSideEffect: async (result) => {
       if (result.command_id === "stop") syncThreadCancelledState();
     },

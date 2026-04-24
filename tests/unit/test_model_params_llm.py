@@ -165,6 +165,7 @@ class TestLlmCallModelParams:
 
         with patch("app.services.providers.get_llm_client", return_value=mock_client), \
              patch("app.services.providers.record_usage"), \
+             patch("app.services.providers.supports_reasoning", return_value=True), \
              patch("app.agent.llm.settings", _default_mock_settings()):
             await _llm_call(
                 "gpt-4o", [{"role": "user", "content": "hi"}], None, None,
@@ -407,6 +408,8 @@ class TestAgentLoopModelParams:
              patch("app.agent.tool_dispatch.is_mcp_tool", return_value=False), \
              patch("app.agent.tool_dispatch.call_local_tool", new_callable=AsyncMock, return_value='{"ok": true}'), \
              patch("app.agent.tool_dispatch._record_tool_call", new_callable=AsyncMock, return_value=None), \
+             patch("app.agent.tool_dispatch._start_tool_call", new_callable=AsyncMock, return_value=True), \
+             patch("app.agent.tool_dispatch._complete_tool_call", new_callable=AsyncMock, return_value=None), \
              patch("app.agent.loop._record_trace_event", new_callable=AsyncMock, return_value=None):
             events = []
             async for event in run_agent_tool_loop(

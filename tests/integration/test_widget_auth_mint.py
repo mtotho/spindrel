@@ -222,6 +222,69 @@ class TestWidgetTokenVerification:
         assert set(auth.scopes) == {"channels:read", "chat"}
         assert auth.name == f"widget:{bot.id}"
 
+    async def test_same_second_mints_produce_distinct_tokens(
+        self, client_factory, db_session
+    ):
+        """Regression guard for the J.5 fix: two mints in the same clock
+        second must produce byte-different JWTs.
+
+        Before the fix, the widget-mint payload had no ``jti`` nonce — two
+        calls to ``mint_widget_token`` with identical ``(bot, api_key_id,
+        scopes)`` and ``datetime.now()`` resolving to the same second
+        produced byte-identical tokens. That's a replay window: a logged
+        token could be reused indefinitely within the issuing second across
+        otherwise-distinct mints. The fix adds ``jti: str(uuid4())`` to the
+        payload so each mint is unique even under frozen time.
+        """
+        from unittest.mock import patch as _patch
+        from datetime import datetime, timezone
+        from app.services.auth import create_widget_token
+
+        frozen = datetime(2026, 4, 23, 12, 0, 0, tzinfo=timezone.utc)
+
+        class _FrozenNow:
+            @classmethod
+            def now(cls, tz=None):
+                return frozen
+
+        admin = await _make_user(db_session, is_admin=True)
+        bot, _ = await _make_bot_with_key(
+            db_session, ["chat"]
+        )
+        await db_session.refresh(bot)
+
+        with _patch("app.services.auth.datetime", _FrozenNow):
+            token_a, _ = create_widget_token(
+                bot_id=bot.id,
+                api_key_id=bot.api_key_id,
+                scopes=["chat"],
+            )
+            token_b, _ = create_widget_token(
+                bot_id=bot.id,
+                api_key_id=bot.api_key_id,
+                scopes=["chat"],
+            )
+
+        assert token_a != token_b
+
+        # And the jti claims are distinct.
+        import jwt as _jwt
+
+        from app.services.auth import _jwt_secret
+
+        # Skip exp validation — frozen time may be in the past relative to
+        # the test runner's wall clock.
+        payload_a = _jwt.decode(
+            token_a, _jwt_secret, algorithms=["HS256"],
+            options={"verify_exp": False},
+        )
+        payload_b = _jwt.decode(
+            token_b, _jwt_secret, algorithms=["HS256"],
+            options={"verify_exp": False},
+        )
+        assert payload_a["jti"] != payload_b["jti"]
+        assert payload_a["iat"] == payload_b["iat"]  # time really was frozen
+
     async def test_widget_token_rejected_by_verify_admin_auth_cleanly(
         self, client_factory, db_session
     ):

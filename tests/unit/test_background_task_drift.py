@@ -65,24 +65,25 @@ def _make_heartbeat(channel_id: uuid.UUID) -> ChannelHeartbeat:
 
 
 class TestHeartbeatCrashGap:
-    """Pinning current contract: HeartbeatRun stuck at status=running has no
-    automatic recovery path.
+    """Regression guards for the L.1 fix (2026-04-23).
 
-    Contrast with the outbox, which calls reset_stale_in_flight() at startup
-    (app/main.py:791) to recover rows stranded IN_FLIGHT by a prior crash.
-    Heartbeat has no equivalent.  If the process dies between the pre-fire
-    commit (heartbeat.py:581) and the post-fire commit (heartbeat.py:730),
-    the HeartbeatRun row stays stuck at status=running with no completed_at.
+    HeartbeatRun rows stuck at ``status='running'`` from a crashed process
+    are now recovered at startup by
+    :func:`app.services.heartbeat.reset_stale_running_runs`, which mirrors
+    :func:`app.services.outbox.reset_stale_in_flight`. Both helpers are
+    called from the lifespan before their respective worker tasks launch.
     """
 
     @pytest.mark.asyncio
     async def test_heartbeat_run_can_be_stuck_running_indefinitely(
         self, db_session
     ):
-        """A HeartbeatRun inserted with status=running and no completed_at
-        persists exactly that way — there is no DB trigger or ORM hook that
-        auto-advances it.  Pinning the stuck-state as a real possible DB
-        condition.
+        """A HeartbeatRun inserted with ``status='running'`` persists exactly
+        that way in the absence of the recovery helper — there is no DB
+        trigger or ORM hook that auto-advances it. The recovery is explicit:
+        :func:`reset_stale_running_runs` fired from the lifespan at startup.
+        This test pins the DB-side fact so a future implicit-recovery
+        mechanism (trigger, ON UPDATE cascade) doesn't land unnoticed.
         """
         ch = _make_channel()
         db_session.add(ch)
@@ -116,15 +117,13 @@ class TestHeartbeatCrashGap:
         # This is the crash-gap: no one will ever mark this run complete.
 
     @pytest.mark.asyncio
-    async def test_stuck_running_run_not_recoverable_without_explicit_cleanup(
+    async def test_stuck_running_runs_accumulate_without_recovery_call(
         self, db_session
     ):
-        """Multiple stuck runs accumulate indefinitely.  fetch_pending-style
-        queries that filter status='running' will always see them, unlike the
-        outbox where reset_stale_in_flight() resets stranded rows at startup.
-
-        Pinning current contract: this IS the bug — heartbeat has no
-        reset_stale_running_runs() equivalent.
+        """Multiple stuck rows can accumulate across crashes if
+        :func:`reset_stale_running_runs` is never invoked. Pins the
+        explicit-recovery contract — the lifespan is responsible for
+        calling the helper; a forgotten call means stuck rows pile up.
         """
         ch = _make_channel()
         db_session.add(ch)
@@ -158,26 +157,124 @@ class TestHeartbeatCrashGap:
         ).scalar_one()
 
         assert count == 3, (
-            "Three stuck runs accumulated — no automatic recovery path. "
-            "Heartbeat needs reset_stale_running_runs() at startup "
-            "(see Loose Ends — heartbeat crash-gap)."
+            "Three stuck runs accumulated — the recovery helper must be "
+            "called explicitly from the lifespan to drain them."
         )
 
-    def test_no_startup_reset_function_exists(self):
-        """Pin that app.services.heartbeat has no reset_stale_running_runs()
-        function equivalent to outbox.reset_stale_in_flight().
-
-        This is a contract test, not a gap assertion — if someone adds the
-        recovery function this test should be updated, not deleted.
+    def test_startup_reset_function_exists(self):
+        """Contract: ``app.services.heartbeat`` exposes
+        ``reset_stale_running_runs`` — the outbox analogue that recovers
+        stranded HeartbeatRun rows at lifespan start.
         """
         import app.services.heartbeat as heartbeat_mod
 
-        # The outbox analogue that should exist but doesn't:
-        has_reset = hasattr(heartbeat_mod, "reset_stale_running_runs")
-        assert not has_reset, (
-            "reset_stale_running_runs() now exists — update this test to "
-            "assert it correctly resets stuck runs, and remove from Loose Ends."
+        assert hasattr(heartbeat_mod, "reset_stale_running_runs")
+
+    @pytest.mark.asyncio
+    async def test_reset_stale_running_runs_flips_stuck_rows_to_cancelled(
+        self, db_session
+    ):
+        """The recovery helper flips every ``status='running'`` row to
+        ``status='cancelled'`` with ``completed_at`` set, so the run
+        history view displays a terminal state instead of a live-looking
+        orphan.
+        """
+        from app.services.heartbeat import reset_stale_running_runs
+
+        ch = _make_channel()
+        db_session.add(ch)
+        await db_session.flush()
+
+        hb = _make_heartbeat(ch.id)
+        db_session.add(hb)
+        await db_session.flush()
+
+        stuck_ids = []
+        for _ in range(3):
+            run = HeartbeatRun(
+                id=uuid.uuid4(),
+                heartbeat_id=hb.id,
+                run_at=datetime.now(timezone.utc),
+                status="running",
+            )
+            db_session.add(run)
+            stuck_ids.append(run.id)
+        await db_session.commit()
+
+        recovered = await reset_stale_running_runs(db_session)
+        assert recovered == 3
+
+        from sqlalchemy import select
+        for run_id in stuck_ids:
+            row = (
+                await db_session.execute(
+                    select(HeartbeatRun).where(HeartbeatRun.id == run_id)
+                )
+            ).scalar_one()
+            assert row.status == "cancelled"
+            assert row.completed_at is not None
+            assert row.error == "process crashed before completion"
+
+    @pytest.mark.asyncio
+    async def test_reset_stale_running_runs_ignores_terminal_rows(
+        self, db_session
+    ):
+        """Rows already at terminal statuses (``done``, ``error``,
+        ``cancelled``) must NOT be touched — the helper targets only the
+        ``running`` limbo state.
+        """
+        from app.services.heartbeat import reset_stale_running_runs
+
+        ch = _make_channel()
+        db_session.add(ch)
+        await db_session.flush()
+
+        hb = _make_heartbeat(ch.id)
+        db_session.add(hb)
+        await db_session.flush()
+
+        now = datetime.now(timezone.utc)
+        done = HeartbeatRun(
+            id=uuid.uuid4(),
+            heartbeat_id=hb.id,
+            run_at=now,
+            completed_at=now,
+            status="done",
         )
+        errored = HeartbeatRun(
+            id=uuid.uuid4(),
+            heartbeat_id=hb.id,
+            run_at=now,
+            completed_at=now,
+            status="error",
+            error="prior failure",
+        )
+        running = HeartbeatRun(
+            id=uuid.uuid4(),
+            heartbeat_id=hb.id,
+            run_at=now,
+            status="running",
+        )
+        db_session.add_all([done, errored, running])
+        await db_session.commit()
+
+        recovered = await reset_stale_running_runs(db_session)
+        assert recovered == 1  # only the running row
+
+        from sqlalchemy import select
+        done_row = (
+            await db_session.execute(
+                select(HeartbeatRun).where(HeartbeatRun.id == done.id)
+            )
+        ).scalar_one()
+        err_row = (
+            await db_session.execute(
+                select(HeartbeatRun).where(HeartbeatRun.id == errored.id)
+            )
+        ).scalar_one()
+        assert done_row.status == "done"
+        assert err_row.status == "error"
+        assert err_row.error == "prior failure"  # untouched
 
 
 # ===========================================================================

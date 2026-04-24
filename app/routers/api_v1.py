@@ -24,7 +24,7 @@ from app.routers.api_v1_widget_actions import router as widget_actions_router
 from app.routers.api_v1_widget_auth import router as widget_auth_router
 from app.routers.api_v1_widget_debug import router as widget_debug_router
 from app.routers.api_v1_tools import router as tools_router
-from app.routers.api_v1_dashboard import router as dashboard_router
+from app.routers.api_v1_widgets import router as dashboard_router
 from app.routers.api_v1_push import router as push_router, presence_router
 from app.routers.api_v1_favicon import router as favicon_router
 from app.routers.api_v1_internal_tools import router as internal_tools_router

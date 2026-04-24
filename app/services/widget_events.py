@@ -79,10 +79,10 @@ def _load_pin_manifest(pin: WidgetDashboardPin):
     event subscriptions.
     """
     from app.services.widget_manifest import ManifestError, parse_manifest
-    from app.services.widget_py import _resolve_bundle_dir
+    from app.services.widget_py import resolve_bundle_dir
 
     try:
-        bundle_dir = _resolve_bundle_dir(pin)
+        bundle_dir = resolve_bundle_dir(pin)
     except ValueError:
         return None
 

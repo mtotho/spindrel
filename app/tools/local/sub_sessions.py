@@ -84,6 +84,15 @@ _LIST_SCHEMA = {
                         "channel."
                     ),
                 },
+                "channel_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional. List multiple channels in one call; results are "
+                        "concatenated with per-channel headers. Cap 10. Prefer this "
+                        "over N sequential single-channel calls during hygiene runs."
+                    ),
+                },
                 "limit": {
                     "type": "integer",
                     "description": "Max rows to return (default 10, cap 50).",
@@ -243,12 +252,38 @@ async def _collect_scratch_rows(
     return rows
 
 
+_MULTI_CHANNEL_CAP = 10
+
+
 @register(_LIST_SCHEMA, requires_channel_context=True)
 async def list_sub_sessions(
     channel_id: str | None = None,
     limit: int = 10,
     only_with_follow_ups: bool = False,
+    channel_ids: list[str] | None = None,
 ) -> str:
+    # Multi-channel fan-out: loop the single-channel path and concat the
+    # markdown outputs with per-channel headers. Saves iterations in hygiene
+    # runs that sweep 3–5 channels.
+    if channel_ids:
+        ids = [str(cid) for cid in channel_ids if str(cid or "").strip()]
+        if not ids:
+            return "channel_ids was provided but empty — pass at least one channel ID."
+        if len(ids) > _MULTI_CHANNEL_CAP:
+            return (
+                f"channel_ids too large ({len(ids)} > {_MULTI_CHANNEL_CAP}). "
+                "Chunk the list or drop channels not relevant to this run."
+            )
+        blocks: list[str] = []
+        for cid in ids:
+            sub = await list_sub_sessions(
+                channel_id=cid,
+                limit=limit,
+                only_with_follow_ups=only_with_follow_ups,
+            )
+            blocks.append(f"### Channel {cid}\n\n{sub}")
+        return "\n\n".join(blocks)
+
     resolved_channel_id: uuid.UUID | None
     if channel_id:
         try:

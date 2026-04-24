@@ -9,6 +9,13 @@ category: core
 
 Every widget iframe auto-inherits the app's design language: colors, spacing, typography, and component classes. **Use these instead of inline hex colors or bespoke CSS.** Widgets that lean on the vocabulary look like part of the app, stay correct in both light and dark mode, and survive future theme changes.
 
+The canonical target spec for visual direction is **`docs/guides/ui-design.md`** — the same spec the app itself is being polished against. The `sd-*` vocabulary mirrors it. When the two conflict, ui-design.md wins; open an issue so the vocabulary can catch up. Key rules that bite widget authors:
+
+- **Low chrome.** Spacing and tonal steps separate regions — not borders, not shadows.
+- **Never `border + bg-color + shadow` on one element.** Pick at most one.
+- **Filled accent buttons are reserved for rare final-commit moments** (one per screen). Routine row actions ("Refresh", "Connect", "Retry", "Open") use the ghost button lane — see the [button contract](#button-contract) below. Filled-blue CTAs on every row are the Bootstrap anti-pattern.
+- **No inline hex.** Use `var(--sd-*)` tokens or `sd-*` classes.
+
 ## Theme library
 
 The shared SDK styling is now themeable at the app level:
@@ -76,7 +83,7 @@ Prefer these over hand-rolled CSS:
 | Framed media region | `sd-frame`, `sd-frame-overlay` (centered status text) |
 | Bordered tile | `sd-tile` |
 | Text | `sd-title`, `sd-subtitle`, `sd-meta`, `sd-muted`, `sd-dim`, `sd-mono` |
-| Button | `sd-btn`, `sd-btn-primary`, `sd-btn-subtle`, `sd-btn-danger` |
+| Button | `sd-btn` (default ghost), `sd-btn-accent` (ghost primary), `sd-btn-primary` (filled — reserved), `sd-btn-subtle` (alias for ghost), `sd-btn-danger` (ghost danger) |
 | Form controls | `sd-input`, `sd-select`, `sd-textarea`, `sd-input-group` |
 | Styled controls | `sd-check` (checkbox), `sd-radio`, `sd-switch` |
 | Rows & lists | `sd-list`, `sd-list--divided`, `sd-row`, `sd-row__title`, `sd-row__meta`, `sd-row__actions` |
@@ -91,7 +98,19 @@ Prefer these over hand-rolled CSS:
 | State | `sd-is-selected`, `sd-is-disabled`, `sd-is-loading` (shows spinner overlay) |
 | Motion | `sd-anim-fade-in`, `sd-anim-pop` (respects `prefers-reduced-motion`) |
 
-Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the pressed styling:
+### Button contract
+
+Buttons follow `docs/guides/ui-design.md §4` — routine actions are ghost, filled accent is reserved:
+
+| Class | When |
+|---|---|
+| `sd-btn` | Default ghost. Muted text, transparent background, tonal hover. Use for neutral row actions (Refresh, Close, Edit, Copy). |
+| `sd-btn-accent` | Ghost tinted primary. Accent text, transparent background, accent-tinted hover. Use for the **primary** action of a row or card when you want it to read as the main affordance without a filled CTA (Connect, Retry, Open). |
+| `sd-btn-primary` | **Filled accent. Reserved for the one final-commit moment per screen** — confirm dialog OK, save-and-close, submit-the-form. Using it for routine row actions is the Bootstrap-CTA anti-pattern. |
+| `sd-btn-subtle` | Explicit secondary alias (same visual as `sd-btn`). Use when several ghost buttons sit together and calling one "subtle" reads clearer. |
+| `sd-btn-danger` | Ghost destructive. Danger text, transparent, danger-tinted hover. |
+
+Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` picks up a tinted pressed state (accent-subtle), not a filled invert:
 
 ```html
 <div class="sd-card">
@@ -105,7 +124,7 @@ Toggle buttons work via `aria-pressed="true"` — the base `.sd-btn` handles the
   <div class="sd-frame"><img src="…" /></div>
   <div class="sd-card-actions">
     <button class="sd-btn" aria-pressed="true">Bounding boxes</button>
-    <button class="sd-btn sd-btn-primary">Refresh</button>
+    <button class="sd-btn sd-btn-accent">Refresh</button>
   </div>
 </div>
 ```
@@ -120,12 +139,14 @@ For a flatter, host-led layout:
       <span class="sd-section__title">Quick actions</span>
     </div>
     <div class="sd-card-actions">
-      <button class="sd-btn sd-btn-primary">Bright kitchen</button>
+      <button class="sd-btn sd-btn-accent">Bright kitchen</button>
       <button class="sd-btn">Kitchen off</button>
     </div>
   </div>
 </div>
 ```
+
+If your widget has a submit-the-form-and-close moment, that's the one place `sd-btn-primary` earns its keep. Empty-state CTAs and confirm-dialog commit buttons are the other legitimate uses.
 
 ## `window.spindrel.theme` (for SVG / canvas widgets)
 
@@ -164,8 +185,10 @@ See `widgets/sdk.md#reacting-to-live-updates` for the full event surface.
 | Wrap every widget in a heavy nested card by default | Start with `sd-stack`; add `sd-card` only when grouping improves clarity | Avoid double chrome in pinned dashboards. |
 | `<button style="padding: 3px 8px; border: 1px solid #e5e7eb; ...">` | `<button class="sd-btn">` | Fewer lines, on-brand, dark-mode correct. |
 | `border-bottom: 1px solid #e5e7eb` between bars | Spacing + `sd-card` separation | Gratuitous borders look like low-polish admin chrome. |
-| Re-rounding every chip/button to `999px` | Leave `sd-btn` / `sd-chip` / `sd-tag` on their shared tight-radius defaults | Pill chrome fights the current widget language and makes small widgets feel toy-like. |
+| `class="sd-btn sd-btn-primary"` for routine row actions (Refresh, Connect, Retry) | `class="sd-btn sd-btn-accent"` (ghost tinted primary) | Filled accent on every button is the Bootstrap-CTA anti-pattern. Save `sd-btn-primary` for the one final-commit moment per screen. |
+| Re-rounding `sd-btn` / `sd-tag` to `999px` | Leave the shared 6px default | Button/tag radius matches the app scale (`rounded-md`). Chips are already `rounded-full` by default — don't override that either. |
 | Hard-coded success green (`#16a34a`) | `class="sd-chip-success"` or `var(--sd-success)` | Same color in one place; updates ripple. |
+| `box-shadow: 0 8px 24px rgba(0,0,0,0.3)` on a card | `class="sd-card"` — lift comes from `bg-surface-raised` + a subtle border | Shadows read as old admin UI; tonal lift is calmer. |
 
 ## Panel guidance
 

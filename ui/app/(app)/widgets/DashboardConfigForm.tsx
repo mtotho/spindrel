@@ -15,7 +15,7 @@ import {
   type GridPresetId,
 } from "@/src/lib/dashboardGrid";
 import { useIsAdmin } from "@/src/hooks/useScope";
-import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SettingsGroupLabel } from "@/src/components/shared/SettingsControls";
 import { RailScopePicker, type RailChoice, resolveRailChoice } from "./RailScopePicker";
 import { DashboardShareWarning } from "./DashboardShareWarning";
 
@@ -209,7 +209,7 @@ export function DashboardConfigForm({
   return (
     <div className="flex flex-col gap-4">
       {showDrawerChannelCallout && (
-        <div className="flex flex-col gap-2 rounded-md border border-surface-border bg-surface px-3 py-3">
+        <div className="flex flex-col gap-2 rounded-md bg-surface-raised/40 px-3 py-3">
           <div className="text-[12.5px] font-medium text-text">
             Channel-owned settings live in channel settings
           </div>
@@ -261,7 +261,7 @@ export function DashboardConfigForm({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <span className="text-[12px] font-medium text-text-muted">Grid layout</span>
+        <SettingsGroupLabel label="Grid layout" />
         <div className="flex flex-col gap-1.5">
           {Object.values(GRID_PRESETS).map((p) => {
             const checked = presetId === p.id;
@@ -269,10 +269,10 @@ export function DashboardConfigForm({
               <label
                 key={p.id}
                 className={
-                  "flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors "
+                  "relative flex cursor-pointer items-start gap-2.5 rounded-md px-3 py-2 text-left transition-colors "
                   + (checked
-                    ? "border-accent/60 bg-accent/[0.08]"
-                    : "border-surface-border hover:bg-surface-overlay")
+                    ? "bg-accent/[0.06] before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent"
+                    : "bg-surface-raised/40 hover:bg-surface-overlay/45")
                 }
               >
                 <input
@@ -302,8 +302,8 @@ export function DashboardConfigForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <span className="text-[12px] font-medium text-text-muted">Tile chrome</span>
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+        <SettingsGroupLabel label="Tile chrome" />
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-md bg-surface-raised/40 px-3 py-2 transition-colors hover:bg-surface-overlay/45">
           <input
             type="checkbox"
             checked={borderless}
@@ -317,7 +317,7 @@ export function DashboardConfigForm({
             </div>
           </div>
         </label>
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-md bg-surface-raised/40 px-3 py-2 transition-colors hover:bg-surface-overlay/45">
           <input
             type="checkbox"
             checked={hoverScrollbars}
@@ -331,7 +331,7 @@ export function DashboardConfigForm({
             </div>
           </div>
         </label>
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-surface-border px-3 py-2 hover:bg-surface-overlay transition-colors">
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-md bg-surface-raised/40 px-3 py-2 transition-colors hover:bg-surface-overlay/45">
           <input
             type="checkbox"
             checked={hideTitles}
@@ -349,7 +349,7 @@ export function DashboardConfigForm({
 
       {showResetLayout && (
         <div className="flex flex-col gap-2">
-          <span className="text-[12px] font-medium text-text-muted">Layout maintenance</span>
+          <SettingsGroupLabel label="Layout maintenance" />
           <button
             type="button"
             onClick={handleResetLayout}
@@ -357,7 +357,7 @@ export function DashboardConfigForm({
               "flex items-start gap-2.5 rounded-md border px-3 py-2 text-left transition-colors "
               + (resetArmed
                 ? "border-danger/60 bg-danger/10 text-danger"
-                : "border-surface-border hover:bg-surface-overlay")
+                : "border-transparent bg-surface-raised/40 hover:bg-surface-overlay/45")
             }
             aria-pressed={resetArmed}
             aria-label={resetArmed ? "Confirm reset layout" : "Reset layout"}
@@ -387,7 +387,7 @@ export function DashboardConfigForm({
       )}
 
       {!isDefault && !isChannel && (
-        <div className="mt-2 border-t border-surface-border pt-4">
+        <div className="mt-2 flex flex-col gap-2 pt-2">
           <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-danger">
             <Trash2 size={13} />
             Delete dashboard
@@ -408,7 +408,7 @@ export function DashboardConfigForm({
               type="button"
               onClick={handleDelete}
               disabled={!canDelete}
-              className="inline-flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md bg-transparent px-3 py-1.5 text-[12px] font-semibold text-danger transition-colors hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {deleting && <Loader2 size={13} className="animate-spin" />}
               Delete

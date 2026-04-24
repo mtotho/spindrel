@@ -54,7 +54,7 @@ class _FakeProvider:
         }
         self.connection = {
             "target_id": "target-1",
-            "connection_id": "conn-1",
+            "handle_id": "conn-1",
             "label": "Desk",
             "hostname": "workstation",
             "platform": "linux",
@@ -69,12 +69,25 @@ class _FakeProvider:
             return dict(self.target)
         return None
 
-    def get_target_connection(self, target_id: str):
+    def get_target_status(self, target_id: str):
         if target_id == self.target["target_id"]:
-            return dict(self.connection)
+            return {
+                "ready": True,
+                "status": "connected",
+                "reason": None,
+                "checked_at": "2026-04-23T12:06:00+00:00",
+                "handle_id": self.connection["handle_id"],
+            }
         return None
 
-    async def enroll(self, db, request, *, label=None):
+    async def probe_target(self, db, *, target_id: str):
+        _ = db
+        status = self.get_target_status(target_id)
+        if status is None:
+            raise ValueError("Unknown machine target.")
+        return status
+
+    async def enroll(self, db, *, server_base_url, label=None, config=None):
         raise NotImplementedError
 
     async def remove_target(self, db, target_id: str):
@@ -139,9 +152,11 @@ async def test_grant_session_lease_and_build_payload(fake_provider):
     assert lease["provider_id"] == "local_companion"
     assert lease["target_id"] == "target-1"
     assert lease["user_id"] == str(user.id)
+    assert lease["handle_id"] == "conn-1"
     assert lease["connection_id"] == "conn-1"
     assert payload["lease"]["provider_id"] == "local_companion"
     assert payload["lease"]["target_label"] == "Desk"
+    assert payload["lease"]["ready"] is True
     assert payload["targets"] == [{
         "provider_id": "local_companion",
         "provider_label": "Local Companion",
@@ -153,6 +168,12 @@ async def test_grant_session_lease_and_build_payload(fake_provider):
         "capabilities": ["shell"],
         "enrolled_at": "2026-04-23T12:00:00+00:00",
         "last_seen_at": "2026-04-23T12:05:00+00:00",
+        "ready": True,
+        "status": "connected",
+        "status_label": "Connected",
+        "reason": None,
+        "checked_at": "2026-04-23T12:06:00+00:00",
+        "handle_id": "conn-1",
         "connected": True,
         "connection_id": "conn-1",
         "metadata": {"room": "office"},

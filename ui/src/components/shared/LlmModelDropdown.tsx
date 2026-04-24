@@ -1,12 +1,13 @@
-import { useState, useRef, useCallback } from "react";
+import { useMemo, useState } from "react";
+import { Brain, Download, Loader2 } from "lucide-react";
+
 import {
-  useModelGroups,
-  useEmbeddingModelGroups,
   useDownloadEmbeddingModel,
+  useEmbeddingModelGroups,
+  useModelGroups,
 } from "../../api/hooks/useModels";
-import { useThemeTokens } from "../../theme/tokens";
-import type { LlmModel } from "../../types/api";
-import { createPortal } from "react-dom";
+import type { LlmModel, ModelGroup } from "../../types/api";
+import { SelectDropdown, type SelectDropdownOption } from "./SelectDropdown";
 
 interface Props {
   value: string;
@@ -14,12 +15,49 @@ interface Props {
   placeholder?: string;
   label?: string;
   allowClear?: boolean;
-  /** Where to anchor the dropdown relative to the trigger. Default "bottom". */
+  /** Where to anchor the dropdown relative to the trigger. Kept for compatibility; the shared dropdown auto-flips. */
   anchor?: "bottom" | "top";
   /** "llm" (default) fetches /models; "embedding" fetches /embedding-models (includes local fastembed). */
   variant?: "llm" | "embedding";
   /** When set, only highlight the model in the matching provider group. */
   selectedProviderId?: string | null;
+  className?: string;
+}
+
+interface ModelOption extends SelectDropdownOption {
+  model: LlmModel;
+  providerId: string | null;
+  providerName: string;
+}
+
+function modelOptionKey(modelId: string, providerId?: string | null): string {
+  return `${providerId ?? "default"}::${modelId}`;
+}
+
+function buildModelOptions(groups: ModelGroup[] | undefined): ModelOption[] {
+  return (groups ?? []).flatMap((group) =>
+    group.models.map((model) => ({
+      value: modelOptionKey(model.id, group.provider_id ?? null),
+      label: model.id,
+      description: model.display !== model.id ? model.display : undefined,
+      group: group.provider_name,
+      groupLabel: group.provider_name,
+      searchText: `${model.id} ${model.display} ${group.provider_name}`,
+      disabled: model.download_status === "downloading",
+      model,
+      providerId: group.provider_id ?? null,
+      providerName: group.provider_name,
+    })),
+  );
+}
+
+function selectedKeyFor(options: ModelOption[], value: string, selectedProviderId?: string | null): string | null {
+  if (!value) return null;
+  const match = options.find((option) => {
+    if (option.model.id !== value) return false;
+    return selectedProviderId === undefined || option.providerId === (selectedProviderId ?? null);
+  });
+  return match?.value ?? null;
 }
 
 function ModelStatusBadge({
@@ -31,102 +69,80 @@ function ModelStatusBadge({
   onDownload: (id: string) => void;
   isDownloadPending: boolean;
 }) {
-  const t = useThemeTokens();
-
   if (!model.download_status) return null;
 
   if (model.download_status === "cached") {
-    return (
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: "50%",
-          background: t.success,
-          flexShrink: 0,
-        }}
-        title="Downloaded"
-      />
-    );
+    return <span className="h-2 w-2 shrink-0 rounded-full bg-success" title="Downloaded" />;
   }
 
   if (model.download_status === "downloading") {
     return (
-      <span
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          gap: 4,
-          fontSize: 11,
-          color: t.textDim,
-          flexShrink: 0,
-        }}
-      >
-        <Spinner size={12} />
-        downloading...
+      <span className="inline-flex shrink-0 items-center gap-1 text-[10px] text-text-dim">
+        <Loader2 size={12} className="animate-spin" />
+        downloading
       </span>
     );
   }
 
-  // not_downloaded
   return (
-    <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
-      {model.size_mb != null && (
-        <span style={{ fontSize: 10, color: t.textDim }}>{model.size_mb} MB</span>
-      )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
+    <span className="inline-flex shrink-0 items-center gap-1.5">
+      {model.size_mb != null && <span className="text-[10px] text-text-dim">{model.size_mb} MB</span>}
+      <span
+        role="button"
+        tabIndex={-1}
+        title="Download model"
+        onClick={(event) => {
+          event.stopPropagation();
           onDownload(model.id);
         }}
-        disabled={isDownloadPending}
-        style={{
-          background: "none",
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 4,
-          padding: "2px 6px",
-          cursor: isDownloadPending ? "not-allowed" : "pointer",
-          color: t.accent,
-          fontSize: 12,
-          lineHeight: 1,
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          opacity: isDownloadPending ? 0.5 : 1,
-        }}
-        title="Download model"
+        className={
+          `inline-flex h-6 w-6 items-center justify-center rounded-md text-accent transition-colors ` +
+          `hover:bg-accent/[0.08] ${isDownloadPending ? "pointer-events-none opacity-50" : ""}`
+        }
       >
-        ↓
-      </button>
+        <Download size={12} />
+      </span>
     </span>
   );
 }
 
-function Spinner({ size = 14 }: { size?: number }) {
+function ModelOptionRow({
+  option,
+  selected,
+  onDownload,
+  isDownloadPending,
+}: {
+  option: ModelOption;
+  selected: boolean;
+  onDownload: (id: string) => void;
+  isDownloadPending: boolean;
+}) {
   return (
-    <span
-      style={{
-        display: "inline-block",
-        width: size,
-        height: size,
-        border: "2px solid rgba(255,255,255,0.15)",
-        borderTopColor: "rgba(255,255,255,0.6)",
-        borderRadius: "50%",
-        animation: "llm-dropdown-spin 0.8s linear infinite",
-        flexShrink: 0,
-      }}
-    />
+    <>
+      <span className="min-w-0 flex-1">
+        <span className={`flex min-w-0 items-center gap-1.5 text-[13px] font-medium ${selected ? "text-accent" : "text-text"}`}>
+          <span className="truncate">{option.model.id}</span>
+          {option.model.supports_reasoning && (
+            <span
+              title="Supports reasoning / effort budget"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] text-accent"
+            >
+              <Brain size={9} />
+              reasoning
+            </span>
+          )}
+        </span>
+        {option.model.display !== option.model.id && (
+          <span className="mt-0.5 block truncate text-[11px] text-text-dim">{option.model.display}</span>
+        )}
+      </span>
+      <ModelStatusBadge
+        model={option.model}
+        onDownload={onDownload}
+        isDownloadPending={isDownloadPending}
+      />
+    </>
   );
-}
-
-// Inject keyframes once
-if (typeof document !== "undefined") {
-  const styleId = "llm-dropdown-spinner-style";
-  if (!document.getElementById(styleId)) {
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = `@keyframes llm-dropdown-spin { to { transform: rotate(360deg); } }`;
-    document.head.appendChild(style);
-  }
 }
 
 interface ContentProps {
@@ -138,9 +154,8 @@ interface ContentProps {
 }
 
 /**
- * Just the popover body (search + grouped list) of the model dropdown —
- * styled identically, without its own trigger/portal. Callers provide
- * positioning (e.g. anchored inline in the composer).
+ * Just the popover body (search + grouped list) of the model dropdown.
+ * Used by compact composer controls that provide their own anchoring.
  */
 export function LlmModelDropdownContent({
   value,
@@ -154,263 +169,131 @@ export function LlmModelDropdownContent({
   const embeddingQuery = useEmbeddingModelGroups();
   const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
   const downloadMutation = useDownloadEmbeddingModel();
-  const t = useThemeTokens();
-
-  const filteredGroups = groups
-    ?.map((g) => ({
-      ...g,
-      models: g.models.filter(
-        (m) =>
-          !search ||
-          m.id.toLowerCase().includes(search.toLowerCase()) ||
-          m.display.toLowerCase().includes(search.toLowerCase())
-      ),
-    }))
-    .filter((g) => g.models.length > 0);
+  const options = useMemo(() => buildModelOptions(groups), [groups]);
+  const selectedKey = selectedKeyFor(options, value, selectedProviderId);
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? options.filter((option) => (option.searchText ?? "").toLowerCase().includes(query))
+    : options;
 
   return (
-    <div
-      style={{
-        background: t.surfaceRaised,
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 10,
-        boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-        maxHeight: 340,
-      }}
-    >
-      {/* Search */}
-      <div style={{ padding: "10px 12px", borderBottom: `1px solid ${t.surfaceBorder}` }}>
+    <div className="flex max-h-[340px] flex-col overflow-hidden rounded-md border border-surface-border bg-surface-raised ring-1 ring-black/10">
+      <div className="shrink-0 p-2">
         <input
           type="text"
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(event) => setSearch(event.target.value)}
           placeholder="Search models..."
           autoFocus={autoFocusSearch}
-          style={{
-            width: "100%",
-            background: t.inputBg,
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 6,
-            padding: "6px 10px",
-            color: t.inputText,
-            fontSize: 13,
-            outline: "none",
-          }}
-          onFocus={(e) => { (e.target as HTMLInputElement).style.borderColor = t.accent; }}
-          onBlur={(e) => { (e.target as HTMLInputElement).style.borderColor = t.surfaceBorder; }}
+          className="min-h-[34px] w-full rounded-md bg-input px-2.5 text-[12px] text-text outline-none placeholder:text-text-dim focus:ring-2 focus:ring-accent/25"
         />
       </div>
-
-      {/* Model list */}
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div className="min-h-0 overflow-y-auto py-1">
         {isLoading ? (
-          <div style={{ padding: 16, color: t.textDim, fontSize: 13 }}>Loading models...</div>
-        ) : filteredGroups?.length === 0 ? (
-          <div style={{ padding: 16, color: t.textDim, fontSize: 13, textAlign: "center" }}>No models found</div>
+          <div className="px-3 py-4 text-[12px] text-text-dim">Loading models...</div>
+        ) : filtered.length === 0 ? (
+          <div className="px-3 py-4 text-center text-[12px] text-text-dim">No models found</div>
         ) : (
-          filteredGroups?.map((group) => (
-            <div key={group.provider_name}>
-              <div style={{
-                padding: "6px 12px",
-                background: t.surfaceOverlay,
-                fontSize: 10,
-                fontWeight: 600,
-                color: t.textDim,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                position: "sticky",
-                top: 0,
-              }}>
-                {group.provider_name}
-              </div>
-              {group.models.map((model) => {
-                const isDownloading = model.download_status === "downloading";
-                const isSelected = model.id === value && (
-                  selectedProviderId === undefined ||
-                  (group.provider_id ?? null) === (selectedProviderId ?? null)
-                );
-                return (
-                  <div
-                    key={model.id}
-                    onClick={() => {
-                      if (isDownloading) return;
-                      onSelect(model.id, group.provider_id ?? null);
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isDownloading) {
-                        (e.currentTarget as HTMLElement).style.background = t.surfaceOverlay;
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.background =
-                        isSelected ? t.accentSubtle : "transparent";
-                    }}
-                    style={{
-                      padding: "8px 12px",
-                      cursor: isDownloading ? "default" : "pointer",
-                      background: isSelected ? t.accentSubtle : "transparent",
-                      opacity: isDownloading ? 0.6 : 1,
-                      display: "flex", flexDirection: "row",
-                      alignItems: "center",
-                      gap: 8,
-                    }}
-                  >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{
-                        fontSize: 13, color: isSelected ? t.accent : t.text,
-                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                      }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {model.id}
-                        </span>
-                        {model.supports_reasoning && (
-                          <span
-                            title="Supports reasoning / effort budget — /effort works on channels bound to this model"
-                            style={{
-                              fontSize: 9, fontWeight: 600,
-                              color: t.accent, background: t.surfaceOverlay,
-                              padding: "1px 5px", borderRadius: 3,
-                              letterSpacing: "0.03em", flexShrink: 0,
-                            }}
-                          >
-                            reasoning
-                          </span>
-                        )}
-                      </div>
-                      {model.display !== model.id && (
-                        <div style={{ fontSize: 11, color: t.textDim, marginTop: 1 }}>
-                          {model.display}
-                        </div>
-                      )}
-                    </div>
-                    <ModelStatusBadge
-                      model={model}
-                      onDownload={(id) => downloadMutation.mutate(id)}
-                      isDownloadPending={downloadMutation.isPending}
-                    />
+          filtered.map((option, index) => {
+            const previous = filtered[index - 1];
+            const selected = option.value === selectedKey;
+            const showGroup = option.group !== previous?.group;
+            return (
+              <div key={option.value}>
+                {showGroup && (
+                  <div className="sticky top-0 z-10 bg-surface-raised px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+                    {option.groupLabel}
                   </div>
-                );
-              })}
-            </div>
-          ))
+                )}
+                <button
+                  type="button"
+                  disabled={option.disabled}
+                  onClick={() => onSelect(option.model.id, option.providerId)}
+                  className={
+                    `flex w-full items-center gap-2.5 px-3 py-2 text-left transition-colors disabled:cursor-default disabled:opacity-60 ` +
+                    (selected ? "bg-accent/[0.07]" : "hover:bg-surface-overlay/45")
+                  }
+                >
+                  <ModelOptionRow
+                    option={option}
+                    selected={selected}
+                    onDownload={(id) => downloadMutation.mutate(id)}
+                    isDownloadPending={downloadMutation.isPending}
+                  />
+                </button>
+              </div>
+            );
+          })
         )}
       </div>
     </div>
   );
 }
 
-/**
- * Model picker dropdown that renders into a portal (document.body)
- * to avoid any z-index / overflow clipping from parent ScrollViews.
- */
 export function LlmModelDropdown({
   value,
   onChange,
   placeholder = "Select model...",
   label,
   allowClear = true,
-  anchor = "bottom",
   variant = "llm",
   selectedProviderId,
+  className = "",
 }: Props) {
-  const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0, bottom: 0, width: 0 });
-  const triggerRef = useRef<HTMLDivElement>(null);
-  const t = useThemeTokens();
-
-  // Measure trigger position for portal dropdown.
-  // Auto-flip to upward when the trigger is in the bottom 40% of the viewport
-  // so the dropdown doesn't get clipped.
-  const [resolvedAnchor, setResolvedAnchor] = useState(anchor);
-  const openDropdown = useCallback(() => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const autoAnchor = anchor ?? (rect.bottom > window.innerHeight * 0.6 ? "top" : undefined);
-      setResolvedAnchor(autoAnchor);
-      setPos({
-        top: rect.bottom + 4,
-        left: rect.left,
-        bottom: window.innerHeight - rect.top + 4,
-        width: rect.width,
-      });
-    }
-    setOpen(true);
-  }, [anchor]);
+  const llmQuery = useModelGroups();
+  const embeddingQuery = useEmbeddingModelGroups();
+  const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
+  const downloadMutation = useDownloadEmbeddingModel();
+  const modelOptions = useMemo(() => buildModelOptions(groups), [groups]);
+  const selectedKey = selectedKeyFor(modelOptions, value, selectedProviderId);
+  const options = useMemo(() => {
+    if (!value || selectedKey) return modelOptions;
+    return [
+      {
+        value: modelOptionKey(value, selectedProviderId ?? null),
+        label: value,
+        searchText: value,
+        model: { id: value, display: value },
+        providerId: selectedProviderId ?? null,
+        providerName: "Selected",
+      } satisfies ModelOption,
+      ...modelOptions,
+    ];
+  }, [modelOptions, selectedKey, selectedProviderId, value]);
+  const effectiveValue = selectedKey ?? (value ? modelOptionKey(value, selectedProviderId ?? null) : null);
 
   return (
-    <div style={{ position: "relative" }}>
-      {label && (
-        <div style={{ color: t.textDim, fontSize: 12, marginBottom: 4 }}>{label}</div>
-      )}
-
-      {/* Trigger button */}
-      <div
-        ref={triggerRef}
-        onClick={openDropdown}
-        style={{
-          display: "flex", flexDirection: "row",
-          alignItems: "center",
-          background: t.inputBg,
-          border: `1px solid ${t.inputBorder}`,
-          borderRadius: 8,
-          padding: "7px 12px",
-          cursor: "pointer",
-          gap: 8,
+    <div className={`flex w-full flex-col gap-1 ${className}`}>
+      {label && <div className="text-[12px] text-text-dim">{label}</div>}
+      <SelectDropdown
+        value={effectiveValue}
+        onChange={(_, option) => {
+          const modelOption = option as ModelOption;
+          onChange(modelOption.model.id, modelOption.providerId);
         }}
-      >
-        <span style={{ flex: 1, fontSize: 13, color: value ? t.text : t.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {value || placeholder}
-        </span>
-        {allowClear && value ? (
-          <span
-            onClick={(e) => { e.stopPropagation(); onChange(""); }}
-            style={{ color: t.textMuted, cursor: "pointer", fontSize: 14, lineHeight: 1 }}
-          >
-            ✕
-          </span>
-        ) : (
-          <span style={{ color: t.textDim, fontSize: 10 }}>▾</span>
+        onClear={() => onChange("", null)}
+        allowClear={allowClear}
+        options={options}
+        placeholder={value || placeholder}
+        loading={isLoading}
+        searchable
+        searchPlaceholder="Search models..."
+        emptyLabel="No models found"
+        popoverWidth={520}
+        maxHeight={340}
+        renderValue={(option) => {
+          const modelOption = option as ModelOption;
+          return modelOption.model.id;
+        }}
+        renderOption={(option, state) => (
+          <ModelOptionRow
+            option={option as ModelOption}
+            selected={state.selected}
+            onDownload={(id) => downloadMutation.mutate(id)}
+            isDownloadPending={downloadMutation.isPending}
+          />
         )}
-      </div>
-
-      {/* Portal dropdown — rendered into document.body */}
-      {open && typeof document !== "undefined" &&
-        (() => {          return createPortal(
-            <>
-              {/* Backdrop */}
-              <div
-                onClick={() => setOpen(false)}
-                style={{ position: "fixed", inset: 0, zIndex: 50000 }}
-              />
-              {/* Dropdown panel */}
-              <div
-                style={{
-                  position: "fixed",
-                  ...(resolvedAnchor === "top"
-                    ? { bottom: pos.bottom, left: pos.left }
-                    : { top: pos.top, left: pos.left }),
-                  width: Math.max(pos.width, 320),
-                  zIndex: 50001,
-                }}
-              >
-                <LlmModelDropdownContent
-                  value={value}
-                  selectedProviderId={selectedProviderId}
-                  variant={variant}
-                  onSelect={(modelId, providerId) => {
-                    onChange(modelId, providerId);
-                    setOpen(false);
-                  }}
-                />
-              </div>
-            </>,
-            document.body
-          );
-        })()
-      }
+      />
     </div>
   );
 }

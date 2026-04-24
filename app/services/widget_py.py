@@ -597,3 +597,14 @@ async def invoke_event(
 
     timeout = getattr(handler, "_spindrel_event_timeout", 30)
     return await _run_handler(pin, manifest, handler, (payload,), timeout)
+
+
+# ── Public re-exports (Cluster 4B.1) ──
+#
+# Several widget_*.py modules (widget_cron, widget_db, widget_events,
+# widget_handler_tools) need to locate a pin's on-disk bundle directory
+# to dispatch SDK handlers. The underlying resolver lives here; exposing
+# it under a public name makes the boundary explicit and keeps the
+# widget_private_import drift test green.
+
+resolve_bundle_dir = _resolve_bundle_dir

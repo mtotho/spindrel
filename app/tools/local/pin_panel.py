@@ -1,12 +1,12 @@
 """Bot tools for pinning/unpinning workspace files to a channel's pinned-files widget."""
 import json
 
-from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.agent.context import current_bot_id, current_channel_id
 from app.db.engine import async_session
 from app.db.models import Channel
+from app.domain.errors import DomainError
 from app.tools.registry import register
 
 _PIN_PANEL_SCHEMA = {
@@ -129,7 +129,7 @@ async def unpin_panel(path: str) -> str:
 
         try:
             await unpin_file_for_channel(db, channel_id, path)
-        except HTTPException:
+        except DomainError:
             return json.dumps({"error": f"{path} is not pinned in this channel."}, ensure_ascii=False)
 
     return json.dumps({

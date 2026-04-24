@@ -107,10 +107,20 @@ You are running a scheduled memory maintenance pass across all your channels.
 Your goal: keep memory lean, promote stable facts, prune stale entries, detect contradictions,
 archive old logs, and keep files organized.
 
+## Tool discipline (read before starting)
+Follow these rules so this pass finishes in a small number of iterations:
+- **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Your recent tool results are kept in context for you. If you truly need a prior result, one hydration is enough — calling it repeatedly is wasted work.
+- **Read each channel index and each log file once.** The results are cached inside this run.
+- **Sweep channels in one call.** `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` return concatenated per-channel markdown in a single iteration. Cap 10 per call.
+- **Prefer `file(operation="batch", ops=[...])` over N parallel `file` calls** when you need to read, append, or edit several files. One call, one iteration.
+- **For MEMORY.md section edits** (e.g. `## Reflections`, `## Preferences`) prefer `file(operation="replace_section", heading="## Name", content="...")` over the older `edit` find/replace dance — you don't have to send the current body as the `find` string.
+- **Prefer `manage_bot_skill(action="upsert", ...)` over `create`** when you're not certain whether a skill already exists. Upsert handles both cases in one call.
+- **Batch-get multiple skill bodies** with `manage_bot_skill(action="get", names=[...])` when you need to read several at once.
+
 ## Step 1 — Survey channels AND sub-sessions
-Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. For each channel with recent activity:
-- Use `read_conversation_history(section="index", channel_id="<id>")` to review what happened.
-- **Always check sub-sessions** — call `list_sub_sessions(channel_id="<id>")` to see pipeline runs, evals, threads, and scratch-pad chats attached to the channel. Read interesting ones with `read_sub_session(session_id="<id>")`. Decisions and corrections often land in sub-sessions and never hit the main channel feed — if you skip this step, you'll miss them.
+Your channels (primary and member) are listed in the "## Channels" snapshot appended below, with last activity times and 7-day message counts. Prefer the multi-channel form: `read_conversation_history(section="index", channel_ids=[id1, id2, ...])` and `list_sub_sessions(channel_ids=[...])` sweep up to 10 channels per call. For each channel with recent activity:
+- Review its index entry from the multi-channel response (or fall back to a single `channel_id=...` call if you only need one).
+- **Always check sub-sessions** — `list_sub_sessions(channel_ids=[...])` returns them too. Read interesting ones with `read_sub_session(session_id="<id>")`. Decisions and corrections often land in sub-sessions and never hit the main channel feed — if you skip this step, you'll miss them.
 - If the history layout is unclear while you review, call `get_skill(skill_id="history_and_memory/memory_hygiene")` before continuing.
 - Note channels with no recent activity (candidates for archiving stale daily logs).
 - **Member channels matter** — you may have learned things in channels you're a guest in. Review them too.
@@ -142,12 +152,13 @@ Scan recent daily logs (last 3-7 days). For each candidate entry, mentally score
 
 Promote entries scoring well on 3+ factors:
 - Stable facts or decisions → promote to memory/MEMORY.md using `file(operation="edit")` to update existing sections or `file(operation="append")` for new sections.
-- Reusable procedures or patterns → create or update a skill; if the pattern is executable tool orchestration, attach a named script
+- Reusable procedures or patterns → `manage_bot_skill(action="upsert", ...)` to create-or-update in one call. If the pattern is executable tool orchestration, attach a named script.
 - Detailed reference info → move to memory/reference/ files
 
 ## Step 5 — Archive maintenance
-- Create the archive directory if needed: `file(operation="mkdir", path="memory/logs/archive")`
-- Move processed logs older than 14 days: `file(operation="move", path="memory/logs/YYYY-MM-DD.md", destination="memory/logs/archive/YYYY-MM-DD.md")`
+- Archive processed logs older than 14 days in ONE idempotent call:
+  `file(operation="archive_older_than", path="memory/logs/", older_than_days=14, destination="memory/logs/archive/")`
+  This creates the destination if missing, skips files already present there, and reports `moved` / `skipped_existing` / `skipped_fresh`. Do NOT issue per-file `move` calls — they waste iterations and fail on files a prior pass already archived.
 - Archived logs remain searchable via `search_memory` but won't be auto-injected into context.
 - Only archive logs you've already reviewed and promoted from in this or previous hygiene runs.
 - Clean up orphaned reference files that are no longer linked from MEMORY.md — use `file(operation="delete", path="memory/reference/outdated-file.md")`.
@@ -175,6 +186,14 @@ and audit auto-inject quality.
   Reflections are observations for FUTURE sessions to act on.
 - If you need skill authoring guidance, call `get_skill(skill_id="skill_authoring")`.
 - Keep your final response under 300 words. The daily log entry is the durable output.
+
+## Tool discipline
+- **Do NOT call `read_conversation_history(section="tool:<uuid>")` to re-read data you already fetched in this run.** Recent results remain in context; re-fetching the same UUID repeatedly wastes iterations.
+- Prefer `manage_bot_skill(action="upsert", ...)` to create-or-update in one call when you can't tell whether a skill already exists.
+- The "## Working set" snapshot has every field you need (category, stale, script count, fetch/inject counts, source, age). **Do NOT call `manage_bot_skill(action="list")`** — it returns the same data you already have and burns an iteration.
+- To read multiple skill bodies, use the batch form **`manage_bot_skill(action="get", names=["skill-a", "skill-b", ...])`** in one call, not N sequential `action="get"` calls.
+- **Bundle `prune_enrolled_skills` with your last `manage_bot_skill` update/create batch** in a single iteration — they can all run in parallel. Don't split pruning into its own iteration after updates.
+- For the Reflections section edit in MEMORY.md, prefer **`file(operation="replace_section", path="memory/MEMORY.md", heading="## Reflections", content="...new body...")`** over `file(operation="edit", find=..., replace=...)` — you don't have to send the current content as the `find` string.
 
 ## Step 1 — Cross-channel reflection
 Recent user messages from your channels are in the "## Recent Activity" snapshot appended below.

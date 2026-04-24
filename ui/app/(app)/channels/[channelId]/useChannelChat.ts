@@ -7,12 +7,16 @@ import { useSubmitChat, useCancelChat, useSessionStatus } from "@/src/api/hooks/
 import { useChannelEvents } from "@/src/api/hooks/useChannelEvents";
 import { useChannelState } from "@/src/api/hooks/useChannelState";
 import { useUpdateChannelSettings } from "@/src/api/hooks/useChannels";
+import { useModelGroups } from "@/src/api/hooks/useModels";
+import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { useSecretCheck, type SecretCheckResult } from "@/src/api/hooks/useSecretCheck";
 import { apiFetch } from "@/src/api/client";
 import { extractDisplayText } from "@/src/components/chat/MessageBubble";
 import type { PendingFile } from "@/src/components/chat/MessageInput";
-import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message } from "@/src/types/api";
+import { resolveProviderForModel } from "@/src/components/chat/slashArgSources";
+import type { ChatAttachment, ChatFileMetadata, ChatRequest, Message, SlashCommandId } from "@/src/types/api";
 import { useSlashCommandExecutor } from "@/src/components/chat/useSlashCommandExecutor";
+import { useThemeStore } from "@/src/stores/theme";
 import { type MessagePage, PAGE_SIZE } from "./chatUtils";
 
 export interface UseChannelChatOptions {
@@ -535,8 +539,76 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
     setIsQueued(false);
   }, [channelId]);
 
+  const slashCatalog = useSlashCommandList();
+  const { data: modelGroups } = useModelGroups();
+  const availableSlashCommandIds: SlashCommandId[] = useMemo(
+    () => [
+      "help",
+      "stop",
+      "context",
+      "scratch",
+      "clear",
+      "compact",
+      "plan",
+      "effort",
+      "find",
+      "rename",
+      "model",
+      "mode",
+      "theme",
+    ],
+    [],
+  );
+
+  const slashLocalHandlers = useMemo(
+    () => ({
+      clear: async () => {
+        if (!channelId) return;
+        try {
+          await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
+          setMessages(channelId, []);
+          queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+          queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
+        } catch (err) {
+          console.error("Failed to reset session:", err);
+        }
+      },
+      scratch: async () => {
+        if (!channelId || !channel?.bot_id) return;
+        const qs = new URLSearchParams({
+          parent_channel_id: channelId,
+          bot_id: channel.bot_id,
+        });
+        const scratch = await apiFetch<{ session_id: string }>(
+          `/sessions/scratch/current?${qs.toString()}`,
+        );
+        navigate(`/channels/${channelId}/session/${scratch.session_id}?scratch=true`);
+      },
+      model: async (args: string[]) => {
+        if (!channelId || !args[0]) return;
+        const modelId = args[0];
+        const providerId = resolveProviderForModel(modelId, modelGroups);
+        await updateChannelSettings.mutateAsync({
+          model_override: modelId,
+          model_provider_id_override: providerId ?? undefined,
+        });
+      },
+      theme: (args: string[]) => {
+        const arg = args[0]?.toLowerCase();
+        const store = useThemeStore.getState();
+        if (arg === "light" || arg === "dark") {
+          store.setMode(arg);
+        } else {
+          store.toggle();
+        }
+      },
+    }),
+    [channelId, channel?.bot_id, modelGroups, navigate, queryClient, setMessages, updateChannelSettings],
+  );
+
   const handleSlashCommand = useSlashCommandExecutor({
-    availableCommands: ["stop", "context", "scratch", "clear", "compact", "plan", "effort"],
+    availableCommands: availableSlashCommandIds,
+    catalog: slashCatalog,
     surface: "channel",
     channelId: channelId ?? undefined,
     sessionId: channel?.active_session_id ?? undefined,
@@ -544,28 +616,7 @@ export function useChannelChat({ channelId, channel, activeFile }: UseChannelCha
       if (!channelId) return;
       addMessage(channelId, message);
     },
-    onScratch: async () => {
-      if (!channelId || !channel?.bot_id) return;
-      const qs = new URLSearchParams({
-        parent_channel_id: channelId,
-        bot_id: channel.bot_id,
-      });
-      const scratch = await apiFetch<{ session_id: string }>(
-        `/sessions/scratch/current?${qs.toString()}`,
-      );
-      navigate(`/channels/${channelId}/session/${scratch.session_id}?scratch=true`);
-    },
-    onClear: async () => {
-      if (!channelId) return;
-      try {
-        await apiFetch(`/channels/${channelId}/reset`, { method: "POST" });
-        setMessages(channelId, []);
-        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
-        queryClient.invalidateQueries({ queryKey: ["channel", channelId] });
-      } catch (err) {
-        console.error("Failed to reset session:", err);
-      }
-    },
+    localHandlers: slashLocalHandlers,
     onSideEffect: async (result) => {
       if (!channelId) return;
       if (result.command_id === "stop") {

@@ -19,8 +19,9 @@ This file pins the contracts:
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
+
+from app.domain.errors import DomainError
 
 from app.db.models import WidgetDashboardPin
 from app.services.dashboard_pins import create_pin, list_pins
@@ -109,9 +110,9 @@ class TestNoPinsDelete:
         await create_dashboard(db_session, slug="empty", name="Empty")
         # No pins created for "empty"
         await delete_dashboard(db_session, "empty")
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await get_dashboard(db_session, "empty")
-        assert exc.value.status_code == 404
+        assert exc.value.http_status == 404
 
 
 # ---------------------------------------------------------------------------
@@ -123,15 +124,15 @@ class TestNonExistentSlug:
     @pytest.mark.asyncio
     async def test_delete_nonexistent_dashboard_raises_404(self, db_session):
         """Trying to delete an unknown dashboard surfaces a 404, not a silent no-op."""
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await delete_dashboard(db_session, "nonexistent")
-        assert exc.value.status_code == 404
+        assert exc.value.http_status == 404
 
     @pytest.mark.asyncio
     async def test_get_nonexistent_dashboard_raises_404(self, db_session):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await get_dashboard(db_session, "ghost")
-        assert exc.value.status_code == 404
+        assert exc.value.http_status == 404
 
 
 # ---------------------------------------------------------------------------

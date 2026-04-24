@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, ExternalLink, Key, Monitor, RefreshCw, Trash2 } from "lucide-react";
 
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -11,6 +11,12 @@ import {
 } from "@/src/api/hooks/useIntegrations";
 import { useAdminMachines, useEnrollMachineTarget } from "@/src/api/hooks/useMachineTargets";
 import { buildRemoteEnrollCommand, resolveMachineControlServerUrl } from "@/src/lib/machineControlSetup";
+import {
+  MachineEnrollFields,
+  buildMachineEnrollDraft,
+  normalizeMachineEnrollConfig,
+  type MachineEnrollDraft,
+} from "@/src/components/machineControl/MachineEnrollFields";
 
 function CopyButton({
   label,
@@ -71,22 +77,32 @@ export function MachineControlSetupSection({
     [machineData, machineControl.provider_id],
   );
   const [labelDraft, setLabelDraft] = useState("");
+  const enrollFields = provider?.enroll_fields ?? machineControl.enroll_fields ?? [];
+  const [configDraft, setConfigDraft] = useState<MachineEnrollDraft>(() => buildMachineEnrollDraft(enrollFields));
   const launch = enroll.data?.launch ?? null;
   const enrolledTarget = enroll.data?.target ?? null;
+  const configReady = provider?.config_ready ?? true;
+  const readyCount = provider?.ready_target_count ?? provider?.connected_target_count ?? 0;
 
   const apiKey = useIntegrationApiKey(integrationId, enableRemoteProvisioning);
   const provisionApiKey = useProvisionIntegrationApiKey(integrationId);
   const revokeApiKey = useRevokeIntegrationApiKey(integrationId);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const displayKey = revealedKey ?? provisionApiKey.data?.key_value ?? null;
+  const config = normalizeMachineEnrollConfig(enrollFields, configDraft);
   const remoteCommand = displayKey && serverUrl
     ? buildRemoteEnrollCommand({
         serverUrl,
         providerId: machineControl.provider_id,
         apiKey: displayKey,
         label: labelDraft,
+        config,
       })
     : "";
+
+  useEffect(() => {
+    setConfigDraft(buildMachineEnrollDraft(enrollFields));
+  }, [provider?.provider_id, JSON.stringify(enrollFields)]);
 
   function handleProvisionKey() {
     setRevealedKey(null);
@@ -97,11 +113,17 @@ export function MachineControlSetupSection({
     });
   }
 
+  function handleConfigChange(key: string, value: string | boolean) {
+    setConfigDraft((current) => ({ ...current, [key]: value }));
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ fontSize: 12, color: t.textDim, lineHeight: "18px" }}>
-        This provider can mint a target and hand you a ready-to-run local companion command directly from the UI.
-        Inventory stays in <a href="/admin/machines" style={{ color: t.accent, textDecoration: "none" }}>Admin &gt; Machines</a>; chat still owns leases.
+        This provider plugs into the core machine-control center. Enroll targets here or in
+        {" "}
+        <a href="/admin/machines" style={{ color: t.accent, textDecoration: "none" }}>Admin &gt; Machines</a>
+        ; chat still owns leases.
       </div>
 
       <div
@@ -135,7 +157,7 @@ export function MachineControlSetupSection({
               color: t.textDim,
             }}
           >
-            {provider.connected_target_count}/{provider.target_count} connected
+            {readyCount}/{provider.target_count} ready
           </span>
         ) : null}
         <a
@@ -156,54 +178,84 @@ export function MachineControlSetupSection({
         </a>
       </div>
 
+      {!configReady ? (
+        <div
+          style={{
+            padding: 12,
+            borderRadius: 8,
+            border: `1px solid ${t.surfaceBorder}`,
+            background: t.surfaceRaised,
+            fontSize: 12,
+            color: t.textDim,
+          }}
+        >
+          Provider setup is incomplete. Fill in the required settings above, then come back to enroll targets.
+        </div>
+      ) : null}
+
       <div
         style={{
           display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          alignItems: "center",
+          flexDirection: "column",
+          gap: 10,
           padding: 12,
           borderRadius: 8,
           border: `1px solid ${t.surfaceBorder}`,
           background: t.surfaceRaised,
         }}
       >
-        <input
-          value={labelDraft}
-          onChange={(event) => setLabelDraft(event.target.value)}
-          placeholder="Optional machine label"
-          style={{
-            minWidth: 220,
-            flex: "1 1 220px",
-            borderRadius: 6,
-            border: `1px solid ${t.inputBorder}`,
-            background: t.inputBg,
-            color: t.text,
-            padding: "8px 10px",
-            fontSize: 12,
-          }}
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: t.textDim }}>Label</span>
+          <input
+            value={labelDraft}
+            onChange={(event) => setLabelDraft(event.target.value)}
+            placeholder="Optional machine label"
+            style={{
+              minHeight: 36,
+              borderRadius: 6,
+              border: `1px solid ${t.inputBorder}`,
+              background: t.inputBg,
+              color: t.text,
+              padding: "8px 10px",
+              fontSize: 12,
+            }}
+          />
+        </label>
+        <MachineEnrollFields
+          fields={enrollFields}
+          draft={configDraft}
+          onChange={handleConfigChange}
+          disabled={enroll.isPending || !configReady}
+          t={t}
         />
-        <button
-          type="button"
-          onClick={() => enroll.mutate({ label: labelDraft || null })}
-          disabled={enroll.isPending}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 6,
-            borderRadius: 6,
-            border: `1px solid ${t.accentBorder}`,
-            background: t.accentSubtle,
-            color: t.accent,
-            padding: "8px 12px",
-            fontSize: 12,
-            fontWeight: 700,
-            opacity: enroll.isPending ? 0.7 : 1,
-          }}
-        >
-          <Monitor size={14} />
-          {enroll.isPending ? "Creating..." : "Create Launch Command"}
-        </button>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ fontSize: 11, color: t.textDim }}>
+            {enrollFields.length
+              ? "Fill in the provider-specific target details, then enroll the machine."
+              : "Enroll a new machine target for this provider."}
+          </div>
+          <button
+            type="button"
+            onClick={() => enroll.mutate({ label: labelDraft || null, config })}
+            disabled={enroll.isPending || !configReady}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              borderRadius: 6,
+              border: `1px solid ${t.accentBorder}`,
+              background: t.accentSubtle,
+              color: t.accent,
+              padding: "8px 12px",
+              fontSize: 12,
+              fontWeight: 700,
+              opacity: enroll.isPending || !configReady ? 0.7 : 1,
+            }}
+          >
+            <Monitor size={14} />
+            {enroll.isPending ? "Enrolling..." : "Enroll target"}
+          </button>
+        </div>
       </div>
 
       {launch?.example_command ? (
@@ -240,7 +292,7 @@ export function MachineControlSetupSection({
             {launch.example_command}
           </code>
           <div style={{ fontSize: 11, color: t.textDim }}>
-            Run that on the target machine. Once it connects, grant it to the session you want from chat or from the machine center.
+            Run that on the target machine to finish provider-specific setup for this enrolled target.
           </div>
         </div>
       ) : null}
@@ -261,7 +313,7 @@ export function MachineControlSetupSection({
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: t.text }}>Remote enroll helper</span>
               <span style={{ fontSize: 11, color: t.textDim }}>
-                Generate a scoped key and copy a ready curl for enrolling from another terminal or host.
+                Generate a scoped key and copy a ready curl for enrolling this provider from another terminal or host.
               </span>
             </div>
             {!apiKey.data?.provisioned && !displayKey ? (

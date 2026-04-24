@@ -14,12 +14,12 @@ from __future__ import annotations
 import uuid as uuid_mod
 from typing import Any, Iterable, Literal
 
-from fastapi import HTTPException
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import DashboardRailPin
+from app.domain.errors import ForbiddenError, ValidationError
 
 
 Scope = Literal["everyone", "me"]
@@ -27,7 +27,7 @@ Scope = Literal["everyone", "me"]
 
 def _require_admin_for_everyone(scope: Scope, is_admin: bool) -> None:
     if scope == "everyone" and not is_admin:
-        raise HTTPException(403, "Only admins can pin dashboards 'for everyone'")
+        raise ForbiddenError("Only admins can pin dashboards 'for everyone'")
 
 
 async def _get_row(
@@ -61,7 +61,7 @@ async def set_rail_pin(
 
     if scope == "me":
         if user_id is None:
-            raise HTTPException(400, "scope='me' requires an authenticated user")
+            raise ValidationError("scope='me' requires an authenticated user")
         row_user_id: uuid_mod.UUID | None = user_id
     else:
         row_user_id = None
@@ -69,7 +69,7 @@ async def set_rail_pin(
     if rail_position is not None and (
         not isinstance(rail_position, int) or rail_position < 0
     ):
-        raise HTTPException(400, "rail_position must be a non-negative integer")
+        raise ValidationError("rail_position must be a non-negative integer")
 
     existing = await _get_row(db, slug, row_user_id)
     if existing is not None:
@@ -100,7 +100,7 @@ async def unset_rail_pin(
     """Delete the matching rail row. Returns True if a row was removed."""
     _require_admin_for_everyone(scope, is_admin)
     if scope == "me" and user_id is None:
-        raise HTTPException(400, "scope='me' requires an authenticated user")
+        raise ValidationError("scope='me' requires an authenticated user")
 
     target_user = None if scope == "everyone" else user_id
     stmt = sa_delete(DashboardRailPin).where(

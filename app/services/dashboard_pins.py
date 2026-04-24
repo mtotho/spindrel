@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
+from app.domain.errors import DomainError, NotFoundError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -24,6 +24,11 @@ from app.services.native_app_widgets import (
     get_or_create_native_widget_instance,
 )
 from app.services.widget_contracts import build_pin_contract_metadata, build_public_fields_for_pin
+from app.services.widget_layout import (
+    VALID_ZONES,
+    clamp_layout_size_to_hints,
+    resolve_zone_from_layout_hints,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,58 +110,6 @@ def _default_layout_for_zone(
     return _default_grid_layout(position, channel=channel)
 
 
-def _cell_hint_value(source: object, key: str) -> int | None:
-    if not isinstance(source, dict):
-        return None
-    value = source.get(key)
-    if isinstance(value, int) and value > 0:
-        return value
-    return None
-
-
-def _resolve_zone_from_layout_hints(layout_hints: object) -> str | None:
-    if not isinstance(layout_hints, dict):
-        return None
-    preferred_zone = layout_hints.get("preferred_zone")
-    if not isinstance(preferred_zone, str):
-        return None
-    normalized = preferred_zone.strip()
-    if normalized == "chip":
-        return "header"
-    if normalized in _VALID_ZONES:
-        return normalized
-    return None
-
-
-def _clamp_layout_size_to_hints(
-    layout: dict[str, int],
-    *,
-    layout_hints: object,
-) -> dict[str, int]:
-    if not isinstance(layout_hints, dict):
-        return dict(layout)
-    width = layout.get("w", 1)
-    height = layout.get("h", 1)
-    min_cells = layout_hints.get("min_cells")
-    max_cells = layout_hints.get("max_cells")
-    min_w = _cell_hint_value(min_cells, "w")
-    min_h = _cell_hint_value(min_cells, "h")
-    max_w = _cell_hint_value(max_cells, "w")
-    max_h = _cell_hint_value(max_cells, "h")
-    if min_w is not None:
-        width = max(width, min_w)
-    if min_h is not None:
-        height = max(height, min_h)
-    if max_w is not None:
-        width = min(width, max_w)
-    if max_h is not None:
-        height = min(height, max_h)
-    next_layout = dict(layout)
-    next_layout["w"] = width
-    next_layout["h"] = height
-    return next_layout
-
-
 def _seed_layout_from_hints(
     position: int,
     *,
@@ -176,7 +129,7 @@ def _seed_layout_from_hints(
         base = dict(_HEADER_CHIP_LAYOUT)
     else:
         base = _default_layout_for_zone(position, resolved_zone, channel=channel)
-    clamped = _clamp_layout_size_to_hints(base, layout_hints=layout_hints)
+    clamped = clamp_layout_size_to_hints(base, layout_hints=layout_hints)
     return _normalize_coords_for_zone(clamped, resolved_zone, preset_name=preset_name)
 
 
@@ -306,7 +259,7 @@ async def _sync_native_pin_envelopes(
                 display_label=display_label,
                 source_bot_id=row.source_bot_id,
             )
-        except HTTPException:
+        except DomainError:
             # Spec removed/renamed between deploy versions. Leave the cached
             # envelope alone so the rest of the dashboard still renders —
             # identical failure mode to the ``instance is None`` branch above.
@@ -389,13 +342,14 @@ async def create_pin(
     dashboard_key: str = DEFAULT_DASHBOARD_KEY,
     zone: str | None = None,
     grid_layout: dict | None = None,
+    override_widget_instance: "WidgetInstance | None" = None,
 ) -> WidgetDashboardPin:
     if source_kind not in ("channel", "adhoc"):
-        raise HTTPException(400, f"Invalid source_kind: {source_kind}")
+        raise ValidationError(f"Invalid source_kind: {source_kind}")
     if not tool_name:
-        raise HTTPException(400, "tool_name is required")
+        raise ValidationError("tool_name is required")
     if not isinstance(envelope, dict) or not envelope:
-        raise HTTPException(400, "envelope must be a non-empty object")
+        raise ValidationError("envelope must be a non-empty object")
 
     # Pin identity rule: the envelope's source_bot_id is stamped from
     # current_bot_id at emission time — that's the authoritative bot. Any
@@ -417,20 +371,18 @@ async def create_pin(
     if resolved_bot_id is not None:
         bot = await db.get(Bot, resolved_bot_id)
         if bot is None:
-            raise HTTPException(400, f"Unknown source_bot_id: {resolved_bot_id!r}")
+            raise ValidationError(f"Unknown source_bot_id: {resolved_bot_id!r}")
         if envelope.get("content_type") == _HTML_INTERACTIVE_CT:
             bot_label = bot.display_name or bot.name or bot.id
             if bot.api_key_id is None:
-                raise HTTPException(
-                    400,
+                raise ValidationError(
                     f"Bot '{bot_label}' has no API permissions — interactive "
                     "widgets need an API key to mint iframe tokens. Grant "
                     f"scopes under Admin → Bots → {bot_label} → Permissions.",
                 )
             api_key = await db.get(ApiKey, bot.api_key_id)
             if api_key is None or not api_key.is_active:
-                raise HTTPException(
-                    400,
+                raise ValidationError(
                     f"Bot '{bot_label}' has an inactive API key — interactive "
                     "widgets need one to mint iframe tokens. Re-enable under "
                     f"Admin → Bots → {bot_label} → Permissions.",
@@ -452,8 +404,7 @@ async def create_pin(
     is_channel = is_channel_slug(dashboard_key)
     if is_channel:
         if source_channel_id is None:
-            raise HTTPException(
-                400,
+            raise ValidationError(
                 "source_channel_id is required when pinning to a channel dashboard",
             )
         await ensure_channel_dashboard(db, source_channel_id)
@@ -462,20 +413,26 @@ async def create_pin(
 
     position = await _next_position(db, dashboard_key=dashboard_key)
     widget_config = _seed_widget_config(tool_name, envelope, widget_config)
-    if zone is not None and zone not in _VALID_ZONES:
-        raise HTTPException(400, f"Invalid zone: {zone}")
+    if zone is not None and zone not in VALID_ZONES:
+        raise ValidationError(f"Invalid zone: {zone}")
     widget_instance_id: uuid.UUID | None = None
     if envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
         widget_ref = extract_native_widget_ref_from_envelope(envelope)
         if not widget_ref:
-            raise HTTPException(400, "native widget envelope is missing widget_ref")
-        instance = await get_or_create_native_widget_instance(
-            db,
-            widget_ref=widget_ref,
-            dashboard_key=dashboard_key,
-            source_channel_id=source_channel_id,
-            config=widget_config or {},
-        )
+            raise ValidationError("native widget envelope is missing widget_ref")
+        if override_widget_instance is not None:
+            # Caller already created a WidgetInstance (e.g. Standing Orders,
+            # which need multiple instances per channel with unique scope_ref).
+            # Skip the singleton get-or-create path and use the supplied one.
+            instance = override_widget_instance
+        else:
+            instance = await get_or_create_native_widget_instance(
+                db,
+                widget_ref=widget_ref,
+                dashboard_key=dashboard_key,
+                source_channel_id=source_channel_id,
+                config=widget_config or {},
+            )
         widget_instance_id = instance.id
         envelope = build_envelope_for_native_instance(
             instance,
@@ -495,9 +452,9 @@ async def create_pin(
         if isinstance(widget_presentation, dict)
         else None
     )
-    resolved_zone = zone or _resolve_zone_from_layout_hints(layout_hints) or "grid"
-    if resolved_zone not in _VALID_ZONES:
-        raise HTTPException(400, f"Invalid zone: {resolved_zone}")
+    resolved_zone = zone or resolve_zone_from_layout_hints(layout_hints) or "grid"
+    if resolved_zone not in VALID_ZONES:
+        raise ValidationError(f"Invalid zone: {resolved_zone}")
     pin = WidgetDashboardPin(
         dashboard_key=dashboard_key,
         position=position,
@@ -586,13 +543,12 @@ async def create_suite_pins(
 
     suite = load_suite(suite_id)
     if suite is None:
-        raise HTTPException(404, f"Unknown suite: {suite_id!r}")
+        raise NotFoundError(f"Unknown suite: {suite_id!r}")
 
     requested = member_slugs or suite.members
     for m in requested:
         if m not in suite.members:
-            raise HTTPException(
-                400,
+            raise ValidationError(
                 f"{m!r} is not a member of suite {suite_id!r}",
             )
 
@@ -659,7 +615,7 @@ async def get_pin(
         select(WidgetDashboardPin).where(WidgetDashboardPin.id == pin_id)
     )).scalar_one_or_none()
     if pin is None:
-        raise HTTPException(404, "Dashboard pin not found")
+        raise NotFoundError("Dashboard pin not found")
     if _refresh_pin_contract_metadata(pin):
         await db.commit()
         await db.refresh(pin)
@@ -678,9 +634,9 @@ async def check_pin_db_content(pin: WidgetDashboardPin) -> dict | None:
         from app.services.widget_db import has_content, resolve_db_path
         manifest = None
         try:
-            from app.services.widget_py import _resolve_bundle_dir
+            from app.services.widget_py import resolve_bundle_dir
             from app.services.widget_manifest import parse_manifest
-            bundle_dir = _resolve_bundle_dir(pin)
+            bundle_dir = resolve_bundle_dir(pin)
             yaml_path = bundle_dir / "widget.yaml"
             if yaml_path.is_file():
                 manifest = parse_manifest(yaml_path)
@@ -868,7 +824,7 @@ async def update_pin_scope(
             select(Bot).where(Bot.id == source_bot_id)
         )).scalar_one_or_none()
         if bot_row is None:
-            raise HTTPException(404, f"bot not found: {source_bot_id!r}")
+            raise NotFoundError(f"bot not found: {source_bot_id!r}")
 
     pin.source_bot_id = source_bot_id
     envelope = dict(pin.envelope or {})
@@ -884,8 +840,6 @@ async def update_pin_scope(
     await db.refresh(pin)
     return serialize_pin(pin)
 
-
-_VALID_ZONES = {"rail", "header", "dock", "grid"}
 
 def _normalize_coords_for_zone(
     coords: dict[str, int],
@@ -921,20 +875,20 @@ def _validate_layout_item(
     item: Any,
 ) -> tuple[uuid.UUID, dict[str, int], str | None]:
     if not isinstance(item, dict):
-        raise HTTPException(400, "layout item must be an object")
+        raise ValidationError("layout item must be an object")
     raw_id = item.get("id")
     if not raw_id:
-        raise HTTPException(400, "layout item missing 'id'")
+        raise ValidationError("layout item missing 'id'")
     try:
         pin_id = uuid.UUID(str(raw_id))
     except ValueError as exc:
-        raise HTTPException(400, f"Invalid pin id: {raw_id}") from exc
+        raise ValidationError(f"Invalid pin id: {raw_id}") from exc
     coords: dict[str, int] = {}
     for key in _VALID_LAYOUT_KEYS:
         value = item.get(key)
         if not isinstance(value, int) or value < 0:
-            raise HTTPException(
-                400, f"layout item '{key}' must be a non-negative integer",
+            raise ValidationError(
+                f"layout item '{key}' must be a non-negative integer",
             )
         coords[key] = value
     # Zone is optional — same-canvas reorders can omit it. When present it
@@ -943,9 +897,9 @@ def _validate_layout_item(
     zone: str | None = None
     if "zone" in item and item["zone"] is not None:
         zone = str(item["zone"])
-        if zone not in _VALID_ZONES:
-            raise HTTPException(
-                400, f"layout item 'zone' must be one of {sorted(_VALID_ZONES)}",
+        if zone not in VALID_ZONES:
+            raise ValidationError(
+                f"layout item 'zone' must be one of {sorted(VALID_ZONES)}",
             )
     return pin_id, coords, zone
 
@@ -963,7 +917,7 @@ async def _set_dashboard_layout_mode(
         select(WidgetDashboard).where(WidgetDashboard.slug == dashboard_key)
     )).scalar_one_or_none()
     if row is None:
-        raise HTTPException(404, f"Dashboard not found: {dashboard_key}")
+        raise NotFoundError(f"Dashboard not found: {dashboard_key}")
     cfg = copy.deepcopy(row.grid_config or {})
     if mode is None:
         cfg.pop("layout_mode", None)
@@ -1047,7 +1001,7 @@ async def apply_layout_bulk(
     with 400 so we never commit a partial layout.
     """
     if not isinstance(items, list):
-        raise HTTPException(400, "items must be a list")
+        raise ValidationError("items must be a list")
     parsed = [_validate_layout_item(it) for it in items]
     if not parsed:
         return {"ok": True, "updated": 0}
@@ -1070,7 +1024,7 @@ async def apply_layout_bulk(
     by_id = {row.id: row for row in rows}
     missing = [str(pid) for pid in pin_ids if pid not in by_id]
     if missing:
-        raise HTTPException(400, f"Unknown pin ids: {missing}")
+        raise ValidationError(f"Unknown pin ids: {missing}")
 
     for pin_id, coords, zone in parsed:
         row = by_id[pin_id]

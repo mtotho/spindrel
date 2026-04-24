@@ -170,3 +170,40 @@ class TestReadSubSession:
     ):
         out = await read_sub_session("not-a-uuid")
         assert "Invalid session_id" in out
+
+
+class TestListSubSessionsMultiChannel:
+    """channel_ids=[...] loops the single-channel path and concatenates
+    per-channel markdown — one iteration for the hygiene per-channel
+    sweep instead of N."""
+
+    @pytest.mark.asyncio
+    async def test_whitespace_only_channel_ids_rejected(self):
+        out = await list_sub_sessions(channel_ids=[" ", "", None])  # type: ignore[list-item]
+        assert "empty" in out.lower()
+
+    @pytest.mark.asyncio
+    async def test_too_many_channels_rejected(self):
+        out = await list_sub_sessions(
+            channel_ids=[str(uuid.uuid4()) for _ in range(11)],
+        )
+        assert "too large" in out
+
+    @pytest.mark.asyncio
+    async def test_fanout_returns_per_channel_sections(
+        self, db_session, patched_async_sessions,
+    ):
+        # Two channels, neither seeded → each gets the "No sub-sessions" line.
+        ids = [uuid.uuid4(), uuid.uuid4()]
+        for cid in ids:
+            ch = Channel(id=cid, client_id=f"web-{cid}", bot_id="bot", name=f"c-{cid}")
+            db_session.add(ch)
+        await db_session.commit()
+
+        out = await list_sub_sessions(channel_ids=[str(c) for c in ids])
+
+        for cid in ids:
+            assert f"### Channel {cid}" in out
+        # Each per-channel body is its own section — verify we got two,
+        # not a single concatenated block.
+        assert out.count("### Channel ") == 2

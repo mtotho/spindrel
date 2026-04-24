@@ -1,10 +1,11 @@
 ---
 tags: [agent-server, track, ui, vision]
 status: active
-updated: 2026-04-23
+updated: 2026-04-24
 ---
 
-<!-- Latest pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->
+<!-- Latest pass (2026-04-24): Guide reset + Channel/Agent integration proof pass. See UI Polish Pass 4b. -->
+<!-- Previous pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->
 <!-- Previous pass (2026-04-23): Pass 3 — channel dashboard + settings migration + two-gear unification. -->
 
 
@@ -24,14 +25,14 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Area | Status | Notes |
 |---|---|---|
 | Canonical spec doc | ✅ shipped 2026-04-23 | `agent-server/docs/guides/ui-design.md`, linked from mkdocs Guides nav |
-| Two-archetype framing (command / content) | ✅ documented | Chat composer + mini chat + Dev Panel = command; settings/admin/dashboards/prose = content |
+| Surface taxonomy | ✅ reset 2026-04-24 | Command, app-shell/content, and control surfaces. Existing sidebar/rail/channel header/terminal mini-chat are reference surfaces; settings/admin controls get stricter chrome-budget rules plus UX-flow checks for mixed current/available catalogs. |
 | Token system spec | ✅ documented | `bg-surface*`, `border-surface-border`, `text-text*`, `bg-accent*`, semantic color set all named |
 | Active-row pill canonicalized | ✅ documented | `.sidebar-item-active` in `ui/global.css:11-13` is the one canonical active-state signal |
 | Radius scale | ✅ documented | 0 / 2 / 4 / 6 / 10 / full — command surfaces go square, content surfaces default to 6px |
 | Dark + light parity rules | ✅ documented | No mode branching in JSX; verify both before claiming done |
 | Known-debt appendix | ✅ documented | Inline hex, Bootstrap-blue task states, `useThemeTokens()` callers — all listed with file:line |
 | Cross-references in feedback memories | ✅ 2026-04-23 | `feedback_no_gratuitous_borders`, `feedback_no_left_colored_borders`, `feedback_tailwind_not_inline`, `feedback_widgets_use_app_theme` all point at the doc |
-| `spindrel-ui` skill | ✅ shipped 2026-04-23 | Project-level at `agent-server/.claude/skills/spindrel-ui/SKILL.md` — full rules inline, reverse-extracted from the doc |
+| `spindrel-ui` skill | ✅ corrected 2026-04-24 | Project-level at `agent-server/.claude/skills/spindrel-ui/SKILL.md`; gradient/shadow "signature moves" removed so it now follows the canonical guide instead of extending it. |
 | Channel dashboard breadcrumb | ✅ migrated 2026-04-23 | `ChannelDashboardBreadcrumb.tsx` — left gear removed; scratch chip moved to Tailwind tokens; no `useThemeTokens()` |
 | Channel settings header + tab strip | ✅ migrated 2026-04-23 | `settings.tsx:271-438` — dropped `border-b` between header and tabs (SKILL §6), dropped blur, underline via `after:` pseudo; no `useThemeTokens()` |
 | Channel tab first-landing sections | ✅ migrated 2026-04-23 | `ChannelSettingsSections.tsx` — TagEditor, category chip, owner row, metadata footer, DangerZone all on Tailwind tokens; `DashboardSettingsLink` and `PresentationTabSections` migrated; no `useThemeTokens()` in this file |
@@ -39,18 +40,19 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Debt migration (hex → token, Bootstrap-blue → accent) | ⏳ deferred | Tracked in doc §8; migrate opportunistically when touching each file |
 | Agent tab supplement (`ToolsOverrideTab`) | ✅ migrated 2026-04-23 (Pass 4a) | SectionLabel on canonical `uppercase text-[10px] tracking-[0.08em] text-text-dim/70`; ToolChip/SkillChip on SKILL §4 badges; search + addable-skill rows on `bg-input` + `bg-surface-raised hover:bg-surface-overlay/60`; 0 `useThemeTokens()` |
 | Channel tab supplement (`ParticipantsTab`) | ✅ migrated 2026-04-23 (Pass 4a) | All inline `style={{}}` removed; member badges on `rounded-full bg-surface-overlay text-text-dim` uppercase chip; `BotPicker` lost shadow per SKILL §3; shared `INPUT_CLASS` for number/textarea inputs; 0 `useThemeTokens()` |
-| `IntegrationsTab` wrapper | ✅ clean 2026-04-23 (Pass 4a) | 5-line re-export already token-free; real chrome lives in `integrations/BindingsSection.tsx` (deferred) |
-| Deeper settings tab panels | ⏳ deferred | **Pass 4b candidates**: HeartbeatTab (+ HeartbeatHistoryList, HeartbeatContextPreview), PipelinesTab (+ PipelineRunLive/PreRun), TasksTab, HistoryTab, QuietHoursPicker. **Pass 4c**: ContextTab (dirtiest — 10 inline hex). **Pass 4d (own plan)**: ChannelWorkspaceTab, AttachmentsTab, ChannelFileBrowser/Viewer/ExplorerParts. **Not in settings**: `integrations/BindingsSection.tsx` (still on `useThemeTokens()`). |
+| Integration control proof path | ✅ migrated 2026-04-24 (Pass 4b) | `ActivationsSection`, `ActivationCard`, `ActivationConfigFields`, `BindingsSection`, `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker` now use token/Tailwind control-surface chrome; activation add-ons split Added vs Available with a quiet filter; no `useThemeTokens()` in the integration settings flow. |
+| `IntegrationsTab` wrapper | ✅ clean 2026-04-23 (Pass 4a) | 5-line re-export already token-free. |
+| Channel Tasks tab | ✅ migrated 2026-04-24 (Pass 4c start) | `TasksTab`, `TaskCardRow`, `TaskConstants`, and `Spinner` now use grouped control flow, quiet segmented filters, borderless tonal rows, semantic token badges, and no `useThemeTokens()` in the visible task list path. |
+| Deeper settings tab panels | ⏳ deferred | **Pass 4c remaining candidates**: HeartbeatTab (+ HeartbeatHistoryList, HeartbeatContextPreview), PipelinesTab (+ PipelineRunLive/PreRun), HistoryTab, QuietHoursPicker. **Pass 4d**: ContextTab (dirtiest — 10 inline hex). **Pass 4e (own plan)**: ChannelWorkspaceTab, AttachmentsTab, ChannelFileBrowser/Viewer/ExplorerParts. |
 
 ## Adoption guardrails
 
-- **New code**: every UI change must pass the doc's checks (§5 parity + §7 a11y floor). No new inline hex. No new Bootstrap-blue. No new colored-left-stripe hover states.
+- **New code**: every UI change must pass the doc's checks (§5 parity + §7 a11y floor). No new inline hex. No new Bootstrap-blue. No filled accent buttons for routine settings rows. No new colored-left-stripe hover states. No decorative gradients or shadow stacks on settings/admin/control surfaces.
 - **Touched code**: when a file in the §8 debt list is modified for any reason, migrate its debt in the same commit.
 - **Reviews**: the Anti-patterns table (§6) is the review checklist.
 
 ## Near-term debt migration targets (in §8 of the doc)
 
-- `ui/src/components/shared/TaskConstants.tsx:1-4` — Bootstrap-blue task status → `bg-accent/10 text-accent`.
 - `ui/src/components/shared/TaskStepEditor.tsx` — running step chrome + `animate-pulse` → token pair + dot.
 - `ui/src/components/chat/ToolsInContextPanel.tsx:38-40` — `rgba(...)` status backgrounds → `bg-purple/10` / `bg-success/10` / `bg-accent/10`.
 - `ui/src/components/layout/SystemPauseBanner.tsx`, `ApprovalToast.tsx`, `MemoryHygieneGroupBanner.tsx`, `DelegationCard.tsx`, `IndexStatusBadge.tsx` — inline-hex icon colors → `text-*` tokens.
@@ -60,9 +62,12 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 ## Key invariants
 
 - **There is one token system.** If a color does not have a token, it does not exist.
-- **There are two archetypes, not more.** Command surfaces (monospace, square chrome) and content surfaces (sans, soft-rounded). Archetype is a font-and-density choice, not a theme choice.
+- **There are three archetypes.** Command surfaces (monospace, square chrome), app-shell/content surfaces (low-chrome navigation/header/content), and control surfaces (settings/admin/config forms with a strict chrome budget). Archetype is a font-and-density choice, not a theme choice.
 - **Archetype is scoped.** The terminal vibe lives on the chat screen (and its dock / command surfaces). It is not the site-wide style.
+- **Preserve the good header.** The existing channel header is a reference surface for the target low-chrome direction, not a redesign target.
 - **Active-row signal is the pill in `ui/global.css:11-13`.** Do not invent alternatives.
+- **Routine control actions are inline/ghost.** Filled accent buttons are reserved for rare final confirmation moments, not `Add`/`Edit`/`Run` rows.
+- **Flow beats row paint.** Mixed current/available catalogs must be grouped and searchable before row styling is considered complete.
 - **Dark and light are co-equal.** Neither is an afterthought.
 
 ## See Also

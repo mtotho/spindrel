@@ -133,6 +133,7 @@ export function buildPaletteItems(input: PaletteCatalogInput): PaletteItem[] {
       href: `/channels/${channel.id}/settings`,
       icon: Settings,
       category: "Channels",
+      hideFromBrowse: true,
     });
     pushUnique(items, {
       id: `channel-dashboard-${channel.id}`,

@@ -1,6 +1,5 @@
 import { RefreshCw, FileText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { formatTime } from "@/src/utils/time";
 import {
   type TaskItem, STATUS_CFG, displayTitle,
@@ -19,7 +18,6 @@ export function TaskCardRow({
   task, onClick, isPast = false,
   showBotDot = true, showBotName = true,
 }: TaskCardRowProps) {
-  const t = useThemeTokens();
   const navigate = useNavigate();
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
@@ -28,57 +26,57 @@ export function TaskCardRow({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent; }}
-      onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceRaised; }}
-      style={{
-        padding: "10px 14px", background: t.inputBg, borderRadius: 8,
-        border: `1px solid ${t.surfaceRaised}`, cursor: "pointer", marginBottom: 2,
-        opacity: isCancelled ? 0.35 : isPast ? 0.6 : 1,
-        transition: "border-color 0.15s",
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
       }}
+      className={
+        `w-full rounded-md bg-surface-raised/40 px-3 py-2.5 text-left transition-colors ` +
+        `cursor-pointer ` +
+        `hover:bg-surface-overlay/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 ` +
+        (isCancelled ? "opacity-35 " : isPast ? "opacity-60 " : "")
+      }
     >
       {/* Main row */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <Icon size={14} color={s.fg} style={{ flexShrink: 0 }} />
+      <div className="flex min-w-0 flex-row items-center gap-2.5">
+        <Icon size={14} className={`shrink-0 ${s.iconClass}`} />
         {showBotDot && <BotDot botId={task.bot_id} />}
-        <span style={{
-          fontSize: 13, fontWeight: 600,
-          color: isCancelled ? t.textDim : t.text,
-          textDecoration: isCancelled ? "line-through" : "none",
-          flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
+        <span
+          className={
+            `min-w-0 flex-1 truncate text-[13px] font-semibold ` +
+            (isCancelled ? "text-text-dim line-through" : "text-text")
+          }
+        >
           {displayTitle(task)}
         </span>
         <TaskStatusBadge status={task.status} />
         {showBotName && (
-          <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{task.bot_id}</span>
+          <span className="shrink-0 text-[10px] text-text-dim">{task.bot_id}</span>
         )}
         {task.task_type && <TypeBadge type={task.task_type} />}
         {task.workflow_run_id && (
-          <span style={{
-            display: "inline-block", fontFamily: "monospace",
-            background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-            color: t.textDim, padding: "1px 5px", borderRadius: 3,
-            fontSize: 9, flexShrink: 0,
-          }}>
+          <span className="inline-block shrink-0 rounded-sm bg-surface-overlay px-1.5 py-px font-mono text-[9px] text-text-dim">
             run:{task.workflow_run_id.slice(0, 6)}
           </span>
         )}
         {task.recurrence && (
-          <span style={{
-            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-            background: isCancelled ? t.surfaceRaised : t.warningSubtle,
-            color: isCancelled ? t.textDim : t.warning,
-            padding: "1px 7px", borderRadius: 10, fontSize: 10, fontWeight: 700,
-            flexShrink: 0,
-          }}>
-            <RefreshCw size={9} color={isCancelled ? t.textDim : t.warning} />
+          <span
+            className={
+              `inline-flex shrink-0 flex-row items-center gap-1 rounded-full px-2 py-px text-[10px] font-semibold ` +
+              (isCancelled ? "bg-surface-overlay text-text-dim" : "bg-warning/10 text-warning-muted")
+            }
+          >
+            <RefreshCw size={9} />
             {task.recurrence}
           </span>
         )}
         {task.run_count != null && task.run_count > 0 && task.is_schedule && (
-          <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{task.run_count} runs</span>
+          <span className="shrink-0 text-[10px] text-text-dim">{task.run_count} runs</span>
         )}
         {task.correlation_id && (
           <button
@@ -87,28 +85,18 @@ export function TaskCardRow({
               navigate(`/admin/logs/${task.correlation_id}`);
             }}
             title="View trace"
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", padding: "2px 6px",
-              background: "transparent", border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 4, cursor: "pointer", flexShrink: 0,
-              color: t.textMuted,
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.accent; e.currentTarget.style.color = t.accent; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.surfaceBorder; e.currentTarget.style.color = t.textMuted; }}
+            className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
           >
             <FileText size={11} />
           </button>
         )}
-        <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
+        <span className="shrink-0 text-[11px] text-text-dim">
           {time ? formatTime(time) : "\u2014"}
         </span>
       </div>
       {/* Error preview — separate line so it doesn't fight the badges */}
       {task.error && (
-        <div style={{
-          fontSize: 10, color: t.danger, marginTop: 4,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>
+        <div className="mt-1 truncate text-[10px] text-danger">
           {task.error.substring(0, 120)}
         </div>
       )}

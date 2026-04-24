@@ -107,6 +107,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 
 | Guide | Description |
 |-------|-------------|
+| [Development Process](guides/development-process.md) | Public process for triaging findings, writing Agent Briefs, designing contracts, and recording out-of-scope decisions. |
 | [How Spindrel Works](guides/how-spindrel-works.md) | The mental model — channels, skills, tools, workspaces, integrations, and how they compose. |
 | [Setup Guide](setup.md) | Installation, providers, workspaces, integrations, troubleshooting. |
 | [Feature Status](guides/feature-status.md) | High-level product-feature snapshot: what is working, partial, advanced, experimental, or deprecated. |

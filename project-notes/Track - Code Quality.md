@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-23 (Cluster 1 all 6 commits shipped — indexing abstraction-leak closed)
+updated: 2026-04-24 (Cluster 4 shipped — event-bus + widget boundary + theme-token drift guarded)
 ---
 # Track — Code Quality & Refactoring
 
@@ -18,7 +18,12 @@ Audit lens: Ousterhout's "deep module" heuristic (lots of functionality behind a
 
 2. **Dashboard surface + source-of-truth drift** — `app/routers/api_v1_dashboard.py` (~1,742 LOC, 40+ endpoints on `/widgets` prefix) is fake-deep: 40+ endpoints whose concerns don't share hidden state. Coupled services: `dashboard_pins`, `widget_themes`, `widget_contracts`, `widget_context`, `widget_manifest`, `widget_templates`, `native_app_widgets`, `html_widget_scanner`, `grid_presets`. **Deeper issue**: source-of-truth drift — `GRID_PRESETS` logic appears in more than one place. Router split without unifying preset/theme truth would miss the Ousterhout point. Deepening direction, two-part sequenced: (a) unify preset source of truth across backend + frontend, then (b) split into four-to-five thematic sub-routers paired with their service modules (pattern: `app/routers/api_v1_admin/`).
 
-3. **Boundary-bypass smell — PROMOTED (2026-04-23 scan)** — services / agent / tools raising HTTP-layer errors from non-HTTP contexts. Scan found **118 `raise HTTPException` sites** across 14+ non-router modules. Includes `app/services/machine_control.py` taking `request: Request` as a function parameter — the wrapper receives HTTP objects directly, not just raises HTTP errors. Callers: routers, tasks, background workers, tools. Consumers end up catching or swallowing errors the wrapper wasn't designed to surface correctly. Depth direction: introduce a domain-exception layer (e.g., `DomainError` subclasses in `app/domain/`); HTTP-adapter layer at the router boundary converts to `HTTPException`. Services stop importing from `fastapi`. This is the largest of the three clusters in surface area but can be migrated incrementally.
+3. **Boundary-bypass smell — ✅ shipped 2026-04-23 (Cluster 3)** — 118 `raise HTTPException` sites across 10 non-router modules migrated to a `DomainError` hierarchy in `app/domain/errors.py`. Plus `app/services/machine_control.py`'s `request: Request` parameter — the one non-raise HTTP leak — converted to a `server_base_url: str` primitive extracted at the router. `from fastapi` removed from all of `app/services/`, `app/agent/`, `app/tools/` (sole allowlist: `endpoint_catalog.py`, which introspects FastAPI routes). A drift test (`tests/unit/test_fastapi_boundary_drift.py`) AST-parses the three directories and fails any reintroduction. The router-boundary adapter is a single exception handler registered via `install_domain_error_handler(app)` — reused by `app/main.py` and the integration test app fixture so both environments produce the same `{"detail": ...}` wire shape. See RFC below.
+
+4. **Cross-surface drift — ✅ shipped 2026-04-24 (Cluster 4)** — three drift classes across widget / chat-streaming / theme surfaces.
+   - **4A (event bus)** — 27-value `ChannelEventKind` enum with no UI-side consumer for `CONTEXT_BUDGET` (store slot was dead); wired + drift test pins every kind to a case or an explicit-justification allowlist (`tests/unit/test_channel_event_contract_drift.py`).
+   - **4B (widget boundary)** — 7 private helpers (`_substitute`, `_substitute_string`, `_apply_code_transform`, `_build_html_widget_body`, `_resolve_html_template_paths`, `_resolve_bundle_dir`, `_validate_parsed_definition`) imported across widget_*.py siblings; promoted to public re-exports, callers migrated (inside + outside widget_*.py), AST drift test (`tests/unit/test_widget_private_import_drift.py`) blocks reintroduction. Layout semantics extracted into new `app/services/widget_layout.py` (single home for `VALID_ZONES`, zone-from-hints resolution, size clamp, normalize_layout_hints) — previously split between `widget_contracts.py` and `dashboard_pins.py`. `_refresh_pin_contract_metadata` (5 JSONB `flag_modified` calls, 0 tests) now has 7 invariant tests (`tests/unit/test_refresh_pin_contract_metadata.py`).
+   - **4C (theme tokens)** — ~35 semantic tokens duplicated across `ui/src/theme/tokens.ts`, `app/services/widget_themes.py`, `ui/global.css`, `ui/src/components/chat/renderers/widgetTheme.ts`. No codegen generator (scope creep); instead a cross-layer drift test (`tests/unit/test_theme_token_drift.py`) pins hex equality between `tokens.ts` and `widget_themes.py` (all shared keys, LIGHT + DARK) and pins global.css RGB triplets to tokens.ts hex. A 6-key LIGHT drift allowlist captures existing `:root`-vs-`tokens.ts` divergence (text-dim, success, warning, danger, purple, danger-muted) with inverse pin to prevent stale allowlist entries. Inline-hex ratchet (`tests/unit/test_ui_inline_hex_ratchet.py`) freezes the 684-occurrence baseline across `ui/src` + `ui/app` `.ts`/`.tsx` (excluding 3 canonical palette files).
 
 ### Deep modules to preserve (emulation targets, do not split reflexively)
 
@@ -60,7 +65,7 @@ Several have god functions inside (separate from depth — see existing table be
 ### Housekeeping deferred (not free cleanup)
 
 - ❌ **`app/services/workflow_hooks.py` — deferred**. Looked like dead weight at first glance (24 LOC registering a no-op hook). But `tests/unit/test_workflow_advancement.py:127-136` treats the no-op as a **defensive regression test** — it verifies the hook system does *not* double-fire workflow step completion (since `_fire_task_complete` now advances workflow state directly). Deletion is only safe once it's confirmed that the hook-system's `after_task_complete` firing path is unused or that double-fire is otherwise impossible. Needs its own investigation session.
-- `app/services/grid_presets.py` — moved into Cluster 2 depth queue. Question isn't "is the file used," it's "where does preset truth live, and is there more than one copy?"
+- ~~`app/services/grid_presets.py`~~ — ✅ deleted as Cluster 2 Commit A1 (2026-04-23). Was an orphan (0 importers); real backend preset source of truth lives in `app/services/dashboards.py`.
 
 ### Verify-first small files (Ousterhout uncertain)
 
@@ -197,6 +202,77 @@ Behavior-preserving = `pytest tests/unit/test_workspace_indexing.py tests/unit/t
 - **Periodic re-index in `fs_watcher.py:321`** uses `force=False` — commit 3 must preserve that explicit flag.
 
 **All 6 commits shipped 2026-04-23.** Indexing abstraction-leak closed: 18 caller sites across 10 files now route through `bot_indexing.resolve_for` / `reindex_bot` / `iter_watch_targets` / `reindex_channel`. Net LOC delta: ~200 lines removed from caller sites; new `bot_indexing.py` is ~300 LOC carrying all prior semantics behind a 4-function public surface. Legacy flavor modules retained as one-liner delegators for external-caller / test-patch stability.
+
+### RFC — Cluster 2 — `/widgets` router split + preset source-of-truth drift (2026-04-23)
+
+Plan: `~/.claude/plans/nifty-hatching-book.md` (overwritten from Cluster 1 plan). User decisions during planning: **keep backend/frontend GRID_PRESETS dual + add drift test** (not server-authored, not codegen); **split `/widgets` into 4 sub-routers** (not 6, not 3).
+
+**Part A — Preset source-of-truth (2 commits):**
+
+- ✅ **A1** — Deleted `app/services/grid_presets.py` (37 LOC orphan with 0 importers). Updated `migrations/versions/226_widget_pin_zone.py` comment to reference `app/services/dashboards.py` as the real backend owner.
+- ✅ **A2** — Added `tests/unit/test_grid_preset_drift.py` (4 tests). Parses `app/services/dashboards.py::GRID_PRESETS` (Python dict literal) and `ui/src/lib/dashboardGrid.ts::GRID_PRESETS` (TS object literal, narrow regex) and pins the 4 numeric invariants across layers: preset ids match, `cols_lg == cols.lg`, `row_height == rowHeight`, `DEFAULT_PRESET == DEFAULT_PRESET_ID`. Skips (not fails) when `ui/` is absent (Docker test image). Since no API exposes presets to the frontend, they were drifting by omission — this catches the next edit that forgets to update both sides.
+
+**Part B — `/widgets` router split (5 commits):**
+
+- ✅ **B1** — Scaffolded `app/routers/api_v1_widgets/` package. `__init__.py` exposes `router = APIRouter(prefix="/widgets", tags=["widget-dashboard"])` aggregating sub-routers. `_common.py` holds the shared `auth_identity` helper. Legacy `api_v1_dashboard.py` mounted via `include_router` during transition. `app/routers/api_v1.py` import flipped to the new package. Smoke: 40 `/widgets/*` routes preserved.
+- ✅ **B2** — Extracted `api_v1_widgets/library.py` (~690 LOC). Read-only content surface: `/html-widget-catalog`, `/themes` (+ `/themes/resolve`), `/html-widget-content/*` (builtin/integration/library), `/library-widgets` (+ `/all-bots` dev-panel variant), `/widget-manifest`. Carries helpers `_scanner_entry_to_library` + `_serve_widget_file` (library is the sole user). Also moved the `WidgetThemeResolveOut` Pydantic model since only the themes endpoint uses it. Prefix moved from legacy to package in one step.
+- ✅ **B3** — Extracted `api_v1_widgets/dashboards.py` (~260 LOC). CRUD + rails + redirect + channel-pins: `list_all_dashboards`, `get_redirect_target`, `list_channel_dashboard_pins`, `get_single_dashboard`, `create_new_dashboard`, `patch_dashboard`, `put_rail_pin`, `delete_rail_pin`, `remove_dashboard`. Uses `auth_identity` from `_common`. `list_recent_widget_calls` deferred to B5 (theme, not file-position).
+- ✅ **B4** — Extracted `api_v1_widgets/pins.py` (~330 LOC). All pin CRUD + layout + panel promotion + db-status + refresh: 11 endpoints. `refresh` preserves the lazy import of `app.routers.api_v1_widget_actions` verbatim to avoid a module-level cycle.
+- ✅ **B5** — Extracted `api_v1_widgets/presets.py` (~470 LOC) and **deleted legacy `app/routers/api_v1_dashboard.py`**. Presets + suites + recent-calls + preview-for-tool: 11 endpoints including the preset catalog/binding-options/preview/pin flow, suites, and the recent-call widget render. Legacy module gone; package is the sole mount point.
+
+**Verification summary:**
+- Final route count: 40 `/widgets/*` routes, identical paths + HTTP methods to pre-refactor baseline.
+- `python -c "from app.main import app"` — clean import.
+- `pytest tests/unit/test_dashboards_service.py tests/unit/test_dashboard_pin_drift.py tests/unit/test_dashboard_cascade_drift.py tests/unit/test_apply_layout_drift.py tests/unit/test_grid_preset_drift.py` — 57 pass.
+- `pytest tests/integration/test_dashboard_pins.py tests/integration/test_dashboard_tools.py` — 41 pass, 6 pre-existing failures confirmed on clean `HEAD` (unrelated to refactor: 3 `pin_widget` tool tests + 2 `TestChannelHeaderSlot` + 1 `test_move_to_header_normalizes_h_to_1`).
+- `cd ui && ./node_modules/.bin/tsc --noEmit` — clean (0 errors).
+
+**LOC delta:**
+- Deleted: `api_v1_dashboard.py` (1742 LOC) + `grid_presets.py` (37 LOC) = 1779 LOC.
+- Added: 5-file package `api_v1_widgets/` (~1802 LOC) + drift test (~120 LOC) ≈ 1920 LOC.
+- Net: +141 LOC for the per-theme docstrings + drift test guard. Structural win is split-by-theme + cross-layer pin on preset drift.
+
+**Closed 2026-04-23.** Cluster 2 complete. Frontend and backend preset tables remain independent (by choice) but now fail-loud on drift. Router surface is 4 focused sub-routers matching `api_v1_admin/` pattern. `dashboard_pins.py` (1087 LOC) internal restructure still open under the god-function list below — separate work.
+
+### RFC — Cluster 3 — Boundary-bypass: services stop importing from fastapi (2026-04-23)
+
+**Shape:** domain-exception hierarchy at `app/domain/errors.py`; router boundary registers a single handler that converts `DomainError` → `{"detail": ...}` JSON. Services/agent/tools no longer `raise HTTPException` or take `Request` parameters.
+
+**Commit plan (12 logical steps, all shipped 2026-04-23):**
+
+- ✅ **C1** — Added `app/domain/errors.py` with base `DomainError` + five subclasses: `NotFoundError` (404), `ValidationError` (400), `UnprocessableError` (422), `ConflictError` (409), `ForbiddenError` (403), `InternalError` (500). `detail` accepts string or dict to preserve `HTTPException(detail={"error": ..., "message": ...})` callsites verbatim. Added `install_domain_error_handler(app)` so both `app/main.py` and the integration test fixture register the same converter. 8-test pin of the mapping in `tests/unit/test_domain_errors.py`.
+- ✅ **C2** — `app/agent/bots.py` (1 site): `get_bot` now raises `NotFoundError`.
+- ✅ **C3** — `app/services/dashboard_rail.py` (4 sites): 3× `ValidationError`, 1× `ForbiddenError`.
+- ✅ **C4** — `app/services/plan_semantic_review.py` (5 sites): 2× `NotFoundError`, 3× `ConflictError`.
+- ✅ **C5** — `app/services/pinned_panels.py` + `app/services/tool_execution.py` (12 sites combined): tool_execution preserves the dict-shaped `ForbiddenError({"error": "local_control_required", ...})` by widening `DomainError.detail` to `Any`.
+- ✅ **C6** — `app/services/widget_presets.py` (8 sites). `except HTTPException` in `list_binding_options` swept-up retargeted to `except DomainError` so per-source error isolation still works.
+- ✅ **C7** — `app/services/dashboards.py` (15 sites).
+- ✅ **C8** — `app/services/dashboard_pins.py` (22 sites). `except HTTPException` in `_sync_native_pin_envelopes` → `except DomainError`.
+- ✅ **C9** — `app/services/session_plan_mode.py` (25 sites).
+- ✅ **C10** — `app/services/native_app_widgets.py` (26 sites — largest).
+- ✅ **C11** — Extracted `Request` from `app/services/machine_control.py` + `integrations/local_companion/machine_control.py`. The `MachineControlProvider.enroll` Protocol signature now takes `server_base_url: str`; the router (`app/routers/api_v1_admin/machines.py`) extracts `str(request.base_url)` and passes the primitive in. Service layer no longer imports from `fastapi` at all.
+- ✅ **C12** — Added `tests/unit/test_fastapi_boundary_drift.py` — AST-walks every `.py` under `app/services/`, `app/agent/`, `app/tools/` and fails if any module imports from `fastapi`. AST (not regex) so scaffolded code inside string literals in `app/tools/local/admin_integrations.py` is correctly ignored. Sole allowlist entry: `app/services/endpoint_catalog.py` (introspects FastAPI routes for the discovery surface, does not raise HTTP errors).
+
+**Router-side follow-on (same session, after the core migration):**
+
+Eight router files had `except HTTPException:` catches that translated an upstream HTTPException into a different HTTP response (e.g. "unknown bot" 404 → 400 with friendlier wording). After the service migration these catches would miss, and the downstream DomainError would bypass the router-layer UX translation. Added `except (HTTPException, DomainError):` to:
+
+- `app/routers/api_v1_widget_actions.py` (4 sites — widget-action envelope error path)
+- `app/routers/api_v1_channels.py`, `api_v1_admin/channels.py`, `api_v1_messages.py`, `api_v1_sessions.py` (4 sites), `api_v1_todos.py`, `api_v1_admin/bots.py`, `api_v1_widgets/library.py` (all `get_bot` → "Unknown bot" translation catches)
+
+The one `exc.status_code != 404` branch (`api_v1_channels.py::delete_channel`) now checks `exc.http_status` when the exception is a `DomainError`.
+
+**Verification:**
+- `python -c "from app.main import app"` — clean import (pre-existing `machine_control.py` circular import noted, unchanged by this refactor).
+- `pytest tests/unit/test_domain_errors.py tests/unit/test_fastapi_boundary_drift.py tests/unit/test_bots.py tests/unit/test_dashboards_service.py tests/unit/test_dashboard_pin_drift.py tests/unit/test_dashboard_cascade_drift.py tests/unit/test_apply_layout_drift.py tests/unit/test_dashboard_pins_service.py tests/unit/test_plan_semantic_review.py tests/unit/test_session_plan_mode.py tests/unit/test_session_plan_mode_drift.py tests/unit/test_native_app_widgets.py tests/unit/test_channel_pinned_panels.py tests/unit/test_local_companion_provider.py tests/unit/test_widget_presets.py tests/unit/test_widget_preset_drift.py tests/unit/test_native_envelope_repair_drift.py tests/unit/test_grid_preset_drift.py` — **199 passed**.
+- `pytest tests/integration/test_dashboard_pins.py tests/integration/test_dashboard_tools.py` — **55 passed, 6 pre-existing failures** confirmed on clean `HEAD` via `git stash` (same 6 as the Cluster 2 verification: 3 `pin_widget` tool tests + 2 `TestChannelHeaderSlot` + 1 `test_move_to_header_normalizes_h_to_1`).
+
+**LOC delta:**
+- Added: `app/domain/errors.py` (~60 LOC including handler) + drift test (~80 LOC) ≈ 140 LOC.
+- Removed from service/agent/tool layer: 10 `from fastapi import HTTPException` lines, 1 `from fastapi import Request` line, 118 HTTPException raise sites (rewritten in place — same line count, different class).
+- Net file count change: +1 (`app/domain/errors.py`), +1 (`tests/unit/test_domain_errors.py`), +1 (`tests/unit/test_fastapi_boundary_drift.py`).
+
+**Closed 2026-04-23.** All three Ousterhout depth clusters promoted in the 2026-04-23 audit are now shipped. The track stays active for the god-function list + housekeeping below.
 
 ## Actual Bugs
 
@@ -387,3 +463,74 @@ This is a pre-freeze cleanup track. Work incrementally:
 4. **Concurrency** — the task spawning limit is the most impactful single fix
 
 Don't refactor for refactoring's sake. Each change should make the code more bug-resistant or easier to work in. Test coverage should exist before splitting god functions.
+
+---
+
+### RFC — Cluster 4 — Cross-surface drift: event bus, widget boundary, theme tokens (2026-04-24)
+
+Plan: `~/.claude/plans/nifty-hatching-book.md`. Follows the same workflow as Clusters 1–3: four parallel Ousterhout audits (widgets, chat streaming, themes, agent core) → three shippable drift-closure sub-clusters. The god-function winner (tool_dispatch) is parked as Cluster 5 per scope discipline.
+
+#### Sub-cluster 4A — Channel event-bus contract
+
+**What shipped:**
+- `tests/unit/test_channel_event_contract_drift.py` — enum-values-vs-UI-switch guard. Iterates `ChannelEventKind` (26 values after `SESSION_PLAN_UPDATED` recontextualization); fails any kind that has neither a `case` in `ui/src/api/hooks/useChannelEvents.ts` nor an entry in the file's `ALLOWLIST` with a comment naming where the kind is actually consumed (widget iframe observer path, agent-side waiter, integration renderer, focused stream subscription).
+- `CONTEXT_BUDGET` wired in `useChannelEvents.ts` (single `case` → `store.setContextBudget(storeKey, {utilization, consumed, total})`). Previously the publisher emitted and the store slot existed but nothing dispatched — `BotInfoPanel` + session-header read-out were dark until now.
+- 9-entry ALLOWLIST documents the legitimate non-consumers: `widget_reload` (iframe-only), `modal_submitted` (agent-side waiter), `ephemeral_message` (publisher rewrite), `session_plan_updated` (consumed via `useSessionPlanMode.ts:307` raw stream), `attachment_deleted` (integration renderers), `heartbeat_tick` + `workflow_progress` + `tool_activity` (no app-chrome consumer), `memory_scheme_bootstrap` (observability signal).
+
+**Why this matters:** exact failure mode `feedback_bus_contract_end_to_end.md` recorded — multiple bus layers silently out of sync. Now structurally impossible to regress.
+
+#### Sub-cluster 4B — Widget boundary + layout SOT + pin-refresh pin
+
+**What shipped:**
+- Promoted 7 cross-module private helpers in `app/services/widget_templates.py` (`substitute`, `substitute_string`, `apply_code_transform`, `build_html_widget_body`, `resolve_html_template_paths`, `get_widget_template_with_bare_fallback`), `app/services/widget_py.py` (`resolve_bundle_dir`), and `app/services/widget_package_validation.py` (`validate_parsed_definition`) to public aliases. Migrated all callers (5 in `widget_*.py`, 2 in `dashboard_pins.py` + `api_v1_widget_actions.py`).
+- `tests/unit/test_widget_private_import_drift.py` — AST-walks `app/services/widget_*.py`, fails any cross-module `from app.services.widget_X import _private`. Test files allowed (they legitimately poke internal caches for fixture teardown).
+- New `app/services/widget_layout.py` as the single SOT for layout-hint semantics: `VALID_ZONES` (frozenset), `normalize_layout_hints` (moved from `widget_contracts`), `resolve_zone_from_layout_hints` (moved from `dashboard_pins`), `clamp_layout_size_to_hints` (moved from `dashboard_pins`), `validate_zone`. Grid-mechanics helpers (`_seed_layout_from_hints`, `_normalize_coords_for_zone`, `_default_layout_for_zone`) stay in `dashboard_pins` because they depend on per-dashboard preset config — deliberate seam between *intent* (layout.py) and *mechanics* (dashboard_pins). `widget_contracts` re-exports `normalize_layout_hints` as a compat pointer.
+- `tests/unit/test_refresh_pin_contract_metadata.py` (7 tests) — pins the silent UPDATE helper that mutates 5 JSONB fields with `flag_modified`. Covers: inferred-origin + default-presentation population, idempotency, no-op when already aligned, `widget_origin` JSONB flag_modified required, `provenance_confidence` scalar needs no flag_modified, all 3 snapshot fields flag_modified when they drift, no flag_modified calls when nothing drifts (catches "buggy `!=` comparison" regressions).
+
+**Why this matters:** `feedback_pin_drift_not_happy_path.md` — silent UPDATE helpers are the #1 class of pin-bug hide spots. Now pinned. Boundary reach-ins between widget_* siblings were a textbook Ousterhout information leak; fixed + guarded.
+
+#### Sub-cluster 4C — Theme token drift + inline-hex ratchet
+
+**What shipped (revised from plan — no codegen generator):**
+- `tests/unit/test_theme_token_drift.py` (5 tests):
+  - `ui/src/theme/tokens.ts LIGHT/DARK` hex values must equal `app/services/widget_themes.py BUILTIN_LIGHT/DARK_TOKENS` for every shared key (both passes).
+  - `ui/global.css :root` RGB triplets must equal `tokens.ts LIGHT` hex-converted-to-RGB for every shared key. 6-key `_LIGHT_KNOWN_DRIFT_KEYS` allowlist captures pre-existing `:root`-vs-`tokens.ts` divergence with an inverse pin that fails if an allowlisted key has been fixed (prevents stale allowlist).
+  - `ui/global.css .dark` RGB triplets must equal `tokens.ts DARK` hex-converted-to-RGB (no drift at HEAD; test passes).
+- `tests/unit/test_ui_inline_hex_ratchet.py` (2 tests) — counts `#rgb`/`#rrggbb` literals in `ui/src` + `ui/app` `.ts`/`.tsx` (excluding 3 canonical palette files: `src/theme/tokens.ts`, `src/components/chat/renderers/widgetTheme.ts`, `widgetTheme.test.ts`). Freezes current 684 count as `_BASELINE`; ratchet fails if exceeded. Inverse "tight baseline" pin fails if actual count drops more than 10 below baseline (forces updating the baseline when hex literals are removed — keeps the ratchet honest).
+
+**Why this matters:** same ~35 semantic tokens live in 4 files in 3 different encodings with no sync tooling. Drift test catches silent desync between app chrome and widgets (or dark vs light). Ratchet converts `feedback_tailwind_not_inline.md`'s "new code should use Tailwind" from soft intent to an enforceable invariant.
+
+#### Commits + files
+
+**New (9 files):**
+- `app/services/widget_layout.py`
+- `tests/unit/test_channel_event_contract_drift.py`
+- `tests/unit/test_widget_private_import_drift.py`
+- `tests/unit/test_refresh_pin_contract_metadata.py`
+- `tests/unit/test_theme_token_drift.py`
+- `tests/unit/test_ui_inline_hex_ratchet.py`
+
+**Edited (12 files):**
+- `app/services/widget_templates.py` (public aliases + `get_widget_template_with_bare_fallback`)
+- `app/services/widget_py.py` (public `resolve_bundle_dir` alias)
+- `app/services/widget_package_validation.py` (public `validate_parsed_definition` alias)
+- `app/services/widget_preview.py`, `widget_presets.py`, `widget_packages_seeder.py`, `widget_cron.py`, `widget_events.py`, `widget_handler_tools.py`, `widget_db.py`, `widget_templates.py` (public imports)
+- `app/services/widget_contracts.py` (re-export `normalize_layout_hints` from `widget_layout`)
+- `app/services/dashboard_pins.py` (delegate zone/hint helpers to `widget_layout`)
+- `app/routers/api_v1_widget_actions.py` (public `resolve_bundle_dir`)
+- `ui/src/api/hooks/useChannelEvents.ts` (add `case "context_budget":`)
+
+**Verification (what ran):**
+- `pytest` focused sweep across 16 Cluster-4-related test files → 164 passed + 9 pre-existing `test_dashboard_rail.py` SQLite `NOT NULL` failures (unchanged from Cluster 3 baseline).
+- `pytest` on the 5 new drift tests directly → all pass.
+- `cd ui && npx tsc --noEmit` → no new errors in files touched by Cluster 4 (123 pre-existing errors are merge-conflict markers in untouched `ChatSession.tsx` / `ChannelDashboardMultiCanvas.tsx` — unrelated working-tree state).
+
+**Non-goals (explicit):**
+- No new event kinds; no widget behavior changes; no theme generator/codegen; no service-layer refactors beyond the layout extraction. Inline-style rewrites are ambient (ratchet stops regression; migration happens when authors touch the files).
+
+**Out of scope (parked for future clusters):**
+- **Cluster 5 — tool_dispatch deepening.** 686-LOC `dispatch_tool_call` at `app/agent/tool_dispatch.py:512`. Cleanest seams: approval state machine (lines ~1356–1440), envelope builder (~321–445), subagent dispatch. Best payoff:effort among remaining god functions.
+- **Cluster 6+ — `assemble_context` (1500 LOC) and `run_agent_tool_loop` (883 LOC).** Highest payoff, highest effort.
+- **Widget envelope triple-rebuild reconciliation** (`native_app_widgets.py:753` + `widget_contracts.py:406` + `dashboard_pins.py:269`) — touches cross-module pin semantics; deserves its own focused cluster.
+- **Terminal chat mode as CSS archetype** — currently a render-code fork (`chatMode` prop); works. Punt until a third archetype appears.
+- **LIGHT color-drift fix** — the 6 allowlisted keys (`text-dim`, `success`, `warning`, `danger`, `purple`, `danger-muted`) are a real design call between Tailwind-default shades and darker designer-chosen shades. Out of scope for a refactor; in scope for the next UI polish pass.

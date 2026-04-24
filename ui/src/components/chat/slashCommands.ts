@@ -3,54 +3,42 @@ import type {
   Message,
   SlashCommandId,
   SlashCommandResult,
+  SlashCommandSpec,
   SlashCommandSurface,
 } from "../../types/api";
-
-export interface SlashCommandItem {
-  id: SlashCommandId;
-  label: string;
-  description: string;
-  surfaces: SlashCommandSurface[];
-  /** If true, the UI handles this command locally and does not POST to the backend. */
-  localOnly?: boolean;
-  /** If true, `/command arg` is parsed and arg is forwarded to the backend. */
-  acceptsArgs?: boolean;
-  /** Allowed arg values, for UX hints and client-side validation. */
-  argEnum?: string[];
-}
-
-export const SLASH_COMMANDS: SlashCommandItem[] = [
-  { id: "stop", label: "/stop", description: "Stop the current response", surfaces: ["channel", "session"] },
-  { id: "context", label: "/context", description: "View current context", surfaces: ["channel", "session"] },
-  { id: "scratch", label: "/scratch", description: "Open the scratch pad", surfaces: ["channel"], localOnly: true },
-  { id: "clear", label: "/clear", description: "Start fresh", surfaces: ["channel"], localOnly: true },
-  { id: "compact", label: "/compact", description: "Compress conversation", surfaces: ["channel"] },
-  { id: "plan", label: "/plan", description: "Toggle plan mode", surfaces: ["channel", "session"] },
-  {
-    id: "effort",
-    label: "/effort",
-    description: "Set reasoning effort (off / low / medium / high)",
-    surfaces: ["channel"],
-    acceptsArgs: true,
-    argEnum: ["off", "low", "medium", "high"],
-  },
-];
 
 export interface ResolvedSlashCommand {
   id: SlashCommandId;
   args: string[];
 }
 
-/** Filter slash commands by query string and return as CompletionItems. */
+/** Filter slash commands by query string and return as CompletionItems.
+ *
+ * `catalog` is the server-owned list fetched via `useSlashCommandCatalog`.
+ * `availableIds` optionally restricts the surfaced set (channel sources may
+ * pass the active channel's permitted subset).
+ */
+/** Tolerant field access — older cached catalog entries (from before the
+ *  registry refactor) can lack `surfaces` or `args`. Treat missing fields as
+ *  empty so we never crash the composer on stale data. */
+function cmdSurfaces(cmd: SlashCommandSpec): SlashCommandSurface[] {
+  return Array.isArray(cmd.surfaces) ? cmd.surfaces : [];
+}
+
+function cmdArgs(cmd: SlashCommandSpec): SlashCommandSpec["args"] {
+  return Array.isArray(cmd.args) ? cmd.args : [];
+}
+
 export function filterSlashCommands(
   query: string,
   surface: SlashCommandSurface,
+  catalog: SlashCommandSpec[],
   availableIds?: SlashCommandId[],
 ): CompletionItem[] {
   const q = query.toLowerCase();
   const allow = availableIds ? new Set<SlashCommandId>(availableIds) : null;
-  return SLASH_COMMANDS
-    .filter((cmd) => cmd.surfaces.includes(surface))
+  return catalog
+    .filter((cmd) => cmdSurfaces(cmd).includes(surface))
     .filter((cmd) => !allow || allow.has(cmd.id))
     .filter((cmd) => cmd.id.startsWith(q) || cmd.label.includes(q))
     .map((cmd): CompletionItem => ({
@@ -63,28 +51,39 @@ export function filterSlashCommands(
 export function resolveSlashCommand(
   raw: string,
   surface: SlashCommandSurface,
+  catalog: SlashCommandSpec[],
   availableIds?: SlashCommandId[],
 ): ResolvedSlashCommand | null {
   const trimmed = raw.trim();
   if (!trimmed.startsWith("/") || trimmed.includes("\n")) return null;
-  // Split on whitespace — first token is the command id, rest are args.
-  // Commands without `acceptsArgs` still accept no-arg input; if extra tokens
-  // appear for such commands we return null so submit falls through to normal
-  // message send (no accidental silent discard).
   const tokens = trimmed.slice(1).split(/\s+/).filter((t) => t.length > 0);
   if (tokens.length === 0) return null;
   const query = tokens[0].toLowerCase();
   const args = tokens.slice(1);
   const allow = availableIds ? new Set<SlashCommandId>(availableIds) : null;
-  const match = SLASH_COMMANDS.find(
+  const match = catalog.find(
     (cmd) =>
-      cmd.surfaces.includes(surface) &&
+      cmdSurfaces(cmd).includes(surface) &&
       (!allow || allow.has(cmd.id)) &&
       cmd.id === query,
   );
   if (!match) return null;
-  if (args.length > 0 && !match.acceptsArgs) return null;
+  // Commands without any arg schema reject extra tokens (no accidental silent
+  // discard — submit falls through to a normal message send instead).
+  const schema = cmdArgs(match);
+  const requiredArgs = schema.filter((a) => a.required).length;
+  const acceptsArgs = schema.length > 0;
+  if (args.length > 0 && !acceptsArgs) return null;
+  if (args.length < requiredArgs) return null;
   return { id: match.id, args };
+}
+
+/** Look up a single command spec by id, or `null` if not present. */
+export function findSpec(
+  catalog: SlashCommandSpec[],
+  id: SlashCommandId,
+): SlashCommandSpec | null {
+  return catalog.find((c) => c.id === id) ?? null;
 }
 
 export function buildSlashCommandResultMessage(

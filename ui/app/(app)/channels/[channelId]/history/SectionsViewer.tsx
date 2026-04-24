@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SectionsStats } from "./BackfillSection";
+import { EmptyState } from "@/src/components/shared/FormControls";
+import { ActionButton, QuietPill, StatusBadge } from "@/src/components/shared/SettingsControls";
 
 export function SectionsViewer({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [migrating, setMigrating] = useState(false);
@@ -24,11 +24,9 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
     }>; total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
   });
 
-  if (isLoading) return <Spinner size={16} color={t.textDim} />;
+  if (isLoading) return <Spinner size={16} />;
   if (!data?.sections?.length) return (
-    <div style={{ fontSize: 11, color: t.textDim, padding: "8px 0" }}>
-      No sections yet. Use backfill or let compaction create them automatically.
-    </div>
+    <EmptyState message="No sections yet. Use backfill or let compaction create them automatically." />
   );
 
   const missingTranscripts = data.sections.filter((s) => !s.has_transcript && s.transcript_path).length;
@@ -43,141 +41,86 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
   };
 
   return (
-    <div style={{ marginTop: 4 }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: t.textMuted }}>
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="text-[12px] font-semibold text-text-muted">
           Archived Sections ({data.total})
         </div>
         {missingTranscripts > 0 && (
-          <button
-            onClick={migrateTranscripts}
+          <ActionButton
+            label={migrating ? "Migrating..." : `Migrate ${missingTranscripts} to DB`}
+            onPress={migrateTranscripts}
             disabled={migrating}
-            style={{
-              padding: "2px 8px", borderRadius: 4, border: `1px solid ${t.accentSubtle}`,
-              background: "none", color: t.accent, fontSize: 10, cursor: migrating ? "wait" : "pointer",
-            }}
-          >
-            {migrating ? "Migrating..." : `Migrate ${missingTranscripts} to DB`}
-          </button>
+            size="small"
+            variant="secondary"
+          />
         )}
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 600, minHeight: 0, overflowY: "auto" }}>
+      <div className="flex flex-col gap-1.5">
         {[...data.sections].reverse().map((s) => {
           const isOpen = expandedId === s.id;
           const dateStr = s.period_start
             ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
             : "";
-          // Transcript indicator: green = DB transcript, blue = file only, red = missing file, gray = nothing
-          const dotColor = s.has_transcript ? t.success
-            : s.file_exists === true ? t.accent
-            : s.file_exists === false ? t.danger
-            : t.textDim;
+          const transcriptTone = s.has_transcript ? "success" : s.file_exists === false ? "danger" : s.file_exists === true ? "info" : "neutral";
           return (
-            <div key={s.id} style={{
-              background: t.inputBg, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6,
-              overflow: "hidden", flexShrink: 0,
-            }}>
+            <div key={s.id} className={`rounded-md ${isOpen ? "bg-surface-raised/45" : "bg-surface-raised/30"}`}>
               <button
+                type="button"
                 onClick={() => setExpandedId(isOpen ? null : s.id)}
-                style={{
-                  display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
-                  padding: "8px 12px", background: "none", border: "none",
-                  cursor: "pointer", textAlign: "left", minHeight: 36,
-                }}
+                className="grid min-h-[34px] w-full grid-cols-[48px_minmax(0,1fr)_auto_auto_auto_auto] items-center gap-2 rounded-md px-3 py-1 text-left transition-colors hover:bg-surface-overlay/35 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 max-md:grid-cols-[40px_minmax(0,1fr)_auto_auto]"
               >
-                <span style={{ fontSize: 10, color: t.textDim, minWidth: 20 }}>#{s.sequence}</span>
-                <span style={{
-                  width: 6, height: 6, borderRadius: 3, flexShrink: 0,
-                  background: dotColor,
-                }} />
-                <span style={{ fontSize: 12, color: t.text, flex: 1 }}>{s.title}</span>
-                {s.tags?.length > 0 && (
-                  <span style={{ display: "flex", flexDirection: "row", gap: 3, flexShrink: 0 }}>
-                    {s.tags.slice(0, 3).map((tag, i) => (
-                      <span key={i} style={{
-                        fontSize: 9, color: t.accent, background: t.accentSubtle,
-                        padding: "1px 5px", borderRadius: 8, whiteSpace: "nowrap",
-                      }}>{tag}</span>
-                    ))}
-                  </span>
-                )}
-                <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{s.message_count} msgs</span>
-                {s.view_count > 0 && (
-                  <span style={{
-                    fontSize: 9, color: t.purple, background: t.purpleSubtle,
-                    padding: "1px 5px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                  }}>{s.view_count}x viewed</span>
-                )}
-                {dateStr && <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>{dateStr}</span>}
-                <span style={{ fontSize: 10, color: t.textDim, transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.15s", flexShrink: 0 }}>{"\u25bc"}</span>
+                <span className="font-mono text-[10px] leading-none text-text-dim">#{s.sequence}</span>
+                <span className="min-w-0 truncate text-[12px] font-semibold leading-none text-text">{s.title}</span>
+                <span className="hidden items-center justify-end gap-1.5 md:flex">
+                  {s.tags?.slice(0, 3).map((tag, i) => (
+                    <QuietPill key={i} label={tag} title={tag} maxWidthClass="max-w-[180px]" />
+                  ))}
+                </span>
+                <span className="justify-self-end whitespace-nowrap text-[10px] leading-none text-text-dim">{s.message_count} msgs</span>
+                <span className="hidden justify-self-end whitespace-nowrap text-[10px] leading-none text-text-dim sm:inline">{dateStr}</span>
+                <span className={`justify-self-end text-[10px] leading-none text-text-dim transition-transform ${isOpen ? "rotate-180" : ""}`}>{"\u25bc"}</span>
               </button>
               {isOpen && (
-                <div style={{ padding: "0 12px 10px", borderTop: `1px solid ${t.surfaceOverlay}` }}>
+                <div className="flex flex-col gap-2 border-t border-surface-border/40 px-3 pb-3 pt-2">
                   {/* Period + message count */}
                   {(s.period_start || s.period_end) && (
-                    <div style={{ fontSize: 10, color: t.textDim, padding: "6px 0 2px" }}>
+                    <div className="text-[10px] text-text-dim">
                       {s.period_start && new Date(s.period_start).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       {s.period_start && s.period_end && " \u2014 "}
                       {s.period_end && new Date(s.period_end).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                       {" \u00b7 "}{s.message_count} messages
                     </div>
                   )}
-                  <div style={{ fontSize: 11, color: t.textMuted, padding: "6px 0 4px", fontWeight: 600 }}>Summary</div>
-                  <div style={{ fontSize: 11, color: t.textMuted, lineHeight: "1.5", whiteSpace: "pre-wrap" }}>{s.summary}</div>
+                  <div className="text-[11px] font-semibold text-text-muted">Summary</div>
+                  <div className="whitespace-pre-wrap text-[11px] leading-relaxed text-text-muted">{s.summary}</div>
                   {s.tags?.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
+                    <div className="flex flex-wrap gap-1">
                       {s.tags.map((tag, i) => (
-                        <span key={i} style={{
-                          fontSize: 10, color: t.accent, background: t.accentSubtle,
-                          padding: "2px 8px", borderRadius: 10,
-                        }}>{tag}</span>
+                        <QuietPill key={i} label={tag} title={tag} maxWidthClass="max-w-none" />
                       ))}
                     </div>
                   )}
                   {/* Transcript storage status */}
-                  <div style={{
-                    marginTop: 8, padding: "6px 10px", background: t.codeBg,
-                    border: `1px solid ${t.codeBorder}`, borderRadius: 6,
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap",
-                  }}>
-                    {s.has_transcript ? (
-                      <span style={{
-                        fontSize: 9, color: t.success, background: t.successSubtle,
-                        padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                      }}>DB Transcript</span>
-                    ) : (
-                      <span style={{
-                        fontSize: 9, color: t.warningMuted, background: t.warningSubtle,
-                        padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                      }}>No DB Transcript</span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md bg-surface-overlay/35 px-2.5 py-1.5">
+                    <StatusBadge label={s.has_transcript ? "DB Transcript" : "No DB Transcript"} variant={transcriptTone} />
                     {s.transcript_path && (
                       <>
-                        <span style={{ fontSize: 10, color: t.textMuted, fontFamily: "monospace", wordBreak: "break-all" }}>
+                        <span className="break-all font-mono text-[10px] text-text-muted">
                           {s.transcript_path}
                         </span>
-                        {s.file_exists === true && (
-                          <span style={{
-                            fontSize: 9, color: t.success, background: t.successSubtle,
-                            padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                          }}>File OK</span>
-                        )}
-                        {s.file_exists === false && (
-                          <span style={{
-                            fontSize: 9, color: t.danger, background: t.dangerSubtle,
-                            padding: "1px 6px", borderRadius: 8, fontWeight: 600, flexShrink: 0,
-                          }}>File Missing</span>
-                        )}
+                        {s.file_exists === true && <StatusBadge label="File OK" variant="success" />}
+                        {s.file_exists === false && <StatusBadge label="File Missing" variant="danger" />}
                       </>
                     )}
                     {!s.has_transcript && !s.transcript_path && (
-                      <span style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
+                      <span className="text-[10px] italic text-text-dim">
                         No transcript stored — re-run backfill to populate
                       </span>
                     )}
                   </div>
                   {s.view_count > 0 && s.last_viewed_at && (
-                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
+                    <div className="text-[10px] text-text-dim">
                       Viewed {s.view_count}x {"\u00b7"} last {new Date(s.last_viewed_at).toLocaleDateString()}
                     </div>
                   )}

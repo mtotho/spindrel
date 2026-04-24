@@ -51,6 +51,20 @@ Drivers live in `app/services/provider_drivers/`. Each driver subclasses `Provid
 
 **Admin → Providers → New provider**. Pick a type; the form adjusts to the driver's declared requirements (API key / base URL / OAuth button). On save, the server calls `driver.test_connection(...)` and shows the result. Models populate from `list_models()` into a table you can enable/disable per model.
 
+### Managing models on a provider
+
+The Models table on the provider edit page shows the **union** of the driver's live catalog (via `list_models()`) and any rows persisted in `provider_models` for this provider. That means a manually added row — e.g. a newer `gpt-5.5` you want to use before the driver fallback list catches up — shows up in bot dropdowns even if the driver itself doesn't list it yet.
+
+Each row supports inline **edit / save / cancel**, toggling the per-model flags without deleting and recreating the row:
+
+- `no_system_messages` — fold the system message into the first user message
+- `supports_tools` — function-calling / tool use allowed
+- `supports_vision` — image content parts allowed
+- `supports_reasoning` — model takes an effort / thinking-budget knob (see [Reasoning / effort](#reasoning--effort))
+- `prompt_style` — framework-prompt dialect (see [Prompt dialect](#prompt-dialect-prompt_style))
+
+Any row mutation triggers a `load_providers()` reload so the in-memory capability caches refresh on the same request. No server restart needed.
+
 ### From first-boot seed
 
 On first boot with an empty DB, the server looks for `provider-seed.yaml` (shipped by the `scripts/setup.py` wizard or hand-written). Example:
@@ -277,7 +291,7 @@ Today two adapters exist: `AnthropicOpenAIAdapter` (`app/services/anthropic_adap
 - **Codex OAuth `client_id`** (`openai_subscription_driver.py`): a public constant borrowed from OpenAI's own Codex CLI — not a secret.
 - **Codex `reasoning.summary` default**: set unconditionally to `"auto"` so the thinking stream flows; callers can still override via model_params.
 - **Anthropic `thinking` constraints**: when `thinking_budget > 0`, the adapter forces `temperature=1` and strips `top_p`/`top_k` (Anthropic SDK requires this for extended thinking).
-- **Fallback model lists** in the Anthropic and OpenAI-subscription drivers are hardcoded today and will decay as new models ship. Phase 3 removes them in favor of the admin refresh flow.
+- **Fallback model lists** in the Anthropic and OpenAI-subscription drivers are hardcoded today and will decay as new models ship. Phase 3 removes them in favor of the admin refresh flow. Today's mitigation: the Models table unions driver output with persisted rows, so admins can add a freshly-released model by hand without waiting for the driver's hardcoded list to be updated.
 - **`test_connection()` is a no-op on Anthropic today** — it returns "Credentials OK" without probing the endpoint. Phase 3 fixes this.
 - **`anthropic-subscription` provider_type** currently maps to the plain `AnthropicDriver`. There is no real OAuth driver. Treat that row in `DRIVER_REGISTRY` as unfinished scaffolding; Phase 3 either builds the driver or removes the type.
 

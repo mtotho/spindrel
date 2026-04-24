@@ -716,6 +716,24 @@ export function useChannelEvents(
           return;
         }
 
+        case "context_budget": {
+          // Mid-turn context budget snapshot emitted by the agent loop.
+          // Feeds the session header's token/utilization read-out via
+          // ``chatState.contextBudget`` (see sessionHeaderChrome.ts).
+          // Payload shape lives at app/domain/payloads.py::ContextBudgetPayload.
+          const consumed = payload?.consumed_tokens;
+          const total = payload?.total_tokens;
+          const utilization = payload?.utilization;
+          if (
+            typeof consumed === "number" &&
+            typeof total === "number" &&
+            typeof utilization === "number"
+          ) {
+            store.setContextBudget(storeKey, { utilization, consumed, total });
+          }
+          return;
+        }
+
         case "shutdown": {
           // Server is going down — let the reconnect backoff handle resume.
           return;

@@ -52,7 +52,7 @@ Use this checklist when adding or modernizing a widget.
 
 | Area | Count | Notes |
 |---|---:|---|
-| Native widgets | 8 | First-party host-rendered widgets; most are catalog-backed and instance-backed, while `core/plan_questions` is transcript-native. |
+| Native widgets | 9 | First-party host-rendered widgets; most are catalog-backed and instance-backed, while `core/plan_questions` is transcript-native. |
 | Core/local tool widgets | 9 | Includes YAML-defined tool widgets plus core semantic machine-control result views. |
 | Core/local standalone HTML widgets | 2 | One superseded/legacy bundle plus one QA/example. Legacy HTML Notes was deleted; current Notes/Context surfaces use native widgets. |
 | Integration tool widgets | 17 | Current-standard metadata is now present across the audited shipped set. |
@@ -69,6 +69,7 @@ Use this checklist when adding or modernizing a widget.
 | `core/channel_files_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel file browser. Reuses shared channel file/navigation state instead of a widget-local file store. |
 | `core/pinned_files_native` | `native_widget` | `app/services/native_app_widgets.py` + `app/services/pinned_panels.py` | Current | Hidden channel-scoped native widget whose instance state stores pinned file paths and active file selection. |
 | `core/upcoming_activity_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native upcoming-activity/schedule surface. |
+| `core/machine_control_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | Optional channel-scoped native machine-control surface for session status, lease controls, and per-target probe actions. Intentionally does not export pinned-widget context. |
 | `core/plan_questions` | `native_widget` | `app/tools/local/ask_plan_questions.py` | Current | Transcript-native planning Q&A card. Not catalog-backed or instance-backed; answers persist into chat history and structured `planning_state`. |
 
 ## Core/Local Tool Widgets

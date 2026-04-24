@@ -41,6 +41,7 @@ nav:
     - Backup & Restore: backup.md
   - Guides:
     - Overview: guides/index.md
+    - Development Process: guides/development-process.md
     - How Spindrel Works: guides/how-spindrel-works.md
     - UI Design: guides/ui-design.md
     - Integrations: guides/integrations.md

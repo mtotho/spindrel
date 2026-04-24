@@ -2,12 +2,11 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import { Play, RotateCcw, Pencil, FileText, Workflow as WorkflowIcon } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   Section, FormRow, TextInput, SelectInput, Toggle,
   Row, Col,
 } from "@/src/components/shared/FormControls";
-import { AdvancedSection, ActionButton, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { AdvancedSection, ActionButton, SettingsSegmentedControl, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
@@ -80,7 +79,6 @@ export function HeartbeatTab({
   botModel?: string;
   onSaveStateChange?: (state: HeartbeatSaveState) => void;
 }) {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({
@@ -255,7 +253,7 @@ export function HeartbeatTab({
     },
   });
 
-  if (isLoading || !hbForm) return <Spinner color={t.accent} />;
+  if (isLoading || !hbForm) return <Spinner />;
 
   const enabled = data?.config?.enabled ?? false;
   const isWorkflowMode = !!hbForm.workflow_id;
@@ -267,7 +265,7 @@ export function HeartbeatTab({
     <>
       <Section
         title={
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <div className="flex flex-wrap items-center gap-2">
             <span>Heartbeat</span>
             <StatusBadge label={enabled ? "Enabled" : "Disabled"} variant={enabled ? "success" : "neutral"} />
           </div>
@@ -288,7 +286,7 @@ export function HeartbeatTab({
         {null}
       </Section>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <div className="flex flex-col gap-5">
         {/* ---- Schedule Section ---- */}
         <Section title="Schedule">
           <Row stack={isMobile}>
@@ -307,54 +305,27 @@ export function HeartbeatTab({
         {/* ---- Action: Workflow or Prompt ---- */}
         <Section title="Action">
           {/* Mode toggle: Prompt (default) vs Workflow */}
-          <div
-            style={{
-              display: "inline-flex",
-              flexDirection: "row",
-              gap: 4,
-              marginBottom: 14,
-              padding: 4,
-              borderRadius: 6,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: t.surfaceRaised,
-            }}
-          >
-            {[
-              { key: "prompt", label: "Prompt", icon: <FileText size={12} /> },
-              { key: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
-            ].map((tab) => {
-              const isActive = tab.key === "workflow" ? isWorkflowMode : !isWorkflowMode;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => {
-                    if (tab.key === "workflow" && !isWorkflowMode) {
-                      const firstWf = workflows?.[0];
-                      updateHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
-                    } else if (tab.key === "prompt" && isWorkflowMode) {
-                      updateHbForm((f: any) => ({ ...f, workflow_id: null, workflow_session_mode: null }));
-                    }
-                  }}
-                  style={{
-                    display: "flex", flexDirection: "row", alignItems: "center", gap: 5,
-                    padding: "7px 12px", borderRadius: 6, cursor: "pointer",
-                    fontSize: 12, fontWeight: isActive ? 600 : 500,
-                    border: `1px solid ${isActive ? t.accentBorder : "transparent"}`,
-                    background: isActive ? t.accentSubtle : "transparent",
-                    color: isActive ? t.accent : t.textMuted,
-                    transition: "all 0.12s",
-                  }}
-                >
-                  {tab.icon}
-                  {tab.label}
-                </button>
-              );
-            })}
+          <div className="mb-3">
+            <SettingsSegmentedControl
+              value={isWorkflowMode ? "workflow" : "prompt"}
+              onChange={(mode) => {
+                if (mode === "workflow" && !isWorkflowMode) {
+                  const firstWf = workflows?.[0];
+                  updateHbForm((f: any) => ({ ...f, workflow_id: firstWf?.id ?? "" }));
+                } else if (mode === "prompt" && isWorkflowMode) {
+                  updateHbForm((f: any) => ({ ...f, workflow_id: null, workflow_session_mode: null }));
+                }
+              }}
+              options={[
+                { value: "prompt", label: "Prompt", icon: <FileText size={12} /> },
+                { value: "workflow", label: "Workflow", icon: <WorkflowIcon size={12} /> },
+              ]}
+            />
           </div>
 
           {isWorkflowMode ? (
             /* ---- Workflow Selector ---- */
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               <FormRow label="Workflow" description="This workflow will be triggered on each heartbeat interval.">
                 <WorkflowSelector
                   value={hbForm.workflow_id}
@@ -367,11 +338,10 @@ export function HeartbeatTab({
                 return (
                   <div style={{
                     padding: "10px 12px", borderRadius: 6,
-                    background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-                    fontSize: 12, color: t.textMuted, lineHeight: 1.5,
-                  }}>
-                    {wf.description && <div style={{ marginBottom: 4 }}>{wf.description}</div>}
-                    <div style={{ fontSize: 11, color: t.textDim }}>
+                    fontSize: 12, lineHeight: 1.5,
+                  }} className="bg-surface-raised/40 text-text-muted">
+                    {wf.description && <div className="mb-1">{wf.description}</div>}
+                    <div className="text-[11px] text-text-dim">
                       {wf.steps?.length ?? 0} step{(wf.steps?.length ?? 0) !== 1 ? "s" : ""}
                       {wf.tags?.length ? ` · ${wf.tags.join(", ")}` : ""}
                     </div>
@@ -435,16 +405,14 @@ export function HeartbeatTab({
                     <>
                       {/* "Customized" badge with reset option */}
                       {customizedFromTemplateId && (
-                        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                          <div style={{
-                            display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-                            fontSize: 10, fontWeight: 600, color: t.warning,
-                          }}>
+                        <div className="mb-1 flex items-center gap-1.5">
+                          <div className="flex items-center gap-1 text-[10px] font-semibold text-warning">
                             <Pencil size={10} />
                             Customized from template
                           </div>
-                          <button
-                            onClick={() => {
+                          <ActionButton
+                            label="Reset to Template"
+                            onPress={() => {
                               updateHbForm((f: any) => ({
                                 ...f,
                                 prompt_template_id: customizedFromTemplateId,
@@ -453,17 +421,10 @@ export function HeartbeatTab({
                               setCustomizedFromTemplateId(null);
                               setTemplatePreviewExpanded(false);
                             }}
-                            style={{
-                              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-                              padding: "4px 9px", borderRadius: 6, cursor: "pointer",
-                              fontSize: 10, fontWeight: 600,
-                              border: `1px solid ${t.surfaceBorder}`,
-                              background: t.surfaceRaised, color: t.textDim,
-                            }}
-                          >
-                            <RotateCcw size={10} />
-                            Reset to Template
-                          </button>
+                            icon={<RotateCcw size={10} />}
+                            variant="ghost"
+                            size="small"
+                          />
                         </div>
                       )}
                       <LlmPrompt
@@ -487,7 +448,7 @@ export function HeartbeatTab({
         {/* ---- Dispatch Section (only for prompt mode) ---- */}
         {!isWorkflowMode && (
           <Section title="Dispatch">
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="flex flex-col gap-2">
               <Toggle
                 value={hbForm.dispatch_results ?? true}
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, dispatch_results: v }))}
@@ -516,7 +477,7 @@ export function HeartbeatTab({
         )}
 
         {/* Run controls */}
-        <div style={{ marginTop: 4, display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+        <div className="mt-1 flex flex-wrap gap-2">
           <ActionButton
             label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
             onPress={() => fireMutation.mutate()}
@@ -525,7 +486,7 @@ export function HeartbeatTab({
             icon={<Play size={12} />}
           />
           {!hasAction && (
-            <span style={{ fontSize: 11, color: t.textDim, alignSelf: "center" }}>
+            <span className="self-center text-[11px] text-text-dim">
               Add a prompt or workflow before running heartbeat manually.
             </span>
           )}
@@ -585,7 +546,7 @@ export function HeartbeatTab({
               </FormRow>
             </Section>
             <Section title="Limits">
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="flex flex-col gap-3">
                 <FormRow label="Max run time (seconds)">
                   <TextInput
                     value={hbForm.max_run_seconds?.toString() ?? ""}
@@ -617,13 +578,13 @@ export function HeartbeatTab({
 
       {/* Status + History */}
       {data?.config && (
-        <div style={{ marginTop: 12, paddingTop: 4 }}>
-          <div style={{ fontSize: 12, color: t.textDim, display: "flex", flexDirection: "row", gap: 16, marginBottom: 12 }}>
+        <div className="mt-3 pt-1">
+          <div className="mb-3 flex flex-wrap gap-4 text-xs text-text-dim">
             {data.config.last_run_at && (
-              <span>Last run: <span style={{ color: t.textMuted }}>{new Date(data.config.last_run_at).toLocaleString()}</span></span>
+              <span>Last run: <span className="text-text-muted">{new Date(data.config.last_run_at).toLocaleString()}</span></span>
             )}
             {data.config.next_run_at && enabled && (
-              <span>Next run: <span style={{ color: t.textMuted }}>{new Date(data.config.next_run_at).toLocaleString()}</span></span>
+              <span>Next run: <span className="text-text-muted">{new Date(data.config.next_run_at).toLocaleString()}</span></span>
             )}
           </div>
 

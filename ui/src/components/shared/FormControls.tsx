@@ -5,7 +5,7 @@
  * `ui/global.css` + `ui/tailwind.config.cjs` first.
  */
 
-import { ChevronDown } from "lucide-react";
+import { SelectDropdown } from "./SelectDropdown";
 
 const INPUT_CLASS =
   "w-full min-h-[40px] px-3 py-2 text-sm bg-input border border-input-border rounded-md " +
@@ -103,21 +103,14 @@ export function SelectInput({ value, onChange, options, style }: {
 }) {
   return (
     <div className="relative w-full" style={style ? { width: style.width, minWidth: style.minWidth, maxWidth: style.maxWidth, flex: style.flex } : undefined}>
-      <select
+      <SelectDropdown
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`${INPUT_CLASS} cursor-pointer appearance-none pr-9 [&::-ms-expand]:hidden`}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-      <span
-        aria-hidden
-        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-dim"
-      >
-        <ChevronDown size={14} />
-      </span>
+        onChange={(next) => onChange(next)}
+        options={options.map((option) => ({ ...option, searchText: `${option.label} ${option.value}` }))}
+        searchable={options.length > 8}
+        searchPlaceholder="Filter options..."
+        popoverWidth="content"
+      />
     </div>
   );
 }
@@ -239,10 +232,10 @@ export function TabBar({ tabs, active, onChange }: {
             type="button"
             onClick={() => onChange(tab.key)}
             className={
-              `shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-[12px] transition-colors min-h-[36px] ` +
+              `shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12px] transition-colors min-h-[36px] ` +
               (isActive
-                ? "border-accent bg-accent text-white font-semibold"
-                : "border-surface-border bg-transparent text-text-muted font-medium hover:bg-surface-overlay/60")
+                ? "bg-accent/[0.08] text-accent font-semibold"
+                : "bg-transparent text-text-muted font-medium hover:bg-surface-overlay/60 hover:text-text")
             }
             style={{ scrollSnapAlign: "start" }}
           >

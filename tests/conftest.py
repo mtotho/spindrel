@@ -3,8 +3,6 @@
 Every test (unit or integration) gets real SQLite-in-memory via ``db_session``
 / ``engine``. Unit tests that don't touch the DB simply don't request the
 fixture — pytest fixtures are lazy.
-
-See ``~/.claude/skills/testing-python/SKILL.md`` section G.
 """
 import os
 import uuid as _uuid_mod

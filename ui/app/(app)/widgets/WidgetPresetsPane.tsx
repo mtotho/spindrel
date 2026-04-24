@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import ReactDOM from "react-dom";
-import { Check, ChevronDown, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
+import { Check, Home, Loader2, Pin, Search, SlidersHorizontal } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useWidgetAction } from "@/src/api/hooks/useWidgetAction";
@@ -14,6 +13,7 @@ import {
 import { RichToolResult } from "@/src/components/chat/RichToolResult";
 import type { WidgetActionDispatcher } from "@/src/components/chat/renderers/ComponentRenderer";
 import { BotPicker } from "@/src/components/shared/BotPicker";
+import { SelectDropdown, type SelectDropdownOption } from "@/src/components/shared/SelectDropdown";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { ToolResultEnvelope } from "@/src/types/api";
@@ -690,140 +690,41 @@ function OptionPicker({
   placeholder: string;
   onChange: (next: unknown) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-
-  const selected = useMemo(
-    () => options.find((option) => option.value === value) ?? null,
-    [options, value],
+  const dropdownOptions = useMemo<SelectDropdownOption[]>(
+    () =>
+      options.map((option) => ({
+        value: option.value,
+        label: option.label,
+        description: option.description || undefined,
+        meta: option.group || undefined,
+        group: option.group || undefined,
+        groupLabel: option.group || undefined,
+        searchText: `${option.label} ${option.description ?? ""} ${option.group ?? ""}`,
+      })),
+    [options],
   );
 
-  const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return options;
-    return options.filter((option) => (
-      option.label.toLowerCase().includes(term)
-      || (option.description ?? "").toLowerCase().includes(term)
-      || (option.group ?? "").toLowerCase().includes(term)
-    ));
-  }, [options, search]);
-
-  useEffect(() => {
-    if (!open) return;
-    const handlePointerDown = (event: MouseEvent) => {
-      if (
-        triggerRef.current && !triggerRef.current.contains(event.target as Node)
-        && dropdownRef.current && !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setOpen(false);
-        setSearch("");
-      }
-    };
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [open]);
-
-  const openDropdown = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 320) });
-    }
-    setOpen((prev) => !prev);
-  };
-
-  const pick = (nextValue: string) => {
-    onChange(nextValue);
-    setOpen(false);
-    setSearch("");
-  };
-
   return (
-    <div className="relative min-w-0">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={openDropdown}
-        className={`flex w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors ${
-          open
-            ? "border-accent bg-surface"
-            : "border-surface-border bg-input hover:border-accent/50"
-        }`}
-      >
-        <div className="min-w-0 flex-1">
-          <div className={`truncate text-[12px] ${selected ? "text-text" : "text-text-dim"}`}>
-            {selected ? selected.label : (loading ? "Loading…" : placeholder)}
-          </div>
-          {selected?.group && (
-            <div className="truncate text-[10px] text-text-dim">
-              {selected.group}
-            </div>
-          )}
-        </div>
-        <ChevronDown size={12} className="shrink-0 text-text-dim" />
-      </button>
-
-      {open && ReactDOM.createPortal(
-        <div
-          ref={dropdownRef}
-          className="fixed z-[10060] flex max-h-[360px] flex-col overflow-hidden rounded-lg border border-surface-border bg-surface shadow-xl"
-          style={{ top: pos.top, left: pos.left, width: pos.width, maxWidth: "calc(100vw - 24px)" }}
-        >
-          <div className="border-b border-surface-border p-2">
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder={placeholder}
-              autoFocus
-              className="w-full rounded-md border border-surface-border bg-input px-2.5 py-1.5 text-xs text-text outline-none focus:border-accent/40"
-            />
-          </div>
-          <div className="overflow-y-auto">
-            <button
-              type="button"
-              onClick={() => pick("")}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left transition-colors ${
-                !value ? "bg-accent/10 text-accent" : "text-text-dim hover:bg-surface-raised"
-              }`}
-            >
-              <span className="text-xs italic">None</span>
-            </button>
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-center text-[11px] text-text-dim">No matches</div>
-            ) : (
-              filtered.map((option) => {
-                const isSelected = option.value === value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => pick(option.value)}
-                    className={`flex w-full items-start gap-2 px-3 py-2 text-left transition-colors ${
-                      isSelected ? "bg-accent/10" : "hover:bg-surface-raised"
-                    }`}
-                  >
-                    <span className={`mt-0.5 h-2 w-2 rounded-full ${isSelected ? "bg-accent" : "bg-surface-border"}`} />
-                    <div className="min-w-0 flex-1">
-                      <div className={`truncate text-xs font-medium ${isSelected ? "text-accent" : "text-text"}`}>
-                        {option.label}
-                      </div>
-                      {(option.group || option.description) && (
-                        <div className="truncate text-[10px] text-text-dim">
-                          {[option.group, option.description].filter(Boolean).join(" · ")}
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>,
-        document.body,
+    <SelectDropdown
+      value={value || null}
+      options={dropdownOptions}
+      onChange={(next) => onChange(next)}
+      placeholder={loading ? "Loading..." : placeholder}
+      searchable
+      searchPlaceholder={placeholder}
+      emptyLabel="No matches"
+      loading={loading}
+      allowClear={Boolean(value)}
+      clearLabel="Clear option"
+      onClear={() => onChange("")}
+      size="sm"
+      popoverWidth="wide"
+      renderValue={(option) => (
+        <span className="min-w-0">
+          <span className="block truncate text-[12px] text-text">{option.label}</span>
+          {option.meta && <span className="block truncate text-[10px] text-text-dim">{option.meta}</span>}
+        </span>
       )}
-    </div>
+    />
   );
 }

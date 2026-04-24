@@ -144,6 +144,7 @@ class TestCoreMachineControlToolEnvelopes:
                     "hostname": "workstation",
                     "platform": "linux",
                     "capabilities": ["shell"],
+                    "ready": True,
                     "connected": True,
                     "connection_id": "conn-1",
                 },

@@ -61,6 +61,13 @@ def _clip(value: str, limit: int) -> str:
     return value[: limit - 1].rstrip() + "…"
 
 
+def is_pinned_widget_context_enabled(channel_config: object) -> bool:
+    if not isinstance(channel_config, dict):
+        return True
+    value = channel_config.get("pinned_widget_context_enabled")
+    return True if value is None else bool(value)
+
+
 def _display_label_for_pin(pin: dict[str, Any]) -> str:
     env = pin.get("envelope") or {}
     return (
@@ -190,6 +197,32 @@ def _summarize_pinned_files_state(pin: dict[str, Any]) -> str | None:
     return f"{count} pinned"
 
 
+def _summarize_standing_order_state(pin: dict[str, Any], *, now: datetime) -> str | None:
+    state = _native_state(pin)
+    goal = _snippet(state.get("goal"), limit=80) or "(no goal)"
+    status = str(state.get("status") or "running")
+    iterations = state.get("iterations")
+    bits: list[str] = [status]
+    if isinstance(iterations, int) and iterations:
+        bits.append(f"{iterations} tick{'s' if iterations != 1 else ''}")
+    if status in ("done", "failed", "cancelled"):
+        reason = _snippet(state.get("terminal_reason"), limit=80)
+        if reason:
+            bits.append(reason)
+    else:
+        log = state.get("log")
+        if isinstance(log, list) and log:
+            last = log[-1]
+            if isinstance(last, dict):
+                text = _snippet(last.get("text"), limit=80)
+                age = _relative_age(last.get("at"), now)
+                if text and age:
+                    bits.append(f"last: {text} ({age})")
+                elif text:
+                    bits.append(f"last: {text}")
+    return f"\"{goal}\" — {'; '.join(bits)}"
+
+
 def _summarize_native_state(pin: dict[str, Any], *, now: datetime) -> str | None:
     widget_ref = _native_widget_ref(pin)
     if widget_ref == "core/notes_native":
@@ -198,6 +231,8 @@ def _summarize_native_state(pin: dict[str, Any], *, now: datetime) -> str | None
         return _summarize_todo_state(pin)
     if widget_ref == "core/pinned_files_native":
         return _summarize_pinned_files_state(pin)
+    if widget_ref == "core/standing_order_native":
+        return _summarize_standing_order_state(pin, now=now)
     return None
 
 
@@ -372,6 +407,151 @@ async def enrich_pins_for_context_export(
     return enriched
 
 
+def _build_context_row_from_pin(
+    pin: dict[str, Any],
+    *,
+    bot_id: str,
+    now: datetime,
+) -> dict[str, Any] | None:
+    summary = pin.get("context_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        context_export = _context_export_contract(pin)
+        if context_export is None:
+            return None
+        if context_export.get("summary_kind") != "plain_body":
+            return None
+        summary = _summarize_plain_body(pin)
+    if not isinstance(summary, str) or not summary.strip():
+        return None
+
+    label = _display_label_for_pin(pin)
+    line = f"- {label}: {_normalize_line(summary.strip())}"
+
+    context_hint = pin.get("context_hint")
+    hint_value = None
+    if isinstance(context_hint, str) and context_hint.strip():
+        hint_value = _normalize_line(context_hint.strip())
+        line += f" Hint: {hint_value}"
+
+    suffix_bits: list[str] = []
+    pin_bot = pin.get("bot_id") or pin.get("source_bot_id")
+    if isinstance(pin_bot, str) and pin_bot and pin_bot != bot_id:
+        suffix_bits.append(f"pinned by {pin_bot}")
+    age = _relative_age(pin.get("pinned_at"), now)
+    if age:
+        suffix_bits.append(f"updated {age}")
+    if suffix_bits:
+        line += f" ({'; '.join(suffix_bits)})"
+
+    line = _clip(line, _MAX_LINE_CHARS + 96)
+    return {
+        "pin_id": str(pin.get("id") or ""),
+        "label": label,
+        "summary": _normalize_line(summary.strip()),
+        "hint": hint_value,
+        "line": line,
+        "chars": len(line),
+    }
+
+
+async def build_pinned_widget_context_snapshot(
+    db: "AsyncSession",
+    pins: list[dict] | None,
+    *,
+    bot_id: str,
+    now: datetime | None = None,
+    channel_id: str | None = None,
+    enabled: bool = True,
+    disabled_reason: str = "channel_disabled",
+) -> dict[str, Any]:
+    raw_pins = [dict(pin) for pin in (pins or []) if isinstance(pin, dict)]
+    if not enabled:
+        skipped = [
+            {
+                "pin_id": str(pin.get("id") or ""),
+                "label": _display_label_for_pin(pin),
+                "reason": disabled_reason,
+            }
+            for pin in raw_pins
+        ]
+        return {
+            "enabled": False,
+            "total_pins": len(raw_pins),
+            "exported_count": 0,
+            "skipped_count": len(skipped),
+            "total_chars": 0,
+            "truncated": False,
+            "rows": [],
+            "skipped": skipped,
+            "block_text": None,
+        }
+
+    now = now or datetime.now(timezone.utc)
+    enriched = await enrich_pins_for_context_export(
+        db,
+        raw_pins,
+        bot_id=bot_id,
+        now=now,
+        channel_id=channel_id,
+    )
+
+    candidate_rows: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for pin in enriched:
+        context_export = _context_export_contract(pin)
+        if context_export is None:
+            skipped.append({
+                "pin_id": str(pin.get("id") or ""),
+                "label": _display_label_for_pin(pin),
+                "reason": "export_disabled",
+            })
+            continue
+        row = _build_context_row_from_pin(pin, bot_id=bot_id, now=now)
+        if row is None:
+            skipped.append({
+                "pin_id": str(pin.get("id") or ""),
+                "label": _display_label_for_pin(pin),
+                "reason": "no_summary",
+            })
+            continue
+        candidate_rows.append(row)
+
+    kept_rows = list(candidate_rows[:_MAX_PINS])
+    if len(candidate_rows) > _MAX_PINS:
+        for row in candidate_rows[_MAX_PINS:]:
+            skipped.append({
+                "pin_id": row["pin_id"],
+                "label": row["label"],
+                "reason": "trimmed",
+            })
+
+    block_text = None
+    truncated = False
+    if kept_rows:
+        block_text = _HEADER + "\n" + "\n".join(str(row["line"]) for row in kept_rows)
+        while len(block_text) > _MAX_TOTAL_CHARS and len(kept_rows) > 1:
+            trimmed = kept_rows.pop()
+            skipped.append({
+                "pin_id": trimmed["pin_id"],
+                "label": trimmed["label"],
+                "reason": "trimmed",
+            })
+            truncated = True
+            block_text = _HEADER + "\n" + "\n".join(str(row["line"]) for row in kept_rows)
+
+    return {
+        "enabled": True,
+        "total_pins": len(raw_pins),
+        "exported_count": len(kept_rows),
+        "skipped_count": len(skipped),
+        "total_chars": len(block_text) if block_text else 0,
+        "truncated": truncated or len(candidate_rows) > len(kept_rows),
+        "rows": kept_rows,
+        "skipped": skipped,
+        "block_text": block_text,
+    }
+
+
 async def fetch_channel_pin_dicts(
     db: "AsyncSession",
     channel_id: uuid.UUID | str,
@@ -403,35 +583,10 @@ def build_widget_context_block(
     for pin in pins[:_MAX_PINS]:
         if not isinstance(pin, dict):
             continue
-        summary = pin.get("context_summary")
-        if not isinstance(summary, str) or not summary.strip():
-            context_export = _context_export_contract(pin)
-            if context_export is None:
-                continue
-            if context_export.get("summary_kind") != "plain_body":
-                continue
-            summary = _summarize_plain_body(pin)
-        if not isinstance(summary, str) or not summary.strip():
+        row = _build_context_row_from_pin(pin, bot_id=bot_id, now=now)
+        if row is None:
             continue
-
-        label = _display_label_for_pin(pin)
-        line = f"- {label}: {_normalize_line(summary.strip())}"
-
-        context_hint = pin.get("context_hint")
-        if isinstance(context_hint, str) and context_hint.strip():
-            line += f" Hint: {_normalize_line(context_hint.strip())}"
-
-        suffix_bits: list[str] = []
-        pin_bot = pin.get("bot_id") or pin.get("source_bot_id")
-        if isinstance(pin_bot, str) and pin_bot and pin_bot != bot_id:
-            suffix_bits.append(f"pinned by {pin_bot}")
-        age = _relative_age(pin.get("pinned_at"), now)
-        if age:
-            suffix_bits.append(f"updated {age}")
-        if suffix_bits:
-            line += f" ({'; '.join(suffix_bits)})"
-
-        lines.append(_clip(line, _MAX_LINE_CHARS + 96))
+        lines.append(str(row["line"]))
 
     if not lines:
         return None

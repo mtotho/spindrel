@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { ChevronDown, ChevronRight, FileText, Pencil } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
 
 function buildMetadataPreview(form: any, data: any): string {
   const interval = form?.interval_minutes ?? 60;
@@ -71,32 +71,21 @@ function buildMetadataPreview(form: any, data: any): string {
 }
 
 export function ContextPreview({ form, data }: { form: any; data: any }) {
-  const t = useThemeTokens();
   const [expanded, setExpanded] = useState(false);
   const preview = useMemo(() => buildMetadataPreview(form, data), [form, data]);
 
   return (
-    <div style={{ marginTop: 20 }}>
-      <div
+    <div className="mt-5">
+      <button
+        type="button"
         onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, cursor: "pointer",
-          fontSize: 11, fontWeight: 600, color: t.textDim,
-          letterSpacing: "0.05em", textTransform: "uppercase",
-        }}
+        className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-text-dim transition-colors hover:text-text-muted"
       >
-        {expanded ? <ChevronDown size={12} color={t.textDim} /> : <ChevronRight size={12} color={t.textDim} />}
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         Context Preview
-      </div>
+      </button>
       {expanded && (
-        <pre style={{
-          marginTop: 8, padding: 12, background: t.codeBg, borderRadius: 6,
-          border: `1px solid ${t.surfaceBorder}`,
-          fontSize: 11, lineHeight: 1.6, color: t.textMuted,
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-          maxHeight: 400, overflowY: "auto",
-          fontFamily: "monospace",
-        }}>
+        <pre className="mt-2 max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-surface/80 px-3 py-2.5 font-mono text-[11px] leading-relaxed text-text-muted">
           {preview}
         </pre>
       )}
@@ -117,7 +106,6 @@ export function HeartbeatTemplatePreview({
   onToggleExpand: () => void;
   onCustomize: () => void;
 }) {
-  const t = useThemeTokens();
   const PREVIEW_LINES = 12;
   const lines = content.split("\n");
   const isLong = lines.length > PREVIEW_LINES;
@@ -126,61 +114,39 @@ export function HeartbeatTemplatePreview({
     : lines.slice(0, PREVIEW_LINES).join("\n") + "\n...";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div className="flex flex-col gap-2">
       {description && (
-        <div style={{ fontSize: 12, color: t.textDim, lineHeight: "1.5" }}>
+        <div className="text-xs leading-relaxed text-text-dim">
           {description}
         </div>
       )}
-      <div style={{
-        borderLeft: `3px solid ${t.accent}`,
-        borderRadius: 6,
-        background: t.surfaceOverlay,
-        padding: 12,
-      }}>
-        <div style={{
-          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8,
-        }}>
-          <FileText size={12} color={t.textDim} />
-          <span style={{
-            fontSize: 10, fontWeight: 700, color: t.textDim,
-            textTransform: "uppercase", letterSpacing: "0.05em",
-          }}>
+      <div className="rounded-md bg-surface-raised/45 px-3 py-2.5">
+        <div className="mb-2 flex items-center gap-1.5">
+          <FileText size={12} className="text-text-dim" />
+          <span className="text-[10px] font-bold uppercase tracking-[0.05em] text-text-dim">
             Template Prompt
           </span>
         </div>
-        <pre style={{
-          margin: 0, fontSize: 12, fontFamily: "monospace",
-          color: t.text, lineHeight: "1.5",
-          whiteSpace: "pre-wrap", wordBreak: "break-word",
-        }}>
+        <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-text">
           {displayContent}
         </pre>
         {isLong && (
           <button
+            type="button"
             onClick={onToggleExpand}
-            style={{
-              marginTop: 4, padding: 0, border: "none", cursor: "pointer",
-              background: "none", fontSize: 11, color: t.accent, fontWeight: 500,
-            }}
+            className="mt-1 p-0 text-[11px] font-medium text-accent transition-colors hover:text-accent-muted"
           >
             {expanded ? "Show less" : `Show all (${lines.length} lines)`}
           </button>
         )}
-        <div style={{ display: "flex", flexDirection: "row", gap: 6, marginTop: 10 }}>
-          <button
-            onClick={onCustomize}
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "4px 10px", borderRadius: 4, cursor: "pointer",
-              fontSize: 11, fontWeight: 500,
-              border: `1px solid ${t.surfaceBorder}`,
-              background: "transparent", color: t.textDim,
-            }}
-          >
-            <Pencil size={11} />
-            Customize for this channel
-          </button>
+        <div className="mt-2 flex gap-1.5">
+          <ActionButton
+            label="Customize for this channel"
+            onPress={onCustomize}
+            icon={<Pencil size={11} />}
+            variant="secondary"
+            size="small"
+          />
         </div>
       </div>
     </div>

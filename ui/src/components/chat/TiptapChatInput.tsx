@@ -6,11 +6,13 @@ import MentionBase from "@tiptap/extension-mention";
 import { Extension, InputRule } from "@tiptap/core";
 import { Plugin, TextSelection } from "@tiptap/pm/state";
 import { Markdown } from "tiptap-markdown";
-import { useCompletions } from "../../api/hooks/useModels";
+import { useCompletions, useModelGroups } from "../../api/hooks/useModels";
 import { AutocompleteMenu, clusterSkillPacks, scoreMatch } from "../shared/LlmPrompt";
 import { useThemeTokens } from "../../theme/tokens";
-import type { CompletionItem } from "../../types/api";
+import type { CompletionItem, SlashCommandArgSpec, SlashCommandSpec } from "../../types/api";
 import { filterSlashCommands } from "./slashCommands";
+import { filterArgItems, resolveArgSourceItems } from "./slashArgSources";
+import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
 import "./tiptap-input.css";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
@@ -73,6 +75,8 @@ export interface TiptapChatInputHandle {
 
 export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInputProps>(
   function TiptapChatInput({ text, onTextChange, onSubmit, onImagePaste, onSlashCommand, slashSurface = "channel", availableSlashCommands, disabled, autoFocus, isMobile, currentBotId, isMultiBot, placeholder = "Type a message...", chatMode = "default" }, ref) {
+    const slashCatalog = useSlashCommandList();
+    const { data: modelGroups } = useModelGroups();
     const t = useThemeTokens();
     const { data: completions } = useCompletions();
     const containerRef = useRef<HTMLDivElement>(null);
@@ -114,6 +118,10 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     const [cmdActiveIdx, setCmdActiveIdx] = useState(0);
     const cmdFilteredRef = useRef<CompletionItem[]>([]);
     const cmdActiveIdxRef = useRef(0);
+    // When the user has typed `/<cmd> ` and we're showing arg completions instead
+    // of command completions, this ref captures which command is being argued and
+    // the arg spec we're completing. Null = Mode A (command picker).
+    const cmdArgModeRef = useRef<{ commandId: SlashCommandId; argSpec: SlashCommandArgSpec } | null>(null);
     // Sync refs mirror React state so the keymap handler sees the latest value instantly
     const showMenuRef = useRef(false);
     const showCmdMenuRef = useRef(false);
@@ -122,6 +130,12 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
     useEffect(() => { activeIdxRef.current = activeIdx; }, [activeIdx]);
     useEffect(() => { cmdFilteredRef.current = cmdFiltered; }, [cmdFiltered]);
     useEffect(() => { cmdActiveIdxRef.current = cmdActiveIdx; }, [cmdActiveIdx]);
+
+    // Keep stable refs for values consumed inside editor extension closures —
+    // the extension array is memoized by placeholder/suggestion only, so bare
+    // references here would stale-close over the first render's values.
+    const slashCatalogRef = useRef<SlashCommandSpec[]>(slashCatalog);
+    useEffect(() => { slashCatalogRef.current = slashCatalog; }, [slashCatalog]);
 
     const updateMenuPos = useCallback(() => {
       if (containerRef.current) {
@@ -134,13 +148,35 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
       }
     }, []);
 
-    // Slash command detection — called from onUpdate and from the ProseMirror plugin
+    // Slash command detection — called from onUpdate and from the ProseMirror plugin.
+    // Two modes:
+    //   A) `/<partial>`           → show matching commands (command picker)
+    //   B) `/<cmd> <partial>`     → show arg completions for <cmd>'s first arg
     const detectSlashCommand = useCallback((text: string) => {
       const trimmed = text.trim();
-      // Only trigger at start of otherwise-empty input (no spaces, no newlines)
-      if (trimmed.startsWith("/") && !trimmed.includes(" ") && !trimmed.includes("\n")) {
-        const query = trimmed.slice(1);
-        const items = filterSlashCommands(query, slashSurface, availableSlashCommands);
+
+      const hide = () => {
+        if (showCmdMenuRef.current) {
+          showCmdMenuRef.current = false;
+          cmdFilteredRef.current = [];
+          setShowCmdMenu(false);
+          setCmdFiltered([]);
+        }
+        cmdArgModeRef.current = null;
+      };
+
+      if (!trimmed.startsWith("/") || trimmed.includes("\n")) {
+        hide();
+        return;
+      }
+
+      const body = trimmed.slice(1);
+      const spaceIdx = body.indexOf(" ");
+
+      if (spaceIdx === -1) {
+        // Mode A: command picker
+        cmdArgModeRef.current = null;
+        const items = filterSlashCommands(body, slashSurface, slashCatalog, availableSlashCommands);
         cmdFilteredRef.current = items;
         cmdActiveIdxRef.current = 0;
         showCmdMenuRef.current = items.length > 0;
@@ -148,13 +184,45 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
         setCmdActiveIdx(0);
         updateMenuPos();
         setShowCmdMenu(items.length > 0);
-      } else if (showCmdMenuRef.current) {
-        showCmdMenuRef.current = false;
-        cmdFilteredRef.current = [];
-        setShowCmdMenu(false);
-        setCmdFiltered([]);
+        return;
       }
-    }, [availableSlashCommands, slashSurface, updateMenuPos]);
+
+      // Mode B: arg picker for the matched command
+      const cmdId = body.slice(0, spaceIdx).toLowerCase();
+      const partial = body.slice(spaceIdx + 1);
+      const allow = availableSlashCommands ? new Set<SlashCommandId>(availableSlashCommands) : null;
+      const spec = slashCatalog.find(
+        (s) =>
+          s.id === cmdId &&
+          Array.isArray(s.surfaces) &&
+          s.surfaces.includes(slashSurface) &&
+          (!allow || allow.has(s.id)),
+      );
+      const specArgs = Array.isArray(spec?.args) ? spec!.args : [];
+      if (!spec || specArgs.length === 0) {
+        hide();
+        return;
+      }
+      const argSpec = specArgs[0];
+      if (argSpec.source === "free_text") {
+        // Free-text args get no completions — just hide the menu and let the
+        // user type. The overall `/<cmd> <title>` still resolves on submit.
+        hide();
+        return;
+      }
+      const items = filterArgItems(
+        resolveArgSourceItems(argSpec.source, argSpec.enum, modelGroups),
+        partial,
+      );
+      cmdArgModeRef.current = { commandId: spec.id, argSpec };
+      cmdFilteredRef.current = items;
+      cmdActiveIdxRef.current = 0;
+      showCmdMenuRef.current = items.length > 0;
+      setCmdFiltered(items);
+      setCmdActiveIdx(0);
+      updateMenuPos();
+      setShowCmdMenu(items.length > 0);
+    }, [availableSlashCommands, slashCatalog, slashSurface, modelGroups, updateMenuPos]);
 
     // Mention suggestion config — stable via refs
     const suggestion = useMemo(() => ({
@@ -242,9 +310,35 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               if (ed.isActive("codeBlock")) return false;
               // Let the suggestion plugin handle Enter when @-mention menu is open
               if (showMenuRef.current) return false;
-              // If slash command menu is open, execute the selected command
+              // If slash command menu is open, execute the selected command (or arg)
               if (showCmdMenuRef.current && cmdFilteredRef.current.length > 0) {
                 const item = cmdFilteredRef.current[cmdActiveIdxRef.current];
+                const argMode = cmdArgModeRef.current;
+                if (argMode) {
+                  // Mode B: submit `/<cmd> <picked-arg>`
+                  suppressUpdateRef.current = true;
+                  ed.commands.clearContent(true);
+                  suppressUpdateRef.current = false;
+                  showCmdMenuRef.current = false;
+                  setShowCmdMenu(false);
+                  cmdArgModeRef.current = null;
+                  onSlashCommandRef.current?.(argMode.commandId, [item.value]);
+                  return true;
+                }
+                // Mode A: picking a command. If it requires args, fill the
+                // editor with `/<cmd> ` so the user can provide the arg
+                // (which transitions detection into Mode B). Otherwise submit.
+                const pickedSpec = slashCatalogRef.current.find((s) => s.id === item.value);
+                const requiresArg = Array.isArray(pickedSpec?.args)
+                  ? pickedSpec!.args.some((a) => a.required)
+                  : false;
+                if (requiresArg) {
+                  // Emit the update so detectSlashCommand re-runs and the
+                  // dropdown transitions into Mode B (arg picker).
+                  ed.commands.setContent(`/${item.value} `, { emitUpdate: true });
+                  ed.commands.focus("end");
+                  return true;
+                }
                 suppressUpdateRef.current = true;
                 ed.commands.clearContent(true);
                 suppressUpdateRef.current = false;
@@ -309,9 +403,31 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               return false;
             },
             Tab: ({ editor: ed }) => {
-              // Tab selects slash command (same as Enter)
+              // Tab selects slash command / arg (same as Enter)
               if (showCmdMenuRef.current && cmdFilteredRef.current.length > 0) {
                 const item = cmdFilteredRef.current[cmdActiveIdxRef.current];
+                const argMode = cmdArgModeRef.current;
+                if (argMode) {
+                  suppressUpdateRef.current = true;
+                  ed.commands.clearContent(true);
+                  suppressUpdateRef.current = false;
+                  showCmdMenuRef.current = false;
+                  setShowCmdMenu(false);
+                  cmdArgModeRef.current = null;
+                  onSlashCommandRef.current?.(argMode.commandId, [item.value]);
+                  return true;
+                }
+                const pickedSpec = slashCatalogRef.current.find((s) => s.id === item.value);
+                const requiresArg = Array.isArray(pickedSpec?.args)
+                  ? pickedSpec!.args.some((a) => a.required)
+                  : false;
+                if (requiresArg) {
+                  // Emit the update so detectSlashCommand re-runs and the
+                  // dropdown transitions into Mode B (arg picker).
+                  ed.commands.setContent(`/${item.value} `, { emitUpdate: true });
+                  ed.commands.focus("end");
+                  return true;
+                }
                 suppressUpdateRef.current = true;
                 ed.commands.clearContent(true);
                 suppressUpdateRef.current = false;
@@ -523,6 +639,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           onHover={(i) => { setActiveIdx(i); activeIdxRef.current = i; }}
           onClose={() => setShowMenu(false)}
           anchor="bottom"
+          chatMode={chatMode}
         />
         <AutocompleteMenu
           show={showCmdMenu}
@@ -533,6 +650,7 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
           onHover={(i) => { setCmdActiveIdx(i); cmdActiveIdxRef.current = i; }}
           onClose={() => { setShowCmdMenu(false); showCmdMenuRef.current = false; }}
           anchor="bottom"
+          chatMode={chatMode}
         />
       </>
     );

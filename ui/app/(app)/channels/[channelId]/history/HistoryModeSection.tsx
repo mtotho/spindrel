@@ -1,6 +1,6 @@
 import { BookOpen } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { Section, FormRow, SelectInput } from "@/src/components/shared/FormControls";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
 import type { ChannelSettings } from "@/src/types/api";
 import {
   HISTORY_MODE_META,
@@ -14,7 +14,6 @@ export function HistoryModeSection({ form, patch, botHistoryMode, onOpenGuide }:
   botHistoryMode?: string | null;
   onOpenGuide?: () => void;
 }) {
-  const t = useThemeTokens();
   const isInherited = !form.history_mode;
   const effectiveMode = form.history_mode || botHistoryMode || "file";
   const mode = getHistoryModeMeta(effectiveMode);
@@ -23,16 +22,7 @@ export function HistoryModeSection({ form, patch, botHistoryMode, onOpenGuide }:
     <Section
       title="History Mode"
       action={onOpenGuide ? (
-        <button
-          type="button"
-          onClick={onOpenGuide}
-          className="inline-flex items-center gap-1.5 rounded-md border border-surface-border px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
-          aria-label="Read context management guide"
-          title="Read the guide"
-        >
-          <BookOpen size={12} />
-          Docs
-        </button>
+        <ActionButton label="Docs" onPress={onOpenGuide} icon={<BookOpen size={12} />} variant="secondary" size="small" />
       ) : null}
     >
       <FormRow
@@ -52,8 +42,8 @@ export function HistoryModeSection({ form, patch, botHistoryMode, onOpenGuide }:
         />
       </FormRow>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
           <span
             style={{
               fontSize: 11,
@@ -65,11 +55,11 @@ export function HistoryModeSection({ form, patch, botHistoryMode, onOpenGuide }:
           >
             {mode.label}
           </span>
-          <span style={{ fontSize: 12, color: t.text }}>
+          <span className="text-xs text-text">
             {mode.summary}
           </span>
         </div>
-        <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
+        <div className="text-xs leading-relaxed text-text-dim">
           {mode.detail}
         </div>
       </div>

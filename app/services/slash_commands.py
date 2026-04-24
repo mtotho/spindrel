@@ -3,16 +3,25 @@
 The command contract is client-agnostic: each command returns a typed result
 payload plus plain-text fallback so web, Slack, and CLI can all render the
 same semantic output in their own surfaces.
+
+The registry itself (`COMMANDS`) is a dict of `SlashCommandSpec` — each entry
+carries its own metadata, handler, and arg schema, so adding a new command is
+a single entry instead of touching a dispatcher `if/elif` chain and two
+hardcoded registries.
 """
 from __future__ import annotations
 
+import copy as _copy
 import uuid
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, Literal
 
 from pydantic import BaseModel
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
+from app.agent.context_profiles import get_context_profile, resolve_context_profile
 from app.db.models import Bot as BotRow, Channel, Session, Task
 from app.services import session_locks
 from app.services.context_breakdown import compute_context_breakdown, fetch_latest_context_budget
@@ -23,6 +32,11 @@ from app.services.session_plan_mode import (
     load_session_plan,
     resume_session_plan_mode,
 )
+
+
+# ============================================================================
+# Payload types
+# ============================================================================
 
 
 class ContextSummaryBudget(BaseModel):
@@ -47,6 +61,33 @@ class ContextSummaryCategory(BaseModel):
     description: str
 
 
+class ContextPinnedWidgetRow(BaseModel):
+    pin_id: str
+    label: str
+    summary: str
+    hint: str | None = None
+    line: str
+    chars: int
+
+
+class ContextPinnedWidgetSkipped(BaseModel):
+    pin_id: str
+    label: str
+    reason: str
+
+
+class ContextPinnedWidgetSummary(BaseModel):
+    enabled: bool
+    total_pins: int
+    exported_count: int
+    skipped_count: int
+    total_chars: int
+    truncated: bool = False
+    rows: list[ContextPinnedWidgetRow] = []
+    skipped: list[ContextPinnedWidgetSkipped] = []
+    block_text: str | None = None
+
+
 class ContextSummaryPayload(BaseModel):
     scope_kind: Literal["channel", "session"]
     scope_id: str
@@ -59,6 +100,7 @@ class ContextSummaryPayload(BaseModel):
     message_count: int | None = None
     total_chars: int | None = None
     notes: list[str] = []
+    pinned_widget_context: ContextPinnedWidgetSummary | None = None
 
 
 class SlashCommandResult(BaseModel):
@@ -69,13 +111,29 @@ class SlashCommandResult(BaseModel):
 
 
 class SideEffectPayload(BaseModel):
-    effect: Literal["stop", "compact", "plan", "effort"]
+    effect: Literal["stop", "compact", "plan", "effort", "rename", "mode"]
     scope_kind: Literal["channel", "session"]
     scope_id: str
     title: str
     detail: str
     status: Literal["queued", "started"] | None = None
     message_id: str | None = None
+
+
+class FindMatch(BaseModel):
+    message_id: str
+    session_id: str
+    role: str
+    preview: str
+    created_at: str | None = None
+
+
+class FindResultsPayload(BaseModel):
+    scope_kind: Literal["channel", "session"]
+    scope_id: str
+    query: str
+    matches: list[FindMatch] = []
+    truncated: bool = False
 
 
 class _ContextDebugMessage(BaseModel):
@@ -93,73 +151,78 @@ class _ContextDebugOut(BaseModel):
 
 
 EFFORT_LEVELS: tuple[str, ...] = ("off", "low", "medium", "high")
+CHAT_MODES: tuple[str, ...] = ("default", "terminal")
+THEMES: tuple[str, ...] = ("light", "dark")
+FIND_LIMIT = 20
 
 
-def list_supported_slash_commands() -> list[dict]:
-    """Canonical slash-command registry.
+# ============================================================================
+# Registry types
+# ============================================================================
 
-    The frontend mirrors this list at load time so both surfaces agree on
-    which commands exist, whether they take args, and what local-only
-    commands (clear / scratch) the UI should skip POSTing for.
+
+@dataclass(frozen=True)
+class SlashCommandArgSpec:
+    """Single positional argument for a slash command.
+
+    `source` controls how the frontend resolves completions:
+      - "free_text": no completion; raw user input (e.g. /rename <title>)
+      - "enum": one of `enum`; completions are the enum values
+      - "model": dynamic completion from the model catalog (useCompletions)
     """
-    return [
-        {
-            "id": "context",
-            "label": "/context",
-            "description": "Show a compact summary of the current context",
-            "local_only": False,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-        {
-            "id": "stop",
-            "label": "/stop",
-            "description": "Stop the current response",
-            "local_only": False,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-        {
-            "id": "compact",
-            "label": "/compact",
-            "description": "Compress conversation",
-            "local_only": False,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-        {
-            "id": "plan",
-            "label": "/plan",
-            "description": "Toggle plan mode",
-            "local_only": False,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-        {
-            "id": "effort",
-            "label": "/effort",
-            "description": "Set reasoning effort for this channel (off / low / medium / high)",
-            "local_only": False,
-            "accepts_args": True,
-            "arg_enum": list(EFFORT_LEVELS),
-        },
-        {
-            "id": "clear",
-            "label": "/clear",
-            "description": "Start fresh (local)",
-            "local_only": True,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-        {
-            "id": "scratch",
-            "label": "/scratch",
-            "description": "Open the scratch pad (local)",
-            "local_only": True,
-            "accepts_args": False,
-            "arg_enum": None,
-        },
-    ]
+
+    name: str
+    source: Literal["free_text", "enum", "model"]
+    required: bool = True
+    enum: tuple[str, ...] | None = None
+
+
+@dataclass
+class SlashCommandContext:
+    """Resolved context passed to a slash command handler."""
+
+    command_id: str
+    surface: Literal["channel", "session"]
+    channel: Channel | None
+    session: Session | None
+    channel_id: uuid.UUID | None
+    session_id: uuid.UUID | None
+    args: list[str]
+    db: AsyncSession
+
+
+SlashCommandHandler = Callable[[SlashCommandContext], Awaitable[SlashCommandResult]]
+
+
+@dataclass
+class SlashCommandSpec:
+    """One slash command.
+
+    Backend commands supply a `handler`. Client-only commands (clear, scratch,
+    model, theme) set `local_only=True` and have no handler — the router
+    refuses to execute them and the frontend handles them entirely.
+    """
+
+    id: str
+    label: str
+    description: str
+    surfaces: tuple[Literal["channel", "session"], ...]
+    handler: SlashCommandHandler | None = None
+    local_only: bool = False
+    args: tuple[SlashCommandArgSpec, ...] = ()
+
+
+COMMANDS: dict[str, SlashCommandSpec] = {}
+
+
+def _register(spec: SlashCommandSpec) -> SlashCommandSpec:
+    COMMANDS[spec.id] = spec
+    return spec
+
+
+# ============================================================================
+# Shared helpers (unchanged behavior from the pre-refactor code)
+# ============================================================================
 
 
 def _format_budget_headline(budget: ContextSummaryBudget | None, headline: str) -> str:
@@ -183,9 +246,50 @@ def _payload_to_fallback(payload: ContextSummaryPayload) -> str:
     lines = [headline]
     for cat in payload.top_categories[:3]:
         lines.append(f"- {cat.label}: {cat.tokens_approx:,} tok ({round(cat.percentage * 100)}%)")
+    if payload.pinned_widget_context is not None:
+        pinned = payload.pinned_widget_context
+        if not pinned.enabled:
+            lines.append("- Pinned widgets: disabled for this channel")
+        elif pinned.exported_count > 0:
+            lines.append(
+                f"- Pinned widgets: {pinned.exported_count} exported"
+                + (f", {pinned.skipped_count} skipped" if pinned.skipped_count else "")
+            )
+        elif pinned.total_pins > 0:
+            lines.append("- Pinned widgets: no exportable rows")
     for note in payload.notes[:2]:
         lines.append(f"- {note}")
     return "\n".join(lines)
+
+
+async def _build_pinned_widget_context_summary(
+    *,
+    db: AsyncSession,
+    channel: Channel | None,
+    bot_id: str,
+    profile_name: str = "chat",
+) -> ContextPinnedWidgetSummary | None:
+    from app.services.widget_context import (
+        build_pinned_widget_context_snapshot,
+        fetch_channel_pin_dicts,
+        is_pinned_widget_context_enabled,
+    )
+
+    if channel is None:
+        return None
+    pins = await fetch_channel_pin_dicts(db, channel.id)
+    profile = get_context_profile(profile_name)
+    enabled = profile.allow_pinned_widgets and is_pinned_widget_context_enabled(channel.config or {})
+    disabled_reason = "profile_disabled" if not profile.allow_pinned_widgets else "channel_disabled"
+    snapshot = await build_pinned_widget_context_snapshot(
+        db,
+        pins,
+        bot_id=bot_id,
+        channel_id=str(channel.id),
+        enabled=enabled,
+        disabled_reason=disabled_reason,
+    )
+    return ContextPinnedWidgetSummary(**snapshot)
 
 
 def _side_effect_result(payload: SideEffectPayload, *, command_id: str) -> SlashCommandResult:
@@ -201,8 +305,17 @@ async def _build_channel_context_summary(
     channel_id: uuid.UUID,
     db: AsyncSession,
 ) -> SlashCommandResult:
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        raise LookupError("Channel not found")
     breakdown = await compute_context_breakdown(str(channel_id), db, mode="last_turn")
     budget_dict = await fetch_latest_context_budget(channel_id, db)
+    pinned_widget_context = await _build_pinned_widget_context_summary(
+        db=db,
+        channel=channel,
+        bot_id=breakdown.bot_id,
+        profile_name="chat",
+    )
     top_categories = sorted(
         [c for c in breakdown.categories if c.tokens_approx > 0],
         key=lambda c: c.tokens_approx,
@@ -243,6 +356,7 @@ async def _build_channel_context_summary(
             ),
             f"Compaction {'on' if breakdown.compaction.enabled else 'off'}",
         ],
+        pinned_widget_context=pinned_widget_context,
     )
     payload.notes = [note for note in payload.notes if note]
     return SlashCommandResult(
@@ -253,7 +367,11 @@ async def _build_channel_context_summary(
     )
 
 
-def _summarize_session_context(debug: _ContextDebugOut) -> SlashCommandResult:
+def _summarize_session_context(
+    debug: _ContextDebugOut,
+    *,
+    pinned_widget_context: ContextPinnedWidgetSummary | None = None,
+) -> SlashCommandResult:
     assistant_like = [m for m in debug.messages if m.role in {"assistant", "system"}]
     top_messages = sorted(assistant_like, key=lambda m: m.chars, reverse=True)[:4]
     notes: list[str] = []
@@ -283,6 +401,7 @@ def _summarize_session_context(debug: _ContextDebugOut) -> SlashCommandResult:
         message_count=debug.message_count,
         total_chars=debug.total_chars,
         notes=notes,
+        pinned_widget_context=pinned_widget_context,
     )
     return SlashCommandResult(
         command_id="context",
@@ -298,7 +417,6 @@ async def _build_session_context_summary(
 ) -> SlashCommandResult:
     from app.agent.bots import get_bot
     from app.agent.context_assembly import AssemblyResult, assemble_context
-    from app.agent.context_profiles import resolve_context_profile
     from app.services.sessions import _load_messages
 
     session = await db.get(Session, session_id)
@@ -306,6 +424,8 @@ async def _build_session_context_summary(
         raise LookupError("Session not found")
 
     bot = get_bot(session.bot_id)
+    channel = await db.get(Channel, session.channel_id) if session.channel_id else None
+    profile = resolve_context_profile(session=session)
     messages = await _load_messages(db, session)
     result = AssemblyResult()
     async for _event in assemble_context(
@@ -321,7 +441,7 @@ async def _build_session_context_summary(
         attachments=None,
         native_audio=False,
         result=result,
-        context_profile_name=resolve_context_profile(session=session).name,
+        context_profile_name=profile.name,
     ):
         pass
 
@@ -347,7 +467,13 @@ async def _build_session_context_summary(
         total_chars=total_chars,
         messages=out_messages,
     )
-    return _summarize_session_context(debug)
+    pinned_widget_context = await _build_pinned_widget_context_summary(
+        db=db,
+        channel=channel,
+        bot_id=session.bot_id,
+        profile_name=profile.name,
+    )
+    return _summarize_session_context(debug, pinned_widget_context=pinned_widget_context)
 
 
 async def _stop_session(
@@ -427,9 +553,6 @@ async def _set_channel_effort(
     Level `off` clears the override so the bot falls back to its configured
     default. Any other level must be one of the canonical EFFORT_LEVELS.
     """
-    import copy as _copy
-    from sqlalchemy.orm.attributes import flag_modified
-
     level = (args[0].strip().lower() if args else "").strip()
     if not level:
         raise ValueError(
@@ -523,6 +646,427 @@ async def _toggle_plan_mode(
     return _side_effect_result(payload, command_id="plan")
 
 
+# ============================================================================
+# Handlers — thin ctx adapters over the shared helpers above
+# ============================================================================
+
+
+async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface == "channel":
+        assert ctx.channel_id is not None
+        return await _build_channel_context_summary(ctx.channel_id, ctx.db)
+    assert ctx.session_id is not None
+    return await _build_session_context_summary(ctx.session_id, ctx.db)
+
+
+async def _stop_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface == "channel":
+        assert ctx.channel is not None and ctx.channel_id is not None
+        if ctx.channel.active_session_id is None:
+            raise LookupError("Channel has no active conversation")
+        return await _stop_session(
+            session_id=ctx.channel.active_session_id,
+            scope_kind="channel",
+            scope_id=ctx.channel_id,
+            db=ctx.db,
+        )
+    assert ctx.session_id is not None
+    return await _stop_session(
+        session_id=ctx.session_id,
+        scope_kind="session",
+        scope_id=ctx.session_id,
+        db=ctx.db,
+    )
+
+
+async def _compact_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface == "channel":
+        assert ctx.channel is not None and ctx.channel_id is not None
+        if ctx.channel.active_session_id is None:
+            raise LookupError("Channel has no active conversation")
+        return await _compact_session(
+            session_id=ctx.channel.active_session_id,
+            scope_kind="channel",
+            scope_id=ctx.channel_id,
+            db=ctx.db,
+        )
+    assert ctx.session_id is not None
+    return await _compact_session(
+        session_id=ctx.session_id,
+        scope_kind="session",
+        scope_id=ctx.session_id,
+        db=ctx.db,
+    )
+
+
+async def _plan_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface == "channel":
+        assert ctx.channel is not None and ctx.channel_id is not None
+        if ctx.channel.active_session_id is None:
+            raise LookupError("Channel has no active conversation")
+        session = await ctx.db.get(Session, ctx.channel.active_session_id)
+        if session is None:
+            raise LookupError("Session not found")
+        return await _toggle_plan_mode(
+            session=session,
+            scope_kind="channel",
+            scope_id=ctx.channel_id,
+            channel=ctx.channel,
+            db=ctx.db,
+        )
+    assert ctx.session is not None and ctx.session_id is not None
+    channel = (
+        await ctx.db.get(Channel, ctx.session.channel_id)
+        if ctx.session.channel_id
+        else None
+    )
+    return await _toggle_plan_mode(
+        session=ctx.session,
+        scope_kind="session",
+        scope_id=ctx.session_id,
+        channel=channel,
+        db=ctx.db,
+    )
+
+
+async def _effort_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    if ctx.surface != "channel":
+        raise ValueError("/effort is a channel setting; not available on sessions")
+    assert ctx.channel is not None and ctx.channel_id is not None
+    return await _set_channel_effort(
+        channel=ctx.channel,
+        channel_id=ctx.channel_id,
+        args=ctx.args,
+        db=ctx.db,
+    )
+
+
+# ============================================================================
+# New handlers: /help, /find, /rename, /mode
+# ============================================================================
+
+
+async def _help_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """List commands available on the current surface as a context_summary.
+
+    Reusing the existing `context_summary` renderer means `/help` doesn't
+    require a new frontend component — each command becomes a "category" row.
+    """
+    available = [s for s in COMMANDS.values() if ctx.surface in s.surfaces]
+    categories = [
+        ContextSummaryCategory(
+            key=s.id,
+            label=s.label,
+            tokens_approx=0,
+            percentage=0.0,
+            description=s.description,
+        )
+        for s in available
+    ]
+    scope_id = str(ctx.channel_id if ctx.surface == "channel" else ctx.session_id)
+    bot_id = ""
+    if ctx.channel is not None and ctx.channel.bot_id:
+        bot_id = str(ctx.channel.bot_id)
+    elif ctx.session is not None:
+        bot_id = str(ctx.session.bot_id)
+    payload = ContextSummaryPayload(
+        scope_kind=ctx.surface,
+        scope_id=scope_id,
+        session_id=str(ctx.session_id) if ctx.session_id else None,
+        bot_id=bot_id,
+        title="Available commands",
+        headline=f"{len(available)} slash commands available here",
+        top_categories=categories,
+        notes=[],
+    )
+    fallback = "\n".join(f"{c.label} — {c.description}" for c in categories)
+    return SlashCommandResult(
+        command_id="help",
+        result_type="context_summary",
+        payload=payload.model_dump(),
+        fallback_text=fallback,
+    )
+
+
+async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """Keyword search over recent messages in the current channel.
+
+    Returns a `find_results` payload the frontend renders as a clickable
+    list; clicking a row scrolls the chat feed to that message.
+    """
+    from app.tools.local.search_history import _build_query, _serialize_messages
+
+    if ctx.surface != "channel":
+        raise ValueError("/find is only available in channel scope")
+    assert ctx.channel is not None and ctx.channel_id is not None
+
+    query = " ".join(ctx.args).strip()
+    if not query:
+        raise ValueError("/find requires a search query")
+
+    stmt = _build_query(
+        channel_id=ctx.channel_id,
+        bot_id=ctx.channel.bot_id,
+        query=query,
+        limit=FIND_LIMIT,
+    )
+    rows = (await ctx.db.execute(stmt)).scalars().all()
+    serialized = _serialize_messages(rows)
+    matches = [
+        FindMatch(
+            message_id=r["id"],
+            session_id=r["session_id"],
+            role=r["role"],
+            preview=r["content_preview"],
+            created_at=r["created_at"],
+        )
+        for r in serialized
+    ]
+    payload = FindResultsPayload(
+        scope_kind="channel",
+        scope_id=str(ctx.channel_id),
+        query=query,
+        matches=matches,
+        truncated=len(matches) >= FIND_LIMIT,
+    )
+    count = len(matches)
+    fallback = (
+        f"{count} match{'es' if count != 1 else ''} for {query!r}"
+        + (" (more results truncated)" if payload.truncated else "")
+    )
+    return SlashCommandResult(
+        command_id="find",
+        result_type="find_results",
+        payload=payload.model_dump(),
+        fallback_text=fallback,
+    )
+
+
+async def _rename_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """Rename the channel (surface=channel) or session (surface=session)."""
+    new_title = " ".join(ctx.args).strip()
+    if not new_title:
+        raise ValueError("/rename requires a title")
+    new_title = new_title[:200]
+
+    if ctx.surface == "channel":
+        assert ctx.channel is not None and ctx.channel_id is not None
+        ctx.channel.name = new_title
+        await ctx.db.commit()
+        scope_id = str(ctx.channel_id)
+        noun = "Channel"
+    else:
+        assert ctx.session is not None and ctx.session_id is not None
+        ctx.session.title = new_title
+        await ctx.db.commit()
+        scope_id = str(ctx.session_id)
+        noun = "Session"
+
+    payload = SideEffectPayload(
+        effect="rename",
+        scope_kind=ctx.surface,
+        scope_id=scope_id,
+        title=f"Renamed to {new_title!r}",
+        detail=f"{noun} renamed to {new_title!r}.",
+    )
+    return _side_effect_result(payload, command_id="rename")
+
+
+async def _mode_handler(ctx: SlashCommandContext) -> SlashCommandResult:
+    """Set or toggle `channel.config['chat_mode']`.
+
+    No arg → toggle between default and terminal. With arg → set explicitly.
+    `default` is stored as "no key" (mirrors the PATCH config endpoint's
+    treatment so the channel config stays tidy).
+    """
+    if ctx.surface != "channel":
+        raise ValueError("/mode is a channel setting; not available on sessions")
+    assert ctx.channel is not None and ctx.channel_id is not None
+
+    current = (ctx.channel.config or {}).get("chat_mode", "default")
+    if ctx.args:
+        target = ctx.args[0].strip().lower()
+        if target not in CHAT_MODES:
+            raise ValueError(
+                f"Unknown chat mode {target!r}. Must be one of: {', '.join(CHAT_MODES)}"
+            )
+    else:
+        target = "terminal" if current == "default" else "default"
+
+    cfg = _copy.deepcopy(ctx.channel.config or {})
+    if target == "default":
+        cfg.pop("chat_mode", None)
+    else:
+        cfg["chat_mode"] = target
+    ctx.channel.config = cfg
+    flag_modified(ctx.channel, "config")
+    await ctx.db.commit()
+
+    payload = SideEffectPayload(
+        effect="mode",
+        scope_kind="channel",
+        scope_id=str(ctx.channel_id),
+        title=f"Chat mode: {target}",
+        detail=f"Chat mode set to {target}.",
+    )
+    return _side_effect_result(payload, command_id="mode")
+
+
+# ============================================================================
+# Registry — ordering here controls `/help` output and dropdown order
+# ============================================================================
+
+
+_register(SlashCommandSpec(
+    id="help",
+    label="/help",
+    description="List available commands",
+    surfaces=("channel", "session"),
+    handler=_help_handler,
+))
+
+_register(SlashCommandSpec(
+    id="context",
+    label="/context",
+    description="Show a compact summary of the current context",
+    surfaces=("channel", "session"),
+    handler=_context_handler,
+))
+
+_register(SlashCommandSpec(
+    id="find",
+    label="/find",
+    description="Search recent messages in this channel",
+    surfaces=("channel",),
+    handler=_find_handler,
+    args=(SlashCommandArgSpec(name="query", source="free_text", required=True),),
+))
+
+_register(SlashCommandSpec(
+    id="rename",
+    label="/rename",
+    description="Rename this channel or session",
+    surfaces=("channel", "session"),
+    handler=_rename_handler,
+    args=(SlashCommandArgSpec(name="title", source="free_text", required=True),),
+))
+
+_register(SlashCommandSpec(
+    id="model",
+    label="/model",
+    description="Set the model for this chat",
+    surfaces=("channel", "session"),
+    local_only=True,
+    args=(SlashCommandArgSpec(name="model_id", source="model", required=True),),
+))
+
+_register(SlashCommandSpec(
+    id="mode",
+    label="/mode",
+    description="Switch chat mode (default / terminal)",
+    surfaces=("channel",),
+    handler=_mode_handler,
+    args=(SlashCommandArgSpec(name="mode", source="enum", required=False, enum=CHAT_MODES),),
+))
+
+_register(SlashCommandSpec(
+    id="theme",
+    label="/theme",
+    description="Toggle or set the theme (light / dark)",
+    surfaces=("channel", "session"),
+    local_only=True,
+    args=(SlashCommandArgSpec(name="theme", source="enum", required=False, enum=THEMES),),
+))
+
+_register(SlashCommandSpec(
+    id="stop",
+    label="/stop",
+    description="Stop the current response",
+    surfaces=("channel", "session"),
+    handler=_stop_handler,
+))
+
+_register(SlashCommandSpec(
+    id="compact",
+    label="/compact",
+    description="Compress conversation",
+    surfaces=("channel", "session"),
+    handler=_compact_handler,
+))
+
+_register(SlashCommandSpec(
+    id="plan",
+    label="/plan",
+    description="Toggle plan mode",
+    surfaces=("channel", "session"),
+    handler=_plan_handler,
+))
+
+_register(SlashCommandSpec(
+    id="effort",
+    label="/effort",
+    description="Set reasoning effort (off / low / medium / high)",
+    surfaces=("channel",),
+    handler=_effort_handler,
+    args=(SlashCommandArgSpec(name="level", source="enum", required=True, enum=EFFORT_LEVELS),),
+))
+
+_register(SlashCommandSpec(
+    id="clear",
+    label="/clear",
+    description="Start fresh (local)",
+    surfaces=("channel",),
+    local_only=True,
+))
+
+_register(SlashCommandSpec(
+    id="scratch",
+    label="/scratch",
+    description="Open the scratch pad (local)",
+    surfaces=("channel",),
+    local_only=True,
+))
+
+
+# ============================================================================
+# Public API
+# ============================================================================
+
+
+def list_supported_slash_commands() -> list[dict]:
+    """Canonical slash-command registry.
+
+    The frontend fetches this at load time via `GET /api/v1/slash-commands`
+    so there is one source of truth. Shape:
+
+        {
+            id, label, description,
+            surfaces: ["channel"|"session", ...],
+            local_only: bool,
+            args: [{ name, source, required, enum | null }, ...]
+        }
+    """
+    return [
+        {
+            "id": s.id,
+            "label": s.label,
+            "description": s.description,
+            "surfaces": list(s.surfaces),
+            "local_only": s.local_only,
+            "args": [
+                {
+                    "name": a.name,
+                    "source": a.source,
+                    "required": a.required,
+                    "enum": list(a.enum) if a.enum else None,
+                }
+                for a in s.args
+            ],
+        }
+        for s in COMMANDS.values()
+    ]
+
+
 async def execute_slash_command(
     *,
     command_id: str,
@@ -535,78 +1079,62 @@ async def execute_slash_command(
         raise ValueError("Exactly one of channel_id or session_id is required")
     args = list(args or [])
 
+    spec = COMMANDS.get(command_id)
+    if spec is None:
+        raise ValueError(f"Unsupported slash command: {command_id}")
+    if spec.local_only:
+        raise ValueError(
+            f"Command {command_id!r} is client-only and should not be executed via the backend"
+        )
+    if spec.handler is None:
+        raise ValueError(f"Command {command_id!r} has no backend handler")
+
+    surface: Literal["channel", "session"] = (
+        "channel" if channel_id is not None else "session"
+    )
+    if surface not in spec.surfaces:
+        raise ValueError(
+            f"/{command_id} is not available in {surface} scope"
+        )
+
+    required_count = sum(1 for a in spec.args if a.required)
+    if len(args) < required_count:
+        required_names = ", ".join(a.name for a in spec.args if a.required)
+        raise ValueError(
+            f"/{command_id} requires {required_count} arg(s): {required_names}"
+        )
+    if spec.args:
+        for i, arg_spec in enumerate(spec.args):
+            if i >= len(args):
+                break
+            if arg_spec.source == "enum" and arg_spec.enum:
+                if args[i].strip().lower() not in arg_spec.enum:
+                    raise ValueError(
+                        f"Invalid {arg_spec.name} {args[i]!r}. "
+                        f"Must be one of: {', '.join(arg_spec.enum)}"
+                    )
+    elif args:
+        raise ValueError(f"/{command_id} takes no arguments")
+
+    channel: Channel | None = None
+    session: Session | None = None
     if channel_id is not None:
         channel = await db.get(Channel, channel_id)
         if channel is None:
             raise LookupError("Channel not found")
-        if command_id == "context":
-            return await _build_channel_context_summary(channel_id, db)
-        if command_id == "stop":
-            if channel.active_session_id is None:
-                raise LookupError("Channel has no active conversation")
-            return await _stop_session(
-                session_id=channel.active_session_id,
-                scope_kind="channel",
-                scope_id=channel_id,
-                db=db,
-            )
-        if command_id == "compact":
-            if channel.active_session_id is None:
-                raise LookupError("Channel has no active conversation")
-            return await _compact_session(
-                session_id=channel.active_session_id,
-                scope_kind="channel",
-                scope_id=channel_id,
-                db=db,
-            )
-        if command_id == "plan":
-            if channel.active_session_id is None:
-                raise LookupError("Channel has no active conversation")
-            session = await db.get(Session, channel.active_session_id)
-            if session is None:
-                raise LookupError("Session not found")
-            return await _toggle_plan_mode(
-                session=session,
-                scope_kind="channel",
-                scope_id=channel_id,
-                channel=channel,
-                db=db,
-            )
-        if command_id == "effort":
-            return await _set_channel_effort(
-                channel=channel,
-                channel_id=channel_id,
-                args=args,
-                db=db,
-            )
-        raise ValueError(f"Unsupported slash command: {command_id}")
-
-    if command_id == "context":
-        return await _build_session_context_summary(session_id, db)
-    if command_id == "stop":
-        return await _stop_session(
-            session_id=session_id,
-            scope_kind="session",
-            scope_id=session_id,
-            db=db,
-        )
-    if command_id == "compact":
-        return await _compact_session(
-            session_id=session_id,
-            scope_kind="session",
-            scope_id=session_id,
-            db=db,
-        )
-    if command_id == "plan":
+    else:
         session = await db.get(Session, session_id)
         if session is None:
             raise LookupError("Session not found")
-        channel = await db.get(Channel, session.channel_id) if session.channel_id else None
-        return await _toggle_plan_mode(
-            session=session,
-            scope_kind="session",
-            scope_id=session_id,
-            channel=channel,
-            db=db,
-        )
-    raise ValueError(f"Unsupported slash command: {command_id}")
+
+    ctx = SlashCommandContext(
+        command_id=command_id,
+        surface=surface,
+        channel=channel,
+        session=session,
+        channel_id=channel_id,
+        session_id=session_id,
+        args=args,
+        db=db,
+    )
+    return await spec.handler(ctx)

@@ -33,6 +33,11 @@ class ContextProfile:
     allow_tool_index: bool
     mandatory_static_injections: tuple[str, ...] = ()
     optional_static_injections: tuple[str, ...] = ()
+    # When set, overrides ``settings.IN_LOOP_PRUNING_KEEP_ITERATIONS`` for this
+    # profile. Long-running task profiles (hygiene, skill review) need a larger
+    # window than chat because they sweep many channels per run and otherwise
+    # re-fetch pruned tool results via ``section="tool:<uuid>"``.
+    keep_iterations_override: int | None = None
 
     def to_policy_dict(self) -> dict[str, Any]:
         return {
@@ -156,6 +161,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_tool_refusal_guard=False,
         allow_tool_index=False,
         optional_static_injections=("context_profile_note",),
+        keep_iterations_override=8,
     ),
     "heartbeat": ContextProfile(
         name="heartbeat",

@@ -39,6 +39,17 @@ _SCHEMA = {
                     "type": "string",
                     "description": "Optional. Only needed for cross-channel reads (from list_channels). Omit to read the current channel.",
                 },
+                "channel_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional. Pass a list of channel IDs to read the same section "
+                        "across multiple channels in one tool call. Results are concatenated "
+                        "with per-channel headers. Cap 10. Prefer this to issuing N sequential "
+                        "single-channel calls during hygiene / dreaming runs. Ignored when "
+                        "`section` targets a prior tool result (`tool:<id>`)."
+                    ),
+                },
             },
             "required": ["section"],
         },
@@ -218,8 +229,38 @@ def _extract_snippet(text: str, query: str, context_chars: int = 100) -> str | N
     return snippet
 
 
+_MULTI_CHANNEL_CAP = 10
+
+
 @register(_SCHEMA, requires_bot_context=True, requires_channel_context=True)
-async def read_conversation_history(section: str, channel_id: str | None = None) -> str:
+async def read_conversation_history(
+    section: str,
+    channel_id: str | None = None,
+    channel_ids: list[str] | None = None,
+) -> str:
+    # Multi-channel fan-out: loop the single-channel path below and stitch
+    # the markdown outputs together with per-channel headers. Keeps hygiene
+    # runs that sweep N channels at one iteration instead of N.
+    if channel_ids:
+        ids = [str(cid) for cid in channel_ids if str(cid or "").strip()]
+        if not ids:
+            return "channel_ids was provided but empty — pass at least one channel ID."
+        if len(ids) > _MULTI_CHANNEL_CAP:
+            return (
+                f"channel_ids too large ({len(ids)} > {_MULTI_CHANNEL_CAP}). "
+                "Chunk the list or drop channels not relevant to this run."
+            )
+        if section.strip().lower().startswith("tool:"):
+            return (
+                "channel_ids is not supported when section targets a prior tool "
+                "result (tool:<id>). Use a single channel_id instead."
+            )
+        blocks: list[str] = []
+        for cid in ids:
+            sub = await read_conversation_history(section=section, channel_id=cid)
+            blocks.append(f"### Channel {cid}\n\n{sub}")
+        return "\n\n".join(blocks)
+
     my_channel_id = current_channel_id.get()
     my_session_id = current_session_id.get()
     bot_id = current_bot_id.get()

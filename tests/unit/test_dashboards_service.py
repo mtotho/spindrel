@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from app.domain.errors import DomainError
 
 from app.db.models import Channel
 from app.services.dashboard_pins import create_pin, list_pins
@@ -54,25 +54,25 @@ async def test_create_and_list(db_session):
 @pytest.mark.asyncio
 async def test_create_rejects_reserved_slug(db_session):
     for reserved in ("default", "dev", "new"):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await create_dashboard(db_session, slug=reserved, name="X")
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
 
 
 @pytest.mark.asyncio
 async def test_create_rejects_bad_slug_format(db_session):
     for bad in ("Caps", "with space", "-leading", "", "a" * 49):
-        with pytest.raises(HTTPException) as exc:
+        with pytest.raises(DomainError) as exc:
             await create_dashboard(db_session, slug=bad, name="X")
-        assert exc.value.status_code == 400
+        assert exc.value.http_status == 400
 
 
 @pytest.mark.asyncio
 async def test_create_rejects_duplicate_slug(db_session):
     await create_dashboard(db_session, slug="home", name="Home")
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await create_dashboard(db_session, slug="home", name="Home Again")
-    assert exc.value.status_code == 409
+    assert exc.value.http_status == 409
 
 
 @pytest.mark.asyncio
@@ -90,16 +90,16 @@ async def test_update_changes_metadata(db_session):
 async def test_delete_removes_dashboard(db_session):
     await create_dashboard(db_session, slug="home", name="Home")
     await delete_dashboard(db_session, "home")
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await get_dashboard(db_session, "home")
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404
 
 
 @pytest.mark.asyncio
 async def test_delete_default_is_forbidden(db_session):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await delete_dashboard(db_session, "default")
-    assert exc.value.status_code == 400
+    assert exc.value.http_status == 400
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_delete_cascades_pins(db_session):
         dashboard_key="home",
     )
     await delete_dashboard(db_session, "home")
-    with pytest.raises(HTTPException):
+    with pytest.raises(DomainError):
         await get_dashboard(db_session, "home")
     pins = await list_pins(db_session, dashboard_key="home")
     assert pins == []
@@ -127,12 +127,12 @@ async def test_touch_last_viewed_drives_redirect_target(db_session):
 
 @pytest.mark.asyncio
 async def test_create_pin_rejects_unknown_dashboard(db_session):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await create_pin(
             db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
             dashboard_key="nope",
         )
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404
 
 
 # ---------------------------------------------------------------------------
@@ -158,9 +158,9 @@ def test_channel_slug_helpers():
 async def test_create_rejects_channel_prefix(db_session):
     """User-facing create never lands on the reserved prefix — slug validator
     rejects the colon first, but we want the clearer message anyway."""
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await create_dashboard(db_session, slug="channel:not-a-uuid", name="X")
-    assert exc.value.status_code == 400
+    assert exc.value.http_status == 400
 
 
 @pytest.mark.asyncio
@@ -182,9 +182,9 @@ async def test_ensure_channel_dashboard_is_idempotent(db_session):
 @pytest.mark.asyncio
 async def test_ensure_channel_dashboard_requires_channel(db_session):
     ghost = uuid.uuid4()
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await ensure_channel_dashboard(db_session, ghost)
-    assert exc.value.status_code == 404
+    assert exc.value.http_status == 404
 
 
 @pytest.mark.asyncio
@@ -227,12 +227,12 @@ async def test_channel_dashboard_pin_requires_source_channel_id(db_session):
     slug = channel_slug(ch.id)
 
     # Missing source_channel_id → 400.
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(DomainError) as exc:
         await create_pin(
             db_session, source_kind="adhoc", tool_name="t", envelope=_env(),
             dashboard_key=slug,
         )
-    assert exc.value.status_code == 400
+    assert exc.value.http_status == 400
 
     # With it, lazy-create kicks in on the first pin and we land cleanly.
     pin = await create_pin(
@@ -300,7 +300,7 @@ async def test_channel_dashboard_delete_removes_pins(db_session):
 
     pins = await list_pins(db_session, dashboard_key=slug)
     assert pins == []
-    with pytest.raises(HTTPException):
+    with pytest.raises(DomainError):
         await get_dashboard(db_session, slug)
 
 

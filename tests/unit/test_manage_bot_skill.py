@@ -442,6 +442,125 @@ class TestUpdate:
         assert "at least one" in result["error"]
 
 
+class TestGetMany:
+    """Batch form: action='get' + names=[...] — one call returns multiple
+    skill bodies. Prevents the N-iterations-for-N-skills pattern seen in
+    the 2026-04-23 skill-review trace."""
+
+    @pytest.mark.asyncio
+    async def test_returns_all_requested_when_all_exist(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        for n in ("alpha", "beta", "gamma"):
+            db_session.add(build_bot_skill(bot_id="testbot", name=n, content=f"{n} body " * 10))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="get", names=["alpha", "beta", "gamma"],
+        ))
+
+        assert "skills" in result
+        assert "missing" in result
+        assert result["missing"] == []
+        assert len(result["skills"]) == 3
+        names_returned = {s["name"] for s in result["skills"]}
+        assert names_returned == {"alpha", "beta", "gamma"}
+        for s in result["skills"]:
+            assert "content" in s and s["content"]
+
+    @pytest.mark.asyncio
+    async def test_reports_missing_skills(
+        self, db_session, patched_async_sessions, agent_context,
+    ):
+        db_session.add(build_bot_skill(bot_id="testbot", name="real", content="real body " * 10))
+        await db_session.commit()
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="get", names=["real", "does-not-exist", "also-missing"],
+        ))
+
+        assert [s["name"] for s in result["skills"]] == ["real"]
+        assert set(result["missing"]) == {"does-not-exist", "also-missing"}
+
+    @pytest.mark.asyncio
+    async def test_cap_rejects_oversized_batch(
+        self, patched_async_sessions, agent_context,
+    ):
+        agent_context(bot_id="testbot")
+        result = json.loads(await manage_bot_skill(
+            action="get", names=[f"s{i}" for i in range(51)],
+        ))
+        assert "error" in result
+        assert "50" in result["error"] or "Too many" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_empty_names_falls_back_to_single_name_error(
+        self, patched_async_sessions, agent_context,
+    ):
+        # names=[] should NOT trigger the batch path; falls through to the
+        # single-name branch which requires `name`.
+        agent_context(bot_id="testbot")
+        result = json.loads(await manage_bot_skill(action="get", names=[]))
+        assert "error" in result
+        assert "name is required" in result["error"]
+
+
+class TestUpsert:
+    """upsert: one-call create-or-update so hygiene runs don't burn an iteration
+    on the 'already exists' round-trip seen in trace 2."""
+
+    @pytest.mark.asyncio
+    async def test_when_name_missing_then_error_returned(self, agent_context):
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(action="upsert"))
+
+        assert "name" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_when_skill_does_not_exist_then_creates_it(
+        self, db_session, patched_async_sessions, agent_context,
+        embed_skill_patch, dedup_patch,
+    ):
+        agent_context(bot_id="testbot")
+        body = "# New Skill\n\nFresh content. " + "x" * 60
+
+        result = json.loads(await manage_bot_skill(
+            action="upsert", name="fresh", title="Fresh Skill",
+            content=body, triggers="foo, bar", category="procedures",
+        ))
+
+        assert result["ok"] is True
+        assert result["id"] == "bots/testbot/fresh"
+        row = await db_session.get(Skill, "bots/testbot/fresh")
+        assert row is not None
+        assert row.triggers == ["foo", "bar"]
+        assert row.category == "procedures"
+
+    @pytest.mark.asyncio
+    async def test_when_skill_exists_then_updates_it(
+        self, db_session, patched_async_sessions, agent_context, embed_skill_patch,
+    ):
+        skill = build_bot_skill(bot_id="testbot", name="existing")
+        db_session.add(skill)
+        await db_session.commit()
+        original_hash = skill.content_hash
+        agent_context(bot_id="testbot")
+
+        result = json.loads(await manage_bot_skill(
+            action="upsert", name="existing",
+            content="rewritten body " + "x" * 60,
+        ))
+
+        assert result["ok"] is True
+        assert "updated" in result["message"].lower()
+        await db_session.refresh(skill)
+        assert skill.content_hash != original_hash
+        assert "rewritten body" in skill.content
+
+
 class TestDelete:
 
     @pytest.mark.asyncio

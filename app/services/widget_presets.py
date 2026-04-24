@@ -5,7 +5,7 @@ import importlib
 import json
 from typing import Any
 
-from fastapi import HTTPException
+from app.domain.errors import DomainError, InternalError, NotFoundError, ValidationError
 
 from app.services.integration_manifests import get_all_manifests
 from app.services.widget_contracts import (
@@ -15,7 +15,7 @@ from app.services.widget_contracts import (
     normalize_config_schema,
 )
 from app.services.widget_preview import PreviewEnvelope, preview_active_widget_for_tool
-from app.services.widget_templates import _substitute
+from app.services.widget_templates import substitute
 
 
 class WidgetPresetValidationError(ValueError):
@@ -143,7 +143,7 @@ def get_widget_preset(preset_id: str) -> dict[str, Any]:
     for preset in _iter_presets():
         if preset.get("id") == preset_id:
             return preset
-    raise HTTPException(404, f"Unknown widget preset '{preset_id}'")
+    raise NotFoundError(f"Unknown widget preset '{preset_id}'")
 
 
 def serialize_widget_preset(preset: dict[str, Any]) -> dict[str, Any]:
@@ -224,7 +224,7 @@ async def resolve_preset_binding_options(
                 source_bot_id=source_bot_id,
                 source_channel_id=source_channel_id,
             )
-        except HTTPException as exc:
+        except DomainError as exc:
             errors_by_source[source_id] = str(exc.detail)
             options_by_source[source_id] = []
         except Exception as exc:
@@ -240,7 +240,7 @@ def _load_transform(ref: str):
     try:
         return getattr(module, func_name)
     except AttributeError as exc:
-        raise HTTPException(500, f"Widget preset transform '{ref}' not found") from exc
+        raise InternalError(f"Widget preset transform '{ref}' not found") from exc
 
 
 def _normalize_tool_result(parsed_result: Any, raw_result: str | None) -> str:
@@ -294,13 +294,13 @@ async def list_binding_options(
     preset = get_widget_preset(preset_id)
     source = (preset.get("binding_sources") or {}).get(source_id)
     if not isinstance(source, dict):
-        raise HTTPException(404, f"Unknown binding source '{source_id}' for preset '{preset_id}'")
+        raise NotFoundError(f"Unknown binding source '{source_id}' for preset '{preset_id}'")
     tool_name = source.get("tool")
     transform_ref = source.get("transform")
     if not isinstance(tool_name, str) or not tool_name.strip():
-        raise HTTPException(400, f"Preset '{preset_id}' binding source '{source_id}' missing tool")
+        raise ValidationError(f"Preset '{preset_id}' binding source '{source_id}' missing tool")
     if not isinstance(transform_ref, str) or not transform_ref.strip():
-        raise HTTPException(400, f"Preset '{preset_id}' binding source '{source_id}' missing transform")
+        raise ValidationError(f"Preset '{preset_id}' binding source '{source_id}' missing transform")
 
     parsed_result, raw_result = await execute_tool_with_context(
         tool_name,
@@ -320,7 +320,7 @@ async def list_binding_options(
         },
     )
     if not isinstance(options, list):
-        raise HTTPException(500, f"Preset '{preset_id}' binding source '{source_id}' returned invalid options")
+        raise InternalError(f"Preset '{preset_id}' binding source '{source_id}' returned invalid options")
     return options
 
 
@@ -333,8 +333,8 @@ def resolve_runtime_args(
 ) -> dict[str, Any]:
     runtime_args = preset.get("runtime", {}).get("tool_args") or {}
     if not isinstance(runtime_args, dict):
-        raise HTTPException(400, f"Preset '{preset['id']}' runtime.tool_args must be a mapping")
-    return _substitute(
+        raise ValidationError(f"Preset '{preset['id']}' runtime.tool_args must be a mapping")
+    return substitute(
         copy.deepcopy(runtime_args),
         _runtime_context(
             preset=preset,
@@ -358,7 +358,7 @@ async def preview_widget_preset(
     preset = get_widget_preset(preset_id)
     tool_name = preset.get("tool_name")
     if not isinstance(tool_name, str) or not tool_name.strip():
-        raise HTTPException(400, f"Preset '{preset_id}' missing tool_name")
+        raise ValidationError(f"Preset '{preset_id}' missing tool_name")
 
     resolved_config = resolve_preset_config(preset, config)
     tool_args = resolve_runtime_args(

@@ -13,11 +13,15 @@ export function buildRemoteEnrollCommand(args: {
   providerId: string;
   apiKey: string;
   label?: string | null;
+  config?: Record<string, unknown> | null;
 }): string {
   const serverUrl = resolveMachineControlServerUrl(args.serverUrl);
   const providerId = encodeURIComponent(args.providerId);
   const label = (args.label || "").trim();
-  const body = label ? JSON.stringify({ label }) : "{}";
+  const payload: Record<string, unknown> = {};
+  if (label) payload.label = label;
+  if (args.config && Object.keys(args.config).length > 0) payload.config = args.config;
+  const body = JSON.stringify(payload);
   return [
     "curl -sS -X POST",
     `  -H ${shellSingleQuote(`Authorization: Bearer ${args.apiKey}`)}`,

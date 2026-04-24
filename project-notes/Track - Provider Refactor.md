@@ -2,7 +2,7 @@
 tags: [agent-server, track, providers, llm, reasoning]
 status: active
 created: 2026-04-23
-updated: 2026-04-23 (phase 2 shipped; provider-model admin/catalog follow-up)
+updated: 2026-04-24 (bot editor model-save 422 fix)
 ---
 # Track — Provider Refactor
 
@@ -67,6 +67,8 @@ One canonical LLM provider subsystem: one reasoning knob, one slash-command regi
 - Result: a manually added ChatGPT subscription row like `gpt-5.5` now shows up in `/api/v1/admin/models` and downstream model dropdowns even if the driver still reports `gpt-5.4` / `gpt-5.4-mini`.
 - Admin → Providers → Models now shows prompt style on existing rows consistently, adds inline edit/save/cancel controls, and exposes the current row flags (`no_system_messages`, tools, vision, reasoning, prompt_style`) during edit.
 - Added integration coverage for provider-model update semantics and for the DB/live catalog union behavior.
+- 2026-04-24 follow-up: Bot editor existing-bot saves now send a minimal changed-field payload instead of round-tripping the whole `editorData.bot` object. This prevents unrelated legacy `api_permissions` validation from returning 422 when the user only changes model/provider, and the save banner now exposes FastAPI `detail` for future validation failures.
+- 2026-04-24 doc sync: `docs/guides/providers.md` picked up a **Managing models on a provider** subsection (driver-catalog ∪ DB rows, inline edit/save/cancel over the PUT endpoint, per-row flag table) and the Known-limits fallback-list note now mentions the DB/live union as today's mitigation. Confirmed: gpt-subscription `reasoning.effort` flows end-to-end in production (Phase 1 silent-drop fix verified).
 
 **Still belongs to Phase 3:**
 

@@ -89,10 +89,9 @@ test("route session chrome compacts long titles", () => {
   assert.ok(chrome.inlineTitle.length <= 56);
 });
 
-test("machine target chip stays session-scoped and does not own target deletion", () => {
-  const chip = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/MachineTargetChip.tsx"), "utf8");
+test("channel header does not mount machine control chrome", () => {
+  const header = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/ChannelHeader.tsx"), "utf8");
 
-  assert.doesNotMatch(chip, /useDeleteMachineTarget/);
-  assert.doesNotMatch(chip, /Trash2/);
-  assert.match(chip, /provider_id: target\.provider_id/);
+  assert.doesNotMatch(header, /MachineTargetChip/);
+  assert.doesNotMatch(header, /machine_control_native/);
 });

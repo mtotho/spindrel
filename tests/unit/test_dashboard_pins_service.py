@@ -4,9 +4,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 
 from app.db.models import WidgetInstance
+from app.domain.errors import DomainError, NotFoundError, ValidationError
 from app.services.dashboard_pins import (
     apply_dashboard_pin_config_patch,
     apply_layout_bulk,
@@ -71,9 +71,14 @@ async def test_create_pin_defaults_header_zone_to_top_rail_card(db_session):
 
 @pytest.mark.asyncio
 async def test_create_pin_seeds_zone_and_size_from_native_layout_hints(db_session):
+    channel = build_channel()
+    db_session.add(channel)
+    await db_session.commit()
     pin = await create_pin(
         db_session,
-        source_kind="adhoc",
+        dashboard_key=f"channel:{channel.id}",
+        source_kind="channel",
+        source_channel_id=channel.id,
         tool_name="core/context_tracker_native",
         envelope=build_native_widget_preview_envelope("core/context_tracker"),
     )
@@ -82,7 +87,19 @@ async def test_create_pin_seeds_zone_and_size_from_native_layout_hints(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_create_pin_seeds_chip_preset_into_header_chip_layout(db_session):
+async def test_create_pin_seeds_chip_preset_into_header_chip_layout(db_session, monkeypatch):
+    fake_preset = {
+        "id": "homeassistant-entity-toggle-chip",
+        "integration_id": "homeassistant",
+        "name": "Entity Toggle Chip",
+        "tool_name": "GetLiveContext",
+        "layout_hints": {"preferred_zone": "chip", "max_cells": {"w": 4, "h": 1}},
+        "binding_schema": {"type": "object", "properties": {}},
+    }
+    monkeypatch.setattr(
+        "app.services.widget_presets.get_widget_preset",
+        lambda pid: fake_preset,
+    )
     pin = await create_pin(
         db_session,
         source_kind="adhoc",
@@ -113,9 +130,14 @@ async def test_create_pin_clamps_default_size_from_layout_hints(db_session):
 
 @pytest.mark.asyncio
 async def test_create_pin_explicit_zone_beats_layout_hint_zone(db_session):
+    channel = build_channel()
+    db_session.add(channel)
+    await db_session.commit()
     pin = await create_pin(
         db_session,
-        source_kind="adhoc",
+        dashboard_key=f"channel:{channel.id}",
+        source_kind="channel",
+        source_channel_id=channel.id,
         tool_name="core/context_tracker_native",
         envelope=build_native_widget_preview_envelope("core/context_tracker"),
         zone="grid",
@@ -126,9 +148,14 @@ async def test_create_pin_explicit_zone_beats_layout_hint_zone(db_session):
 
 @pytest.mark.asyncio
 async def test_create_pin_explicit_layout_beats_layout_hint_size(db_session):
+    channel = build_channel()
+    db_session.add(channel)
+    await db_session.commit()
     pin = await create_pin(
         db_session,
-        source_kind="adhoc",
+        dashboard_key=f"channel:{channel.id}",
+        source_kind="channel",
+        source_channel_id=channel.id,
         tool_name="core/context_tracker_native",
         envelope=build_native_widget_preview_envelope("core/context_tracker"),
         grid_layout={"x": 2, "y": 0, "w": 9, "h": 1},
@@ -147,20 +174,19 @@ async def test_list_pins_orders_by_position(db_session):
 
 @pytest.mark.asyncio
 async def test_create_rejects_invalid_source_kind(db_session):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ValidationError):
         await create_pin(db_session, source_kind="garbage", tool_name="x", envelope=_env())
-    assert exc.value.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_create_rejects_missing_tool_name(db_session):
-    with pytest.raises(HTTPException):
+    with pytest.raises(ValidationError):
         await create_pin(db_session, source_kind="adhoc", tool_name="", envelope=_env())
 
 
 @pytest.mark.asyncio
 async def test_create_rejects_empty_envelope(db_session):
-    with pytest.raises(HTTPException):
+    with pytest.raises(ValidationError):
         await create_pin(db_session, source_kind="adhoc", tool_name="x", envelope={})
 
 
@@ -179,16 +205,14 @@ async def test_create_pin_seeds_ha_entity_id_widget_config(db_session):
 async def test_delete_then_get_raises_404(db_session):
     pin = await create_pin(db_session, source_kind="adhoc", tool_name="t", envelope=_env())
     await delete_pin(db_session, pin.id)
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(NotFoundError):
         await get_pin(db_session, pin.id)
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_delete_missing_raises_404(db_session):
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(NotFoundError):
         await delete_pin(db_session, uuid.uuid4())
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -327,9 +351,8 @@ async def test_serialize_pin_backfills_missing_provenance(db_session):
 
     fetched = await get_pin(db_session, pin.id)
     assert fetched.widget_origin == {
-        "definition_kind": "tool_widget",
+        "definition_kind": "html_widget",
         "instantiation_kind": "direct_tool_call",
-        "tool_name": "t",
     }
 
 
@@ -363,7 +386,7 @@ async def test_apply_layout_bulk_atomic(db_session):
         {"id": str(pins[0].id), "x": 0, "y": 0, "w": 4, "h": 3},
         {"id": str(uuid.uuid4()), "x": 4, "y": 0, "w": 4, "h": 3},  # unknown
     ]
-    with pytest.raises(HTTPException):
+    with pytest.raises(DomainError):
         await apply_layout_bulk(db_session, items)
     # The valid id's layout must not have been committed.
     rows = await list_pins(db_session)

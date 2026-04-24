@@ -50,7 +50,7 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
 
     out: list[tuple[str, dict, str | None, str | None]] = []
 
-    from app.services.widget_templates import _resolve_html_template_paths
+    from app.services.widget_templates import resolve_html_template_paths
 
     def _is_widget(widget_def: Any) -> bool:
         return isinstance(widget_def, dict) and (
@@ -69,7 +69,7 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
                 continue
             if not _is_widget(widget_def):
                 continue
-            resolved, err = _resolve_html_template_paths(widget_def, base_dir)
+            resolved, err = resolve_html_template_paths(widget_def, base_dir)
             if err:
                 logger.warning(
                     "integration:%s tool_widgets[%s]: %s",
@@ -99,7 +99,7 @@ def _collect_sources() -> list[tuple[str, dict, str | None, str | None]]:
             if not _is_widget(widget_def):
                 continue
             tool_name = entry.name
-            resolved, err = _resolve_html_template_paths(widget_def, entry)
+            resolved, err = resolve_html_template_paths(widget_def, entry)
             if err:
                 logger.warning(
                     "core:%s tool_widgets[%s]: %s", tool_name, tool_name, err,

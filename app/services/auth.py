@@ -5,7 +5,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import bcrypt
 import httpx
@@ -112,6 +112,7 @@ def create_widget_token(
         "api_key_id": str(api_key_id),
         "iat": now,
         "exp": expires_at,
+        "jti": str(uuid4()),
     }
     if pin_id is not None:
         payload["pin_id"] = str(pin_id)

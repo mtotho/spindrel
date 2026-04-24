@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, widgets, dashboard, dev-panel]
 status: active
-updated: 2026-04-23 (pinned widget context export became inspectable)
+updated: 2026-04-23 (pinned widget context is visible in /context and preview)
 ---
 <!-- session: 20 — P5 code shipped, UNTESTED; session 22 — cohesiveness + mobile polish pass landed (does NOT close P5-qa); session 2026-04-19 — P7 sandbox context + grouping -->
 
@@ -14,6 +14,8 @@ updated: 2026-04-23 (pinned widget context export became inspectable)
 > **2026-04-21 perf note — remounts are not refreshes.** P0 request-storm cleanup landed in the widget host path after dashboard↔chat switching started re-triggering the same iframe setup work. `InteractiveHtmlRenderer` now gives `/widget-auth/mint` and path-mode HTML content real React Query lifetimes (`staleTime`/`gcTime`, no refetch-on-mount/reconnect), and `PinnedToolWidget` keeps a session-local "recently refreshed" timestamp per pin so a just-polled widget does not immediately hit `/widget-actions/refresh` again on route remount. New invariant: switching surfaces inside the same session should reuse fresh iframe inputs unless an explicit timer/event invalidates them.
 >
 > **2026-04-23 pinned-context follow-up.** Channel-dashboard pins are now the authoritative source for chat-profile pinned-widget export. `describe_dashboard()` enriches channel pins with `context_summary` / `context_hint` using the same builder the prompt assembly path uses, so the agent-visible export is inspectable from the dashboard tool instead of being a hidden `plain_body` side effect. New invariant: if a pinned widget contributes context to chat, the same concise export should be visible on the dashboard inspection path.
+>
+> Later the same day: the pinned-widget export is now surfaced in the user-facing debug paths too. Slash `/context` renders a dedicated pinned-widget section, admin `context-preview` includes the same snapshot plus a `Pinned Widget Context` preview block, and channel settings now expose a default-on `pinned_widget_context_enabled` toggle. New invariant: chat-context contribution from dashboard pins must be both inspectable and locally suppressible.
 >
 > **2026-04-23 dashboard contract follow-up.** Pinned widgets now carry persisted `widget_origin` plus `widget_contract_snapshot` / `config_schema_snapshot`, so dashboard reads do not have to rediscover definition kind or schema from fragile envelope heuristics. Runtime widget config is now `widget_config` canonically across state_poll/template substitution; `config` remains a compatibility alias only. New invariant: dashboard pins are durable contract objects, not just cached envelopes with a position.
 >

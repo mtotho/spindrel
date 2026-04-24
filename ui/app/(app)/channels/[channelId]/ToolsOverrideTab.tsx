@@ -8,22 +8,17 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { EmptyState } from "@/src/components/shared/FormControls";
+import { SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
 import { HoverPopover, SkillPreview, ToolPreview } from "@/src/components/shared/ItemPreviewPopover";
 import { ActivationsSection } from "./integrations/ActivationsSection";
 
 function SectionLabel({ icon, label, count }: { icon: React.ReactNode; label: string; count?: number }) {
   return (
-    <div className="flex items-center gap-1.5 pt-3.5 pb-1.5">
-      {icon}
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
-        {label}
-      </span>
-      {count != null && (
-        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-dim">
-          {count}
-        </span>
-      )}
-    </div>
+    <SettingsGroupLabel
+      label={label}
+      count={count}
+      icon={<span className="text-text-dim">{icon}</span>}
+    />
   );
 }
 
@@ -122,7 +117,7 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-5">
       <ActivationsSection channelId={channelId} />
 
       <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Channel Skills" count={enrolled.length} />
@@ -151,37 +146,18 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
       </div>
 
       <SectionLabel icon={<Search size={12} className="text-text-dim" />} label="Add Skills" count={addableSkills.length} />
-      <div className="mb-2 flex items-center gap-1.5 rounded-md border border-input-border bg-input px-3 py-1.5 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/40 transition-colors">
-        <Search size={13} className="text-text-dim shrink-0" />
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Filter skills..."
-          className="flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-dim"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            className="inline-flex items-center p-0 text-text-dim hover:text-text transition-colors"
-          >
-            <X size={10} />
-          </button>
-        )}
-      </div>
+      <SettingsSearchBox value={search} onChange={setSearch} placeholder="Filter skills..." />
       <div className="flex max-h-60 flex-col gap-1 overflow-auto">
         {addableSkills.slice(0, 80).map((skill) => (
-          <button
+          <SettingsControlRow
             key={skill.id}
-            type="button"
             onClick={() => enrollMut.mutate({ skillId: skill.id })}
-            className="flex w-full items-center gap-1.5 rounded-md border border-surface-border bg-surface-raised px-2 py-1.5 text-left text-text hover:bg-surface-overlay/60 transition-colors"
-          >
-            <Check size={11} className="text-accent shrink-0" />
-            <span className="text-[11px] font-medium">{skill.name}</span>
-            <span className="font-mono text-[9px] text-text-dim">{skill.id}</span>
-          </button>
+            leading={<Check size={11} className="text-accent" />}
+            title={skill.name}
+            description={skill.description || undefined}
+            meta={<span className="font-mono text-[9px] text-text-dim">{skill.id}</span>}
+            compact
+          />
         ))}
         {addableSkills.length === 0 && (
           <div className="py-1 text-[11px] italic text-text-dim">

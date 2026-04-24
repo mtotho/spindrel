@@ -6,6 +6,7 @@ three divergent inline pipelines that caused recurring multi-bot identity bugs.
 """
 import copy
 import logging
+import re
 from dataclasses import dataclass
 
 from app.agent import bots as _bots_mod
@@ -20,6 +21,13 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Context mutation helpers (moved here from top-level chat.py)
 # ---------------------------------------------------------------------------
+
+# Matches any leading ``[<speaker>]: `` attribution block — covers the plain
+# ``[Alice]:`` shape and the mention-token variant ``[Alice (<@U123>)]:``.
+# First-group character class excludes ``]`` so a body containing brackets
+# later doesn't match.
+_ATTRIBUTION_PREFIX_RE = re.compile(r"^\[[^\]]+\]:\s")
+
 
 def _apply_user_attribution(messages: list[dict]) -> None:
     """Prefix user messages with an attribution header built from ``_metadata``.
@@ -49,10 +57,12 @@ def _apply_user_attribution(messages: list[dict]) -> None:
             continue
         if content.startswith(prefix):
             continue
-        # Also skip if a legacy name-only prefix is already present — the
-        # idempotency guard from the pre-mention-token era.
-        legacy_prefix = f"[{meta.get('sender_display_name')}]:"
-        if prefix != legacy_prefix and content.startswith(legacy_prefix):
+        # Generic idempotency guard: skip if ANY [Name]: or [Name (<@U…>)]:
+        # attribution prefix is already present. Covers the display-name
+        # drift case (`[Alicia]` replacing `[Alice]`) that the old
+        # single-name ``legacy_prefix`` check missed — first attribution
+        # wins so we don't emit ``[Alicia]: [Alice]: …`` into the LLM.
+        if _ATTRIBUTION_PREFIX_RE.match(content):
             continue
         msg["content"] = f"{prefix} {content}"
 

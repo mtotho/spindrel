@@ -23,6 +23,48 @@ from app.utils import safe_create_task
 logger = logging.getLogger(__name__)
 
 
+def _parse_tool_args(args: Any) -> Any:
+    """Normalize the raw ``tc["function"]["arguments"]`` payload.
+
+    The loop dispatch sees a JSON-string coming back from the LLM, while
+    local paths may already hold a dict. Return the parsed value or None
+    on malformed JSON. Used by sticky detection helpers below.
+    """
+    if isinstance(args, str):
+        try:
+            return json.loads(args)
+        except (TypeError, ValueError):
+            return None
+    return args
+
+
+def _is_tool_id_refetch(args: Any) -> bool:
+    """True when a read_conversation_history call targets a prior tool result
+    by ID (section="tool:<uuid>")."""
+    parsed = _parse_tool_args(args)
+    if not isinstance(parsed, dict):
+        return False
+    section = parsed.get("section")
+    if not isinstance(section, str):
+        return False
+    return section.strip().lower().startswith("tool:")
+
+
+def _is_skill_get(args: Any) -> bool:
+    """True when a manage_bot_skill call is the read-only ``action="get"`` path.
+
+    Skill bodies returned via ``manage_bot_skill(action="get", ...)`` are
+    reference material the bot keeps consulting — same justification as
+    ``get_skill`` in ``STICKY_TOOL_NAMES``. Covers both single-name and
+    batch (``names=[...]``) variants.
+    """
+    parsed = _parse_tool_args(args)
+    if not isinstance(parsed, dict):
+        return False
+    action = parsed.get("action")
+    return isinstance(action, str) and action.strip().lower() == "get"
+
+
 @dataclass(frozen=True)
 class SummarizeSettings:
     enabled: bool
@@ -249,6 +291,16 @@ async def _process_tool_call_result(
     if tc_result.record_id is not None:
         tool_message["_tool_record_id"] = str(tc_result.record_id)
     if name in STICKY_TOOL_NAMES:
+        tool_message["_no_prune"] = True
+    elif name == "read_conversation_history" and _is_tool_id_refetch(args):
+        # When used to hydrate a prior tool result by ID (section="tool:<uuid>"),
+        # mark the rehydrated result sticky so the next pruning pass doesn't
+        # strip it again. Otherwise models loop: prune → re-fetch → prune.
+        tool_message["_no_prune"] = True
+    elif name == "manage_bot_skill" and _is_skill_get(args):
+        # manage_bot_skill(action="get") returns skill bodies — same reference
+        # material as get_skill(), which is already in STICKY_TOOL_NAMES. Keep
+        # across prune cycles so hygiene / skill-review bots don't refetch.
         tool_message["_no_prune"] = True
     state.messages.append(tool_message)
     yield _event_with_compaction_tag(tc_result.tool_event, compaction)

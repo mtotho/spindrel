@@ -8,10 +8,12 @@ Read the matching guide before touching these areas.
 
 | Guide | Authority scope | Owning area |
 |---|---|---|
+| [Development Process](development-process.md) | Review finding triage, Agent Briefs, contract/red-line review, out-of-scope decisions | repo maintenance |
 | [Context Management](context-management.md) | Context admission, history profiles, temporal context, compaction | `app/agent/context_assembly.py` |
 | [Discovery and Enrollment](discovery-and-enrollment.md) | Tool / skill / MCP residency, per-channel enrollment, activation | `app/agent/channel_overrides.py`, `app/services/skill_store.py` |
 | [Widget System](widget-system.md) | Widget contracts, origins, presentation, host policy | `app/services/widget_*.py` |
 | [UI Design](ui-design.md) | UI archetypes, design tokens, active-row pill, anti-patterns | `ui/` |
+| [UI Components](ui-components.md) | Shared dropdowns, prompt editors, settings rows/actions, component usage catalog | `ui/src/components/shared/` |
 | [Integrations](integrations.md) | Integration contract + responsibility boundary + surface map | `integrations/`, `app/services/integration_*.py` |
 | [Ubiquitous Language](ubiquitous-language.md) | Canonical glossary + flagged ambiguities across the domain | all of the above |
 
@@ -66,5 +68,5 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 
 - **Integration authoring walkthrough** — [`../integrations/index.md`](../integrations/index.md)
 - **Integration architectural rationale** — [`../integrations/design.md`](../integrations/design.md)
-- **Platform-depth recipe (Slack → Discord → BlueBubbles)** — vault: `Projects/agent-server/Integration Depth Playbook.md`
-- **Architecture decisions log** — vault: `Projects/agent-server/Architecture Decisions.md`
+- **Platform-depth recipe (Slack → Discord → BlueBubbles)** — [`../../project-notes/Integration Depth Playbook.md`](../../project-notes/Integration%20Depth%20Playbook.md)
+- **Architecture decisions log** — [`../../project-notes/Architecture Decisions.md`](../../project-notes/Architecture%20Decisions.md)

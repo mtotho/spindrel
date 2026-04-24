@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
   useBindingSuggestions,
   type AvailableIntegration,
@@ -112,7 +111,6 @@ export function BindingForm({
   submitLabel: string;
   lockType?: boolean;
 }) {
-  const t = useThemeTokens();
   const selected = availableIntegrations.find((i) => i.type === initialType);
   const [type, setType] = useState(initialType);
   const [clientId, setClientId] = useState(initialClientId);
@@ -150,10 +148,10 @@ export function BindingForm({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+    <div className="flex flex-col gap-3">
       <FormRow label="Type">
         {lockType ? (
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.accent }}>{type}</span>
+          <span className="text-[13px] font-semibold text-accent">{type}</span>
         ) : (
           <SelectInput
             value={type}
@@ -194,7 +192,7 @@ export function BindingForm({
           onChange={handleConfigChange}
         />
       )}
-      <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
+      <div className="flex flex-wrap gap-2">
         <ActionButton
           label={isPending ? "Saving..." : submitLabel}
           onPress={() => onSubmit(type, clientId.trim(), displayName.trim(), collectConfigValues(configFields, configValues))}
@@ -209,7 +207,7 @@ export function BindingForm({
         />
       </div>
       {isError && (
-        <span style={{ fontSize: 12, color: t.danger }}>
+        <span className="text-[12px] text-danger">
           {errorMessage ?? "Failed"}
         </span>
       )}

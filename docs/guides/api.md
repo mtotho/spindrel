@@ -401,7 +401,7 @@ Returns the current session's machine lease, if any, plus the visible target lis
 
 `POST /api/v1/sessions/{session_id}/machine-target/lease`
 
-Grants the session a lease for one connected target. Body:
+Grants the session a lease for one target after provider validation confirms it is ready. Body:
 
 ```json
 {
@@ -410,6 +410,12 @@ Grants the session a lease for one connected target. Body:
   "ttl_seconds": 900
 }
 ```
+
+### Probe target
+
+`POST /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}/probe`
+
+Refreshes cached readiness/status for one enrolled machine target.
 
 ### Revoke lease
 

@@ -157,15 +157,16 @@ async def estimate_bot_context(
         # --- pinned widgets (channel-scoped, injected just after datetime) ---
         if pinned_widgets:
             from app.services.widget_context import (
-                build_widget_context_block,
-                enrich_pins_for_context_export,
+                build_pinned_widget_context_snapshot,
+                is_pinned_widget_context_enabled,
             )
-            _enriched_pins = await enrich_pins_for_context_export(
+            _pw_snapshot = await build_pinned_widget_context_snapshot(
                 db,
                 pinned_widgets,
                 bot_id=bot_id,
+                enabled=is_pinned_widget_context_enabled(draft.get("channel_config")),
             )
-            _pw_block = build_widget_context_block(_enriched_pins, bot_id=bot_id)
+            _pw_block = _pw_snapshot.get("block_text")
             if _pw_block:
                 lines.append(EstimateLine(
                     "sys:pinned_widgets",

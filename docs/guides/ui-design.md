@@ -1,7 +1,8 @@
 # UI Design — Canonical Spec
 
 > This is the target spec for UI work in Spindrel. Consult it before writing or reviewing any UI change.
-> The execution log lives in `vault/Projects/agent-server/Track - UI Polish.md`; this doc is where that work is going.
+> The execution log is mirrored at [`../../project-notes/Track - UI Polish.md`](../../project-notes/Track%20-%20UI%20Polish.md); this doc is where that work is going.
+> Exact shared controls live in [`ui-components.md`](ui-components.md). Read it before building a dropdown, prompt editor, settings row, button, badge, or empty state.
 
 ## North Star
 
@@ -22,9 +23,10 @@
 |---|---|
 | Add a color, background, border, or text shade | §1 Tokens & theming |
 | Style the chat composer, tool output, metadata row, or mini chat dock | §2.1 Command surfaces |
-| Style settings, admin, onboarding, dashboards, or prose | §2.2 Content surfaces |
+| Style settings, admin, onboarding, dashboards, or prose | §2.2 App shell + content surfaces and §2.3 Control surfaces |
 | Pick a corner radius, spacing, or type size | §3 Scales |
 | Style a button, badge, input, banner, toast, card, or active nav row | §4 Components |
+| Build a dropdown, entity picker, or prompt editor | [`ui-components.md`](ui-components.md) |
 | Ship any UI change | §5 Dark + light parity + §7 Accessibility floor |
 | Fix UI debt you spotted | §8 Known debt |
 
@@ -73,9 +75,9 @@
 
 ---
 
-## §2 — Two surface archetypes
+## §2 — Surface archetypes
 
-Every screen in Spindrel is one of two archetypes. The rules differ. The tokens do not.
+Every UI region in Spindrel is one of three archetypes. The rules differ. The tokens do not.
 
 ### §2.1 — Command surfaces
 
@@ -99,9 +101,9 @@ Every screen in Spindrel is one of two archetypes. The rules differ. The tokens 
 - `ui/src/components/chat/ChatSessionDock.tsx` — mini chat dock; terminal variant drops the outer rounded-card border, uses a subtle header tint instead of a divider.
 - `ui/src/components/chat/StreamingIndicator.tsx` — terminal `(thinking...)` status line with animated dots (`.terminal-thinking-dot`, `global.css:263-272`).
 
-### §2.2 — Content surfaces
+### §2.2 — App shell + content surfaces
 
-**Trigger:** settings pages, admin pages, onboarding, widget dashboards and tiles, prose pages, knowledge base views, detail panels, top navigation, sidebar.
+**Trigger:** app navigation, channel header, rails, top-level layout, prose pages, knowledge base views, dashboards, detail panels.
 
 #### Rules
 
@@ -117,9 +119,47 @@ Every screen in Spindrel is one of two archetypes. The rules differ. The tokens 
 - `ui/src/components/layout/Sidebar.tsx`, `sidebar/SidebarRail.tsx`, `sidebar/ChannelList.tsx` — the exemplars for content-surface chrome.
 - `ui/global.css:8-20` — canonical `.sidebar-item`, `.sidebar-item-active`, `.sidebar-section-label`, `.sidebar-rail-btn` component classes.
 - `ui/src/components/layout/DetailPanel.tsx` — single-border detail panel, flat typography.
-- `ui/app/(app)/channels/[channelId]/ChannelHeader.tsx` — unified glass header; no stacked borders.
+- `ui/app/(app)/channels/[channelId]/ChannelHeader.tsx` — **preserve this visual direction**. The channel header is an existing low-chrome reference: transparent/tonal shell, compact title/meta, ghost icon buttons, no stacked header bars.
 
-### §2.3 — Shared baseline (both archetypes)
+### §2.3 — Control surfaces
+
+**Trigger:** settings pages, admin pages, channel settings tabs, integration binding forms, onboarding forms, configuration drawers.
+
+Control surfaces are content surfaces with denser interaction. This is where the prior guide was too vague: swapping colors to tokens is not enough if the structure still becomes boxed admin chrome.
+
+#### Rules
+
+- **Section headers are not cards.** A settings section renders title, optional description, optional action, then children. The section container itself has no border, background, or shadow.
+- **Design the flow, not just the row.** If a section mixes configured/current items with available choices, split them into explicit groups (`Added`, `Available`, `Resolved`, etc.) before styling rows. A wall of equal-weight add/remove rows is a UX failure even when the colors are correct.
+- **Catalogs need scan controls.** If a control section lists more than roughly 6-8 available choices, add a quiet inline filter/search affordance near the group label. Do not make users visually scan a long catalog of repeated right-edge actions.
+- **Objects may be rows/cards, but borderless is the default.** A participant, binding, tool, task, or integration row should start as `rounded-md bg-surface-raised/40 px-3 py-2.5 hover:bg-surface-overlay/45`. Add a neutral border only when the row needs containment while expanded or when a form is embedded. Do not wrap rows in another bordered card.
+- **Actions stay quiet.** Control-surface actions are inline/ghost by default: transparent background, accent text for the primary action, muted text for secondary actions, and a tonal hover tint. Do not use Bootstrap-like filled blue rectangles for routine row actions (`Add`, `Edit`, `Run`, `Remove`) and do not use decorative gradients or shadowed CTAs on settings/admin screens.
+- **Spacing owns grouping.** Parent scroll containers must use `flex flex-col` with `gap-5` on mobile and `gap-7` on desktop. `gap` on a block element is a bug.
+- **Inside sections:** use `gap-3` between header and content, `gap-2` between peer rows, and `gap-4` inside editable forms.
+- **Dividers are scarce.** Use a single neutral divider only when a row expands inline and needs a content seam. Never use repeated `border-b` on every row in a list.
+- **Status is small.** Prefer a 6-8px status dot or a muted semantic pill. Do not add colored bars, colored side borders, or whole-row pulse.
+- **Empty states are low-commitment.** Use `rounded-md border border-dashed border-surface-border bg-surface-raised/40 py-8 text-center text-text-dim`.
+
+#### Proof references
+
+- `ui/src/components/shared/FormControls.tsx` — section/header/input baseline.
+- `ui/src/components/shared/SettingsControls.tsx` — flat settings buttons, badges, banners, save pill.
+- `ui/app/(app)/channels/[channelId]/ParticipantsTab.tsx` — proof pattern for primary participant + member rows.
+- `ui/app/(app)/channels/[channelId]/integrations/BindingsSection.tsx` — proof pattern for dispatcher binding rows and inline binding forms.
+
+### §2.4 — Chrome budget
+
+**Trigger:** adding any visible container treatment.
+
+Pick at most one separator for a region:
+
+- **Best default:** spacing + typography only.
+- **Second choice:** tonal step (`bg-surface-raised` or `bg-surface-overlay`).
+- **Last choice:** one neutral hairline border.
+
+Never stack border + shadow + gradient. Decorative gradients and shadow stacks are not part of the Spindrel control-surface language. Existing chat/composer treatments are legacy/reference-specific exceptions and must not be copied into settings, admin, dashboard controls, or new components without a separate redesign decision.
+
+### §2.5 — Shared baseline (all archetypes)
 
 - Same token system (§1).
 - Same accent color for interactive state.
@@ -127,7 +167,7 @@ Every screen in Spindrel is one of two archetypes. The rules differ. The tokens 
 - Same restraint — no drop shadows, no bright borders, no colored decoration.
 - Same accessibility floor (§7).
 
-**Archetype is a font-and-density choice, not a theme choice.** Dark/light applies identically across both.
+**Archetype is a font-and-density choice, not a theme choice.** Dark/light applies identically across all surfaces.
 
 ---
 
@@ -189,11 +229,12 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 
 ### Buttons
 
-- **Primary**: `bg-accent text-white rounded-md px-3 py-2 hover:bg-accent-hover`. Never `bg-blue-500` literal.
-- **Secondary / ghost**: transparent background, `text-text`, `hover:bg-surface-overlay/60`. See `.input-action-btn` and `.header-icon-btn` (`global.css:316-344`).
+- **Primary control action**: `bg-transparent text-accent rounded-md px-3 py-2 hover:bg-accent/[0.08]`. This is the default for settings/admin row actions. It should read like a rail/header affordance, not a web-framework CTA.
+- **Filled primary**: reserved for rare commit/confirmation moments where the whole screen is asking the user to finalize one thing. Do not use filled accent buttons for ordinary rows, add-ons, filters, or section actions.
+- **Secondary / ghost**: transparent background, `text-text-muted`, `hover:bg-surface-overlay/60 hover:text-text`. See `.input-action-btn` and `.header-icon-btn` (`global.css:316-344`).
 - **Destructive**: `text-danger hover:bg-danger/10`. Reserved for confirm dialogs and danger-zone rows.
 - Never combine `border + bg-color + shadow` on one button. Pick one.
-- Gradient buttons (accent → purple) are reserved for the send button in the default-mode composer; do not generalize them.
+- Existing composer-specific gradients are not a general button pattern; do not copy them into settings, admin, dashboard controls, or widgets.
 
 ### Badges / chips
 
@@ -208,6 +249,8 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 - Placeholder color comes from the global rule (`global.css:162-166`) using `text-text-dim`.
 - 16px minimum font-size — already enforced globally (`global.css:113-115`).
 - Never an inset shadow to suggest depth; use `bg-input` against `bg-surface-raised`.
+- Use `SelectDropdown` / `SelectInput` from [`ui-components.md`](ui-components.md) for dropdowns. Do not hand-roll portal dropdown chrome or page-wide select panels.
+- Use `PromptEditor` from [`ui-components.md`](ui-components.md) for prompt text. Prompt editors must be resizable, expandable, and comfortable by default.
 
 ### Active-row indicator — the canonical pattern
 
@@ -287,6 +330,8 @@ Almost never. Signal elevation with `bg-surface-raised` + optional `border-surfa
 | `border-b border-surface-border` between every stacked bar | Spacing + `bg-surface-raised` step | Bar-between-bar borders produce admin-chrome noise |
 | `animate-pulse` on a running task row | Inline `.thinking-pulse` dot + muted label | Pulsing whole rows pull the eye; a single dot carries it |
 | `shadow-lg` on a card | `bg-surface-raised border border-surface-border` | Shadows read as old admin UI; tonal lift is calmer |
+| Bootstrap-like filled accent row button (`bg-accent text-white` for `Add`) | Inline primary control action: `bg-transparent text-accent hover:bg-accent/[0.08]` | Routine settings actions should match rail/header affordances, not web-framework CTAs |
+| `bg-gradient-to-br from-accent to-purple` on a settings CTA | Inline primary control action or, for rare final confirmation, one flat filled accent button | Gradients are decorative here and were the source of guide drift |
 | Hand-rolled badge with `rgba(...)` bg | Token-based chip from §4 Badges | Consistent across surfaces, free dark mode |
 | Mixing `style={{ t.surfaceBorder }}` and Tailwind classes | Tailwind classes only | `useThemeTokens()` is debt; new code avoids it |
 | Multiple radii in one view (4 / 8 / 12 / 16 mixed) | Pick one from §3 Radius | Scale discipline is the difference between polished and generic |
@@ -352,9 +397,9 @@ Examples:
 
 ## §9 — See also
 
-- `vault/Projects/agent-server/Track - UI Polish.md` — execution log: what's been shipped and when.
-- `vault/Projects/agent-server/Track - UI Vision.md` — living companion to this doc; tracks adoption and outstanding debt.
-- `vault/Projects/agent-server/Architecture Decisions.md` — load-bearing design decisions (e.g. chat-screen zones, unified glass header).
+- [`../../project-notes/Track - UI Polish.md`](../../project-notes/Track%20-%20UI%20Polish.md) — execution log: what's been shipped and when.
+- [`../../project-notes/Track - UI Vision.md`](../../project-notes/Track%20-%20UI%20Vision.md) — living companion to this doc; tracks adoption and outstanding debt.
+- [`../../project-notes/Architecture Decisions.md`](../../project-notes/Architecture%20Decisions.md) — load-bearing design decisions (e.g. chat-screen zones, unified glass header).
 - Feedback memories that reference this doc:
   - `feedback_no_gratuitous_borders.md`
   - `feedback_no_left_colored_borders.md`

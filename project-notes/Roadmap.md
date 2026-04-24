@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-23 (added Integration Contract + Canonical Guide track)
+updated: 2026-04-24 (added Standing Orders + Widget Primitives tracks)
 ---
 # Agent Server — Roadmap
 
@@ -40,8 +40,8 @@ New north-star guide at `docs/guides/integrations.md` (mirroring `widget-system.
 ### `browser_live` integration — v0.1 shipped 2026-04-19
 MV3 Chrome-extension bridge drives the user's real logged-in session. Five tools: `browser_goto/act/eval/screenshot/status`. Pairing via a single `BROWSER_LIVE_PAIRING_TOKEN` admin setting. See `integrations/browser_live/README.md`.
 
-### Local machine control — core provider architecture shipped 2026-04-23
-Machine control is now a core subsystem with pluggable providers. Targets addressed as `(provider_id, target_id)`; session leases enforce one-session-one-target. `local_companion` is the first provider; SSH provider + shared broker pending. See [[Track - Local Machine Control]].
+### Local machine control — SSH provider shipped 2026-04-24
+Machine control is now a core subsystem with pluggable providers and probe-based readiness. Targets are addressed as `(provider_id, target_id)`; session leases enforce one-session-one-target. `local_companion` and `ssh` are both shipped; shared broker, `browser_live` lease convergence, and richer capabilities remain. See [[Track - Local Machine Control]].
 
 ### Provider Refactor — Phase 2 shipped 2026-04-23
 Phase 1 shipped: unified reasoning/effort knob + `/effort <off|low|medium|high>`, single slash-command registry source of truth, canonical `docs/guides/providers.md`, silent Codex `reasoning_effort` drop fixed. Phase 2 shipped: `ProviderModel.supports_reasoning` column (migration 242 + known-family backfill), bot editor UI gates the reasoning control per model, `/effort` rejects with a helpful toast on non-reasoning bots, admin models form exposes the flag. Phases 3–4 (adapter dedup, prompt-dialect polish) queued. See [[Track - Provider Refactor]].
@@ -88,8 +88,8 @@ Organic ambient-chat path for fixing bot / channel / integration config. Folder-
 ### Automations (Task Pipelines) — Phases 1–5 shipped (2026-04-17)
 Per-channel pipeline subscriptions, cron scheduling, `fail_if` step-failure signaling, `pipeline_mode` channel override, channel-settings `PipelinesTab`, admin "Used by" + "Subscribed channels" views. See [[Track - Automations]].
 
-### Test Quality (2026-04-23)
-Phases 0–4 + A + B–N all shipped (~1078 tests). 9 real bugs fixed in code — N.6 surfaced **TWO production-breaking NameErrors in `_create_approval_state`** (`ToolCall` + `datetime` missing from the 2a4ce9f0 extraction; `except Exception` in `dispatch_tool_call` had been silently converting every approval gate to "Tool call denied: approval state could not be created" since that commit). 4 pinned + logged to [[Loose Ends]] (L.1 heartbeat crash-gap, J.5 widget JWT `jti`, I.5 double-attribution, N.3 channel-skill cache staleness). Phase N closed (widget presets + native envelope repair + channel-skill enrollment + session_plan_mode + rerank header-prefix + approval lifecycle + context-assembly bot cache + outbox drainer fire-and-forget) — 79 new tests + 2 revived pre-existing broken tests; backlog emptied at the SQLite-only ceiling (Postgres-only outbox concurrent-drain seams parked pending `conftest_postgres`). Audit siblings consolidated to [[Test Audit - Coverage Gaps]] + [[Test Audit - Mock Session Refactor]]. See [[Track - Test Quality]].
+### Test Quality (2026-04-24)
+Phases 0–Q-MACH all shipped (~1137 tests). 13 real bugs fixed in code, **0 open drift-pinned bugs**. **Phase Q-MACH (2026-04-24)** closed the three boundaries Phase O explicitly stopped at: 36 new drift tests across admin `/machines` routes (exception-to-HTTP mapping, read/write scope gates, body passthrough + path-wins-over-body, disconnected-target 200 envelope shape) + `local_companion` WS handshake (4404 unknown target, 4401 wrong token, empty-registered-token short-circuit, 4400 malformed hello across three variants, successful register target+bridge pair, empty-capabilities → `["shell"]` default on both sides, clean-disconnect finally unregister, multi-connect last-writer-wins) + provider-impl extensions (register_connected_target no-op on unknown, probe_target ValueError vs offline envelope). No new production bugs — all invariants hold. Revived 1 pre-existing broken test (`test_machine_status_returns_refreshable_semantic_envelope` fixture was missing `"ready": True`). Phase P2 (2026-04-24) closed both pre-existing broken-test entries from [[Loose Ends]] with 12 staleness flips across `test_model_params_llm` + `test_dashboard_pins_service`. Phase P (2026-04-23) closed the 4 drift-pinned Loose Ends carried out of Phase N (L.1 heartbeat `reset_stale_running_runs`, J.5 widget-auth JWT `jti`, I.5 generic-regex attribution idempotency, N.3 channel-delete cache invalidation). Phase O (2026-04-23) landed the 19-test `machine_control.py` service-layer drift sweep. Phase N (N.1–N.8, 2026-04-23) shipped 79 tests across widget presets + native envelope repair + channel-skill enrollment + session_plan_mode + rerank header-prefix + approval lifecycle + context-assembly bot cache + outbox drainer fire-and-forget, including N.6's two production-breaking NameError fixes in `_create_approval_state`. Backlog: Q-SEC (widget-token scope-ceiling + SSRF horizontal + webhook replay), Q-CONC (loop_dispatch gather isolation + tokenization cascade + SSE back-pressure + rerank pathological + bus publisher isolation), Q-CHURN (loop_dispatch/loop_helpers/rag_formatting + integration config routers + binding_suggestions + device_status cache). See [[Track - Test Quality]].
 
 ### Experiments / Autoresearch (2026-04-18)
 Pipeline-layer optimization harness — knob → apply → evaluate → score → record → propose → loop. Phase 1a + 1b shipped (real `bot_invoke` evaluator via task-scoped `current_system_prompt_override` ContextVar, eval child Tasks, outcome capture via correlation_id). Phase 2 next: `experiment.iterate.yaml` + first hill-climb spec. See [[Track - Experiments]].
@@ -111,7 +111,7 @@ Phases A–G + UI + bus restructure shipped. **Remaining**: Phase H acceptance t
 Phase 1 done (bus carries data + seq numbers + replay). Phase 2 folded into Integration Delivery (shipped). Phases 3-5 planned: split UI cache, separate domain from transport, backpressure + outbox. See [[Track - Streaming Architecture]].
 
 ### Code Quality & Refactoring
-6 bugs from 156-file audit landed. `assemble_context` extracted (~1400→~990 lines). Remaining: loop, file_sync, tasks, tool_dispatch, compaction god-function splits. See [[Track - Code Quality]].
+Ousterhout depth audit clusters 1–4 shipped 2026-04-23 → 2026-04-24 (indexing boundary, dashboard router split + preset drift, HTTPException boundary-bypass, cross-surface drift guards across event bus / widget boundary / theme tokens / inline-hex ratchet). 6 bugs from 156-file audit landed. `assemble_context` extracted (~1400→~990 lines). Remaining: Cluster 5 = tool_dispatch deepening; loop, file_sync, tasks, compaction god-function splits queued behind. See [[Track - Code Quality]].
 
 ### Learning Center Enhancements (2026-04-15)
 Time-windowed metrics, skill activity chart, activity heatmap, skill ring. Dreaming job split (Maintenance + Skill Review) with per-bot config.
@@ -121,6 +121,12 @@ Phase 1 scaffold + Phase 3 ESPHome + Phase 4 satellite shipped. **Remaining**: w
 
 ### Widget SDK (2026-04-21)
 Phase A (iframe SDK) + B.0–B.6 backend shipped. Bot↔widget handler bridge (2026-04-20) turns any `@on_action` into a bot-callable tool via declarative `handlers:` block; Todo widget is the reference. `@on_event` channel subscriptions + shared-DB suites (`widget_suite.py`) are the primitive layer. See [[Track - Widget SDK]].
+
+### Standing Orders — shipped 2026-04-24
+First-party native widget (`core/standing_order_native`) plus a new native-widget cron seam so a bot can plant a dashboard tile that keeps ticking after the turn ends, then pings back in chat when a completion condition fires. Spec + action dispatcher in `app/services/native_app_widgets.py`; tick engine + strategies (`poll_url`, `timer`) + scheduler loop in `app/services/standing_orders.py`; `spawn_standing_order` tool in `app/tools/local/standing_order_tools.py` (skill-gated under `skills/standing_orders.md`, per-bot cap 5). React tile at `ui/src/components/chat/renderers/nativeApps/StandingOrderWidget.tsx`. `create_pin(override_widget_instance=...)` enables multi-instance-per-channel. 25 tests across unit + integration. **Follow-ups**: `event_wait` strategy + `event_seen` completion kind (plan spec'd 3 strategies, v1 shipped 2), e2e verification on the live server. See session log `Sessions/agent-server/2026-04-24-08-standing-orders-native-widget.md`.
+
+### Widget Primitives — Phase 1 shipped 2026-04-24
+Expand the YAML component-tree primitive set so integration-owned widgets default to declarative YAML instead of hand-rolled HTML. **Phase 1 shipped same day** — `image` v2 with `aspect_ratio`, `auth: bearer`, `lightbox`, and normalized-coord `overlays` (schema + renderer + 11 tests + docs). Next: `tiles` v2, `timeline` primitive, ISO-8601 canonicalization, frigate port, broader HTML-widget audit. Bot-authored widgets stay HTML+SDK (AI-first library contract, unchanged). Design principle: every new field passes the "LLM emitting this YAML has one obvious choice" entropy test. See [[Track - Widget Primitives]].
 
 ### HTML Widget Catalog + Frontmatter — shipped 2026-04-19 (Widgets P3-1)
 `app/services/html_widget_scanner.py` walks `**/widgets/**/*.html` ∪ spindrel-using workspace HTML, parses YAML frontmatter, memoizes by (path, mtime). Pins via `emit_html_widget` path-mode envelope — reuses the existing renderer. See [[Architecture Decisions#Tool Renderers vs HTML Widgets: Two Kinds, Not One]].

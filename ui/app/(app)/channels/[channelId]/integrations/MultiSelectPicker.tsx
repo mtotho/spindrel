@@ -1,5 +1,4 @@
 import { Check } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 
 export function MultiSelectPicker({
   options,
@@ -10,8 +9,6 @@ export function MultiSelectPicker({
   selected: string[];
   onChange: (values: string[]) => void;
 }) {
-  const t = useThemeTokens();
-
   const toggle = (value: string) => {
     if (selected.includes(value)) {
       onChange(selected.filter((v) => v !== value));
@@ -21,40 +18,25 @@ export function MultiSelectPicker({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+    <div className="flex flex-col gap-1.5">
       {options.map((opt) => {
         const isChecked = selected.includes(opt.value);
         return (
           <button
             key={opt.value}
+            type="button"
             onClick={() => toggle(opt.value)}
-            style={{
-              display: "flex", flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              padding: "2px 0",
-            }}
+            className="flex items-center gap-2 bg-transparent py-0.5 text-left transition-colors"
           >
             <div
-              style={{
-                width: 16,
-                height: 16,
-                borderRadius: 4,
-                border: `1.5px solid ${isChecked ? t.accent : t.surfaceBorder}`,
-                backgroundColor: isChecked ? t.accent : "transparent",
-                display: "flex", flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "center",
-                transition: "all 0.12s",
-                flexShrink: 0,
-              }}
+              className={
+                `flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ` +
+                (isChecked ? "border-accent bg-accent" : "border-surface-border bg-transparent")
+              }
             >
-              {isChecked && <Check size={10} color="#fff" strokeWidth={3} />}
+              {isChecked && <Check size={10} className="text-white" strokeWidth={3} />}
             </div>
-            <span style={{ fontSize: 13, color: t.text, lineHeight: "1.3" }}>{opt.label}</span>
+            <span className="text-[13px] leading-snug text-text">{opt.label}</span>
           </button>
         );
       })}

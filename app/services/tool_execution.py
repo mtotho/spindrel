@@ -4,7 +4,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from fastapi import HTTPException
+from app.domain.errors import ForbiddenError, NotFoundError, ValidationError
 
 
 def resolve_tool_name(tool_name: str) -> str:
@@ -24,9 +24,8 @@ def _parse_channel_uuid(channel_id: str | None) -> UUID | None:
     try:
         return UUID(channel_id)
     except ValueError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"channel_id '{channel_id}' is not a valid UUID.",
+        raise ValidationError(
+            f"channel_id '{channel_id}' is not a valid UUID.",
         ) from exc
 
 
@@ -42,17 +41,15 @@ def validate_tool_context_requirements(
     resolved_tool_name = resolve_tool_name(tool_name)
     requires_bot, requires_channel = get_tool_context_requirements(resolved_tool_name)
     if requires_bot and not bot_id:
-        raise HTTPException(
-            status_code=400,
-            detail="This tool requires bot context. Pass source_bot_id in the request body.",
+        raise ValidationError(
+            "This tool requires bot context. Pass source_bot_id in the request body.",
         )
     if requires_channel and not channel_id:
-        raise HTTPException(
-            status_code=400,
-            detail="This tool requires channel context. Pass source_channel_id in the request body.",
+        raise ValidationError(
+            "This tool requires channel context. Pass source_channel_id in the request body.",
         )
     if bot_id and bot_id not in _bot_registry:
-        raise HTTPException(status_code=400, detail=f"Unknown bot_id '{bot_id}'.")
+        raise ValidationError(f"Unknown bot_id '{bot_id}'.")
     return resolved_tool_name, requires_bot, requires_channel, _parse_channel_uuid(channel_id)
 
 
@@ -84,18 +81,15 @@ async def execute_tool_with_context(
 
                 resolution = await validate_current_execution_policy(execution_policy)
                 if not resolution.allowed:
-                    raise HTTPException(
-                        status_code=403,
-                        detail={
-                            "error": "local_control_required",
-                            "message": resolution.reason or "Machine-control tools are not available from this surface.",
-                        },
-                    )
+                    raise ForbiddenError({
+                        "error": "local_control_required",
+                        "message": resolution.reason or "Machine-control tools are not available from this surface.",
+                    })
             raw = await call_local_tool(resolved_tool_name, args_json)
         elif is_mcp_tool(resolved_tool_name):
             raw = await call_mcp_tool(resolved_tool_name, args_json)
         else:
-            raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
+            raise NotFoundError(f"Tool '{tool_name}' not found")
     finally:
         if bot_token is not None:
             current_bot_id.reset(bot_token)

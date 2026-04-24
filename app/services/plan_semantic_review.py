@@ -6,7 +6,7 @@ import re
 import uuid
 from typing import Any
 
-from fastapi import HTTPException
+from app.domain.errors import ConflictError, NotFoundError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -265,7 +265,7 @@ async def review_plan_adherence(
 ) -> dict[str, Any]:
     plan = load_session_plan(session, required=False)
     if plan is None:
-        raise HTTPException(status_code=404, detail="No active plan for this session.")
+        raise NotFoundError("No active plan for this session.")
 
     adherence = _normalize_adherence((session.metadata_ or {}).get("plan_adherence"))
     outcomes = [item for item in adherence.get("outcomes", []) if isinstance(item, dict)]
@@ -276,23 +276,22 @@ async def review_plan_adherence(
                 selected_outcome = copy.deepcopy(item)
                 break
         if selected_outcome is None:
-            raise HTTPException(status_code=404, detail="No recorded plan outcome found for that correlation id.")
+            raise NotFoundError("No recorded plan outcome found for that correlation id.")
     else:
         latest = adherence.get("latest_outcome")
         if not isinstance(latest, dict):
-            raise HTTPException(status_code=409, detail="No recorded plan outcome is available to review.")
+            raise ConflictError("No recorded plan outcome is available to review.")
         selected_outcome = copy.deepcopy(latest)
 
     outcome_correlation = str(selected_outcome.get("correlation_id") or "").strip()
     if not outcome_correlation:
-        raise HTTPException(
-            status_code=409,
-            detail="This recorded outcome predates correlation-aware review and cannot be reviewed semantically.",
+        raise ConflictError(
+            "This recorded outcome predates correlation-aware review and cannot be reviewed semantically.",
         )
 
     corr_uuid = _parse_uuid(outcome_correlation)
     if corr_uuid is None:
-        raise HTTPException(status_code=409, detail="The recorded outcome has an invalid correlation id.")
+        raise ConflictError("The recorded outcome has an invalid correlation id.")
 
     plan_revision = int(selected_outcome.get("accepted_revision") or selected_outcome.get("plan_revision") or plan.revision)
     review_plan = load_session_plan_revision(session, plan_revision, prefer_snapshot=False, required=False) or plan

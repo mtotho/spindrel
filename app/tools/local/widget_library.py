@@ -12,7 +12,7 @@ Bots author entries in the writable scopes via the existing file tool over
 ``widget://bot/<name>/...`` / ``widget://workspace/<name>/...`` virtual
 paths — this tool is the metadata-rich inventory surface.
 
-See ``vault/Projects/agent-server/Track - Widget Library.md`` for the full arc.
+See ``project-notes/Track - Widget Library.md`` for the full arc.
 """
 from __future__ import annotations
 

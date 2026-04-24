@@ -720,6 +720,21 @@ async def lifespan(application: FastAPI):
         logger.exception("outbox: stale IN_FLIGHT recovery failed (drainer will continue)")
     _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
 
+    # Heartbeat startup recovery — same crash-gap shape as outbox: a
+    # HeartbeatRun row flipped to ``status='running'`` that never reached
+    # its follow-up write is stranded forever, wedging the run history view.
+    # Reset before the worker launches so the next fire starts from a clean
+    # terminal state.
+    try:
+        from app.services.heartbeat import reset_stale_running_runs
+        from app.db.engine import async_session as _hb_session
+        async with _hb_session() as _db:
+            _hb_recovered = await reset_stale_running_runs(_db)
+        if _hb_recovered:
+            logger.info("heartbeat: recovered %d stale running run(s) from previous process", _hb_recovered)
+    except Exception:
+        logger.exception("heartbeat: stale running-run recovery failed (worker will continue)")
+
     # Widget SDK Phase B.4 — restore widget.py @on_event subscribers for every
     # pin whose bundle declares events. Best-effort: a single broken bundle
     # must not block server boot.
@@ -872,6 +887,12 @@ class ConfigExportMiddleware:
 
 if settings.CONFIG_STATE_FILE:
     app.add_middleware(ConfigExportMiddleware)
+
+# Domain-error → HTTP adapter. Keeps services/agent code out of ``fastapi``.
+from app.domain.errors import install_domain_error_handler  # noqa: E402
+
+install_domain_error_handler(app)
+
 
 # Register routers
 from app.routers import auth, chat, sessions, transcribe  # noqa: E402

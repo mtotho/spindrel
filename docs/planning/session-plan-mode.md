@@ -151,6 +151,13 @@ Composer/session entry points live in:
 
 - `ui/src/components/chat/MessageInput.tsx`
 
+Composer control copy must distinguish action from status:
+
+- inactive chat with no plan shows `Start plan`
+- inactive chat with an existing plan shows `Resume plan`
+- active plan modes show status labels (`Planning`, `Executing`, `Blocked`, `Done`) with semantic tone
+- inactive action states do not show a dropdown affordance when the only action is start/resume
+
 This matters because the visible UX is split correctly:
 
 - session state comes from session endpoints/query state

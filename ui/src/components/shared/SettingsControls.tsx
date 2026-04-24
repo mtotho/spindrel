@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, PencilLine } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, ChevronRight, Loader2, PencilLine, Search, X } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // AdvancedSection — collapsible with chevron + title, 44px touch target
@@ -45,20 +45,15 @@ export function AdvancedSection({
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "default" | "small";
 
-// Primary action buttons use the signature Spindrel gradient
-// (`linear-gradient(135deg, accent, purple)` — see `MessageInput.tsx:887`).
-// This is the same treatment as the composer send arrow: it carries brand
-// personality on destructive/confirm CTAs without needing bright color.
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-to-br from-accent to-purple text-white border-transparent " +
-    "shadow-[0_6px_18px_-6px_rgba(59,130,246,0.45)] hover:brightness-110 active:brightness-95",
+    "bg-transparent text-accent border border-transparent hover:bg-accent/[0.08] active:bg-accent/[0.12]",
   secondary:
-    "bg-surface-raised text-text border border-surface-border hover:bg-surface-overlay/60",
+    "bg-transparent text-text-muted border border-transparent hover:bg-surface-overlay/60 hover:text-text",
   danger:
-    "bg-danger/10 text-danger border border-danger/40 hover:bg-danger/15",
+    "bg-transparent text-danger border border-transparent hover:bg-danger/10",
   ghost:
-    "bg-transparent text-text-muted border border-surface-border hover:bg-surface-overlay/60",
+    "bg-transparent text-text-dim border border-transparent hover:bg-surface-overlay/50 hover:text-text-muted",
 };
 
 export function ActionButton({
@@ -150,6 +145,32 @@ export function StatusBadge({
   );
 }
 
+export function QuietPill({
+  label,
+  title,
+  className = "",
+  maxWidthClass = "max-w-[160px]",
+}: {
+  label: React.ReactNode;
+  title?: string;
+  className?: string;
+  maxWidthClass?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={
+        `inline-flex shrink-0 items-center rounded-full bg-surface-overlay/35 ` +
+        `px-1.5 py-px text-[9px] font-semibold uppercase leading-[14px] tracking-[0.05em] text-text-muted ` +
+        `${maxWidthClass} ` +
+        className
+      }
+    >
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // InfoBanner — warning / info / danger / success boxes
 //
@@ -229,6 +250,210 @@ export function SaveStatusPill({
     >
       <span className="inline-flex items-center">{pill.icon}</span>
       <span>{label}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Control-surface layout primitives.
+// These are intentionally low-chrome: section hierarchy is spacing +
+// typography first, tonal rows second, borders only for expanded forms.
+// ---------------------------------------------------------------------------
+export function SettingsGroupLabel({
+  label,
+  count,
+  icon,
+  action,
+}: {
+  label: string;
+  count?: number;
+  icon?: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex min-h-[28px] items-center gap-1.5">
+      {icon}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
+        {label}
+      </span>
+      {count != null && (
+        <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-semibold text-text-dim">
+          {count}
+        </span>
+      )}
+      {action && <div className="ml-auto shrink-0">{action}</div>}
+    </div>
+  );
+}
+
+export function SettingsSearchBox({
+  value,
+  onChange,
+  onKeyDown,
+  placeholder = "Filter...",
+  className = "",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <div className={`flex min-h-[34px] items-center gap-1.5 rounded-md bg-surface-raised/50 px-2.5 text-text-dim transition-colors focus-within:bg-surface-overlay/45 focus-within:ring-2 focus-within:ring-accent/30 ${className}`}>
+      <Search size={13} className="shrink-0" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        className="min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-dim"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Clear filter"
+          className="inline-flex items-center p-0 text-text-dim transition-colors hover:text-text"
+        >
+          <X size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function SettingsSegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  className = "",
+}: {
+  options: Array<{ key?: T; value?: T; label: string; count?: number; icon?: React.ReactNode }>;
+  value: T;
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`inline-flex rounded-md bg-surface-raised/40 p-1 ${className}`}>
+      {options.map((option) => {
+        const optionValue = (option.key ?? option.value) as T;
+        const active = value === optionValue;
+        return (
+          <button
+            key={optionValue}
+            type="button"
+            onClick={() => onChange(optionValue)}
+            className={
+              `inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold transition-colors ` +
+              `focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 ` +
+              (active
+                ? "bg-surface-overlay text-text"
+                : "text-text-dim hover:bg-surface-overlay/45 hover:text-text-muted")
+            }
+          >
+            {option.icon}
+            {option.label}
+            {option.count != null && option.count > 0 && (
+              <span
+                className={
+                  `min-w-[18px] rounded-full px-1.5 py-px text-center text-[10px] font-semibold ` +
+                  (active ? "bg-accent/10 text-accent" : "bg-surface-overlay text-text-dim")
+                }
+              >
+                {option.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function SettingsControlRow({
+  children,
+  leading,
+  title,
+  description,
+  meta,
+  action,
+  active = false,
+  disabled = false,
+  onClick,
+  compact = false,
+  className = "",
+}: {
+  children?: React.ReactNode;
+  leading?: React.ReactNode;
+  title?: React.ReactNode;
+  description?: React.ReactNode;
+  meta?: React.ReactNode;
+  action?: React.ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+  compact?: boolean;
+  className?: string;
+}) {
+  const classes =
+    `relative w-full rounded-md px-3 ${compact ? "py-2" : "py-2.5"} text-left transition-colors ` +
+    (active
+      ? "bg-accent/[0.06] before:absolute before:left-0 before:top-1/2 before:h-4 before:w-[3px] before:-translate-y-1/2 before:rounded-full before:bg-accent "
+      : "bg-surface-raised/40 ") +
+    (disabled ? "opacity-50 " : onClick ? "cursor-pointer hover:bg-surface-overlay/45 " : "") +
+    `focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 ${className}`;
+
+  const content = children ?? (
+    <div className="flex min-w-0 items-center gap-2.5">
+      {leading && <div className="shrink-0 text-text-dim">{leading}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          {title && <div className="min-w-0 truncate text-[12px] font-semibold text-text">{title}</div>}
+          {meta && <div className="shrink-0 text-[10px] text-text-dim">{meta}</div>}
+        </div>
+        {description && <div className="mt-0.5 text-[11px] leading-snug text-text-dim">{description}</div>}
+      </div>
+      {action && <div className="shrink-0">{action}</div>}
+    </div>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={disabled ? undefined : onClick} disabled={disabled} className={classes}>
+        {content}
+      </button>
+    );
+  }
+
+  return <div className={classes}>{content}</div>;
+}
+
+export function SettingsStatGrid({
+  items,
+}: {
+  items: Array<{ label: string; value: React.ReactNode; tone?: "default" | "success" | "warning" | "danger" | "accent" }>;
+}) {
+  const toneClass = {
+    default: "text-text",
+    success: "text-success",
+    warning: "text-warning-muted",
+    danger: "text-danger",
+    accent: "text-accent",
+  } as const;
+  return (
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      {items.map((item) => (
+        <div key={item.label} className="rounded-md bg-surface-raised/40 px-3 py-2.5">
+          <div className={`font-mono text-[14px] font-semibold ${toneClass[item.tone ?? "default"]}`}>
+            {item.value}
+          </div>
+          <div className="mt-0.5 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">
+            {item.label}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

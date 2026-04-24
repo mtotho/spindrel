@@ -8,8 +8,9 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
+
+from app.domain.errors import ForbiddenError, ValidationError
 
 from app.db.models import DashboardRailPin, User
 from app.services.dashboard_rail import (
@@ -53,12 +54,12 @@ async def test_non_admin_cannot_pin_everyone(db_session):
     alice = _make_user(db_session)
     await db_session.commit()
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ForbiddenError) as exc:
         await set_rail_pin(
             db_session, "home",
             scope="everyone", user_id=alice.id, is_admin=False,
         )
-    assert exc.value.status_code == 403
+    assert exc.value.http_status == 403
 
 
 @pytest.mark.asyncio
@@ -77,12 +78,12 @@ async def test_non_admin_can_pin_me(db_session):
 @pytest.mark.asyncio
 async def test_scope_me_without_user_rejected(db_session):
     await create_dashboard(db_session, slug="home", name="Home")
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ValidationError) as exc:
         await set_rail_pin(
             db_session, "home",
             scope="me", user_id=None, is_admin=True,
         )
-    assert exc.value.status_code == 400
+    assert exc.value.http_status == 400
 
 
 @pytest.mark.asyncio
@@ -190,12 +191,12 @@ async def test_unset_everyone_requires_admin(db_session):
         scope="everyone", user_id=None, is_admin=True,
     )
 
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(ForbiddenError) as exc:
         await unset_rail_pin(
             db_session, "home",
             scope="everyone", user_id=alice.id, is_admin=False,
         )
-    assert exc.value.status_code == 403
+    assert exc.value.http_status == 403
 
 
 @pytest.mark.asyncio

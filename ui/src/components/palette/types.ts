@@ -9,6 +9,8 @@ export interface PaletteItem {
   category: string;
   /** ISO timestamp; only populated for channel items. */
   lastMessageAt?: string | null;
+  /** Keep searchable and recent-eligible, but omit from the empty-query browse list. */
+  hideFromBrowse?: boolean;
   onSelect?: () => void;
   routeKind?: string;
 }

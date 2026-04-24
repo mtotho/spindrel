@@ -25,6 +25,7 @@ from app.tools.local.file_ops import (
     _op_move,
     _op_grep,
     _op_glob,
+    _op_replace_section,
     _normalize_include,
     _whitespace_flex_pattern,
     _find_closest_hint,
@@ -1344,6 +1345,194 @@ class TestFileTool:
 
 
 # ---------------------------------------------------------------------------
+# Batch + archive_older_than
+# ---------------------------------------------------------------------------
+
+
+class TestBatchOp:
+    """Batch collapses N parallel file calls into one iteration."""
+
+    @pytest.fixture
+    def mock_ctx(self, ws):
+        bot = _mock_bot(str(ws))
+        with patch("app.tools.local.file_ops.current_bot_id") as mock_bid:
+            mock_bid.get.return_value = "test_bot"
+            with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
+                mock_get.return_value = (bot, "test_bot", str(ws))
+                yield ws, bot
+
+    @pytest.mark.asyncio
+    async def test_mixed_success_and_failure_reports_both(self, mock_ctx):
+        ws, _ = mock_ctx
+        result = await file_tool(operation="batch", ops=[
+            {"op": "read", "path": "hello.txt"},
+            {"op": "read", "path": "does-not-exist.txt"},
+            {"op": "append", "path": "hello.txt", "content": "extra\n"},
+        ])
+        parsed = json.loads(result)
+        assert parsed["ok_count"] == 2
+        assert parsed["error_count"] == 1
+        assert len(parsed["results"]) == 3
+        # Order preserved
+        assert parsed["results"][0].get("llm") or parsed["results"][0].get("ok")
+        assert "error" in parsed["results"][1]
+        assert parsed["results"][2]["ok"] is True
+
+    @pytest.mark.asyncio
+    async def test_rejects_empty_ops(self, mock_ctx):
+        result = await file_tool(operation="batch", ops=[])
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    @pytest.mark.asyncio
+    async def test_rejects_nested_batch(self, mock_ctx):
+        result = await file_tool(operation="batch", ops=[
+            {"op": "batch", "ops": [{"op": "read", "path": "hello.txt"}]},
+        ])
+        parsed = json.loads(result)
+        assert parsed["error_count"] == 1
+        assert "not allowed in batch" in parsed["results"][0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_nested_archive(self, mock_ctx):
+        result = await file_tool(operation="batch", ops=[
+            {"op": "archive_older_than", "path": "memory/logs"},
+        ])
+        parsed = json.loads(result)
+        assert parsed["error_count"] == 1
+        assert "not allowed in batch" in parsed["results"][0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_op_without_op_key(self, mock_ctx):
+        result = await file_tool(operation="batch", ops=[
+            {"path": "hello.txt"},
+        ])
+        parsed = json.loads(result)
+        assert parsed["error_count"] == 1
+        assert "missing 'op'" in parsed["results"][0]["error"]
+
+
+class TestArchiveOlderThan:
+    """The op hygiene re-invents by hand — one idempotent call instead of N moves."""
+
+    @pytest.fixture
+    def mock_ctx(self, ws):
+        bot = _mock_bot(str(ws))
+        with patch("app.tools.local.file_ops.current_bot_id") as mock_bid:
+            mock_bid.get.return_value = "test_bot"
+            with patch("app.tools.local.file_ops._get_bot_and_workspace_root") as mock_get:
+                mock_get.return_value = (bot, "test_bot", str(ws))
+                yield ws, bot
+
+    @pytest.mark.asyncio
+    async def test_moves_old_dated_logs_and_keeps_fresh(self, mock_ctx):
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        # 20 days ago (should archive)
+        (logs / "2026-04-04.md").write_text("old\n")
+        # Today (should stay)
+        (logs / "2026-04-24.md").write_text("fresh\n")
+
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            destination="memory/logs/archive",
+            older_than_days=14,
+        )
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert "2026-04-04.md" in parsed["moved"]
+        assert "2026-04-24.md" in parsed["skipped_fresh"]
+        assert not (logs / "2026-04-04.md").exists()
+        assert (logs / "archive" / "2026-04-04.md").is_file()
+        assert (logs / "2026-04-24.md").is_file()
+
+    @pytest.mark.asyncio
+    async def test_idempotent_on_second_run(self, mock_ctx):
+        """Re-running after everything is already archived must succeed with 0 moved."""
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        archive = logs / "archive"
+        archive.mkdir(exist_ok=True)
+        # Already-archived copy
+        (archive / "2026-04-04.md").write_text("old\n")
+        # Stale re-appearance (simulates the trace-2 bug: a prior run already moved this)
+        (logs / "2026-04-04.md").write_text("old again\n")
+
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            destination="memory/logs/archive",
+            older_than_days=14,
+        )
+        parsed = json.loads(result)
+        # Source file still there (not moved because dest exists); reported as skipped
+        assert "2026-04-04.md" in parsed["skipped_existing"]
+        assert parsed["moved"] == []
+        assert (logs / "2026-04-04.md").exists()
+
+    @pytest.mark.asyncio
+    async def test_creates_destination_if_missing(self, mock_ctx):
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        (logs / "2026-04-04.md").write_text("old\n")
+        assert not (logs / "archive").exists()
+
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            destination="memory/logs/archive",
+            older_than_days=14,
+        )
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert (logs / "archive" / "2026-04-04.md").is_file()
+
+    @pytest.mark.asyncio
+    async def test_requires_destination(self, mock_ctx):
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            older_than_days=14,
+        )
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    @pytest.mark.asyncio
+    async def test_requires_older_than_days(self, mock_ctx):
+        ws, _ = mock_ctx
+        logs = ws / "memory" / "logs"
+        logs.mkdir(exist_ok=True)
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            destination="memory/logs/archive",
+        )
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    @pytest.mark.asyncio
+    async def test_empty_source_dir_reports_zero(self, mock_ctx):
+        ws, _ = mock_ctx
+        (ws / "memory" / "logs").mkdir(exist_ok=True)
+        result = await file_tool(
+            operation="archive_older_than",
+            path="memory/logs",
+            destination="memory/logs/archive",
+            older_than_days=14,
+        )
+        parsed = json.loads(result)
+        assert parsed["ok"] is True
+        assert parsed["moved"] == []
+
+
+# ---------------------------------------------------------------------------
 # Cross-workspace channel access
 # ---------------------------------------------------------------------------
 
@@ -1904,3 +2093,139 @@ class TestEditAutoRecoverRouting:
                                      bot_id="bot-a"))
         assert parsed["ok"] is True
         assert Path(target).read_text() == "new\n"
+
+
+class TestReplaceSectionOp:
+    """Heading-bounded markdown section replacement.
+
+    Prevents the pattern from the 2026-04-23 skill-review trace: the bot
+    passing the entire existing section as the `find` string of a plain
+    `file(operation="edit")` because it needs to swap out MEMORY.md's
+    Reflections list.
+    """
+
+    def test_replaces_section_bounded_by_same_level_heading(self, tmp_path):
+        path = tmp_path / "MEMORY.md"
+        path.write_text(
+            "# Memory\n\n"
+            "## Facts\n"
+            "- Fact A\n"
+            "- Fact B\n\n"
+            "## Reflections\n"
+            "- [reflection 2026-04-01] old A\n"
+            "- [reflection 2026-04-02] old B\n\n"
+            "## Preferences\n"
+            "- Pref 1\n"
+        )
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections",
+            "- [reflection 2026-04-24] new only\n",
+        ))
+        assert parsed["ok"] is True
+        text = path.read_text()
+        assert "## Reflections\n- [reflection 2026-04-24] new only" in text
+        assert "old A" not in text
+        assert "old B" not in text
+        # Facts section above survives.
+        assert "- Fact A" in text
+        # Preferences section below survives.
+        assert "## Preferences" in text
+        assert "- Pref 1" in text
+
+    def test_stops_at_higher_level_heading(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text(
+            "# Top\n\n"
+            "## Reflections\n"
+            "- old\n\n"
+            "# Another Top\n"
+            "Keeper body.\n"
+        )
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- new\n",
+        ))
+        assert parsed["ok"] is True
+        text = path.read_text()
+        assert "# Another Top" in text
+        assert "Keeper body." in text
+        assert "- old" not in text
+        assert "- new" in text
+
+    def test_replaces_section_at_end_of_file(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\n## Reflections\n- a\n- b\n")
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- only one\n",
+        ))
+        assert parsed["ok"] is True
+        text = path.read_text()
+        assert text.strip().endswith("- only one")
+        assert "- a" not in text
+        assert "- b" not in text
+
+    def test_heading_missing_appends_when_create_if_missing(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\nSome body.\n")
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- fresh\n",
+        ))
+        assert parsed["ok"] is True
+        text = path.read_text()
+        assert "Some body." in text
+        assert "## Reflections" in text
+        assert "- fresh" in text
+
+    def test_heading_missing_errors_when_create_if_missing_false(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\nSome body.\n")
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- fresh\n", create_if_missing=False,
+        ))
+        assert "error" in parsed
+        assert "not found" in parsed["error"]
+
+    def test_file_absent_and_create_if_missing_true_creates(self, tmp_path):
+        path = tmp_path / "new.md"
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- seed\n",
+        ))
+        assert parsed["ok"] is True
+        text = path.read_text()
+        assert text.startswith("## Reflections")
+        assert "- seed" in text
+
+    def test_file_absent_and_create_if_missing_false_errors(self, tmp_path):
+        path = tmp_path / "nope.md"
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", "- x\n", create_if_missing=False,
+        ))
+        assert "error" in parsed
+
+    def test_bad_heading_without_hashes_rejected(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\n## Reflections\n- a\n")
+        parsed = json.loads(_op_replace_section(
+            str(path), "Reflections", "- new\n",
+        ))
+        assert "error" in parsed
+        assert "ATX heading" in parsed["error"]
+
+    def test_missing_content_rejected(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\n## Reflections\n- a\n")
+        parsed = json.loads(_op_replace_section(
+            str(path), "## Reflections", None,
+        ))
+        assert "error" in parsed
+        assert "content" in parsed["error"].lower()
+
+    def test_idempotent_rerun_with_same_body(self, tmp_path):
+        path = tmp_path / "doc.md"
+        path.write_text("# Top\n\n## Reflections\n- a\n")
+        body = "- final\n"
+        _op_replace_section(str(path), "## Reflections", body)
+        _op_replace_section(str(path), "## Reflections", body)
+        text = path.read_text()
+        # Heading appears exactly once.
+        assert text.count("## Reflections") == 1
+        assert text.count("- final") == 1

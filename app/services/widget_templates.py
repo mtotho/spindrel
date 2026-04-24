@@ -82,7 +82,7 @@ def _register_widgets(
     an integration directory (or the core tools dir for core widgets). When
     omitted, path-mode HTML widgets are rejected (body-only).
     """
-    from app.services.widget_package_validation import _validate_parsed_definition
+    from app.services.widget_package_validation import validate_parsed_definition
 
     count = 0
     for tool_name, widget_def in widgets.items():
@@ -117,7 +117,7 @@ def _register_widgets(
         # Component-tree validation — fail fast on misauthored templates
         # rather than letting them surface as `Unknown: <type>` blocks or
         # silent runtime errors. Extended to accept html_template shape.
-        errors, warnings = _validate_parsed_definition(widget_def)
+        errors, warnings = validate_parsed_definition(widget_def)
         for w in warnings:
             logger.warning("%s: tool_widgets[%s]: %s", source, tool_name, w.message)
         if errors:
@@ -1207,3 +1207,32 @@ def _apply_transform(value: Any, transform: str, data: dict) -> Any:
         return result
 
     return value
+
+
+# ── Public re-exports (Cluster 4B.1) ──
+#
+# These are the helpers that legitimately cross widget_*.py module
+# boundaries. They stay backed by the underscore-prefixed implementations
+# so the internal callsites don't churn; external callers should use the
+# public names so widget_private_import_drift is enforceable.
+
+substitute = _substitute
+substitute_string = _substitute_string
+apply_code_transform = _apply_code_transform
+build_html_widget_body = _build_html_widget_body
+resolve_html_template_paths = _resolve_html_template_paths
+
+
+def get_widget_template_with_bare_fallback(tool_name: str) -> dict | None:
+    """Look up a widget template by full tool name, falling back to the
+    bare name (the suffix after the first ``-``) when absent.
+
+    Used by the preview path so plugin-prefixed tool names
+    (``foo-getWeather``) resolve to the underlying template
+    (``getWeather``) when no plugin-specific override is registered.
+    """
+    entry = _widget_templates.get(tool_name)
+    if entry is None and "-" in tool_name:
+        bare = tool_name.split("-", 1)[1]
+        entry = _widget_templates.get(bare)
+    return entry

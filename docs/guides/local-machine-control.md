@@ -13,13 +13,13 @@ Machine control exists for cases where the useful action is:
 - inspect the user's actual local checkout
 - run a command in the user's real shell environment
 - check local git/process/config state
-- later, operate on other explicit machines such as LAN boxes over a different driver
+- operate on other explicit machines such as LAN boxes over SSH or other future drivers
 
 The feature exists to preserve that trust boundary rather than blur it with ordinary server-side execution.
 
 ## Current design in one sentence
 
-Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, and the selected provider executes the work on that target.
+Machine control is a core subsystem with pluggable providers. A live signed-in admin user grants one session a temporary lease for one explicit machine target, and core requires a fresh ready check before the selected provider executes work on that target.
 
 ## Core mental model
 
@@ -27,15 +27,18 @@ Machine control is a core subsystem with pluggable providers. A live signed-in a
 |---|---|
 | `machine target` | A controllable machine endpoint identified by `(provider_id, target_id)` |
 | `provider` | The implementation/transport behind the target |
-| `driver` | The provider's transport family such as `companion` now, `ssh` later |
-| `connection` | The provider's current live transport handle for a connected target |
+| `driver` | The provider's transport family such as `companion` or `ssh` |
+| `ready` | Provider-reported ability to execute right now after a probe or live-status check |
+| `connection` | The provider's current live transport handle for drivers that keep one, such as `local_companion` |
+| `handle_id` | Provider-specific runtime handle such as a companion connection id or `ssh://user@host:port` |
 | `lease` | A session-scoped grant allowing one session to control one target temporarily |
 | `execution_policy` | A runtime guard layered on top of normal tool policy |
 
 Important distinctions:
 
 - a target is the machine
-- a connection is the provider's current live link to that machine
+- readiness is the execution gate; some providers compute it from a live connection, others from a fresh probe
+- a connection is only one possible transport detail, not the cross-provider contract
 - a lease is the user's explicit permission for one session to use that target
 
 Spindrel never routes by recency. The target is always explicit.
@@ -71,7 +74,7 @@ execution-policy gate
     ├── requires live JWT user
     ├── requires active presence
     ├── requires valid session lease
-    └── requires connected leased target
+    └── requires freshly ready leased target
     ▼
 core machine-control service
     │
@@ -79,8 +82,9 @@ core machine-control service
     ▼
 provider implementation
     │
-    ├── local_companion today
-    └── ssh or other providers later
+    ├── local_companion
+    ├── ssh
+    └── other providers later
     ▼
 target machine
 ```
@@ -112,8 +116,10 @@ Each provider implements a machine-control contract that exposes:
 
 - identity metadata: `provider_id`, `label`, `driver`
 - target enumeration and lookup
-- connection lookup
+- cached target status lookup
+- fresh probe capability
 - optional enrollment/removal
+- provider-defined enrollment fields/config
 - command execution methods
 
 This keeps core UI and APIs provider-agnostic while still letting providers add metadata.
@@ -133,7 +139,12 @@ Current stored fields:
 - `granted_at`
 - `expires_at`
 - `capabilities`
-- `connection_id`
+- `handle_id`
+
+Compatibility note:
+
+- older payloads may still expose `connection_id` / `connected`
+- current canonical fields are `handle_id` / `ready` / `status` / `reason` / `checked_at`
 
 Load-bearing invariants:
 
@@ -151,7 +162,7 @@ Current policy values:
 |---|---|
 | `normal` | no extra runtime gate |
 | `interactive_user` | requires a live signed-in user with active presence |
-| `live_target_lease` | requires the above plus a valid session lease for a connected target |
+| `live_target_lease` | requires the above plus a valid session lease for a ready target after a fresh provider probe |
 
 Current core machine tools:
 
@@ -174,6 +185,7 @@ Current core APIs:
 - Admin machine center:
   - `GET /api/v1/admin/machines`
   - `POST /api/v1/admin/machines/providers/{provider_id}/enroll`
+  - `POST /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}/probe`
   - `DELETE /api/v1/admin/machines/providers/{provider_id}/targets/{target_id}`
 
 Current core UI:
@@ -184,11 +196,13 @@ Current core UI:
   - `core.machine_target_status`
   - `core.command_result`
   - `core.machine_access_required`
-- a lightweight session-scoped `MachineTargetChip` in chat header chrome
+- optional native widget `core/machine_control_native` for channel-scoped status + controls
 
-### 6. `local_companion` as the first provider
+Machine control no longer renders as default chat-header chrome. Required grant/revoke interactions are transcript-first, and the optional native widget is a convenience surface the user pins deliberately.
 
-`integrations/local_companion/` is the first shipped provider.
+### 6. `local_companion` provider
+
+`integrations/local_companion/` is the paired-machine provider for the user's current workstation or laptop.
 
 It owns:
 
@@ -203,29 +217,58 @@ It no longer owns:
 - the machine admin center
 - the session lease APIs
 
-The current provider uses `driver="companion"`.
+This provider uses `driver="companion"` and derives readiness from its live outbound WebSocket connection.
+
+### 7. `ssh` provider
+
+`integrations/ssh/` is the headless-machine provider for LAN boxes or other reachable SSH hosts.
+
+It owns:
+
+- `machine_control.py` provider implementation
+- provider-level SSH settings in integration settings
+- target enrollment metadata such as host, username, port, and optional default working directory
+
+It uses `driver="ssh"` and derives readiness from a fresh SSH probe rather than a long-lived live connection.
+
+Provider-level SSH credentials and trust material live in app-managed integration settings, not ephemeral container filesystem state, so container rebuilds do not wipe configured keys or `known_hosts`.
 
 ## Current request flow
 
 ### Enroll a target
 
-1. Admin calls `POST /api/v1/admin/machines/providers/local_companion/enroll`.
+1. Admin calls `POST /api/v1/admin/machines/providers/{provider_id}/enroll`.
 2. Core resolves the provider and asks it to enroll a target.
-3. The provider creates target state and returns launch information.
-4. The response includes the example companion launch command.
+3. The provider creates target state and returns any provider-specific setup information.
+4. For `local_companion`, the response includes the example companion launch command.
+
+### Refresh or probe a target
+
+1. Admin or the session UI triggers a probe or the runtime needs one for lease/tool validation.
+2. Core asks the provider for a fresh readiness check.
+3. The provider updates cached target metadata such as `ready`, `status`, `reason`, `checked_at`, and `handle_id`.
+4. The machine center and session surfaces render from that cached status, but lease grant and execution still require a fresh successful probe.
 
 ### Connect the companion
 
 1. The user runs the companion on the target machine.
 2. The companion connects outbound to `/integrations/local_companion/ws`.
 3. The provider updates connection metadata for that `target_id`.
-4. Core machine status now reports the target as connected.
+4. Core machine status now reports the target as ready/connected.
+
+### Probe an SSH target
+
+1. The SSH provider materializes the configured private key and `known_hosts` blob into locked temp files at runtime.
+2. It runs a strict non-interactive OpenSSH probe.
+3. Cached target metadata is updated with reachability, hostname, platform, and readiness reason.
+4. Temp files are deleted after the subprocess completes.
 
 ### Grant a session lease
 
-1. A live signed-in admin chooses a connected target for a session.
-2. The session API stores a lease in `Session.metadata_`.
-3. Conflict checks ensure no other session already owns that target.
+1. A live signed-in admin chooses a target for a session.
+2. Core performs a fresh provider probe for that target.
+3. If the target is ready, the session API stores a lease in `Session.metadata_`.
+4. Conflict checks ensure no other session already owns that target.
 
 ### Execute a machine tool
 
@@ -235,7 +278,7 @@ The current provider uses `driver="companion"`.
    - active presence
    - current session id
    - valid unexpired lease
-   - current leased target is connected
+   - current leased target passes a fresh readiness probe
 3. Core dispatches the operation through the selected provider.
 4. The provider talks to its transport and returns the result.
 5. The tool emits a structured rich result envelope.
@@ -244,20 +287,32 @@ The current provider uses `driver="companion"`.
 
 ### Operator flow
 
+#### Local companion
+
 1. Go to `Admin > Machines`, or use the quick-setup helper on `Admin > Integrations > Local Companion`.
 2. Enroll a target under the `Local Companion` provider.
 3. Copy the returned launch command.
-4. Run that command on the machine you want to control.
-5. Confirm the machine appears as connected in `Admin > Machines`.
+4. Run that command on the target machine. The current launch flow downloads the companion script from the server first, then starts it locally with Python.
+5. Confirm the machine appears as ready in `Admin > Machines`.
+
+#### SSH
+
+1. Go to `Admin > Integrations > SSH` and configure `SSH_PRIVATE_KEY` plus `SSH_KNOWN_HOSTS`.
+2. Enroll a target under the `SSH` provider with `host`, `username`, optional `port`, and optional default `working_dir`.
+3. Use `Probe` from `Admin > Machines` to confirm the target becomes reachable.
+4. Grant that target to the session you want to use.
+
+The SSH provider stores credentials and trust in app-managed integration settings, so those settings survive container rebuilds. Only short-lived temp files are created at runtime for the actual `ssh` subprocess.
 
 ### Session flow
 
 1. Open the session you want to use.
 2. Call `machine_status` or let the transcript surface the inline access-required card.
 3. Grant a lease for the target you want to use.
-4. Use `machine_inspect_command` for discovery first.
-5. Use `machine_exec_command` when you really need execution on that machine.
-6. Revoke the lease or let it expire.
+4. Optionally pin the native `Machine control` widget if you want persistent session-scoped quick controls in the channel workspace.
+5. Use `machine_inspect_command` for discovery first.
+6. Use `machine_exec_command` when you really need execution on that machine.
+7. Revoke the lease or let it expire.
 
 ## Safety model
 
@@ -268,7 +323,7 @@ Machine control is intentionally fail-closed.
 - a live signed-in admin user
 - active user presence
 - a valid session lease
-- a connected leased target
+- a freshly ready leased target
 
 ### Denied by default
 
@@ -285,6 +340,11 @@ These origins do not get to use machine-control tools just because they can call
 
 Core lease checks are not the only defense.
 
+Across all providers:
+
+- `machine_inspect_command` is validated by a shared core inspect-command policy before provider dispatch
+- lease grant and lease-gated execution require a fresh provider probe
+
 For `local_companion`, the target-side process still enforces local limits such as:
 
 - allowed roots
@@ -295,19 +355,29 @@ For `local_companion`, the target-side process still enforces local limits such 
 
 That matters because the target machine remains the final trust boundary.
 
+For `ssh`, the provider still enforces:
+
+- key-only auth
+- strict host key checking
+- no password prompts
+- no TTY allocation
+- no forwarding
+- subprocess timeouts and output caps
+
 ## Current limits
 
-- `local_companion` is the only shipped provider.
-- The bridge is in-memory; multi-worker deployments need shared coordination before this becomes horizontally safe.
-- The current provider is shell-first.
+- Two providers are shipped: `local_companion` and `ssh`.
+- `local_companion` bridge state is still in-memory; multi-worker deployments need shared coordination before companion transport becomes horizontally safe.
+- Both shipped providers are shell-first.
 - `browser_live` has not yet been moved onto this same lease model.
-- SSH is not shipped yet.
+- SSH is non-interactive and key-only in this build. No password auth, TOFU, port forwarding, or persistent SSH session manager yet.
 
 ## Planned next steps
 
-- Add an SSH provider on the same machine-control contract.
 - Unify other machine-adjacent control surfaces such as `browser_live` onto the same live-user lease model where appropriate.
+- Improve companion packaging so the bootstrap path does not rely on preinstalled Python dependencies on the target machine.
 - Expand provider capabilities beyond shell only after the provider/lease contract stays stable.
+- Add shared coordination for live provider state where needed for multi-worker deployments.
 
 ## Source map
 
@@ -320,6 +390,8 @@ Use these as the main code anchors for the current architecture:
 - `integrations/local_companion/machine_control.py`
 - `integrations/local_companion/router.py`
 - `integrations/local_companion/bridge.py`
+- `integrations/ssh/machine_control.py`
 - `ui/app/(app)/admin/machines/index.tsx`
-- `ui/app/(app)/channels/[channelId]/MachineTargetChip.tsx`
+- `app/services/native_app_widgets.py`
+- `ui/src/components/chat/renderers/nativeApps/MachineControlWidget.tsx`
 - `ui/src/components/chat/renderers/machineControl/`

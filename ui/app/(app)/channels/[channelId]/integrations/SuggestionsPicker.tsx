@@ -1,4 +1,3 @@
-import { useThemeTokens } from "@/src/theme/tokens";
 import type { BindingSuggestion } from "@/src/api/hooks/useChannels";
 
 export function SuggestionsPicker({
@@ -12,23 +11,11 @@ export function SuggestionsPicker({
   onSelect: (s: BindingSuggestion) => void;
   selectedClientId: string;
 }) {
-  const t = useThemeTokens();
-
   if (isLoading) {
     return (
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, padding: "8px 0" }}>
-        <span
-          style={{
-            width: 12,
-            height: 12,
-            border: `2px solid ${t.textDim}`,
-            borderTopColor: "transparent",
-            borderRadius: "50%",
-            display: "inline-block",
-            animation: "spin 0.6s linear infinite",
-          }}
-        />
-        <span style={{ fontSize: 11, color: t.textDim }}>Loading recent chats...</span>
+      <div className="flex items-center gap-2 py-2">
+        <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-text-dim border-t-transparent" />
+        <span className="text-[11px] text-text-dim">Loading recent chats...</span>
       </div>
     );
   }
@@ -36,56 +23,29 @@ export function SuggestionsPicker({
   if (suggestions.length === 0) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <span style={{ fontSize: 11, fontWeight: 600, color: t.textDim }}>Recent chats</span>
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 2,
-          maxHeight: 200,
-          overflowY: "auto",
-          borderRadius: 8,
-          border: `1px solid ${t.surfaceBorder}`,
-          background: t.surfaceRaised,
-        }}
-      >
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-semibold text-text-dim">Recent chats</span>
+      <div className="flex max-h-[200px] flex-col gap-0.5 overflow-y-auto rounded-md border border-surface-border bg-surface-raised">
         {suggestions.map((s) => {
           const isSelected = selectedClientId === s.client_id;
           return (
             <button
               key={s.client_id}
+              type="button"
               onClick={() => onSelect(s)}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 1,
-                padding: "8px 12px",
-                background: isSelected ? t.accentSubtle : "transparent",
-                border: "none",
-                borderBottom: `1px solid ${t.surfaceBorder}`,
-                cursor: "pointer",
-                textAlign: "left",
-                transition: "background 0.1s",
-              }}
-              onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = t.surfaceOverlay; }}
-              onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+              className={
+                `flex flex-col gap-px px-3 py-2 text-left transition-colors ` +
+                (isSelected ? "bg-accent/[0.08]" : "bg-transparent hover:bg-surface-overlay/60")
+              }
             >
-              <span style={{ fontSize: 12, fontWeight: 600, color: t.text }}>
+              <span className="text-[12px] font-semibold text-text">
                 {s.display_name}
               </span>
-              <span style={{ fontSize: 10, color: t.textDim, fontFamily: "monospace" }}>
+              <span className="font-mono text-[10px] text-text-dim">
                 {s.client_id}
               </span>
               {s.description && (
-                <span style={{
-                  fontSize: 10,
-                  color: t.textMuted,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  maxWidth: "100%",
-                }}>
+                <span className="max-w-full truncate text-[10px] text-text-muted">
                   {s.description}
                 </span>
               )}

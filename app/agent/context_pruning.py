@@ -22,6 +22,10 @@ _END_MARKER = "--- END RECENT CONVERSATION HISTORY ---"
 STICKY_TOOL_NAMES: frozenset[str] = frozenset({
     "get_skill",
     "get_skill_list",
+    # Memory files (MEMORY.md, daily logs) are re-fetched repeatedly during
+    # hygiene runs — keep them verbatim so the bot doesn't burn iterations
+    # asking for the same file across pruning cycles.
+    "get_memory_file",
 })
 
 

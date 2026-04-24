@@ -277,6 +277,7 @@ async def run_subagent(
             pre_selected_tools=tool_schemas,
             max_iterations=5,  # Sub-agents should be quick
             skip_tool_policy=False,
+            context_profile_name="task_none",
         ):
             if event.get("type") == "response":
                 final_response = event.get("text", "")

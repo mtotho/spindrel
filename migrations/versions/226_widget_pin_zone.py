@@ -31,9 +31,10 @@ branch_labels = None
 depends_on = None
 
 
-# Mirror of app/services/grid_presets.py at this migration's cut date. Inlined
-# so future refactors of the runtime presets don't accidentally rewrite
-# history. Values: (cols_lg, rail_zone_cols, dock_right_cols).
+# Preset geometry snapshot at this migration's cut date. Inlined so future
+# refactors of the runtime presets (now owned by app/services/dashboards.py)
+# don't accidentally rewrite history. Values: (cols_lg, rail_zone_cols,
+# dock_right_cols).
 _PRESET_FIELDS: dict[str, tuple[int, int, int]] = {
     "standard": (12, 3, 3),
     "fine": (24, 6, 6),

@@ -16,7 +16,7 @@ import uuid as uuid_mod
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import HTTPException
+from app.domain.errors import ConflictError, InternalError, NotFoundError, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -42,8 +42,8 @@ def _valid_preset(preset: str | None) -> str:
     if preset is None:
         return DEFAULT_PRESET
     if preset not in GRID_PRESETS:
-        raise HTTPException(
-            400, f"grid_config.preset must be one of {sorted(GRID_PRESETS)}",
+        raise ValidationError(
+            f"grid_config.preset must be one of {sorted(GRID_PRESETS)}",
         )
     return preset
 
@@ -63,8 +63,8 @@ def _scale_ratio(from_preset: str, to_preset: str) -> int:
         return b // a
     if a % b == 0:
         return -(a // b)  # sentinel for "divide by"
-    raise HTTPException(
-        500, f"Non-integer scale between presets {from_preset} and {to_preset}",
+    raise InternalError(
+        f"Non-integer scale between presets {from_preset} and {to_preset}",
     )
 
 
@@ -119,11 +119,10 @@ def is_channel_slug(slug: str) -> bool:
 
 def _validate_slug(slug: str) -> str:
     if not isinstance(slug, str):
-        raise HTTPException(400, "slug must be a string")
+        raise ValidationError("slug must be a string")
     slug = slug.strip()
     if not _SLUG_RE.match(slug):
-        raise HTTPException(
-            400,
+        raise ValidationError(
             "slug must be 1-48 chars, lowercase letters, digits, or dashes; "
             "must start with a letter or digit",
         )
@@ -132,12 +131,12 @@ def _validate_slug(slug: str) -> str:
 
 def _validate_name(name: str) -> str:
     if not isinstance(name, str):
-        raise HTTPException(400, "name must be a string")
+        raise ValidationError("name must be a string")
     name = name.strip()
     if not name:
-        raise HTTPException(400, "name is required")
+        raise ValidationError("name is required")
     if len(name) > 64:
-        raise HTTPException(400, "name must be 64 characters or fewer")
+        raise ValidationError("name must be 64 characters or fewer")
     return name
 
 
@@ -199,7 +198,7 @@ async def get_dashboard(db: AsyncSession, slug: str) -> WidgetDashboard:
         select(WidgetDashboard).where(WidgetDashboard.slug == slug)
     )).scalar_one_or_none()
     if row is None:
-        raise HTTPException(404, f"Dashboard not found: {slug}")
+        raise NotFoundError(f"Dashboard not found: {slug}")
     return row
 
 
@@ -213,19 +212,19 @@ async def create_dashboard(
 ) -> WidgetDashboard:
     slug = _validate_slug(slug)
     if slug in RESERVED_SLUGS:
-        raise HTTPException(400, f"'{slug}' is reserved and can't be used as a slug")
+        raise ValidationError(f"'{slug}' is reserved and can't be used as a slug")
     # User-facing create can never land on a channel-scoped slug — those are
     # allocated by ``ensure_channel_dashboard`` only. ``_validate_slug`` would
     # reject the colon anyway, but this gives a clearer error than "invalid slug".
     if slug.startswith(CHANNEL_SLUG_PREFIX):
-        raise HTTPException(400, f"'{CHANNEL_SLUG_PREFIX}*' slugs are reserved for channels")
+        raise ValidationError(f"'{CHANNEL_SLUG_PREFIX}*' slugs are reserved for channels")
     name = _validate_name(name)
 
     existing = (await db.execute(
         select(WidgetDashboard).where(WidgetDashboard.slug == slug)
     )).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(409, f"Dashboard '{slug}' already exists")
+        raise ConflictError(f"Dashboard '{slug}' already exists")
 
     if grid_config is not None:
         _valid_preset(grid_config.get("preset") if isinstance(grid_config, dict) else None)
@@ -253,12 +252,12 @@ async def update_dashboard(
     if "icon" in patch:
         icon = patch["icon"]
         if icon is not None and not isinstance(icon, str):
-            raise HTTPException(400, "icon must be a string or null")
+            raise ValidationError("icon must be a string or null")
         row.icon = (icon or None)
     if "grid_config" in patch:
         new_cfg = patch["grid_config"]
         if new_cfg is not None and not isinstance(new_cfg, dict):
-            raise HTTPException(400, "grid_config must be an object or null")
+            raise ValidationError("grid_config must be an object or null")
         new_preset = _extract_preset(new_cfg)
         old_preset = _extract_preset(row.grid_config)
         if new_preset != old_preset:
@@ -285,7 +284,7 @@ async def update_dashboard(
 
 async def delete_dashboard(db: AsyncSession, slug: str) -> None:
     if slug == DEFAULT_DASHBOARD_KEY:
-        raise HTTPException(400, "The default dashboard can't be deleted")
+        raise ValidationError("The default dashboard can't be deleted")
     row = await get_dashboard(db, slug)
     # Explicitly delete child pins for parity between SQLite tests (no FK
     # enforcement) and Postgres (ON DELETE CASCADE).
@@ -354,7 +353,7 @@ async def ensure_channel_dashboard(
         select(Channel).where(Channel.id == channel_id)
     )).scalar_one_or_none()
     if ch is None:
-        raise HTTPException(404, f"Channel not found: {channel_id}")
+        raise NotFoundError(f"Channel not found: {channel_id}")
 
     row = WidgetDashboard(
         slug=slug,

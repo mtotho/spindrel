@@ -252,6 +252,8 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                         "json_patch", "history", "restore",
                         "list", "delete", "mkdir", "move",
                         "grep", "glob",
+                        "batch", "archive_older_than",
+                        "replace_section",
                     ],
                     "description": (
                         "The file operation to perform. `create` makes a new file "
@@ -262,7 +264,16 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                         "`json_patch` applies RFC 6902 ops to JSON — use this for "
                         "data files so keys you didn't mention aren't dropped. "
                         "`edit` is find/replace, the safest op for narrative files. "
-                        "`history` lists backups for a path; `restore` rolls back to one."
+                        "`history` lists backups for a path; `restore` rolls back to one. "
+                        "`batch` runs many sub-operations in one tool call (see `ops`). "
+                        "Prefer this to issuing N parallel file calls — cheaper per iteration. "
+                        "`archive_older_than` lists `path`, finds files older than "
+                        "`older_than_days` (by filename date YYYY-MM-DD or mtime), and "
+                        "moves them into `destination` (created if missing). Idempotent: "
+                        "safe to re-run; files already at the destination are skipped. "
+                        "`replace_section` replaces a markdown section identified by "
+                        "its `heading` (e.g. '## Reflections') with new `content`. Avoids "
+                        "having to send the current section body as a `find` string."
                     ),
                 },
                 "path": {
@@ -339,6 +350,40 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                     "description": (
                         "For restore: the backup filename to restore from (from "
                         "history output). Example: 'tracked-shows.json.1776429202-1753.bak'."
+                    ),
+                },
+                "ops": {
+                    "type": "array",
+                    "description": (
+                        "For batch: array of sub-operations. Each item is a full "
+                        "`file` call payload EXCEPT `operation` keyed as `op`. "
+                        "Example: [{\"op\": \"read\", \"path\": \"a.md\"}, "
+                        "{\"op\": \"move\", \"path\": \"b.md\", \"destination\": \"old/b.md\"}]. "
+                        "Results are returned in order; partial failures do not "
+                        "abort the batch. Nested `batch` / `archive_older_than` is rejected."
+                    ),
+                    "items": {"type": "object"},
+                },
+                "older_than_days": {
+                    "type": "integer",
+                    "description": (
+                        "For archive_older_than: files older than this many days are moved. "
+                        "Filenames matching YYYY-MM-DD.* use the date; others fall back to mtime."
+                    ),
+                },
+                "heading": {
+                    "type": "string",
+                    "description": (
+                        "For replace_section: the exact markdown heading line including "
+                        "its leading #s (e.g. '## Reflections'). The section body runs "
+                        "from this heading to the next heading of the same level or higher."
+                    ),
+                },
+                "create_if_missing": {
+                    "type": "boolean",
+                    "description": (
+                        "For replace_section: if the heading is not present in the file, "
+                        "append the heading + content at the end. Default true."
                     ),
                 },
             },
@@ -439,7 +484,7 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
 }, safety_tier="mutating", requires_bot_context=True)
 async def file(
     operation: str,
-    path: str,
+    path: str | None = None,
     content: str | None = None,
     find: str | None = None,
     replace: str | None = None,
@@ -451,8 +496,17 @@ async def file(
     include: str | None = None,
     patch: list[dict] | None = None,
     version: str | None = None,
+    ops: list[dict] | None = None,
+    older_than_days: int | None = None,
+    heading: str | None = None,
+    create_if_missing: bool = True,
 ) -> str:
     """Dispatch file operations."""
+    # batch dispatches before path resolution — sub-ops carry their own paths.
+    if operation == "batch":
+        return await _op_batch(ops)
+    if path is None:
+        return _error("`path` is required for this operation.")
     bot, bot_id, ws_root = _get_bot_and_workspace_root()
     if not bot:
         return _error("No bot context available.")
@@ -473,6 +527,7 @@ async def file(
     _WRITE_OPS_WIDGET = {
         "create", "overwrite", "append", "edit",
         "json_patch", "restore", "delete", "mkdir", "move",
+        "archive_older_than", "replace_section",
     }
     _widget_match = WIDGET_URI_RE.match(path.strip())
     if _widget_match and _widget_match.group(1) == "core" and operation in _WRITE_OPS_WIDGET:
@@ -512,6 +567,7 @@ async def file(
     _WRITE_OPS = {
         "create", "overwrite", "append", "edit",
         "json_patch", "restore", "delete", "mkdir", "move",
+        "archive_older_than", "replace_section",
     }
 
     try:
@@ -564,6 +620,13 @@ async def file(
             result = _op_grep(resolved, pattern, include, effective_ws_root, limit)
         elif operation == "glob":
             result = _op_glob(resolved, pattern, effective_ws_root, limit)
+        elif operation == "archive_older_than":
+            result = await _op_archive_older_than(
+                resolved, destination, older_than_days,
+                effective_ws_root, effective_bot,
+            )
+        elif operation == "replace_section":
+            result = _op_replace_section(resolved, heading, content, create_if_missing)
         else:
             return _error(f"Unknown operation: {operation}")
 
@@ -1209,6 +1272,117 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
     return _error(f"find string not found in file.{hint}")
 
 
+_HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
+
+
+def _op_replace_section(
+    path: str,
+    heading: str | None,
+    content: str | None,
+    create_if_missing: bool = True,
+) -> str:
+    """Replace a markdown section identified by its heading line.
+
+    The section body is everything from the heading line up to (but not
+    including) the next heading of the same level or higher, or EOF.
+    The heading line itself is preserved; only its body is replaced.
+    If the heading is not present and ``create_if_missing`` is True,
+    the heading + body is appended to the end of the file.
+
+    Designed for hygiene / skill-review bots maintaining bounded
+    sections in MEMORY.md (e.g. "## Reflections") without having to
+    send the current body as a `find` string.
+    """
+    if not heading or not heading.strip():
+        return _error("heading is required for replace_section.")
+    if content is None:
+        return _error("content is required for replace_section.")
+
+    heading_line = heading.strip()
+    heading_match = _HEADING_RE.match(heading_line)
+    if not heading_match:
+        return _error(
+            "heading must be a markdown ATX heading like '## Reflections'."
+        )
+    level = len(heading_match.group(1))
+
+    pre_content = ""
+    file_existed = os.path.isfile(path)
+    if file_existed:
+        try:
+            pre_content = Path(path).read_text()
+        except (OSError, UnicodeDecodeError) as e:
+            return _error(f"Could not read file: {e}")
+
+    body = content.rstrip("\n")
+    new_section = f"{heading_line}\n{body}\n"
+
+    if file_existed and pre_content:
+        lines = pre_content.splitlines(keepends=True)
+        start_idx = -1
+        for i, line in enumerate(lines):
+            if line.rstrip("\r\n") == heading_line:
+                start_idx = i
+                break
+
+        if start_idx >= 0:
+            # Scan forward to the next same-or-higher-level heading.
+            end_idx = len(lines)
+            for j in range(start_idx + 1, len(lines)):
+                m = _HEADING_RE.match(lines[j])
+                if m and len(m.group(1)) <= level:
+                    end_idx = j
+                    break
+            before = "".join(lines[:start_idx])
+            after = "".join(lines[end_idx:])
+            # Keep a single separator blank line before the next section when
+            # non-empty, but don't double-space on EOF.
+            new_text = before + new_section
+            if after:
+                if not new_text.endswith("\n"):
+                    new_text += "\n"
+                new_text += after
+        else:
+            if not create_if_missing:
+                return _error(
+                    f"heading '{heading_line}' not found and create_if_missing=False."
+                )
+            prefix = pre_content
+            if not prefix.endswith("\n"):
+                prefix += "\n"
+            if not prefix.endswith("\n\n"):
+                prefix += "\n"
+            new_text = prefix + new_section
+    else:
+        # File absent or empty → create with just the section.
+        if not create_if_missing and not file_existed:
+            return _error(
+                f"File not found and create_if_missing=False: {path}"
+            )
+        new_text = new_section
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    Path(path).write_text(new_text)
+
+    rel = os.path.basename(path)
+    diff_text = _make_diff(pre_content, new_text, rel)
+    added, removed = _diff_stats(diff_text)
+    return json.dumps({
+        "ok": True,
+        "bytes": os.path.getsize(path),
+        "heading": heading_line,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff_text,
+            "plain_body": (
+                f"Replaced section {heading_line!r} in {rel}: "
+                f"+{added} −{removed} lines"
+            ),
+            "display": "inline",
+        },
+    }, ensure_ascii=False)
+
+
 def _op_list(path: str, ws_root: str) -> str:
     if not os.path.isdir(path):
         return _error("Not a directory.")
@@ -1541,6 +1715,199 @@ def _op_glob(root: str, pattern: str | None, ws_root: str, limit: int | None) ->
             "body": json.dumps({"kind": "glob", **listing}, ensure_ascii=False),
             "plain_body": (
                 f"Found {len(paths)} file(s)" + (" (truncated)" if truncated else "")
+            ),
+            "display": "inline",
+        },
+    }, ensure_ascii=False)
+
+
+# ---------------------------------------------------------------------------
+# Batch + archive — high-level ops built on the single-op dispatch above.
+# ---------------------------------------------------------------------------
+
+_BATCH_MAX_OPS = 50
+# Nested batch/archive is rejected: it muddles error attribution and the
+# iteration-savings story doesn't hold past one level.
+_BATCH_FORBIDDEN_OPS = frozenset({"batch", "archive_older_than"})
+
+
+async def _op_batch(ops: list[dict] | None) -> str:
+    """Run a list of sub-operations through the single-op dispatch and
+    return their results in order."""
+    if not isinstance(ops, list) or not ops:
+        return _error("`ops` must be a non-empty array for batch.")
+    if len(ops) > _BATCH_MAX_OPS:
+        return _error(f"Batch too large ({len(ops)} > {_BATCH_MAX_OPS}).")
+
+    results: list[dict] = []
+    ok_count = 0
+    err_count = 0
+    for i, sub in enumerate(ops):
+        if not isinstance(sub, dict):
+            results.append({"ok": False, "error": f"op #{i} is not an object"})
+            err_count += 1
+            continue
+        sub_op = sub.get("op") or sub.get("operation")
+        if not sub_op:
+            results.append({"ok": False, "error": f"op #{i} missing 'op'"})
+            err_count += 1
+            continue
+        if sub_op in _BATCH_FORBIDDEN_OPS:
+            results.append({"ok": False, "error": f"op #{i}: '{sub_op}' not allowed in batch"})
+            err_count += 1
+            continue
+
+        kwargs = {k: v for k, v in sub.items() if k not in ("op", "operation")}
+        try:
+            raw = await file(operation=sub_op, **kwargs)  # type: ignore[arg-type]
+        except TypeError as exc:
+            results.append({"ok": False, "error": f"op #{i}: bad arguments — {exc}"})
+            err_count += 1
+            continue
+        except Exception as exc:  # defensive — per-op errors should not abort the batch
+            logger.exception("batch sub-op %d (%s) raised", i, sub_op)
+            results.append({"ok": False, "error": f"op #{i}: {exc}"})
+            err_count += 1
+            continue
+
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            parsed = {"ok": True, "result": raw}
+        # Strip _envelope from each sub-result to keep the batch payload compact
+        # — the batch itself emits one envelope summarising the whole run.
+        if isinstance(parsed, dict):
+            parsed.pop("_envelope", None)
+        if isinstance(parsed, dict) and parsed.get("error"):
+            err_count += 1
+        else:
+            ok_count += 1
+        results.append(parsed if isinstance(parsed, dict) else {"ok": True, "result": parsed})
+
+    body_lines = [f"**Batch**: {ok_count} ok, {err_count} error(s), {len(results)} total"]
+    for i, (sub, r) in enumerate(zip(ops, results)):
+        _op = (sub.get("op") or sub.get("operation")) if isinstance(sub, dict) else "?"
+        _tag = "✓" if not r.get("error") else "✗"
+        body_lines.append(f"- {_tag} #{i} `{_op}` — {r.get('error') or 'ok'}")
+
+    return json.dumps({
+        "ok": err_count == 0,
+        "ok_count": ok_count,
+        "error_count": err_count,
+        "results": results,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": "\n".join(body_lines),
+            "plain_body": f"Batch: {ok_count} ok, {err_count} error(s)",
+            "display": "inline",
+        },
+    }, ensure_ascii=False)
+
+
+_DATED_FILENAME_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _file_age_days(entry_path: str, name: str, now: float) -> float | None:
+    """Return age in days: prefer filename YYYY-MM-DD, fall back to mtime."""
+    m = _DATED_FILENAME_RE.match(name)
+    if m:
+        try:
+            import datetime as _dt
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            file_date = _dt.datetime(y, mo, d, tzinfo=_dt.timezone.utc)
+            age = (_dt.datetime.now(_dt.timezone.utc) - file_date).total_seconds() / 86400.0
+            return age
+        except ValueError:
+            pass
+    try:
+        mtime = os.path.getmtime(entry_path)
+    except OSError:
+        return None
+    return (now - mtime) / 86400.0
+
+
+async def _op_archive_older_than(
+    src_dir: str,
+    destination: str | None,
+    older_than_days: int | None,
+    ws_root: str,
+    bot,
+) -> str:
+    """Move files in *src_dir* older than *older_than_days* into *destination*.
+
+    Idempotent: files already present at the destination are skipped; subdirectories
+    and hidden files are ignored. Intended for hygiene runs that would otherwise
+    issue N parallel moves, most of which fail after a prior pass already archived.
+    """
+    if not destination:
+        return _error("`destination` is required for archive_older_than.")
+    if older_than_days is None or older_than_days < 0:
+        return _error("`older_than_days` must be a non-negative integer.")
+    if not os.path.isdir(src_dir):
+        return _error(f"Source not a directory: {os.path.relpath(src_dir, os.path.realpath(ws_root))}")
+
+    try:
+        dest_dir = _resolve_path(destination, ws_root, bot)
+    except ValueError as e:
+        return _error(f"Invalid destination: {e}")
+    os.makedirs(dest_dir, exist_ok=True)
+
+    import shutil
+    now = time.time()
+    moved: list[str] = []
+    skipped_existing: list[str] = []
+    skipped_fresh: list[str] = []
+    errors: list[dict] = []
+
+    try:
+        names = sorted(os.listdir(src_dir))
+    except PermissionError:
+        return _error("Permission denied.")
+
+    for name in names:
+        if name.startswith("."):
+            continue
+        entry = os.path.join(src_dir, name)
+        if not os.path.isfile(entry):
+            continue
+        age = _file_age_days(entry, name, now)
+        if age is None or age < older_than_days:
+            skipped_fresh.append(name)
+            continue
+        dest_path = os.path.join(dest_dir, name)
+        if os.path.exists(dest_path):
+            skipped_existing.append(name)
+            continue
+        try:
+            shutil.move(entry, dest_path)
+            moved.append(name)
+        except OSError as exc:
+            errors.append({"name": name, "error": str(exc)})
+
+    rel_src = os.path.relpath(src_dir, os.path.realpath(ws_root))
+    rel_dest = os.path.relpath(dest_dir, os.path.realpath(ws_root))
+    body_lines = [
+        f"**Archive** `{rel_src}` → `{rel_dest}` (older than {older_than_days} day(s))",
+        f"- moved: {len(moved)}",
+        f"- skipped (already in archive): {len(skipped_existing)}",
+        f"- skipped (fresh): {len(skipped_fresh)}",
+    ]
+    if errors:
+        body_lines.append(f"- errors: {len(errors)}")
+
+    return json.dumps({
+        "ok": not errors,
+        "moved": moved,
+        "skipped_existing": skipped_existing,
+        "skipped_fresh": skipped_fresh,
+        "errors": errors,
+        "_envelope": {
+            "content_type": "text/markdown",
+            "body": "\n".join(body_lines),
+            "plain_body": (
+                f"Archived {len(moved)} file(s); skipped {len(skipped_existing)} existing, "
+                f"{len(skipped_fresh)} fresh"
+                + (f"; {len(errors)} error(s)" if errors else "")
             ),
             "display": "inline",
         },

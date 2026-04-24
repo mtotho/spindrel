@@ -5,6 +5,21 @@ import { SpindrelLogo } from "@/src/components/layout/SpindrelLogo";
 import { useThemeTokens } from "@/src/theme/tokens";
 import type { Message } from "@/src/types/api";
 import type { TurnState } from "@/src/stores/chat";
+import {
+  SCROLL_TO_MESSAGE_EVENT,
+  notifyScrollMiss,
+  type ScrollToMessageDetail,
+} from "./renderers/FindResultsRenderer";
+
+function cssEscape(s: string): string {
+  // Safe wrapper for browsers that support CSS.escape; fallback strips the
+  // handful of characters that would break an attribute selector. Message
+  // ids are UUIDs in practice, so this is belt-and-suspenders.
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(s);
+  }
+  return s.replace(/["\\\]]/g, "");
+}
 
 function SkeletonBar({ width, height = 14 }: { width: string; height?: number }) {
   return <div className="rounded bg-skeleton/[0.04] animate-pulse" style={{ width, height }} />;
@@ -111,7 +126,7 @@ export interface ChatMessageAreaProps {
 // Do NOT reintroduce imperative `scrollTop = scrollHeight` effects — they
 // race with image loads, streaming reflows, and prepend adjustments, and
 // that race is what the "starts scrolled up, then jumps down" and
-// "stays stuck up" bugs were. See vault: Track - UI Polish, April 10 session.
+// "stays stuck up" bugs were. See project-notes/Track - UI Polish.md.
 // ---------------------------------------------------------------------------
 
 export function ChatMessageArea({
@@ -190,6 +205,29 @@ export function ChatMessageArea({
   const doScrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  // Listen for /find clicks requesting a jump to a specific message. If the
+  // target DOM node isn't mounted (virtualized far scrollback or a different
+  // session's message), fall back to the toast so the user knows to scroll up.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ScrollToMessageDetail>).detail;
+      if (!detail?.messageId) return;
+      const root = scrollRef.current;
+      if (!root) return;
+      const selector = `[data-message-id="${cssEscape(detail.messageId)}"]`;
+      const node = root.querySelector<HTMLElement>(selector);
+      if (!node) {
+        notifyScrollMiss();
+        return;
+      }
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+      node.classList.add("msg-highlight");
+      window.setTimeout(() => node.classList.remove("msg-highlight"), 1600);
+    };
+    window.addEventListener(SCROLL_TO_MESSAGE_EVENT, handler);
+    return () => window.removeEventListener(SCROLL_TO_MESSAGE_EVENT, handler);
   }, []);
 
   // Render every in-flight turn uniformly. Sort the channel's primary
@@ -319,7 +357,7 @@ export function ChatMessageArea({
               const chronIdx = invertedData.length - 1 - i;
               const item = invertedData[chronIdx];
               return (
-                <div key={item.id} style={{ userSelect: "text" }}>
+                <div key={item.id} data-message-id={item.id} style={{ userSelect: "text" }}>
                   {renderMessage({ item, index: chronIdx })}
                 </div>
               );

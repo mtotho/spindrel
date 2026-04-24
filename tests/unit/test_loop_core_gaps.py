@@ -361,6 +361,18 @@ class TestInLoopPruning:
         pruning = [e for e in events if e.get("type") == "context_pruning"]
         assert len(pruning) == 0, "single-iteration run must not emit context_pruning"
 
+    # NOTE: end-to-end tests for profile-level keep_iterations would live here,
+    # but the harness used by TestInLoopPruning in this file has a pre-existing
+    # circular-import issue (ToolResultEnvelope in app.tools.local.machine_control)
+    # that prevents the loop tests from running under unit-test conditions.
+    # Coverage is provided by two focused unit tests instead:
+    # - tests/unit/test_context_profiles.py::test_task_none_overrides_keep_iterations
+    #   confirms the task_none profile carries keep_iterations_override=8.
+    # - tests/unit/test_context_pruning.py::TestInLoopPruning::*
+    #   confirms prune_in_loop_tool_results honours its keep_iterations arg.
+    # The loop wiring (profile → keep_iterations → prune_in_loop_tool_results)
+    # is three lines in app/agent/loop.py and is visually auditable.
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # #30 — run_stream delegation_post ordering (lines 1519-1759)

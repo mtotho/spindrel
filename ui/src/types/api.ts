@@ -349,6 +349,8 @@ export interface Channel {
     chat_mode?: "default" | "terminal";
     /** Top-center header strip shell treatment for header-zone widgets. */
     header_backdrop_mode?: "default" | "glass" | "clear";
+    /** Whether pinned channel widgets may export summaries into chat context. */
+    pinned_widget_context_enabled?: boolean;
     /** Channel-scoped HTML widget SDK theme override. */
     widget_theme_ref?: string | null;
     /** Per-channel reasoning/effort override, set by the `/effort` slash
@@ -674,6 +676,7 @@ export interface ChannelSettings {
   user_id?: string | null;
   allow_bot_messages: boolean;
   workspace_rag: boolean;
+  pinned_widget_context_enabled: boolean;
   thinking_display?: string;
   tool_output_display?: string;
   max_iterations?: number;
@@ -804,9 +807,46 @@ export interface CompletionItem {
   description?: string;
 }
 
-export type SlashCommandId = "stop" | "context" | "clear" | "compact" | "scratch" | "plan" | "effort";
+export type SlashCommandId =
+  | "help"
+  | "context"
+  | "find"
+  | "rename"
+  | "model"
+  | "mode"
+  | "theme"
+  | "stop"
+  | "compact"
+  | "plan"
+  | "effort"
+  | "clear"
+  | "scratch";
 export type SlashCommandSurface = "channel" | "session";
 export type EffortLevel = "off" | "low" | "medium" | "high";
+export type ChatModeId = "default" | "terminal";
+export type ThemeId = "light" | "dark";
+
+export type SlashCommandArgSource = "free_text" | "enum" | "model";
+
+export interface SlashCommandArgSpec {
+  name: string;
+  source: SlashCommandArgSource;
+  required: boolean;
+  enum: string[] | null;
+}
+
+export interface SlashCommandSpec {
+  id: SlashCommandId;
+  label: string;
+  description: string;
+  surfaces: SlashCommandSurface[];
+  local_only: boolean;
+  args: SlashCommandArgSpec[];
+}
+
+export interface SlashCommandCatalog {
+  commands: SlashCommandSpec[];
+}
 
 export interface SlashCommandResult {
   command_id: string;
@@ -816,13 +856,29 @@ export interface SlashCommandResult {
 }
 
 export interface SlashCommandSideEffectPayload {
-  effect: "stop" | "compact" | "plan" | "effort";
+  effect: "stop" | "compact" | "plan" | "effort" | "rename" | "mode";
   scope_kind: "channel" | "session";
   scope_id: string;
   title: string;
   detail: string;
   status?: "queued" | "started";
   message_id?: string;
+}
+
+export interface SlashCommandFindMatch {
+  message_id: string;
+  session_id: string;
+  role: string;
+  preview: string;
+  created_at?: string | null;
+}
+
+export interface SlashCommandFindResultsPayload {
+  scope_kind: "channel" | "session";
+  scope_id: string;
+  query: string;
+  matches: SlashCommandFindMatch[];
+  truncated: boolean;
 }
 
 export interface ContextSummaryPayload {
@@ -855,6 +911,28 @@ export interface ContextSummaryPayload {
   message_count?: number | null;
   total_chars?: number | null;
   notes: string[];
+  pinned_widget_context?: {
+    enabled: boolean;
+    total_pins: number;
+    exported_count: number;
+    skipped_count: number;
+    total_chars: number;
+    truncated?: boolean;
+    block_text?: string | null;
+    rows: Array<{
+      pin_id: string;
+      label: string;
+      summary: string;
+      hint?: string | null;
+      line: string;
+      chars: number;
+    }>;
+    skipped: Array<{
+      pin_id: string;
+      label: string;
+      reason: string;
+    }>;
+  } | null;
 }
 
 // Session types

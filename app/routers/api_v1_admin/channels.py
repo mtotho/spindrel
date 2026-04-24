@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
+from app.domain.errors import DomainError
 from app.db.models import (
     Channel,
     ChannelHeartbeat,
@@ -643,7 +644,7 @@ async def admin_channel_settings_update(
     if "bot_id" in updates:
         try:
             get_bot(updates["bot_id"])
-        except HTTPException:
+        except (HTTPException, DomainError):
             raise HTTPException(status_code=400, detail=f"Unknown bot: {updates['bot_id']}")
 
     # Handle metadata_ fields (category, tags) — share single dict to avoid race
@@ -1339,7 +1340,7 @@ async def admin_channel_heartbeat_infer(
             workspace_file_path=ws_file_path,
             workspace_id=ws_id,
         )
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise
     except Exception:
         traceback.print_exc()
@@ -1999,6 +2000,7 @@ async def admin_channel_config_overhead(
         "audio_input": bot.audio_input or "transcribe",
         "base_prompt": bot.base_prompt if bot.base_prompt is not None else True,
         "pinned_widgets": channel_pinned_widgets,
+        "channel_config": channel.config or {},
     }
 
     result = await estimate_bot_context(draft=draft, bot_id=bot.id)
@@ -2051,6 +2053,11 @@ async def admin_channel_context_preview(
     from app.agent.persona import get_persona
     from app.db.models import ConversationSection, Skill as SkillRow
     from app.services.compaction import _get_history_mode, format_section_index
+    from app.services.widget_context import (
+        build_pinned_widget_context_snapshot,
+        fetch_channel_pin_dicts,
+        is_pinned_widget_context_enabled,
+    )
 
     channel = await db.get(Channel, channel_id)
     if not channel:
@@ -2156,6 +2163,30 @@ async def admin_channel_context_preview(
     if channel.channel_prompt:
         blocks.append({"label": "Channel Prompt", "role": "system", "content": channel.channel_prompt})
 
+    pinned_widget_context = await build_pinned_widget_context_snapshot(
+        db,
+        await fetch_channel_pin_dicts(db, channel_id),
+        bot_id=bot.id,
+        channel_id=str(channel_id),
+        enabled=is_pinned_widget_context_enabled(channel.config or {}),
+        disabled_reason="channel_disabled",
+    )
+    pinned_widget_block = pinned_widget_context.get("block_text")
+    if isinstance(pinned_widget_block, str) and pinned_widget_block:
+        blocks.append({"label": "Pinned Widget Context", "role": "system", "content": pinned_widget_block})
+    elif not pinned_widget_context.get("enabled", True):
+        blocks.append({
+            "label": "Pinned Widget Context",
+            "role": "system",
+            "content": "[Disabled in channel settings — pinned widgets will not be injected into chat context.]",
+        })
+    else:
+        blocks.append({
+            "label": "Pinned Widget Context",
+            "role": "system",
+            "content": "[No export-enabled pinned widgets contribute context right now.]",
+        })
+
     # --- Conversation history (optional) ---
     conversation_blocks: list[dict] = []
     if include_history and channel.active_session_id:
@@ -2189,6 +2220,7 @@ async def admin_channel_context_preview(
     return {
         "blocks": blocks,
         "conversation": conversation_blocks,
+        "pinned_widget_context": pinned_widget_context,
         "total_chars": total_chars,
         "total_tokens_approx": max(1, total_chars // 4) if total_chars > 0 else 0,
         "history_mode": hist_mode,

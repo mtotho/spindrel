@@ -4,13 +4,14 @@
  * Renders an ordered list of step cards connected by a vertical timeline line,
  * with numbered circle nodes, colored type badges, and an "Add Step" button.
  */
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import ReactDOM from "react-dom";
-import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, PauseCircle, MessageCircleQuestion, Repeat, AlertCircle, HelpCircle, ChevronDown as ChevronDownIcon } from "lucide-react";
+import { useState, useCallback, useMemo } from "react";
+import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, PauseCircle, MessageCircleQuestion, Repeat, AlertCircle, HelpCircle } from "lucide-react";
 import type { StepDef, StepType, StepState, ResponseSchema } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
 import { JsonObjectEditor } from "./task/JsonObjectEditor";
+import { SelectDropdown } from "./SelectDropdown";
+import { ToolSelector as SharedToolSelector } from "./ToolSelector";
 
 // ---------------------------------------------------------------------------
 // Step type metadata
@@ -78,7 +79,7 @@ function emptyToolSubStep(): StepDef {
 }
 
 // ---------------------------------------------------------------------------
-// Custom dropdown (replaces all native <select>)
+// Shared compact dropdown wrapper for tight task-editor controls.
 // ---------------------------------------------------------------------------
 
 function MiniDropdown({ value, options, onChange, className }: {
@@ -87,43 +88,16 @@ function MiniDropdown({ value, options, onChange, className }: {
   onChange: (value: string) => void;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const selected = options.find((o) => o.value === value);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   return (
-    <div ref={ref} className={`relative ${className ?? ""}`}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex flex-row items-center gap-1 bg-surface-overlay/80 border border-surface-border rounded px-2 py-1 text-xs text-text cursor-pointer hover:border-accent/40 transition-colors whitespace-nowrap"
-      >
-        <span className="truncate">{selected?.label ?? value}</span>
-        <ChevronDownIcon size={10} className="text-text-dim shrink-0" />
-      </button>
-      {open && (
-        <div className="absolute top-full right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 min-w-[140px] py-1 overflow-hidden">
-          {options.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => { onChange(opt.value); setOpen(false); }}
-              className={`flex flex-row w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
-                opt.value === value ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
+    <div className={className ?? ""}>
+      <SelectDropdown
+        value={value}
+        options={options}
+        onChange={(next) => onChange(next)}
+        size="compact"
+        popoverWidth="content"
+        triggerClassName="min-h-[26px] border-surface-border/70 bg-surface-overlay/40 text-xs"
+      />
     </div>
   );
 }
@@ -175,324 +149,6 @@ function getParamDescriptions(tool: ToolItem): Map<string, string> {
     descs.set(key, parts.join(" "));
   }
   return descs;
-}
-
-// ---------------------------------------------------------------------------
-// Tool selector utilities
-// ---------------------------------------------------------------------------
-
-/** "google_workspace" → "Google Workspace", "homeassistant" → "Home Assistant" */
-function humanizeSource(s: string): string {
-  // Known special cases where underscore/casing isn't enough
-  const SPECIAL: Record<string, string> = {
-    homeassistant: "Home Assistant",
-    bluebubbles: "Blue Bubbles",
-    claude_code: "Claude Code",
-    web_search: "Web Search",
-  };
-  if (SPECIAL[s]) return SPECIAL[s];
-  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-/** Split on -, _, and camelCase boundaries → lowercase tokens */
-function tokenize(s: string): string[] {
-  return s
-    .replace(/([a-z])([A-Z])/g, "$1 $2")   // camelCase → camel Case
-    .replace(/[-_]/g, " ")
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-/** Compute the source key for grouping: integration name, "mcp:{server}", or "core" */
-function toolSourceKey(t: ToolItem): string {
-  if (t.source_integration) return t.source_integration;
-  if (t.server_name) return `mcp:${t.server_name}`;
-  return "core";
-}
-
-/** Human-readable label for a source key */
-function sourceLabel(key: string): string {
-  if (key === "core") return "Core";
-  if (key.startsWith("mcp:")) return `MCP: ${key.slice(4)}`;
-  return humanizeSource(key);
-}
-
-/** Strip redundant integration prefix from tool name for display under a group header */
-function shortToolName(tool: ToolItem): string {
-  if (!tool.source_integration) return tool.tool_name;
-  const prefix = tool.source_integration + "-";
-  if (tool.tool_name.startsWith(prefix)) return tool.tool_name.slice(prefix.length);
-  const prefixUnderscore = tool.source_integration + "_";
-  if (tool.tool_name.startsWith(prefixUnderscore)) return tool.tool_name.slice(prefixUnderscore.length);
-  return tool.tool_name;
-}
-
-// ---------------------------------------------------------------------------
-// Tool selector with search + source filter
-// ---------------------------------------------------------------------------
-
-function ToolSelector({ value, tools, onChange }: {
-  value: string | null;
-  tools: ToolItem[];
-  onChange: (toolName: string, tool: ToolItem) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
-  const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-  const sourceRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
-
-  // Close main dropdown on outside click
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        triggerRef.current && !triggerRef.current.contains(e.target as Node) &&
-        dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
-      ) {
-        setOpen(false);
-        setSearch("");
-        setSourceMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  // Close source submenu on outside click
-  useEffect(() => {
-    if (!sourceMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (sourceRef.current && !sourceRef.current.contains(e.target as Node)) {
-        setSourceMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [sourceMenuOpen]);
-
-  const openDropdown = () => {
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      setPos({ top: rect.bottom + 4, left: rect.left, width: Math.max(rect.width, 320) });
-    }
-    setOpen(!open);
-  };
-
-  // Build source groups with counts
-  const sourceGroups = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const t of tools) {
-      const key = toolSourceKey(t);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    // Sort: "core" first, then by count descending
-    return [...counts.entries()]
-      .sort((a, b) => {
-        if (a[0] === "core") return -1;
-        if (b[0] === "core") return 1;
-        return b[1] - a[1];
-      })
-      .map(([key, count]) => ({ key, label: sourceLabel(key), count }));
-  }, [tools]);
-
-  // Filter + search
-  const filtered = useMemo(() => {
-    let pool = tools;
-
-    // Source filter
-    if (sourceFilter) {
-      pool = pool.filter((t) => toolSourceKey(t) === sourceFilter);
-    }
-
-    // Search with token matching
-    if (search.trim()) {
-      const queryTokens = tokenize(search);
-      pool = pool.filter((t) => {
-        const haystack = [
-          ...tokenize(t.tool_name),
-          ...tokenize(t.description ?? ""),
-          ...tokenize(t.source_integration ?? ""),
-          ...tokenize(t.server_name ?? ""),
-        ].join(" ");
-        return queryTokens.every((qt) => haystack.includes(qt));
-      });
-    }
-
-    return pool.slice(0, 50);
-  }, [tools, search, sourceFilter]);
-
-  // Group filtered tools by source (only when not searching)
-  const grouped = useMemo(() => {
-    if (search.trim() || sourceFilter) return null; // flat list when searching or filtered
-    const groups = new Map<string, ToolItem[]>();
-    for (const t of filtered) {
-      const key = toolSourceKey(t);
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(t);
-    }
-    // Sort groups same as sourceGroups order
-    const order = sourceGroups.map((g) => g.key);
-    return [...groups.entries()].sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
-  }, [filtered, search, sourceFilter, sourceGroups]);
-
-  const selectedTool = tools.find((t) => t.tool_name === value);
-  const isSearching = search.trim().length > 0;
-
-  const renderToolButton = (tool: ToolItem, showSource: boolean, useShortName: boolean) => (
-    <button
-      key={tool.tool_key}
-      onClick={() => { onChange(tool.tool_name, tool); setOpen(false); setSearch(""); setSourceFilter(null); }}
-      className="flex flex-col gap-0.5 w-full px-3 py-2 bg-transparent border-none cursor-pointer text-left transition-colors hover:bg-surface-raised"
-    >
-      <div className="flex flex-row items-center gap-2">
-        <span className="text-xs font-medium text-text truncate">
-          {useShortName ? shortToolName(tool) : tool.tool_name}
-        </span>
-        {showSource && (tool.source_integration || tool.server_name) && (
-          <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0">
-            {sourceLabel(toolSourceKey(tool))}
-          </span>
-        )}
-      </div>
-      {tool.description && (
-        <span className="text-[10px] text-text-dim line-clamp-1">{tool.description}</span>
-      )}
-    </button>
-  );
-
-  return (
-    <div className="relative">
-      <button
-        ref={triggerRef}
-        onClick={openDropdown}
-        className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 text-xs rounded-md border cursor-pointer text-left transition-colors ${
-          open ? "border-accent bg-surface" : "border-surface-border bg-input hover:border-accent/50"
-        }`}
-      >
-        <Wrench size={12} className="text-blue-400 shrink-0" />
-        <span className={`flex-1 truncate ${value ? "text-text" : "text-text-dim"}`}>
-          {selectedTool ? selectedTool.tool_name : "Select tool..."}
-        </span>
-        {selectedTool?.source_integration && (
-          <span className="text-[10px] text-text-dim px-1.5 py-0.5 rounded bg-surface-overlay shrink-0">
-            {humanizeSource(selectedTool.source_integration)}
-          </span>
-        )}
-        <ChevronDownIcon size={12} className="text-text-dim shrink-0" />
-      </button>
-      {open && ReactDOM.createPortal(
-        <div
-          ref={dropdownRef}
-          className="fixed bg-surface border border-surface-border rounded-lg shadow-xl z-[10001] max-h-[360px] sm:max-h-[360px] max-sm:max-h-[70vh] overflow-hidden flex flex-col"
-          style={{ top: pos.top, left: pos.left, width: pos.width, maxWidth: "calc(100vw - 24px)" }}
-        >
-          {/* Search + source filter row */}
-          <div className="flex flex-row items-center gap-1.5 p-2 border-b border-surface-border shrink-0">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search tools..."
-              autoFocus
-              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
-            />
-            <div ref={sourceRef} className="relative shrink-0">
-              <button
-                onClick={() => setSourceMenuOpen(!sourceMenuOpen)}
-                className={`flex flex-row items-center gap-1 px-2 py-1.5 text-[11px] rounded-md border cursor-pointer transition-colors whitespace-nowrap ${
-                  sourceFilter
-                    ? "border-accent/40 bg-accent/10 text-accent"
-                    : "border-surface-border bg-input text-text-dim hover:border-accent/30"
-                }`}
-              >
-                <span className="truncate max-w-[100px]">
-                  {sourceFilter ? sourceLabel(sourceFilter) : "All sources"}
-                </span>
-                {sourceFilter ? (
-                  <span
-                    onClick={(e) => { e.stopPropagation(); setSourceFilter(null); setSourceMenuOpen(false); }}
-                    className="ml-0.5 hover:text-text cursor-pointer"
-                  >×</span>
-                ) : (
-                  <ChevronDownIcon size={10} className="opacity-60" />
-                )}
-              </button>
-              {sourceMenuOpen && (
-                <div className="absolute top-full right-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-[10002] min-w-[180px] max-h-[280px] overflow-y-auto py-1">
-                  <button
-                    onClick={() => { setSourceFilter(null); setSourceMenuOpen(false); }}
-                    className={`flex flex-row items-center justify-between w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
-                      !sourceFilter ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
-                    }`}
-                  >
-                    <span>All sources</span>
-                    <span className="text-[10px] text-text-dim">{tools.length}</span>
-                  </button>
-                  <div className="h-px bg-surface-border my-1" />
-                  {sourceGroups.map((g) => (
-                    <button
-                      key={g.key}
-                      onClick={() => { setSourceFilter(g.key); setSourceMenuOpen(false); }}
-                      className={`flex flex-row items-center justify-between w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
-                        sourceFilter === g.key ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
-                      }`}
-                    >
-                      <span className="truncate">{g.label}</span>
-                      <span className="text-[10px] text-text-dim ml-2 shrink-0">{g.count}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Tool count */}
-          <div className="px-3 py-1 text-[10px] text-text-dim border-b border-surface-border/50 shrink-0">
-            {filtered.length} tool{filtered.length !== 1 ? "s" : ""}
-            {sourceFilter && <span> in {sourceLabel(sourceFilter)}</span>}
-            {isSearching && filtered.length === 50 && <span> (showing first 50)</span>}
-          </div>
-
-          {/* Tool list */}
-          <div className="overflow-y-auto">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-[11px] text-text-dim text-center">
-                No tools found
-                {sourceFilter && (
-                  <button
-                    onClick={() => setSourceFilter(null)}
-                    className="block mx-auto mt-1 text-accent bg-transparent border-none cursor-pointer text-[11px] hover:underline"
-                  >
-                    Clear source filter
-                  </button>
-                )}
-              </div>
-            ) : grouped ? (
-              // Grouped view (no search, no source filter)
-              grouped.map(([sourceKey, groupTools]) => (
-                <div key={sourceKey}>
-                  <div className="sticky top-0 px-3 py-1.5 text-[10px] font-semibold text-text-dim uppercase tracking-wider bg-surface-raised/80 backdrop-blur-sm border-b border-surface-border/30">
-                    {sourceLabel(sourceKey)}
-                    <span className="ml-1.5 font-normal opacity-60">{groupTools.length}</span>
-                  </div>
-                  {groupTools.map((tool) => renderToolButton(tool, false, true))}
-                </div>
-              ))
-            ) : (
-              // Flat view (searching or source-filtered)
-              filtered.map((tool) => renderToolButton(tool, isSearching, !!sourceFilter))
-            )}
-          </div>
-        </div>,
-        document.body,
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -697,47 +353,34 @@ const ON_FAILURE_OPTIONS = [
 ];
 
 function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: StepType) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const meta = stepMeta(value);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  const Icon = meta.icon;
 
   return (
-    <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`inline-flex flex-row items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full border cursor-pointer transition-colors ${meta.bgBadge} hover:opacity-80`}
-      >
-        {meta.label}
-        <ChevronDownIcon size={9} className="opacity-60" />
-      </button>
-      {open && (
-        <div className="absolute top-full left-0 mt-1 bg-surface border border-surface-border rounded-lg shadow-xl z-50 py-1 min-w-[130px]">
-          {STEP_TYPES.map((t) => {
-            const TIcon = t.icon;
-            return (
-              <button
-                key={t.value}
-                onClick={() => { onChange(t.value); setOpen(false); }}
-                className={`flex flex-row items-center gap-2 w-full px-3 py-1.5 text-xs border-none cursor-pointer text-left transition-colors ${
-                  t.value === value ? "bg-accent/10 text-accent font-medium" : "bg-transparent text-text hover:bg-surface-raised"
-                }`}
-              >
-                <TIcon size={12} className={t.color} />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+    <div className="w-[126px] shrink-0">
+      <SelectDropdown
+        value={value}
+        options={STEP_TYPES.map((stepType) => {
+          const StepIcon = stepType.icon;
+          return {
+            value: stepType.value,
+            label: stepType.label,
+            icon: <StepIcon size={12} className={stepType.color} />,
+          };
+        })}
+        onChange={(next) => {
+          if (isKnownStepType(next)) onChange(next);
+        }}
+        size="compact"
+        popoverWidth="content"
+        renderValue={() => (
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider">
+            <Icon size={11} />
+            <span className="truncate">{meta.label}</span>
+          </span>
+        )}
+        triggerClassName={`min-h-[26px] rounded-full px-2.5 ${meta.bgBadge} hover:opacity-80`}
+      />
     </div>
   );
 }
@@ -959,7 +602,7 @@ function ForeachSubStepCard({ sub, tools, readOnly, onChange, onDelete }: {
         {readOnly ? (
           <div className="text-xs text-text font-mono">{sub.tool_name ?? "No tool selected"}</div>
         ) : (
-          <ToolSelector
+          <SharedToolSelector
             value={sub.tool_name ?? null}
             tools={tools}
             onChange={(toolName, tool) => {
@@ -1103,7 +746,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             {readOnly ? (
               <div className="text-xs text-text font-mono">{step.tool_name ?? "No tool selected"}</div>
             ) : (
-              <ToolSelector
+              <SharedToolSelector
                 value={step.tool_name ?? null}
                 tools={tools}
                 onChange={(toolName, tool) => {

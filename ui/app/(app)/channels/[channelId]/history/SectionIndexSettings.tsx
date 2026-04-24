@@ -1,7 +1,6 @@
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
-  FormRow, TextInput, SelectInput, Row, Col,
+  EmptyState, FormRow, TextInput, SelectInput, Row, Col,
 } from "@/src/components/shared/FormControls";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/src/api/client";
@@ -18,7 +17,6 @@ export function SectionIndexSettings({ form, patch, channelId }: {
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
   channelId: string;
 }) {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const count = form.section_index_count ?? 10;
   const verbosity = form.section_index_verbosity ?? "standard";
@@ -33,8 +31,10 @@ export function SectionIndexSettings({ form, patch, channelId }: {
 
   return (
     <div>
-      <div style={{ fontSize: 11, color: t.textMuted, marginBottom: 8, lineHeight: "1.5" }}>
-        The bot sees what's in the archive without spending a tool call and can use <code style={{ color: t.codeText }}>read_conversation_history</code> with a section number to read full transcripts.
+      <div className="mb-2 text-[11px] leading-relaxed text-text-muted">
+        The bot sees what's in the archive without spending a tool call and can use{" "}
+        <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history</code>{" "}
+        with a section number to read full transcripts.
       </div>
       <Row stack={isMobile}>
         <Col minWidth={isMobile ? 0 : 200}>
@@ -60,28 +60,18 @@ export function SectionIndexSettings({ form, patch, channelId }: {
 
       {/* Live preview */}
       {count > 0 && (
-        <div style={{ marginTop: 8 }}>
+        <div className="mt-2">
           {preview && preview.section_count > 0 ? (
             <>
-              <div style={{
-                background: t.codeBg, border: `1px solid ${t.codeBorder}`, borderRadius: 8,
-                padding: "12px 14px", fontFamily: "monospace", fontSize: 11,
-                color: t.contentText, whiteSpace: "pre-wrap", lineHeight: "1.5",
-                maxHeight: 300, overflow: "auto",
-              }}>
+              <div className="max-h-[300px] overflow-auto rounded-md bg-surface-raised/35 px-3.5 py-3 font-mono text-[11px] leading-relaxed text-text-muted whitespace-pre-wrap">
                 {preview.content}
               </div>
-              <div style={{ fontSize: 10, color: t.textDim, marginTop: 4 }}>
+              <div className="mt-1 text-[10px] text-text-dim">
                 ~{preview.chars.toLocaleString()} chars per turn
               </div>
             </>
           ) : (
-            <div style={{
-              padding: "12px 14px", background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-              borderRadius: 8, fontSize: 11, color: t.textDim, fontStyle: "italic",
-            }}>
-              No sections to preview — run backfill first.
-            </div>
+            <EmptyState message="No sections to preview - run backfill first." />
           )}
         </div>
       )}

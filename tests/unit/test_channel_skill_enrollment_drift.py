@@ -229,20 +229,25 @@ class TestDoubleEnrollIdempotent:
         assert count == 1
 
 
-class TestOrphanPointerCacheStaleness:
+class TestChannelDeleteInvalidatesCache:
+    """Regression guards for the N.3 fix (2026-04-23).
+
+    The channel DELETE endpoint in ``app/routers/api_v1_channels.py`` now
+    calls ``invalidate_enrolled_cache(channel_id)`` after ``db.commit()``.
+    These tests pin both:
+      1. The router-call pattern clears the cache (the fix works).
+      2. Out-of-band SQL DELETEs that bypass the router still leave stale
+         cache (residual drift — lower priority since FK cascades from
+         non-router paths are rare).
+    """
+
     @pytest.mark.asyncio
-    async def test_out_of_band_row_delete_leaves_stale_cache_entry(
+    async def test_channel_delete_via_router_pattern_invalidates_cache(
         self, db_session, patched_async_sessions
     ):
-        """DB rows removed out-of-band don't invalidate the module cache.
-
-        Pins the silent-UPDATE seam: FK cascades (or any direct DELETE that
-        does not go through ``unenroll``) remove enrollment rows, but the
-        module-level ``_enrolled_cache`` still serves the pre-delete list
-        for up to ``_ENROLLED_CACHE_TTL`` seconds. The mitigation is either a
-        channel-delete hook that calls ``invalidate_enrolled_cache(channel_id)``
-        or shrinking the TTL. Pinning the current behavior as bug-shaped so a
-        future fix flips the assertion.
+        """Mirrors the router's ``delete_channel`` sequence:
+        ``db.delete(channel) → db.commit() → invalidate_enrolled_cache(cid)``.
+        Asserts the cache slot is removed so the next read re-queries the DB.
         """
         channel_id = await _seed_channel_and_skills(
             db_session, skill_ids=["skills/x"]
@@ -255,8 +260,38 @@ class TestOrphanPointerCacheStaleness:
         assert "skills/x" in ids_before
         assert channel_id in _enroll_mod._enrolled_cache
 
-        # Simulate an out-of-band delete (FK cascade, migration, admin SQL)
-        # that bypasses the service layer.
+        # Mirror the router's delete sequence: db.delete(channel) →
+        # db.commit() → invalidate_enrolled_cache(channel_id).
+        channel = await db_session.get(Channel, channel_id)
+        await db_session.delete(channel)
+        await db_session.commit()
+        invalidate_enrolled_cache(channel_id)
+
+        # Cache slot is gone → next read re-queries the DB.
+        # (DB-side cascade of the enrollment row is Postgres-only in
+        # production; SQLite test env doesn't enforce FKs. The fix is the
+        # cache invalidation, not the cascade — the cascade is a DB contract.)
+        assert channel_id not in _enroll_mod._enrolled_cache
+
+    @pytest.mark.asyncio
+    async def test_out_of_band_sql_delete_still_leaves_stale_cache(
+        self, db_session, patched_async_sessions
+    ):
+        """Residual drift pin: direct SQL DELETE (migration, admin console,
+        FK cascade from an un-hooked parent) does NOT invalidate the module
+        cache. The N.3 fix only wires the router delete; other paths remain
+        bug-shaped. Tracked at a lower priority — UUID4 channel IDs are
+        never reused, so the stale cache is dead weight, not misrouted data.
+        """
+        channel_id = await _seed_channel_and_skills(
+            db_session, skill_ids=["skills/y"]
+        )
+        await enroll(channel_id, "skills/y", db=db_session)
+        await db_session.commit()
+
+        await get_enrolled_skill_ids(channel_id)
+        assert channel_id in _enroll_mod._enrolled_cache
+
         from sqlalchemy import delete as sa_delete
 
         await db_session.execute(
@@ -266,7 +301,6 @@ class TestOrphanPointerCacheStaleness:
         )
         await db_session.commit()
 
-        # DB truth: enrollment row is gone.
         remaining = (
             await db_session.execute(
                 select(func.count())
@@ -276,11 +310,6 @@ class TestOrphanPointerCacheStaleness:
         ).scalar()
         assert remaining == 0
 
-        # Cache truth (BUG-SHAPED BEHAVIOR): still lists the old skill.
-        # If we later add a cache-invalidation hook on channel deletion,
-        # flip this to ``assert "skills/x" not in ids_after``.
+        # Cache still lists the old skill — no hook fired.
         ids_after = await get_enrolled_skill_ids(channel_id)
-        assert "skills/x" in ids_after, (
-            "regression guard: out-of-band row delete does not auto-invalidate "
-            "the channel_skill_enrollment module cache"
-        )
+        assert "skills/y" in ids_after

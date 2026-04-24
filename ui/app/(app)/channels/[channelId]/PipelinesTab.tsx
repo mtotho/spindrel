@@ -9,8 +9,13 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { Section, EmptyState } from "@/src/components/shared/FormControls";
+import {
+  ActionButton,
+  SettingsControlRow,
+  SettingsSearchBox,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -56,7 +61,6 @@ function relTime(iso?: string | null): string {
 }
 
 export function PipelinesTab({ channelId }: { channelId: string }) {
-  const t = useThemeTokens();
   const subsQ = useChannelPipelines(channelId);
   // All pipeline definitions (user + system) — so we can offer "available to subscribe".
   const defsQ = useQuery({
@@ -69,15 +73,25 @@ export function PipelinesTab({ channelId }: { channelId: string }) {
 
   const subs = subsQ.data?.subscriptions ?? [];
   const defs = defsQ.data?.tasks ?? [];
+  const [query, setQuery] = useState("");
   const subscribedIds = useMemo(() => new Set(subs.map((s) => s.task_id)), [subs]);
-  const available = useMemo(
-    () => defs.filter((d) => !subscribedIds.has(d.id)),
-    [defs, subscribedIds],
-  );
+  const available = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return defs.filter((d) => {
+      if (subscribedIds.has(d.id)) return false;
+      if (!q) return true;
+      const description = String(d.execution_config?.description ?? "");
+      return (
+        d.id.toLowerCase().includes(q) ||
+        (d.title ?? "").toLowerCase().includes(q) ||
+        description.toLowerCase().includes(q)
+      );
+    });
+  }, [defs, query, subscribedIds]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingBottom: 24 }}>
-      <div style={{ fontSize: 12, color: t.textDim, lineHeight: 1.5 }}>
+    <div className="flex flex-col gap-5 pb-6">
+      <div className="max-w-[65ch] text-[12px] leading-relaxed text-text-dim">
         Subscribe pipelines to this channel so they can be launched from its
         launchpad and optionally scheduled on their own cadence here. Pipelines
         are shared definitions — scheduling and featuring is per-channel.
@@ -85,24 +99,30 @@ export function PipelinesTab({ channelId }: { channelId: string }) {
 
       <Section title="Subscribed" description="Pipelines this channel can run.">
         {subsQ.isLoading ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-            <Loader2 className="animate-spin" size={18} color={t.textDim} />
+          <div className="flex justify-center p-6">
+            <Loader2 className="animate-spin text-text-dim" size={18} />
           </div>
         ) : subs.length === 0 ? (
           <EmptyState message="No pipelines subscribed yet. Pick one below to get started." />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className="flex flex-col gap-2">
             {subs.map((s) => (
-              <SubscriptionRow key={s.id} channelId={channelId} sub={s} t={t} />
+              <SubscriptionRow key={s.id} channelId={channelId} sub={s} />
             ))}
           </div>
         )}
       </Section>
 
-      <Section title="Available" description="Pipelines you haven't subscribed to yet.">
+      <Section
+        title="Available"
+        description="Pipelines you haven't subscribed to yet."
+        action={defs.length > 6 ? (
+          <SettingsSearchBox value={query} onChange={setQuery} placeholder="Filter pipelines..." className="w-64" />
+        ) : undefined}
+      >
         {defsQ.isLoading ? (
-          <div style={{ display: "flex", justifyContent: "center", padding: 24 }}>
-            <Loader2 className="animate-spin" size={18} color={t.textDim} />
+          <div className="flex justify-center p-6">
+            <Loader2 className="animate-spin text-text-dim" size={18} />
           </div>
         ) : available.length === 0 ? (
           <EmptyState
@@ -113,9 +133,9 @@ export function PipelinesTab({ channelId }: { channelId: string }) {
             }
           />
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div className="flex flex-col gap-2">
             {available.map((d) => (
-              <AvailableRow key={d.id} channelId={channelId} def={d} t={t} />
+              <AvailableRow key={d.id} channelId={channelId} def={d} />
             ))}
           </div>
         )}
@@ -131,11 +151,9 @@ export function PipelinesTab({ channelId }: { channelId: string }) {
 function SubscriptionRow({
   channelId,
   sub,
-  t,
 }: {
   channelId: string;
   sub: ChannelPipelineSubscription;
-  t: ReturnType<typeof useThemeTokens>;
 }) {
   const update = useUpdateSubscription(channelId);
   const unsub = useUnsubscribePipeline(channelId);
@@ -149,19 +167,7 @@ function SubscriptionRow({
   const nextFire = sub.enabled ? relTime(sub.next_fire_at) : "";
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        padding: "10px 12px",
-        background: sub.enabled ? t.surfaceRaised : t.surface,
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 8,
-        opacity: sub.enabled ? 1 : 0.7,
-      }}
-    >
+    <SettingsControlRow disabled={!sub.enabled} className="flex flex-wrap items-center gap-3">
       {/* Featured star */}
       <button
         title={sub.featured ? "Unfeature" : "Feature on launchpad"}
@@ -171,60 +177,22 @@ function SubscriptionRow({
             patch: { featured_override: sub.featured ? false : true },
           })
         }
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 2,
-          cursor: "pointer",
-          color: sub.featured ? t.warning : t.textDim,
-          display: "flex",
-          alignItems: "center",
-        }}
+        className={`inline-flex items-center p-1 transition-colors ${sub.featured ? "text-warning-muted" : "text-text-dim hover:text-text-muted"}`}
       >
         <Star size={16} fill={sub.featured ? "currentColor" : "none"} />
       </button>
 
       {/* Title + description */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>
+      <div className="min-w-[220px] flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-semibold text-text">
             {p?.title ?? sub.task_id}
           </span>
-          {p?.source === "system" && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: t.accent,
-                background: t.accentSubtle,
-                border: `1px solid ${t.accentBorder}`,
-                padding: "1px 6px",
-                borderRadius: 4,
-                letterSpacing: 0.5,
-              }}
-            >
-              SYSTEM
-            </span>
-          )}
+          {p?.source === "system" && <StatusBadge label="system" variant="info" />}
+          {!sub.enabled && <StatusBadge label="off" variant="neutral" />}
         </div>
         {p?.description && (
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textDim,
-              marginTop: 2,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
+          <div className="mt-0.5 truncate text-[11px] text-text-dim">
             {p.description}
           </div>
         )}
@@ -234,39 +202,17 @@ function SubscriptionRow({
       <button
         onClick={() => setScheduleOpen(true)}
         title="Edit schedule"
-        style={{
-          display: "flex",
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          background: "transparent",
-          border: `1px solid ${t.surfaceBorder}`,
-          borderRadius: 6,
-          padding: "4px 10px",
-          cursor: "pointer",
-          color: sub.schedule ? t.text : t.textDim,
-          fontSize: 11,
-          fontFamily: sub.schedule
-            ? "ui-monospace, SFMono-Regular, Menlo, monospace"
-            : undefined,
-        }}
+        className={`inline-flex min-h-[32px] items-center gap-1.5 rounded-md px-2.5 text-[11px] transition-colors hover:bg-surface-overlay/45 ${sub.schedule ? "font-mono text-text-muted" : "text-text-dim"}`}
       >
         <CalendarClock size={12} />
         <span>{scheduleLabel}</span>
-        {nextFire && <span style={{ color: t.textDim }}>· next {nextFire}</span>}
+        {nextFire && <span className="text-text-dim">· next {nextFire}</span>}
       </button>
 
       {/* Enable toggle */}
       <label
         title={sub.enabled ? "Disable" : "Enable"}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          cursor: "pointer",
-          color: t.textMuted,
-          fontSize: 11,
-        }}
+        className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-text-muted"
       >
         <input
           type="checkbox"
@@ -285,12 +231,7 @@ function SubscriptionRow({
       <Link
         to={`/admin/tasks/${sub.task_id}`}
         title="View pipeline definition"
-        style={{
-          color: t.textDim,
-          display: "flex",
-          alignItems: "center",
-          padding: 4,
-        }}
+        className="inline-flex items-center p-1 text-text-dim transition-colors hover:text-accent"
       >
         <ExternalLink size={14} />
       </Link>
@@ -304,15 +245,7 @@ function SubscriptionRow({
           if (!ok) return;
           unsub.mutate(sub.id);
         }}
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 4,
-          cursor: "pointer",
-          color: t.textDim,
-          display: "flex",
-          alignItems: "center",
-        }}
+        className="inline-flex items-center p-1 text-text-dim transition-colors hover:text-danger"
       >
         <Trash2 size={14} />
       </button>
@@ -331,7 +264,7 @@ function SubscriptionRow({
         />
       )}
       <ConfirmDialogSlot />
-    </div>
+    </SettingsControlRow>
   );
 }
 
@@ -342,86 +275,36 @@ function SubscriptionRow({
 function AvailableRow({
   channelId,
   def,
-  t,
 }: {
   channelId: string;
   def: TasksListResponse["tasks"][number];
-  t: ReturnType<typeof useThemeTokens>;
 }) {
   const subscribe = useSubscribePipeline(channelId);
   const description = def.execution_config?.description ?? null;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 12,
-        padding: "8px 12px",
-        border: `1px dashed ${t.surfaceBorder}`,
-        borderRadius: 8,
-      }}
-    >
-      <Clock size={14} color={t.textDim} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: t.text }}>
+    <SettingsControlRow className="flex flex-wrap items-center gap-3">
+      <Clock size={14} className="shrink-0 text-text-dim" />
+      <div className="min-w-[220px] flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-[13px] font-medium text-text">
             {def.title ?? def.id}
           </span>
-          {def.source === "system" && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: t.accent,
-                background: t.accentSubtle,
-                border: `1px solid ${t.accentBorder}`,
-                padding: "1px 6px",
-                borderRadius: 4,
-                letterSpacing: 0.5,
-              }}
-            >
-              SYSTEM
-            </span>
-          )}
+          {def.source === "system" && <StatusBadge label="system" variant="info" />}
         </div>
         {description && (
-          <div
-            style={{
-              fontSize: 11,
-              color: t.textDim,
-              marginTop: 2,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
+          <div className="mt-0.5 truncate text-[11px] text-text-dim">
             {description}
           </div>
         )}
       </div>
-      <button
-        onClick={() => subscribe.mutate({ task_id: def.id })}
+      <ActionButton
+        label={subscribe.isPending ? "Subscribing..." : "Subscribe"}
+        onPress={() => subscribe.mutate({ task_id: def.id })}
         disabled={subscribe.isPending}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 4,
-          background: t.accent,
-          border: "none",
-          color: "#fff",
-          borderRadius: 6,
-          padding: "4px 10px",
-          fontSize: 11,
-          fontWeight: 600,
-          cursor: subscribe.isPending ? "default" : "pointer",
-          opacity: subscribe.isPending ? 0.6 : 1,
-        }}
-      >
-        <Zap size={12} />
-        Subscribe
-      </button>
-    </div>
+        size="small"
+        icon={<Zap size={12} />}
+      />
+    </SettingsControlRow>
   );
 }

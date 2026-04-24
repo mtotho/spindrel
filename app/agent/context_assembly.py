@@ -2211,8 +2211,8 @@ async def assemble_context(
     # open_modal, and slack_* surface tools out of the LLM's tool list
     # on channels that can't honor them — rather than letting the agent
     # call the tool and hit a runtime "unsupported" error. Structural
-    # fix for the Phase 3/4 Slack-depth bug documented in vault/
-    # Architecture Decisions (Channel binding model).
+    # fix for the Phase 3/4 Slack-depth bug documented in
+    # project-notes/Architecture Decisions.md (Channel binding model).
     if _ch_row is not None:
         try:
             from app.agent.capability_gate import build_view
@@ -2343,32 +2343,35 @@ async def assemble_context(
         if _ch_row is not None and context_profile.allow_pinned_widgets:
             from app.db.engine import async_session as _pw_session
             from app.services.widget_context import (
-                build_widget_context_block,
-                enrich_pins_for_context_export,
+                build_pinned_widget_context_snapshot,
                 fetch_channel_pin_dicts,
+                is_pinned_widget_context_enabled,
             )
-            async with _pw_session() as _pw_db:
-                _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
-            if _pins:
+            if not is_pinned_widget_context_enabled(getattr(_ch_row, "config", None) or {}):
+                _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_channel_config")
+            else:
                 async with _pw_session() as _pw_db:
-                    _enriched_pins = await enrich_pins_for_context_export(
-                        _pw_db,
-                        _pins,
-                        bot_id=bot.id,
-                        channel_id=str(_ch_row.id),
-                    )
-                _widget_block = build_widget_context_block(_enriched_pins, bot_id=bot.id)
-                if _widget_block and _budget_can_afford(_widget_block):
-                    messages.append({"role": "system", "content": _widget_block})
-                    _budget_consume("pinned_widgets", _widget_block)
-                    _inject_chars["pinned_widgets"] = len(_widget_block)
-                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "admitted")
-                elif _widget_block:
-                    _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_budget")
+                    _pins = await fetch_channel_pin_dicts(_pw_db, _ch_row.id)
+                if _pins:
+                    async with _pw_session() as _pw_db:
+                        _snapshot = await build_pinned_widget_context_snapshot(
+                            _pw_db,
+                            _pins,
+                            bot_id=bot.id,
+                            channel_id=str(_ch_row.id),
+                        )
+                    _widget_block = _snapshot.get("block_text")
+                    if isinstance(_widget_block, str) and _widget_block and _budget_can_afford(_widget_block):
+                        messages.append({"role": "system", "content": _widget_block})
+                        _budget_consume("pinned_widgets", _widget_block)
+                        _inject_chars["pinned_widgets"] = len(_widget_block)
+                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "admitted")
+                    elif isinstance(_widget_block, str) and _widget_block:
+                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_by_budget")
+                    else:
+                        _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
                 else:
                     _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
-            else:
-                _mark_injection_decision(_inject_decisions, "pinned_widgets", "skipped_empty")
     except Exception:
         logger.debug("pinned_widgets: injection failed", exc_info=True)
     if not context_profile.allow_pinned_widgets:

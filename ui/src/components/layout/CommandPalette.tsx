@@ -18,8 +18,18 @@ import { useIsAdmin } from "../../hooks/useScope";
 import { SpindrelLogo } from "./SpindrelLogo";
 import { HighlightedLabel } from "../palette/HighlightedLabel";
 import { usePaletteItems } from "../palette/items";
-import { usePaletteSearch } from "../palette/search";
+import {
+  getCollapsiblePaletteBrowseSection,
+  usePaletteSearch,
+  type CollapsiblePaletteBrowseSection,
+} from "../palette/search";
 import type { PaletteItem, ScoredItem } from "../palette/types";
+
+const COLLAPSIBLE_BROWSE_LABELS: Record<CollapsiblePaletteBrowseSection, string> = {
+  tools: "Tools",
+  policies: "Policies",
+  traces: "Traces",
+};
 
 export function useCommandPaletteShortcut() {
   const openPalette = useUIStore((s) => s.openPalette);
@@ -70,6 +80,9 @@ export function CommandPaletteContent({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentsExpanded, setRecentsExpanded] = useState(false);
+  const [expandedBrowseSections, setExpandedBrowseSections] = useState<Set<CollapsiblePaletteBrowseSection>>(
+    () => new Set(),
+  );
   const isKeyboardNav = useRef(false);
 
   useEffect(() => {
@@ -126,29 +139,60 @@ export function CommandPaletteContent({
     isAdmin,
   });
 
+  const isBrowseMode = !query.trim();
   const showRecentsToggle = !query.trim() && totalRecents > 5;
 
   const groupedResults = useMemo(() => {
     let flatIndex = 0;
     let showMoreToggleIndex = -1;
-    const flat: (ScoredItem | null)[] = [];
+    const flat: Array<
+      | { kind: "item"; scored: ScoredItem }
+      | { kind: "recents-toggle" }
+      | { kind: "collapsed-section"; section: CollapsiblePaletteBrowseSection }
+    > = [];
     const indexedGroups = groups.map((group) => {
-      const entries = group.items.map((scoredItem) => {
+      const sectionCounts = new Map<CollapsiblePaletteBrowseSection, number>();
+      const entries: Array<{ scored: ScoredItem; flatIndex: number }> = [];
+      const collapsedToggles: Array<{ section: CollapsiblePaletteBrowseSection; count: number; flatIndex: number }> = [];
+
+      for (const scoredItem of group.items) {
+        const section = isBrowseMode ? getCollapsiblePaletteBrowseSection(scoredItem.item) : null;
+        if (section) sectionCounts.set(section, (sectionCounts.get(section) ?? 0) + 1);
+        if (section && !expandedBrowseSections.has(section)) {
+          continue;
+        }
         const entry = { scored: scoredItem, flatIndex };
-        flat.push(scoredItem);
+        flat.push({ kind: "item", scored: scoredItem });
         flatIndex += 1;
-        return entry;
-      });
+        entries.push(entry);
+      }
+
+      for (const [section, count] of sectionCounts) {
+        const entry = { section, count, flatIndex };
+        flat.push({ kind: "collapsed-section", section });
+        flatIndex += 1;
+        collapsedToggles.push(entry);
+      }
+
       if (group.category === "Recent" && showRecentsToggle) {
         showMoreToggleIndex = flatIndex;
-        flat.push(null);
+        flat.push({ kind: "recents-toggle" });
         flatIndex += 1;
       }
-      return { category: group.category, items: entries };
+      return { category: group.category, items: entries, collapsedToggles };
     });
 
     return { groups: indexedGroups, totalCount: flatIndex, flat, showMoreToggleIndex };
-  }, [groups, showRecentsToggle]);
+  }, [expandedBrowseSections, groups, isBrowseMode, showRecentsToggle]);
+
+  const toggleBrowseSection = useCallback((section: CollapsiblePaletteBrowseSection) => {
+    setExpandedBrowseSections((current) => {
+      const next = new Set(current);
+      if (next.has(section)) next.delete(section);
+      else next.add(section);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (query.trim()) setRecentsExpanded(false);
@@ -224,10 +268,15 @@ export function CommandPaletteContent({
           return;
         }
         const entry = groupedResults.flat[selectedIndex];
-        if (entry) selectItem(entry.item);
+        if (!entry) return;
+        if (entry.kind === "collapsed-section") {
+          toggleBrowseSection(entry.section);
+          return;
+        }
+        if (entry.kind === "item") selectItem(entry.scored.item);
       }
     },
-    [groupedResults, onEscape, query, selectedIndex, selectItem, variant],
+    [groupedResults, onEscape, query, selectedIndex, selectItem, toggleBrowseSection, variant],
   );
 
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
@@ -467,6 +516,46 @@ export function CommandPaletteContent({
                 </span>
               </div>
             )}
+            {group.collapsedToggles.map(({ section, count, flatIndex }) => {
+              const selected = flatIndex === selectedIndex;
+              const expanded = expandedBrowseSections.has(section);
+              return (
+                <div
+                  key={`collapsed-${section}`}
+                  data-idx={flatIndex}
+                  onClick={() => toggleBrowseSection(section)}
+                  onMouseMove={() => {
+                    isKeyboardNav.current = false;
+                    setSelectedIndex(flatIndex);
+                  }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "7px 14px",
+                    margin: "0 6px",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    backgroundColor: selected ? t.accentSubtle : "transparent",
+                    transition: "background-color 80ms ease",
+                  }}
+                >
+                  <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                    {expanded ? <ChevronUp size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      fontSize: 13,
+                      color: t.textDim,
+                    }}
+                  >
+                    {expanded ? `Collapse ${COLLAPSIBLE_BROWSE_LABELS[section]}` : `Show ${COLLAPSIBLE_BROWSE_LABELS[section]} (${count})`}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>

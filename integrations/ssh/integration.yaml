@@ -1,0 +1,61 @@
+id: ssh
+name: SSH
+icon: Server
+description: Headless machine control over OpenSSH with explicit per-session leases.
+version: "0.1"
+
+settings:
+  - key: SSH_PRIVATE_KEY
+    type: string
+    label: "Private key used for SSH targets"
+    required: true
+    secret: true
+  - key: SSH_KNOWN_HOSTS
+    type: string
+    label: "known_hosts entries for the allowed SSH targets"
+    required: true
+    secret: true
+  - key: SSH_CONNECT_TIMEOUT_SECONDS
+    type: number
+    label: "SSH connect timeout seconds"
+    default: 10
+  - key: SSH_PROBE_TIMEOUT_SECONDS
+    type: number
+    label: "SSH probe timeout seconds"
+    default: 10
+  - key: SSH_COMMAND_TIMEOUT_SECONDS
+    type: number
+    label: "SSH command timeout seconds"
+    default: 120
+  - key: SSH_MAX_OUTPUT_BYTES
+    type: number
+    label: "Max stdout/stderr bytes captured per SSH command"
+    default: 65536
+
+provides:
+  - machine_control
+
+machine_control:
+  provider_id: ssh
+  label: SSH
+  driver: ssh
+  enroll_fields:
+    - key: host
+      type: string
+      label: Host
+      description: "Hostname or IP address of the target machine"
+      required: true
+    - key: username
+      type: string
+      label: Username
+      description: "SSH username for the target"
+      required: true
+    - key: port
+      type: number
+      label: Port
+      description: "SSH port"
+      default: 22
+    - key: working_dir
+      type: string
+      label: Default Working Directory
+      description: "Optional default working directory for shell commands"

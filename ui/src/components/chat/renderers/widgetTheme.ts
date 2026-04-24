@@ -290,7 +290,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     background: var(--sd-card-bg);
     border: 1px solid var(--sd-card-border);
     box-shadow: var(--sd-card-shadow);
-    border-radius: var(--sd-radius-lg);
+    border-radius: var(--sd-radius-xl);
     padding: var(--sd-pad-md);
     display: flex;
     flex-direction: column;
@@ -327,7 +327,20 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
   .sd-frame { position: relative; border-radius: var(--sd-radius-md); overflow: hidden; background: var(--sd-surface-overlay); }
   .sd-frame-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--sd-text-muted); font-size: var(--sd-font-size-sm); }
 
-  /* ── Controls ─────────────────────────────────────────────── */
+  /* ── Controls ─────────────────────────────────────────────────
+     Button contract (matches docs/guides/ui-design.md §4):
+     - .sd-btn        — default ghost control. Transparent, muted text, tonal hover.
+                        Use for routine row actions (refresh, edit, close, cancel).
+     - .sd-btn-accent — ghost tinted primary. Use for the primary action of a row
+                        or card ("Connect", "Retry", "Open"). Accent text on accent/10 hover.
+     - .sd-btn-primary — filled accent. RESERVED for the one final-commit moment per
+                         screen (confirm dialog OK, save-and-close). Do not use for
+                         routine row actions — that's the Bootstrap-button anti-pattern.
+     - .sd-btn-subtle — explicit secondary ghost alias (same as .sd-btn today). Kept
+                        for readability when multiple ghost buttons sit side-by-side.
+     - .sd-btn-danger — ghost destructive. Danger text, danger/10 hover.
+     Never combine border + bg-color + shadow on one button.
+     ────────────────────────────────────────────────────────────── */
   .sd-btn {
     appearance: none;
     display: inline-flex;
@@ -336,41 +349,64 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     gap: var(--sd-gap-xs);
     min-height: 30px;
     padding: 6px 10px;
-    border: 1px solid color-mix(in srgb, var(--sd-surface-border) 52%, transparent 48%);
-    background: color-mix(in srgb, var(--sd-surface-overlay) 42%, transparent 58%);
-    color: var(--sd-text);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--sd-text-muted);
     border-radius: var(--sd-radius-md);
     font-size: var(--sd-font-size-sm);
-    font-weight: 600;
+    font-weight: 500;
     letter-spacing: 0.01em;
     font-family: inherit;
     cursor: pointer;
-    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, opacity 140ms ease;
+    transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
   }
   .sd-btn:hover {
-    background: color-mix(in srgb, var(--sd-surface-overlay) 56%, transparent 44%);
-    border-color: color-mix(in srgb, var(--sd-surface-border) 66%, transparent 34%);
+    background: color-mix(in srgb, var(--sd-surface-overlay) 60%, transparent 40%);
+    color: var(--sd-text);
   }
   .sd-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-  .sd-btn[aria-pressed="true"] { background: var(--sd-accent); border-color: var(--sd-accent); color: white; }
+  .sd-btn[aria-pressed="true"] {
+    background: var(--sd-accent-subtle);
+    color: var(--sd-accent);
+  }
+  .sd-btn[aria-pressed="true"]:hover {
+    background: color-mix(in srgb, var(--sd-accent) 14%, transparent 86%);
+    color: var(--sd-accent);
+  }
+  .sd-btn-accent {
+    background: transparent;
+    border-color: transparent;
+    color: var(--sd-accent);
+  }
+  .sd-btn-accent:hover {
+    background: color-mix(in srgb, var(--sd-accent) 10%, transparent 90%);
+    color: var(--sd-accent-hover);
+  }
   .sd-btn-primary {
     background: var(--sd-accent);
     border-color: var(--sd-accent);
     color: white;
+    font-weight: 600;
   }
   .sd-btn-primary:hover { background: var(--sd-accent-hover); border-color: var(--sd-accent-hover); color: white; }
   .sd-btn-subtle {
     background: transparent;
-    border-color: color-mix(in srgb, var(--sd-surface-border) 34%, transparent 66%);
+    border-color: transparent;
     color: var(--sd-text-muted);
   }
   .sd-btn-subtle:hover {
-    background: color-mix(in srgb, var(--sd-overlay-light) 72%, transparent 28%);
-    border-color: color-mix(in srgb, var(--sd-surface-border) 48%, transparent 52%);
+    background: color-mix(in srgb, var(--sd-surface-overlay) 60%, transparent 40%);
     color: var(--sd-text);
   }
-  .sd-btn-danger { background: var(--sd-danger-subtle); border-color: var(--sd-danger-border); color: var(--sd-danger); }
-  .sd-btn-danger:hover { background: var(--sd-danger); border-color: var(--sd-danger); color: white; }
+  .sd-btn-danger {
+    background: transparent;
+    border-color: transparent;
+    color: var(--sd-danger);
+  }
+  .sd-btn-danger:hover {
+    background: color-mix(in srgb, var(--sd-danger) 12%, transparent 88%);
+    color: var(--sd-danger);
+  }
 
   .sd-input, .sd-select, .sd-textarea {
     appearance: none;
@@ -398,8 +434,8 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 3px 8px;
-    border-radius: var(--sd-radius-sm);
+    padding: 2px 8px;
+    border-radius: 999px;
     font-size: var(--sd-font-size-xs);
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -602,7 +638,6 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     width: 12px; height: 12px;
     border-radius: 50%;
     background: var(--sd-surface-raised);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     transition: transform 150ms ease-out;
   }
   .sd-switch > input[type="checkbox"]:checked ~ .sd-switch__track { background: var(--sd-accent); }
@@ -746,7 +781,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     background: var(--sd-surface-raised);
     border: 1px solid var(--sd-surface-border);
     border-radius: var(--sd-radius-md);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
   }
   .sd-menu-item {
     appearance: none;
@@ -792,7 +827,7 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     color: var(--sd-text);
     font-size: var(--sd-font-size-xs);
     border-radius: var(--sd-radius-sm);
-    box-shadow: 0 6px 14px rgba(0,0,0,0.16);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
     pointer-events: none;
     max-width: 220px;
   }
@@ -808,10 +843,10 @@ export function buildWidgetThemeCss({ tokens: t, isDark, theme }: WidgetThemeInp
     max-width: 360px; width: 100%;
     background: var(--sd-surface-raised);
     border: 1px solid var(--sd-surface-border);
-    border-radius: var(--sd-radius-lg);
+    border-radius: var(--sd-radius-xl);
     padding: var(--sd-pad-md);
     display: flex; flex-direction: column; gap: var(--sd-gap-md);
-    box-shadow: 0 12px 36px rgba(0,0,0,0.28);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.18);
   }
   .sd-modal__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--sd-text); }
   .sd-modal__body { font-size: var(--sd-font-size-sm); color: var(--sd-text-muted); }

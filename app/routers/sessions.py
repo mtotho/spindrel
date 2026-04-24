@@ -218,7 +218,13 @@ class SessionMachineTargetLeaseOut(BaseModel):
     granted_at: str
     expires_at: str
     capabilities: list[str]
+    handle_id: str | None = None
     connection_id: str | None = None
+    ready: bool = False
+    status: str | None = None
+    status_label: str | None = None
+    reason: str | None = None
+    checked_at: str | None = None
     connected: bool
     provider_label: str | None = None
     target_label: str
@@ -228,6 +234,8 @@ class SessionMachineTargetOut(BaseModel):
     session_id: str
     lease: SessionMachineTargetLeaseOut | None = None
     targets: list[dict[str, Any]]
+    ready_target_count: int | None = None
+    connected_target_count: int | None = None
 
 
 class SessionMachineTargetLeaseRequest(BaseModel):

@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi import HTTPException
 
+from app.domain.errors import DomainError
 from app.services.native_app_widgets import (
     dispatch_native_widget_action,
     get_or_create_native_widget_instance,
@@ -126,7 +126,7 @@ async def test_todo_native_rejects_bad_payloads(db_session):
         source_channel_id=uuid.uuid4(),
     )
 
-    with pytest.raises(HTTPException, match="Missing required action arg: title"):
+    with pytest.raises(DomainError, match="Missing required action arg: title"):
         await dispatch_native_widget_action(
             db_session,
             instance=instance,
@@ -141,7 +141,7 @@ async def test_todo_native_rejects_bad_payloads(db_session):
         args={"title": "Only"},
     )
 
-    with pytest.raises(HTTPException, match="unknown todo item id"):
+    with pytest.raises(DomainError, match="unknown todo item id"):
         await dispatch_native_widget_action(
             db_session,
             instance=instance,
@@ -149,7 +149,7 @@ async def test_todo_native_rejects_bad_payloads(db_session):
             args={"id": "missing", "title": "Nope"},
         )
 
-    with pytest.raises(HTTPException, match="ordered_ids must list each open item exactly once"):
+    with pytest.raises(DomainError, match="ordered_ids must list each open item exactly once"):
         await dispatch_native_widget_action(
             db_session,
             instance=instance,
@@ -211,6 +211,19 @@ def test_native_catalog_entries_expose_contract():
     assert usage["widget_contract"]["layout_hints"] == usage["layout_hints"]
     upcoming = next(entry for entry in entries if entry["name"] == "upcoming_activity_native")
     assert upcoming["supported_scopes"] == ["channel", "dashboard"]
+    machine = next(entry for entry in entries if entry["name"] == "machine_control_native")
+    assert machine["widget_ref"] == "core/machine_control_native"
+    assert machine["supported_scopes"] == ["channel"]
+    assert machine["layout_hints"] == {
+        "preferred_zone": "dock",
+        "min_cells": {"w": 4, "h": 3},
+        "max_cells": {"w": 12, "h": 6},
+    }
+    assert machine["widget_contract"]["context_export"] == {
+        "enabled": False,
+        "summary_kind": "server_provider",
+        "hint_kind": "none",
+    }
     names = {entry["name"] for entry in entries}
     assert "pinned_files_native" not in names
 
@@ -270,7 +283,7 @@ async def test_pinned_files_native_rejects_unknown_path(db_session):
         },
     )
 
-    with pytest.raises(HTTPException, match="unknown pinned file path"):
+    with pytest.raises(DomainError, match="unknown pinned file path"):
         await dispatch_native_widget_action(
             db_session,
             instance=instance,
@@ -281,7 +294,7 @@ async def test_pinned_files_native_rejects_unknown_path(db_session):
 
 @pytest.mark.asyncio
 async def test_context_tracker_rejects_user_dashboard_scope(db_session):
-    with pytest.raises(HTTPException, match="does not support scope 'dashboard'"):
+    with pytest.raises(DomainError, match="does not support scope 'dashboard'"):
         await get_or_create_native_widget_instance(
             db_session,
             widget_ref="core/context_tracker",

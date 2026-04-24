@@ -21,7 +21,7 @@ export function MachineTargetStatusRenderer({
   const liveState = live.data ?? (sessionId ? undefined : initial);
   const state = liveState ?? initial;
   const targets = state.targets ?? [];
-  const connectedTargets = targets.filter((target) => target.connected);
+  const readyTargets = targets.filter((target) => target.ready);
   const lease = state.lease ?? null;
   const grantLease = useGrantSessionMachineTargetLease(sessionId ?? "");
   const clearLease = useClearSessionMachineTargetLease(sessionId ?? "");
@@ -60,9 +60,9 @@ export function MachineTargetStatusRenderer({
             <div style={machineMetaTextStyle(t)}>
               {lease
                 ? "This session currently has a machine lease."
-                : connectedTargets.length
-                  ? `${connectedTargets.length} connected target${connectedTargets.length === 1 ? "" : "s"} available.`
-                  : "No connected targets are available for this session."}
+                : readyTargets.length
+                  ? `${readyTargets.length} ready target${readyTargets.length === 1 ? "" : "s"} available.`
+                  : "No ready machine targets are available for this session."}
             </div>
           </div>
           {sessionId ? (
@@ -76,7 +76,7 @@ export function MachineTargetStatusRenderer({
         ) : null}
         {!targets.length ? (
           <div style={{ marginTop: 10, ...machineMetaTextStyle(t) }}>
-            Enroll a machine from Admin &gt; Machines, then connect the provider companion from that machine.
+            Enroll a target from Admin &gt; Machines, then use the provider-specific setup flow to make it ready.
           </div>
         ) : (
           <div style={{ marginTop: 10 }}>

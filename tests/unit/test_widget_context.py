@@ -5,7 +5,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.services.widget_context import build_widget_context_block, enrich_pins_for_context_export
+from app.services.widget_context import (
+    build_pinned_widget_context_snapshot,
+    build_widget_context_block,
+    enrich_pins_for_context_export,
+    is_pinned_widget_context_enabled,
+)
 
 
 NOW = datetime(2026, 4, 17, 12, 0, tzinfo=timezone.utc)
@@ -67,6 +72,13 @@ def test_empty_list_returns_none() -> None:
 def test_pin_without_context_export_is_skipped() -> None:
     pin = _pin(context_export=None)
     assert build_widget_context_block([pin], bot_id="bot-a", now=NOW) is None
+
+
+def test_channel_config_gate_defaults_on() -> None:
+    assert is_pinned_widget_context_enabled(None) is True
+    assert is_pinned_widget_context_enabled({}) is True
+    assert is_pinned_widget_context_enabled({"pinned_widget_context_enabled": True}) is True
+    assert is_pinned_widget_context_enabled({"pinned_widget_context_enabled": False}) is False
 
 
 def test_plain_body_export_renders_header_and_line() -> None:
@@ -176,6 +188,86 @@ async def test_enrich_native_notes_state_uses_snippet_and_age() -> None:
         now=NOW,
     )
     assert pins[0]["context_summary"] == "First line Second line (~15m ago)"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_records_exported_rows_and_skips() -> None:
+    snapshot = await build_pinned_widget_context_snapshot(
+        None,  # type: ignore[arg-type]
+        [
+            _pin(
+                pid="todo",
+                context_export={"enabled": True, "summary_kind": "native_state", "hint_kind": "invoke_widget_action"},
+                actions=[{"id": "add_item"}],
+                state={"items": [{"title": "Buy milk", "done": False}]},
+            ),
+            _pin(
+                pid="hidden",
+                display_label="Hidden",
+                context_export=None,
+            ),
+        ],
+        bot_id="bot-a",
+        now=NOW,
+        channel_id="123",
+    )
+    assert snapshot["enabled"] is True
+    assert snapshot["total_pins"] == 2
+    assert snapshot["exported_count"] == 1
+    assert snapshot["rows"][0]["label"] == "Todo"
+    assert snapshot["rows"][0]["summary"] == "1 open, 0 done; next: Buy milk"
+    assert snapshot["rows"][0]["hint"] is not None
+    assert snapshot["skipped"] == [
+        {"pin_id": "hidden", "label": "Hidden", "reason": "export_disabled"},
+    ]
+    assert "Todo: 1 open, 0 done; next: Buy milk" in snapshot["block_text"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_reports_disabled_channel_state() -> None:
+    snapshot = await build_pinned_widget_context_snapshot(
+        None,  # type: ignore[arg-type]
+        [
+            _pin(
+                pid="todo",
+                context_export={"enabled": True, "summary_kind": "plain_body", "hint_kind": "none"},
+            ),
+        ],
+        bot_id="bot-a",
+        now=NOW,
+        enabled=False,
+        disabled_reason="channel_disabled",
+    )
+    assert snapshot["enabled"] is False
+    assert snapshot["exported_count"] == 0
+    assert snapshot["block_text"] is None
+    assert snapshot["skipped"] == [
+        {"pin_id": "todo", "label": "Todo", "reason": "channel_disabled"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_marks_trimmed_rows() -> None:
+    chunky = "y" * 240
+    snapshot = await build_pinned_widget_context_snapshot(
+        None,  # type: ignore[arg-type]
+        [
+            _pin(
+                pid=f"p{i}",
+                display_label=f"L{i}",
+                plain=chunky,
+                context_export={"enabled": True, "summary_kind": "plain_body", "hint_kind": "none"},
+            )
+            for i in range(12)
+        ],
+        bot_id="bot-a",
+        now=NOW,
+    )
+    assert snapshot["enabled"] is True
+    assert snapshot["truncated"] is True
+    assert snapshot["exported_count"] < snapshot["total_pins"]
+    assert any(item["reason"] == "trimmed" for item in snapshot["skipped"])
+    assert snapshot["total_chars"] <= 2000
 
 
 def test_global_char_cap_drops_trailing_pins() -> None:

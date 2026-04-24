@@ -75,6 +75,7 @@ export function buildPaletteItems(input) {
             href: `/channels/${channel.id}/settings`,
             icon: Settings,
             category: "Channels",
+            hideFromBrowse: true,
         });
         pushUnique(items, {
             id: `channel-dashboard-${channel.id}`,

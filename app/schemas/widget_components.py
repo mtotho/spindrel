@@ -44,6 +44,7 @@ DISPATCH_TYPES = ("tool", "api", "widget_config")
 HTTP_METHODS = ("POST", "PUT", "PATCH", "DELETE")
 PRIORITIES = ("primary", "secondary", "metadata")
 PROPERTY_VARIANTS = ("default", "metadata")
+AUTH_MODES = ("none", "bearer")
 
 
 def _is_templated(v: Any) -> bool:
@@ -70,6 +71,7 @@ TextStyle = Annotated[Optional[str], BeforeValidator(_enum_or_template(TEXT_STYL
 Layout = Annotated[Optional[str], BeforeValidator(_enum_or_template(LAYOUTS))]
 Priority = Annotated[Optional[str], BeforeValidator(_enum_or_template(PRIORITIES))]
 PropertyVariant = Annotated[Optional[str], BeforeValidator(_enum_or_template(PROPERTY_VARIANTS))]
+AuthMode = Annotated[Optional[str], BeforeValidator(_enum_or_template(AUTH_MODES))]
 
 
 # ── Supporting types ──
@@ -158,11 +160,34 @@ class CodeNode(_Base):
     language: Optional[str] = None
 
 
+class _ImageOverlay(BaseModel):
+    """A normalized-coords rectangle drawn over an image.
+
+    ``x`` / ``y`` are the top-left corner in the image's 0..1 space,
+    ``w`` / ``h`` are width/height as fractions of the image dimensions.
+    Normalized so overlays survive resolution / aspect-ratio changes
+    without the author recomputing pixels.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    x: Union[int, float, str]
+    y: Union[int, float, str]
+    w: Union[int, float, str]
+    h: Union[int, float, str]
+    label: Optional[str] = None
+    color: SemanticColor = None
+    when: Optional[str] = None
+
+
 class ImageNode(_Base):
     type: Literal["image"]
     url: str
     alt: Optional[str] = None
     height: Optional[Union[int, str]] = None
+    aspect_ratio: Optional[str] = None
+    auth: AuthMode = None
+    lightbox: Optional[Union[bool, str]] = None
+    overlays: Optional[Union[list[_ImageOverlay], EachBlock, TemplatedStr]] = None
 
 
 # ── Grouping ──

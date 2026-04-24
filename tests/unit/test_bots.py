@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from fastapi import HTTPException
+from app.domain.errors import NotFoundError
 
 from app.agent import bots
 from app.agent.bots import (
@@ -81,9 +81,9 @@ class TestGetBot:
         assert get_bot("known") is bot
 
     def test_raises_404_for_unknown_id(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(NotFoundError) as exc_info:
             get_bot("nonexistent_bot_xyz")
-        assert exc_info.value.status_code == 404
+        assert exc_info.value.http_status == 404
         assert "nonexistent_bot_xyz" in exc_info.value.detail
 
 

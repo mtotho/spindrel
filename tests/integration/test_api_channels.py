@@ -344,3 +344,18 @@ class TestAdminContextPreview:
         blocks = resp.json()["blocks"]
         labels = [b["label"] for b in blocks]
         assert "Global Base Prompt" not in labels
+
+    async def test_includes_pinned_widget_context_snapshot(self, client, db_session):
+        ch = await _create_channel(client)
+        ch_id = ch["id"]
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{ch_id}/context-preview",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "pinned_widget_context" in body
+        assert body["pinned_widget_context"]["enabled"] is True
+        labels = [b["label"] for b in body["blocks"]]
+        assert "Pinned Widget Context" in labels

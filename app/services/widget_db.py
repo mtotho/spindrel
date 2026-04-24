@@ -143,8 +143,8 @@ def resolve_db_path(
     # redirect to the writable widget_db area so the read-only image source
     # tree isn't written to.
     if source_kind in ("builtin", "integration"):
-        from app.services.widget_py import _resolve_bundle_dir
-        bundle_dir = _resolve_bundle_dir(pin)
+        from app.services.widget_py import resolve_bundle_dir
+        bundle_dir = resolve_bundle_dir(pin)
         redirect_dir = _builtin_db_root() / bundle_dir.name
         redirect_dir.mkdir(parents=True, exist_ok=True)
         logger.debug(

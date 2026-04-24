@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.domain.errors import DomainError
 from app.db.models import (
     Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration,
     Message, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
@@ -192,6 +193,7 @@ class ChannelConfigOut(BaseModel):
     passive_memory: bool = True
     allow_bot_messages: bool = False
     workspace_rag: bool = True
+    pinned_widget_context_enabled: bool = True
     thinking_display: str = "append"
     tool_output_display: str = "compact"
     max_iterations: Optional[int] = None
@@ -271,6 +273,7 @@ class ChannelConfigUpdate(BaseModel):
     passive_memory: Optional[bool] = None
     allow_bot_messages: Optional[bool] = None
     workspace_rag: Optional[bool] = None
+    pinned_widget_context_enabled: Optional[bool] = None
     thinking_display: Optional[str] = None
     tool_output_display: Optional[str] = None
     max_iterations: Optional[int] = None
@@ -363,7 +366,7 @@ async def create_channel(
 
     try:
         get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     # Non-admins always own what they create. Admins may reassign by passing
@@ -482,7 +485,7 @@ async def create_channel(
                 continue  # skip primary bot
             try:
                 get_bot(mbid)
-            except HTTPException:
+            except (HTTPException, DomainError):
                 continue  # skip unknown bots silently
             bm = ChannelBotMember(channel_id=channel.id, bot_id=mbid)
             db.add(bm)
@@ -689,6 +692,12 @@ async def update_channel_config(
     # layout_mode is stored inside the channel's JSONB config, not as a top-
     # level column. Split it out so the generic setattr loop below doesn't
     # try to write to a non-existent attribute.
+    has_pinned_widget_context_enabled_update = "pinned_widget_context_enabled" in ch_updates
+    pinned_widget_context_enabled_update = (
+        ch_updates.pop("pinned_widget_context_enabled", None)
+        if has_pinned_widget_context_enabled_update
+        else None
+    )
     has_layout_mode_update = "layout_mode" in ch_updates
     layout_mode_update = ch_updates.pop("layout_mode", None) if has_layout_mode_update else None
     has_chat_mode_update = "chat_mode" in ch_updates
@@ -704,6 +713,18 @@ async def update_channel_config(
     if ch_updates:
         for field, value in ch_updates.items():
             setattr(channel, field, value)
+        channel.updated_at = now
+
+    if has_pinned_widget_context_enabled_update:
+        import copy as _copy
+        from sqlalchemy.orm.attributes import flag_modified
+        cfg = _copy.deepcopy(channel.config or {})
+        if pinned_widget_context_enabled_update in (None, True):
+            cfg.pop("pinned_widget_context_enabled", None)
+        else:
+            cfg["pinned_widget_context_enabled"] = False
+        channel.config = cfg
+        flag_modified(channel, "config")
         channel.updated_at = now
 
     # Apply layout_mode via the JSONB config dict. deepcopy + flag_modified so
@@ -817,6 +838,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
         "passive_memory": channel.passive_memory,
         "allow_bot_messages": channel.allow_bot_messages,
         "workspace_rag": channel.workspace_rag,
+        "pinned_widget_context_enabled": (channel.config or {}).get("pinned_widget_context_enabled", True),
         "thinking_display": channel.thinking_display,
         "tool_output_display": channel.tool_output_display,
         "max_iterations": channel.max_iterations,
@@ -888,12 +910,16 @@ async def delete_channel(
     from app.services.dashboards import channel_slug, delete_dashboard
     try:
         await delete_dashboard(db, channel_slug(channel_id))
-    except HTTPException as exc:
-        if exc.status_code != 404:
+    except (HTTPException, DomainError) as exc:
+        status = exc.status_code if isinstance(exc, HTTPException) else exc.http_status
+        if status != 404:
             raise
 
     await db.delete(channel)
     await db.commit()
+
+    from app.services.channel_skill_enrollment import invalidate_enrolled_cache
+    invalidate_enrolled_cache(str(channel_id))
 
 
 @router.put("/{channel_id}", response_model=ChannelOut)
@@ -915,7 +941,7 @@ async def update_channel(
         from app.agent.bots import get_bot
         try:
             get_bot(body.bot_id)
-        except HTTPException:
+        except (HTTPException, DomainError):
             raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
         channel.bot_id = body.bot_id
     if body.require_mention is not None:
@@ -2235,7 +2261,7 @@ async def add_bot_member(
     # Validate bot exists
     try:
         bot_cfg = _get_bot(body.bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {body.bot_id}")
 
     # Don't allow adding the primary bot as a member

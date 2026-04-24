@@ -1,7 +1,8 @@
 import { useMemo, useCallback } from "react";
 import { RotateCcw } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { FormRow, TextInput, SelectInput, Row, Col } from "@/src/components/shared/FormControls";
+import { FormRow, SelectInput, Row, Col } from "@/src/components/shared/FormControls";
+import { ActionButton } from "@/src/components/shared/SettingsControls";
+import { TimePicker } from "@/src/components/shared/DateTimePicker";
 
 const QUIET_PRESETS: ReadonlyArray<{
   label: string; start: string; end: string; description: string;
@@ -49,7 +50,6 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
   inheritedRange?: string | null;
   defaultTimezone?: string | null;
 }) {
-  const t = useThemeTokens();
   const hasValue = !!(start || end);
 
   const activePreset = QUIET_PRESETS.find(p => p.start === start && p.end === end);
@@ -81,78 +81,65 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
   }, [onChangeStart, onChangeEnd, onChangeTimezone]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {/* Presets */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="flex flex-wrap items-center gap-1.5">
         {QUIET_PRESETS.map((p) => {
           const isActive = activePreset?.label === p.label;
           return (
             <button
+              type="button"
               key={p.label}
               onClick={() => applyPreset(p)}
-              style={{
-                padding: "5px 12px", borderRadius: 6, cursor: "pointer",
-                fontSize: 12, fontWeight: isActive ? 700 : 500, minHeight: 36,
-                border: `1px solid ${isActive ? t.accent : t.surfaceBorder}`,
-                background: isActive ? `${t.accent}18` : t.inputBg,
-                color: isActive ? t.accent : t.textMuted,
-                transition: "all 0.12s",
-              }}
+              className={
+                `min-h-[36px] rounded-md px-3 py-1 text-xs transition-colors ` +
+                `${isActive ? "bg-accent/10 font-bold text-accent" : "bg-surface-raised/40 font-medium text-text-muted hover:bg-surface-overlay/45 hover:text-text"}`
+              }
               title={p.description}
             >
               {p.label}
-              <span style={{ fontSize: 10, marginLeft: 4, color: isActive ? t.accent : t.textDim, opacity: 0.8 }}>
+              <span className={`ml-1 text-[10px] ${isActive ? "text-accent/80" : "text-text-dim"}`}>
                 {p.description}
               </span>
             </button>
           );
         })}
         {hasValue && (
-          <button
-            onClick={clear}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 4,
-              padding: "5px 10px", borderRadius: 6, cursor: "pointer",
-              fontSize: 11, fontWeight: 600, border: "none",
-              background: "none", color: t.textDim,
-            }}
-            title={inheritedRange ? `Reset to inherited (${inheritedRange})` : "Clear quiet hours"}
-          >
-            <RotateCcw size={11} />
-            {inheritedRange ? "Reset" : "Clear"}
-          </button>
+          <ActionButton
+            label={inheritedRange ? "Reset" : "Clear"}
+            onPress={clear}
+            icon={<RotateCcw size={11} />}
+            variant="ghost"
+            size="small"
+          />
         )}
       </div>
 
       {/* 24h visual bar */}
       {barSegments && (
-        <div style={{ position: "relative", height: 28, borderRadius: 6, overflow: "hidden" }}>
-          <div style={{
-            position: "absolute", inset: 0, borderRadius: 6,
-            background: t.inputBg, border: `1px solid ${t.surfaceBorder}`,
-          }} />
+        <div className="relative h-7 overflow-hidden rounded-md bg-surface/80">
           {barSegments.map((seg, i) => (
-            <div key={i} style={{
-              position: "absolute", top: 0, bottom: 0,
-              left: `${seg.left}%`, width: `${seg.width}%`,
-              background: `${t.accent}25`, borderLeft: i === 0 && seg.left > 0 ? `2px solid ${t.accent}` : undefined,
-              borderRight: `2px solid ${t.accent}`,
-            }} />
+            <div
+              key={i}
+              className="absolute bottom-0 top-0 bg-accent/15"
+              style={{
+                left: `${seg.left}%`,
+                width: `${seg.width}%`,
+                borderLeft: i === 0 && seg.left > 0 ? "2px solid rgb(var(--color-accent))" : undefined,
+                borderRight: "2px solid rgb(var(--color-accent))",
+              }}
+            />
           ))}
           {[0, 3, 6, 9, 12, 15, 18, 21].map((h) => (
-            <span key={h} style={{
-              position: "absolute", top: 1, fontSize: 8, color: t.textDim,
-              left: `${(h / 24) * 100}%`, transform: "translateX(-50%)",
-              userSelect: "none", pointerEvents: "none",
-            }}>
+            <span
+              key={h}
+              className="pointer-events-none absolute top-px select-none text-[8px] text-text-dim"
+              style={{ left: `${(h / 24) * 100}%`, transform: "translateX(-50%)" }}
+            >
               {h === 0 ? "12a" : h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`}
             </span>
           ))}
-          <span style={{
-            position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
-            fontSize: 10, fontWeight: 600, color: t.textMuted, whiteSpace: "nowrap",
-            pointerEvents: "none",
-          }}>
+          <span className="pointer-events-none absolute bottom-0.5 left-1/2 -translate-x-1/2 whitespace-nowrap text-[10px] font-semibold text-text-muted">
             {start && end ? `Quiet ${fmtTime12(start)} \u2013 ${fmtTime12(end)}` :
              inheritedRange ? `Inherited: ${inheritedRange}` : ""}
           </span>
@@ -163,21 +150,19 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
       <Row>
         <Col>
           <FormRow label="Start" description="When quiet hours begin">
-            <TextInput
+            <TimePicker
               value={start}
-              onChangeText={onChangeStart}
-              placeholder={inheritedRange ? inheritedRange.split("-")[0] : "HH:MM"}
-              type="time"
+              onChange={onChangeStart}
+              placeholder={inheritedRange ? `Inherit ${inheritedRange.split("-")[0]}` : "Start time"}
             />
           </FormRow>
         </Col>
         <Col>
           <FormRow label="End" description="When quiet hours end">
-            <TextInput
+            <TimePicker
               value={end}
-              onChangeText={onChangeEnd}
-              placeholder={inheritedRange ? inheritedRange.split("-")[1] : "HH:MM"}
-              type="time"
+              onChange={onChangeEnd}
+              placeholder={inheritedRange ? `Inherit ${inheritedRange.split("-")[1]}` : "End time"}
             />
           </FormRow>
         </Col>
@@ -196,7 +181,7 @@ export function QuietHoursPicker({ start, end, timezone, onChangeStart, onChange
       </Row>
 
       {!hasValue && inheritedRange && (
-        <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic" }}>
+        <div className="text-[10px] italic text-text-dim">
           Using global default: {inheritedRange}{defaultTimezone ? ` (${defaultTimezone})` : ""}
         </div>
       )}

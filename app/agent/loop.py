@@ -80,10 +80,17 @@ async def run_agent_tool_loop(
     max_iterations: int | None = None,
     fallback_models: list[dict] | None = None,
     skip_tool_policy: bool = False,
+    context_profile_name: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
     """
+    from app.agent.context_profiles import get_context_profile
+    _in_loop_keep_iterations = settings.IN_LOOP_PRUNING_KEEP_ITERATIONS
+    if context_profile_name:
+        _profile_override = get_context_profile(context_profile_name).keep_iterations_override
+        if _profile_override is not None:
+            _in_loop_keep_iterations = _profile_override
     # Resolve the per-turn tool-call cap. Channel override wins; bot-level
     # override is the middle fallback; global settings default is the floor.
     # ``max_iterations`` passed in from the caller already reflects the
@@ -288,7 +295,7 @@ async def run_agent_tool_loop(
             if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
                 _in_loop_stats = prune_in_loop_tool_results(
                     messages,
-                    keep_iterations=settings.IN_LOOP_PRUNING_KEEP_ITERATIONS,
+                    keep_iterations=_in_loop_keep_iterations,
                     min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
                 )
                 if _in_loop_stats["pruned_count"] > 0:
@@ -304,6 +311,7 @@ async def run_agent_tool_loop(
                         "chars_saved": _in_loop_stats["chars_saved"],
                         "iterations_pruned": _in_loop_stats["iterations_pruned"],
                         "scope": "in_loop",
+                        "keep_iterations": _in_loop_keep_iterations,
                     }, compaction)
                     if correlation_id is not None:
                         safe_create_task(_record_trace_event(
@@ -318,7 +326,7 @@ async def run_agent_tool_loop(
                                 "chars_saved": _in_loop_stats["chars_saved"],
                                 "iterations_pruned": _in_loop_stats["iterations_pruned"],
                                 "iteration": iteration + 1,
-                                "keep_iterations": settings.IN_LOOP_PRUNING_KEEP_ITERATIONS,
+                                "keep_iterations": _in_loop_keep_iterations,
                             },
                         ))
 
@@ -1266,6 +1274,7 @@ async def run_stream(
             max_iterations=max_iterations_override,
             fallback_models=_fallback_models,
             skip_tool_policy=skip_tool_policy,
+            context_profile_name=_resolved_context_profile,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -1306,6 +1315,7 @@ async def run_stream(
             max_iterations=max_iterations_override,
             fallback_models=_fallback_models,
             skip_tool_policy=skip_tool_policy,
+            context_profile_name=_resolved_context_profile,
         ):
             yield event
 

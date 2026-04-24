@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 import secrets
+from pathlib import Path
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 
 from integrations.sdk import async_session
 
@@ -14,6 +16,12 @@ from .bridge import bridge
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/client.py", include_in_schema=False)
+def download_client_script():
+    path = Path(__file__).with_name("client.py")
+    return FileResponse(path, media_type="text/x-python", filename="spindrel-local-companion.py")
 
 
 def _target_token(target_id: str) -> str:

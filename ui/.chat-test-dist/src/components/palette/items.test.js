@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPaletteItems } from "./catalog.js";
+import { getCollapsiblePaletteBrowseSection, shouldIncludePaletteBrowseItem } from "./search.js";
 test("buildPaletteItems includes the major durable destinations and detail pages", () => {
     const items = buildPaletteItems({
         isAdmin: true,
@@ -86,4 +87,36 @@ test("buildPaletteItems includes the major durable destinations and detail pages
     assert.ok(hrefs.has("/admin/workspaces/workspace-1/files"));
     assert.ok(hrefs.has("/admin/logs/trace-1"));
     assert.ok(hrefs.has("/integration/integration-1/settings"));
+});
+test("buildPaletteItems keeps channel settings searchable but hidden from browse defaults", () => {
+    const items = buildPaletteItems({
+        isAdmin: false,
+        channels: [
+            { id: "channel-1", name: "quality-assurance" },
+        ],
+    });
+    const chat = items.find((item) => item.href === "/channels/channel-1");
+    const settings = items.find((item) => item.href === "/channels/channel-1/settings");
+    assert.equal(chat?.hideFromBrowse, undefined);
+    assert.equal(settings?.hideFromBrowse, true);
+    assert.equal(chat ? shouldIncludePaletteBrowseItem(chat) : null, true);
+    assert.equal(settings ? shouldIncludePaletteBrowseItem(settings) : null, false);
+});
+test("palette browse collapse classifier targets noisy detail families only", () => {
+    const items = buildPaletteItems({
+        isAdmin: true,
+        tools: [{ id: "tool-1", tool_name: "web.search" }],
+        toolPolicies: [{ id: "policy-1", tool_name: "web.search" }],
+        traces: [{ correlation_id: "trace-1", title: "Slack sync failed" }],
+    });
+    const navTools = items.find((item) => item.id === "nav-tools");
+    const toolDetail = items.find((item) => item.id === "tool-tool-1");
+    const navPolicies = items.find((item) => item.id === "nav-policies");
+    const policyDetail = items.find((item) => item.id === "policy-policy-1");
+    const traceDetail = items.find((item) => item.id === "trace-trace-1");
+    assert.equal(navTools ? getCollapsiblePaletteBrowseSection(navTools) : null, null);
+    assert.equal(toolDetail ? getCollapsiblePaletteBrowseSection(toolDetail) : null, "tools");
+    assert.equal(navPolicies ? getCollapsiblePaletteBrowseSection(navPolicies) : null, null);
+    assert.equal(policyDetail ? getCollapsiblePaletteBrowseSection(policyDetail) : null, "policies");
+    assert.equal(traceDetail ? getCollapsiblePaletteBrowseSection(traceDetail) : null, "traces");
 });

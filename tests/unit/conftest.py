@@ -2,8 +2,8 @@
 
 These fixtures replace the inline ``MagicMock()`` session + stacked ``patch()``
 pattern that recurred in the five headline offenders audited on 2026-04-17.
-See ``vault/Projects/agent-server/Test Audit - Deep Review.md`` "Cross-file
-Patterns" and ``~/.claude/skills/testing-python/SKILL.md`` section G.
+The public fixture pattern lives here instead of depending on private audit
+notes or local-only agent skills.
 
 Fixtures here are additive to ``tests/conftest.py`` (which provides the real
 SQLite ``engine`` + ``db_session`` fixtures); unit tests that don't touch the

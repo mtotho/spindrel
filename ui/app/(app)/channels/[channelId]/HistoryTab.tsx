@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { useIsMobile } from "@/src/hooks/useIsMobile";
 import {
   Section, FormRow, TextInput, Toggle, Row, Col,
@@ -34,7 +33,6 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
   memoryScheme?: string | null;
   botHistoryMode?: string | null;
 }) {
-  const t = useThemeTokens();
   const isMobile = useIsMobile();
   const [guideOpen, setGuideOpen] = useState(false);
   const effectiveMode = form.history_mode || botHistoryMode || "file";
@@ -53,7 +51,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           description="Interval is the normal archival cadence, Keep Turns is the recent verbatim floor, and token guards can archive earlier if live history gets too large for the prompt budget."
           noDivider
         >
-          <div style={{ fontSize: 12, lineHeight: "1.6", color: t.textDim }}>
+          <div className="text-xs leading-relaxed text-text-dim">
             {effectiveMode === "structured"
               ? "Structured mode is a legacy compatibility path that archives old turns into searchable sections and tries to retrieve relevant history automatically."
               : "File mode archives old turns into titled sections the bot can browse on demand with read_conversation_history."}
@@ -88,8 +86,9 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             selectedProviderId={form.compaction_model_provider_id ?? undefined}
             onChange={(v, pid) => { patch("compaction_model", v || undefined); patch("compaction_model_provider_id", pid ?? undefined); }}
             placeholder="inherit (bot model)"
+            className="md:max-w-[560px]"
           />
-          <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+          <div className="-mt-1 mb-1 text-[10px] text-text-dim">
             Used for section generation, executive summaries, and backfill. Fast, inexpensive models usually work well because this is mostly summarization and labeling.
           </div>
 
@@ -99,7 +98,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
             onChange={(v) => patch("memory_flush_enabled", v || undefined)}
             label="Memory flush before compaction"
           />
-          <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+          <div className="-mt-1 mb-1 text-[10px] text-text-dim">
             {memoryScheme === "workspace-files"
               ? "Before archiving, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via the file tool."
               : "Before archiving, the bot gets one pass to save important context using its configured memory tools."
@@ -113,14 +112,15 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 value={form.memory_flush_model ?? ""}
                 onChange={(v) => patch("memory_flush_model", v || undefined)}
                 placeholder="inherit (bot model)"
+                className="md:max-w-[560px]"
               />
-              <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+              <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                 Model used for the memory flush pass. This benefits from a more capable model because it has to decide what is worth preserving before archival.
               </div>
 
               {memoryScheme === "workspace-files" ? (
                 <InfoBanner variant="info">
-                  <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts below are ignored.
+                  <strong className="text-text">Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts below are ignored.
                 </InfoBanner>
               ) : (
                 <>
@@ -153,7 +153,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
                 label="Trigger heartbeat before compaction (legacy)"
               />
-              <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+              <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                 Legacy option — fires channel heartbeats before compaction. Use "Memory flush" above instead for a dedicated, configurable flush pass.
               </div>
             </>
@@ -165,11 +165,14 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
         </Section>
 
         <Section title="Backfill" description="Retroactively create archived sections from existing message history.">
-          <InfoBanner variant="warning" icon={<AlertTriangle size={12} />}>
-            Backfill makes one LLM call per chunk of messages plus one for the executive summary. For example,
-            500 messages at chunk size 50 = ~11 LLM calls using your compaction model. Set your interval and keep
-            turns first. Resume only processes uncovered messages; re-chunk deletes everything and starts fresh.
-          </InfoBanner>
+          <div className="flex max-w-[95ch] items-start gap-2 text-[12px] leading-relaxed text-text-dim">
+            <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning-muted/80" />
+            <span>
+              Backfill makes one LLM call per chunk plus one executive-summary call. At 500 messages with chunk size 50,
+              expect about 11 calls. Set interval and keep-turns first; resume only covers uncovered messages, while
+              re-chunk deletes existing sections and starts over.
+            </span>
+          </div>
           <BackfillButton channelId={channelId} historyMode={effectiveMode} />
         </Section>
 
@@ -219,8 +222,9 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 selectedProviderId={form.compaction_model_provider_id ?? undefined}
                 onChange={(v, pid) => { patch("compaction_model", v || undefined); patch("compaction_model_provider_id", pid ?? undefined); }}
                 placeholder="inherit (bot model)"
+                className="md:max-w-[560px]"
               />
-              <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+              <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                 Used for summarization. Fast, inexpensive models usually work well because the task is mostly condensation rather than open-ended reasoning.
               </div>
 
@@ -230,7 +234,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                 onChange={(v) => patch("memory_flush_enabled", v || undefined)}
                 label="Memory flush before compaction"
               />
-              <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+              <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                 {memoryScheme === "workspace-files"
                   ? "Before summarizing, the bot gets one pass to save important context — updating MEMORY.md, daily logs, and reference files via exec_command."
                   : "Before summarizing, the bot gets one pass to save important context using its configured memory tools."
@@ -244,11 +248,12 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                     value={form.memory_flush_model ?? ""}
                     onChange={(v) => patch("memory_flush_model", v || undefined)}
                     placeholder="inherit (bot model)"
+                    className="md:max-w-[560px]"
                   />
 
                   {memoryScheme === "workspace-files" ? (
                     <InfoBanner variant="info">
-                      <strong style={{ color: t.text }}>Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts are ignored.
+                      <strong className="text-text">Workspace-files mode:</strong> Uses a built-in prompt that tells the bot to write to MEMORY.md, daily logs, and reference files. Custom prompts are ignored.
                     </InfoBanner>
                   ) : (
                     <>
@@ -281,7 +286,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
                     onChange={(v) => patch("trigger_heartbeat_before_compaction", v || undefined)}
                     label="Trigger heartbeat before compaction (legacy)"
                   />
-                  <div style={{ fontSize: 10, color: t.textDim, marginTop: -4, marginBottom: 4 }}>
+                  <div className="-mt-1 mb-1 text-[10px] text-text-dim">
                     Legacy option — fires channel heartbeats before compaction. Use "Memory flush" above instead.
                   </div>
                 </>

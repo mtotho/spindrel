@@ -269,3 +269,21 @@ class TestCategoryInSettings:
         )
         assert resp.status_code == 422
         assert "header_backdrop_mode" in resp.text
+
+    async def test_pinned_widget_context_toggle_round_trips_via_settings(self, client):
+        _, data = await _create_channel(client, name="pinned-widget-context")
+
+        resp = await client.put(
+            f"/api/v1/admin/channels/{data['id']}/settings",
+            json={"pinned_widget_context_enabled": False},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["pinned_widget_context_enabled"] is False
+
+        public_cfg = await client.get(
+            f"/api/v1/channels/{data['id']}/config",
+            headers=AUTH_HEADERS,
+        )
+        assert public_cfg.status_code == 200
+        assert public_cfg.json()["pinned_widget_context_enabled"] is False

@@ -140,6 +140,35 @@ def _is_heartbeat_in_quiet_hours(hb: ChannelHeartbeat) -> bool:
     return is_quiet_hours(datetime.now(tz), quiet)
 
 
+async def reset_stale_running_runs(db) -> int:
+    """Recover HeartbeatRun rows stuck at ``status='running'`` from a crashed process.
+
+    Mirrors :func:`app.services.outbox.reset_stale_in_flight`. The heartbeat
+    worker marks a row ``status='running'`` before invoking the channel's
+    turn pipeline and flips it to ``'done'`` / ``'error'`` in a follow-up
+    transaction. If the process crashes between those two writes, the row
+    is stranded forever — the scheduler's next fire will still write a
+    fresh run, but the old row wedges the ``/admin/channels/*/heartbeat-runs``
+    history view and muddies repetition-detection heuristics that look at
+    recent runs.
+
+    Called once at startup BEFORE the heartbeat worker launches; flips every
+    stranded row to ``status='cancelled'`` with ``completed_at=now()`` so the
+    row becomes a terminal history entry rather than a live-looking orphan.
+    Returns the number of rows recovered.
+    """
+    from sqlalchemy import update
+
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(HeartbeatRun)
+        .where(HeartbeatRun.status == "running")
+        .values(status="cancelled", completed_at=now, error="process crashed before completion")
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
 async def fetch_due_heartbeats() -> list[ChannelHeartbeat]:
     """Return heartbeats that are enabled and due (next_run_at <= now).
 

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.models import Session
+from app.domain.errors import DomainError
 from app.services import session_plan_mode as spm
 
 
@@ -219,10 +220,10 @@ def test_cannot_update_step_status_before_plan_approval(monkeypatch, tmp_path):
         acceptance_criteria=["The change is verified."],
     )
 
-    with pytest.raises(spm.HTTPException) as excinfo:
+    with pytest.raises(DomainError) as excinfo:
         spm.update_plan_step_status(session, step_id="clarify-scope", status=spm.STEP_STATUS_DONE)
 
-    assert excinfo.value.status_code == 409
+    assert excinfo.value.http_status == 409
     assert "approved" in str(excinfo.value.detail).lower()
 
 
@@ -235,10 +236,10 @@ def test_approval_rejects_thin_plan_and_state_reports_validation(monkeypatch, tm
     assert state["validation"]["ok"] is False
     assert any(issue["code"] == "missing_acceptance_criteria" for issue in state["validation"]["issues"])
 
-    with pytest.raises(spm.HTTPException) as excinfo:
+    with pytest.raises(DomainError) as excinfo:
         spm.approve_session_plan(session)
 
-    assert excinfo.value.status_code == 422
+    assert excinfo.value.http_status == 422
     assert "acceptance criterion" in str(excinfo.value.detail).lower()
 
 

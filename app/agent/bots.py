@@ -4,13 +4,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
-from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import settings
 from app.db.engine import async_session
 from app.db.models import Bot as BotRow, SharedWorkspaceBot
+from app.domain.errors import NotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -762,7 +762,7 @@ def list_bots() -> list[BotConfig]:
 def get_bot(bot_id: str) -> BotConfig:
     bot = _registry.get(bot_id)
     if bot is None:
-        raise HTTPException(status_code=404, detail=f"Unknown bot: {bot_id}")
+        raise NotFoundError(f"Unknown bot: {bot_id}")
     return bot
 
 

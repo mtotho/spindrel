@@ -195,7 +195,7 @@ They are the right lane when the widget should behave like a small app rather th
 
 ### Typical ways HTML widgets appear
 
-- a library widget bundle discovered from core, bot, workspace, or channel scope
+- a library widget bundle discovered from core, bot, workspace, channel, or integration scope (files under `integrations/<id>/widgets/*.html` are auto-scanned and published to the catalog with `source="integration"`)
 - a runtime-emitted widget from `emit_html_widget`
 
 Those are different instantiation paths over the same definition kind.
@@ -231,6 +231,21 @@ They are used for core widgets such as Notes and Todo where the app wants:
 
 Native widgets are not a public authoring lane.
 
+### Choosing the lane for a new surface
+
+When building a new durable product primitive — something users will rely on, something with non-trivial UX, something that needs first-party trust — the default is a **native widget**, not an HTML widget. That is true even when the thing is spawned by a bot at runtime.
+
+Pick **native** when any of these apply:
+
+- the surface is a core product feature (a sibling of Notes, Todo, Context Tracker)
+- it needs rich React UX that would be awkward in sandboxed HTML
+- it needs first-party trust: direct bot identity, full tool scopes, channel message emission without round-tripping sandbox auth
+- it benefits from a typed contract (`NativeWidgetSpec.default_state`, `actions`, `args_schema`, `layout_hints`) and from the shared chrome in `PinnedToolWidget` + dashboard rail
+
+Pick **HTML** when the surface is a bot-authored or user-authored artifact that should stay inside the sandboxed `window.spindrel.api` surface — the HTML lane exists for that, not for core features.
+
+Do not confine a core feature to the HTML lane just because a bot spawns it. The spawning verb and the rendering lane are independent concerns.
+
 ### Native widget storage model
 
 For catalog-backed native widgets, the authoritative state lives in
@@ -262,6 +277,8 @@ does their real data live?"
 | `core/channel_files_native` | `channel` | native widget instance + shared channel file/navigation state | Channel file browser surface. It intentionally reuses the main channel file/navigation model instead of inventing a separate widget-local file database. |
 | `core/pinned_files_native` | `channel` | `widget_instances.state` | Stores `pinned_files[]`, `active_path`, and timestamps in the channel-scoped widget instance. This hidden native widget is the source of truth for pinned channel files. |
 | `core/upcoming_activity_native` | `channel`, `dashboard` | native widget instance + host-rendered payload | First-party schedule/activity view with little durable user-edited state; the meaningful payload is derived by the host. |
+| `core/machine_control_native` | `channel` | native widget instance + session-scoped host state | Optional native machine-control surface for lease status, ready targets, and quick `Use` / `Revoke` / `Probe` controls. It is convenience UI only and deliberately does not export prompt context. |
+| `core/standing_order_native` | `dashboard` (synthetic per-order scope) | `widget_instances.state` | Bot-spawned durable work item. Ticks on a schedule via the native cron dispatcher, without consuming an LLM turn per tick. Stores goal, status, strategy config, iteration count, completion criteria, and a log of recent tick outcomes. One instance per Standing Order (unique synthetic `scope_ref`), not one-per-channel. |
 | `core/plan_questions` | transcript / session flow | tool envelope + transcript / `planning_state` | Not catalog-backed. Emitted by `ask_plan_questions`; answers are persisted as a normal user message and as structured planning state, not in `widget_instances`. |
 
 ### Native widget invariants that matter in practice
@@ -275,6 +292,65 @@ does their real data live?"
   exception
 - renderer responsiveness is a UI concern; storage authority still comes from
   the widget instance or transcript path above
+
+### Standing Orders — the first scheduled native widget
+
+`core/standing_order_native` is the first native widget that ticks on its own.
+It's a bot-spawned durable work item: a user-visible, cancellable tile that
+keeps running after the conversation ends. Sibling to Notes and Todo in
+registration, but different in lifecycle — it's the minimum viable seam for
+"bot-planted async work."
+
+**What makes it new:**
+
+- The `NativeWidgetSpec` carries an optional `cron: NativeWidgetCronSpec` with
+  a handler function. No other native widget has this today.
+- A parallel scheduler path (`standing_orders.spawn_due_native_widget_ticks`)
+  runs alongside the existing HTML `@on_cron` dispatcher, queries native
+  widget instances with `status == "running"` and a due `next_tick_at`, and
+  calls the spec's cron handler per tick.
+- No LLM call per tick by default — strategies are plain async Python
+  (`poll_url`, `timer`).
+- Multiple Standing Orders can coexist on one channel. Each gets a unique
+  synthetic `scope_ref` (`standing_order/<uuid>`), bypassing the singleton
+  `(widget_kind, widget_ref, scope_kind, scope_ref)` constraint that
+  Notes/Todo rely on. The `create_pin` path supports this via the
+  `override_widget_instance` parameter.
+
+**When to pick a Standing Order over a sub-session or automation pipeline:**
+
+| If you want... | Use |
+|---|---|
+| a conversational multi-turn worker that reasons each step | sub-session |
+| a pre-authored, admin-configured, invisible scheduled pipeline | automation pipeline |
+| a bot-spawned, user-visible, cancellable tile that waits and pings back | **Standing Order** |
+
+**Completion must be explicit**, not LLM-judged. Four supported kinds:
+
+- `after_n_iterations` — stop after N ticks
+- `state_field_equals` — stop when a field in state matches a value
+- `deadline_passed` — stop when an ISO timestamp has passed
+- *(reserved)* `event_seen` — not shipped in v1
+
+If a goal can't be expressed as one of these, a Standing Order is the wrong
+primitive.
+
+**Caps (server-enforced):**
+
+- 5 active per bot
+- >= 10s interval
+- 1000 iterations hard cap
+- 2s wall time per tick
+
+**Consent:** a bot can only spawn a Standing Order inside a channel it's a
+member of, during an active turn. The tile is owned by the bot scope,
+visible to all channel members, cancellable by the channel owner. When the
+order completes, it posts an ordinary chat message as the owning bot via
+the normal `Message` + `publish_message` path — no backchannel.
+
+See `app/services/standing_orders.py` for the cron handler and strategy
+handlers, `app/tools/local/standing_order_tools.py` for the `spawn_standing_order`
+tool, and `skills/standing_orders.md` for the bot-facing skill doc.
 
 ## Presets
 
@@ -558,12 +634,23 @@ Recommended fix:
 
 ## How to choose the right lane
 
-Use this order:
+Match the row that describes your widget, then go to that lane's section for mechanics.
 
-1. If one tool owns the truth and the widget should render that tool's output, use a tool widget.
-2. If users need a guided binding/setup experience for that tool widget, add a preset.
-3. If the widget should be a standalone mini app with its own runtime, use an HTML widget.
-4. If it should be a first-party host feature, use a native widget.
+| Your widget is… | Definition kind + authoring path | Where it lives |
+|---|---|---|
+| The rendered result of a tool call — widget shape is a function of tool output | `tool_widget` declared under `tool_widgets:` in `integration.yaml` | `tool_widgets.<name>.html_template.path` (or `template:` / `view_key:`). Rendered per tool call; optionally refreshed via `state_poll`. |
+| A guided binding of a tool widget to a concrete entity / device / mailbox / feed | `tool_widget` reached through a preset | Preset `binding_schema` collects setup inputs; the pin that lands is still a `tool_widget` |
+| A standalone operational view (status panel, live monitor, config dashboard) owned by an integration, independent of any one tool | `html_widget` file dropped under `integrations/<id>/widgets/<name>.html` | Auto-discovered by `html_widget_scanner.scan_integration()`; published to the library with `source="integration"`; pinnable on channel dashboards |
+| A reusable HTML bundle authored by a bot, workspace, or channel | `html_widget` library entry | `bot:`, `workspace:`, or `channel:` scope in the library |
+| An ad-hoc one-shot HTML surface a bot wants to emit in chat | `html_widget` runtime emit | `emit_html_widget(...)` inside a tool — lives in the message, not the catalog |
+| A first-party host feature (Notes, Todo, etc.) | `native_widget` | Core only — not a public authoring lane |
+
+A few rules of thumb that the table encodes:
+
+- **Tool output drives the shape?** `tool_widget`. The widget re-renders every call; state lives in the tool result.
+- **Pin-first, poll-its-own-data, lives next to the integration that owns it?** Standalone HTML widget in `integrations/<id>/widgets/`. It calls `window.spindrel.api(...)` and owns its own refresh cadence (`state_poll` or plain `setInterval`).
+- **One-off bespoke reply?** `emit_html_widget` from the tool.
+- **Core feature we want to ship with the host?** Native widget — not a public lane.
 
 ## Invariants we should keep stable
 

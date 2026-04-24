@@ -27,6 +27,19 @@ export interface PaletteSearchResult {
   isEmpty: boolean;
 }
 
+export function shouldIncludePaletteBrowseItem(item: PaletteItem): boolean {
+  return !item.hideFromBrowse;
+}
+
+export type CollapsiblePaletteBrowseSection = "tools" | "policies" | "traces";
+
+export function getCollapsiblePaletteBrowseSection(item: PaletteItem): CollapsiblePaletteBrowseSection | null {
+  if (item.id.startsWith("tool-")) return "tools";
+  if (item.id.startsWith("policy-")) return "policies";
+  if (item.id.startsWith("trace-")) return "traces";
+  return null;
+}
+
 /**
  * Score, group, and order palette items for a given query.
  *
@@ -105,6 +118,7 @@ export function usePaletteSearch(
       }
       const rest = allItems
         .filter((it) => {
+          if (!shouldIncludePaletteBrowseItem(it)) return false;
           if (isSubPage(it)) return false;
           const href = it.href;
           return typeof href !== "string" || !recentHrefs.has(href);

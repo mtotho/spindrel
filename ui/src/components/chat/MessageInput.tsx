@@ -7,9 +7,11 @@ import { useThemeTokens } from "../../theme/tokens";
 import { useDraftsStore, type DraftFile } from "../../stores/drafts";
 import { TiptapChatInput, type TiptapChatInputHandle } from "./TiptapChatInput";
 import { resolveSlashCommand } from "./slashCommands";
+import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import { createPortal } from "react-dom";
 import { LlmModelDropdownContent } from "../shared/LlmModelDropdown";
 import { ComposerAddMenu } from "./ComposerAddMenu";
+import { getComposerPlanControlState, type ComposerPlanTone } from "./planControl";
 import type { SlashCommandId, SlashCommandSurface } from "../../types/api";
 
 const TERMINAL_FONT_STACK = "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, Consolas, monospace";
@@ -86,6 +88,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const isMobile = columns === "single";
   const t = useThemeTokens();
   const recorder = useAudioRecorder();
+  const slashCatalog = useSlashCommandList();
 
   // Persisted draft state (per-channel)
   const draft = useDraftsStore((s) => channelId ? s.getDraft(channelId) : null);
@@ -134,7 +137,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSend = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
-    const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
+    const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
       onSlashCommand?.(slashCommand.id, slashCommand.args);
       if (channelId) clearDraft(channelId);
@@ -154,6 +157,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     pendingFiles,
     disabled,
     slashSurface,
+    slashCatalog,
     availableSlashCommands,
     onSlashCommand,
     onSend,
@@ -272,19 +276,15 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
   const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
-  const activePlanMode = planMode && planMode !== "chat" ? planMode : null;
-  const planLabel = activePlanMode
-    ? activePlanMode === "planning"
-      ? "Planning"
-      : activePlanMode === "executing"
-        ? "Executing"
-        : activePlanMode === "blocked"
-          ? "Blocked"
-          : "Done"
-    : "Plan";
+  const planControlState = getComposerPlanControlState({
+    planMode,
+    hasPlan,
+    canApprovePlan: !!onApprovePlan && planMode === "planning",
+  });
+  const planColors = planToneColors(t, planControlState.tone);
 
   useEffect(() => {
-    if (!showPlanMenu) return;
+    if (!showPlanMenu || !planControlState.showMenu) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       const clickedTrigger = !!(planControlRef.current && target && planControlRef.current.contains(target));
@@ -295,7 +295,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [showPlanMenu]);
+  }, [planControlState.showMenu, showPlanMenu]);
 
   const planControl = canShowPlanControl ? (
     <div ref={planControlRef} style={{ position: "relative", display: "flex", alignItems: "center", flexShrink: 0 }}>
@@ -308,10 +308,15 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setShowPlanMenu((open) => !open);
+          if (planControlState.showMenu) {
+            setShowPlanMenu((open) => !open);
+          } else {
+            setShowPlanMenu(false);
+            onTogglePlanMode?.();
+          }
         }}
         disabled={disabled || planBusy}
-        title={activePlanMode ? `Plan mode: ${planLabel}` : "Plan mode"}
+        title={planControlState.title}
         style={{
           display: "flex",
           flexDirection: "row",
@@ -320,10 +325,10 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           gap: 4,
           minHeight: isTerminalMode ? 22 : 24,
           padding: isTerminalMode ? "0 0 0 2px" : "4px 8px",
-          border: isTerminalMode ? "none" : `1px solid ${activePlanMode ? t.warningBorder : t.surfaceBorder}`,
+          border: isTerminalMode ? "none" : `1px solid ${planColors.border}`,
           borderRadius: isTerminalMode ? 0 : 8,
-          background: isTerminalMode ? "transparent" : activePlanMode ? t.warningSubtle : `${t.overlayLight}33`,
-          color: activePlanMode ? t.warningMuted : t.textMuted,
+          background: isTerminalMode ? "transparent" : planColors.background,
+          color: planColors.text,
           cursor: disabled || planBusy ? "default" : "pointer",
           fontSize: 11,
           lineHeight: 1.2,
@@ -333,11 +338,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           flexShrink: 0,
         }}
       >
-        <ListTodo size={isTerminalMode ? 13 : 14} color={activePlanMode ? t.warning : t.textDim} />
-        <span>{planLabel}</span>
-        <ChevronDown size={12} color={activePlanMode ? t.warning : t.textDim} />
+        <ListTodo size={isTerminalMode ? 13 : 14} color={planColors.icon} />
+        <span>{planControlState.label}</span>
+        {planControlState.showMenu && <ChevronDown size={12} color={planColors.icon} />}
       </button>
-      {showPlanMenu && (() => {
+      {showPlanMenu && planControlState.showMenu && (() => {
         const rect = planControlRef.current?.getBoundingClientRect();
         const dropdownWidth = 168;
         const dropdownLeft = isTerminalMode
@@ -379,9 +384,9 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 }}
                 style={menuItemStyle(t, isTerminalMode)}
               >
-                {activePlanMode ? "Exit plan" : hasPlan ? "Resume plan" : "Start plan"}
+                {planControlState.primaryActionLabel}
               </button>
-              {planMode === "planning" && onApprovePlan && (
+              {planControlState.canApprove && onApprovePlan && (
                 <button
                   type="button"
                   onMouseDown={(e) => {
@@ -411,7 +416,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const handleSendNowLocal = useCallback(() => {
     const message = (editorRef.current?.getMarkdown() ?? text).trim();
     if ((!message && pendingFiles.length === 0) || disabled) return;
-    const slashCommand = resolveSlashCommand(message, slashSurface, availableSlashCommands);
+    const slashCommand = resolveSlashCommand(message, slashSurface, slashCatalog, availableSlashCommands);
     if (slashCommand && pendingFiles.length === 0) {
       onSlashCommand?.(slashCommand.id, slashCommand.args);
       if (channelId) clearDraft(channelId);
@@ -431,6 +436,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     pendingFiles,
     disabled,
     slashSurface,
+    slashCatalog,
     availableSlashCommands,
     onSlashCommand,
     onSendNow,
@@ -438,10 +444,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     clearDraft,
   ]);
 
-  const sendBtnBg = showStop ? "#ef4444"
-      : recorder.isRecording ? "#ef4444"
-      : canSend ? t.accent
-      : "transparent";
+  const sendIconColor = showStop || recorder.isRecording
+      ? t.danger
+      : canSend
+        ? t.accent
+        : t.textDim;
     const sendBtnOpacity = canSend || showStop || showMic || recorder.isRecording ? 1 : 0.4;
 
     return (
@@ -594,12 +601,12 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
           style={{
             padding: isTerminalMode
               ? "0 0 3px"
-              : (compactLayout ? "0 10px 10px" : isMobile ? "0 12px 12px" : "0 16px 14px"),
+              : (compactLayout ? "0 10px 10px" : isMobile ? "0 4px 8px" : "0 16px 14px"),
           }}
         >
           {/* One card. Editor on top (flat — no inner border/bg), actions on bottom.
-              Constant 20px radius (no pill morph) + outer drop-shadow elevation
-              so the composer reads as a lifted surface above the chat. */}
+              The mobile radius is slightly tighter so the composer reads less like
+              a floating CTA while preserving the desktop overlay treatment. */}
           <div
             ref={editorWrapperRef}
             onFocusCapture={() => setIsFocused(true)}
@@ -618,7 +625,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               background: isTerminalMode ? t.overlayLight : `${t.surfaceRaised}d9`,
               backdropFilter: isTerminalMode ? undefined : "blur(14px)",
               WebkitBackdropFilter: isTerminalMode ? undefined : "blur(14px)",
-              borderRadius: isTerminalMode ? 0 : compactLayout ? 14 : 20,
+              borderRadius: isTerminalMode ? 0 : compactLayout ? 14 : isMobile ? 16 : 20,
               border: isTerminalMode ? "none" : undefined,
               boxShadow: isTerminalMode
                 ? "none"
@@ -697,7 +704,7 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                 alignItems: "center",
                 gap: 6,
                 minWidth: 0,
-                padding: isTerminalMode ? "2px 8px 4px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 4px 3px" : "4px 8px 6px",
+                padding: isTerminalMode ? "2px 8px 4px" : compactLayout ? "3px 6px 4px" : isMobile ? "2px 6px 6px" : "4px 8px 6px",
                 cursor: "text",
                 borderTop: isTerminalMode ? undefined : undefined,
                 backgroundColor: isTerminalMode ? "transparent" : undefined,
@@ -880,26 +887,23 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                   width: 36,
                   height: 36,
                   flexShrink: 0,
-                  borderRadius: isTerminalMode ? 0 : 10,
+                  borderRadius: isTerminalMode ? 0 : 8,
                   border: isTerminalMode ? "none" : "none",
                   padding: 0,
                   cursor: (!canSend && !(showStop && stopArmed) && !showMic && !recorder.isRecording) ? "default" : "pointer",
-                  background: isTerminalMode ? undefined : (canSend && !showStop && !recorder.isRecording) ? `linear-gradient(135deg, ${t.accent}, ${t.purple})` : undefined,
-                  backgroundColor: isTerminalMode
-                    ? "transparent"
-                    : (canSend && !showStop && !recorder.isRecording) ? undefined : sendBtnBg,
+                  backgroundColor: "transparent",
                   opacity: (showStop && !stopArmed) ? 0.4 : sendBtnOpacity,
                   transition: "background-color 0.15s, opacity 0.15s, border-color 0.15s",
                 }}
               >
                 {showStop ? (
-                  <Square size={14} color={isTerminalMode ? t.accent : "white"} fill={isTerminalMode ? t.accent : "white"} />
+                  <Square size={14} color={sendIconColor} fill={sendIconColor} />
                 ) : recorder.isRecording ? (
-                  <Send size={isMobile ? 14 : 16} color={isTerminalMode ? t.accent : "white"} />
+                  <Send size={isMobile ? 14 : 16} color={sendIconColor} />
                 ) : showMic ? (
                   <Mic size={isMobile ? 14 : 16} color={t.textDim} />
                 ) : (
-                  <Send size={isMobile ? 14 : 16} color={canSend ? (isTerminalMode ? t.accent : "white") : t.textDim} />
+                  <Send size={isMobile ? 14 : 16} color={sendIconColor} />
                 )}
               </button>
             </div>
@@ -1028,4 +1032,38 @@ function menuItemStyle(t: ReturnType<typeof useThemeTokens>, isTerminalMode = fa
     textAlign: "left" as const,
     cursor: "pointer",
   };
+}
+
+function planToneColors(t: ReturnType<typeof useThemeTokens>, tone: ComposerPlanTone) {
+  switch (tone) {
+    case "warning":
+      return {
+        border: t.warningBorder,
+        background: t.warningSubtle,
+        text: t.warningMuted,
+        icon: t.warning,
+      };
+    case "danger":
+      return {
+        border: t.dangerBorder,
+        background: t.dangerSubtle,
+        text: t.dangerMuted,
+        icon: t.danger,
+      };
+    case "success":
+      return {
+        border: t.successBorder,
+        background: t.successSubtle,
+        text: t.success,
+        icon: t.success,
+      };
+    case "neutral":
+    default:
+      return {
+        border: "transparent",
+        background: "transparent",
+        text: t.textMuted,
+        icon: t.textDim,
+      };
+  }
 }

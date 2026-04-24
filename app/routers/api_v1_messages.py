@@ -25,6 +25,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, Message, Session
+from app.domain.errors import DomainError
 from app.dependencies import (
     assert_admin_or_channel_owner,
     get_db,
@@ -149,7 +150,7 @@ async def create_thread_session(
     from app.agent.bots import get_bot
     try:
         get_bot(bot_id)
-    except HTTPException:
+    except (HTTPException, DomainError):
         raise HTTPException(status_code=400, detail=f"Unknown bot: {bot_id}")
 
     sub = await spawn_thread_session(

@@ -28,6 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.domain.errors import DomainError
 from app.dependencies import verify_auth_or_user, get_db
 from app.tools.mcp import call_mcp_tool, get_mcp_server_for_tool, is_mcp_tool
 from app.tools.registry import call_local_tool, is_local_tool
@@ -61,10 +62,10 @@ def _load_pin_manifest_safely(pin):
     the same fallback as a bundle that never had a manifest.
     """
     try:
-        from app.services.widget_py import _resolve_bundle_dir
+        from app.services.widget_py import resolve_bundle_dir
         from app.services.widget_manifest import parse_manifest
 
-        bundle_dir = _resolve_bundle_dir(pin)
+        bundle_dir = resolve_bundle_dir(pin)
         yaml_path = bundle_dir / "widget.yaml"
         if not yaml_path.is_file():
             return None
@@ -462,7 +463,7 @@ async def _dispatch_widget_handler(
 
     try:
         pin = await get_pin(db, req.dashboard_pin_id)
-    except HTTPException as exc:
+    except (HTTPException, DomainError) as exc:
         return WidgetActionResponse(ok=False, error=str(exc.detail))
     except Exception as exc:
         logger.warning("widget_handler pin lookup failed: %s", exc, exc_info=True)
@@ -514,7 +515,7 @@ async def _dispatch_native_widget(
 
         try:
             pin = await get_pin(db, req.dashboard_pin_id)
-        except HTTPException as exc:
+        except (HTTPException, DomainError) as exc:
             return WidgetActionResponse(ok=False, error=str(exc.detail))
         instance = await get_native_widget_instance_for_pin(db, pin)
     else:
@@ -535,7 +536,7 @@ async def _dispatch_native_widget(
         )
         await db.commit()
         await db.refresh(instance)
-    except HTTPException as exc:
+    except (HTTPException, DomainError) as exc:
         await db.rollback()
         return WidgetActionResponse(ok=False, error=str(exc.detail))
     except Exception as exc:
@@ -841,7 +842,7 @@ async def _dispatch_widget_config(req: WidgetActionRequest) -> WidgetActionRespo
             patched_pin = await apply_dashboard_pin_config_patch(
                 db, req.dashboard_pin_id, req.config, merge=True,
             )
-    except HTTPException as exc:
+    except (HTTPException, DomainError) as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc.detail}")
     except Exception as exc:
         return WidgetActionResponse(ok=False, error=f"Pin patch failed: {exc}")
