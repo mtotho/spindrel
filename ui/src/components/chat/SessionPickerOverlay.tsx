@@ -9,6 +9,8 @@ import {
   type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
 import {
+  useChannelSessionCatalog,
+  useChannelSessionSearch,
   usePromoteScratchSession,
   useRenameSession,
   useResetScratchSession,
@@ -38,6 +40,7 @@ export function SessionPickerOverlay({
 }: SessionPickerOverlayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { data: history, isLoading, error } = useScratchHistory(open ? channelId : null);
+  const { data: channelSessions, isLoading: catalogLoading, error: catalogError } = useChannelSessionCatalog(open ? channelId : null);
   const resetScratch = useResetScratchSession();
   const promoteScratch = usePromoteScratchSession();
   const renameSession = useRenameSession();
@@ -45,6 +48,22 @@ export function SessionPickerOverlay({
   const [activeIndex, setActiveIndex] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  useEffect(() => {
+    if (!open) {
+      setDebouncedQuery("");
+      return;
+    }
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [open, query]);
+
+  const {
+    data: deepMatches,
+    isFetching: deepSearchLoading,
+    error: deepSearchError,
+  } = useChannelSessionSearch(open ? channelId : null, debouncedQuery);
 
   useEffect(() => {
     if (!open) return;
@@ -62,8 +81,15 @@ export function SessionPickerOverlay({
   }, [open]);
 
   const entries = useMemo(
-    () => buildChannelSessionPickerEntries({ channelLabel, selectedSessionId, history, query }),
-    [channelLabel, history, query, selectedSessionId],
+    () => buildChannelSessionPickerEntries({
+      channelLabel,
+      selectedSessionId,
+      history,
+      channelSessions,
+      deepMatches,
+      query,
+    }),
+    [channelLabel, channelSessions, deepMatches, history, query, selectedSessionId],
   );
 
   useEffect(() => {
@@ -176,16 +202,20 @@ export function SessionPickerOverlay({
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
-          {isLoading && <div className="px-4 py-8 text-sm text-text-dim">Loading sessions...</div>}
-          {error && (
+          {(isLoading || catalogLoading) && <div className="px-4 py-8 text-sm text-text-dim">Loading sessions...</div>}
+          {(error || catalogError) && (
             <div className="px-4 py-8 text-sm text-danger">
-              {error instanceof Error ? error.message : "Failed to load sessions."}
+              {error instanceof Error
+                ? error.message
+                : catalogError instanceof Error
+                  ? catalogError.message
+                  : "Failed to load sessions."}
             </div>
           )}
-          {!isLoading && !error && entries.length === 0 && (
+          {!isLoading && !catalogLoading && !deepSearchLoading && !error && !catalogError && entries.length === 0 && (
             <div className="px-4 py-8 text-sm text-text-dim">No sessions matched that search.</div>
           )}
-          {!isLoading && !error && entries.map((entry, index) => {
+          {!isLoading && !catalogLoading && !error && !catalogError && entries.map((entry, index) => {
             const active = index === activeIndex;
             const scratch = entry.kind === "scratch" ? entry : null;
             const editing = scratch && editingId === scratch.id;
@@ -234,6 +264,18 @@ export function SessionPickerOverlay({
                       <div className="min-w-0">
                         <div className="truncate text-[13px] font-medium text-text">{entry.label}</div>
                         <div className="mt-0.5 truncate text-[11px] text-text-dim">{entry.meta}</div>
+                        {entry.matches && entry.matches.length > 0 && (
+                          <div className="mt-1 space-y-1">
+                            {entry.matches.slice(0, 2).map((match, matchIndex) => (
+                              <div
+                                key={`${match.kind}:${match.message_id ?? match.section_id ?? matchIndex}`}
+                                className="truncate text-[11px] text-text-muted"
+                              >
+                                {match.kind === "section" ? "Section" : "Message"}: {match.preview}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
                         {entry.selected && (
@@ -241,25 +283,27 @@ export function SessionPickerOverlay({
                             Current
                           </span>
                         )}
+                        {scratch && allowSplit && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onClose();
+                              onActivateSurface(scratch.surface, "split");
+                            }}
+                            className="inline-flex h-7 items-center gap-1 rounded-md border border-surface-border px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                            title="Open this session as a split panel"
+                          >
+                            <Columns2 size={12} />
+                            Split
+                          </button>
+                        )}
                         {active && <CornerDownLeft size={12} className="text-text-dim" />}
                       </div>
                     </div>
                   )}
                   {scratch && !editing && (
                     <div className="mt-1 flex items-center gap-3 text-[11px]">
-                      {allowSplit && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onActivateSurface(scratch.surface, "split");
-                          }}
-                          className="inline-flex items-center gap-1 text-text-dim hover:text-text"
-                        >
-                          <Columns2 size={11} />
-                          Open split
-                        </button>
-                      )}
                       <button
                         type="button"
                         onClick={(event) => {
@@ -297,6 +341,14 @@ export function SessionPickerOverlay({
               </div>
             );
           })}
+          {deepSearchLoading && query.trim().length >= 2 && (
+            <div className="px-4 py-2 text-[11px] text-text-dim">Searching message history...</div>
+          )}
+          {deepSearchError && (
+            <div className="px-4 py-2 text-[11px] text-danger">
+              {deepSearchError instanceof Error ? deepSearchError.message : "Deep search failed."}
+            </div>
+          )}
         </div>
       </div>
     </>,

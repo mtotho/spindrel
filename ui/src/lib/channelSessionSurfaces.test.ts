@@ -43,6 +43,7 @@ assert.deepEqual(removeChannelSessionPanel([
 ], "a"), [{ kind: "scratch", sessionId: "b" }]);
 
 assert.equal(buildChannelSessionRoute("chan", { kind: "primary" }), "/channels/chan");
+assert.equal(buildChannelSessionRoute("chan", { kind: "channel", sessionId: "old" }), "/channels/chan");
 assert.equal(
   buildChannelSessionRoute("chan", { kind: "scratch", sessionId: "session" }),
   "/channels/chan/session/session?scratch=true",
@@ -84,3 +85,52 @@ assert.equal(entries[0]?.kind, "scratch");
 assert.equal(entries[0]?.selected, true);
 assert.deepEqual(entries[0]?.surface, { kind: "scratch", sessionId: "s2" });
 
+const catalogEntries = buildChannelSessionPickerEntries({
+  selectedSessionId: null,
+  query: "rollback",
+  channelSessions: [
+    {
+      session_id: "active",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-24T00:00:00Z",
+      last_active: "2026-04-24T00:00:00Z",
+      label: "Current work",
+      message_count: 5,
+      section_count: 0,
+      is_active: true,
+      is_current: false,
+    },
+    {
+      session_id: "old",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-23T00:00:00Z",
+      last_active: "2026-04-23T00:00:00Z",
+      label: "Previous work",
+      message_count: 3,
+      section_count: 1,
+      is_active: false,
+      is_current: false,
+    },
+  ],
+  deepMatches: [
+    {
+      session_id: "old",
+      surface_kind: "channel",
+      bot_id: "bot",
+      created_at: "2026-04-23T00:00:00Z",
+      last_active: "2026-04-23T00:00:00Z",
+      label: "Previous work",
+      message_count: 3,
+      section_count: 1,
+      is_active: false,
+      is_current: false,
+      matches: [{ kind: "message", source: "content", preview: "rollback checklist" }],
+    },
+  ],
+});
+assert.equal(catalogEntries.length, 1);
+assert.equal(catalogEntries[0]?.kind, "channel");
+assert.deepEqual(catalogEntries[0]?.surface, { kind: "channel", sessionId: "old" });
+assert.equal(catalogEntries[0]?.matches?.[0]?.preview, "rollback checklist");

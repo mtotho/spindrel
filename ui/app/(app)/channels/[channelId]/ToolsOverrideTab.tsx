@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { BookOpen, Check, Search, Server, Wrench, X } from "lucide-react";
+import { AlertCircle, BookOpen, Check, Search, Server, Wrench, X } from "lucide-react";
+import { ApiError } from "@/src/api/client";
 import {
   useChannelEffectiveTools,
   useChannelEnrolledSkills,
@@ -8,7 +9,7 @@ import {
 } from "@/src/api/hooks/useChannels";
 import { useBotEditorData } from "@/src/api/hooks/useBots";
 import { EmptyState } from "@/src/components/shared/FormControls";
-import { ActionButton, QuietPill, SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
+import { ActionButton, InfoBanner, QuietPill, SettingsControlRow, SettingsGroupLabel, SettingsSearchBox } from "@/src/components/shared/SettingsControls";
 import { HoverPopover, SkillPreview, ToolPreview } from "@/src/components/shared/ItemPreviewPopover";
 import { ActivationsSection } from "./integrations/ActivationsSection";
 
@@ -76,6 +77,13 @@ function SkillChip({
   );
 }
 
+function mutationErrorMessage(error: unknown): string | null {
+  if (!error) return null;
+  if (error instanceof ApiError) return error.detail ?? error.message;
+  if (error instanceof Error) return error.message;
+  return "Skill enrollment failed.";
+}
+
 export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botId?: string }) {
   const { data: effective } = useChannelEffectiveTools(channelId);
   const { data: editorData, isLoading: editorLoading } = useBotEditorData(botId);
@@ -93,6 +101,16 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
   }, [editorData]);
 
   const enrolledIds = useMemo(() => new Set(enrolled.map((s) => s.skill_id)), [enrolled]);
+  const effectiveSkills = effective?.skills ?? [];
+  const channelEffectiveSkills = useMemo(
+    () => effectiveSkills.filter((skill) => enrolledIds.has(skill.id)),
+    [effectiveSkills, enrolledIds],
+  );
+  const inheritedEffectiveSkills = useMemo(
+    () => effectiveSkills.filter((skill) => !enrolledIds.has(skill.id)),
+    [effectiveSkills, enrolledIds],
+  );
+  const enrollmentError = mutationErrorMessage(enrollMut.error ?? unenrollMut.error);
   const addableSkills = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (editorData?.all_skills ?? []).filter((skill) => {
@@ -122,6 +140,11 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         Channel-level skill enrollment augments the bot&apos;s normal working set for this channel only. Skills remain fetch-on-demand via{" "}
         <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">get_skill()</code>.
       </p>
+      {enrollmentError && (
+        <InfoBanner variant="danger" icon={<AlertCircle size={14} />}>
+          {enrollmentError}
+        </InfoBanner>
+      )}
 
       <div className="flex flex-col gap-1">
         {enrolled.map((skill) => (
@@ -163,17 +186,42 @@ export function ToolsOverrideTab({ channelId, botId }: { channelId: string; botI
         )}
       </div>
 
-      <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Resolved Skills" count={effective?.skills.length ?? 0} />
-      <div className="flex flex-col gap-1">
-        {(effective?.skills ?? []).map((skill) => (
-          <SkillChip
-            key={skill.id}
-            id={skill.id}
-            name={skill.name || skill.id}
-            preview={skillPreviewMap.get(skill.id)}
-            badge={enrolledIds.has(skill.id) ? "channel" : "bot"}
-          />
-        ))}
+      <SectionLabel icon={<BookOpen size={12} className="text-accent" />} label="Effective Skills" count={effectiveSkills.length} />
+      <p className="mb-1 text-[11px] text-text-dim leading-snug">
+        Effective skills combine this channel&apos;s additions with the bot&apos;s inherited working set.
+      </p>
+      <div className="flex flex-col gap-2">
+        {channelEffectiveSkills.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Added for this channel</div>
+            {channelEffectiveSkills.map((skill) => (
+              <SkillChip
+                key={skill.id}
+                id={skill.id}
+                name={skill.name || skill.id}
+                preview={skillPreviewMap.get(skill.id)}
+                badge="channel"
+              />
+            ))}
+          </div>
+        )}
+        <div className="flex flex-col gap-1">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-text-dim">Inherited from bot</div>
+          {inheritedEffectiveSkills.map((skill) => (
+            <SkillChip
+              key={skill.id}
+              id={skill.id}
+              name={skill.name || skill.id}
+              preview={skillPreviewMap.get(skill.id)}
+              badge="bot"
+            />
+          ))}
+          {inheritedEffectiveSkills.length === 0 && (
+            <div className="py-1 text-[11px] italic text-text-dim">
+              No inherited bot skills resolved for this channel.
+            </div>
+          )}
+        </div>
       </div>
 
       <SectionLabel icon={<Wrench size={12} className="text-text-dim" />} label="Resolved Tools" count={effective?.local_tools.length ?? 0} />

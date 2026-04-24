@@ -637,6 +637,153 @@ class TestEnrolledSkills:
         assert "enrollment" in resp.json()["detail"].lower()
 
 
+class TestChannelEnrolledSkills:
+    async def test_when_skill_and_channel_exist_then_enrollment_created(self, client, db_session):
+        from tests.factories import build_bot, build_channel, build_skill
+        from app.db.models import ChannelSkillEnrollment
+
+        channel_id = uuid.uuid4()
+        db_session.add(build_bot(id="test-bot"))
+        db_session.add(build_channel(id=channel_id, bot_id="test-bot"))
+        db_session.add(build_skill(id="skills/channel-alpha", name="Alpha", description="Alpha description"))
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/admin/channels/{channel_id}/enrolled-skills",
+            json={"skill_id": "skills/channel-alpha", "source": "manual"},
+            headers=AUTH_HEADERS,
+        )
+
+        row = await db_session.get(ChannelSkillEnrollment, (channel_id, "skills/channel-alpha"))
+        assert resp.status_code == 201
+        assert resp.json() == {"status": "ok", "skill_id": "skills/channel-alpha", "inserted": True}
+        assert row is not None and row.source == "manual"
+
+    async def test_list_returns_enrolled_channel_skill_metadata(self, client, db_session):
+        from tests.factories import build_bot, build_channel, build_skill
+        from app.db.models import ChannelSkillEnrollment
+
+        channel_id = uuid.uuid4()
+        db_session.add(build_bot(id="test-bot"))
+        db_session.add(build_channel(id=channel_id, bot_id="test-bot"))
+        db_session.add(build_skill(id="skills/channel-beta", name="Beta", description="Beta description"))
+        db_session.add(ChannelSkillEnrollment(channel_id=channel_id, skill_id="skills/channel-beta", source="manual"))
+        await db_session.commit()
+
+        resp = await client.get(
+            f"/api/v1/admin/channels/{channel_id}/enrolled-skills",
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()[0]["skill_id"] == "skills/channel-beta"
+        assert resp.json()[0]["name"] == "Beta"
+        assert resp.json()[0]["description"] == "Beta description"
+
+    async def test_when_skill_missing_then_channel_enroll_returns_404(self, client, db_session):
+        from tests.factories import build_bot, build_channel
+
+        channel_id = uuid.uuid4()
+        db_session.add(build_bot(id="test-bot"))
+        db_session.add(build_channel(id=channel_id, bot_id="test-bot"))
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/admin/channels/{channel_id}/enrolled-skills",
+            json={"skill_id": "skills/missing"},
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 404
+        assert "skill" in resp.json()["detail"].lower()
+
+    async def test_when_enrollment_exists_then_channel_delete_removes_target(self, client, db_session):
+        from tests.factories import build_bot, build_channel, build_skill
+        from app.db.models import ChannelSkillEnrollment
+
+        channel_id = uuid.uuid4()
+        db_session.add(build_bot(id="test-bot"))
+        db_session.add(build_channel(id=channel_id, bot_id="test-bot"))
+        db_session.add(build_skill(id="skills/channel-target", name="Target"))
+        db_session.add(build_skill(id="skills/channel-survivor", name="Survivor"))
+        db_session.add(ChannelSkillEnrollment(channel_id=channel_id, skill_id="skills/channel-target", source="manual"))
+        db_session.add(ChannelSkillEnrollment(channel_id=channel_id, skill_id="skills/channel-survivor", source="manual"))
+        await db_session.commit()
+
+        resp = await client.delete(
+            f"/api/v1/admin/channels/{channel_id}/enrolled-skills/skills/channel-target",
+            headers=AUTH_HEADERS,
+        )
+
+        remaining = (await db_session.execute(
+            select(ChannelSkillEnrollment.skill_id).where(ChannelSkillEnrollment.channel_id == channel_id)
+        )).scalars().all()
+        assert resp.status_code == 204
+        assert remaining == ["skills/channel-survivor"]
+
+    async def test_when_other_bot_authored_skill_then_channel_enroll_rejected(self, client, db_session):
+        from tests.factories import build_bot, build_channel, build_skill
+        from app.db.models import ChannelSkillEnrollment
+
+        channel_id = uuid.uuid4()
+        db_session.add(build_bot(id="test-bot"))
+        db_session.add(build_channel(id=channel_id, bot_id="test-bot"))
+        db_session.add(build_skill(id="bots/other-bot/private-skill", name="Private", source_type="tool"))
+        await db_session.commit()
+
+        resp = await client.post(
+            f"/api/v1/admin/channels/{channel_id}/enrolled-skills",
+            json={"skill_id": "bots/other-bot/private-skill"},
+            headers=AUTH_HEADERS,
+        )
+
+        row = await db_session.get(ChannelSkillEnrollment, (channel_id, "bots/other-bot/private-skill"))
+        assert resp.status_code == 400
+        assert row is None
+
+
+class TestBotEditorDataSkills:
+    async def test_all_skills_use_metadata_description_and_filter_private_or_archived(self, client, db_session):
+        from datetime import datetime, timezone
+        from tests.factories import build_skill
+
+        db_session.add(build_skill(
+            id="integrations/example/public",
+            name="Public",
+            description="Public metadata",
+            content="---\nname: Public\n---\nBody",
+            source_type="integration",
+        ))
+        db_session.add(build_skill(
+            id="bots/test-bot/own-skill",
+            name="Own",
+            description="Own bot skill",
+            source_type="tool",
+        ))
+        db_session.add(build_skill(
+            id="bots/other-bot/private-skill",
+            name="Other Private",
+            description="Other private skill",
+            source_type="tool",
+        ))
+        db_session.add(build_skill(
+            id="skills/archived",
+            name="Archived",
+            description="Archived skill",
+            archived_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/admin/bots/test-bot/editor-data", headers=AUTH_HEADERS)
+
+        assert resp.status_code == 200
+        skills = {s["id"]: s for s in resp.json()["all_skills"]}
+        assert skills["integrations/example/public"]["description"] == "Public metadata"
+        assert "bots/test-bot/own-skill" in skills
+        assert "bots/other-bot/private-skill" not in skills
+        assert "skills/archived" not in skills
+
+
 # ---------------------------------------------------------------------------
 # POST / DELETE /api/v1/admin/bots/{bot_id}/enrolled-tools
 # ---------------------------------------------------------------------------

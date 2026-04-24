@@ -24,7 +24,12 @@ def _clean_bus():
     _bus._replay_buffer.clear()
 
 
-async def _run(source_events: list[dict], channel_id: uuid.UUID) -> tuple[list[dict], list]:
+async def _run(
+    source_events: list[dict],
+    channel_id: uuid.UUID,
+    *,
+    session_id: uuid.UUID | None = None,
+) -> tuple[list[dict], list]:
     """Drive emit_run_stream_events and collect (yielded_events, bus_events)."""
     q: asyncio.Queue = asyncio.Queue()
     _bus._subscribers[channel_id] = {q}
@@ -33,7 +38,15 @@ async def _run(source_events: list[dict], channel_id: uuid.UUID) -> tuple[list[d
         for ev in source_events:
             yield ev
 
-    yielded = [ev async for ev in emit_run_stream_events(_gen(), channel_id=channel_id, bot_id="bot-1", turn_id=uuid.uuid4())]
+    yielded = [
+        ev async for ev in emit_run_stream_events(
+            _gen(),
+            channel_id=channel_id,
+            bot_id="bot-1",
+            turn_id=uuid.uuid4(),
+            session_id=session_id,
+        )
+    ]
 
     published = []
     while not q.empty():
@@ -269,6 +282,25 @@ class TestEmitRunStreamEvents:
 
         assert len(published) == 0
         assert yielded == [passthrough]
+
+    async def test_when_context_budget_then_payload_carries_session_id(self):
+        ch = uuid.uuid4()
+        sid = uuid.uuid4()
+
+        yielded, published = await _run(
+            [{
+                "type": "context_budget",
+                "consumed_tokens": 249_000,
+                "total_tokens": 272_000,
+                "utilization": 0.915,
+            }],
+            ch,
+            session_id=sid,
+        )
+
+        assert yielded[0]["type"] == "context_budget"
+        assert published[0].kind is ChannelEventKind.CONTEXT_BUDGET
+        assert published[0].payload.session_id == sid
 
     async def test_when_multiple_events_then_all_yielded_and_typed_events_published(self):
         ch = uuid.uuid4()

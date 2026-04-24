@@ -308,6 +308,7 @@ async def _run_member_bot_reply(
                     bot_id=member_bot_id,
                     turn_id=_turn_id,
                     reason="member_mention",
+                    session_id=session_id,
                 ),
             ),
         )
@@ -341,6 +342,7 @@ async def _run_member_bot_reply(
             channel_id=channel_id,
             bot_id=member_bot_id,
             turn_id=_turn_id,
+            session_id=session_id,
         ):
             if event.get("type") == "response":
                 response_text = event.get("text", "")

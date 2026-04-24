@@ -13,7 +13,6 @@ import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useEphemeralSession";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
-import { ScratchSessionMenu } from "@/src/components/chat/ScratchSessionMenu";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
 
 export interface ChannelHeaderProps {
@@ -61,12 +60,12 @@ export interface ChannelHeaderProps {
   findingsPanelOpen?: boolean;
   toggleFindingsPanel?: () => void;
   findingsCount?: number;
-  /** Open the scratch-chat dock. Button is rendered on every viewport. */
+  /** Whether a session surface is currently active. */
   scratchOpen?: boolean;
-  onOpenScratch?: (sessionId?: string | null) => void;
+  /** Open the unified channel session picker. */
+  onOpenSessions?: () => void;
   scratchSessionId?: string | null;
   onOpenMainChat?: () => void;
-  onStartNewScratchSession?: () => void;
   /** Optional explicit dashboard target. Scratch full-page uses this to
    *  carry the exact scratch session into the channel dashboard URL. */
   dashboardHref?: string;
@@ -105,19 +104,16 @@ export function ChannelHeader({
   toggleFindingsPanel,
   findingsCount = 0,
   scratchOpen,
-  onOpenScratch,
+  onOpenSessions,
   scratchSessionId,
   onOpenMainChat,
-  onStartNewScratchSession,
   dashboardHref,
   scratchFullpageMode,
 }: ChannelHeaderProps) {
   const t = useThemeTokens();
   const navigate = useNavigate();
   const [mobileOverflowOpen, setMobileOverflowOpen] = React.useState(false);
-  const [scratchMenuOpen, setScratchMenuOpen] = React.useState(false);
   const mobileOverflowRef = React.useRef<HTMLDivElement | null>(null);
-  const scratchMenuRef = React.useRef<HTMLDivElement | null>(null);
   // Mobile hamburger opens the channel drawer (Widgets/Files/Jump) rather
   // than the plain command palette — drawer's Jump tab wraps the palette
   // content inline, so channel-route mobile users get one surface with nav
@@ -265,12 +261,12 @@ export function ChannelHeader({
           danger: false,
         }
       : null,
-    channelId && onOpenScratch
+    channelId && onOpenSessions
       ? {
           key: "scratch",
           label: sessionButtonLabel,
           icon: StickyNote,
-          onClick: () => setScratchMenuOpen((open) => !open),
+          onClick: onOpenSessions,
           active: !!scratchOpen,
           danger: false,
         }
@@ -318,18 +314,6 @@ export function ChannelHeader({
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [mobileOverflowOpen]);
-
-  React.useEffect(() => {
-    if (!scratchMenuOpen || isMobile) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (scratchMenuRef.current && target && !scratchMenuRef.current.contains(target)) {
-        setScratchMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isMobile, scratchMenuOpen]);
 
   return (
     <header
@@ -528,8 +512,8 @@ export function ChannelHeader({
           <Minimize2 size={16} color={t.textDim} />
         </button>
       )}
-      {!isMobile && channelId && onOpenScratch && (
-        <div ref={scratchMenuRef} className="relative shrink-0">
+      {!isMobile && channelId && onOpenSessions && (
+        <div className="relative shrink-0">
           <button
             type="button"
             className={
@@ -550,10 +534,9 @@ export function ChannelHeader({
                     color: scratchOpen ? t.text : t.textMuted,
                   }
             }
-            onClick={() => setScratchMenuOpen((open) => !open)}
+            onClick={onOpenSessions}
             title={sessionButtonLabel}
             aria-label={sessionButtonLabel}
-            aria-expanded={scratchMenuOpen}
             aria-haspopup="dialog"
             aria-pressed={!!scratchOpen}
           >
@@ -564,21 +547,6 @@ export function ChannelHeader({
               </>
             )}
           </button>
-          <ScratchSessionMenu
-            open={scratchMenuOpen}
-            onClose={() => setScratchMenuOpen(false)}
-            channelId={channelId}
-            botId={bot?.id}
-            currentSessionId={scratchSessionId}
-            mobile={isMobile}
-            onOpenSidePane={onOpenScratch}
-            onOpenMainChat={onOpenMainChat}
-            onStartNewSession={onStartNewScratchSession}
-            onNavigateSession={(sessionId) => {
-              setScratchMenuOpen(false);
-              navigate(`/channels/${channelId}/session/${sessionId}?scratch=true`);
-            }}
-          />
         </div>
       )}
 
@@ -680,23 +648,6 @@ export function ChannelHeader({
             </div>
           )}
         </div>
-      )}
-      {isMobile && channelId && onOpenScratch && (
-        <ScratchSessionMenu
-          open={scratchMenuOpen}
-          onClose={() => setScratchMenuOpen(false)}
-          channelId={channelId}
-          botId={bot?.id}
-          currentSessionId={scratchSessionId}
-          mobile
-          onOpenSidePane={onOpenScratch}
-          onOpenMainChat={onOpenMainChat}
-          onStartNewSession={onStartNewScratchSession}
-          onNavigateSession={(sessionId) => {
-            setScratchMenuOpen(false);
-            navigate(`/channels/${channelId}/session/${sessionId}?scratch=true`);
-          }}
-        />
       )}
     </header>
   );

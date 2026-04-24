@@ -10,6 +10,7 @@ interface ChannelSessionSplitPanelProps {
   emptyState?: ReactNode;
   chatMode?: "default" | "terminal";
   onClose: (sessionId: string) => void;
+  onOpenSessions?: () => void;
 }
 
 export function ChannelSessionSplitPanel({
@@ -19,6 +20,7 @@ export function ChannelSessionSplitPanel({
   emptyState,
   chatMode = "default",
   onClose,
+  onOpenSessions,
 }: ChannelSessionSplitPanelProps) {
   const source = buildScratchChatSource({
     channelId,
@@ -58,6 +60,7 @@ export function ChannelSessionSplitPanel({
           title="Session"
           emptyState={emptyState}
           chatMode={chatMode}
+          onOpenSessions={onOpenSessions}
         />
       </div>
     </div>

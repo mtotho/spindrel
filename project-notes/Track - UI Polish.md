@@ -182,6 +182,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Terminal palette moved toward one-accent styling** — terminal assistant/user headers now avoid random avatar colors, streamed skill/thinking chrome avoids purple pills, JSON primitive colors are neutralized, and terminal web-search URLs use muted text instead of success green.
 - [x] **Channel session switching gained a command-first path** — `/sessions` and This Channel palette actions now open a channel-scoped session picker with primary/scratch rows, search, rename/promote actions, fresh-session entry, and a desktop-only split action. Split scratch sessions persist per channel as up to two side panels, while mobile keeps the main-chat switch behavior.
 - [x] **Session switching got an extensibility boundary pass** — primary/scratch session surfaces now route through a pure `channelSessionSurfaces` model that owns descriptors, split-panel normalization, route/source builders, picker entries, labels/stats, and untouched-draft detection. The desktop split panel is extracted from `ChannelPage`, leaving the page to orchestrate activation rather than rebuild scratch session chrome inline.
+- [x] **`/sessions` search now has an async deep-search lane** — the picker still filters locally immediately, then debounces a public channel-session search that ranks sessions by live message matches plus archived-section matches. Results stay session-oriented: matching rows move up and show message/section snippets, while inactive channel sessions activate through the existing switch-session endpoint.
+- [x] **Session split and slash discovery tightened** — the picker now exposes `Split` as a visible row-level action, and channel-bound session surfaces (scratch route, mini session, split panels, and threads) can open the same `/sessions` picker. Session slash lists now use the backend-supported session command set instead of the old reduced subset.
+- [x] **Header sessions button now uses the unified picker** — the top-right `Sessions` button and mobile overflow action open `SessionPickerOverlay` directly instead of the legacy scratch-session menu.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -222,6 +225,15 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session-surface boundary hardening
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after async session search
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --noEmit`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --outDir /tmp/agent-chat-test-dist && node /tmp/agent-chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/routers/api_v1_channels.py app/tools/local/search_history.py app/services/slash_commands.py`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session split/slash discoverability follow-up
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --noEmit`
+- [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/services/slash_commands.py`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after header Sessions button unification
+- [ ] `pytest tests/integration/test_api_search_history.py -q -k 'session_search or session_catalog'` skipped in this local SQLite-backed harness; the file is PostgreSQL-only because it relies on `ILIKE`.
 - [ ] Targeted pytest remains flaky in this sandbox:
   `tests/e2e/scenarios/test_api_contract.py -k channel_settings_update` blocked on Docker socket permission.
   `tests/unit/test_propose_config_change.py -k chat_mode` timed out here without emitting a Python failure trace.
@@ -421,3 +433,4 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 
 - [x] `/settings` Chat History `Compaction Model` description is provider-neutral now: "Model used for context compaction." The old "LiteLLM model alias" wording was misleading because the shared picker spans all LLM providers.
 - [x] Fixed stale post-compaction typing indicators: channel-state rehydration now treats lifecycle-only `turn_started` / `skill_index` trace rows as active only while the session lock is active, so reopening a compacted idle thread does not show a phantom bot thinking until the 10-minute TTL expires.
+- [x] Fixed scratch/session context-budget bleed: `context_budget` typed bus payloads now carry `session_id`, and primary/member turn lifecycle streams tag the real session so scratch/session subscribers drop sibling parent-channel budget events instead of showing the parent channel's gross token total.

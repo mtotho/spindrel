@@ -25,6 +25,7 @@ from app.db.models import (
     HeartbeatRun,
     Message,
     Session,
+    Skill as SkillRow,
     Task,
     ToolCall,
     TraceEvent,
@@ -855,7 +856,11 @@ async def admin_channel_enrolled_skill_add(
     if not skill_row:
         raise HTTPException(status_code=404, detail=f"Skill not found: {body.skill_id}")
 
-    inserted = await enroll(str(channel_id), body.skill_id, source=body.source or "manual")
+    if body.skill_id.startswith("bots/") and not body.skill_id.startswith(f"bots/{channel.bot_id}/"):
+        raise HTTPException(status_code=400, detail="Cannot enroll another bot's authored skill")
+
+    inserted = await enroll(str(channel_id), body.skill_id, source=body.source or "manual", db=db)
+    await db.commit()
     return {"status": "ok", "skill_id": body.skill_id, "inserted": inserted}
 
 
@@ -872,9 +877,10 @@ async def admin_channel_enrolled_skill_remove(
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    deleted = await unenroll(str(channel_id), skill_id)
+    deleted = await unenroll(str(channel_id), skill_id, db=db)
     if not deleted:
         raise HTTPException(status_code=404, detail=f"Enrollment not found: {channel_id}/{skill_id}")
+    await db.commit()
     return None
 
 
@@ -900,7 +906,7 @@ async def admin_channel_effective_tools(
 ):
     """Return the resolved tool/skill lists after applying channel overrides."""
     from app.agent.channel_overrides import resolve_effective_tools
-    from app.db.models import ChannelIntegration, ChannelSkillEnrollment, Skill as SkillRow
+    from app.db.models import ChannelIntegration, ChannelSkillEnrollment
 
     result = await db.execute(
         select(Channel).where(Channel.id == channel_id).options(selectinload(Channel.integrations))

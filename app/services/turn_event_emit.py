@@ -284,6 +284,7 @@ async def emit_run_stream_events(
                         consumed_tokens=int(event.get("consumed_tokens") or 0),
                         total_tokens=int(event.get("total_tokens") or 0),
                         utilization=util,
+                        session_id=session_id,
                         model=str(event.get("model") or ""),
                         context_profile=event.get("context_profile"),
                         context_origin=event.get("context_origin"),

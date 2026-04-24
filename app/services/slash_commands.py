@@ -1031,7 +1031,7 @@ _register(SlashCommandSpec(
     id="sessions",
     label="/sessions",
     description="Switch or split sessions in this channel (local)",
-    surfaces=("channel",),
+    surfaces=("channel", "session"),
     local_only=True,
 ))
 

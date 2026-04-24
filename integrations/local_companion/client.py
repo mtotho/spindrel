@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import websockets
 
@@ -68,6 +68,17 @@ def _trim(data: bytes, max_output_bytes: int) -> tuple[str, bool]:
     if truncated:
         data = data[:max_output_bytes]
     return data.decode(errors="replace"), truncated
+
+
+def _build_ws_url(server_url: str, *, target_id: str, token: str) -> str:
+    parsed = urlsplit(server_url.rstrip("/"))
+    scheme_map = {"http": "ws", "https": "wss", "ws": "ws", "wss": "wss"}
+    scheme = scheme_map.get(parsed.scheme)
+    if scheme is None:
+        raise ValueError("--server-url must use http, https, ws, or wss")
+    path = f"{parsed.path.rstrip('/')}/integrations/local_companion/ws"
+    query = urlencode({"target_id": target_id, "token": token})
+    return urlunsplit((scheme, parsed.netloc, path, query, ""))
 
 
 async def _run_exec_command(
@@ -160,7 +171,7 @@ async def _handle_request(payload: dict[str, Any], args: argparse.Namespace) -> 
 
 
 async def _run_client(args: argparse.Namespace) -> int:
-    ws_url = args.server_url.rstrip("/") + f"/integrations/local_companion/ws?{urlencode({'target_id': args.target_id, 'token': args.token})}"
+    ws_url = _build_ws_url(args.server_url, target_id=args.target_id, token=args.token)
     async with websockets.connect(ws_url, max_size=2**22) as ws:
         await ws.send(json.dumps({
             "type": "hello",

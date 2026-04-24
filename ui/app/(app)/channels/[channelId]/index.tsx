@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useParams, useNavigate, useLocation, useMatch, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { PipelineRunModal } from "./PipelineRunModal";
 import { useGoBack } from "@/src/hooks/useGoBack";
 import { ChevronUp, ChevronDown } from "lucide-react";
@@ -20,6 +21,7 @@ import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
+import { apiFetch } from "@/src/api/client";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
@@ -172,6 +174,7 @@ export default function ChatScreen() {
   const { channelId } = useParams<{ channelId: string }>();
   const goBack = useGoBack("/");
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const { data: channel, isLoading: channelLoading } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
@@ -485,21 +488,6 @@ export default function ChatScreen() {
     setScratchOpen(false);
     setScratchPinnedSessionId(null);
   }, []);
-  const collapseForNewScratchSession = useCallback(() => {
-    const uiState = useUIStore.getState();
-    if (!scratchLayoutRestoreRef.current) {
-      scratchLayoutRestoreRef.current = {
-        explorerOpen: uiState.fileExplorerOpen,
-        rightDockHidden: uiState.rightDockHidden,
-        activeFile,
-        splitMode: uiState.fileExplorerSplit,
-      };
-    }
-    uiState.setFileExplorerOpen(false);
-    uiState.setRightDockHidden(true);
-    setActiveFile(null);
-    if (uiState.fileExplorerSplit) uiState.toggleFileExplorerSplit();
-  }, [activeFile]);
   const handleSetActiveThreadSpawned = useCallback(
     (sid: string) =>
       setActiveThread((curr) => (curr ? { ...curr, sessionId: sid } : curr)),
@@ -651,8 +639,24 @@ export default function ChatScreen() {
     }
     setScratchPinnedSessionId(null);
     setScratchOpen(false);
+    if (surface.kind === "channel") {
+      void apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
+        method: "POST",
+        body: JSON.stringify({ session_id: surface.sessionId }),
+      }).then(() => {
+        queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+        queryClient.invalidateQueries({ queryKey: ["channels"] });
+        queryClient.invalidateQueries({ queryKey: ["channel-session-catalog", channelId] });
+        queryClient.invalidateQueries({ queryKey: ["channel-sessions", channelId] });
+        queryClient.invalidateQueries({ queryKey: ["session-messages"] });
+        navigate(buildChannelSessionRoute(channelId, surface));
+      }).catch((err) => {
+        console.error("Failed to switch channel session", err);
+      });
+      return;
+    }
     navigate(buildChannelSessionRoute(channelId, surface));
-  }, [channelId, navigate, patchChannelPanelPrefs]);
+  }, [channelId, navigate, patchChannelPanelPrefs, queryClient]);
   const removeScratchSessionPanel = useCallback((sessionId: string) => {
     if (!channelId) return;
     patchChannelPanelPrefs(channelId, (current) => ({
@@ -1285,6 +1289,7 @@ export default function ChatScreen() {
             title="Session"
             emptyState={scratchEmptyState}
             chatMode={chatMode}
+            onOpenSessions={openSessionsOverlay}
           />
         </div>
       </div>
@@ -1300,6 +1305,7 @@ export default function ChatScreen() {
             emptyState={scratchEmptyState}
             chatMode={chatMode}
             onClose={removeScratchSessionPanel}
+            onOpenSessions={openSessionsOverlay}
           />
         ))
       : null;
@@ -1346,17 +1352,8 @@ export default function ChatScreen() {
           scratchOpen={isScratchRoute || scratchOpen}
           scratchSessionId={scratchUrlSessionId}
           onOpenMainChat={isScratchRoute ? handleExitScratchRoute : undefined}
-          onStartNewScratchSession={collapseForNewScratchSession}
           dashboardHref={channelDashboardHref}
-          onOpenScratch={(sessionId) => {
-            if (isScratchRoute && channelId) {
-              setScratchPinnedSessionId(null);
-              setScratchOpen(false);
-              return;
-            }
-            setScratchPinnedSessionId(sessionId ?? null);
-            setScratchOpen(true);
-          }}
+          onOpenSessions={openSessionsOverlay}
           scratchFullpageMode={isScratchRoute ? {} : undefined}
         />
         {/* Desktop: integration dots inlined into ChannelHeader subtitle.
@@ -1843,6 +1840,7 @@ export default function ChatScreen() {
           title="Thread"
           initiallyExpanded
           chatMode={chatMode}
+          onOpenSessions={openSessionsOverlay}
         />
       )}
       {scratchSource && !activeThread && !isScratchRoute && (
@@ -1855,6 +1853,7 @@ export default function ChatScreen() {
           emptyState={scratchEmptyState}
           initiallyExpanded
           chatMode={chatMode}
+          onOpenSessions={openSessionsOverlay}
         />
       )}
     </div>

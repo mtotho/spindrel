@@ -153,6 +153,10 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - Provider/profile/enroll/target groups moved onto shared Tailwind token controls; the route no longer uses `useThemeTokens()` or inline color styling.
 - `Admin > Integrations > <machine provider>` remains summary/link-only, preserving Admin > Machines as the canonical profile/target lifecycle surface.
 
+### Follow-up fix — Local Companion bootstrap URL
+
+- The downloaded `local_companion` client now derives its WebSocket endpoint from the HTTP(S) `--server-url` emitted by the setup command, mapping `http -> ws` and `https -> wss` while preserving path prefixes. This keeps the `curl` bootstrap command copyable as-is and avoids passing an `http://.../ws` URI into `websockets.connect`.
+
 ## Current Architecture Shape
 
 - Core:
@@ -191,3 +195,5 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - `cd agent-server/ui && node --test src/lib/machineControlApiPaths.test.ts`
 - `cd agent-server/ui && ./node_modules/.bin/tsc --noEmit --pretty false`
 - `cd agent-server/ui && npx tsc --noEmit` after the admin machine-center UI refresh.
+- `pytest tests/unit/test_local_companion_provider.py -q`
+- `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile integrations/local_companion/client.py`

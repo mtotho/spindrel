@@ -1,5 +1,6 @@
 export type ChannelSessionSurface =
   | { kind: "primary" }
+  | { kind: "channel"; sessionId: string }
   | { kind: "scratch"; sessionId: string };
 
 export interface ChannelSessionPanel {
@@ -25,6 +26,31 @@ export interface ScratchSessionLike {
   session_scope?: string;
 }
 
+export interface ChannelSessionSearchMatch {
+  kind: "message" | "section";
+  source: string;
+  preview?: string | null;
+  message_id?: string | null;
+  section_id?: string | null;
+  section_sequence?: number | null;
+}
+
+export interface ChannelSessionCatalogItem {
+  session_id: string;
+  surface_kind: "channel" | "scratch";
+  bot_id: string;
+  created_at: string;
+  last_active: string;
+  label?: string | null;
+  summary?: string | null;
+  preview?: string | null;
+  message_count: number;
+  section_count: number;
+  is_active: boolean;
+  is_current: boolean;
+  matches?: ChannelSessionSearchMatch[];
+}
+
 export type ChannelSessionPickerEntry =
   | {
       kind: "primary";
@@ -33,15 +59,27 @@ export type ChannelSessionPickerEntry =
       label: string;
       meta: string;
       selected: boolean;
+      matches?: ChannelSessionSearchMatch[];
+    }
+  | {
+      kind: "channel";
+      id: string;
+      surface: Extract<ChannelSessionSurface, { kind: "channel" }>;
+      row: ChannelSessionCatalogItem;
+      label: string;
+      meta: string;
+      selected: boolean;
+      matches?: ChannelSessionSearchMatch[];
     }
   | {
       kind: "scratch";
       id: string;
       surface: Extract<ChannelSessionSurface, { kind: "scratch" }>;
-      row: ScratchSessionLike & { session_id: string };
+      row: (ScratchSessionLike & { session_id: string }) | ChannelSessionCatalogItem;
       label: string;
       meta: string;
       selected: boolean;
+      matches?: ChannelSessionSearchMatch[];
     };
 
 export function normalizeChannelSessionPanels(value: unknown): ChannelSessionPanel[] {
@@ -75,6 +113,7 @@ export function removeChannelSessionPanel(
 
 export function buildChannelSessionRoute(channelId: string, surface: ChannelSessionSurface): string {
   if (surface.kind === "primary") return `/channels/${channelId}`;
+  if (surface.kind === "channel") return `/channels/${channelId}`;
   return `/channels/${channelId}/session/${surface.sessionId}?scratch=true`;
 }
 
@@ -137,6 +176,18 @@ export function getScratchSessionMeta(session: ScratchSessionLike): string {
   return bits.join(" · ");
 }
 
+export function getChannelSessionMeta(session: ChannelSessionCatalogItem): string {
+  const bits = [
+    session.is_active ? "Primary" : "Previous",
+    formatScratchSessionTimestamp(session.last_active || session.created_at),
+    `${session.message_count ?? 0} msg${session.message_count === 1 ? "" : "s"}`,
+    typeof session.section_count === "number"
+      ? `${session.section_count} section${session.section_count === 1 ? "" : "s"}`
+      : null,
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
 export function isUntouchedDraftSession(session: ScratchSessionLike | null | undefined): boolean {
   if (!session) return false;
   if ((session.message_count ?? 0) !== 0 || (session.section_count ?? 0) !== 0) return false;
@@ -150,13 +201,92 @@ export function buildChannelSessionPickerEntries({
   channelLabel,
   selectedSessionId,
   history,
+  channelSessions,
+  deepMatches,
   query,
 }: {
   channelLabel?: string | null;
   selectedSessionId?: string | null;
   history?: ScratchSessionLike[] | null;
+  channelSessions?: ChannelSessionCatalogItem[] | null;
+  deepMatches?: ChannelSessionCatalogItem[] | null;
   query?: string;
 }): ChannelSessionPickerEntry[] {
+  const deepById = new Map((deepMatches ?? []).map((row) => [row.session_id, row]));
+  if (channelSessions && channelSessions.length > 0) {
+    const seen = new Set<string>();
+    const rows: ChannelSessionPickerEntry[] = [];
+    for (const base of channelSessions) {
+      const row = deepById.get(base.session_id) ?? base;
+      seen.add(row.session_id);
+      if (row.surface_kind === "scratch") {
+        rows.push({
+          kind: "scratch",
+          id: row.session_id,
+          surface: { kind: "scratch", sessionId: row.session_id },
+          row,
+          label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || "Untitled session",
+          meta: getChannelSessionMeta(row),
+          selected: selectedSessionId === row.session_id,
+          matches: row.matches ?? [],
+        });
+      } else if (row.is_active) {
+        rows.push({
+          kind: "primary",
+          id: "primary",
+          surface: { kind: "primary" },
+          label: "Primary session",
+          meta: getChannelSessionMeta(row),
+          selected: !selectedSessionId,
+          matches: row.matches ?? [],
+        });
+      } else {
+        rows.push({
+          kind: "channel",
+          id: row.session_id,
+          surface: { kind: "channel", sessionId: row.session_id },
+          row,
+          label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
+          meta: getChannelSessionMeta(row),
+          selected: false,
+          matches: row.matches ?? [],
+        });
+      }
+    }
+    for (const row of deepMatches ?? []) {
+      if (seen.has(row.session_id)) continue;
+      rows.push(row.surface_kind === "scratch" ? {
+        kind: "scratch",
+        id: row.session_id,
+        surface: { kind: "scratch", sessionId: row.session_id },
+        row,
+        label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || "Untitled session",
+        meta: getChannelSessionMeta(row),
+        selected: selectedSessionId === row.session_id,
+        matches: row.matches ?? [],
+      } : {
+        kind: "channel",
+        id: row.session_id,
+        surface: { kind: "channel", sessionId: row.session_id },
+        row,
+        label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
+        meta: getChannelSessionMeta(row),
+        selected: false,
+        matches: row.matches ?? [],
+      });
+    }
+
+    const q = query?.trim().toLowerCase();
+    const filtered = q
+      ? rows.filter((entry) => {
+          const snippets = (entry.matches ?? []).map((m) => m.preview ?? "").join(" ");
+          return `${entry.label} ${entry.meta} ${snippets}`.toLowerCase().includes(q)
+            || (entry.matches?.length ?? 0) > 0;
+        })
+      : rows;
+    return [...filtered].sort((a, b) => (b.matches?.length ?? 0) - (a.matches?.length ?? 0));
+  }
+
   const primary: ChannelSessionPickerEntry = {
     kind: "primary",
     id: "primary",
@@ -164,6 +294,7 @@ export function buildChannelSessionPickerEntries({
     label: "Primary session",
     meta: channelLabel ? `Default conversation for #${channelLabel}` : "Default channel conversation",
     selected: !selectedSessionId,
+    matches: [],
   };
   const scratchRows = (history ?? [])
     .filter((row): row is ScratchSessionLike & { session_id: string } =>
@@ -177,6 +308,7 @@ export function buildChannelSessionPickerEntries({
       label: getScratchSessionLabel(row),
       meta: getScratchSessionMeta(row),
       selected: selectedSessionId === row.session_id,
+      matches: [],
     }));
 
   const entries = [primary, ...scratchRows];

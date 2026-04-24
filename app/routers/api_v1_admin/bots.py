@@ -168,7 +168,7 @@ async def admin_bot_editor_data(
         from app.config import settings as _settings
         bot_out = BotOut(id="", name="", model=_settings.DEFAULT_MODEL, system_prompt="")
         all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
-            _fetch_all_skills(db),
+            _fetch_all_skills(db, bot_id=None),
             _fetch_tool_rows(db),
             _fetch_sandbox_profiles(db),
         )
@@ -180,7 +180,7 @@ async def admin_bot_editor_data(
 
         persona_content, all_skills_rows, tool_rows, sandbox_rows = await asyncio.gather(
             get_persona(bot_id),
-            _fetch_all_skills(db),
+            _fetch_all_skills(db, bot_id=bot_id),
             _fetch_tool_rows(db),
             _fetch_sandbox_profiles(db),
         )
@@ -204,7 +204,7 @@ async def admin_bot_editor_data(
         SkillOptionOut(
             id=s.id,
             name=s.name,
-            description=(s.content or "")[:200].split("\n")[0] if s.content else None,
+            description=s.description,
             source_type=s.source_type or "manual",
         )
         for s in all_skills_rows
@@ -250,8 +250,15 @@ async def admin_bot_editor_data(
     )
 
 
-async def _fetch_all_skills(db: AsyncSession):
-    return (await db.execute(select(SkillRow).order_by(SkillRow.name))).scalars().all()
+async def _fetch_all_skills(db: AsyncSession, *, bot_id: str | None):
+    stmt = select(SkillRow).where(SkillRow.archived_at.is_(None))
+    if bot_id:
+        stmt = stmt.where(
+            (~SkillRow.id.like("bots/%")) | SkillRow.id.like(f"bots/{bot_id}/%")
+        )
+    else:
+        stmt = stmt.where(~SkillRow.id.like("bots/%"))
+    return (await db.execute(stmt.order_by(SkillRow.name))).scalars().all()
 
 
 async def _fetch_tool_rows(db: AsyncSession):

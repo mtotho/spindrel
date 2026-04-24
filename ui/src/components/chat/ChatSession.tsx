@@ -172,6 +172,46 @@ export interface ChatSessionProps {
    *  screen uses 'close' because it intentionally hides the FAB: the
    *  dock is reachable only from the channel header button. */
   dismissMode?: "collapse" | "close";
+  /** Opens the channel-scoped session picker when this chat is embedded
+   *  inside a channel screen or split layout. */
+  onOpenSessions?: () => void;
+}
+
+const CHANNEL_CHAT_SLASH_COMMANDS: SlashCommandId[] = [
+  "help",
+  "stop",
+  "context",
+  "scratch",
+  "clear",
+  "compact",
+  "plan",
+  "find",
+  "rename",
+  "model",
+  "style",
+  "theme",
+  "sessions",
+];
+
+function buildSessionSlashCommands({
+  hasSession,
+  canOpenSessions,
+}: {
+  hasSession: boolean;
+  canOpenSessions: boolean;
+}): SlashCommandId[] {
+  if (!hasSession) return [];
+  return [
+    "help",
+    "context",
+    "stop",
+    "compact",
+    "plan",
+    "rename",
+    "model",
+    "theme",
+    ...(canOpenSessions ? (["sessions"] as SlashCommandId[]) : []),
+  ];
 }
 
 function getDockStorageKey(source: ChatSource): string {
@@ -247,6 +287,7 @@ function ChannelChatSession({
   title,
   emptyState,
   initiallyExpanded,
+  onOpenSessions,
   chatMode = "default",
 }: ChannelChatSessionProps) {
   const t = useThemeTokens();
@@ -415,25 +456,16 @@ function ChannelChatSession({
           store.toggle();
         }
       },
+      sessions: () => {
+        if (onOpenSessions) onOpenSessions();
+        else navigate(`/channels/${source.channelId}`);
+      },
     }),
-    [channelModelGroups, navigate, queryClient, source.channelId, src],
+    [channelModelGroups, navigate, onOpenSessions, queryClient, source.channelId, src],
   );
 
   const channelAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => [
-      "help",
-      "stop",
-      "context",
-      "scratch",
-      "clear",
-      "compact",
-      "plan",
-      "find",
-      "rename",
-      "model",
-      "style",
-      "theme",
-    ],
+    () => CHANNEL_CHAT_SLASH_COMMANDS,
     [],
   );
 
@@ -553,7 +585,7 @@ function ChannelChatSession({
                     channelId={source.channelId}
                     onSlashCommand={handleSlashCommand}
                     slashSurface="channel"
-                    availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
+                    availableSlashCommands={channelAvailableSlashCommands}
                     modelOverride={src.modelOverride}
                     modelProviderIdOverride={src.modelProviderIdOverride}
                     onModelOverrideChange={src.setModelOverride}
@@ -612,7 +644,7 @@ function ChannelChatSession({
                 channelId={source.channelId}
                 onSlashCommand={handleSlashCommand}
                 slashSurface="channel"
-                availableSlashCommands={["stop", "context", "scratch", "clear", "compact", "plan"]}
+                availableSlashCommands={channelAvailableSlashCommands}
                 modelOverride={src.modelOverride}
                 modelProviderIdOverride={src.modelProviderIdOverride}
                 onModelOverrideChange={src.setModelOverride}
@@ -681,6 +713,7 @@ function EphemeralChatSession({
   emptyState,
   initiallyExpanded,
   dismissMode,
+  onOpenSessions,
   chatMode = "default",
 }: EphemeralChatSessionProps) {
   const t = useThemeTokens();
@@ -689,6 +722,7 @@ function EphemeralChatSession({
   const navigate = useNavigate();
   const location = useLocation();
   const { data: bots } = useBots();
+  const { data: sessionModelGroups } = useModelGroups();
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
 
   const {
@@ -901,11 +935,19 @@ function EphemeralChatSession({
   }, [qc, sessionId]);
   const sessionSlashCatalog = useSlashCommandList();
   const sessionAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => (sessionId ? ["help", "context", "stop", "rename", "theme"] : []),
-    [sessionId],
+    () => buildSessionSlashCommands({
+      hasSession: !!sessionId,
+      canOpenSessions: !!onOpenSessions,
+    }),
+    [onOpenSessions, sessionId],
   );
   const sessionSlashLocalHandlers = useMemo(
     () => ({
+      model: (args: string[]) => {
+        if (!args[0]) return;
+        const providerId = resolveProviderForModel(args[0], sessionModelGroups);
+        setModelOverride(args[0], providerId ?? null);
+      },
       theme: (args: string[]) => {
         const arg = args[0]?.toLowerCase();
         const store = useThemeStore.getState();
@@ -915,8 +957,9 @@ function EphemeralChatSession({
           store.toggle();
         }
       },
+      sessions: () => onOpenSessions?.(),
     }),
-    [],
+    [onOpenSessions, sessionModelGroups, setModelOverride],
   );
   const handleSessionSlashCommand = useSlashCommandExecutor({
     availableCommands: sessionAvailableSlashCommands,
@@ -927,6 +970,9 @@ function EphemeralChatSession({
     localHandlers: sessionSlashLocalHandlers,
     onSideEffect: async (result) => {
       if (result.command_id === "stop") syncSessionCancelledState();
+      if (result.command_id === "compact") {
+        qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
+      }
     },
   });
 
@@ -1177,7 +1223,7 @@ function EphemeralChatSession({
                     channelId={sessionId ?? undefined}
                     onSlashCommand={handleSessionSlashCommand}
                     slashSurface="session"
-                    availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
+                    availableSlashCommands={sessionAvailableSlashCommands}
                     modelOverride={modelOverride}
                     modelProviderIdOverride={modelProviderId}
                     onModelOverrideChange={setModelOverride}
@@ -1270,7 +1316,7 @@ function EphemeralChatSession({
                 channelId={sessionId ?? undefined}
                 onSlashCommand={handleSessionSlashCommand}
                 slashSurface="session"
-                availableSlashCommands={sessionId ? ["context", "stop", "plan"] : []}
+                availableSlashCommands={sessionAvailableSlashCommands}
                 modelOverride={modelOverride}
                 modelProviderIdOverride={modelProviderId}
                 onModelOverrideChange={setModelOverride}
@@ -1363,6 +1409,7 @@ function ThreadChatSession({
   emptyState,
   initiallyExpanded,
   dismissMode,
+  onOpenSessions,
   chatMode = "default",
 }: ThreadChatSessionProps) {
   const t = useThemeTokens();
@@ -1372,6 +1419,7 @@ function ThreadChatSession({
 
   const { parentChannelId, botId, parentMessageId, onSessionSpawned } = source;
   const { data: bot } = useBot(botId);
+  const { data: threadModelGroups } = useModelGroups();
 
   // Lazy spawn — thread session is NOT persisted until the user sends their
   // first message. This state holds the id once spawn resolves so later
@@ -1437,11 +1485,20 @@ function ThreadChatSession({
   }, [effectiveSessionId, qc, storeKey]);
   const threadSlashCatalog = useSlashCommandList();
   const threadAvailableSlashCommands: SlashCommandId[] = useMemo(
-    () => (effectiveSessionId ? ["help", "context", "stop", "rename", "theme"] : []),
-    [effectiveSessionId],
+    () => buildSessionSlashCommands({
+      hasSession: !!effectiveSessionId,
+      canOpenSessions: !!onOpenSessions,
+    }),
+    [effectiveSessionId, onOpenSessions],
   );
   const threadSlashLocalHandlers = useMemo(
     () => ({
+      model: (args: string[]) => {
+        if (!args[0]) return;
+        const providerId = resolveProviderForModel(args[0], threadModelGroups);
+        setModelOverride(args[0]);
+        setModelProviderId(providerId ?? null);
+      },
       theme: (args: string[]) => {
         const arg = args[0]?.toLowerCase();
         const store = useThemeStore.getState();
@@ -1451,8 +1508,9 @@ function ThreadChatSession({
           store.toggle();
         }
       },
+      sessions: () => onOpenSessions?.(),
     }),
-    [],
+    [onOpenSessions, threadModelGroups],
   );
   const handleThreadSlashCommand = useSlashCommandExecutor({
     availableCommands: threadAvailableSlashCommands,
@@ -1463,6 +1521,9 @@ function ThreadChatSession({
     localHandlers: threadSlashLocalHandlers,
     onSideEffect: async (result) => {
       if (result.command_id === "stop") syncThreadCancelledState();
+      if (result.command_id === "compact") {
+        qc.invalidateQueries({ queryKey: ["session-messages", effectiveSessionId] });
+      }
     },
   });
 
@@ -1642,7 +1703,7 @@ function ThreadChatSession({
                     channelId={storeKey}
                     onSlashCommand={handleThreadSlashCommand}
                     slashSurface="session"
-                    availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
+                    availableSlashCommands={threadAvailableSlashCommands}
                     defaultModel={bot?.model}
                     configOverhead={overheadPct}
                     modelOverride={modelOverride}
@@ -1733,7 +1794,7 @@ function ThreadChatSession({
                 channelId={storeKey}
                 onSlashCommand={handleThreadSlashCommand}
                 slashSurface="session"
-                availableSlashCommands={effectiveSessionId ? ["context", "stop", "plan"] : []}
+                availableSlashCommands={threadAvailableSlashCommands}
                 defaultModel={bot?.model}
                 configOverhead={overheadPct}
                 modelOverride={modelOverride}

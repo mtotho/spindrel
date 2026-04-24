@@ -328,6 +328,7 @@ class ContextBudgetPayload:
     consumed_tokens: int
     total_tokens: int
     utilization: float
+    session_id: uuid.UUID | None = None
     model: str = ""
     context_profile: str | None = None
     context_origin: str | None = None

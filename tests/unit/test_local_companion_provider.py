@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from integrations.local_companion import machine_control as local_companion_machine_control
+from integrations.local_companion import client as local_companion_client
 from integrations.local_companion import router as local_companion_router
 
 
@@ -56,3 +57,29 @@ def test_local_companion_router_serves_client_script_file():
 
     assert Path(response.path) == Path(local_companion_router.__file__).with_name("client.py")
     assert response.filename == "spindrel-local-companion.py"
+
+
+def test_local_companion_client_converts_http_server_url_to_ws_url():
+    url = local_companion_client._build_ws_url(
+        "http://10.10.30.208:8000/",
+        target_id="target-123",
+        token="token-123",
+    )
+
+    assert url == (
+        "ws://10.10.30.208:8000/integrations/local_companion/ws?"
+        "target_id=target-123&token=token-123"
+    )
+
+
+def test_local_companion_client_converts_https_server_url_to_wss_url():
+    url = local_companion_client._build_ws_url(
+        "https://spindrel.example.com/base/",
+        target_id="target-123",
+        token="token-123",
+    )
+
+    assert url == (
+        "wss://spindrel.example.com/base/integrations/local_companion/ws?"
+        "target_id=target-123&token=token-123"
+    )

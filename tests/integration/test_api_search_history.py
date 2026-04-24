@@ -27,7 +27,7 @@ async def channel_with_messages(db_session):
     if _is_sqlite(db_session):
         pytest.skip("ILIKE not supported on SQLite")
 
-    from app.db.models import Channel, Session, Message
+    from app.db.models import Channel, ConversationSection, Session, Message
 
     ch_id = uuid.uuid4()
     sess_id = uuid.uuid4()
@@ -60,12 +60,40 @@ async def channel_with_messages(db_session):
         db_session.add(m)
     await db_session.commit()
 
-    return ch_id, sess_id, messages
+    old_sess_id = uuid.uuid4()
+    old_session = Session(
+        id=old_sess_id,
+        client_id="test-client-old",
+        bot_id="test-bot",
+        channel_id=ch_id,
+        title="Old database notes",
+    )
+    db_session.add(old_session)
+    await db_session.flush()
+    db_session.add(Message(
+        id=uuid.uuid4(),
+        session_id=old_sess_id,
+        role="user",
+        content="The rollback checklist mentions the blue-green verifier",
+    ))
+    db_session.add(ConversationSection(
+        id=uuid.uuid4(),
+        channel_id=ch_id,
+        session_id=old_sess_id,
+        sequence=1,
+        title="Blue-green verifier notes",
+        summary="Archived rollout notes for the verifier",
+        transcript="Archived transcript about blue-green deployment verifier steps.",
+        message_count=3,
+    ))
+    await db_session.commit()
+
+    return ch_id, sess_id, old_sess_id, messages
 
 
 class TestSearchEndpoint:
     async def test_search_endpoint_basic(self, client, channel_with_messages):
-        ch_id, _, _ = channel_with_messages
+        ch_id, _, _, _ = channel_with_messages
         resp = await client.get(
             f"/api/v1/channels/{ch_id}/messages/search",
             params={"q": "deploy"},
@@ -78,7 +106,7 @@ class TestSearchEndpoint:
             assert "deploy" in msg["content_preview"].lower()
 
     async def test_search_endpoint_empty(self, client, channel_with_messages):
-        ch_id, _, _ = channel_with_messages
+        ch_id, _, _, _ = channel_with_messages
         resp = await client.get(
             f"/api/v1/channels/{ch_id}/messages/search",
             params={"q": "zzz_nonexistent_zzz"},
@@ -96,7 +124,7 @@ class TestSearchEndpoint:
         assert resp.status_code == 404
 
     async def test_search_endpoint_pagination(self, client, channel_with_messages):
-        ch_id, _, _ = channel_with_messages
+        ch_id, _, _, _ = channel_with_messages
         resp = await client.get(
             f"/api/v1/channels/{ch_id}/messages/search",
             params={"limit": 1, "offset": 0},
@@ -117,7 +145,7 @@ class TestSearchEndpoint:
             assert page1[0]["id"] != page2[0]["id"]
 
     async def test_search_role_filter(self, client, channel_with_messages):
-        ch_id, _, _ = channel_with_messages
+        ch_id, _, _, _ = channel_with_messages
         resp = await client.get(
             f"/api/v1/channels/{ch_id}/messages/search",
             params={"role": "user"},
@@ -128,7 +156,7 @@ class TestSearchEndpoint:
             assert msg["role"] == "user"
 
     async def test_search_excludes_tool_system_by_default(self, client, channel_with_messages):
-        ch_id, _, _ = channel_with_messages
+        ch_id, _, _, _ = channel_with_messages
         resp = await client.get(
             f"/api/v1/channels/{ch_id}/messages/search",
             headers=AUTH_HEADERS,
@@ -136,3 +164,44 @@ class TestSearchEndpoint:
         assert resp.status_code == 200
         for msg in resp.json():
             assert msg["role"] in ("user", "assistant")
+
+
+class TestSessionSearchEndpoint:
+    async def test_session_catalog_includes_active_and_previous(self, client, channel_with_messages):
+        ch_id, active_sid, old_sid, _ = channel_with_messages
+        resp = await client.get(
+            f"/api/v1/channels/{ch_id}/sessions",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        sessions = resp.json()["sessions"]
+        ids = {row["session_id"] for row in sessions}
+        assert str(active_sid) in ids
+        assert str(old_sid) in ids
+        active = next(row for row in sessions if row["session_id"] == str(active_sid))
+        assert active["surface_kind"] == "channel"
+        assert active["is_active"] is True
+
+    async def test_session_search_groups_live_message_matches_by_session(self, client, channel_with_messages):
+        ch_id, _, old_sid, _ = channel_with_messages
+        resp = await client.get(
+            f"/api/v1/channels/{ch_id}/sessions/search",
+            params={"q": "rollback"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        sessions = resp.json()["sessions"]
+        assert any(row["session_id"] == str(old_sid) for row in sessions)
+        row = next(row for row in sessions if row["session_id"] == str(old_sid))
+        assert any(match["kind"] == "message" for match in row["matches"])
+
+    async def test_session_search_uses_archived_section_matches(self, client, channel_with_messages):
+        ch_id, _, old_sid, _ = channel_with_messages
+        resp = await client.get(
+            f"/api/v1/channels/{ch_id}/sessions/search",
+            params={"q": "verifier"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        row = next(row for row in resp.json()["sessions"] if row["session_id"] == str(old_sid))
+        assert any(match["kind"] == "section" for match in row["matches"])

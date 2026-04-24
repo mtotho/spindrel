@@ -167,13 +167,10 @@ async def run_turn(
             suppress_outbox=session_scoped or not has_channel,
         )
 
-        # 2. Publish TURN_STARTED so renderers can post a "thinking…" placeholder.
-        #    Session-scoped turns (sub-session follow-ups) tag the payload with
-        #    ``session_id`` so the parent-channel UI filter drops it and the
-        #    run-view modal's session filter picks it up.
-        # For channel-less ephemeral sessions, stamp session_id on TURN_STARTED
-        # too — there's no "outer" parent chat to filter it out of, but the UI
-        # still keys store state on session_id.
+        # 2. Publish TURN_STARTED so renderers can post a "thinking..."
+        #    placeholder. Tag every lifecycle event with session_id so
+        #    channel-scoped scratch/thread subscribers can reject sibling
+        #    events carried on the same parent channel bus.
         publish_typed(
             bus_key,
             ChannelEvent(
@@ -183,7 +180,7 @@ async def run_turn(
                     bot_id=bot.id,
                     turn_id=turn_id,
                     reason="user_message",
-                    session_id=session_id if (session_scoped or not has_channel) else None,
+                    session_id=session_id,
                 ),
             ),
         )
@@ -275,7 +272,7 @@ async def run_turn(
             channel_id=bus_key,
             bot_id=bot.id,
             turn_id=turn_id,
-            session_id=session_id if (session_scoped or not has_channel) else None,
+            session_id=session_id,
         ):
             etype = event.get("type")
 
@@ -562,7 +559,7 @@ async def run_turn(
                         # and error being independent.
                         error=error_text or None,
                         client_actions=list(response_actions or []),
-                        session_id=session_id if (session_scoped or not has_channel) else None,
+                        session_id=session_id,
                         extra_metadata=(
                             {"auto_injected_skills": _auto_injected_skills}
                             if _auto_injected_skills else {}

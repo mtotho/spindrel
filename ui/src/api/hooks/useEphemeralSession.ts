@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
+import type { ChannelSessionCatalogItem } from "@/src/lib/channelSessionSurfaces";
 
 interface EphemeralContextPayload {
   page_name?: string;
@@ -71,6 +72,14 @@ function scratchHistoryKey(parentChannelId: string) {
   return ["scratch-history", parentChannelId] as const;
 }
 
+function channelSessionCatalogKey(channelId: string) {
+  return ["channel-session-catalog", channelId] as const;
+}
+
+function channelSessionSearchKey(channelId: string, query: string) {
+  return ["channel-session-search", channelId, query] as const;
+}
+
 /** Resolve (or lazily create) the current scratch session for
  *  (user, channel, bot). Returns a stable session id that matches across
  *  devices for the authenticated user. */
@@ -113,6 +122,9 @@ export function useResetScratchSession() {
       qc.invalidateQueries({
         queryKey: scratchHistoryKey(vars.parent_channel_id),
       });
+      qc.invalidateQueries({
+        queryKey: channelSessionCatalogKey(vars.parent_channel_id),
+      });
     },
   });
 }
@@ -138,6 +150,41 @@ export function useScratchHistory(
   });
 }
 
+export function useChannelSessionCatalog(channelId: string | null | undefined) {
+  return useQuery({
+    queryKey: channelId ? channelSessionCatalogKey(channelId) : ["channel-session-catalog", "disabled"],
+    queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
+      const data = await apiFetch<{ sessions: ChannelSessionCatalogItem[] }>(
+        `/api/v1/channels/${channelId}/sessions?limit=100`,
+      );
+      return data.sessions;
+    },
+    enabled: !!channelId,
+    staleTime: 60_000,
+  });
+}
+
+export function useChannelSessionSearch(
+  channelId: string | null | undefined,
+  query: string,
+) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: channelId && q.length >= 2
+      ? channelSessionSearchKey(channelId, q)
+      : ["channel-session-search", "disabled"],
+    queryFn: async (): Promise<ChannelSessionCatalogItem[]> => {
+      const params = new URLSearchParams({ q, limit: "100" });
+      const data = await apiFetch<{ query: string; sessions: ChannelSessionCatalogItem[] }>(
+        `/api/v1/channels/${channelId}/sessions/search?${params.toString()}`,
+      );
+      return data.sessions;
+    },
+    enabled: !!channelId && q.length >= 2,
+    staleTime: 30_000,
+  });
+}
+
 export function useRenameSession() {
   const qc = useQueryClient();
   return useMutation({
@@ -149,6 +196,7 @@ export function useRenameSession() {
     onSuccess: (_data, vars) => {
       if (vars.parent_channel_id) {
         qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
+        qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
       }
       if (vars.parent_channel_id && vars.bot_id) {
         qc.invalidateQueries({
@@ -169,6 +217,7 @@ export function usePromoteScratchSession() {
       ),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: scratchHistoryKey(vars.parent_channel_id) });
+      qc.invalidateQueries({ queryKey: channelSessionCatalogKey(vars.parent_channel_id) });
       if (vars.bot_id) {
         qc.invalidateQueries({
           queryKey: scratchCurrentKey(vars.parent_channel_id, vars.bot_id),

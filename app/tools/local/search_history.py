@@ -66,6 +66,23 @@ def _build_query(channel_id, bot_id, query=None, start_date=None, end_date=None,
     return stmt
 
 
+def _build_session_query(session_ids, query=None, role="all", limit=20):
+    """Build a message-search statement scoped to explicit session ids."""
+    ids = list(session_ids or [])
+    stmt = select(Message).where(Message.session_id.in_(ids))
+
+    if query:
+        escaped = re.sub(r"([%_])", r"\\\1", query)
+        stmt = stmt.where(Message.content.ilike(f"%{escaped}%"))
+
+    if role and role != "all":
+        stmt = stmt.where(Message.role == role)
+    else:
+        stmt = stmt.where(Message.role.in_(["user", "assistant"]))
+
+    return stmt.order_by(Message.created_at.desc()).limit(limit)
+
+
 def _serialize_messages(messages):
     """Serialize messages to JSON-friendly dicts."""
     results = []
