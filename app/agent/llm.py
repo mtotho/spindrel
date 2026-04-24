@@ -630,6 +630,24 @@ _FALLBACK_TRIGGER_ERRORS = (*_RETRYABLE_ERRORS, openai.BadRequestError)
 # Shared retry engine
 # ---------------------------------------------------------------------------
 
+def _deep_merge_dicts(base: dict, overlay: dict) -> dict:
+    """Recursive dict merge: ``overlay`` wins on scalar / list keys; nested dicts merge.
+
+    Used for ``extra_body`` composition where a per-(provider, model) baseline
+    (``options.num_ctx``) and a per-bot override (``options.num_predict``) need
+    to coexist without one wiping the other's keys.
+    """
+    if not isinstance(base, dict):
+        return dict(overlay) if isinstance(overlay, dict) else overlay
+    out = dict(base)
+    for k, v in overlay.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge_dicts(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 def _compute_backoff(base: float, attempt: int, cap: float = 300.0) -> float:
     """Truncated jitter exponential backoff with a floor at 50% of base.
 
@@ -648,6 +666,37 @@ class _ErrorClassification:
     skip_to_fallback: bool = False
     retry_without_tools: bool = False
     retry_without_images: bool = False
+    retry_after_seconds: float | None = None
+
+
+def _parse_retry_after(exc: Exception) -> float | None:
+    """Parse the upstream ``Retry-After`` header (seconds-int OR HTTP-date).
+
+    Returns ``None`` when the header is missing or unparseable. Caller clamps.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    raw = headers.get("retry-after") or headers.get("Retry-After")
+    if not raw:
+        return None
+    try:
+        return float(raw.strip())
+    except (TypeError, ValueError):
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        dt = parsedate_to_datetime(raw)
+        if dt is None:
+            return None
+        from datetime import datetime, timezone
+        delta = (dt - datetime.now(timezone.utc)).total_seconds()
+        return delta if delta > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _classify_error(exc: Exception, has_tools: bool) -> _ErrorClassification:
@@ -660,7 +709,11 @@ def _classify_error(exc: Exception, has_tools: bool) -> _ErrorClassification:
         return _ErrorClassification()  # not retryable, propagate
 
     if isinstance(exc, openai.RateLimitError):
-        return _ErrorClassification(retryable=True, base_wait=settings.LLM_RATE_LIMIT_INITIAL_WAIT)
+        return _ErrorClassification(
+            retryable=True,
+            base_wait=settings.LLM_RATE_LIMIT_INITIAL_WAIT,
+            retry_after_seconds=_parse_retry_after(exc),
+        )
 
     if isinstance(exc, openai.InternalServerError) and _is_non_transient_500(exc):
         return _ErrorClassification(skip_to_fallback=True)
@@ -739,7 +792,13 @@ async def _retry_single_model(
             if attempt >= max_retries:
                 raise
 
-            wait = _compute_backoff(cl.base_wait, attempt)
+            if cl.retry_after_seconds is not None:
+                # Honor upstream Retry-After (clamped) so we don't wake before
+                # the provider lifts the ban. Fall through to exp-jitter when
+                # the header is absent or unparseable.
+                wait = max(1.0, min(120.0, cl.retry_after_seconds))
+            else:
+                wait = _compute_backoff(cl.base_wait, attempt)
             reason = "rate_limited" if isinstance(exc, openai.RateLimitError) else type(exc).__name__
             logger.warning("LLM call to %s failed with %s (attempt %d/%d), waiting %.1fs...",
                            model, reason, attempt + 1, max_retries, wait)
@@ -1205,11 +1264,28 @@ def _prepare_call_params(
     except (TypeError, ValueError):
         _tb_int = None
     effort_kwargs = translate_effort(model, _effort, explicit_budget=_tb_int)
-    # `extra_body` may already be populated by the caller; merge instead of
-    # overwrite so the translator's thinking_config doesn't clobber user keys.
-    if "extra_body" in effort_kwargs and filtered.get("extra_body"):
-        merged = dict(filtered["extra_body"])
-        merged.update(effort_kwargs["extra_body"])
+
+    # extra_body merge order (lowest precedence first):
+    #   1. ProviderModel.extra_body  — admin-set per-(provider, model) baseline
+    #      (primary use: Ollama options.num_ctx so 32K-context models stop
+    #      truncating to 2048).
+    #   2. caller-supplied model_params['extra_body']  — per-bot overrides.
+    #   3. effort_kwargs['extra_body']                 — translator's thinking_config.
+    # ``filter_model_params`` strips ``extra_body`` (it's not in any family's
+    # supported set), so we must pull the caller value from the raw
+    # ``model_params`` dict here, not from ``filtered``.
+    from app.services.providers import get_provider_model_extra_body as _pm_extra_body
+    pm_extra_body = _pm_extra_body(model, provider_id)
+    caller_extra_body = (model_params or {}).get("extra_body") if model_params else None
+
+    if pm_extra_body or "extra_body" in effort_kwargs or caller_extra_body:
+        merged: dict = {}
+        if pm_extra_body:
+            merged = _deep_merge_dicts(merged, pm_extra_body)
+        if caller_extra_body:
+            merged = _deep_merge_dicts(merged, dict(caller_extra_body))
+        if "extra_body" in effort_kwargs:
+            merged = _deep_merge_dicts(merged, dict(effort_kwargs["extra_body"]))
         effort_kwargs["extra_body"] = merged
     filtered.update(effort_kwargs)
 

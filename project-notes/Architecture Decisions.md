@@ -33,6 +33,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - `integration.yaml:tool_result_rendering` declares the detailed support matrix: display modes, content types, view keys, fallback, placement, and limits.
 - `integrations.tool_output` owns support matching and portable read-only card normalization.
 - Slack is the v1 adapter. Unsupported envelopes fall back to compact badges; HTML/native widgets are not rendered outside the web host.
+- Chat integration runtime code imports host contracts through `integrations.sdk`; direct `app.*` imports under `integrations/` are treated as boundary debt and guarded by `tests/unit/test_integration_import_boundary.py`.
 
 **Load-bearing invariants.**
 - Text fallback is always the durable baseline.
@@ -40,6 +41,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Rich-result rendering is read-only in v1. Widget actions do not become platform buttons.
 - Approvals remain on `approval_buttons`, not generic rich-result actions.
 - Existing tools are not hidden merely because a channel lacks rich-result support.
+- The SDK import surface is allowed to re-export stable host contracts for integrations, including DB/session types, renderer registry access, settings helpers, hooks, auth helpers, and portable tool-output primitives.
 
 ### Light mode uses neutral surface depth, not extra accent color
 **Decided 2026-04-24.** Light mode should not solve flatness by adding decorative color to individual screens or by introducing a second global accent. Spindrel keeps one primary accent, and light-mode hierarchy comes from a cooler neutral surface ladder plus shared component primitives.

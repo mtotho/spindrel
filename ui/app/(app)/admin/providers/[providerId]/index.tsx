@@ -19,6 +19,7 @@ import { useConfirm } from "@/src/components/shared/ConfirmDialog";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { ProviderCapabilitySections } from "./ProviderCapabilitySections";
 import { OpenAISubscriptionSection } from "./OpenAISubscriptionSection";
+import { ProviderExtraHeadersSection } from "./ProviderExtraHeadersSection";
 
 const PROVIDER_TYPE_OPTIONS = [
   { label: "LiteLLM", value: "litellm" },
@@ -89,6 +90,7 @@ export default function ProviderDetailScreen() {
   const [billingType, setBillingType] = useState("usage");
   const [planCost, setPlanCost] = useState("");
   const [planPeriod, setPlanPeriod] = useState("monthly");
+  const [extraHeaders, setExtraHeaders] = useState<Record<string, string>>({});
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [initialized, setInitialized] = useState(isNew);
 
@@ -110,13 +112,20 @@ export default function ProviderDetailScreen() {
   const [editingModelId, setEditingModelId] = useState<number | null>(null);
   const [editModelDisplay, setEditModelDisplay] = useState("");
   const [editModelMaxTokens, setEditModelMaxTokens] = useState("");
+  const [editModelContextWindow, setEditModelContextWindow] = useState("");
+  const [editModelMaxOutputTokens, setEditModelMaxOutputTokens] = useState("");
   const [editModelInputCost, setEditModelInputCost] = useState("");
   const [editModelOutputCost, setEditModelOutputCost] = useState("");
+  const [editModelCachedInputCost, setEditModelCachedInputCost] = useState("");
   const [editModelNoSysMsg, setEditModelNoSysMsg] = useState(false);
   const [editModelSupportsTools, setEditModelSupportsTools] = useState(true);
   const [editModelSupportsVision, setEditModelSupportsVision] = useState(true);
   const [editModelReasoning, setEditModelReasoning] = useState(false);
+  const [editModelPromptCaching, setEditModelPromptCaching] = useState(false);
+  const [editModelStructuredOutput, setEditModelStructuredOutput] = useState(false);
   const [editModelPromptStyle, setEditModelPromptStyle] = useState<"markdown" | "xml" | "structured">("markdown");
+  const [editModelExtraBody, setEditModelExtraBody] = useState("");
+  const [editModelExtraBodyError, setEditModelExtraBodyError] = useState<string | null>(null);
   const { confirm, ConfirmDialogSlot } = useConfirm();
 
   if (provider && !initialized) {
@@ -129,10 +138,19 @@ export default function ProviderDetailScreen() {
     setBillingType(provider.billing_type || "usage");
     setPlanCost(provider.plan_cost ? String(provider.plan_cost) : "");
     setPlanPeriod(provider.plan_period || "monthly");
+    const cfgHeaders = provider.config?.extra_headers;
+    setExtraHeaders(
+      cfgHeaders && typeof cfgHeaders === "object" && !Array.isArray(cfgHeaders)
+        ? Object.fromEntries(
+            Object.entries(cfgHeaders as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")])
+          )
+        : {}
+    );
     setInitialized(true);
   }
 
   const handleSave = useCallback(async () => {
+    const headersPayload = Object.keys(extraHeaders).length > 0 ? extraHeaders : null;
     if (isNew) {
       if (!id.trim() || !displayName.trim()) return;
       await createMut.mutateAsync({
@@ -145,6 +163,7 @@ export default function ProviderDetailScreen() {
         billing_type: billingType,
         plan_cost: billingType === "plan" && planCost ? parseFloat(planCost) : null,
         plan_period: billingType === "plan" ? planPeriod : null,
+        extra_headers: headersPayload,
       });
       goBack();
     } else {
@@ -161,9 +180,11 @@ export default function ProviderDetailScreen() {
         plan_cost: billingType === "plan" && planCost ? parseFloat(planCost) : undefined,
         plan_period: billingType === "plan" ? planPeriod : undefined,
         clear_plan_cost: billingType === "usage",
+        extra_headers: headersPayload,
+        clear_extra_headers: headersPayload === null,
       });
     }
-  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, billingType, planCost, planPeriod, createMut, updateMut, goBack]);
+  }, [isNew, id, displayName, providerType, apiKey, baseUrl, isEnabled, tpmLimit, rpmLimit, managementKey, billingType, planCost, planPeriod, extraHeaders, createMut, updateMut, goBack]);
 
   const handleDelete = useCallback(async () => {
     if (!providerId) return;
@@ -181,26 +202,44 @@ export default function ProviderDetailScreen() {
     setEditingModelId(model.id);
     setEditModelDisplay(model.display_name || "");
     setEditModelMaxTokens(model.max_tokens ? String(model.max_tokens) : "");
+    setEditModelContextWindow(model.context_window ? String(model.context_window) : "");
+    setEditModelMaxOutputTokens(model.max_output_tokens ? String(model.max_output_tokens) : "");
     setEditModelInputCost(model.input_cost_per_1m || "");
     setEditModelOutputCost(model.output_cost_per_1m || "");
+    setEditModelCachedInputCost(model.cached_input_cost_per_1m || "");
     setEditModelNoSysMsg(!!model.no_system_messages);
     setEditModelSupportsTools(model.supports_tools !== false);
     setEditModelSupportsVision(model.supports_vision !== false);
     setEditModelReasoning(!!model.supports_reasoning);
+    setEditModelPromptCaching(!!model.supports_prompt_caching);
+    setEditModelStructuredOutput(!!model.supports_structured_output);
     setEditModelPromptStyle(model.prompt_style || "markdown");
+    setEditModelExtraBody(
+      model.extra_body && Object.keys(model.extra_body).length > 0
+        ? JSON.stringify(model.extra_body, null, 2)
+        : ""
+    );
+    setEditModelExtraBodyError(null);
   }, []);
 
   const cancelEditModel = useCallback(() => {
     setEditingModelId(null);
     setEditModelDisplay("");
     setEditModelMaxTokens("");
+    setEditModelContextWindow("");
+    setEditModelMaxOutputTokens("");
     setEditModelInputCost("");
     setEditModelOutputCost("");
+    setEditModelCachedInputCost("");
     setEditModelNoSysMsg(false);
     setEditModelSupportsTools(true);
     setEditModelSupportsVision(true);
     setEditModelReasoning(false);
+    setEditModelPromptCaching(false);
+    setEditModelStructuredOutput(false);
     setEditModelPromptStyle("markdown");
+    setEditModelExtraBody("");
+    setEditModelExtraBodyError(null);
   }, []);
 
   const handleTest = useCallback(() => {
@@ -381,6 +420,11 @@ export default function ProviderDetailScreen() {
             <OpenAISubscriptionSection providerId={isNew ? undefined : providerId} />
           )}
 
+          <ProviderExtraHeadersSection
+            initial={extraHeaders}
+            onChange={setExtraHeaders}
+          />
+
           <Section title="Rate Limits" description="Optional per-provider rate limiting">
             <Row>
               <Col>
@@ -458,18 +502,38 @@ export default function ProviderDetailScreen() {
                           <>
                             <button
                               onClick={async () => {
+                                let parsedExtraBody: Record<string, any> | null = null;
+                                if (editModelExtraBody.trim()) {
+                                  try {
+                                    parsedExtraBody = JSON.parse(editModelExtraBody);
+                                    if (parsedExtraBody === null || typeof parsedExtraBody !== "object" || Array.isArray(parsedExtraBody)) {
+                                      setEditModelExtraBodyError("extra_body must be a JSON object");
+                                      return;
+                                    }
+                                  } catch (err) {
+                                    setEditModelExtraBodyError(`Invalid JSON: ${(err as Error).message}`);
+                                    return;
+                                  }
+                                }
+                                setEditModelExtraBodyError(null);
                                 await updateModelMut.mutateAsync({
                                   modelPk: m.id,
                                   data: {
                                     display_name: editModelDisplay.trim() || null,
                                     max_tokens: editModelMaxTokens ? parseInt(editModelMaxTokens) : null,
+                                    context_window: editModelContextWindow ? parseInt(editModelContextWindow) : null,
+                                    max_output_tokens: editModelMaxOutputTokens ? parseInt(editModelMaxOutputTokens) : null,
                                     input_cost_per_1m: editModelInputCost.trim() || null,
                                     output_cost_per_1m: editModelOutputCost.trim() || null,
+                                    cached_input_cost_per_1m: editModelCachedInputCost.trim() || null,
                                     no_system_messages: editModelNoSysMsg,
                                     supports_tools: editModelSupportsTools,
                                     supports_vision: editModelSupportsVision,
                                     supports_reasoning: editModelReasoning,
+                                    supports_prompt_caching: editModelPromptCaching,
+                                    supports_structured_output: editModelStructuredOutput,
                                     prompt_style: editModelPromptStyle,
+                                    extra_body: parsedExtraBody ?? {},
                                   },
                                 });
                                 cancelEditModel();
@@ -619,6 +683,38 @@ export default function ProviderDetailScreen() {
                             </div>
                           </div>
 
+                          <div className="flex flex-row gap-2 flex-wrap">
+                            <div className="flex-1 min-w-[120px]">
+                              <div className="text-text-dim text-[10px] mb-0.5">Context window</div>
+                              <input
+                                value={editModelContextWindow}
+                                onChange={(e) => setEditModelContextWindow(e.target.value)}
+                                placeholder="Input cap"
+                                type="number"
+                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-[120px]">
+                              <div className="text-text-dim text-[10px] mb-0.5">Max output tokens</div>
+                              <input
+                                value={editModelMaxOutputTokens}
+                                onChange={(e) => setEditModelMaxOutputTokens(e.target.value)}
+                                placeholder="Output cap"
+                                type="number"
+                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-[120px]">
+                              <div className="text-text-dim text-[10px] mb-0.5">Cached input $/1M</div>
+                              <input
+                                value={editModelCachedInputCost}
+                                onChange={(e) => setEditModelCachedInputCost(e.target.value)}
+                                placeholder="$0.30"
+                                className="w-full px-2 py-1.5 text-xs rounded bg-input-bg border border-surface-border text-text"
+                              />
+                            </div>
+                          </div>
+
                           <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
                             <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
                               <input
@@ -656,6 +752,43 @@ export default function ProviderDetailScreen() {
                               />
                               Reasoning
                             </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelPromptCaching}
+                                onChange={(e) => setEditModelPromptCaching(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Prompt caching
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelStructuredOutput}
+                                onChange={(e) => setEditModelStructuredOutput(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Structured output
+                            </label>
+                          </div>
+
+                          <div className="flex flex-col gap-1">
+                            <div className="text-text-dim text-[10px]">
+                              Extra body (JSON) — merged into request <code>extra_body</code>; e.g. <code>{`{"options":{"num_ctx":16384}}`}</code> for Ollama
+                            </div>
+                            <textarea
+                              value={editModelExtraBody}
+                              onChange={(e) => {
+                                setEditModelExtraBody(e.target.value);
+                                if (editModelExtraBodyError) setEditModelExtraBodyError(null);
+                              }}
+                              placeholder='{}'
+                              rows={3}
+                              className="w-full px-2 py-1.5 text-xs font-mono rounded bg-input-bg border border-surface-border text-text resize-y"
+                            />
+                            {editModelExtraBodyError && (
+                              <div className="text-danger text-[11px]">{editModelExtraBodyError}</div>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -893,6 +1026,8 @@ export default function ProviderDetailScreen() {
             <ProviderCapabilitySections
               providerId={providerId!}
               capabilities={caps}
+              lastRefreshTs={provider?.config?.last_refresh_ts as string | undefined}
+              lastRefreshError={provider?.config?.last_refresh_error as string | undefined}
             />
           )}
 

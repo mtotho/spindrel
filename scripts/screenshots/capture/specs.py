@@ -279,40 +279,242 @@ DOCS_REPAIR_SPECS: list[ScreenshotSpec] = [
 
 
 # ---------------------------------------------------------------------------
-# Integration hero specs (Phase A2) — one admin-detail capture per integration
-# guide currently lacking an image. The detail page renders manifest-derived
-# Overview (capability badges) + Manifest editor + Detected Assets + (when
-# present) Events / Webhook / Machine Setup, which is enough hero content for
-# each integration's docs guide. No staging required — the registry is
-# populated from the integrations/ tree on server startup.
+# Integration hero specs (Phase A2). Curated for differentiation — eight
+# clones of the same admin-detail template aren't useful. We keep:
+#
+#   1. integrations-library.png — the Library tab grid (cross-cutting hero
+#      for `docs/guides/integrations.md`; works without staging)
+#   2. integrations-active.png  — the Active tab populated with adopted
+#      integrations (requires the `integrations` stager so the list is
+#      non-empty)
+#   3. integration-{github, homeassistant, frigate}.png — three detail-page
+#      heroes chosen because each has distinctive content the docs reference:
+#      GitHub's 9 webhook events, HomeAssistant's 6 tool widgets, Frigate's
+#      webhook + machine-control surfaces. Captured ``full_page=True`` so the
+#      manifest editor + events + detected assets are all visible.
+#
+# Adoption staging is via ``stage_integrations`` (PUT
+# /admin/integrations/<id>/status -> enabled). Teardown reverts to
+# ``available``. Slack / Discord / Excalidraw / Browser-Live / Web-Search
+# detail captures were dropped — their pages were ~80% identical scaffolding;
+# their guide heroes need the in-channel rendered tool result, deferred to
+# A2-channel.
 # ---------------------------------------------------------------------------
-
-def _integration_spec(*, slug: str, output: str, name_text: str) -> "ScreenshotSpec":
-    return ScreenshotSpec(
-        name=f"integration-{slug}",
-        route=f"/admin/integrations/{slug}",
-        viewport={"width": 1440, "height": 900},
-        wait_kind="function",
-        # Wait for the integration name in the PageHeader plus the Overview
-        # section to mount; both signal the manifest fetch resolved. The
-        # Overview heading is part of every detail page.
-        wait_arg=(
-            f'/{name_text}/i.test(document.body.innerText)'
-            ' && /Overview/.test(document.body.innerText)'
-        ),
-        output=output,
-    )
 
 
 INTEGRATIONS_SPECS: list[ScreenshotSpec] = [
-    _integration_spec(slug="slack",        output="integration-slack.png",        name_text="Slack"),
-    _integration_spec(slug="discord",      output="integration-discord.png",      name_text="Discord"),
-    _integration_spec(slug="github",       output="integration-github.png",       name_text="GitHub"),
-    _integration_spec(slug="homeassistant",output="integration-homeassistant.png",name_text="Home ?Assistant"),
-    _integration_spec(slug="frigate",      output="integration-frigate.png",      name_text="Frigate"),
-    _integration_spec(slug="excalidraw",   output="integration-excalidraw.png",   name_text="Excalidraw"),
-    _integration_spec(slug="browser_live", output="integration-browser-live.png", name_text="Browser ?Live"),
-    _integration_spec(slug="web_search",   output="integration-web-search.png",   name_text="Web ?Search"),
+    # 1. Library tab — the catalog grid (route uses hash routing via
+    # ``useHashTab``). Cards show every shipped integration with their
+    # adoption state, making this the canonical "what-can-Spindrel-do" hero
+    # for `integrations.md`.
+    ScreenshotSpec(
+        name="integrations-library",
+        route="/admin/integrations#library",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # When ``useIntegrations`` is loading the page renders ONLY a Spinner
+        # (early return), so neither tab label is in the DOM. Once both
+        # "Active" and "Library" labels appear, the segmented control is
+        # mounted and the integration list has resolved. We additionally
+        # wait on a Library-only integration name (Bluebubbles is in Library,
+        # not Active) so we know the hash routed to the right list.
+        wait_arg=(
+            '/Active/.test(document.body.innerText)'
+            ' && /Library/.test(document.body.innerText)'
+            ' && /Bluebubbles|Excalidraw|Slack/.test(document.body.innerText)'
+        ),
+        output="integrations-library.png",
+    ),
+    # 2. Active tab — adopted integrations after staging. Shows the user's
+    # populated environment, which is the state all docs prose assumes. The
+    # default hash is ``#active``; we set it explicitly for symmetry.
+    ScreenshotSpec(
+        name="integrations-active",
+        route="/admin/integrations#active",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait for the segmented control mount + at least one adopted
+        # integration name + the section header ("Needs Setup" or "Ready").
+        # The section headers only render once filtering completes, so they
+        # gate against the "data loaded but list filter mid-flight" case.
+        wait_arg=(
+            '/Active/.test(document.body.innerText)'
+            ' && /Library/.test(document.body.innerText)'
+            ' && /Frigate|GitHub|Github|Home ?Assistant|Web ?Search/i.test(document.body.innerText)'
+            ' && /Needs Setup|Ready/i.test(document.body.innerText)'
+        ),
+        output="integrations-active.png",
+    ),
+    # 3. GitHub detail — full_page so all 9 events are visible alongside the
+    # manifest editor + env vars block. The events list is the docs-relevant
+    # surface (it's what task triggers / binding filters key off of).
+    ScreenshotSpec(
+        name="integration-github",
+        route="/admin/integrations/github",
+        viewport={"width": 1440, "height": 1100},
+        wait_kind="function",
+        wait_arg=(
+            '/Github|GitHub/.test(document.body.innerText)'
+            ' && /Events \\(9\\)|pull_request/.test(document.body.innerText)'
+        ),
+        full_page=True,
+        output="integration-github.png",
+    ),
+    # 4. HomeAssistant detail — full_page so the 6 tool widgets list is
+    # visible. HomeAssistant guide explicitly mentions tool widgets.
+    ScreenshotSpec(
+        name="integration-homeassistant",
+        route="/admin/integrations/homeassistant",
+        viewport={"width": 1440, "height": 1100},
+        wait_kind="function",
+        wait_arg=(
+            '/Home ?assistant/i.test(document.body.innerText)'
+            ' && /TOOL WIDGETS|haSearchEntities|hassTurnOn/i.test(document.body.innerText)'
+        ),
+        full_page=True,
+        output="integration-homeassistant.png",
+    ),
+    # 5. Frigate detail — full_page so webhook URL + skill + machine-control
+    # surfaces are all in frame.
+    ScreenshotSpec(
+        name="integration-frigate",
+        route="/admin/integrations/frigate",
+        viewport={"width": 1440, "height": 1100},
+        wait_kind="function",
+        wait_arg=(
+            '/Frigate/.test(document.body.innerText)'
+            ' && /Webhook|object_detected/i.test(document.body.innerText)'
+        ),
+        full_page=True,
+        output="integration-frigate.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# A3-docs: feature deep-dives ordered by docs-guide gap.
+#
+# Admin slice — all routes are static; the registry/auth/data is whatever the
+# server has in it. No staging. Each capture targets a guide that currently
+# has zero images, or a README TODO placeholder.
+# ---------------------------------------------------------------------------
+
+
+A3_DOCS_SPECS: list[ScreenshotSpec] = [
+    # Providers list — feeds `docs/guides/providers.md` and README TODO #3
+    # ("providers/usage screenshot"). PageHeader title is "Providers"; once
+    # the content surface mounts the title is in the DOM.
+    ScreenshotSpec(
+        name="providers-settings",
+        route="/admin/providers",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Title + at least one provider name renders once useProviders resolves.
+        # Provider rows include common names like "OpenAI" / "Anthropic" /
+        # "Ollama" / "Groq"; we wait for any of them to confirm list mount.
+        wait_arg=(
+            '/Providers/.test(document.body.innerText)'
+            ' && /OpenAI|Anthropic|Ollama|Groq|Gemini/i.test(document.body.innerText)'
+        ),
+        output="providers-settings.png",
+    ),
+    # Approvals queue — feeds `docs/guides/tool-policies.md` and
+    # `docs/guides/development-process.md`. Even with no pending approvals the
+    # page shows the queue UI + history; non-empty would be ideal but doesn't
+    # block the docs hero.
+    ScreenshotSpec(
+        name="approvals-queue",
+        route="/admin/approvals",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # First: wait for the chrome to settle (page title + sidebar links).
+        # The list query (`/api/v1/approvals` with no status filter) returns
+        # hundreds of historical e2e-test rows on this instance which makes
+        # the spinner stick — we'll switch to the Pending tab via action so
+        # the hero is both fast and the actionable surface that
+        # tool-policies.md wants.
+        wait_arg=(
+            '/Approvals/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        actions=[
+            Action(kind="click", selector="button:has-text('Pending')"),
+            # After the click, useApprovals re-runs with status=pending.
+            # Pending is typically empty on a quiet instance — empty-state
+            # text "No approvals with status \"pending\"." is a stable
+            # signal the new query resolved.
+            Action(
+                kind="wait_for",
+                selector='text=/No approvals|requested by/i',
+            ),
+        ],
+        output="approvals-queue.png",
+    ),
+    # Task definitions (pipeline library equivalent) — feeds
+    # `docs/guides/pipelines.md`. The Tasks page with `view=definitions` is
+    # the closest UI surface to a "pipeline library" — it lists every
+    # registered task definition including pipeline-shaped ones.
+    ScreenshotSpec(
+        name="pipeline-library",
+        route="/admin/tasks?view=definitions",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # The Definitions tab label sits in the page chrome and matches even
+        # while the list query is loading. Wait for the actual definitions
+        # surface: either a "No task definitions yet." empty-state OR a
+        # task row marker (the table header includes "Trigger" / "Bot" /
+        # "Status" columns once the desktop view renders). Also gate on the
+        # sidebar leaving its skeleton state so chrome looks settled.
+        wait_arg=(
+            '/Tasks/.test(document.body.innerText)'
+            ' && /No task definitions|Trigger|Last run|Next run/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="pipeline-library.png",
+    ),
+    # Workspace files browser — feeds `templates-and-activation.md` and
+    # `how-spindrel-works.md`. Hero shows the canonical workspace tree
+    # (`bots/`, `channels/`, `common/`, `integrations/`, `users/`) so the
+    # caption can explain the mental model: "every bot has a home in here."
+    # `{default_workspace}` is resolved from `client.list_workspaces()` at
+    # capture time — first workspace is always the Default.
+    ScreenshotSpec(
+        name="workspace-files",
+        route="/admin/workspaces/{default_workspace}/files",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        # Wait for the file tree to mount — `bots`, `channels`, `common`,
+        # `integrations`, `users` are the canonical top-level dirs. The
+        # presence of all five is a strong signal that the directory listing
+        # query resolved (vs. showing only chrome).
+        wait_arg=(
+            '/bots/.test(document.body.innerText)'
+            ' && /channels/.test(document.body.innerText)'
+            ' && /integrations/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="workspace-files.png",
+    ),
+    # Skill detail — feeds `bot-skills.md`. We point at a rich library skill
+    # (`widgets/html`, 27 chunks + 12 triggers) so the hero shows a populated
+    # skill page rather than a stub. Skill IDs are slashy paths and need URL
+    # encoding when used as route segments — `widgets%2Fhtml`.
+    ScreenshotSpec(
+        name="skill-detail",
+        route="/admin/skills/widgets%2Fhtml",
+        viewport={"width": 1440, "height": 1100},
+        wait_kind="function",
+        # Wait for the skill name + at least one of the rich-content
+        # markers (triggers list, chunk count, or the markdown body
+        # heading). Also gate on the channel sidebar settling.
+        wait_arg=(
+            '/HTML Widgets|widgets\\/html|HTML widget/i.test(document.body.innerText)'
+            ' && /Triggers|Chunks|Source/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        full_page=True,
+        output="skill-detail.png",
+    ),
 ]
 
 

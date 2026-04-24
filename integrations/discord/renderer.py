@@ -29,6 +29,7 @@ from integrations.sdk import (
     DispatchTarget, OutboundAction, DeliveryReceipt,
     ToolOutputDisplay, ToolResultRenderingSupport,
     get_channel_for_integration,
+    renderer_registry,
 )
 from integrations.discord.client import bot_attribution
 from integrations.discord.formatting import format_response_for_discord, split_for_discord
@@ -718,7 +719,6 @@ class _DiscordCallResult:
 
 
 def _register() -> None:
-    from app.integrations import renderer_registry
     if renderer_registry.get(DiscordRenderer.integration_id) is None:
         renderer_registry.register(DiscordRenderer())
 

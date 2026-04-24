@@ -31,6 +31,7 @@ export interface ProviderCreatePayload {
   billing_type?: string;
   plan_cost?: number | null;
   plan_period?: string | null;
+  extra_headers?: Record<string, string> | null;
 }
 
 export interface ProviderUpdatePayload {
@@ -48,6 +49,8 @@ export interface ProviderUpdatePayload {
   plan_cost?: number | null;
   plan_period?: string | null;
   clear_plan_cost?: boolean;
+  extra_headers?: Record<string, string> | null;
+  clear_extra_headers?: boolean;
 }
 
 export interface TestResult {
@@ -157,13 +160,19 @@ export interface ProviderModelItem {
   model_id: string;
   display_name?: string | null;
   max_tokens?: number | null;
+  context_window?: number | null;
+  max_output_tokens?: number | null;
   input_cost_per_1m?: string | null;
   output_cost_per_1m?: string | null;
+  cached_input_cost_per_1m?: string | null;
   no_system_messages?: boolean;
   supports_tools?: boolean;
   supports_vision?: boolean;
   supports_reasoning?: boolean;
+  supports_prompt_caching?: boolean;
+  supports_structured_output?: boolean;
   prompt_style?: PromptStyle;
+  extra_body?: Record<string, any>;
   created_at: string;
 }
 
@@ -171,25 +180,37 @@ export interface ProviderModelCreatePayload {
   model_id: string;
   display_name?: string;
   max_tokens?: number | null;
+  context_window?: number | null;
+  max_output_tokens?: number | null;
   input_cost_per_1m?: string;
   output_cost_per_1m?: string;
+  cached_input_cost_per_1m?: string;
   no_system_messages?: boolean;
   supports_tools?: boolean;
   supports_vision?: boolean;
   supports_reasoning?: boolean;
+  supports_prompt_caching?: boolean;
+  supports_structured_output?: boolean;
   prompt_style?: PromptStyle;
+  extra_body?: Record<string, any> | null;
 }
 
 export interface ProviderModelUpdatePayload {
   display_name?: string | null;
   max_tokens?: number | null;
+  context_window?: number | null;
+  max_output_tokens?: number | null;
   input_cost_per_1m?: string | null;
   output_cost_per_1m?: string | null;
+  cached_input_cost_per_1m?: string | null;
   no_system_messages?: boolean;
   supports_tools?: boolean;
   supports_vision?: boolean;
   supports_reasoning?: boolean;
+  supports_prompt_caching?: boolean;
+  supports_structured_output?: boolean;
   prompt_style?: PromptStyle;
+  extra_body?: Record<string, any> | null;
 }
 
 export function useProviderModels(providerId: string | undefined) {

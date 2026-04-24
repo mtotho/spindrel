@@ -8,7 +8,12 @@ import httpx
 
 from integrations.bluebubbles.config import settings
 from integrations.bluebubbles.echo_tracker import shared_tracker
-from integrations.sdk import register_tool as register
+from integrations.sdk import (
+    ChannelIntegration,
+    async_session,
+    current_channel_id,
+    register_tool as register,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +39,11 @@ async def _resolve_chat_guid() -> str | None:
     contains the chat_guid.
     """
     try:
-        from app.agent.context import current_channel_id
         channel_id = current_channel_id.get()
         if not channel_id:
             return None
 
-        from app.db.models import ChannelIntegration
         from sqlalchemy import select
-        from app.db.engine import async_session
 
         async with async_session() as db:
             result = await db.execute(

@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import os
 
-from integrations.sdk import IntegrationMeta, register_integration
+from integrations.sdk import IntegrationMeta, get_setting, register_integration
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +29,8 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
     server_url = None
     password = None
     try:
-        from app.services.integration_settings import get_value
-        server_url = get_value("bluebubbles", "BLUEBUBBLES_SERVER_URL")
-        password = get_value("bluebubbles", "BLUEBUBBLES_PASSWORD")
+        server_url = get_setting("bluebubbles", "BLUEBUBBLES_SERVER_URL")
+        password = get_setting("bluebubbles", "BLUEBUBBLES_PASSWORD")
     except Exception:
         pass
     if not server_url:

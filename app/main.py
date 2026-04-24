@@ -301,6 +301,11 @@ async def lifespan(application: FastAPI):
     logger.info("Loading server config (global fallback models)...")
     from app.services.server_config import load_server_config
     await load_server_config()
+    logger.info("Starting provider catalog refresh loop...")
+    from app.services.provider_catalog_refresh import (
+        start_refresh_task as _start_catalog_refresh,
+    )
+    _start_catalog_refresh()
     # Restore config state from file on first boot (empty DB)
     if settings.CONFIG_STATE_FILE:
         from sqlalchemy import select as sa_sel, func as sa_func
@@ -819,7 +824,8 @@ app = FastAPI(
     ],
 )
 
-# CORS — always allow localhost UI ports; extend with CORS_ORIGINS env var
+# CORS — always allow loopback UI origins for local dev; extend with
+# CORS_ORIGINS env var for non-loopback hosts.
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 _cors_origins: list[str] = [
@@ -833,6 +839,7 @@ _cors_origins.extend(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],

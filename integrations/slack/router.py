@@ -9,10 +9,18 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from app.db.engine import async_session
-from app.db.models import Bot as BotRow, Channel, ChannelIntegration
-from app.dependencies import verify_admin_auth
-from app.schemas.binding_suggestions import BindingSuggestion
+from integrations.sdk import (
+    BindingSuggestion,
+    BotRow,
+    Channel,
+    ChannelIntegration,
+    app_settings,
+    async_session,
+    get_setting,
+    has_scope,
+    validate_api_key,
+    verify_admin_auth,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +30,12 @@ router = APIRouter()
 @router.get("/config")
 async def slack_config(request: Request):
     """Returns Slack channel->bot mapping for the Slack bot process."""
-    from app.config import settings
-
     api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-    expected = getattr(settings, "API_KEY", None)
+    expected = getattr(app_settings, "API_KEY", None)
 
     authed = bool(expected and api_key == expected)
 
     if not authed and api_key and api_key.startswith("ask_"):
-        from app.services.api_keys import validate_api_key, has_scope
         async with async_session() as key_db:
             key_row = await validate_api_key(key_db, api_key)
             if key_row and has_scope(key_row.scopes or [], "admin"):
@@ -109,8 +114,7 @@ _SUGGESTIONS_CACHE_TTL = 300  # 5 minutes
 def _get_slack_setting(key: str, default: str = "") -> str:
     """Get a Slack setting: DB cache > env var > default."""
     try:
-        from app.services.integration_settings import get_value
-        return get_value("slack", key, default)
+        return get_setting("slack", key, default)
     except ImportError:
         return os.environ.get(key, default)
 

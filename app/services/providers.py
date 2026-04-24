@@ -29,6 +29,22 @@ _no_vision_models: set[str] = set()
 # Cached set of model_ids flagged as supports_reasoning=True in provider_models table.
 # Authoritative for the bot editor reasoning control and /effort validation.
 _reasoning_capable_models: set[str] = set()
+# Cached set of model_ids flagged as supports_prompt_caching=True. Replaces the
+# fragile string sniff in app/agent/prompt_cache.py.
+_prompt_caching_models: set[str] = set()
+# Cached set of model_ids flagged as supports_structured_output=True. Forward-looking
+# gate for response_format=json_schema pass-through.
+_structured_output_models: set[str] = set()
+# Per-provider+model extra_body merge map (e.g. Ollama options.num_ctx).
+_extra_body_by_provider_model: dict[tuple[str, str], dict] = {}
+# Per-provider extra_headers passed into AsyncOpenAI(default_headers=...).
+# Stored on ProviderConfig.config['extra_headers'] (no migration needed).
+_extra_headers_by_provider: dict[str, dict] = {}
+# Per-provider+model cached_input_cost_per_1m string (e.g. "$0.30") for cost math.
+_cached_input_cost_by_provider_model: dict[tuple[str, str], str] = {}
+# Per-provider+model context_window (input cap) and max_output_tokens (output cap).
+_context_window_by_provider_model: dict[tuple[str, str], int] = {}
+_max_output_tokens_by_provider_model: dict[tuple[str, str], int] = {}
 # Cached maps for prompt_style ('markdown' | 'xml' | 'structured').
 # The provider-aware map is authoritative; the model-only map is a fallback for
 # older call sites and models resolved without a provider.
@@ -205,7 +221,7 @@ async def _ensure_openai_subscription_models(
 
 async def load_providers() -> None:
     """Load all enabled providers from DB into the in-memory registry. Clears client cache."""
-    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _no_vision_models, _reasoning_capable_models, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_provider_model, _prompt_style_by_model
+    global _registry, _client_cache, _tpm_windows, _model_info_cache, _no_sys_msg_models, _no_tools_models, _no_vision_models, _reasoning_capable_models, _prompt_caching_models, _structured_output_models, _extra_body_by_provider_model, _extra_headers_by_provider, _cached_input_cost_by_provider_model, _context_window_by_provider_model, _max_output_tokens_by_provider_model, _plan_billed_models, _model_to_provider, _live_model_to_provider, _prompt_style_by_provider_model, _prompt_style_by_model
     _registry = {}
     _client_cache = {}
     _tpm_windows = {}
@@ -214,6 +230,13 @@ async def load_providers() -> None:
     _no_tools_models = set()
     _no_vision_models = set()
     _reasoning_capable_models = set()
+    _prompt_caching_models = set()
+    _structured_output_models = set()
+    _extra_body_by_provider_model = {}
+    _extra_headers_by_provider = {}
+    _cached_input_cost_by_provider_model = {}
+    _context_window_by_provider_model = {}
+    _max_output_tokens_by_provider_model = {}
     _plan_billed_models = set()
     _model_to_provider = {}
     _live_model_to_provider = {}
@@ -272,6 +295,52 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _reasoning_capable_models = set(reasoning)
+
+        # Load model IDs flagged as supporting prompt caching (replaces string sniff
+        # in app/agent/prompt_cache.py).
+        caching = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_prompt_caching == True  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _prompt_caching_models = set(caching)
+
+        # Load model IDs flagged as supporting structured output (response_format).
+        structured = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_structured_output == True  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _structured_output_models = set(structured)
+
+        # Load per-(provider, model) extra_body, cached_input_cost, and the new
+        # context_window / max_output_tokens columns for accurate budgeting.
+        extras = (
+            await db.execute(
+                select(
+                    ProviderModel.provider_id,
+                    ProviderModel.model_id,
+                    ProviderModel.extra_body,
+                    ProviderModel.cached_input_cost_per_1m,
+                    ProviderModel.context_window,
+                    ProviderModel.max_output_tokens,
+                )
+            )
+        ).all()
+        for provider_id, mid, extra_body, cached_cost, ctx_win, max_out in extras:
+            key = (provider_id, mid)
+            if extra_body:
+                _extra_body_by_provider_model[key] = dict(extra_body)
+            if cached_cost:
+                _cached_input_cost_by_provider_model[key] = cached_cost
+            if ctx_win:
+                _context_window_by_provider_model[key] = ctx_win
+            if max_out:
+                _max_output_tokens_by_provider_model[key] = max_out
 
         # Load prompt_style per provider+model (defaults to 'markdown' server-side)
         styles = (
@@ -333,6 +402,12 @@ async def load_providers() -> None:
         if row.config and row.config.get("oauth"):
             row.config = decrypt_oauth_fields(row.config)
         _registry[row.id] = row
+        if row.config:
+            headers = row.config.get("extra_headers")
+            if isinstance(headers, dict) and headers:
+                _extra_headers_by_provider[row.id] = {
+                    str(k): str(v) for k, v in headers.items()
+                }
         logger.info("Loaded provider: %s (%s)", row.id, row.provider_type)
 
     if not _registry:
@@ -509,6 +584,93 @@ def supports_reasoning(model: str) -> bool:
 def supports_reasoning_set() -> list[str]:
     """Return a sorted copy of the reasoning-capable model_id set."""
     return sorted(_reasoning_capable_models)
+
+
+def supports_prompt_caching(model: str, provider_id: str | None = None) -> bool:
+    """Return True iff ``model`` is flagged supports_prompt_caching=true in DB.
+
+    Authoritative source for ``app/agent/prompt_cache.py``. Provider-id is
+    accepted for API symmetry but the DB flag is per-model — a provider that
+    proxies multiple models toggles caching per-model, not per-provider.
+    """
+    return model in _prompt_caching_models
+
+
+def supports_structured_output(model: str, provider_id: str | None = None) -> bool:
+    """Return True iff ``model`` is flagged supports_structured_output=true.
+
+    Forward-looking gate: the loop does not yet emit ``response_format`` calls,
+    but admin can pre-flag models so any future consumer (pipeline step,
+    structured-task tool) can opt in safely.
+    """
+    return model in _structured_output_models
+
+
+def get_provider_model_extra_body(
+    model: str, provider_id: str | None = None
+) -> dict:
+    """Return the per-(provider, model) extra_body dict, or ``{}`` if absent.
+
+    Primary use: Ollama's ``options.num_ctx`` foot-gun (default 2048 truncation).
+    Drivers / call sites merge this into request ``extra_body`` before send.
+    Returns a deep copy — callers may mutate at any depth without affecting cache.
+    """
+    if provider_id is not None:
+        body = _extra_body_by_provider_model.get((provider_id, model))
+        if body:
+            import copy
+            return copy.deepcopy(body)
+    return {}
+
+
+def get_provider_extra_headers(provider_id: str) -> dict:
+    """Return per-provider ``extra_headers`` (e.g. OpenRouter HTTP-Referer/X-Title).
+
+    Empty dict when nothing configured. Stored on
+    ``ProviderConfig.config['extra_headers']`` JSON sub-key.
+    """
+    headers = _extra_headers_by_provider.get(provider_id)
+    if headers:
+        return dict(headers)
+    return {}
+
+
+def get_cached_input_cost_per_1m(
+    model: str, provider_id: str | None = None
+) -> str | None:
+    """Return the per-(provider, model) cached_input_cost_per_1m string, e.g. "$0.30".
+
+    Used by ``/admin/usage`` cost math to split cached vs uncached input pricing
+    when the API response carries ``cache_read_input_tokens > 0``.
+    """
+    if provider_id is not None:
+        return _cached_input_cost_by_provider_model.get((provider_id, model))
+    return None
+
+
+def get_provider_model_context_window(
+    model: str, provider_id: str | None = None
+) -> int | None:
+    """Return the explicit ``context_window`` (input cap) for a provider+model.
+
+    Distinct from the legacy ``max_tokens`` column which was used ambiguously
+    as both context window and output cap. ``None`` when unset.
+    """
+    if provider_id is not None:
+        return _context_window_by_provider_model.get((provider_id, model))
+    return None
+
+
+def get_provider_model_max_output_tokens(
+    model: str, provider_id: str | None = None
+) -> int | None:
+    """Return the explicit ``max_output_tokens`` for a provider+model.
+
+    Backfilled from ``max_tokens`` on migration 245; admin can split going forward.
+    """
+    if provider_id is not None:
+        return _max_output_tokens_by_provider_model.get((provider_id, model))
+    return None
 
 
 async def mark_model_no_vision(model: str) -> None:

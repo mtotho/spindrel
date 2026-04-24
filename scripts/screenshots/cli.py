@@ -20,6 +20,7 @@ from scripts.screenshots import config
 from scripts.screenshots.capture.browser import AuthBundle
 from scripts.screenshots.capture.runner import capture_batch
 from scripts.screenshots.capture.specs import (
+    A3_DOCS_SPECS,
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
     INTEGRATIONS_SPECS,
@@ -32,6 +33,10 @@ from scripts.screenshots.stage.scenarios.docs_repair import (
     teardown_docs_repair,
 )
 from scripts.screenshots.stage.scenarios.flagship import stage_flagship, teardown_flagship
+from scripts.screenshots.stage.scenarios.integrations import (
+    stage_integrations,
+    teardown_integrations,
+)
 
 
 logger = logging.getLogger("screenshots")
@@ -44,7 +49,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -72,9 +77,18 @@ def _flat_placeholders(state) -> dict[str, str]:
 
 def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
     if only == "integrations":
-        # Admin /admin/integrations/<slug> renders from the registry populated
-        # at server startup — no DB writes, no seeds, no teardown to manage.
-        print("staged (integrations): no staging required (registry-driven)")
+        # Adopt a curated set so the Active list + detail pages render with
+        # populated state (capability badges color-coded, env vars present,
+        # not the universal "Available - not adopted" zero-state).
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            stage_integrations(client)
+        print("staged (integrations): adopted curated integrations")
+        return None
+    if only == "a3-docs":
+        # A3-docs admin slice routes off the registry/tasks/approvals — no
+        # staging required. Server state (whatever's been seeded by other
+        # scenarios or normal use) is what shows up in the captures.
+        print("staged (a3-docs): no-op — admin routes need no staging")
         return None
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":
@@ -122,6 +136,14 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
         if only == "integrations":
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
+        elif only == "a3-docs":
+            # Most admin routes are static, but workspace-files needs the
+            # default workspace UUID resolved from the API at capture time.
+            workspaces = client.list_workspaces()
+            if not workspaces:
+                raise SystemExit("No workspaces found — workspace-files capture needs at least one.")
+            placeholders["default_workspace"] = str(workspaces[0]["id"])
+            spec_list = A3_DOCS_SPECS
         else:
             # Rebuild placeholder map from stable client_ids
             all_channels = {c.get("client_id"): c for c in client.list_channels()}
@@ -196,7 +218,12 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
 
 def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
     if only == "integrations":
-        print("teardown (integrations): nothing to clean (no staging)")
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_integrations(client)
+        print("teardown (integrations): reverted adopted integrations to available")
+        return
+    if only == "a3-docs":
+        print("teardown (a3-docs): no-op — admin routes have no scenario records")
         return
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":

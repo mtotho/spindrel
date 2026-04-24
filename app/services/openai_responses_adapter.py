@@ -898,12 +898,14 @@ class OpenAIResponsesAdapter:
         base_url: str | None = None,
         timeout: float = 120.0,
         session_id: str | None = None,
+        default_headers: dict[str, str] | None = None,
     ):
         self._tokens_source = tokens_source
         self._base_url = base_url or DEFAULT_CODEX_BASE_URL
         self._timeout = timeout
         self._session_id = session_id or str(uuid.uuid4())
         self._http_client = httpx.AsyncClient(timeout=timeout)
+        self._extra_headers: dict[str, str] = dict(default_headers or {})
         self.chat = _Chat(self)
         # Attributes that llm.py logs.
         self.api_key = ""
@@ -930,6 +932,13 @@ class OpenAIResponsesAdapter:
         }
         if account_id:
             headers["chatgpt-account-id"] = account_id
+        # Admin-configured extra_headers can override / add (use sparingly —
+        # the protocol-required headers above are listed first so casing is
+        # preserved on the wire).
+        if self._extra_headers:
+            for k, v in self._extra_headers.items():
+                if v is not None:
+                    headers[k] = str(v)
         return headers
 
     @property

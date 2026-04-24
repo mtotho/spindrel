@@ -120,8 +120,7 @@ async def resolve_slack_channel_id(channel_id: uuid.UUID) -> str:
     doesn't map to a Slack conversation, so there's nothing sensible to
     do.
     """
-    from app.db.engine import async_session
-    from app.db.models import Channel
+    from integrations.sdk import Channel, async_session
 
     async with async_session() as db:
         row = (

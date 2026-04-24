@@ -25,19 +25,27 @@ _CHARS_PER_TOKEN = 4
 def should_apply_cache_control(model: str, provider_id: str | None = None) -> bool:
     """Determine if cache_control breakpoints should be applied.
 
-    Returns True for Anthropic-targeted models (Claude via LiteLLM, direct Anthropic,
-    or anthropic-compatible providers).
+    Authoritative source: ``provider_models.supports_prompt_caching`` (DB column,
+    cached in ``app/services/providers.py``). Replaces the prior string sniff
+    on ``"claude" in model.lower()`` which missed MiniMax-via-anthropic-compatible
+    and any non-claude-named cache-supporting model the admin had in the DB.
+
+    Falls back to the provider-type heuristic for legacy bots that haven't yet
+    been seeded into ``provider_models`` (older deployments where some bot's
+    ``model`` is set to a string the registry doesn't know about).
     """
     if not settings.PROMPT_CACHE_ENABLED:
         return False
 
-    model_lower = model.lower()
+    try:
+        from app.services.providers import (
+            supports_prompt_caching as _supports_prompt_caching,
+        )
+        if _supports_prompt_caching(model, provider_id):
+            return True
+    except Exception:
+        pass
 
-    # Direct model name match (LiteLLM prefix or bare name)
-    if "claude" in model_lower:
-        return True
-
-    # Check provider type if provider_id is specified
     if provider_id:
         try:
             from app.services.providers import _registry

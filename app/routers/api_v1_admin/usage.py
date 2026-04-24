@@ -52,20 +52,29 @@ def _compute_cost(
     output_rate_str: str | None,
     cached_tokens: int = 0,
     cache_discount: float = 0.0,
+    cached_input_rate_str: str | None = None,
 ) -> float | None:
     """Compute cost from token counts and per-1M-token rate strings.
 
-    cached_tokens: number of prompt tokens served from cache.
-    cache_discount: fraction to discount cached tokens (0.9 = 90% off, 0.5 = 50% off).
+    Resolution order for cached-token pricing (when ``cached_tokens > 0``):
+      1. Explicit ``cached_input_rate_str`` (column ``cached_input_cost_per_1m``)
+         — authoritative per-(provider, model) rate from the DB.
+      2. ``cache_discount`` fraction off the input rate — fallback heuristic by
+         provider-type when the admin hasn't set an explicit cached rate.
     """
     input_rate = _parse_cost_str(input_rate_str)
     output_rate = _parse_cost_str(output_rate_str)
+    cached_rate = _parse_cost_str(cached_input_rate_str)
     if input_rate is None and output_rate is None:
         return None
     cost = 0.0
     if input_rate is not None:
-        if cached_tokens > 0 and cache_discount > 0:
-            uncached = prompt_tokens - cached_tokens
+        if cached_tokens > 0 and cached_rate is not None:
+            uncached = max(prompt_tokens - cached_tokens, 0)
+            cost += uncached * input_rate / 1_000_000
+            cost += cached_tokens * cached_rate / 1_000_000
+        elif cached_tokens > 0 and cache_discount > 0:
+            uncached = max(prompt_tokens - cached_tokens, 0)
             cost += uncached * input_rate / 1_000_000
             cost += cached_tokens * input_rate * (1 - cache_discount) / 1_000_000
         else:
@@ -126,7 +135,7 @@ def _is_plan_billed(provider_id: str | None, model: str | None) -> bool:
 
 def _resolve_event_cost(
     d: dict,
-    pricing: dict[tuple[str, str], tuple[str | None, str | None]],
+    pricing: dict[tuple[str, str], tuple[str | None, str | None, str | None]],
     provider_type_map: dict[str | None, str],
 ) -> float | None:
     """Resolve cost for a single trace event data dict.
@@ -141,10 +150,18 @@ def _resolve_event_cost(
     ct = d.get("completion_tokens", 0)
     ev_provider = d.get("provider_id")
     ev_model = d.get("model")
-    input_rate, output_rate = _lookup_pricing(pricing, ev_provider, ev_model)
+    input_rate, output_rate, cached_rate = _lookup_pricing(pricing, ev_provider, ev_model)
     cached = d.get("cached_tokens", 0)
-    discount = _cache_discount_for_provider(ev_provider, provider_type_map) if cached else 0.0
-    computed = _compute_cost(pt, ct, input_rate, output_rate, cached, discount)
+    # Cache discount fallback only kicks in when no explicit cached_rate is set.
+    discount = (
+        _cache_discount_for_provider(ev_provider, provider_type_map)
+        if cached and not cached_rate
+        else 0.0
+    )
+    computed = _compute_cost(
+        pt, ct, input_rate, output_rate, cached, discount,
+        cached_input_rate_str=cached_rate,
+    )
     # Plan-billed calls: marginal cost is 0 (flat rate), suppress "no pricing" warnings
     if computed is None and _is_plan_billed(ev_provider, ev_model):
         return 0.0
@@ -153,13 +170,14 @@ def _resolve_event_cost(
 
 async def _load_pricing_map(
     db: AsyncSession,
-) -> dict[tuple[str, str], tuple[str | None, str | None]]:
+) -> dict[tuple[str, str], tuple[str | None, str | None, str | None]]:
     """Bulk load pricing from DB ProviderModel rows + LiteLLM model info cache.
 
     LiteLLM cached entries are added first, then DB rows override so that
-    user-configured pricing always wins.
+    user-configured pricing always wins. Tuple shape is
+    ``(input_rate, output_rate, cached_input_rate)``.
     """
-    result: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    result: dict[tuple[str, str], tuple[str | None, str | None, str | None]] = {}
 
     # Seed from LiteLLM model info cache (auto-fetched from /model/info at startup)
     from app.services.providers import _model_info_cache
@@ -170,7 +188,7 @@ async def _load_pricing_map(
             inp = info.get("input_cost_per_1m")
             out = info.get("output_cost_per_1m")
             if inp or out:
-                result[(pid, model_id)] = (inp, out)
+                result[(pid, model_id)] = (inp, out, None)
                 litellm_entries += 1
 
     # DB rows override LiteLLM cache
@@ -180,12 +198,17 @@ async def _load_pricing_map(
             ProviderModel.model_id,
             ProviderModel.input_cost_per_1m,
             ProviderModel.output_cost_per_1m,
+            ProviderModel.cached_input_cost_per_1m,
         )
     )).all()
     db_entries = 0
     for r in rows:
-        if r.input_cost_per_1m or r.output_cost_per_1m:
-            result[(r.provider_id, r.model_id)] = (r.input_cost_per_1m, r.output_cost_per_1m)
+        if r.input_cost_per_1m or r.output_cost_per_1m or r.cached_input_cost_per_1m:
+            result[(r.provider_id, r.model_id)] = (
+                r.input_cost_per_1m,
+                r.output_cost_per_1m,
+                r.cached_input_cost_per_1m,
+            )
             db_entries += 1
 
     logger.info(
@@ -199,19 +222,19 @@ async def _load_pricing_map(
 
 
 def _lookup_pricing(
-    pricing_map: dict[tuple[str, str], tuple[str | None, str | None]],
+    pricing_map: dict[tuple[str, str], tuple[str | None, str | None, str | None]],
     provider_id: str | None,
     model: str | None,
-) -> tuple[str | None, str | None]:
-    """Find pricing for a (provider_id, model) pair.
+) -> tuple[str | None, str | None, str | None]:
+    """Find ``(input, output, cached_input)`` pricing for a (provider_id, model) pair.
 
     Resolution order:
-    1. Exact (provider_id, model) match in ProviderModel DB rows
-    2. Model-only match in DB rows (for old events without provider_id)
-    3. LiteLLM model info cache (auto-fetched from /model/info at startup)
+    1. Exact (provider_id, model) match in ProviderModel DB rows.
+    2. Model-only match in DB rows (for old events without provider_id).
+    3. LiteLLM model info cache (auto-fetched from /model/info at startup).
     """
     if not model:
-        return (None, None)
+        return (None, None, None)
     if provider_id:
         key = (provider_id, model)
         if key in pricing_map:
@@ -232,8 +255,8 @@ def _lookup_pricing(
         inp = cached.get("input_cost_per_1m")
         out = cached.get("output_cost_per_1m")
         if inp or out:
-            return (inp, out)
-    return (None, None)
+            return (inp, out, None)
+    return (None, None, None)
 
 
 async def _fetch_token_usage_events(
@@ -1278,8 +1301,14 @@ async def debug_pricing(
 
     # Show pricing map
     pricing_list = [
-        {"provider_id": pid, "model": mid, "input": inp, "output": out}
-        for (pid, mid), (inp, out) in pricing_map.items()
+        {
+            "provider_id": pid,
+            "model": mid,
+            "input": inp,
+            "output": out,
+            "cached_input": cached_inp,
+        }
+        for (pid, mid), (inp, out, cached_inp) in pricing_map.items()
     ]
 
     return {
@@ -1772,3 +1801,131 @@ async def usage_forecast(db: AsyncSession = Depends(get_db)):
         computed_at=now_utc.isoformat(),
         hours_elapsed_today=round(hours_elapsed, 2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Provider Health — per-(provider, model) latency + cache-hit + last-call
+# ---------------------------------------------------------------------------
+
+
+class ProviderHealthRow(BaseModel):
+    provider_id: str | None = None
+    provider_name: str | None = None
+    model: str
+    sample_count: int
+    latency_ms_p50: float | None = None
+    latency_ms_p95: float | None = None
+    cache_hit_rate: float | None = None
+    last_call_ts: str | None = None
+    cooldown_until_ts: str | None = None
+
+
+class ProviderHealthOut(BaseModel):
+    window_hours: int
+    rows: list[ProviderHealthRow]
+
+
+def _percentile(values: list[float], pct: float) -> float | None:
+    """Linear-interp percentile (0.0 < pct < 1.0). Returns None on empty list."""
+    if not values:
+        return None
+    s = sorted(values)
+    k = (len(s) - 1) * pct
+    lo = int(k)
+    hi = min(lo + 1, len(s) - 1)
+    if lo == hi:
+        return float(s[lo])
+    return float(s[lo] + (s[hi] - s[lo]) * (k - lo))
+
+
+@router.get("/usage/provider-health", response_model=ProviderHealthOut)
+async def admin_provider_health(
+    hours: int = Query(24, ge=1, le=168),
+    db: AsyncSession = Depends(get_db),
+    _auth: str = Depends(require_scopes("providers:read")),
+):
+    """Per-(provider, model) latency + cache-hit surface over a recent window.
+
+    Aggregates the existing ``token_usage`` trace events — no new event type
+    required. Returns p50/p95 latency, cache-hit rate, sample count, and last
+    call timestamp. If the circuit-breaker has a cooldown for a specific
+    model, surfaces ``cooldown_until_ts`` so the UI can flag it red.
+
+    Known limit: only successful calls emit ``token_usage`` today, so the
+    "error rate" metric isn't populated yet — we surface a derived sample
+    count instead. When we add an explicit ``llm_call`` event later, this
+    endpoint becomes the obvious home for error rate too.
+    """
+    from app.services.providers import _registry
+
+    since = datetime.now(timezone.utc) - timedelta(hours=hours)
+    events = (
+        await db.execute(
+            select(TraceEvent)
+            .where(
+                TraceEvent.event_type == "token_usage",
+                TraceEvent.created_at >= since,
+            )
+            .order_by(TraceEvent.created_at.desc())
+        )
+    ).scalars().all()
+
+    # Group (provider_id, model) → [events]
+    buckets: dict[tuple[str | None, str], list[TraceEvent]] = {}
+    for ev in events:
+        data = ev.data or {}
+        model = data.get("model")
+        if not model:
+            continue
+        pid = data.get("provider_id")
+        buckets.setdefault((pid, model), []).append(ev)
+
+    # Pull circuit-breaker cooldowns so rows can flag active blocks.
+    cooldowns: dict[str, str] = {}
+    try:
+        from app.agent.llm import get_active_cooldowns
+        for entry in get_active_cooldowns():
+            model = entry.get("model")
+            until = entry.get("cooldown_until") or entry.get("expires")
+            if model and until:
+                cooldowns[model] = until if isinstance(until, str) else until.isoformat()
+    except Exception:
+        cooldowns = {}
+
+    rows: list[ProviderHealthRow] = []
+    for (pid, model), evs in buckets.items():
+        latencies: list[float] = []
+        cache_ratios: list[float] = []
+        last_ts: datetime | None = None
+        for ev in evs:
+            if ev.duration_ms is not None:
+                latencies.append(float(ev.duration_ms))
+            d = ev.data or {}
+            pt = d.get("prompt_tokens") or 0
+            cached = d.get("cached_tokens")
+            if pt and cached is not None:
+                cache_ratios.append(min(float(cached) / float(pt), 1.0))
+            if ev.created_at and (last_ts is None or ev.created_at > last_ts):
+                last_ts = ev.created_at
+
+        provider_name = None
+        if pid and pid in _registry:
+            provider_name = _registry[pid].display_name
+
+        rows.append(ProviderHealthRow(
+            provider_id=pid,
+            provider_name=provider_name,
+            model=model,
+            sample_count=len(evs),
+            latency_ms_p50=_percentile(latencies, 0.50),
+            latency_ms_p95=_percentile(latencies, 0.95),
+            cache_hit_rate=(
+                sum(cache_ratios) / len(cache_ratios) if cache_ratios else None
+            ),
+            last_call_ts=last_ts.isoformat() if last_ts else None,
+            cooldown_until_ts=cooldowns.get(model),
+        ))
+
+    rows.sort(key=lambda r: (r.provider_name or r.provider_id or "", r.model))
+
+    return ProviderHealthOut(window_hours=hours, rows=rows)

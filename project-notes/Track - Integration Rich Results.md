@@ -20,6 +20,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 | 4 | Docs + import-boundary audit gate | ✅ shipped |
 | 5 | Follow-up issue-template audit entries | ✅ shipped |
 | 6 | Slack timeout hardening + Discord embed adapter | ✅ shipped |
+| 7 | Slack/Discord/BlueBubbles SDK import boundary cleanup | ✅ shipped |
 
 ## Current Implementation Shape
 
@@ -28,6 +29,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - `integrations.tool_output` owns support matching, portable read-only cards, badges, and fallback decisions.
 - Slack translates portable cards to Block Kit in a platform adapter. Discord translates portable cards to embeds. `tool_output_display` still controls `compact | full | none`.
 - Widget/component actions are out of scope for v1. Approvals remain on `approval_buttons`.
+- Slack, Discord, and BlueBubbles runtime modules now reach app-owned contracts through `integrations.sdk`; the direct `app.*` import allowlist no longer exempts those integrations.
 
 ## Verification
 
@@ -35,6 +37,8 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - `pytest tests/unit/test_capability_gate.py tests/unit/test_channel_renderers.py tests/unit/test_core_renderers.py -q` passed: 57 passed.
 - `tests/unit/test_slack_renderer.py` timeout fixed by bounding the outbox poll inside `_wait_for_pending_outbox`.
 - `pytest tests/unit/test_slack_renderer.py tests/unit/test_discord_renderer.py tests/unit/test_tool_output_shared.py tests/unit/test_slack_tool_output_display.py tests/unit/test_integration_manifests.py tests/unit/test_renderer_registry.py tests/unit/test_canonical_docs_drift.py tests/unit/test_integration_import_boundary.py -q` passed: 135 passed, 17 skipped.
+- `pytest tests/unit/test_integration_import_boundary.py tests/unit/test_slack_config_bindings.py tests/unit/test_renderer_registry.py tests/unit/test_integration_manifests.py tests/unit/test_bluebubbles_renderer.py tests/unit/test_slack_renderer.py tests/unit/test_discord_renderer.py -q` passed locally: 124 passed, 23 skipped.
+- `tests/unit/test_slack_config_bindings.py` local timeout fixed by applying the shared Python 3.14 + `aiosqlite<=0.22` skip guard to its private engine fixture; local run now skips fast (`6 skipped`) and remains runnable in the supported Python 3.12 test runtime.
 
 ## Audit Issues
 

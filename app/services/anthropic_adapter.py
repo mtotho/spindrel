@@ -672,6 +672,7 @@ class AnthropicOpenAIAdapter:
         base_url: str | None = None,
         timeout: float = 120.0,
         max_retries: int = 0,
+        default_headers: dict[str, str] | None = None,
     ):
         client_kwargs: dict[str, Any] = {
             "api_key": api_key,
@@ -684,6 +685,8 @@ class AnthropicOpenAIAdapter:
             if clean_url.endswith("/v1"):
                 clean_url = clean_url[:-3]
             client_kwargs["base_url"] = clean_url
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
 
         self._anthropic = anthropic.AsyncAnthropic(**client_kwargs)
         self.chat = _Chat(self._anthropic)

@@ -44,17 +44,15 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 
 ## Screenshots
 
-> Screenshot placeholders are intentionally kept here while the new docs image set is being re-shot.
-> Replace these with current web-native captures as they land.
 
 | | |
 |---|---|
-| `TODO: replace with new chat-main screenshot` | `TODO: replace with new setup/provider screenshot` |
-| Chat session with widgets, sub-sessions, and the current sidebar/OmniPanel UI | Setup flow with provider selection and current onboarding |
+| ![Chat main](docs/images/chat-main.png) | ![Providers settings](docs/images/providers-settings.png) |
+| Chat session with widgets, sub-sessions, and the current sidebar/OmniPanel UI | Provider configuration with built-in fallback and per-bot routing |
 | ![Channel dashboard](docs/images/channel-widget-dashboard-edit-layout-1.png) | ![Channel side panels](docs/images/channel-chat-screen-side-panels-1.png) |
 | Channel dashboard edit mode with widget layout controls | Channel chat with current side-panel / OmniPanel layout |
-| ![Home Assistant widget](docs/images/channel-widget-home-assistant-chat-1.png) | `TODO: replace with new providers/usage screenshot` |
-| Home Assistant widget rendered inline in chat | Providers, usage, or dev-panel screenshot placeholder |
+| ![Home Assistant widget](docs/images/channel-widget-home-assistant-chat-1.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
+| Home Assistant widget rendered inline in chat | Token usage, daily spend, and budget forecast |
 
 ## Architecture
 

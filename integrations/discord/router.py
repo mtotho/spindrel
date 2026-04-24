@@ -7,8 +7,14 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 
-from app.db.engine import async_session
-from app.db.models import Bot as BotRow, Channel
+from integrations.sdk import (
+    BotRow,
+    Channel,
+    app_settings,
+    async_session,
+    has_scope,
+    validate_api_key,
+)
 
 router = APIRouter()
 
@@ -16,15 +22,12 @@ router = APIRouter()
 @router.get("/config")
 async def discord_config(request: Request):
     """Returns Discord channel->bot mapping for the Discord bot process."""
-    from app.config import settings
-
     api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-    expected = getattr(settings, "API_KEY", None)
+    expected = getattr(app_settings, "API_KEY", None)
 
     authed = bool(expected and api_key == expected)
 
     if not authed and api_key and api_key.startswith("ask_"):
-        from app.services.api_keys import validate_api_key, has_scope
         async with async_session() as key_db:
             key_row = await validate_api_key(key_db, api_key)
             if key_row and has_scope(key_row.scopes or [], "admin"):

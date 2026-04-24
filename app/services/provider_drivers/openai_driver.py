@@ -31,6 +31,9 @@ class OpenAIDriver(ProviderDriver):
         }
         if config.base_url:
             kw["base_url"] = config.base_url
+        headers = self._extra_headers(config)
+        if headers:
+            kw["default_headers"] = headers
         return AsyncOpenAI(**kw)
 
     async def test_connection(

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+from integrations.sdk import build_suggestions
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +19,6 @@ def build_suggestion_rule(tool_name: str, arguments: dict, index: int) -> tuple[
     Returns (rule_dict, label) or (None, "") if the index is out of range.
     """
     try:
-        from app.services.approval_suggestions import build_suggestions
         suggestions = build_suggestions(tool_name, arguments)
         if index < 0 or index >= len(suggestions):
             return None, ""

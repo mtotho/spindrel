@@ -16,7 +16,15 @@ from pathlib import Path
 
 import httpx
 
-from integrations.sdk import HookContext, IntegrationMeta, register_hook, register_integration
+from integrations.sdk import (
+    HookContext,
+    IntegrationMeta,
+    current_dispatch_config,
+    current_dispatch_type,
+    get_setting,
+    register_hook,
+    register_integration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +146,6 @@ def _get_slack_ref() -> tuple[str | None, str | None, str | None]:
     Returns the user's message timestamp (for reactions) — falls back to
     thread_ts if message_ts isn't available.
     """
-    from app.agent.context import current_dispatch_config, current_dispatch_type
     if current_dispatch_type.get() != "slack":
         return None, None, None
     cfg = current_dispatch_config.get() or {}
@@ -298,8 +305,7 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
 
     token = None
     try:
-        from app.services.integration_settings import get_value
-        token = get_value("slack", "SLACK_BOT_TOKEN")
+        token = get_setting("slack", "SLACK_BOT_TOKEN")
     except Exception:
         pass
     if not token:

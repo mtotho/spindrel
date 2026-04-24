@@ -242,17 +242,25 @@ Unknown models (no `provider_models` row) are treated as non-reasoning. If a leg
 
 ## ProviderModel capability columns
 
-Per-model flags live on the `provider_models` table. Each row has the four booleans the admin UI exposes, plus the prompt-dialect string:
+Per-model flags live on the `provider_models` table. Each row exposes the capability + cost metadata the admin UI edits:
 
 | Column | Default | Purpose |
 |---|:-:|---|
+| `context_window` | `null` | Maximum input tokens (context size). Drives budget math, compaction thresholds. Replaces the ambiguous `max_tokens` for "how much input can I feed in." |
+| `max_output_tokens` | `null` | Maximum output tokens the model will generate. Backfilled from `max_tokens` at migration 245; admin can split manually going forward. |
 | `no_system_messages` | `false` | Fold `system` into the first user message (MiniMax-style APIs that reject `role: system`) |
 | `supports_tools` | `true` | Whether function-calling / tool use is supported. Auto-learned on API rejection |
 | `supports_vision` | `true` | Whether `image_url` content parts are accepted. Auto-learned on API rejection |
 | `supports_reasoning` | `false` | Whether the model takes an effort / thinking-budget knob. Gates the `/effort` command and the bot editor control |
+| `supports_prompt_caching` | `false` | Whether the model accepts `cache_control` breakpoints. Replaces the legacy `"claude" in model_id` string sniff in `app/agent/prompt_cache.py`. Backfilled true for Claude families, GPT-4o/5/Codex, Gemini 2.x. |
+| `supports_structured_output` | `false` | Whether the model accepts `response_format={"type":"json_schema",...}`. Forward-looking gate — no consumer today, lets admin opt-in when a pipeline step needs it. |
+| `input_cost_per_1m` | `null` | USD per 1M input tokens, e.g. `"$3.00"`. Used by `/admin/usage` cost math. |
+| `output_cost_per_1m` | `null` | USD per 1M output tokens. |
+| `cached_input_cost_per_1m` | `null` | USD per 1M **cached** input tokens, e.g. Anthropic's `"$0.30"` for Claude Sonnet. When set, the cost aggregator splits `(input - cached) * input_rate + cached * cached_rate` instead of applying a percent-discount heuristic. Stops `/admin/usage` from overstating Anthropic spend ~10× while prompt caching is active. |
 | `prompt_style` | `'markdown'` | Framework-prompt dialect (`markdown` / `xml` / `structured`) — see [Prompt dialect](#prompt-dialect-prompt_style) |
+| `extra_body` | `{}` | JSON merged into the outgoing request's `extra_body`. Primary use: Ollama's `options.num_ctx` (Ollama defaults to a **2048-token context** regardless of model file — set `{"options": {"num_ctx": 16384}}` to stop long prompts silently truncating). Also used for Mistral / Groq / Gemini-via-shim quirks. |
 
-All are loaded into in-memory sets by `load_providers()` (`app/services/providers.py`). Prompt style is cached by `(provider_id, model_id)` first, with a model-only fallback for older call paths, so duplicate model IDs can use different dialects on different providers. The cache auto-rebuilds whenever an admin adds, edits, or deletes a provider or model — no manual invalidation needed.
+All are loaded into in-memory sets by `load_providers()` (`app/services/providers.py`). Prompt style, `extra_body`, and `cached_input_cost_per_1m` are cached by `(provider_id, model_id)` so duplicate model IDs can use different values on different providers. The cache auto-rebuilds whenever an admin adds, edits, or deletes a provider or model — no manual invalidation needed.
 
 ### Marking a new model as reasoning-capable
 
@@ -297,11 +305,34 @@ Today two adapters exist: `AnthropicOpenAIAdapter` (`app/services/anthropic_adap
 
 ---
 
+## Custom headers per provider
+
+Some providers expect extra headers on every request — OpenRouter wants `HTTP-Referer` + `X-Title` for its analytics dashboard, OpenAI supports scoping via `OpenAI-Organization` / `OpenAI-Project`, Anthropic opt-in betas ride on `anthropic-beta: <flag>`. The provider edit page has a **Custom Headers** section with a key/value editor. Values are stored on `ProviderConfig.config['extra_headers']` (no migration needed) and passed to `AsyncOpenAI(default_headers=...)` — or the equivalent on `AnthropicOpenAIAdapter` / `OpenAIResponsesAdapter` — the next time a client is minted.
+
+Caveats:
+
+- Adapter-required headers (Bearer token, Accept, session_id, OpenAI-Beta, chatgpt-account-id for ChatGPT-subscription) are set first; your entries can still override them if they use the same casing, so use sparingly on subscription providers.
+- Header values pass through as strings — numbers / booleans are coerced. Control characters and empty keys are rejected with a 422.
+
+---
+
+## Daily catalog refresh
+
+`app/services/provider_catalog_refresh.py` runs at server boot and every 24h thereafter. For every enabled provider it calls `driver.list_models_enriched()` + `driver.fetch_pricing()` (where the driver advertises those capabilities), upserts `provider_models` rows, and records `last_refresh_ts` / `last_refresh_error` on `ProviderConfig.config`. The refresh is also triggered immediately after a successful **Test Connection** click, and admins can force one via:
+
+```
+POST /api/v1/admin/providers/{provider_id}/refresh-now
+```
+
+The Sync Models section on the provider edit page shows "Last auto-refresh: Xm ago" so you can eyeball staleness without clicking. Hardcoded fallback lists for Anthropic and OpenAI-subscription remain as a safety net (Anthropic has no public `/models` endpoint; OpenAI-subscription's live `/models` can fail before the user completes OAuth).
+
+---
+
 ## Testing + diagnostics
 
-- **Test connection** button on the edit page hits `driver.test_connection(...)`. The OAuth provider's test confirms the issuer is reachable (it doesn't try to mint tokens — use the Connect flow for that).
-- **Diagnostics** (`/admin/diagnostics`) surfaces per-provider health: last-call timestamp, recent error rates, model catalog freshness.
-- **Usage dashboard** (`/admin/usage`) breaks cost out by provider and by model. Plan-billing providers report $0 per call; usage still tracks tokens and call counts for visibility.
+- **Test connection** button on the edit page hits `driver.test_connection(...)`. On success it also kicks off a catalog refresh in the background. The OAuth provider's test confirms the issuer is reachable (it doesn't try to mint tokens — use the Connect flow for that).
+- **Usage → Providers** tab aggregates `token_usage` trace events over the last 1–168h by `(provider_id, model)`: call count, p50/p95 latency, cache-hit rate, last-call timestamp, and circuit-breaker cooldown indicator. First stop when triage-ing "is my Ollama slow?" or "why is cost spiking?".
+- **Usage dashboard** (`/admin/usage`) breaks cost out by provider and by model. Plan-billing providers report $0 per call; usage still tracks tokens and call counts for visibility. When a model has `cached_input_cost_per_1m` set, cost math splits cached vs uncached input — stops Anthropic spend from being inflated ~10× while prompt caching is active.
 
 ---
 

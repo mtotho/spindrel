@@ -43,6 +43,23 @@ class ProviderDriver:
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities()
 
+    @staticmethod
+    def _extra_headers(config: "ProviderConfigRow") -> dict[str, str]:
+        """Return per-provider ``extra_headers`` dict (or ``{}`` if none).
+
+        Stored on ``ProviderConfig.config['extra_headers']`` as a JSON sub-key.
+        Drivers pass the result to ``AsyncOpenAI(default_headers=...)`` so users
+        can inject OpenRouter analytics headers, OpenAI org-id, anthropic-beta
+        opt-ins, etc. without touching driver code.
+        """
+        cfg = getattr(config, "config", None)
+        if not isinstance(cfg, dict):
+            return {}
+        headers = cfg.get("extra_headers")
+        if not isinstance(headers, dict):
+            return {}
+        return {str(k): str(v) for k, v in headers.items() if v is not None}
+
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
         raise NotImplementedError
 

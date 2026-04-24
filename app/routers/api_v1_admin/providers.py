@@ -39,6 +39,40 @@ class ProviderOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _validate_extra_headers(value):
+    """Coerce + validate ``extra_headers`` to a flat ``dict[str, str]`` map.
+
+    Returns ``None`` to mean "no change", ``{}`` to mean "clear", or the dict
+    to set. Raises 422 on invalid shapes (rejecting nested dicts, non-string
+    values, header names with control chars).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise HTTPException(
+            status_code=422, detail="extra_headers must be an object of key/value strings"
+        )
+    out: dict[str, str] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k.strip():
+            raise HTTPException(status_code=422, detail="extra_headers keys must be non-empty strings")
+        if v is None:
+            continue
+        if not isinstance(v, (str, int, float, bool)):
+            raise HTTPException(
+                status_code=422,
+                detail=f"extra_headers[{k!r}] must be a string, number, or bool",
+            )
+        sk = k.strip()
+        if any(ord(c) < 32 for c in sk):
+            raise HTTPException(
+                status_code=422,
+                detail=f"extra_headers[{k!r}] contains control characters",
+            )
+        out[sk] = str(v)
+    return out
+
+
 class ProviderCreateIn(BaseModel):
     id: str
     provider_type: str
@@ -52,6 +86,7 @@ class ProviderCreateIn(BaseModel):
     billing_type: str = "usage"
     plan_cost: Optional[float] = None
     plan_period: Optional[str] = None
+    extra_headers: Optional[dict] = None
 
 
 class ProviderUpdateIn(BaseModel):
@@ -69,6 +104,8 @@ class ProviderUpdateIn(BaseModel):
     plan_cost: Optional[float] = None
     plan_period: Optional[str] = None
     clear_plan_cost: bool = False
+    extra_headers: Optional[dict] = None
+    clear_extra_headers: bool = False
 
 
 class ProviderModelOut(BaseModel):
@@ -77,13 +114,19 @@ class ProviderModelOut(BaseModel):
     model_id: str
     display_name: str | None = None
     max_tokens: int | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
     input_cost_per_1m: str | None = None
     output_cost_per_1m: str | None = None
+    cached_input_cost_per_1m: str | None = None
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
     supports_reasoning: bool = False
+    supports_prompt_caching: bool = False
+    supports_structured_output: bool = False
     prompt_style: str = "markdown"
+    extra_body: dict = {}
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -100,13 +143,19 @@ class ProviderModelCreateIn(BaseModel):
     model_id: str
     display_name: str | None = None
     max_tokens: int | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
     input_cost_per_1m: str | None = None
     output_cost_per_1m: str | None = None
+    cached_input_cost_per_1m: str | None = None
     no_system_messages: bool = False
     supports_tools: bool = True
     supports_vision: bool = True
     supports_reasoning: bool = False
+    supports_prompt_caching: bool = False
+    supports_structured_output: bool = False
     prompt_style: str = "markdown"
+    extra_body: dict | None = None
 
     @field_validator("prompt_style")
     @classmethod
@@ -117,13 +166,19 @@ class ProviderModelCreateIn(BaseModel):
 class ProviderModelUpdateIn(BaseModel):
     display_name: str | None = None
     max_tokens: int | None = None
+    context_window: int | None = None
+    max_output_tokens: int | None = None
     input_cost_per_1m: str | None = None
     output_cost_per_1m: str | None = None
+    cached_input_cost_per_1m: str | None = None
     no_system_messages: bool | None = None
     supports_tools: bool | None = None
     supports_vision: bool | None = None
     supports_reasoning: bool | None = None
+    supports_prompt_caching: bool | None = None
+    supports_structured_output: bool | None = None
     prompt_style: str | None = None
+    extra_body: dict | None = None
 
     @field_validator("prompt_style")
     @classmethod
@@ -222,13 +277,19 @@ async def admin_add_provider_model(
         model_id=body.model_id.strip(),
         display_name=body.display_name.strip() if body.display_name else None,
         max_tokens=body.max_tokens,
+        context_window=body.context_window,
+        max_output_tokens=body.max_output_tokens,
         input_cost_per_1m=body.input_cost_per_1m.strip() if body.input_cost_per_1m else None,
         output_cost_per_1m=body.output_cost_per_1m.strip() if body.output_cost_per_1m else None,
+        cached_input_cost_per_1m=body.cached_input_cost_per_1m.strip() if body.cached_input_cost_per_1m else None,
         no_system_messages=body.no_system_messages,
         supports_tools=body.supports_tools,
         supports_vision=body.supports_vision,
         supports_reasoning=body.supports_reasoning,
+        supports_prompt_caching=body.supports_prompt_caching,
+        supports_structured_output=body.supports_structured_output,
         prompt_style=body.prompt_style,
+        extra_body=dict(body.extra_body) if body.extra_body else {},
     )
     db.add(row)
     try:
@@ -261,6 +322,10 @@ async def admin_update_provider_model(
         row.display_name = body.display_name.strip() if body.display_name and body.display_name.strip() else None
     if "max_tokens" in updates:
         row.max_tokens = body.max_tokens
+    if "context_window" in updates:
+        row.context_window = body.context_window
+    if "max_output_tokens" in updates:
+        row.max_output_tokens = body.max_output_tokens
     if "input_cost_per_1m" in updates:
         row.input_cost_per_1m = (
             body.input_cost_per_1m.strip()
@@ -273,6 +338,12 @@ async def admin_update_provider_model(
             if body.output_cost_per_1m and body.output_cost_per_1m.strip()
             else None
         )
+    if "cached_input_cost_per_1m" in updates:
+        row.cached_input_cost_per_1m = (
+            body.cached_input_cost_per_1m.strip()
+            if body.cached_input_cost_per_1m and body.cached_input_cost_per_1m.strip()
+            else None
+        )
     if "no_system_messages" in updates:
         row.no_system_messages = bool(body.no_system_messages)
     if "supports_tools" in updates:
@@ -281,8 +352,14 @@ async def admin_update_provider_model(
         row.supports_vision = bool(body.supports_vision)
     if "supports_reasoning" in updates:
         row.supports_reasoning = bool(body.supports_reasoning)
+    if "supports_prompt_caching" in updates:
+        row.supports_prompt_caching = bool(body.supports_prompt_caching)
+    if "supports_structured_output" in updates:
+        row.supports_structured_output = bool(body.supports_structured_output)
     if "prompt_style" in updates and body.prompt_style is not None:
         row.prompt_style = body.prompt_style
+    if "extra_body" in updates:
+        row.extra_body = dict(body.extra_body) if body.extra_body else {}
 
     await db.commit()
     await db.refresh(row)
@@ -345,6 +422,10 @@ async def admin_create_provider(
     config: dict = {}
     if body.provider_type == "litellm" and body.management_key:
         config["management_key"] = encrypt(body.management_key.strip())
+
+    extra_headers = _validate_extra_headers(body.extra_headers)
+    if extra_headers:
+        config["extra_headers"] = extra_headers
 
     api_key_value = body.api_key.strip() if body.api_key else None
     if api_key_value:
@@ -432,6 +513,14 @@ async def admin_update_provider(
             config["management_key"] = encrypt(body.management_key.strip())
         else:
             config.pop("management_key", None)
+    if body.extra_headers is not None:
+        validated = _validate_extra_headers(body.extra_headers)
+        if validated:
+            config["extra_headers"] = validated
+        else:
+            config.pop("extra_headers", None)
+    elif body.clear_extra_headers:
+        config.pop("extra_headers", None)
     row.config = config
 
     row.updated_at = datetime.now(timezone.utc)
@@ -511,9 +600,19 @@ async def admin_test_provider(
     if not provider:
         return ProviderTestResult(ok=False, message="Provider not found in registry")
 
-    return await _test_provider_connection(
+    result = await _test_provider_connection(
         provider.provider_type, provider.api_key, provider.base_url,
     )
+
+    # On success, kick off a catalog refresh in the background so the admin's
+    # "Test Connection" click also picks up any newly-shipped models without
+    # requiring a second click on "Refresh Models".
+    if result.ok:
+        import asyncio
+        from app.services.provider_catalog_refresh import refresh_one_provider
+        asyncio.create_task(refresh_one_provider(provider_id))
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +660,30 @@ class SyncModelsResult(BaseModel):
     created: int = 0
     updated: int = 0
     total: int = 0
+
+
+class RefreshNowResult(BaseModel):
+    provider_id: str
+    created: int = 0
+    updated: int = 0
+    total: int = 0
+    error: str | None = None
+
+
+@router.post("/providers/{provider_id}/refresh-now", response_model=RefreshNowResult)
+async def admin_refresh_provider_now(
+    provider_id: str,
+    _auth: str = Depends(require_scopes("providers:write")),
+):
+    """Trigger an immediate catalog refresh for one provider.
+
+    Same pull as the daily background job. Returns counts + last-error. Writes
+    ``last_refresh_ts`` / ``last_refresh_error`` to ``ProviderConfig.config``
+    regardless of success so the admin UI can surface staleness.
+    """
+    from app.services.provider_catalog_refresh import refresh_one_provider
+    result = await refresh_one_provider(provider_id)
+    return RefreshNowResult(provider_id=provider_id, **result)
 
 
 @router.post("/providers/{provider_id}/sync-models", response_model=SyncModelsResult)

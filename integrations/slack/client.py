@@ -20,7 +20,7 @@ def bot_attribution(bot_id: str) -> dict:
 
     Requires chat:write.customize scope on the Slack app.
     """
-    from app.agent.bots import get_bot
+    from integrations.sdk import get_bot
 
     try:
         bot = get_bot(bot_id)

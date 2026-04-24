@@ -15,7 +15,27 @@ import { useAuthStore, getAuthToken } from "@/src/stores/auth";
 // Sync Models
 // ---------------------------------------------------------------------------
 
-function SyncModelsSection({ providerId }: { providerId: string }) {
+function _fmtAgo(iso: string | null | undefined): string {
+  if (!iso) return "never";
+  const delta = Math.max(0, Date.now() - new Date(iso).getTime());
+  const mins = Math.floor(delta / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+function SyncModelsSection({
+  providerId,
+  lastRefreshTs,
+  lastRefreshError,
+}: {
+  providerId: string;
+  lastRefreshTs?: string | null;
+  lastRefreshError?: string | null;
+}) {
   const t = useThemeTokens();
   const syncMut = useSyncProviderModels(providerId);
   const [result, setResult] = useState<SyncModelsResult | null>(null);
@@ -28,8 +48,8 @@ function SyncModelsSection({ providerId }: { providerId: string }) {
   }, [syncMut]);
 
   return (
-    <Section title="Sync Models" description="Pull model list from provider API into local database">
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
+    <Section title="Sync Models" description="Pull model list from provider API into local database. Auto-refreshed daily by the background catalog job.">
+      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <button
           onClick={handleSync}
           disabled={syncMut.isPending}
@@ -53,7 +73,15 @@ function SyncModelsSection({ providerId }: { providerId: string }) {
             {(syncMut.error as any)?.message || "Sync failed"}
           </span>
         )}
+        <span style={{ fontSize: 11, color: t.textDim, marginLeft: "auto" }}>
+          Last auto-refresh: {_fmtAgo(lastRefreshTs)}
+        </span>
       </div>
+      {lastRefreshError && (
+        <div className="text-danger text-[11px] mt-1">
+          Last refresh error: {lastRefreshError}
+        </div>
+      )}
     </Section>
   );
 }
@@ -288,14 +316,22 @@ function RunningModelsSection({ providerId }: { providerId: string }) {
 export function ProviderCapabilitySections({
   providerId,
   capabilities,
+  lastRefreshTs,
+  lastRefreshError,
 }: {
   providerId: string;
   capabilities: ProviderCapabilities;
+  lastRefreshTs?: string | null;
+  lastRefreshError?: string | null;
 }) {
   return (
     <>
       {capabilities.list_models && (
-        <SyncModelsSection providerId={providerId} />
+        <SyncModelsSection
+          providerId={providerId}
+          lastRefreshTs={lastRefreshTs}
+          lastRefreshError={lastRefreshError}
+        />
       )}
       {capabilities.pull_model && (
         <PullModelSection providerId={providerId} />

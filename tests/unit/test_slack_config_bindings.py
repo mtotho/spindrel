@@ -16,6 +16,7 @@ from sqlalchemy.schema import DefaultClause
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID, TIMESTAMP as PG_TIMESTAMP, TSVECTOR as PG_TSVECTOR
+from tests.conftest import _skip_if_local_aiosqlite_is_known_broken
 
 
 @compiles(Vector, "sqlite")
@@ -53,6 +54,8 @@ _REPLACEMENTS = {
 
 @pytest_asyncio.fixture
 async def engine():
+    _skip_if_local_aiosqlite_is_known_broken()
+
     eng = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     originals = {}
     for table in Base.metadata.sorted_tables:

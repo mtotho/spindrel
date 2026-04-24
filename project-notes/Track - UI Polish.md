@@ -196,6 +196,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Session canvas panes replace the temporary split-panel model** — `/sessions` now browses/switches with grouped empty-state rows, `/split` opens the same picker in add-pane mode with already-visible sessions hidden, and the chat area persists up to three first-class panes with headers, close/rename/make-primary actions, focused-pane replacement, and draggable width gutters.
 - [x] **Focused chat layout is commandable** — `/focus`, This Channel palette action, and the existing keyboard shortcut now collapse both side panels plus the floating top chip rail into a compact top-edge handle, with prior chrome restored on the next toggle.
 - [x] **Session pane boundary cleaned up** — stale side-panel modules were removed, legacy `sessionPanels` remains migration-only, and `channelSessionSurfaces` owns pane normalization, resize math, picker grouping, and route/source helpers.
+- [x] **Session picker filters out sub-session noise** — the channel session catalog/search now excludes task, pipeline, eval, thread, delegation, and other child transcripts from `/sessions` and `/split`, while keeping primary/previous user chat sessions plus owned scratch sessions visible.
+- [x] **Split-pane chrome merged into the chat surface** — desktop split panes now use slim header strips and vertical gutters instead of framed rounded cards, with aggressive title truncation and flex body sizing so embedded composers stay bottom-aligned.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -222,12 +224,13 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after renderer-variant split + persisted tool auto-open removal
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after persisted ordered-item collapse in `MessageBubble`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after `transcript_entries` stream→settled parity fix
-- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after session canvas panes + focus layout (clean before the later dirty-tree settings route deletion surfaced)
-- [ ] Final rerun of `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` is currently blocked by unrelated `src/router.tsx` import failure for deleted `ui/app/(app)/settings/account.tsx`.
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after session canvas panes + focus layout
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node --test .chat-test-dist/src/components/chat/slashCommandSurfaces.test.js`
 - [x] `cd /home/mtoth/personal/agent-server && python -m py_compile app/services/slash_commands.py`
+- [x] `cd /home/mtoth/personal/agent-server && env PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/services/channel_sessions.py app/routers/api_v1_channels.py`
+- [x] `cd /home/mtoth/personal/agent-server && pytest tests/integration/test_api_search_history.py -q -k "SessionSearchEndpoint"` — skipped locally on SQLite; PostgreSQL fixture owns execution.
 - [x] `cd /home/mtoth/personal/agent-server && pytest tests/unit/test_loop_helpers.py tests/unit/test_sessions.py -q`
 - [x] `cd /home/mtoth/personal/agent-server/ui && timeout 20s npx tsc --noEmit --pretty false` after backend `transcript_entries` persistence + settled transcript fallback fix
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`

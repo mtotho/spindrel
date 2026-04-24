@@ -86,6 +86,29 @@ async def channel_with_messages(db_session):
         transcript="Archived transcript about blue-green deployment verifier steps.",
         message_count=3,
     ))
+
+    hidden_task_sess_id = uuid.uuid4()
+    hidden_child_sess_id = uuid.uuid4()
+    hidden_thread_sess_id = uuid.uuid4()
+    for hidden_id, kwargs in [
+        (hidden_task_sess_id, {"session_type": "pipeline_run", "source_task_id": uuid.uuid4()}),
+        (hidden_child_sess_id, {"session_type": "channel", "parent_session_id": sess_id}),
+        (hidden_thread_sess_id, {"session_type": "thread", "parent_message_id": messages[0].id}),
+    ]:
+        db_session.add(Session(
+            id=hidden_id,
+            client_id=f"hidden-{hidden_id}",
+            bot_id="test-bot",
+            channel_id=ch_id,
+            title="Hidden task transcript",
+            **kwargs,
+        ))
+        db_session.add(Message(
+            id=uuid.uuid4(),
+            session_id=hidden_id,
+            role="user",
+            content="rollback hidden sub-session transcript should not appear",
+        ))
     await db_session.commit()
 
     return ch_id, sess_id, old_sess_id, messages
@@ -182,6 +205,16 @@ class TestSessionSearchEndpoint:
         assert active["surface_kind"] == "channel"
         assert active["is_active"] is True
 
+    async def test_session_catalog_excludes_sub_sessions(self, client, channel_with_messages):
+        ch_id, _, _, _ = channel_with_messages
+        resp = await client.get(
+            f"/api/v1/channels/{ch_id}/sessions",
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        labels = {row.get("label") for row in resp.json()["sessions"]}
+        assert "Hidden task transcript" not in labels
+
     async def test_session_search_groups_live_message_matches_by_session(self, client, channel_with_messages):
         ch_id, _, old_sid, _ = channel_with_messages
         resp = await client.get(
@@ -194,6 +227,16 @@ class TestSessionSearchEndpoint:
         assert any(row["session_id"] == str(old_sid) for row in sessions)
         row = next(row for row in sessions if row["session_id"] == str(old_sid))
         assert any(match["kind"] == "message" for match in row["matches"])
+
+    async def test_session_search_excludes_sub_session_matches(self, client, channel_with_messages):
+        ch_id, _, _, _ = channel_with_messages
+        resp = await client.get(
+            f"/api/v1/channels/{ch_id}/sessions/search",
+            params={"q": "hidden sub-session"},
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200
+        assert resp.json()["sessions"] == []
 
     async def test_session_search_uses_archived_section_matches(self, client, channel_with_messages):
         ch_id, _, old_sid, _ = channel_with_messages

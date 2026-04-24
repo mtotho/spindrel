@@ -205,8 +205,7 @@ class EchoTracker:
     async def save_to_db(self) -> None:
         """Persist reply timestamps and sent content hashes to the DB."""
         try:
-            from app.db.engine import async_session
-            from app.db.models import IntegrationSetting
+            from integrations.sdk import IntegrationSetting, async_session
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
             replies_data = json.dumps(dict(self._chat_replies))
@@ -230,8 +229,7 @@ class EchoTracker:
     async def load_from_db(self) -> None:
         """Load reply timestamps and sent content hashes from the DB."""
         try:
-            from app.db.engine import async_session
-            from app.db.models import IntegrationSetting
+            from integrations.sdk import IntegrationSetting, async_session
             from sqlalchemy import select
 
             async with async_session() as db:

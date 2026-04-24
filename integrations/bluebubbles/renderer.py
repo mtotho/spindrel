@@ -33,8 +33,9 @@ import httpx
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
+    UploadFile, UploadImage,
+    renderer_registry,
 )
-from app.domain.outbound_action import UploadFile, UploadImage
 from integrations.bluebubbles.bb_api import send_attachment, send_text, set_typing
 from integrations.bluebubbles.echo_tracker import shared_tracker
 from integrations.bluebubbles.target import BlueBubblesTarget
@@ -367,7 +368,6 @@ class BlueBubblesRenderer:
 
 
 def _register() -> None:
-    from app.integrations import renderer_registry
     if renderer_registry.get(BlueBubblesRenderer.integration_id) is None:
         renderer_registry.register(BlueBubblesRenderer())
 

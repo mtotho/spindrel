@@ -126,6 +126,19 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    # --- workspaces --------------------------------------------------------
+
+    def list_workspaces(self) -> list[dict]:
+        """List workspaces. The API path is `/api/v1/workspaces` (no admin
+        prefix — the admin variant returns 404)."""
+        return self._get("/api/v1/workspaces").json()
+
+    # --- skills ------------------------------------------------------------
+
+    def list_skills(self, *, limit: int = 100) -> list[dict]:
+        """List skills (admin scope so all bot/folder roots are visible)."""
+        return self._get("/api/v1/admin/skills", params={"limit": limit}).json()
+
     # --- chat --------------------------------------------------------------
 
     def send_message(self, *, channel_id: str, text: str) -> dict:
@@ -287,6 +300,27 @@ class SpindrelClient:
         r = self._http.delete(f"/api/v1/admin/mcp-servers/{server_id}")
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
+
+    # --- integrations lifecycle ------------------------------------------
+
+    def set_integration_status(self, *, integration_id: str, status: str) -> dict:
+        """Toggle an integration between ``available`` and ``enabled``.
+
+        Idempotent on the server side — returning early when the requested
+        status equals the current one.
+        """
+        if self._dry_run:
+            logger.info("DRY-RUN PUT /admin/integrations/%s/status -> %s", integration_id, status)
+            return {"integration_id": integration_id, "status": status, "dry_run": True}
+        r = self._http.put(
+            f"/api/v1/admin/integrations/{integration_id}/status",
+            json={"status": status},
+        )
+        if r.status_code >= 400:
+            logger.error("PUT /integrations/%s/status -> %s body=%s",
+                         integration_id, r.status_code, r.text[:300])
+        r.raise_for_status()
+        return r.json()
 
     def ensure_skill(self, *, skill_id: str, name: str, content: str) -> dict:
         # Skills route accepts unique ``id`` on POST; 409 on duplicate.

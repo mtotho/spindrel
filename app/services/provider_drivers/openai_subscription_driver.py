@@ -153,10 +153,12 @@ class OpenAISubscriptionDriver(ProviderDriver):
     def make_client(self, config: "ProviderConfigRow") -> OpenAIResponsesAdapter:
         from app.services.openai_oauth import tokens_source_for_provider
 
+        headers = self._extra_headers(config) or None
         return OpenAIResponsesAdapter(
             tokens_source=tokens_source_for_provider(config),
             base_url=config.base_url or DEFAULT_CODEX_BASE_URL,
             timeout=settings.LLM_TIMEOUT,
+            default_headers=headers,
         )
 
     async def test_connection(

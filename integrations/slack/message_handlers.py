@@ -375,8 +375,8 @@ def _should_gate_channel(channel: str) -> bool:
     """
     from slack_settings import get_slack_config
     try:
-        from app.services.integration_settings import get_value
-        enabled = get_value("slack", "SLACK_REQUIRE_CHANNEL_APPROVAL", "false")
+        from integrations.sdk import get_setting
+        enabled = get_setting("slack", "SLACK_REQUIRE_CHANNEL_APPROVAL", "false")
     except ImportError:
         import os
         enabled = os.environ.get("SLACK_REQUIRE_CHANNEL_APPROVAL", "false")

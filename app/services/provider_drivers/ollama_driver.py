@@ -37,12 +37,16 @@ class OllamaDriver(ProviderDriver):
         )
 
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=f"{_base(config)}/v1",
-            api_key="ollama",
-            timeout=settings.LLM_TIMEOUT,
-            max_retries=0,
-        )
+        kw: dict = {
+            "base_url": f"{_base(config)}/v1",
+            "api_key": "ollama",
+            "timeout": settings.LLM_TIMEOUT,
+            "max_retries": 0,
+        }
+        headers = self._extra_headers(config)
+        if headers:
+            kw["default_headers"] = headers
+        return AsyncOpenAI(**kw)
 
     async def test_connection(
         self, api_key: str | None, base_url: str | None

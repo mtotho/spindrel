@@ -17,10 +17,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.binding_suggestions import BindingSuggestion
 from integrations import utils
 from integrations.sdk import (
-    get_db, verify_admin_auth, verify_auth_or_user,
+    BindingSuggestion,
+    Channel,
+    ChannelIntegration,
+    IntegrationSetting,
+    Task,
+    async_session,
+    get_bot,
+    get_db,
+    get_integration_meta,
+    renderer_registry,
+    verify_admin_auth,
+    verify_auth_or_user,
     resolve_all_channels_by_client_id, ensure_active_session,
 )
 from integrations.bluebubbles.echo_tracker import shared_tracker
@@ -113,8 +123,6 @@ class _GuidDedup:
     async def save_to_db(self) -> None:
         """Persist seen GUIDs to the DB."""
         try:
-            from app.db.engine import async_session
-            from app.db.models import IntegrationSetting
             from sqlalchemy.dialects.postgresql import insert as pg_insert
 
             recent = dict(list(self._seen.items())[-1000:])
@@ -137,8 +145,6 @@ class _GuidDedup:
     async def load_from_db(self) -> None:
         """Load seen GUIDs from the DB."""
         try:
-            from app.db.engine import async_session
-            from app.db.models import IntegrationSetting
             from sqlalchemy import select
 
             async with async_session() as db:
@@ -303,7 +309,6 @@ def _expected_sender_from_guid(chat_guid: str) -> str | None:
 def _bot_wake_words(bot_id: str) -> list[str]:
     """Return wake words derived from a bot's id and name."""
     try:
-        from app.agent.bots import get_bot
         bot = get_bot(bot_id)
         words = {bot.id.lower()}
         if bot.name:
@@ -318,8 +323,6 @@ def _bot_wake_words(bot_id: str) -> list[str]:
 async def get_config(_auth=Depends(verify_admin_auth)) -> ConfigResponse:
     """Return current BB configuration (used by bb_client.py)."""
     from integrations.bluebubbles.config import settings
-    from app.db.engine import async_session
-    from app.db.models import Channel, ChannelIntegration
     from sqlalchemy import select
 
     default_bot = _get_default_bot()
@@ -557,8 +560,6 @@ async def resume_webhook(_auth=Depends(verify_admin_auth)) -> dict:
 @router.post("/cancel-pending-tasks")
 async def cancel_pending_tasks(_auth=Depends(verify_admin_auth)) -> dict:
     """Cancel all pending BlueBubbles tasks. Use after a spam incident."""
-    from app.db.engine import async_session
-    from app.db.models import Task
     from sqlalchemy import update
 
     async with async_session() as db:
@@ -580,8 +581,6 @@ async def cancel_stale_pending_tasks() -> None:
     Called during integration startup to prevent replay storms from
     tasks that accumulated during a previous crash/spam incident.
     """
-    from app.db.engine import async_session
-    from app.db.models import Task
     from sqlalchemy import update
     from datetime import datetime, timezone, timedelta
 
@@ -608,9 +607,6 @@ async def cancel_stale_pending_tasks() -> None:
 @router.get("/diagnose")
 async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
     """Diagnose the mirror-to-iMessage path. Shows exactly what would happen."""
-    from app.agent.hooks import get_integration_meta
-    from app.integrations import renderer_registry
-
     issues = []
     checks = {}
 
@@ -651,8 +647,6 @@ async def diagnose_mirror(_auth=Depends(verify_admin_auth)) -> dict:
 
     # 5. Check channel bindings
     try:
-        from app.db.engine import async_session
-        from app.db.models import ChannelIntegration
         from sqlalchemy import select
 
         async with async_session() as db:

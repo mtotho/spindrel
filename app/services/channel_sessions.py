@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Channel, ConversationSection, Message, Session, User
+from app.services.sub_sessions import SESSION_TYPE_CHANNEL, SESSION_TYPE_EPHEMERAL
 from app.tools.local.search_history import _build_session_query
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,27 @@ def _session_label(session: Session, preview: str | None) -> str | None:
     return fallback or None
 
 
+def _is_user_visible_channel_session(session: Session, channel: Channel) -> bool:
+    return (
+        session.channel_id == channel.id
+        and session.session_type == SESSION_TYPE_CHANNEL
+        and session.source_task_id is None
+        and session.parent_session_id is None
+        and session.parent_message_id is None
+    )
+
+
+def _is_user_visible_scratch_session(session: Session, channel: Channel, auth) -> bool:
+    return (
+        isinstance(auth, User)
+        and session.parent_channel_id == channel.id
+        and session.owner_user_id == auth.id
+        and session.session_type == SESSION_TYPE_EPHEMERAL
+        and session.source_task_id is None
+        and session.parent_message_id is None
+    )
+
+
 async def _channel_session_rows(
     db: AsyncSession,
     channel: Channel,
@@ -76,7 +98,13 @@ async def _channel_session_rows(
 ) -> list[Session]:
     channel_sessions = (await db.execute(
         select(Session)
-        .where(Session.channel_id == channel.id)
+        .where(
+            Session.channel_id == channel.id,
+            Session.session_type == SESSION_TYPE_CHANNEL,
+            Session.source_task_id.is_(None),
+            Session.parent_session_id.is_(None),
+            Session.parent_message_id.is_(None),
+        )
         .order_by(Session.last_active.desc())
         .limit(limit)
     )).scalars().all()
@@ -88,6 +116,9 @@ async def _channel_session_rows(
             .where(
                 Session.parent_channel_id == channel.id,
                 Session.owner_user_id == auth.id,
+                Session.session_type == SESSION_TYPE_EPHEMERAL,
+                Session.source_task_id.is_(None),
+                Session.parent_message_id.is_(None),
             )
             .order_by(Session.last_active.desc())
             .limit(limit)
@@ -95,7 +126,8 @@ async def _channel_session_rows(
 
     by_id: dict[uuid.UUID, Session] = {}
     for session in [*channel_sessions, *scratch_sessions]:
-        by_id[session.id] = session
+        if _is_user_visible_channel_session(session, channel) or _is_user_visible_scratch_session(session, channel, auth):
+            by_id[session.id] = session
     return sorted(by_id.values(), key=lambda s: s.last_active or s.created_at, reverse=True)[:limit]
 
 

@@ -40,12 +40,16 @@ class LiteLLMDriver(ProviderDriver):
         )
 
     def make_client(self, config: ProviderConfigRow) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=config.base_url or settings.LLM_BASE_URL,
-            api_key=config.api_key or settings.LLM_API_KEY or "dummy",
-            timeout=settings.LLM_TIMEOUT,
-            max_retries=0,
-        )
+        kw: dict = {
+            "base_url": config.base_url or settings.LLM_BASE_URL,
+            "api_key": config.api_key or settings.LLM_API_KEY or "dummy",
+            "timeout": settings.LLM_TIMEOUT,
+            "max_retries": 0,
+        }
+        headers = self._extra_headers(config)
+        if headers:
+            kw["default_headers"] = headers
+        return AsyncOpenAI(**kw)
 
     async def test_connection(
         self, api_key: str | None, base_url: str | None

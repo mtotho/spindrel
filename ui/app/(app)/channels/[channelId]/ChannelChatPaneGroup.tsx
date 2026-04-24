@@ -1,7 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { MoreHorizontal, X as CloseIcon } from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
-import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import {
   buildChannelSessionChatSource,
@@ -83,12 +82,7 @@ function PaneHeader({
   const rename = useRenameSession();
   const sessionId = sessionIdForPane(pane, activeSessionId);
   const header = labelForPane(pane, catalog);
-  const { data: stats } = useSessionHeaderStats(channelId, sessionId);
-  const statBits = [
-    header.meta,
-    typeof stats?.turnsInContext === "number" ? `${stats.turnsInContext} in ctx` : null,
-    typeof stats?.turnsUntilCompaction === "number" ? `${stats.turnsUntilCompaction} until compact` : null,
-  ].filter(Boolean);
+  const tooltip = [header.title, header.meta].filter(Boolean).join(" · ");
 
   const commitRename = () => {
     if (!sessionId || !title.trim()) return;
@@ -104,7 +98,7 @@ function PaneHeader({
   };
 
   return (
-    <div className={`flex h-11 shrink-0 items-center gap-2 border-b px-3 ${focused ? "border-accent/35" : "border-surface-border"}`}>
+    <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-3 ${focused ? "border-accent/35 bg-surface-overlay/25" : "border-surface-border/70 bg-surface"}`}>
       <div className="min-w-0 flex-1">
         {renaming ? (
           <input
@@ -118,22 +112,17 @@ function PaneHeader({
             className="h-7 w-full rounded-md border border-surface-border bg-surface px-2 text-[12px] text-text outline-none focus:border-accent"
           />
         ) : (
-          <>
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-[12px] font-semibold text-text">{header.title}</span>
-              <span className="shrink-0 rounded-sm border border-surface-border px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
-                {header.kind}
+          <div className="flex min-w-0 items-center gap-2" title={tooltip}>
+            <span className="min-w-0 max-w-[62%] truncate text-[12px] font-semibold text-text">{header.title}</span>
+            <span className="shrink-0 rounded-sm border border-surface-border/80 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
+              {header.kind}
+            </span>
+            {!header.primary && pane.surface.kind === "channel" && (
+              <span className="shrink-0 rounded-sm border border-surface-border/80 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
+                Web-only
               </span>
-              {!header.primary && pane.surface.kind === "channel" && (
-                <span className="shrink-0 rounded-sm border border-surface-border px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
-                  Web-only
-                </span>
-              )}
-            </div>
-            {statBits.length > 0 && (
-              <div className="mt-0.5 truncate text-[10px] text-text-dim">{statBits.join(" · ")}</div>
             )}
-          </>
+          </div>
         )}
       </div>
       <div className="relative shrink-0">
@@ -217,6 +206,18 @@ export function ChannelChatPaneGroup({
 }: ChannelChatPaneGroupProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const total = panes.reduce((sum, pane) => sum + (widths[pane.id] ?? 0), 0) || panes.length || 1;
+  if (panes.length === 1 && panes[0]?.surface.kind === "primary") {
+    return (
+      <div
+        ref={containerRef}
+        className="flex min-h-0 flex-1"
+        onMouseDown={() => onFocusPane(panes[0]!.id)}
+      >
+        {primaryNode}
+      </div>
+    );
+  }
+
   if (panes.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-surface p-6">
@@ -239,7 +240,7 @@ export function ChannelChatPaneGroup({
   }
 
   return (
-    <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden">
+    <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden bg-surface">
       {panes.map((pane, index) => {
         const width = ((widths[pane.id] ?? 1 / panes.length) / total) * 100;
         const focused = pane.id === focusedPaneId;
@@ -267,7 +268,7 @@ export function ChannelChatPaneGroup({
               role="button"
               tabIndex={-1}
               onMouseDown={() => onFocusPane(pane.id)}
-              className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-surface-border bg-surface"
+              className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-surface ${index === 0 ? "" : "border-l border-surface-border/70"}`}
             >
               <PaneHeader
                 pane={pane}
@@ -278,11 +279,11 @@ export function ChannelChatPaneGroup({
                 onClose={() => onClosePane(pane.id)}
                 onMakePrimary={() => onMakePrimary(pane)}
               />
-              <div className="min-h-0 flex-1">{body}</div>
+              <div className="flex min-h-0 flex-1 flex-col">{body}</div>
             </div>
             {index < panes.length - 1 && (
               <div
-                className="flex w-2 shrink-0 cursor-col-resize items-stretch justify-center"
+                className="flex w-2 shrink-0 cursor-col-resize items-stretch justify-center bg-surface"
                 onMouseDown={(event) => {
                   event.preventDefault();
                   const startX = event.clientX;
@@ -301,7 +302,7 @@ export function ChannelChatPaneGroup({
                   window.addEventListener("mouseup", onUp);
                 }}
               >
-                <div className="my-2 w-px bg-surface-border" />
+                <div className="w-px bg-surface-border/70" />
               </div>
             )}
           </div>

@@ -15,6 +15,7 @@ import { useUsageHudStore } from "@/src/stores/usageHud";
 import { AlertsTab } from "./AlertsTab";
 import { ForecastTab } from "./ForecastSection";
 import { LimitsTab } from "./LimitsTab";
+import { ProviderHealthTab } from "./ProviderHealthTab";
 import { ChartsTab } from "./UsageCharts";
 import { LogsTab } from "./UsageLogs";
 import { OverviewTab } from "./UsageOverview";
@@ -233,6 +234,7 @@ export default function UsageScreen() {
           {tab === "Forecast" && <ForecastTab />}
           {tab === "Limits" && <LimitsTab knownModels={modelNames} />}
           {tab === "Alerts" && <AlertsTab />}
+          {tab === "Providers" && <ProviderHealthTab />}
         </div>
       </RefreshableScrollView>
     </div>

@@ -143,8 +143,7 @@ async def _store_slack_file_id(attachment_id: str, slack_file_id: str) -> None:
 
     from sqlalchemy.orm.attributes import flag_modified
 
-    from app.db.engine import async_session
-    from app.db.models import Attachment
+    from integrations.sdk import Attachment, async_session
 
     att_uuid = uuid.UUID(attachment_id)
     async with async_session() as db:

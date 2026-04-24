@@ -16,7 +16,15 @@ from pathlib import Path
 
 import httpx
 
-from integrations.sdk import HookContext, IntegrationMeta, register_hook, register_integration
+from integrations.sdk import (
+    HookContext,
+    IntegrationMeta,
+    current_dispatch_config,
+    current_dispatch_type,
+    get_setting,
+    register_hook,
+    register_integration,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +134,6 @@ def _evict_stale_reactions() -> None:
 
 def _get_discord_ref() -> tuple[str | None, str | None, str | None]:
     """Read Discord channel_id, message_id, token from current dispatch context."""
-    from app.agent.context import current_dispatch_config, current_dispatch_type
     if current_dispatch_type.get() != "discord":
         return None, None, None
     cfg = current_dispatch_config.get() or {}
@@ -289,8 +296,7 @@ def _resolve_dispatch_config(client_id: str) -> dict | None:
 
     token = None
     try:
-        from app.services.integration_settings import get_value
-        token = get_value("discord", "DISCORD_TOKEN")
+        token = get_setting("discord", "DISCORD_TOKEN")
     except Exception:
         pass
     if not token:

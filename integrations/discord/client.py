@@ -28,7 +28,7 @@ def bot_attribution(bot_id: str) -> dict:
     Regular bot messages use the bot's own identity, but we return
     display info for use in embeds, thread naming, etc.
     """
-    from app.agent.bots import get_bot
+    from integrations.sdk import get_bot
 
     try:
         bot = get_bot(bot_id)

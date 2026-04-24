@@ -41,8 +41,10 @@ from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
     ToolBadge, ToolOutputDisplay, ToolResultRenderingSupport,
+    build_suggestions,
     count_pending_outbox,
     get_channel_for_integration,
+    renderer_registry,
 )
 from integrations.slack.client import bot_attribution
 from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
@@ -948,7 +950,6 @@ def _build_tool_approval_blocks(
 
     args_preview = _json.dumps(arguments, indent=2)[:500]
 
-    from app.services.approval_suggestions import build_suggestions
     suggestions = build_suggestions(tool_name, arguments)
 
     primary_actions = [
@@ -1360,7 +1361,6 @@ class _SlackCallResult:
 
 
 def _register() -> None:
-    from app.integrations import renderer_registry
     if renderer_registry.get(SlackRenderer.integration_id) is None:
         renderer_registry.register(SlackRenderer())
 

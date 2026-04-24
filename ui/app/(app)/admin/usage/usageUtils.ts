@@ -10,7 +10,7 @@ export const TIME_PRESETS: { label: string; value: string }[] = [
   { label: "30d", value: "30d" },
 ];
 
-export const TABS = ["Overview", "Logs", "Trends", "Forecast", "Limits", "Alerts"] as const;
+export const TABS = ["Overview", "Logs", "Trends", "Forecast", "Limits", "Alerts", "Providers"] as const;
 export type Tab = (typeof TABS)[number];
 
 // ---------------------------------------------------------------------------

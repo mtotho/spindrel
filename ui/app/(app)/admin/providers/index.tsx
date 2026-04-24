@@ -193,49 +193,51 @@ export default function ProvidersScreen() {
 
       {/* Cards */}
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} style={{ flex: 1 }}>
-        {/* .env fallback card — always show when URL is set */}
-        {envBaseUrl && (
-          <EnvFallbackCard baseUrl={envBaseUrl} hasKey={envHasKey} />
-        )}
+        <div className={isWide ? "px-6 py-5 flex flex-col gap-3" : "px-4 py-3 flex flex-col gap-3"}>
+          {/* .env fallback card — always show when URL is set */}
+          {envBaseUrl && (
+            <EnvFallbackCard baseUrl={envBaseUrl} hasKey={envHasKey} />
+          )}
 
-        {(!providers || providers.length === 0) && !envBaseUrl && (
-          <div style={{
-            padding: 40, textAlign: "center", fontSize: 13,
-          }}>
-            <div style={{ color: t.textDim, marginBottom: 8 }}>No providers configured.</div>
-            <div style={{ color: t.textDim, fontSize: 12 }}>
-              Set <code style={{ color: t.textDim }}>LLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LLM_API_KEY</code> in .env or add a provider above.
+          {(!providers || providers.length === 0) && !envBaseUrl && (
+            <div style={{
+              padding: 40, textAlign: "center", fontSize: 13,
+            }}>
+              <div style={{ color: t.textDim, marginBottom: 8 }}>No providers configured.</div>
+              <div style={{ color: t.textDim, fontSize: 12 }}>
+                Set <code style={{ color: t.textDim }}>LLM_BASE_URL</code> / <code style={{ color: t.textDim }}>LLM_API_KEY</code> in .env or add a provider above.
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Grid on wide, stack on mobile */}
-        {providers && providers.length > 0 && (
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(380px, 1fr))" : "1fr",
-            gap: isWide ? 12 : 10,
-          }}>
-            {providers.map((p) => (
-              <ProviderCard
-                key={p.id}
-                provider={p}
-                isWide={isWide}
-                onClick={() => navigate(`/admin/providers/${p.id}`)}
-              />
-            ))}
-          </div>
-        )}
+          {/* Grid on wide, stack on mobile */}
+          {providers && providers.length > 0 && (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: isWide ? "repeat(auto-fill, minmax(380px, 1fr))" : "1fr",
+              gap: isWide ? 12 : 10,
+            }}>
+              {providers.map((p) => (
+                <ProviderCard
+                  key={p.id}
+                  provider={p}
+                  isWide={isWide}
+                  onClick={() => navigate(`/admin/providers/${p.id}`)}
+                />
+              ))}
+            </div>
+          )}
 
-        {/* Fallback note when DB providers exist */}
-        {providers && providers.length > 0 && (
-          <div style={{
-            padding: 12, fontSize: 11, color: t.textDim, borderTop: `1px solid ${t.surfaceRaised}`,
-            marginTop: 4,
-          }}>
-            Bots with no provider assigned use the first enabled <code style={{ color: t.textDim }}>litellm</code> provider, or the .env fallback if none exist.
-          </div>
-        )}
+          {/* Fallback note when DB providers exist */}
+          {providers && providers.length > 0 && (
+            <div style={{
+              padding: "12px 0 4px 0", fontSize: 11, color: t.textDim,
+              borderTop: `1px solid ${t.surfaceRaised}`, marginTop: 4,
+            }}>
+              Bots with no provider assigned use the first enabled <code style={{ color: t.textDim }}>litellm</code> provider, or the .env fallback if none exist.
+            </div>
+          )}
+        </div>
       </RefreshableScrollView>
     </div>
   );

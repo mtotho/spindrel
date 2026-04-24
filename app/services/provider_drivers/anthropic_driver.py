@@ -32,11 +32,13 @@ class AnthropicDriver(ProviderDriver):
         return ProviderCapabilities(chat_completions=True, requires_api_key=True)
 
     def make_client(self, config: ProviderConfigRow) -> AnthropicOpenAIAdapter:
+        headers = self._extra_headers(config) or None
         return AnthropicOpenAIAdapter(
             api_key=config.api_key or "",
             base_url=config.base_url or "https://api.anthropic.com",
             timeout=settings.LLM_TIMEOUT,
             max_retries=0,
+            default_headers=headers,
         )
 
     async def test_connection(
@@ -58,11 +60,13 @@ class AnthropicCompatibleDriver(ProviderDriver):
         )
 
     def make_client(self, config: ProviderConfigRow) -> AnthropicOpenAIAdapter:
+        headers = self._extra_headers(config) or None
         return AnthropicOpenAIAdapter(
             api_key=config.api_key or "",
             base_url=config.base_url or "https://api.anthropic.com",
             timeout=settings.LLM_TIMEOUT,
             max_retries=0,
+            default_headers=headers,
         )
 
     async def test_connection(

@@ -134,7 +134,7 @@ from app.integrations.renderer import ChannelRenderer, DeliveryReceipt, SimpleRe
 from app.integrations import renderer_registry  # noqa: E402, F401
 from app.domain.capability import Capability  # noqa: E402, F401
 from app.domain.channel_events import ChannelEvent, ChannelEventKind  # noqa: E402, F401
-from app.domain.outbound_action import OutboundAction  # noqa: E402, F401
+from app.domain.outbound_action import OutboundAction, UploadFile, UploadImage  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Hooks authoring
@@ -143,6 +143,7 @@ from app.domain.outbound_action import OutboundAction  # noqa: E402, F401
 from app.agent.hooks import (  # noqa: E402, F401
     IntegrationMeta,
     HookContext,
+    get_integration_meta,
     register_hook,
     register_integration,
 )
@@ -161,7 +162,13 @@ from app.agent.context import (  # noqa: E402, F401
 # Settings
 # ---------------------------------------------------------------------------
 
-from app.services.integration_settings import get_value as get_setting  # noqa: E402, F401
+from app.services.integration_settings import (  # noqa: E402, F401
+    delete_setting,
+    get_status,
+    get_value as get_setting,
+    set_status,
+    update_settings,
+)
 
 # ---------------------------------------------------------------------------
 # Session / document helpers (re-exported from integrations.utils)
@@ -200,6 +207,14 @@ from integrations.tool_output import (  # noqa: E402, F401
 # ---------------------------------------------------------------------------
 
 from app.db.engine import async_session  # noqa: E402, F401
+from app.db.models import (  # noqa: E402, F401
+    Attachment,
+    Bot as BotRow,
+    Channel,
+    ChannelIntegration,
+    IntegrationSetting,
+    Task,
+)
 
 # ---------------------------------------------------------------------------
 # FastAPI dependencies (for router.py endpoints)
@@ -209,6 +224,8 @@ from app.dependencies import get_db  # noqa: E402, F401
 from app.dependencies import verify_auth  # noqa: E402, F401
 from app.dependencies import verify_admin_auth  # noqa: E402, F401
 from app.dependencies import verify_auth_or_user  # noqa: E402, F401
+from app.schemas.binding_suggestions import BindingSuggestion  # noqa: E402, F401
+from app.services.api_keys import has_scope, validate_api_key  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Channel / session helpers
@@ -239,6 +256,8 @@ from app.agent.context import (  # noqa: E402, F401
 from app.security.prompt_sanitize import sanitize_unicode  # noqa: E402, F401
 from app.utils import safe_create_task  # noqa: E402, F401
 from app.agent.bots import get_bot  # noqa: E402, F401
+from app.config import settings as app_settings  # noqa: E402, F401
+from app.services.approval_suggestions import build_suggestions  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Utility

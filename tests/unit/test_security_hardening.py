@@ -299,6 +299,16 @@ class TestCORSTightening:
         # Should contain specific methods
         assert "allow_methods=" in source
 
+    def test_loopback_dev_origins_allowed(self):
+        """Loopback browser origins should work without extra env config."""
+        from pathlib import Path
+
+        main_py = Path(__file__).resolve().parents[2] / "app" / "main.py"
+        source = main_py.read_text()
+
+        assert "allow_origin_regex=" in source
+        assert r"(localhost|127(?:\.\d{1,3}){3}|\[::1\])" in source
+
 
 # ── 12. JWT secret warning ──────────────────────────────────────────────────
 
