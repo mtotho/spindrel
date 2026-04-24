@@ -134,6 +134,7 @@ export interface TimelineChartPoint {
   secondaryValue?: number | null;
   calls?: number;
   marker?: "info" | "warning" | "danger";
+  selectable?: boolean;
 }
 
 interface TimelineChartProps {
@@ -191,22 +192,26 @@ export function TimelineChart({
         ))}
         <path d={areaPath} className="fill-accent/10" />
         <path d={linePath} fill="none" className="stroke-accent" strokeWidth={2} />
-        {coords.map(({ point, x, y }, index) => (
-          <g key={point.bucket}>
-            <button type="button" onClick={() => onSelect?.(point)} className={onSelect ? "cursor-pointer" : ""}>
-              <circle
-                cx={x}
-                cy={y}
-                r={point.marker ? 5 : 3}
-                className={point.marker ? MARKER_FILL[point.marker] : "fill-surface stroke-accent"}
-                strokeWidth={point.marker ? 0 : 2}
-              />
-            </button>
+        {coords.map(({ point, x, y }, index) => {
+          const selectable = Boolean(onSelect && point.selectable);
+          return (
+          <g
+            key={point.bucket}
+            onClick={selectable ? () => onSelect?.(point) : undefined}
+            className={selectable ? "cursor-pointer" : undefined}
+          >
+            <circle
+              cx={x}
+              cy={y}
+              r={point.marker ? 5 : 3}
+              className={point.marker ? MARKER_FILL[point.marker] : "fill-surface stroke-accent"}
+              strokeWidth={point.marker ? 0 : 2}
+            />
             {(index % labelStep === 0 || index === points.length - 1) && (
               <text x={x} y={height - 10} textAnchor="middle" className="fill-text-dim text-[10px]">{point.label}</text>
             )}
           </g>
-        ))}
+        );})}
       </svg>
     </div>
   );

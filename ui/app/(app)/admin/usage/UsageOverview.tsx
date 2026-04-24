@@ -1,224 +1,212 @@
+import { AlertTriangle, Bot, Clock3, Gauge, ReceiptText, Sparkles, Zap } from "lucide-react";
 
-import { Spinner } from "@/src/components/shared/Spinner";
-import { AlertTriangle } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
+  useUsageAnomalies,
   useUsageSummary,
+  useUsageTimeSeries,
+  type UsageAnomalySignal,
   type UsageParams,
-  type CostByDimension,
 } from "@/src/api/hooks/useUsage";
 import { useUsageForecast } from "@/src/api/hooks/useUsageForecast";
-import { LimitAlerts, ForecastCards } from "./ForecastSection";
-import { fmtCost, fmtTokens } from "./usageUtils";
+import {
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsStatGrid,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { TimelineChart, type TimelineChartPoint } from "@/src/components/shared/SimpleCharts";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { fmtBucketLabel, fmtCost, fmtRatio, fmtTokens } from "./usageUtils";
 
-// ---------------------------------------------------------------------------
-// Stat card
-// ---------------------------------------------------------------------------
-function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  const t = useThemeTokens();
-  return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 140,
-        background: t.surfaceRaised,
-        borderRadius: 8,
-        padding: "14px 16px",
-        border: `1px solid ${t.surfaceOverlay}`,
-      }}
-    >
-      <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-        {label}
-      </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: t.text, fontFamily: "monospace" }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: t.textDim, marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
+function severityVariant(severity: UsageAnomalySignal["severity"]) {
+  if (severity === "danger") return "danger";
+  if (severity === "warning") return "warning";
+  return "info";
 }
 
-// ---------------------------------------------------------------------------
-// Cost dimension table (clickable rows)
-// ---------------------------------------------------------------------------
-function CostTable({
+function signalTitle(signal: UsageAnomalySignal) {
+  if (signal.kind === "time_spike" && signal.bucket) {
+    return `Spike at ${fmtBucketLabel(signal.bucket)}`;
+  }
+  return signal.label;
+}
+
+function signalTime(signal: UsageAnomalySignal) {
+  const value = signal.bucket || signal.created_at;
+  return value ? fmtBucketLabel(value) : null;
+}
+
+function SignalList({
   title,
+  icon,
   items,
-  onClickItem,
+  onSelectTrace,
 }: {
   title: string;
-  items: CostByDimension[];
-  onClickItem?: (label: string) => void;
+  icon: React.ReactNode;
+  items: UsageAnomalySignal[];
+  onSelectTrace: (correlationId: string) => void;
 }) {
-  const t = useThemeTokens();
-  if (items.length === 0) return null;
   return (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>{title}</div>
-      <div style={{ border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8, overflow: "hidden" }}>
-        {/* Header */}
-        <div
-          style={{
-            display: "flex", flexDirection: "row",
-            gap: 12,
-            padding: "8px 12px",
-            fontSize: 10,
-            fontWeight: 600,
-            color: t.textDim,
-            textTransform: "uppercase",
-            borderBottom: `1px solid ${t.surfaceOverlay}`,
-            background: t.surfaceOverlay,
-          }}
-        >
-          <span style={{ flex: 1, minWidth: 0 }}>Name</span>
-          <span style={{ width: 60, textAlign: "right" }}>Calls</span>
-          <span style={{ width: 90, textAlign: "right" }}>Input Tok</span>
-          <span style={{ width: 90, textAlign: "right" }}>Output Tok</span>
-          <span style={{ width: 80, textAlign: "right" }}>Cost</span>
+    <div className="space-y-2">
+      <SettingsGroupLabel label={title} count={items.length} icon={icon} />
+      {items.length === 0 ? (
+        <EmptyState message="No high-signal anomalies for this window." />
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((signal) => (
+            <SettingsControlRow
+              key={signal.id}
+              title={signalTitle(signal)}
+              description={[
+                signalTime(signal),
+                signal.reason,
+                `${fmtTokens(signal.metric.tokens)} tokens`,
+                `${signal.metric.calls} calls`,
+                signal.metric.cost != null ? fmtCost(signal.metric.cost) : "cost unknown",
+                signal.source.title,
+                signal.source.channel_name,
+                signal.source.model,
+              ].filter(Boolean).join(" · ")}
+              meta={
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <StatusBadge label={signal.severity} variant={severityVariant(signal.severity)} />
+                  <QuietPill label={signal.cost_confidence.replaceAll("_", " ")} />
+                  {signal.ratio != null && <QuietPill label={`${fmtRatio(signal.ratio)} baseline`} />}
+                  {signal.correlation_id && <QuietPill label="trace" />}
+                </div>
+              }
+              onClick={signal.correlation_id ? () => onSelectTrace(signal.correlation_id!) : undefined}
+            />
+          ))}
         </div>
-        {items.map((item, i) => (
-          <div
-            key={i}
-            onClick={() => onClickItem?.(item.label)}
-            style={{
-              display: "flex", flexDirection: "row",
-              gap: 12,
-              padding: "7px 12px",
-              fontSize: 12,
-              borderBottom: i < items.length - 1 ? `1px solid ${t.surfaceRaised}` : "none",
-              alignItems: "center",
-              cursor: onClickItem ? "pointer" : "default",
-            }}
-            onMouseEnter={(e) => {
-              if (onClickItem) (e.currentTarget as HTMLElement).style.background = t.surfaceRaised;
-            }}
-            onMouseLeave={(e) => {
-              if (onClickItem) (e.currentTarget as HTMLElement).style.background = "";
-            }}
-          >
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                color: onClickItem ? t.accent : t.text,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {item.label}
-              {!item.has_cost_data && (
-                <span style={{ color: t.warning, fontSize: 10, marginLeft: 6 }}>no pricing</span>
-              )}
-            </span>
-            <span style={{ width: 60, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
-              {item.calls}
-            </span>
-            <span style={{ width: 90, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
-              {fmtTokens(item.prompt_tokens)}
-            </span>
-            <span style={{ width: 90, textAlign: "right", color: t.textMuted, fontFamily: "monospace" }}>
-              {fmtTokens(item.completion_tokens)}
-            </span>
-            <span style={{ width: 80, textAlign: "right", color: t.text, fontFamily: "monospace" }}>
-              {fmtCost(item.cost)}
-            </span>
-          </div>
-        ))}
-      </div>
+      )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Overview tab
-// ---------------------------------------------------------------------------
 export function OverviewTab({
   params,
   onDrillDown,
+  onSelectTrace,
 }: {
   params: UsageParams;
   onDrillDown: (filter: { model?: string; bot_id?: string; provider_id?: string }) => void;
+  onSelectTrace: (correlationId: string) => void;
 }) {
-  const t = useThemeTokens();
-  const { data, isLoading } = useUsageSummary(params);
+  const { data: summary, isLoading: summaryLoading } = useUsageSummary(params);
   const { data: forecast } = useUsageForecast();
+  const { data: timeseries, isLoading: timeseriesLoading } = useUsageTimeSeries(params);
+  const { data: anomalies, isLoading: anomaliesLoading } = useUsageAnomalies(params);
 
-  if (isLoading) {
+  if (summaryLoading || timeseriesLoading || anomaliesLoading) {
     return (
-      <div className="flex items-center justify-center" style={{ padding: 40 }}>
+      <div className="flex items-center justify-center py-10">
         <Spinner />
       </div>
     );
   }
-  if (!data) return null;
+  if (!summary) return null;
 
+  const anomalyCount =
+    (anomalies?.time_spikes.length ?? 0) +
+    (anomalies?.trace_bursts.length ?? 0) +
+    (anomalies?.contributors.length ?? 0);
+  const markerByBucket = new Map(
+    (anomalies?.time_spikes ?? []).map((signal) => [signal.bucket, signal.severity] as const),
+  );
+  const spikeByBucket = new Map(
+    (anomalies?.time_spikes ?? []).map((signal) => [signal.bucket, signal] as const),
+  );
+  const points: TimelineChartPoint[] = (timeseries?.points ?? []).map((point) => {
+    const marker = markerByBucket.get(point.bucket);
+    const spike = spikeByBucket.get(point.bucket);
+    return {
+      bucket: point.bucket,
+      label: fmtBucketLabel(point.bucket),
+      value: point.tokens,
+      secondaryValue: point.cost,
+      calls: point.calls,
+      marker: marker === "danger" ? "danger" : marker === "warning" ? "warning" : marker ? "info" : undefined,
+      selectable: Boolean(spike?.correlation_id),
+    };
+  });
   const avgCost =
-    data.total_cost != null && data.total_calls > 0
-      ? data.total_cost / data.total_calls
+    summary.total_cost != null && summary.total_calls > 0
+      ? summary.total_cost / summary.total_calls
       : null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {/* Forecast: limit warnings + spend summary */}
-      {forecast && <LimitAlerts limits={forecast.limits} />}
-      {forecast && <ForecastCards forecast={forecast} />}
+    <div className="space-y-5">
+      <InfoBanner
+        variant={anomalyCount > 0 || summary.calls_without_cost_data > 0 ? "warning" : "success"}
+        icon={anomalyCount > 0 ? <AlertTriangle size={15} /> : <Gauge size={15} />}
+      >
+        {anomalyCount > 0
+          ? `${anomalyCount} usage signal${anomalyCount === 1 ? "" : "s"} need review in this window.`
+          : "No high-signal usage anomalies found for this window."}
+        {summary.calls_without_cost_data > 0
+          ? ` ${summary.calls_without_cost_data} call${summary.calls_without_cost_data === 1 ? "" : "s"} are missing pricing data.`
+          : ""}
+      </InfoBanner>
 
-      {/* Stat cards */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-        <StatCard label="Total Calls" value={fmtTokens(data.total_calls)} />
-        <StatCard
-          label="Total Tokens"
-          value={fmtTokens(data.total_tokens)}
-          sub={`${fmtTokens(data.total_prompt_tokens)} in / ${fmtTokens(data.total_completion_tokens)} out`}
+      <SettingsStatGrid
+        items={[
+          { label: "Calls", value: fmtTokens(summary.total_calls) },
+          { label: "Tokens", value: fmtTokens(summary.total_tokens), tone: "accent" },
+          { label: "Cost", value: fmtCost(summary.total_cost), tone: summary.total_cost == null ? "warning" : "default" },
+          { label: "Avg / call", value: fmtCost(avgCost) },
+          { label: "Projected", value: fmtCost(forecast?.projected_monthly), tone: forecast?.projected_monthly != null ? "success" : "default" },
+          { label: "No pricing", value: summary.calls_without_cost_data, tone: summary.calls_without_cost_data > 0 ? "warning" : "default" },
+          { label: "Models", value: summary.cost_by_model.length },
+          { label: "Providers", value: summary.cost_by_provider.length },
+        ]}
+      />
+
+      <div className="space-y-2">
+        <SettingsGroupLabel label="Token Timeline" count={points.length} icon={<Clock3 size={13} />} />
+        <TimelineChart
+          points={points}
+          formatValue={fmtTokens}
+          onSelect={(point) => {
+            const spike = spikeByBucket.get(point.bucket);
+            if (spike?.correlation_id) onSelectTrace(spike.correlation_id);
+          }}
         />
-        <StatCard label="Total Cost" value={fmtCost(data.total_cost)} />
-        <StatCard label="Avg Cost/Call" value={fmtCost(avgCost)} />
       </div>
 
-      {/* Missing cost warning */}
-      {data.models_without_cost_data.length > 0 && (
-        <div
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "flex-start",
-            gap: 8,
-            padding: "10px 14px",
-            background: t.warningSubtle,
-            border: `1px solid ${t.warning}`,
-            borderRadius: 8,
-            fontSize: 12,
-            color: t.warning,
-          }}
-        >
-          <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
-          <div>
-            <strong>{data.calls_without_cost_data}</strong> call(s) across{" "}
-            <strong>{data.models_without_cost_data.length}</strong> model(s) have no pricing
-            data: {data.models_without_cost_data.join(", ")}.{" "}
-            <a href="/admin/providers" style={{ color: t.warning, textDecoration: "underline" }}>
-              Configure pricing
-            </a>
-          </div>
-        </div>
-      )}
+      <div className="grid gap-3 xl:grid-cols-3">
+        <SignalList title="Time Spikes" icon={<Zap size={13} />} items={anomalies?.time_spikes ?? []} onSelectTrace={onSelectTrace} />
+        <SignalList title="Trace Bursts" icon={<Sparkles size={13} />} items={anomalies?.trace_bursts ?? []} onSelectTrace={onSelectTrace} />
+        <SignalList title="Top Contributors" icon={<Bot size={13} />} items={anomalies?.contributors ?? []} onSelectTrace={onSelectTrace} />
+      </div>
 
-      {/* Cost tables -- click to drill down into Logs */}
-      <CostTable
-        title="Cost by Model"
-        items={data.cost_by_model}
-        onClickItem={(label) => onDrillDown({ model: label })}
-      />
-      <CostTable
-        title="Cost by Bot"
-        items={data.cost_by_bot}
-        onClickItem={(label) => onDrillDown({ bot_id: label })}
-      />
-      <CostTable
-        title="Cost by Provider"
-        items={data.cost_by_provider}
-        onClickItem={(label) => onDrillDown({ provider_id: label === "default" ? undefined : label })}
-      />
+      <div className="grid gap-3 lg:grid-cols-3">
+        {[
+          ["Cost by Model", summary.cost_by_model, (label: string) => onDrillDown({ model: label })],
+          ["Cost by Bot", summary.cost_by_bot, (label: string) => onDrillDown({ bot_id: label })],
+          ["Cost by Provider", summary.cost_by_provider, (label: string) => onDrillDown({ provider_id: label === "default" ? undefined : label })],
+        ].map(([title, items, onClick]) => (
+          <div key={title as string} className="space-y-2">
+            <SettingsGroupLabel label={title as string} count={(items as any[]).length} icon={<ReceiptText size={13} />} />
+            <div className="space-y-1.5">
+              {(items as any[]).slice(0, 6).map((item) => (
+                <SettingsControlRow
+                  key={item.label}
+                  title={item.label}
+                  description={`${fmtTokens(item.total_tokens)} tokens · ${item.calls} calls`}
+                  meta={<span className="font-mono text-[11px] text-text">{fmtCost(item.cost)}</span>}
+                  onClick={() => (onClick as (label: string) => void)(item.label)}
+                />
+              ))}
+              {(items as any[]).length === 0 && <EmptyState message="No cost data for this dimension." />}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

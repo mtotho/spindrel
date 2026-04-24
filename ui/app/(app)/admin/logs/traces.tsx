@@ -1,5 +1,4 @@
 import { useState, useMemo, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { Spinner } from "@/src/components/shared/Spinner";
 import {
   AlertTriangle, Wrench, MessageSquare, Clock, Heart,
@@ -11,6 +10,7 @@ import { LogsTabBar } from "@/src/components/logs/LogsTabBar";
 import { useTraces, type TraceSummary } from "@/src/api/hooks/useLogs";
 import { useBots } from "@/src/api/hooks/useBots";
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 import { useThemeTokens, type ThemeTokens } from "@/src/theme/tokens";
 
 // ---------------------------------------------------------------------------
@@ -229,7 +229,6 @@ function TraceRow({ trace, t, onPress }: { trace: TraceSummary; t: ThemeTokens; 
 
 export default function TracesScreen() {
   const t = useThemeTokens();
-  const navigate = useNavigate();
   const { refreshing, onRefresh } = usePageRefresh();
   const { data: bots } = useBots();
 
@@ -314,7 +313,11 @@ export default function TracesScreen() {
                     key={tr.correlation_id}
                     trace={tr}
                     t={t}
-                    onPress={() => navigate(`/admin/logs/${tr.correlation_id}`)}
+                    onPress={() => openTraceInspector({
+                      correlationId: tr.correlation_id,
+                      title: tr.title || "Trace",
+                      subtitle: `${tr.source_type}${tr.bot_id ? ` · ${tr.bot_id}` : ""}`,
+                    })}
                   />
                 ))}
               </div>

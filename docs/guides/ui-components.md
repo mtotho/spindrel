@@ -76,6 +76,24 @@ Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx
 - Pages should pass an explicit `workspace_id` and workspace-relative `path`. Do not infer paths client-side from display text.
 - Do not create one-off drawers for memory logs, knowledge files, prompt files, or history sources. Extend this shared component once if richer file previews, diffs, edits, or history are needed.
 
+## Trace Inspection
+
+Use the global trace inspector controller from `ui/src/stores/traceInspector.ts` when a dashboard, anomaly row, usage row, or activity item opens a trace by `correlation_id`.
+
+- Trace-backed drilldowns should call `openTraceInspector({ correlationId, title?, subtitle? })` before navigating users to `/admin/logs/:correlationId`.
+- `TraceInspectorRoot` is mounted once in `AppShell` and portals a modal right-side drawer to `document.body`; pages must not mount their own trace drawers.
+- `TraceTimeline` owns summary-first trace rendering shared by the drawer and `/admin/logs/:correlationId`: event filtering, in-trace find support, compact metadata, and collapsed raw payloads.
+- Do not create page-local trace drawers for usage, scheduled tasks, heartbeat runs, memory activity, or debugging tables. Extend `TraceInspectorRoot` / `TraceTimeline` once when richer trace preview behavior is needed.
+
+## Charts
+
+Use `SimpleCharts.tsx` for low-chrome admin charts before introducing a chart dependency.
+
+- `LineChart` is for compact trend lines where axes and labels are enough.
+- `BarChart` is for ranked breakdowns.
+- `TimelineChart` is for investigation timelines with anomaly markers and optional row selection.
+- Keep chart color choices token-driven. Do not pass raw hex/RGBA chart colors from pages.
+
 ## Review Checklist
 
 - A dropdown or selector imports `SelectDropdown` or an approved wrapper.
@@ -86,5 +104,6 @@ Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx
 - Routine settings actions are not filled blue buttons.
 - Dense-row metadata uses `QuietPill`; reserve `StatusBadge` for actual state.
 - File-backed source links use `SourceFileInspector`; non-file fallbacks say "Open location", not "Open source".
+- Trace-backed drilldowns use `openTraceInspector`; non-trace fallbacks navigate with a clear destination label.
 - Popovers are not page-wide and do not use shadow stacks.
 - Knowledge/help copy is typography-led; do not turn every explanatory sentence into a faded panel.

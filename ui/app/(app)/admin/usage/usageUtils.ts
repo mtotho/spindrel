@@ -1,5 +1,3 @@
-import { useThemeTokens } from "@/src/theme/tokens";
-
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -12,7 +10,7 @@ export const TIME_PRESETS: { label: string; value: string }[] = [
   { label: "30d", value: "30d" },
 ];
 
-export const TABS = ["Overview", "Forecast", "Logs", "Charts", "Limits", "Alerts"] as const;
+export const TABS = ["Overview", "Logs", "Trends", "Forecast", "Limits", "Alerts"] as const;
 export type Tab = (typeof TABS)[number];
 
 // ---------------------------------------------------------------------------
@@ -53,18 +51,8 @@ export function fmtBucketLabel(iso: string): string {
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-// ---------------------------------------------------------------------------
-// Shared filter bar styles
-// ---------------------------------------------------------------------------
-export function useSelectStyle(): React.CSSProperties {
-  const t = useThemeTokens();
-  return {
-    background: t.surfaceRaised,
-    color: t.textMuted,
-    border: `1px solid ${t.surfaceBorder}`,
-    borderRadius: 6,
-    padding: "5px 10px",
-    fontSize: 12,
-    outline: "none",
-  };
+export function fmtRatio(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "--";
+  if (v >= 10) return `${v.toFixed(0)}x`;
+  return `${v.toFixed(1)}x`;
 }

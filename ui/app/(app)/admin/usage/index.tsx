@@ -1,58 +1,55 @@
-import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { useState, useMemo } from "react";
-import { useHashTab } from "@/src/hooks/useHashTab";
+import { useMemo, useState } from "react";
+import { Eye, EyeOff, Filter, X } from "lucide-react";
 
-import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { usePageRefresh } from "@/src/hooks/usePageRefresh";
-import { X, Eye, EyeOff } from "lucide-react";
-import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useChannels } from "@/src/api/hooks/useChannels";
 import { useUsageSummary, type UsageParams } from "@/src/api/hooks/useUsage";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { PageHeader } from "@/src/components/layout/PageHeader";
+import { ActionButton, SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import { SelectDropdown, type SelectDropdownOption } from "@/src/components/shared/SelectDropdown";
+import { useHashTab } from "@/src/hooks/useHashTab";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { openTraceInspector } from "@/src/stores/traceInspector";
+import { useUsageHudStore } from "@/src/stores/usageHud";
+import { AlertsTab } from "./AlertsTab";
 import { ForecastTab } from "./ForecastSection";
 import { LimitsTab } from "./LimitsTab";
-import { AlertsTab } from "./AlertsTab";
-import { useUsageHudStore } from "@/src/stores/usageHud";
-import { TIME_PRESETS, TABS, type Tab, useSelectStyle } from "./usageUtils";
-import { OverviewTab } from "./UsageOverview";
-import { LogsTab } from "./UsageLogs";
 import { ChartsTab } from "./UsageCharts";
+import { LogsTab } from "./UsageLogs";
+import { OverviewTab } from "./UsageOverview";
+import { TABS, TIME_PRESETS, type Tab } from "./usageUtils";
 
-// ---------------------------------------------------------------------------
-// Sidebar HUD toggle
-// ---------------------------------------------------------------------------
+const SOURCE_OPTIONS: SelectDropdownOption[] = [
+  { value: "", label: "All sources" },
+  { value: "agent", label: "Agent" },
+  { value: "task", label: "Task" },
+  { value: "heartbeat", label: "Heartbeat" },
+  { value: "maintenance", label: "Maintenance" },
+];
+
 function HudToggle() {
-  const t = useThemeTokens();
-  const enabled = useUsageHudStore((s) => s.enabled);
-  const setEnabled = useUsageHudStore((s) => s.setEnabled);
+  const enabled = useUsageHudStore((state) => state.enabled);
+  const setEnabled = useUsageHudStore((state) => state.setEnabled);
   return (
-    <button
-      onClick={() => setEnabled(!enabled)}
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 5,
-        padding: "4px 10px",
-        fontSize: 11,
-        background: "transparent",
-        color: t.textDim,
-        border: `1px solid ${t.surfaceBorder}`,
-        borderRadius: 4,
-        cursor: "pointer",
-      }}
-      title={enabled ? "Hide usage badge in sidebar" : "Show usage badge in sidebar"}
-    >
-      {enabled ? <Eye size={12} /> : <EyeOff size={12} />}
-      Sidebar HUD
-    </button>
+    <ActionButton
+      label="Sidebar HUD"
+      variant="ghost"
+      size="small"
+      icon={enabled ? <Eye size={13} /> : <EyeOff size={13} />}
+      onPress={() => setEnabled(!enabled)}
+    />
   );
 }
 
-// ---------------------------------------------------------------------------
-// Filter bar
-// ---------------------------------------------------------------------------
+function compactOptions(values: string[], allLabel: string): SelectDropdownOption[] {
+  return [
+    { value: "", label: allLabel },
+    ...values.map((value) => ({ value, label: value, searchText: value })),
+  ];
+}
+
 function FilterBar({
-  isMobile,
   timePreset,
   setTimePreset,
   botFilter,
@@ -61,183 +58,156 @@ function FilterBar({
   setModelFilter,
   providerFilter,
   setProviderFilter,
+  channelFilter,
+  setChannelFilter,
+  sourceFilter,
+  setSourceFilter,
   modelNames,
   providerIds,
 }: {
-  isMobile: boolean;
   timePreset: string;
-  setTimePreset: (v: string) => void;
+  setTimePreset: (value: string) => void;
   botFilter: string;
-  setBotFilter: (v: string) => void;
+  setBotFilter: (value: string) => void;
   modelFilter: string;
-  setModelFilter: (v: string) => void;
+  setModelFilter: (value: string) => void;
   providerFilter: string;
-  setProviderFilter: (v: string) => void;
+  setProviderFilter: (value: string) => void;
+  channelFilter: string;
+  setChannelFilter: (value: string) => void;
+  sourceFilter: string;
+  setSourceFilter: (value: string) => void;
   modelNames: string[];
   providerIds: string[];
 }) {
-  const t = useThemeTokens();
-  const selectStyle = useSelectStyle();
   const { data: bots } = useBots();
+  const { data: channels } = useChannels();
+  const botOptions = useMemo<SelectDropdownOption[]>(
+    () => [
+      { value: "", label: "All bots" },
+      ...(bots ?? []).map((bot: any) => ({
+        value: bot.id,
+        label: bot.name || bot.id,
+        description: bot.id,
+        searchText: `${bot.name || ""} ${bot.id}`,
+      })),
+    ],
+    [bots],
+  );
+  const channelOptions = useMemo<SelectDropdownOption[]>(
+    () => [
+      { value: "", label: "All channels" },
+      ...(channels ?? []).map((channel: any) => ({
+        value: channel.id,
+        label: channel.name || channel.id,
+        description: channel.category || channel.id,
+        searchText: `${channel.name || ""} ${channel.category || ""} ${channel.id}`,
+      })),
+    ],
+    [channels],
+  );
+  const hasFilters = botFilter || modelFilter || providerFilter || channelFilter || sourceFilter;
 
   return (
-    <div
-      style={{
-        display: "flex", flexDirection: "row",
-        gap: 8,
-        padding: isMobile ? "8px 12px" : "10px 20px",
-        borderBottom: `1px solid ${t.surfaceRaised}`,
-        flexWrap: "wrap",
-        alignItems: "center",
-      }}
-    >
-      {/* Time presets */}
-      <div style={{ display: "flex", flexDirection: "row", gap: 2 }}>
-        {TIME_PRESETS.map((p) => (
-          <button
-            key={p.value}
-            onClick={() => setTimePreset(p.value)}
-            style={{
-              padding: "4px 10px",
-              fontSize: 12,
-              fontWeight: timePreset === p.value ? 600 : 400,
-              background: timePreset === p.value ? t.accent : t.surfaceRaised,
-              color: timePreset === p.value ? "#fff" : t.textMuted,
-              border: `1px solid ${timePreset === p.value ? t.accent : t.surfaceBorder}`,
-              borderRadius: 4,
-              cursor: "pointer",
+    <div className="border-b border-surface-overlay/45 px-4 py-3 lg:px-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <SettingsSegmentedControl
+          value={timePreset}
+          onChange={setTimePreset}
+          options={TIME_PRESETS.map((preset) => ({ value: preset.value, label: preset.label }))}
+        />
+        <div className="min-w-[150px]">
+          <SelectDropdown value={botFilter} options={botOptions} onChange={setBotFilter} searchable size="sm" />
+        </div>
+        <div className="min-w-[170px]">
+          <SelectDropdown value={channelFilter} options={channelOptions} onChange={setChannelFilter} searchable size="sm" />
+        </div>
+        <div className="min-w-[170px]">
+          <SelectDropdown value={modelFilter} options={compactOptions(modelNames, "All models")} onChange={setModelFilter} searchable size="sm" />
+        </div>
+        <div className="min-w-[150px]">
+          <SelectDropdown value={providerFilter} options={compactOptions(providerIds, "All providers")} onChange={setProviderFilter} searchable size="sm" />
+        </div>
+        <div className="min-w-[150px]">
+          <SelectDropdown value={sourceFilter} options={SOURCE_OPTIONS} onChange={setSourceFilter} size="sm" leadingIcon={<Filter size={13} />} />
+        </div>
+        {hasFilters && (
+          <ActionButton
+            label="Clear"
+            variant="ghost"
+            size="small"
+            icon={<X size={13} />}
+            onPress={() => {
+              setBotFilter("");
+              setModelFilter("");
+              setProviderFilter("");
+              setChannelFilter("");
+              setSourceFilter("");
             }}
-          >
-            {p.label}
-          </button>
-        ))}
+          />
+        )}
+        <div className="ml-auto">
+          <HudToggle />
+        </div>
       </div>
-
-      {/* Bot filter */}
-      <select
-        value={botFilter}
-        onChange={(e) => setBotFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="">All Bots</option>
-        {bots?.map((b: any) => (
-          <option key={b.id} value={b.id}>
-            {b.name}
-          </option>
-        ))}
-      </select>
-
-      {/* Model filter */}
-      <select
-        value={modelFilter}
-        onChange={(e) => setModelFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="">All Models</option>
-        {modelNames.map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
-        ))}
-      </select>
-
-      {/* Provider filter */}
-      <select
-        value={providerFilter}
-        onChange={(e) => setProviderFilter(e.target.value)}
-        style={selectStyle}
-      >
-        <option value="">All Providers</option>
-        {providerIds.map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </select>
-
-      {/* Clear filters button */}
-      {(botFilter || modelFilter || providerFilter) && (
-        <button
-          onClick={() => {
-            setBotFilter("");
-            setModelFilter("");
-            setProviderFilter("");
-          }}
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 4,
-            padding: "4px 10px",
-            fontSize: 11,
-            background: t.accentSubtle,
-            color: t.accent,
-            border: `1px solid ${t.accent}`,
-            borderRadius: 4,
-            cursor: "pointer",
-          }}
-        >
-          <X size={12} /> Clear filters
-        </button>
-      )}
-
-      {/* Spacer + HUD toggle */}
-      <div style={{ flex: 1 }} />
-      <HudToggle />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
 export default function UsageScreen() {
-  const t = useThemeTokens();
   const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowSize();
-  const isMobile = width < 768;
-
   const [tab, setTab] = useHashTab<Tab>("Overview", TABS);
   const [timePreset, setTimePreset] = useState("24h");
   const [botFilter, setBotFilter] = useState("");
   const [modelFilter, setModelFilter] = useState("");
   const [providerFilter, setProviderFilter] = useState("");
+  const [channelFilter, setChannelFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("");
 
-  // Drill-down from Overview cost tables -> Logs tab
+  const { data: summaryForFilters } = useUsageSummary({ after: timePreset });
+  const modelNames = useMemo(
+    () => (summaryForFilters?.cost_by_model || []).map((model) => model.label).sort(),
+    [summaryForFilters],
+  );
+  const providerIds = useMemo(
+    () => (summaryForFilters?.cost_by_provider || []).map((provider) => provider.label).filter((provider) => provider !== "default").sort(),
+    [summaryForFilters],
+  );
+  const params: UsageParams = useMemo(() => ({
+    after: timePreset,
+    ...(botFilter ? { bot_id: botFilter } : {}),
+    ...(modelFilter ? { model: modelFilter } : {}),
+    ...(providerFilter ? { provider_id: providerFilter } : {}),
+    ...(channelFilter ? { channel_id: channelFilter } : {}),
+    ...(sourceFilter ? { source_type: sourceFilter } : {}),
+  }), [timePreset, botFilter, modelFilter, providerFilter, channelFilter, sourceFilter]);
+
   const handleDrillDown = (filter: { model?: string; bot_id?: string; provider_id?: string }) => {
     if (filter.model) setModelFilter(filter.model);
     if (filter.bot_id) setBotFilter(filter.bot_id);
     if (filter.provider_id) setProviderFilter(filter.provider_id);
     setTab("Logs");
   };
-
-  // Fetch unfiltered summary for the time range to populate filter dropdowns
-  const { data: summaryForFilters } = useUsageSummary({ after: timePreset });
-
-  // Derive dropdown options from the unfiltered summary
-  const modelNames = useMemo(
-    () => (summaryForFilters?.cost_by_model || []).map((m) => m.label).sort(),
-    [summaryForFilters],
-  );
-  const providerIds = useMemo(
-    () => (summaryForFilters?.cost_by_provider || []).map((p) => p.label).filter((p) => p !== "default").sort(),
-    [summaryForFilters],
-  );
-
-  const params: UsageParams = useMemo(() => ({
-    after: timePreset,
-    ...(botFilter ? { bot_id: botFilter } : {}),
-    ...(modelFilter ? { model: modelFilter } : {}),
-    ...(providerFilter ? { provider_id: providerFilter } : {}),
-  }), [timePreset, botFilter, modelFilter, providerFilter]);
+  const showFilters = tab === "Overview" || tab === "Logs" || tab === "Trends";
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader variant="list" title="Usage & Costs" subtitle="LLM cost analytics" />
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="list"
+        title="Usage"
+        subtitle="Spot anomalies, attribute spend, and inspect the traces behind token movement."
+      />
 
-      {/* Filter bar -- only shown on tabs that use time/filter params */}
-      {tab !== "Forecast" && tab !== "Limits" && tab !== "Alerts" && (
+      <div className="border-b border-surface-overlay/45 px-4 py-2 lg:px-6">
+        <SettingsSegmentedControl
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((name) => ({ value: name, label: name }))}
+        />
+      </div>
+
+      {showFilters && (
         <FilterBar
-          isMobile={isMobile}
           timePreset={timePreset}
           setTimePreset={setTimePreset}
           botFilter={botFilter}
@@ -246,47 +216,21 @@ export default function UsageScreen() {
           setModelFilter={setModelFilter}
           providerFilter={providerFilter}
           setProviderFilter={setProviderFilter}
+          channelFilter={channelFilter}
+          setChannelFilter={setChannelFilter}
+          sourceFilter={sourceFilter}
+          setSourceFilter={setSourceFilter}
           modelNames={modelNames}
           providerIds={providerIds}
         />
       )}
 
-      {/* Tab bar */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          gap: 0,
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-          padding: isMobile ? "0 12px" : "0 20px",
-        }}
-      >
-        {TABS.map((tabName) => (
-          <button
-            key={tabName}
-            onClick={() => setTab(tabName)}
-            style={{
-              padding: "10px 16px",
-              fontSize: 13,
-              fontWeight: tab === tabName ? 600 : 400,
-              color: tab === tabName ? t.accent : t.textMuted,
-              background: "none",
-              border: "none",
-              borderBottom: tab === tabName ? `2px solid ${t.accent}` : "2px solid transparent",
-              cursor: "pointer",
-            }}
-          >
-            {tabName}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="flex-1">
-        <div style={{ padding: isMobile ? 12 : 20 }}>
-          {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} />}
+      <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="min-h-0 flex-1">
+        <div className="p-4 lg:p-6">
+          {tab === "Overview" && <OverviewTab params={params} onDrillDown={handleDrillDown} onSelectTrace={openTraceInspector} />}
+          {tab === "Logs" && <LogsTab params={params} onSelectTrace={openTraceInspector} />}
+          {tab === "Trends" && <ChartsTab params={params} />}
           {tab === "Forecast" && <ForecastTab />}
-          {tab === "Logs" && <LogsTab params={params} />}
-          {tab === "Charts" && <ChartsTab params={params} />}
           {tab === "Limits" && <LimitsTab knownModels={modelNames} />}
           {tab === "Alerts" && <AlertsTab />}
         </div>

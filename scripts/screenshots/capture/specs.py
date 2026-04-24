@@ -33,14 +33,19 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        # Primary signal is the data-testid I added to HomeGridTile /
-        # HomeChannelsList. Until the e2e instance rebuilds with those
-        # attributes, fall back to the stable role="gridcell" or the
-        # seeded channel names.
+        # Wait for both the sidebar channel categories AND a home-grid channel
+        # tile to render — the sidebar uses the channel's `category` (DAILY /
+        # HOME / WORK / SHOWCASE) as a group header, so presence of one of
+        # those labels is a stable signal that the channels API has resolved
+        # and the CategoryGroup components have painted.
+        # The HomeGridTile component *mis-names* its testid — every tile gets
+        # data-testid="channel-row" and role="gridcell", not just real channels.
+        # Those fire instantly (admin palette items render first). Gate instead
+        # on the real channel Links — the sidebar ChannelItem + home-grid
+        # channel tiles both render ``<a href="/channels/<uuid>">`` — which
+        # only appear once useChannels resolves.
         wait_arg=(
-            '(document.querySelectorAll(\'[data-testid="channel-row"]\').length >= 4)'
-            ' || (document.querySelectorAll(\'[role="gridcell"]\').length >= 4)'
-            ' || /Evening check-in/.test(document.body.innerText)'
+            'document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
         output="home.png",
     ),
@@ -65,7 +70,13 @@ FLAGSHIP_SPECS: list[ScreenshotSpec] = [
         route="/channels/{pipeline}/runs/{pipeline_live}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
-        wait_arg='!!document.querySelector(\'header [class*="Workflow"], .lucide-workflow, [aria-label="Close"]\') || /running|pending|complete/.test(document.body.innerText)',
+        # Wait for seeded sub-session messages to render — look for the
+        # ▶ / ✓ step markers in the body text. Falls back to a generic
+        # "modal mounted" signal in case message rendering fails so the
+        # capture still produces output instead of hanging.
+        wait_arg=(
+            '/Step \\d\\/3|Collect inputs|Summarize overnight/.test(document.body.innerText)'
+        ),
         output="chat-pipeline-live.png",
     ),
     # html-widget-hero reuses the demo dashboard with a focused interactive

@@ -97,18 +97,23 @@ class SpindrelClient:
         bot_id: str = "default",
         name: str | None = None,
         private: bool = False,
+        category: str | None = None,
     ) -> dict:
         """Create a channel (or return the existing one with matching client_id).
 
         The ``POST /api/v1/channels`` handler goes through ``get_or_create_channel``
-        which dedupes on ``client_id`` — reruns are safe.
+        which dedupes on ``client_id`` — reruns are safe. ``category`` lands in
+        ``metadata_["category"]`` and is re-applied on every POST, so reruns keep
+        the grouping correct even after the row already exists.
         """
-        body = {
+        body: dict[str, Any] = {
             "client_id": client_id,
             "bot_id": bot_id,
             "name": name or client_id,
             "private": private,
         }
+        if category is not None:
+            body["category"] = category
         return self._post("/api/v1/channels", json=body).json()
 
     def list_channels(self) -> list[dict]:
@@ -175,6 +180,30 @@ class SpindrelClient:
         r = self._http.delete(f"/api/v1/widgets/dashboard/pins/{pin_id}")
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
+
+    def patch_pins_layout(
+        self,
+        *,
+        dashboard_key: str,
+        items: list[dict],
+    ) -> dict:
+        """Bulk-commit grid coordinates for existing pins.
+
+        ``items`` is a list of ``{id, x, y, w, h, zone?}`` dicts. Used to
+        reconcile layouts on rerun — the POST /pins route creates with a
+        ``grid_layout`` but does not update it on duplicate ``display_label``.
+        """
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /pins/layout items=%d", len(items))
+            return {}
+        body = {"dashboard_key": dashboard_key, "items": items}
+        # The route is POST /dashboard/pins/layout (bulk commit), not PATCH —
+        # don't let the name "patch" on this helper mislead.
+        r = self._http.post("/api/v1/widgets/dashboard/pins/layout", json=body)
+        if r.status_code >= 400:
+            logger.error("POST /pins/layout -> %s body=%s", r.status_code, r.text[:500])
+        r.raise_for_status()
+        return r.json()
 
     # --- tasks / pipelines -------------------------------------------------
 

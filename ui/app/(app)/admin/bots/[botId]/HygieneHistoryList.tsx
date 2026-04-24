@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, ExternalLink, FileText, Zap } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { StatusBadge } from "@/src/components/shared/SettingsControls";
+import { cn } from "@/src/lib/cn";
+import {
+  ActionButton,
+  SettingsGroupLabel,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
 import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
 import type { LearningHygieneRun } from "@/src/api/hooks/useLearningOverview";
 
-type RunWithExtras = (MemoryHygieneRun | LearningHygieneRun) & { bot_name?: string; files_affected?: string[] };
+type RunWithExtras = (MemoryHygieneRun | LearningHygieneRun) & {
+  bot_name?: string;
+  files_affected?: string[];
+};
 
 function statusVariant(status: string): "success" | "danger" | "skipped" | "neutral" {
   if (status === "complete") return "success";
@@ -27,205 +34,140 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
+function jobTypeLabel(run: RunWithExtras): string | null {
+  if (!("job_type" in run) || !run.job_type) return null;
+  return run.job_type === "skill_review" ? "skills" : "maint";
+}
+
+function jobTypeClass(run: RunWithExtras): string {
+  if (!("job_type" in run) || run.job_type !== "skill_review") {
+    return "bg-warning/[0.06] text-warning-muted";
+  }
+  return "bg-purple/[0.06] text-purple";
+}
+
 export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[]; showBotName?: boolean }) {
-  const t = useThemeTokens();
   const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <>
-      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 8 }}>
-        Recent Runs
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <SettingsGroupLabel label="Recent Runs" />
+      <div className="flex flex-col gap-1">
         {runs.map((run) => {
           const isExpanded = expandedId === run.id;
-          const hasContent = run.result || run.error || run.correlation_id;
+          const hasContent = Boolean(run.result || run.error || run.correlation_id);
           const isFailed = run.status === "failed";
           const isSkipped = run.status === "skipped";
+          const jobLabel = jobTypeLabel(run);
+
           return (
             <div key={run.id}>
-              <div
+              <button
+                type="button"
                 onClick={() => hasContent && setExpandedId(isExpanded ? null : run.id)}
-                style={{
-                  display: "flex", flexDirection: "column", gap: 4,
-                  padding: "8px 12px",
-                  background: isExpanded
-                    ? t.surfaceOverlay
-                    : isFailed
-                      ? "rgba(239,68,68,0.04)"
-                      : isSkipped
-                        ? "rgba(168,85,247,0.04)"
-                        : t.surfaceRaised,
-                  borderRadius: isExpanded ? "6px 6px 0 0" : 6,
-                  border: `1px solid ${
-                    isExpanded
-                      ? t.accent
-                      : isFailed
-                        ? "rgba(239,68,68,0.2)"
-                        : isSkipped
-                          ? t.purpleBorder
-                          : t.surfaceOverlay
-                  }`,
-                  cursor: hasContent ? "pointer" : "default",
-                  transition: "background 0.1s, border-color 0.1s",
-                }}
+                className={cn(
+                  "flex w-full flex-col gap-1 border border-surface-border/45 px-3 py-2 text-left transition-colors",
+                  isExpanded ? "rounded-t-md" : "rounded-md",
+                  isExpanded ? "bg-surface-overlay/60" : "bg-surface-raised/40 hover:bg-surface-overlay/45",
+                  isFailed && !isExpanded && "bg-danger/[0.04]",
+                  isSkipped && !isExpanded && "bg-purple/[0.035]",
+                  hasContent ? "cursor-pointer" : "cursor-default",
+                )}
               >
-                <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2">
                     {hasContent && (
                       isExpanded
-                        ? <ChevronDown size={12} color={t.textDim} />
-                        : <ChevronRight size={12} color={t.textDim} />
+                        ? <ChevronDown size={12} className="shrink-0 text-text-dim" />
+                        : <ChevronRight size={12} className="shrink-0 text-text-dim" />
                     )}
                     {showBotName && run.bot_name && (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: t.text }}>
+                      <span className="truncate text-[11px] font-semibold text-text">
                         {run.bot_name}
                       </span>
                     )}
-                    {"job_type" in run && run.job_type && (
-                      <span style={{
-                        fontSize: 8, fontWeight: 700, padding: "1px 4px", borderRadius: 3,
-                        textTransform: "uppercase", letterSpacing: 0.3,
-                        background: run.job_type === "skill_review" ? "rgba(139,92,246,0.12)" : "rgba(245,158,11,0.12)",
-                        color: run.job_type === "skill_review" ? "#8b5cf6" : "#f59e0b",
-                      }}>
-                        {run.job_type === "skill_review" ? "skills" : "maint"}
+                    {jobLabel && (
+                      <span
+                        className={cn(
+                          "shrink-0 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.04em]",
+                          jobTypeClass(run),
+                        )}
+                      >
+                        {jobLabel}
                       </span>
                     )}
-                    <span style={{ fontSize: 12, color: t.textMuted }}>
+                    <span className="truncate text-xs text-text-muted">
                       {new Date(run.created_at).toLocaleString()}
                     </span>
                     {run.completed_at && !isSkipped && (
-                      <span style={{ fontSize: 10, color: t.textDim }}>
+                      <span className="shrink-0 text-[10px] text-text-dim">
                         ({Math.round((new Date(run.completed_at).getTime() - new Date(run.created_at).getTime()) / 1000)}s)
                       </span>
                     )}
                   </div>
                   <StatusBadge label={run.status} variant={statusVariant(run.status)} />
                 </div>
-                {/* Collapsed: show files affected + error/skip preview */}
+
                 {!isExpanded && (
-                  <>
-                    {run.files_affected && run.files_affected.length > 0 && (
-                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 3, marginLeft: hasContent ? 20 : 0 }}>
-                        {run.files_affected.slice(0, 5).map((f) => (
-                          <span key={f} style={{
-                            fontSize: 9, color: "#8b5cf6", fontWeight: 500,
-                            padding: "1px 5px", borderRadius: 3,
-                            background: "rgba(139,92,246,0.08)",
-                          }}>
-                            {f.replace(/^memory\//, "")}
-                          </span>
-                        ))}
-                        {run.files_affected.length > 5 && (
-                          <span style={{ fontSize: 9, color: t.textDim }}>+{run.files_affected.length - 5}</span>
-                        )}
-                      </div>
-                    )}
-                    {isFailed && run.error && (
-                      <div style={{
-                        fontSize: 10, color: t.danger, marginLeft: hasContent ? 20 : 0,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        maxWidth: "100%",
-                      }}>
-                        {run.error}
-                      </div>
-                    )}
-                    {isSkipped && run.result && (
-                      <div style={{
-                        fontSize: 10, color: t.purpleMuted, marginLeft: hasContent ? 20 : 0,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                        maxWidth: "100%",
-                      }}>
-                        {run.result}
-                      </div>
-                    )}
-                  </>
+                  <CollapsedRunPreview
+                    run={run}
+                    isFailed={isFailed}
+                    isSkipped={isSkipped}
+                    indent={hasContent}
+                  />
                 )}
-              </div>
+              </button>
+
               {isExpanded && (
-                <div style={{
-                  padding: "10px 12px", background: t.codeBg,
-                  borderRadius: "0 0 6px 6px",
-                  border: `1px solid ${t.accent}`, borderTop: "none",
-                }}>
+                <div className="rounded-b-md border-x border-b border-surface-border/45 bg-surface/80 px-3 py-2.5">
                   {run.error && (
-                    <div style={{
-                      fontSize: 12, color: t.danger, marginBottom: 8,
-                      padding: "6px 8px", background: t.dangerSubtle, borderRadius: 4, border: `1px solid ${t.dangerBorder}`,
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
+                    <div className="mb-2 whitespace-pre-wrap break-words rounded-md bg-danger/10 px-2 py-1.5 text-xs text-danger">
                       {run.error}
                     </div>
                   )}
                   {run.files_affected && run.files_affected.length > 0 && (
-                    <div style={{
-                      display: "flex", flexDirection: "row", alignItems: "flex-start", gap: 6,
-                      marginBottom: 8, padding: "6px 8px",
-                      background: "rgba(139,92,246,0.06)", borderRadius: 4,
-                      border: "1px solid rgba(139,92,246,0.15)",
-                    }}>
-                      <FileText size={11} color="#8b5cf6" style={{ marginTop: 1, flexShrink: 0 }} />
-                      <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                        {run.files_affected.map((f) => (
-                          <span key={f} style={{
-                            fontSize: 10, color: "#8b5cf6", fontWeight: 500,
-                            padding: "1px 6px", borderRadius: 3,
-                            background: "rgba(139,92,246,0.1)",
-                          }}>
-                            {f.replace(/^memory\//, "")}
-                          </span>
-                        ))}
-                      </div>
+                    <div className="mb-2 flex items-start gap-1.5 rounded-md bg-purple/[0.04] px-2 py-1.5">
+                      <FileText size={11} className="mt-0.5 shrink-0 text-purple" />
+                      <FilePills files={run.files_affected} />
                     </div>
                   )}
                   {run.result && (
-                    <div style={{
-                      fontSize: 12, color: t.text, lineHeight: 1.5,
-                      maxHeight: 200, overflowY: "auto",
-                      whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    }}>
+                    <div className="max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-text">
                       {run.result}
                     </div>
                   )}
                   {(run.iterations > 0 || run.total_tokens > 0 || run.duration_ms != null) && (
-                    <div style={{
-                      display: "flex", flexDirection: "row", alignItems: "center", gap: 12,
-                      marginTop: 8, fontSize: 10, color: t.textDim,
-                    }}>
+                    <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-text-dim">
                       {run.duration_ms != null && (
-                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                        <span className="inline-flex items-center gap-1">
                           <Clock size={10} /> {fmtDuration(run.duration_ms)}
                         </span>
                       )}
                       {run.total_tokens > 0 && (
-                        <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
+                        <span className="inline-flex items-center gap-1">
                           <Zap size={10} /> {fmtTokens(run.total_tokens)} tokens
                         </span>
                       )}
-                      {run.iterations > 0 && (
-                        <span>{run.iterations} iter</span>
-                      )}
+                      {run.iterations > 0 && <span>{run.iterations} iter</span>}
                     </div>
                   )}
                   {run.tool_calls.length > 0 && (
                     <ToolCallsList toolCalls={run.tool_calls as any} />
                   )}
                   {run.correlation_id && (
-                    <div
-                      onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}
-                      style={{
-                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 5,
-                        marginTop: 8, fontSize: 11, color: t.accent, cursor: "pointer",
-                      }}
-                    >
-                      <ExternalLink size={11} color={t.accent} />
-                      View trace
+                    <div className="mt-2">
+                      <ActionButton
+                        label="View trace"
+                        size="small"
+                        variant="secondary"
+                        icon={<ExternalLink size={11} />}
+                        onPress={() => navigate(`/admin/logs/${run.correlation_id}`)}
+                      />
                     </div>
                   )}
                   {!run.result && !run.error && (
-                    <div style={{ fontSize: 11, color: t.textDim, fontStyle: "italic" }}>No output recorded</div>
+                    <div className="text-[11px] italic text-text-dim">No output recorded</div>
                   )}
                 </div>
               )}
@@ -234,5 +176,55 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
         })}
       </div>
     </>
+  );
+}
+
+function CollapsedRunPreview({
+  run,
+  isFailed,
+  isSkipped,
+  indent,
+}: {
+  run: RunWithExtras;
+  isFailed: boolean;
+  isSkipped: boolean;
+  indent: boolean;
+}) {
+  return (
+    <>
+      {run.files_affected && run.files_affected.length > 0 && (
+        <div className={cn("flex flex-wrap gap-1", indent && "ml-5")}>
+          <FilePills files={run.files_affected.slice(0, 5)} />
+          {run.files_affected.length > 5 && (
+            <span className="text-[9px] text-text-dim">+{run.files_affected.length - 5}</span>
+          )}
+        </div>
+      )}
+      {isFailed && run.error && (
+        <div className={cn("truncate text-[10px] text-danger", indent && "ml-5")}>
+          {run.error}
+        </div>
+      )}
+      {isSkipped && run.result && (
+        <div className={cn("truncate text-[10px] text-purple", indent && "ml-5")}>
+          {run.result}
+        </div>
+      )}
+    </>
+  );
+}
+
+function FilePills({ files }: { files: string[] }) {
+  return (
+    <div className="flex min-w-0 flex-wrap gap-1">
+      {files.map((file) => (
+        <span
+          key={file}
+          className="rounded bg-purple/[0.06] px-1.5 py-0.5 text-[9px] font-medium text-purple"
+        >
+          {file.replace(/^memory\//, "")}
+        </span>
+      ))}
+    </div>
   );
 }

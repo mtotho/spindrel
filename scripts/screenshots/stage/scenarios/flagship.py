@@ -102,11 +102,17 @@ def _seed_widget_states_for_channel(
             continue
 
 
-HOME_CHANNEL_CLIENT_IDS = [
-    ("Morning briefing", "screenshot:home-1"),
-    ("House automation", "screenshot:home-2"),
-    ("Inbox triage",     "screenshot:home-3"),
-    ("Ops & deploys",    "screenshot:home-4"),
+# (name, client_id, category) — `category` is a first-class channel field the
+# home grid groups on. Picking a spread of categories showcases the grouping.
+HOME_CHANNELS: list[tuple[str, str, str]] = [
+    ("Morning briefing", "screenshot:home-1", "Daily"),
+    ("Evening check-in", "screenshot:chat-main", "Daily"),
+    ("House automation", "screenshot:home-2", "Home"),
+    ("Frigate cameras",  "screenshot:home-5", "Home"),
+    ("Inbox triage",     "screenshot:home-3", "Work"),
+    ("Ops & deploys",    "screenshot:home-4", "Work"),
+    ("Pipeline demo",    "screenshot:pipeline-demo", "Work"),
+    ("Demo dashboard",   "screenshot:demo-dashboard", "Showcase"),
 ]
 
 CHAT_MAIN_CLIENT_ID = "screenshot:chat-main"
@@ -132,20 +138,24 @@ def stage_flagship(
         "ops": demo_bot_ids[2],
     }
 
-    # 2. Home channels (for home.png)
+    # 2. Home channels (for home.png) — category drives the home-grid grouping.
+    # Every flagship channel is routed through this loop so a single rerun
+    # reconciles categories across chat_main / demo dashboard / pipeline too.
     home_channel_ids: list[str] = []
-    for name, client_id in HOME_CHANNEL_CLIENT_IDS:
-        ch = client.ensure_channel(client_id=client_id, bot_id=primary_bot, name=name)
+    channel_ids_by_client: dict[str, str] = {}
+    for name, client_id, category in HOME_CHANNELS:
+        ch = client.ensure_channel(
+            client_id=client_id,
+            bot_id=primary_bot,
+            name=name,
+            category=category,
+        )
+        channel_ids_by_client[client_id] = str(ch["id"])
         home_channel_ids.append(str(ch["id"]))
     state.channels["home_list"] = ",".join(home_channel_ids)
 
     # 3. Chat-main channel (+ 2 rail widgets)
-    chat_main = client.ensure_channel(
-        client_id=CHAT_MAIN_CLIENT_ID,
-        bot_id=primary_bot,
-        name="Evening check-in",
-    )
-    chat_main_id = str(chat_main["id"])
+    chat_main_id = channel_ids_by_client[CHAT_MAIN_CLIENT_ID]
     state.channels["chat_main"] = chat_main_id
     dashboard_scenarios.pin_chat_rail_widgets(
         client, channel_id=chat_main_id, source_bot_id=primary_bot
@@ -163,12 +173,7 @@ def stage_flagship(
     )
 
     # 4. Demo dashboard (6 pins for widget-dashboard.png)
-    demo_dashboard = client.ensure_channel(
-        client_id=DEMO_DASHBOARD_CLIENT_ID,
-        bot_id=primary_bot,
-        name="Demo dashboard",
-    )
-    demo_dashboard_id = str(demo_dashboard["id"])
+    demo_dashboard_id = channel_ids_by_client[DEMO_DASHBOARD_CLIENT_ID]
     state.channels["demo_dashboard"] = demo_dashboard_id
     dashboard_scenarios.pin_full_dashboard(
         client, channel_id=demo_dashboard_id, source_bot_id=primary_bot
@@ -178,12 +183,7 @@ def stage_flagship(
     )
 
     # 5. Mid-run pipeline channel + task
-    pipeline_channel = client.ensure_channel(
-        client_id=PIPELINE_CHANNEL_CLIENT_ID,
-        bot_id=primary_bot,
-        name="Pipeline demo",
-    )
-    pipeline_channel_id = str(pipeline_channel["id"])
+    pipeline_channel_id = channel_ids_by_client[PIPELINE_CHANNEL_CLIENT_ID]
     state.channels["pipeline"] = pipeline_channel_id
     task_id = pipeline_scenarios.ensure_midrun_pipeline(
         client,

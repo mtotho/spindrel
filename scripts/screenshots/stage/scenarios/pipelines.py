@@ -51,6 +51,15 @@ def ensure_midrun_pipeline(
         args=[task_id, "2"],
         dry_run=dry_run,
     )
+    # Seed the sub-session + messages so PipelineRunLive mounts SessionChatView
+    # instead of the "Spinning up the run session…" loader.
+    run_server_helper(
+        ssh_alias=ssh_alias,
+        container=ssh_container,
+        helper_name="seed_pipeline_run_session",
+        args=[task_id],
+        dry_run=dry_run,
+    )
     return task_id
 
 

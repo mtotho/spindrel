@@ -72,7 +72,7 @@ const JOB_STYLE = {
     shortLabel: "maint",
     dot: "bg-warning",
     dimDot: "bg-warning/20",
-    panel: "bg-warning/[0.07]",
+    panel: "bg-warning/[0.035]",
     text: "text-warning-muted",
     ring: "focus-visible:ring-warning/35",
     field: "memory_hygiene_enabled",
@@ -83,7 +83,7 @@ const JOB_STYLE = {
     shortLabel: "skills",
     dot: "bg-purple",
     dimDot: "bg-purple/20",
-    panel: "bg-purple/[0.07]",
+    panel: "bg-purple/[0.035]",
     text: "text-purple",
     ring: "focus-visible:ring-purple/35",
     field: "skill_review_enabled",
@@ -139,8 +139,8 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
         const skillsState = cfg ? resolveState(cfg.skill_review_enabled) : "inherit";
 
         return (
-          <div key={bot.bot_id} className="rounded-md bg-surface-raised/40 px-3 py-2.5">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div key={bot.bot_id} className="rounded-md bg-surface-raised/40 px-3 py-2">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <button
                 type="button"
                 onClick={() => navigate(`/admin/bots/${bot.bot_id}#memory`)}
@@ -160,18 +160,18 @@ export function DreamingBotTable({ bots, mode, botConfigMap }: DreamingBotTableP
               <div className="flex flex-wrap items-center gap-1.5">
                 <QuietPill
                   label={`${bot.enabled ? "maint on" : "maint off"}`}
-                  className={bot.enabled ? "bg-warning/10 text-warning-muted" : ""}
+                  className={bot.enabled ? "bg-warning/[0.06] text-warning-muted" : ""}
                   maxWidthClass="max-w-none"
                 />
                 <QuietPill
                   label={`${bot.skill_review_enabled ? "skills on" : "skills off"}`}
-                  className={bot.skill_review_enabled ? "bg-purple/10 text-purple" : ""}
+                  className={bot.skill_review_enabled ? "bg-purple/[0.06] text-purple" : ""}
                   maxWidthClass="max-w-none"
                 />
               </div>
             </div>
 
-            <div className="mt-3 grid gap-2 lg:grid-cols-2">
+            <div className="mt-2 grid gap-1.5 lg:grid-cols-2">
               <DreamingJobLane
                 flavor="maintenance"
                 enabled={bot.enabled}
@@ -249,7 +249,7 @@ function DreamingJobLane({
 }) {
   const style = JOB_STYLE[flavor];
   return (
-    <div className={cn("rounded-md px-3 py-2.5", style.panel)}>
+    <div className={cn("rounded-md px-2.5 py-1.5", style.panel)}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <JobDot enabled={enabled} flavor={flavor} />
@@ -277,7 +277,7 @@ function DreamingJobLane({
           </div>
         )}
       </div>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
+      <div className="mt-1.5 grid grid-cols-3 gap-2 text-[11px]">
         <Metric label="Last" value={fmtRelative(lastRunAt)} />
         <Metric
           label="Result"
@@ -295,7 +295,7 @@ function Metric({ label, value }: { label: string; value: React.ReactNode }) {
       <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim/70">
         {label}
       </div>
-      <div className="mt-0.5 min-h-[18px] truncate text-text-muted">{value}</div>
+      <div className="mt-0.5 min-h-[16px] truncate text-text-muted">{value}</div>
     </div>
   );
 }
@@ -330,7 +330,7 @@ function StateToggle({
       disabled={disabled}
       title={title}
       className={cn(
-        "inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2 text-[11px] font-semibold transition-colors",
+        "inline-flex min-h-[28px] items-center gap-1.5 rounded-md px-1.5 text-[11px] font-semibold transition-colors",
         "focus:outline-none focus-visible:ring-2",
         style.ring,
         disabled ? "cursor-default opacity-50" : "hover:bg-surface-overlay/45",

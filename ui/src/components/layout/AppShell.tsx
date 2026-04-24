@@ -6,6 +6,7 @@ import { SystemPauseBanner } from "./SystemPauseBanner";
 import { StreamingToast } from "./StreamingToast";
 import { ApprovalToast } from "./ApprovalToast";
 import { ToastHost } from "./ToastHost";
+import { TraceInspectorRoot } from "../shared/TraceInspector";
 import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useUIStore } from "../../stores/ui";
 import { useChatStore } from "../../stores/chat";
@@ -76,6 +77,7 @@ export function AppShell() {
 
       {/* Global command palette (Cmd+K / Ctrl+K on desktop, hamburger on mobile) */}
       {!kiosk && <CommandPalette open={paletteOpen} onClose={closePalette} />}
+      {!kiosk && <TraceInspectorRoot />}
     </div>
   );
 }

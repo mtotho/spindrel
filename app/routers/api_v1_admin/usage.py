@@ -598,6 +598,26 @@ def _bucket_key(created_at: datetime, bucket_seconds: int) -> str:
     return bucket_ts.isoformat()
 
 
+def _representative_correlation_id(events: list[TraceEvent]) -> str | None:
+    """Pick the highest-token trace inside a grouped signal."""
+    by_trace: dict[str, list[TraceEvent]] = {}
+    for ev in events:
+        if ev.correlation_id:
+            by_trace.setdefault(str(ev.correlation_id), []).append(ev)
+    if not by_trace:
+        return None
+
+    def trace_tokens(trace_events: list[TraceEvent]) -> int:
+        total = 0
+        for ev in trace_events:
+            d = ev.data or {}
+            total += int(d.get("total_tokens") or ((d.get("prompt_tokens") or 0) + (d.get("completion_tokens") or 0)))
+        return total
+
+    trace_id, _trace_events = max(by_trace.items(), key=lambda item: trace_tokens(item[1]))
+    return trace_id
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -703,6 +723,7 @@ async def usage_anomalies(
             reason=f"{ratio}x previous window" if ratio is not None else "High token bucket",
             created_at=bucket,
             bucket=bucket,
+            correlation_id=_representative_correlation_id(bucket_events),
             metric=metric,
             baseline=baseline_metric,
             ratio=ratio,

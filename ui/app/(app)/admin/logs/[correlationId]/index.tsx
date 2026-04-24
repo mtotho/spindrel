@@ -1,520 +1,144 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { ChevronDown, ChevronRight, Copy, Check } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Check, Copy, Search } from "lucide-react";
+
+import { useTrace, type TraceDetailResponse } from "@/src/api/hooks/useLogs";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { useTrace, type TraceEvent } from "@/src/api/hooks/useLogs";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { ActionButton, EmptyState, QuietPill, SettingsSegmentedControl, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { Spinner } from "@/src/components/shared/Spinner";
+import {
+  fmtTraceDuration,
+  fmtTraceTime,
+  fmtTraceTokens,
+  TRACE_FILTER_OPTIONS,
+  traceEventLabel,
+  traceEventMatches,
+  traceEventSummary,
+  traceTotals,
+  TraceTimeline,
+  type TraceFilter,
+} from "@/src/components/shared/TraceTimeline";
 import { writeToClipboard } from "@/src/utils/clipboard";
 
-// ---------------------------------------------------------------------------
-// Colors
-// ---------------------------------------------------------------------------
-const DOT_COLORS: Record<string, string> = {
-  tool_call:            "#4f46e5",
-  memory_injection:     "#7c3aed",
-  skill_context:        "#0d9488",
-  knowledge_context:    "#2563eb",
-  tool_retrieval:       "#ca8a04",
-  context_compressed:   "#65a30d",
-  context_breakdown:    "#0891b2",
-  token_usage:          "#999",
-  error:                "#dc2626",
-  response:             "#16a34a",
-  message:              "#4f46e5",
-};
-
-const BADGE_COLORS: Record<string, { bg: string; fg: string }> = {
-  tool_call:            { bg: "rgba(99,102,241,0.12)",  fg: "#4f46e5" },
-  memory_injection:     { bg: "rgba(168,85,247,0.12)",  fg: "#9333ea" },
-  skill_context:        { bg: "rgba(20,184,166,0.12)",  fg: "#0d9488" },
-  knowledge_context:    { bg: "rgba(59,130,246,0.12)",  fg: "#2563eb" },
-  tool_retrieval:       { bg: "rgba(234,179,8,0.12)",   fg: "#ca8a04" },
-  context_compressed:   { bg: "rgba(132,204,22,0.12)",  fg: "#65a30d" },
-  context_breakdown:    { bg: "rgba(6,182,212,0.12)",   fg: "#0891b2" },
-  token_usage:          { bg: "rgba(107,114,128,0.12)", fg: "#6b7280" },
-  error:                { bg: "rgba(239,68,68,0.12)",   fg: "#dc2626" },
-  response:             { bg: "rgba(34,197,94,0.12)",   fg: "#16a34a" },
-  message:              { bg: "rgba(99,102,241,0.12)",  fg: "#4f46e5" },
-};
-
-function fmtTime(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 } as any);
-}
-
-function fmtDuration(ms: number | null | undefined): string {
-  if (ms == null) return "";
-  if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
-}
-
-function getEventType(ev: TraceEvent): string {
-  if (ev.kind === "tool_call") return "tool_call";
-  if (ev.kind === "message") return "message";
-  return ev.event_type || "trace_event";
-}
-
-function getEventLabel(ev: TraceEvent): string {
-  if (ev.kind === "tool_call") return ev.tool_name || "tool_call";
-  if (ev.kind === "message") return ev.role === "user" ? "User Message" : "Assistant Response";
-  return ev.event_name || ev.event_type || "event";
-}
-
-// ---------------------------------------------------------------------------
-// Copy formatter
-// ---------------------------------------------------------------------------
-function formatTraceForCopy(data: import("@/src/api/hooks/useLogs").TraceDetailResponse): string {
+function formatTraceForCopy(data: TraceDetailResponse): string {
   const lines: string[] = [];
-
-  lines.push(`=== Request Trace ===`);
+  lines.push("=== Request Trace ===");
   lines.push(`Correlation: ${data.correlation_id}`);
   if (data.bot_id) lines.push(`Bot: ${data.bot_id}`);
-  if (data.session_id) lines.push(`Conversation: ${data.session_id}`);
+  if (data.session_id) lines.push(`Session: ${data.session_id}`);
   if (data.client_id) lines.push(`Client: ${data.client_id}`);
   if (data.time_range_start && data.time_range_end) {
-    lines.push(`Time: ${fmtTime(data.time_range_start)} — ${fmtTime(data.time_range_end)}`);
+    lines.push(`Time: ${fmtTraceTime(data.time_range_start)} - ${fmtTraceTime(data.time_range_end)}`);
   }
   lines.push("");
 
-  for (const ev of data.events) {
-    const time = fmtTime(ev.created_at);
-    const dur = ev.duration_ms != null ? ` (${fmtDuration(ev.duration_ms)})` : "";
-
-    if (ev.kind === "message") {
-      const role = ev.role === "user" ? "USER" : "ASSISTANT";
-      lines.push(`--- ${role} [${time}] ---`);
-      lines.push(ev.content || "[empty]");
-      lines.push("");
-    } else if (ev.kind === "tool_call") {
-      lines.push(`[${time}]${dur} TOOL: ${ev.tool_name || "unknown"}${ev.tool_type ? ` [${ev.tool_type}]` : ""}`);
-      if (ev.arguments && Object.keys(ev.arguments).length > 0) {
-        lines.push(`  Args: ${JSON.stringify(ev.arguments, null, 2).split("\n").join("\n  ")}`);
-      }
-      if (ev.result) {
-        const result = ev.result.length > 2000 ? ev.result.substring(0, 2000) + "... [truncated]" : ev.result;
-        lines.push(`  Result: ${result}`);
-      }
-      if (ev.error) lines.push(`  ERROR: ${ev.error}`);
-      lines.push("");
-    } else {
-      const evType = ev.event_type || "trace_event";
-      const evName = ev.event_name || ev.event_type || "event";
-      lines.push(`[${time}]${dur} ${evType.toUpperCase()}: ${evName}`);
-      if (ev.count != null) lines.push(`  Count: ${ev.count}`);
-      if (ev.error) lines.push(`  ERROR: ${ev.error}`);
-      if (ev.data) {
-        lines.push(`  Data: ${JSON.stringify(ev.data, null, 2).split("\n").join("\n  ")}`);
-      }
-      lines.push("");
-    }
+  for (const event of data.events) {
+    lines.push(`[${fmtTraceTime(event.created_at)}] ${traceEventLabel(event)}${event.duration_ms != null ? ` (${fmtTraceDuration(event.duration_ms)})` : ""}`);
+    const summary = traceEventSummary(event);
+    if (summary) lines.push(summary);
+    if (event.arguments) lines.push(JSON.stringify(event.arguments, null, 2));
+    if (event.data) lines.push(JSON.stringify(event.data, null, 2));
+    if (event.result) lines.push(event.result);
+    if (event.error) lines.push(`ERROR: ${event.error}`);
+    lines.push("");
   }
-
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 export default function TraceScreen() {
-  const t = useThemeTokens();
+  const navigate = useNavigate();
   const { correlationId } = useParams<{ correlationId: string }>();
-  const { width } = useWindowSize();
-  const isMobile = width < 768;
-  const { data, isLoading } = useTrace(correlationId);
+  const { data, isLoading, error } = useTrace(correlationId);
   const [copied, setCopied] = useState(false);
+  const [filter, setFilter] = useState<TraceFilter>("all");
+  const [find, setFind] = useState("");
+
+  const totals = useMemo(() => traceTotals(data?.events ?? []), [data]);
+  const filteredEvents = useMemo(
+    () => (data?.events ?? []).filter((event) => traceEventMatches(event, filter, find)),
+    [data, filter, find],
+  );
 
   const handleCopy = async () => {
     if (!data) return;
-    const text = formatTraceForCopy(data);
-    await writeToClipboard(text);
+    await writeToClipboard(formatTraceForCopy(data));
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   if (isLoading) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
+      <div className="flex flex-1 items-center justify-center bg-surface">
         <Spinner />
       </div>
     );
   }
 
-  if (!data) {
+  if (error || !data) {
     return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
-        <span className="text-text-muted">Trace not found.</span>
+      <div className="flex flex-1 items-center justify-center bg-surface">
+        <EmptyState message="Trace not found." />
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      {/* Header */}
-      <PageHeader variant="detail"
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="detail"
         parentLabel="Logs"
-        backTo="/admin/logs"
+        onBack={() => window.history.length > 1 ? navigate(-1) : navigate("/admin/logs")}
         title="Request Trace"
         subtitle={correlationId}
         right={
-          <button
-            onClick={handleCopy}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-              padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer",
-              background: copied ? t.successSubtle : t.surfaceRaised,
-              color: copied ? t.success : t.textMuted, fontSize: 12,
-            }}
-          >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied" : "Copy"}
-          </button>
+          <ActionButton
+            label={copied ? "Copied" : "Copy"}
+            variant="secondary"
+            size="small"
+            icon={copied ? <Check size={13} /> : <Copy size={13} />}
+            onPress={handleCopy}
+          />
         }
       />
 
-      {/* Metadata bar */}
-      <div style={{
-        display: "flex", flexDirection: "row", gap: 16, padding: isMobile ? "8px 12px" : "8px 20px",
-        borderBottom: `1px solid ${t.surfaceRaised}`, flexWrap: "wrap", fontSize: 12,
-      }}>
-        {data.bot_id && (
-          <span><span style={{ color: t.textDim }}>Bot: </span><span style={{ color: t.textMuted }}>{data.bot_id}</span></span>
-        )}
-        {data.session_id && (
-          <span><span style={{ color: t.textDim }}>Conv: </span><span style={{ color: t.textMuted, fontFamily: "monospace", fontSize: 11 }}>{data.session_id.substring(0, 12)}...</span></span>
-        )}
-        {data.client_id && (
-          <span><span style={{ color: t.textDim }}>Client: </span><span style={{ color: t.textMuted }}>{data.client_id}</span></span>
-        )}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-surface-overlay/45 px-4 py-3 text-[11px] text-text-dim lg:px-6">
+        <QuietPill label={`${data.events.length} events`} />
+        <QuietPill label={`${fmtTraceTokens(totals.tokens)} tokens`} />
+        <QuietPill label={`${totals.tools} tools`} />
+        {totals.errors > 0 && <StatusBadge label={`${totals.errors} errors`} variant="danger" />}
+        {data.bot_id && <span>Bot: {data.bot_id}</span>}
+        {data.session_id && <span className="font-mono">Session: {data.session_id.slice(0, 12)}</span>}
         {data.time_range_start && data.time_range_end && (
-          <span><span style={{ color: t.textDim }}>Duration: </span><span style={{ color: t.textMuted }}>
-            {fmtTime(data.time_range_start)} — {fmtTime(data.time_range_end)}
-          </span></span>
+          <span>{fmtTraceTime(data.time_range_start)} - {fmtTraceTime(data.time_range_end)}</span>
         )}
       </div>
 
-      {/* Timeline */}
-      <div className="flex-1 overflow-auto" style={{ padding: isMobile ? 12 : 20 }}>
-        <DiscoverySummaryCard events={data.events} />
-        <div style={{
-          position: "relative", paddingLeft: 24,
-          borderLeft: `2px solid ${t.surfaceOverlay}`, marginLeft: 8,
-        }}>
-          {data.events.map((ev, i) => (
-            <TimelineEvent key={i} event={ev} isMobile={isMobile} />
-          ))}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-surface-overlay/45 px-4 py-3 lg:px-6">
+        <div className="flex min-h-[34px] min-w-[220px] flex-1 items-center gap-2 rounded-md bg-input px-2.5 text-text-dim focus-within:ring-2 focus-within:ring-accent/25">
+          <Search size={13} className="shrink-0" />
+          <input
+            value={find}
+            onChange={(event) => setFind(event.target.value)}
+            placeholder="Find in trace..."
+            className="min-w-0 flex-1 bg-transparent text-[12px] text-text outline-none placeholder:text-text-dim"
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <SettingsSegmentedControl<TraceFilter>
+            value={filter}
+            onChange={setFilter}
+            className="w-max"
+            options={TRACE_FILTER_OPTIONS.map((option) => ({
+              ...option,
+              count: option.value === "errors" ? totals.errors : undefined,
+            }))}
+          />
         </div>
       </div>
-    </div>
-  );
-}
 
-// ---------------------------------------------------------------------------
-// Discovery summary card — consolidated view of skill + tool discovery decisions
-// per turn. Reads the `discovery_summary` TraceEvent emitted by context_assembly.
-// ---------------------------------------------------------------------------
-function DiscoverySummaryCard({ events }: { events: TraceEvent[] }) {
-  const t = useThemeTokens();
-  const ev = events.find((e) => e.event_type === "discovery_summary");
-  if (!ev || !ev.data) return null;
-  const d = ev.data as any;
-  const skills = d.skills || {};
-  const tools = d.tools || {};
-  const autoInjected: Array<{ skill_id: string; similarity: number }> = skills.auto_injected || [];
-  const hasSkills = (skills.enrolled_count ?? 0) > 0 || (skills.discoverable_unenrolled_count ?? 0) > 0;
-  const hasTools = tools.tool_retrieval_enabled;
-  if (!hasSkills && !hasTools) return null;
-
-  const rowStyle: React.CSSProperties = {
-    display: "flex", flexDirection: "row", gap: 12, alignItems: "baseline",
-    fontSize: 12, color: t.contentText, padding: "6px 0",
-  };
-  const labelStyle: React.CSSProperties = {
-    fontSize: 10, fontWeight: 700, color: t.textDim,
-    textTransform: "uppercase", letterSpacing: "0.06em",
-    minWidth: 72, flexShrink: 0,
-  };
-  const mutedPill: React.CSSProperties = {
-    fontSize: 10, padding: "1px 6px", borderRadius: 3,
-    background: t.surfaceRaised, color: t.textMuted,
-  };
-
-  return (
-    <div
-      className="rounded-lg mb-4"
-      style={{
-        background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-        padding: "10px 14px",
-      }}
-    >
-      <div style={{
-        fontSize: 10, fontWeight: 700, color: t.textDim,
-        textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6,
-      }}>
-        Discovery
+      <div className="min-h-0 flex-1 overflow-auto px-4 py-4 lg:px-6">
+        <TraceTimeline events={filteredEvents} />
       </div>
-
-      {hasSkills && (
-        <div style={rowStyle}>
-          <span style={labelStyle}>Skills</span>
-          <span style={{ flex: 1 }}>
-            <span style={mutedPill}>{skills.enrolled_count ?? 0} enrolled</span>
-            {skills.relevant_count > 0 && (
-              <span style={{ ...mutedPill, marginLeft: 6, color: t.success }}>
-                ↑ {skills.relevant_count} relevant
-              </span>
-            )}
-            {autoInjected.length > 0 && (
-              <span style={{ ...mutedPill, marginLeft: 6, color: t.purple }}>
-                {autoInjected.length} auto-injected
-              </span>
-            )}
-            {(skills.discoverable_unenrolled_count ?? 0) > 0 && (
-              <span style={{ ...mutedPill, marginLeft: 6 }}>
-                {skills.discoverable_unenrolled_count} discoverable
-              </span>
-            )}
-            {autoInjected.length > 0 && (
-              <span style={{ marginLeft: 10, fontSize: 10, color: t.textDim }}>
-                {autoInjected.map((ai) => `${ai.skill_id} (${ai.similarity.toFixed(2)})`).join(", ")}
-              </span>
-            )}
-          </span>
-        </div>
-      )}
-
-      {hasTools && (
-        <div style={rowStyle}>
-          <span style={labelStyle}>Tools</span>
-          <span style={{ flex: 1 }}>
-            <span style={mutedPill}>{(tools.pinned || []).length} pinned</span>
-            <span style={{ ...mutedPill, marginLeft: 6 }}>
-              {(tools.included || []).length} included
-            </span>
-            {(tools.enrolled_working_set || []).length > 0 && (
-              <span style={{ ...mutedPill, marginLeft: 6 }}>
-                {tools.enrolled_working_set.length} working set
-              </span>
-            )}
-            <span style={{ ...mutedPill, marginLeft: 6, color: tools.retrieved_count > 0 ? t.warningMuted : t.textMuted }}>
-              {tools.retrieved_count ?? 0} retrieved (≥{(tools.threshold ?? 0).toFixed(2)})
-            </span>
-            {(tools.unretrieved_count ?? 0) > 0 && (
-              <span style={{ ...mutedPill, marginLeft: 6 }}>
-                {tools.unretrieved_count} index-only
-              </span>
-            )}
-            {(tools.retrieved || []).length > 0 && (
-              <span style={{ marginLeft: 10, fontSize: 10, color: t.textDim }}>
-                {tools.retrieved.slice(0, 5).join(", ")}
-                {tools.retrieved.length > 5 && ` +${tools.retrieved.length - 5}`}
-              </span>
-            )}
-          </span>
-        </div>
-      )}
-
-      <div style={{
-        marginTop: 4, fontSize: 10, color: t.textDim,
-        display: "flex", flexDirection: "row", gap: 10, flexWrap: "wrap",
-      }}>
-        <span>auto-inject max: {skills.auto_inject_max ?? 0}</span>
-        <span>threshold: {(skills.auto_inject_threshold ?? 0).toFixed(2)}</span>
-        <span>ranking: {skills.ranking_enabled ? "on" : "off"}</span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Timeline event card
-// ---------------------------------------------------------------------------
-function TimelineEvent({ event: ev, isMobile }: { event: TraceEvent; isMobile: boolean }) {
-  const t = useThemeTokens();
-  const [expanded, setExpanded] = useState(false);
-  const evType = getEventType(ev);
-  const label = getEventLabel(ev);
-  const dotColor = DOT_COLORS[evType] ?? t.textDim;
-  const badge = BADGE_COLORS[evType] ?? { bg: t.surfaceBorder, fg: t.textMuted };
-  const isMessage = ev.kind === "message";
-  const isExpandable = !isMessage && !!(ev.arguments || ev.result || ev.error || ev.data);
-
-  // Message cards
-  if (isMessage) {
-    const isUser = ev.role === "user";
-    return (
-      <div style={{ position: "relative", marginBottom: 12 }}>
-        {/* Dot */}
-        <div style={{
-          position: "absolute", left: -30, top: 10,
-          width: 10, height: 10, borderRadius: 5,
-          background: isUser ? t.purple : t.success,
-          border: `2px solid ${t.surface}`,
-        }} />
-        <div style={{
-          background: isUser ? t.purpleSubtle : t.successSubtle,
-          border: `1px solid ${isUser ? t.purpleBorder : t.successBorder}`,
-          borderRadius: 8, padding: "10px 14px",
-        }}>
-          <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: isUser ? t.purple : t.success }}>
-              {isUser ? "User" : "Assistant"}
-            </span>
-            <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
-          </div>
-          <div style={{
-            fontSize: 13, color: t.contentText, whiteSpace: "pre-wrap", wordBreak: "break-word",
-            maxHeight: expanded ? undefined : 200, overflow: expanded ? undefined : "hidden",
-          }}>
-            {ev.content || "[empty]"}
-          </div>
-          {(ev.content?.length ?? 0) > 400 && (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              style={{ background: "none", border: "none", color: t.textDim, cursor: "pointer", fontSize: 11, marginTop: 4 }}
-            >
-              {expanded ? "Show less" : "Show more..."}
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Tool call / trace event cards
-  return (
-    <div style={{ position: "relative", marginBottom: 8 }}>
-      {/* Dot */}
-      <div style={{
-        position: "absolute", left: -30, top: 10,
-        width: 10, height: 10, borderRadius: 5,
-        background: dotColor, border: `2px solid ${t.surface}`,
-      }} />
-
-      <div style={{
-        background: t.inputBg, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8,
-        overflow: "hidden",
-      }}>
-        {/* Header row */}
-        <div
-          onClick={() => isExpandable && setExpanded(!expanded)}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-            padding: "8px 12px", cursor: isExpandable ? "pointer" : "default",
-          }}
-        >
-          {/* Badge */}
-          <span style={{
-            fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-            background: badge.bg, color: badge.fg, whiteSpace: "nowrap",
-          }}>
-            {evType}
-          </span>
-
-          {/* Label + inline metadata */}
-          <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {label}
-            {ev.count != null && <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>({ev.count} items)</span>}
-            {ev.kind === "tool_call" && ev.tool_type && (
-              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>[{ev.tool_type}]</span>
-            )}
-            {evType === "context_compressed" && ev.data && (
-              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>
-                {ev.data.original_chars ?? "?"}→{ev.data.compressed_chars ?? "?"} chars
-              </span>
-            )}
-            {evType === "token_usage" && ev.data && (
-              <span style={{ color: t.textDim, marginLeft: 6, fontSize: 10 }}>
-                {ev.data.prompt_tokens ?? "?"}+{ev.data.completion_tokens ?? "?"}={ev.data.total_tokens ?? "?"}
-              </span>
-            )}
-          </span>
-
-          {/* Duration + time */}
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, flexShrink: 0 }}>
-            {ev.duration_ms != null && (
-              <span style={{ fontSize: 10, color: t.textDim }}>{fmtDuration(ev.duration_ms)}</span>
-            )}
-            <span style={{ fontSize: 10, color: t.textDim }}>{fmtTime(ev.created_at)}</span>
-            {isExpandable && (
-              expanded
-                ? <ChevronDown size={14} color={t.textDim} />
-                : <ChevronRight size={14} color={t.textDim} />
-            )}
-          </div>
-        </div>
-
-        {/* Error banner (always visible) */}
-        {ev.error && (
-          <div style={{
-            background: t.dangerSubtle, padding: "6px 12px",
-            fontSize: 12, color: t.danger, borderTop: `1px solid ${t.surfaceOverlay}`,
-          }}>
-            {ev.error}
-          </div>
-        )}
-
-        {/* Expanded details */}
-        {expanded && (
-          <div style={{ borderTop: `1px solid ${t.surfaceOverlay}` }}>
-            {ev.arguments && Object.keys(ev.arguments).length > 0 && (
-              <DetailSection title="Arguments">
-                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
-                  {JSON.stringify(ev.arguments, null, 2)}
-                </pre>
-              </DetailSection>
-            )}
-            {ev.result && (
-              <DetailSection title="Result">
-                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
-                  {ev.result}
-                </pre>
-              </DetailSection>
-            )}
-            {ev.data && evType === "context_breakdown" && Array.isArray(ev.data.breakdown) ? (
-              <DetailSection title="Context Breakdown">
-                <table style={{ fontSize: 11, color: t.textMuted, borderCollapse: "collapse", width: "100%" }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: "left", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Role</th>
-                      <th style={{ textAlign: "right", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Msgs</th>
-                      <th style={{ textAlign: "right", padding: "2px 8px", color: t.textDim, fontWeight: 600 }}>Chars</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ev.data.breakdown.map((b: any, i: number) => (
-                      <tr key={i}>
-                        <td style={{ padding: "2px 8px" }}>{b.role ?? b.type ?? "—"}</td>
-                        <td style={{ padding: "2px 8px", textAlign: "right" }}>{b.count ?? b.messages ?? "—"}</td>
-                        <td style={{ padding: "2px 8px", textAlign: "right" }}>{(b.chars ?? b.characters)?.toLocaleString() ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </DetailSection>
-            ) : ev.data && (
-              <DetailSection title="Data">
-                <pre style={{ fontSize: 11, color: t.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0 }}>
-                  {JSON.stringify(ev.data, null, 2)}
-                </pre>
-              </DetailSection>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const t = useThemeTokens();
-  return (
-    <div style={{ padding: "8px 12px", borderBottom: `1px solid ${t.surfaceRaised}` }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
-        {title}
-      </div>
-      {children}
     </div>
   );
 }
