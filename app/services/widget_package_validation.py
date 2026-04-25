@@ -100,6 +100,19 @@ def _validate_parsed_definition(
     template = parsed.get("template")
     html_template = parsed.get("html_template")
 
+    runtime = parsed.get("runtime")
+    if runtime is not None and runtime not in ("html", "react"):
+        errors.append(ValidationIssue(
+            "schema",
+            f"runtime must be 'html' or 'react' (got {runtime!r})",
+        ))
+    if runtime == "react" and html_template is None:
+        errors.append(ValidationIssue(
+            "schema",
+            "runtime: react requires html_template (component-tree templates "
+            "render server-side and don't host React)",
+        ))
+
     if template is not None and html_template is not None:
         errors.append(ValidationIssue(
             "schema",

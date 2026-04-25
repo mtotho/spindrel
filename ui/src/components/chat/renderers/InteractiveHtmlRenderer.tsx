@@ -2462,6 +2462,15 @@ function buildReactRuntimePreamble(serverUrl: string | null): string {
     el.textContent='[runtime: react] '+msg;
     el.style.cssText='color:var(--sd-danger,#c00);background:var(--sd-bg-surface,#fff);padding:12px;font:12px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap;border:1px solid var(--sd-border,#ddd);border-radius:6px;margin:12px;';
     (document.getElementById('__sd_root')||document.body).appendChild(el);
+    // Mirror to the SDK debug ring so the authoring bot can call
+    // inspect_widget_pin(pin_id) and see the compile error with the same
+    // shape as a runtime JS error. Try/caught so a missing log helper
+    // never masks the visible error card.
+    try {
+      if (window.spindrel && window.spindrel.log && window.spindrel.log.error) {
+        window.spindrel.log.error('[runtime: react] ' + msg);
+      }
+    } catch (_) { /* ignore */ }
   }
   if (typeof Babel==='undefined'||typeof React==='undefined'||typeof ReactDOM==='undefined'){
     showErr('Failed to load React runtime from /widget-runtime/. Verify the agent-server static mount is reachable.');

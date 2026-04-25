@@ -168,6 +168,13 @@ class ToolResultEnvelope:
     view_key: str | None = None
     data: Any | None = None
     template_id: str | None = None
+    # HTML-widget runtime flavor. ``"react"`` flips the renderer to inject the
+    # vendored React + ReactDOM + Babel-standalone preamble and treat
+    # ``<script type="text/spindrel-react">`` blocks as JSX/TSX. Defaults to
+    # ``None`` (== plain HTML lane). Frontmatter ``runtime: react`` in a body
+    # is also honored as a fallback for path-mode widgets where the body
+    # parser has access to the file's prelude.
+    runtime: Literal["html", "react"] | None = None
 
     def compact_dict(self) -> dict[str, Any]:
         """Serialize for SSE bus + Message.metadata.tool_results storage.
@@ -215,6 +222,8 @@ class ToolResultEnvelope:
             d["data"] = self.data
         if self.template_id:
             d["template_id"] = self.template_id
+        if self.runtime:
+            d["runtime"] = self.runtime
         return d
 
 
@@ -384,6 +393,8 @@ def _build_envelope_from_optin(
     view_key = envelope_data.get("view_key")
     data = envelope_data.get("data")
     template_id = envelope_data.get("template_id")
+    raw_runtime = envelope_data.get("runtime")
+    runtime = raw_runtime if raw_runtime in ("html", "react") else None
 
     return ToolResultEnvelope(
         content_type=content_type,
@@ -403,6 +414,7 @@ def _build_envelope_from_optin(
         view_key=str(view_key) if view_key else None,
         data=data,
         template_id=str(template_id) if template_id else None,
+        runtime=runtime,
     )
 
 

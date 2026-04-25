@@ -366,7 +366,13 @@ async def list_nodes(
     never empty for a workspace with channels.
 
     A single follow-up query loads pins by id for the widget nodes, so the
-    response shape stays one-roundtrip from the client perspective."""
+    response shape stays one-roundtrip from the client perspective.
+
+    Native-widget pin envelopes are rebuilt from the authoritative
+    ``WidgetInstance.state`` before the response — without this the
+    canvas will hand the UI a stale snapshot from pin-create time after
+    every page reload, even though dispatch already mutated the instance.
+    """
     await _ensure_channel_nodes(db)
     await _ensure_bot_nodes(db)
     rows = (await db.execute(
@@ -379,6 +385,12 @@ async def list_nodes(
         pin_rows = (await db.execute(
             select(WidgetDashboardPin).where(WidgetDashboardPin.id.in_(pin_ids))
         )).scalars().all()
+        # Rebuild native-app envelopes from their instance state. Same helper
+        # the dashboard list path uses; identical drift symptom otherwise.
+        from app.services.dashboard_pins import _sync_native_pin_envelopes
+
+        if await _sync_native_pin_envelopes(db, list(pin_rows)):
+            await db.commit()
         pin_map = {p.id: p for p in pin_rows}
     return [(n, pin_map.get(n.widget_pin_id) if n.widget_pin_id else None) for n in nodes]
 

@@ -217,7 +217,19 @@ They are not tool-bound by default, even if they happen to call tools or APIs in
 
 ### Runtime flavor: `html` (default) and `react`
 
-HTML widgets ship in two runtime flavors that share the same iframe sandbox, theme tokens, widget-auth mint, and `window.spindrel.api` SDK. Pick by setting `runtime` either in YAML frontmatter (library / path-mode bundles) or as the `runtime` parameter on `emit_html_widget` (runtime emission). The envelope-level value wins; falls back to the body's frontmatter; defaults to `html`.
+HTML widgets ship in two runtime flavors that share the same iframe sandbox, theme tokens, widget-auth mint, and `window.spindrel.api` SDK. Pick by setting `runtime` in any of three places — the envelope-level value wins; falls back to the body's frontmatter; defaults to `html`.
+
+1. **Library / path-mode bundles** — YAML frontmatter at the top of the body: `runtime: react`.
+2. **Integration `tool_widgets`** — declare alongside `html_template` in `integration.yaml`:
+   ```yaml
+   tool_widgets:
+     sonarr_calendar:
+       runtime: react
+       html_template:
+         path: widgets/sonarr_calendar.html
+   ```
+   The frontmatter parser only sees the start of the body, and the body gets a preamble prepended before render — declare on the manifest side so the envelope is stamped at template-resolution time.
+3. **Runtime emission** — pass `runtime="react"` to `emit_html_widget`.
 
 | Flavor | Body convention | When to pick |
 |---|---|---|
@@ -263,6 +275,22 @@ Theming applies identically to both flavors. `var(--sd-accent)`, `className="sd-
 Trust boundary is unchanged: a `runtime: react` widget is still authored by a bot or user, runs in the same sandbox, mints the same short-lived token, and inherits the emitting bot's API scopes. It does **not** import host components and is **not** the native lane (see below).
 
 Cost: ~3 MB raw / ~600 KB gzipped for the three vendored bundles, parsed once per iframe boot. Pinned-widget pooling amortizes this for dashboard tiles. Reserve the React flavor for widgets where statefulness actually pays for itself.
+
+### Authoring feedback loop — what bots can call
+
+Both flavors share the same two-tool authoring loop. There is no JSX server-side typecheck or external linter — the loop is the lint.
+
+| Tool | When | What it surfaces |
+|---|---|---|
+| `preview_widget` | Pre-pin dry-run | Manifest errors, CSP rejections, library-ref / path-resolution failures, mode-conflict input errors. Returns the same envelope shape `emit_html_widget` would produce, plus a structured `errors: [{phase, message, severity}]` list. Does **not** compile JSX (Babel runs in the iframe, not on the server). |
+| `inspect_widget_pin` | Post-pin runtime trace | Reads the in-memory debug ring (cap 50, newest-first) for a pinned widget: every `callTool` request+response (real envelope shape — no guessing the JSON path), every `loadAttachment` result, every uncaught JS error / unhandled promise rejection / `console.*` call / `spindrel.log.*` entry. For `runtime: react`, Babel compile errors are mirrored to `spindrel.log.error` so they show up here with the same shape as a runtime JS error. |
+
+Iteration recipe for a React widget:
+
+1. Author v1, `preview_widget` to catch envelope/CSP/path errors.
+2. Pin it.
+3. Call `inspect_widget_pin(pin_id)` — read the `tool-call` event's `response` for ground-truth tool envelopes, read `error` / `rejection` / `log` events for JSX compile errors and JS bugs.
+4. Rewrite against confirmed shape; re-emit. No fallback chains.
 
 ## Native widgets
 

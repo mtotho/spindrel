@@ -1,0 +1,208 @@
+<!--
+---
+name: Sonarr — Week Ahead
+description: Upcoming TV episodes from Sonarr grouped by day. React showcase widget.
+runtime: react
+tags: [arr, sonarr, calendar, showcase]
+---
+-->
+<div id="root"></div>
+<script type="text/spindrel-react">
+  const { useMemo } = React;
+
+  function formatDayKey(iso) {
+    if (!iso) return "Unscheduled";
+    const d = new Date(iso + "T00:00:00Z");
+    if (isNaN(d.getTime())) return iso;
+    return d.toISOString().slice(0, 10);
+  }
+
+  function dayLabel(iso) {
+    if (!iso) return "Unscheduled";
+    const d = new Date(iso + "T00:00:00Z");
+    if (isNaN(d.getTime())) return iso;
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const dayMs = 24 * 60 * 60 * 1000;
+    const diff = Math.round((d.getTime() - today.getTime()) / dayMs);
+    const weekday = d.toUTCString().slice(0, 3);
+    const dateBit = d.toUTCString().slice(5, 11).trim();
+    if (diff === 0) return "Today · " + dateBit;
+    if (diff === 1) return "Tomorrow · " + dateBit;
+    return weekday + " · " + dateBit;
+  }
+
+  function pad2(n) {
+    return n < 10 ? "0" + n : "" + n;
+  }
+
+  function StatusChip({ hasFile }) {
+    const cls = hasFile ? "sd-chip sd-chip-success" : "sd-chip sd-chip-muted";
+    return (
+      <span className={cls} style={{ fontSize: 11 }}>
+        {hasFile ? "Downloaded" : "Pending"}
+      </span>
+    );
+  }
+
+  function EpisodeRow({ ep }) {
+    const code =
+      "S" + pad2(ep.season || 0) + "E" + pad2(ep.episode || 0);
+    return (
+      <div
+        className="sd-card"
+        style={{
+          padding: 10,
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          gap: 8,
+          alignItems: "center",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              font: "600 13px/1.25 var(--sd-font-sans)",
+              color: "var(--sd-text)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={ep.series}
+          >
+            {ep.series || "Unknown series"}
+          </div>
+          <div
+            style={{
+              fontSize: 12,
+              color: "var(--sd-text-muted)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={ep.title}
+          >
+            <span style={{ color: "var(--sd-accent)" }}>{code}</span>
+            {ep.title ? " · " + ep.title : ""}
+          </div>
+        </div>
+        <StatusChip hasFile={!!ep.has_file} />
+      </div>
+    );
+  }
+
+  function DayGroup({ iso, episodes }) {
+    return (
+      <section className="sd-stack" style={{ gap: 6 }}>
+        <header
+          className="sd-hstack-between"
+          style={{ alignItems: "baseline" }}
+        >
+          <span
+            style={{
+              font: "600 12px/1.2 var(--sd-font-sans)",
+              color: "var(--sd-text)",
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {dayLabel(iso)}
+          </span>
+          <span style={{ fontSize: 11, color: "var(--sd-text-muted)" }}>
+            {episodes.length} ep{episodes.length === 1 ? "" : "s"}
+          </span>
+        </header>
+        <div className="sd-stack" style={{ gap: 6 }}>
+          {episodes.map((ep, i) => (
+            <EpisodeRow key={i} ep={ep} />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  function useResult() {
+    const sp = window.spindrel || {};
+    return sp.result || sp.toolResult || {};
+  }
+
+  function CalendarApp() {
+    // useTheme keeps the widget in sync with host theme flips. The
+    // returned value is unused for layout (CSS vars do the heavy lifting),
+    // but reading it forces a re-render so any imperative theme-aware
+    // code below stays current.
+    window.spindrel.useTheme();
+
+    const result = useResult();
+    const error = result && result.error;
+    const episodes = Array.isArray(result.episodes) ? result.episodes : [];
+
+    const groups = useMemo(() => {
+      const buckets = new Map();
+      for (const ep of episodes) {
+        const key = formatDayKey(ep.air_date);
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(ep);
+      }
+      const ordered = Array.from(buckets.entries()).sort((a, b) => {
+        if (a[0] === "Unscheduled") return 1;
+        if (b[0] === "Unscheduled") return -1;
+        return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0;
+      });
+      return ordered;
+    }, [episodes]);
+
+    if (error) {
+      return (
+        <div
+          className="sd-card"
+          style={{ padding: 12, color: "var(--sd-danger)" }}
+        >
+          <div style={{ font: "600 13px/1.25 var(--sd-font-sans)" }}>
+            Sonarr unavailable
+          </div>
+          <div style={{ fontSize: 12, marginTop: 4 }}>{String(error)}</div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="sd-stack" style={{ gap: 12, padding: 12 }}>
+        <header
+          className="sd-hstack-between"
+          style={{ alignItems: "baseline" }}
+        >
+          <div>
+            <div style={{ font: "600 14px/1.2 var(--sd-font-sans)" }}>
+              Week ahead
+            </div>
+            <div style={{ fontSize: 12, color: "var(--sd-text-muted)" }}>
+              Sonarr · {episodes.length} episode
+              {episodes.length === 1 ? "" : "s"}
+            </div>
+          </div>
+        </header>
+
+        {groups.length === 0 ? (
+          <div
+            className="sd-card"
+            style={{
+              padding: 16,
+              textAlign: "center",
+              color: "var(--sd-text-muted)",
+              fontSize: 13,
+            }}
+          >
+            Nothing scheduled in the window.
+          </div>
+        ) : (
+          groups.map(([iso, eps]) => (
+            <DayGroup key={iso} iso={iso} episodes={eps} />
+          ))
+        )}
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<CalendarApp />);
+</script>

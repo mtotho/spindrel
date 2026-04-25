@@ -916,9 +916,9 @@ export function EcosystemSimWidget({
       </svg>
 
       {/* ── Floating chrome — always faintly visible, brightens on hover ──
-          Lets the player glance at round/phase/weather without committing
-          to opening settings. */}
-      <div className="absolute top-2 left-2 flex flex-row items-center gap-1.5 px-2 py-1 rounded-full text-[10px] tracking-wide bg-black/35 backdrop-blur-md text-white/85 border border-white/10 opacity-25 group-hover/ecosystem:opacity-100 transition-opacity duration-300 pointer-events-none">
+          Lives at bottom-left so it doesn't fight the canvas drag-handle
+          and unpin-X stacked at top-right. */}
+      <div className="absolute bottom-2 left-2 flex flex-row items-center gap-1.5 px-2 py-1 rounded-full text-[10px] tracking-wide bg-black/35 backdrop-blur-md text-white/85 border border-white/10 opacity-25 group-hover/ecosystem:opacity-100 transition-opacity duration-300 pointer-events-none">
         <span>{weatherSkin.emoji}</span>
         <span className="capitalize">{weatherSkin.label}</span>
         <span className="text-white/40">·</span>
@@ -933,10 +933,16 @@ export function EcosystemSimWidget({
         )}
       </div>
 
+      {/* Settings gear — top-LEFT so it sits clear of the canvas
+          drag-handle / unpin-X stack at top-right on frameless tiles. */}
       <button
         type="button"
-        onClick={() => setSettingsOpen(true)}
-        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white/70 border border-white/10 flex items-center justify-center opacity-25 hover:opacity-100 group-hover/ecosystem:opacity-90 hover:bg-black/55 transition-all duration-300"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSettingsOpen(true);
+        }}
+        className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white/70 border border-white/10 flex items-center justify-center opacity-30 hover:opacity-100 group-hover/ecosystem:opacity-90 hover:bg-black/55 transition-all duration-300"
         title="Game settings"
       >
         <Settings size={12} />

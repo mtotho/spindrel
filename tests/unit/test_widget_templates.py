@@ -192,6 +192,33 @@ class TestApplyWidgetTemplate:
         assert env.byte_size == len(env.body.encode("utf-8"))
         assert env.byte_size > len(b"<div>hello</div>")
 
+    def test_html_template_runtime_react_rides_through_envelope(self):
+        _widget_templates["ReactTool"] = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "display": "inline",
+            "html_template_body": "<div id='root'></div>",
+            "runtime": "react",
+            "source": "test",
+        }
+
+        env = apply_widget_template("ReactTool", json.dumps({"items": []}))
+        assert env is not None
+        assert env.runtime == "react"
+        assert env.compact_dict().get("runtime") == "react"
+
+    def test_html_template_default_omits_runtime(self):
+        _widget_templates["PlainTool"] = {
+            "content_type": "application/vnd.spindrel.html+interactive",
+            "display": "inline",
+            "html_template_body": "<div>plain</div>",
+            "source": "test",
+        }
+
+        env = apply_widget_template("PlainTool", json.dumps({"ok": True}))
+        assert env is not None
+        assert env.runtime is None
+        assert "runtime" not in env.compact_dict()
+
     def test_server_prefixed_name(self):
         """MCP tools are often named 'server-ToolName' — template lookup strips the prefix."""
         _widget_templates["HassTurnOn"] = {

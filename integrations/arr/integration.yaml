@@ -75,3 +75,34 @@ activation:
 
 provides:
   - tools
+
+# Showcase: rich React widget rendering of `sonarr_calendar` — week-ahead
+# episodes grouped by day with per-episode status chips. Authored as a
+# user-space React widget (`runtime: react`) to demonstrate that the same
+# theming + auth + state-poll plumbing works whether the body is plain
+# HTML or in-browser JSX.
+tool_widgets:
+  sonarr_calendar:
+    runtime: react
+    content_type: application/vnd.spindrel.html+interactive
+    display: inline
+    display_label: "Sonarr — Week Ahead"
+    html_template:
+      path: widgets/sonarr_calendar.html
+    default_config:
+      days_ahead: 7
+    config_schema:
+      type: object
+      properties:
+        days_ahead:
+          type: integer
+          title: Days ahead
+          description: How many days of upcoming episodes to fetch on each refresh.
+          minimum: 1
+          maximum: 28
+          default: 7
+    state_poll:
+      tool: sonarr_calendar
+      args:
+        days_ahead: "{{widget_config.days_ahead}}"
+      refresh_interval_seconds: 1800

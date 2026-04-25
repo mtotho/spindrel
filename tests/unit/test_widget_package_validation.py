@@ -90,6 +90,38 @@ class TestPythonErrors:
         assert any(e.phase == "python" for e in result.errors)
 
 
+class TestRuntimeFlavor:
+    def test_runtime_react_with_html_template_ok(self):
+        yaml_body = (
+            "runtime: react\n"
+            "html_template:\n"
+            "  body: \"<div id='root'></div>\"\n"
+        )
+        result = validate_package(yaml_body)
+        assert result.ok, result.errors
+
+    def test_runtime_react_without_html_template_errors(self):
+        yaml_body = (
+            "runtime: react\n"
+            "template:\n"
+            "  v: 1\n"
+            "  components: []\n"
+        )
+        result = validate_package(yaml_body)
+        assert not result.ok
+        assert any("runtime: react requires html_template" in e.message for e in result.errors)
+
+    def test_unknown_runtime_value_errors(self):
+        yaml_body = (
+            "runtime: vue\n"
+            "html_template:\n"
+            "  body: \"<div></div>\"\n"
+        )
+        result = validate_package(yaml_body)
+        assert not result.ok
+        assert any("runtime must be" in e.message for e in result.errors)
+
+
 class TestComponentTree:
     """Component-tree validation via Pydantic schema (P0-1)."""
 

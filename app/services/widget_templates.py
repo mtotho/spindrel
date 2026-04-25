@@ -158,6 +158,11 @@ def _register_widgets(
             else "application/vnd.spindrel.components+json"
         )
 
+        raw_runtime = expanded.get("runtime")
+        runtime_flavor: str | None = (
+            raw_runtime if raw_runtime in ("html", "react") else None
+        )
+
         _widget_templates[tool_name] = {
             "content_type": expanded.get("content_type", default_content_type),
             "display": expanded.get("display", "inline"),
@@ -170,6 +175,7 @@ def _register_widgets(
             "default_config": expanded.get("default_config") or {},
             "config_schema": expanded.get("config_schema"),
             "context_export": expanded.get("context_export"),
+            "runtime": runtime_flavor,
             "source": source,
         }
         count += 1
@@ -337,6 +343,11 @@ def _build_entry_from_package(row) -> dict | None:
         else "application/vnd.spindrel.components+json"
     )
 
+    raw_runtime = widget_def.get("runtime")
+    runtime_flavor: str | None = (
+        raw_runtime if raw_runtime in ("html", "react") else None
+    )
+
     return {
         "content_type": widget_def.get("content_type", default_content_type),
         "display": widget_def.get("display", "inline"),
@@ -348,6 +359,7 @@ def _build_entry_from_package(row) -> dict | None:
         "state_poll": state_poll,
         "default_config": widget_def.get("default_config") or {},
         "config_schema": widget_def.get("config_schema"),
+        "runtime": runtime_flavor,
         "source": f"package:{row.id}",
         "package_id": str(row.id),
         "package_version": row.version,
@@ -495,6 +507,7 @@ def _build_widget_template_envelope(
     view_key: str | None = None,
     data: Any | None = None,
     template_id: str | None = None,
+    runtime: str | None = None,
 ) -> ToolResultEnvelope:
     if isinstance(body, str):
         body_text = body
@@ -515,6 +528,7 @@ def _build_widget_template_envelope(
         view_key=view_key,
         data=data,
         template_id=template_id,
+        runtime=runtime if runtime in ("html", "react") else None,  # type: ignore[arg-type]
     )
 
 
@@ -603,6 +617,7 @@ def apply_widget_template(
             view_key=tmpl.get("view_key"),
             data=data_with_context,
             template_id=f"{tmpl.get('source', 'template')}:{tool_name}",
+            runtime=tmpl.get("runtime"),
         )
 
     # Component template mode (legacy/default)
@@ -837,6 +852,7 @@ def apply_state_poll(
             view_key=owner_tmpl.get("view_key"),
             data=data_with_context,
             template_id=f"{owner_tmpl.get('source', 'template')}:{tool_name}",
+            runtime=owner_tmpl.get("runtime"),
         )
 
     # Component-template mode
