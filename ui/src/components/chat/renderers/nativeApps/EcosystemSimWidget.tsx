@@ -382,10 +382,8 @@ export function EcosystemSimWidget({
           </clipPath>
         </defs>
 
-        {/* Drop shadow under asteroid — anchors it in space */}
-        <ellipse cx="100" cy="120" rx="55" ry="4.5" fill="black" opacity="0.55" filter={`url(#glow-${widgetInstanceId})`} />
-
-        {/* Asteroid body — bobs gently */}
+        {/* Asteroid body — bobs gently. No ground shadow: it's drifting in
+            open space, there's nothing for a shadow to fall on. */}
         <g className="ecosystem-bob" style={{ transformOrigin: "100px 70px" }}>
           {/* Side walls / underside (irregular jagged shape) */}
           <path d={asteroidD} fill={`url(#side-${widgetInstanceId})`} />
