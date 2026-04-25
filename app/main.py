@@ -845,6 +845,20 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Requested-With"],
 )
 
+# Vendored widget runtime — React + ReactDOM + Babel-standalone served
+# same-origin so `runtime: react` HTML widgets inside the iframe sandbox
+# can <script src="/widget-runtime/..."> them without a CSP carve-out.
+# Self-host friendly: no CDN dependency.
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+_WIDGET_RUNTIME_DIR = Path(__file__).resolve().parent / "static" / "widget-runtime"
+if _WIDGET_RUNTIME_DIR.is_dir():
+    app.mount(
+        "/widget-runtime",
+        StaticFiles(directory=str(_WIDGET_RUNTIME_DIR)),
+        name="widget-runtime",
+    )
+
 # Rate limiting (opt-in, in-memory token bucket)
 if settings.RATE_LIMIT_ENABLED:
     from app.services.rate_limiter import RateLimitMiddleware, RateSpec  # noqa: E402

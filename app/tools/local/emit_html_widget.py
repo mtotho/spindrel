@@ -301,6 +301,23 @@ _SCHEMA = {
                         "pre-checks the 'Promote to panel' option."
                     ),
                 },
+                "runtime": {
+                    "type": "string",
+                    "enum": ["html", "react"],
+                    "description": (
+                        "Runtime flavor for the widget body. Default `html` "
+                        "renders the body as a normal HTML document inside the "
+                        "iframe. `react` loads vendored React + ReactDOM + "
+                        "Babel-standalone and auto-compiles every "
+                        "`<script type=\"text/babel\" data-spindrel-react>` "
+                        "block (JSX + TS-types-stripped, no real typecheck). "
+                        "Both flavors share the same theme tokens, sandbox, "
+                        "and `window.spindrel.api` auth — `react` is the "
+                        "ergonomic choice for stateful widgets. Library + "
+                        "path-mode widgets can also declare `runtime: react` "
+                        "in YAML frontmatter; this parameter overrides that."
+                    ),
+                },
                 "extra_csp": {
                     "type": "object",
                     "description": (
@@ -389,6 +406,7 @@ async def emit_html_widget(
     display_label: str = "",
     extra_csp: dict | None = None,
     display_mode: str = "inline",
+    runtime: str | None = None,
 ) -> str:
     # Exactly-one validation across html / path / library_ref.
     html_set = bool(html and html.strip())
@@ -406,6 +424,17 @@ async def emit_html_widget(
     mode = (display_mode or "inline").strip().lower()
     if mode not in ("inline", "panel"):
         return _error("display_mode must be one of 'inline', 'panel'.")
+
+    runtime_value: str | None = None
+    if runtime is not None:
+        runtime_clean = str(runtime).strip().lower()
+        if runtime_clean not in ("html", "react"):
+            return _error("runtime must be one of 'html', 'react'.")
+        # Only stamp non-default to keep envelopes lean — renderer treats
+        # absent-or-html identically and falls back to body frontmatter for
+        # library / path widgets that self-declare.
+        if runtime_clean == "react":
+            runtime_value = "react"
 
     # Validate + normalize the CSP extension before we build the envelope so a
     # misspecified payload surfaces as a tool error (visible to the bot and
@@ -467,6 +496,8 @@ async def emit_html_widget(
             envelope["extra_csp"] = validated_csp
         if mode == "panel":
             envelope["display_mode"] = "panel"
+        if runtime_value:
+            envelope["runtime"] = runtime_value
         return json.dumps(
             {
                 "_envelope": envelope,
@@ -498,6 +529,8 @@ async def emit_html_widget(
             envelope["extra_csp"] = validated_csp
         if mode == "panel":
             envelope["display_mode"] = "panel"
+        if runtime_value:
+            envelope["runtime"] = runtime_value
         return json.dumps(
             {"_envelope": envelope, "llm": f"Emitted HTML widget ({len(body)} chars)."},
             ensure_ascii=False,
@@ -586,6 +619,8 @@ async def emit_html_widget(
         envelope["extra_csp"] = validated_csp
     if mode == "panel":
         envelope["display_mode"] = "panel"
+    if runtime_value:
+        envelope["runtime"] = runtime_value
     return json.dumps(
         {
             "_envelope": envelope,

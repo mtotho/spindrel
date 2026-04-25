@@ -110,44 +110,89 @@ function iso(x: number, y: number): [number, number] {
   ];
 }
 
-// Asteroid silhouette: irregular bottom edge below the iso plane so the
-// platform reads as a chunk of rock floating in space, not a clean diamond.
+// Asteroid silhouette: smooth-but-irregular bottom edge below the iso
+// plane. Bezier-smoothed control points with seeded perturbations read as
+// weathered rock, not zigzag teeth. Top edge stays straight along the iso
+// diamond so the playable surface reads cleanly.
 function asteroidPath(seed: string): string {
   const rand = makeRng(seed);
-  const [tx, ty] = iso(0, 0);              // top point
-  const [rx, ry] = iso(BOARD_SIZE - 1, 0); // right point
-  const [bx, by] = iso(BOARD_SIZE - 1, BOARD_SIZE - 1); // bottom point
-  const [lx, ly] = iso(0, BOARD_SIZE - 1); // left point
+  const [tx, ty] = iso(0, 0);
+  const [rx, ry] = iso(BOARD_SIZE - 1, 0);
+  const [bx, by] = iso(BOARD_SIZE - 1, BOARD_SIZE - 1);
+  const [lx, ly] = iso(0, BOARD_SIZE - 1);
 
-  const depthRight: number[] = [];
-  const depthLeft: number[] = [];
-  const segments = 7;
-  for (let i = 0; i < segments; i++) {
-    depthRight.push(ISO_DEPTH * (0.6 + rand() * 0.8));
-    depthLeft.push(ISO_DEPTH * (0.6 + rand() * 0.8));
+  // Walk perimeter right→bottom→left through perturbed waypoints.
+  const segments = 11;
+  const pts: Array<[number, number]> = [];
+  for (let i = 1; i <= segments; i++) {
+    const t = i / (segments + 1);
+    // Lerp from right corner down toward the bottom apex with extra hang.
+    const baseX = rx + (bx - rx) * t;
+    const baseY = ry + (by - ry) * t;
+    // Hang depth peaks near the middle.
+    const hang = ISO_DEPTH * (0.6 + 1.0 * Math.sin(t * Math.PI));
+    const jx = (rand() - 0.5) * ISO_TILE_W * 1.0;
+    const jy = (rand() - 0.5) * ISO_DEPTH * 0.35;
+    pts.push([baseX + jx, baseY + hang + jy]);
+  }
+  // Bottom-most beak point (most pronounced hang).
+  pts.push([bx + (rand() - 0.5) * ISO_TILE_W, by + ISO_DEPTH * (1.6 + rand() * 0.4)]);
+  for (let i = 1; i <= segments; i++) {
+    const t = i / (segments + 1);
+    const baseX = bx + (lx - bx) * t;
+    const baseY = by + (ly - by) * t;
+    const hang = ISO_DEPTH * (0.6 + 1.0 * Math.sin((1 - t) * Math.PI));
+    const jx = (rand() - 0.5) * ISO_TILE_W * 1.0;
+    const jy = (rand() - 0.5) * ISO_DEPTH * 0.35;
+    pts.push([baseX + jx, baseY + hang + jy]);
   }
 
+  // Build path: straight line along the top iso diamond, smooth Q-curves
+  // through the underside. Each control point is the waypoint; the curve
+  // ends at the midpoint between neighbours so the rock reads continuous.
   const path: string[] = [];
-  // Top contour: top → right → bottom → left → close
   path.push(`M ${tx.toFixed(1)} ${ty.toFixed(1)}`);
   path.push(`L ${rx.toFixed(1)} ${ry.toFixed(1)}`);
-  // Drop down right side jaggedly to bottom corner
-  for (let i = 0; i < segments; i++) {
-    const t = (i + 1) / segments;
-    const sx = rx + (bx - rx) * t;
-    const sy = ry + (by - ry) * t + depthRight[i];
-    path.push(`L ${sx.toFixed(1)} ${sy.toFixed(1)}`);
+  // First segment: from rx,ry curve toward midpoint of (rx,ry)↔pts[0].
+  const first = pts[0];
+  const firstMid: [number, number] = [(rx + first[0]) / 2, (ry + first[1]) / 2];
+  path.push(`L ${firstMid[0].toFixed(1)} ${firstMid[1].toFixed(1)}`);
+  for (let i = 0; i < pts.length; i++) {
+    const cur = pts[i];
+    const next = pts[i + 1];
+    if (next) {
+      const mx = (cur[0] + next[0]) / 2;
+      const my = (cur[1] + next[1]) / 2;
+      path.push(
+        `Q ${cur[0].toFixed(1)} ${cur[1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`,
+      );
+    } else {
+      // Curve to (lx,ly) with cur as control point.
+      path.push(
+        `Q ${cur[0].toFixed(1)} ${cur[1].toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)}`,
+      );
+    }
   }
-  // Climb back up left side jaggedly to left corner
-  for (let i = segments - 1; i >= 0; i--) {
-    const t = i / segments;
-    const sx = lx + (bx - lx) * t;
-    const sy = ly + (by - ly) * t + depthLeft[i];
-    path.push(`L ${sx.toFixed(1)} ${sy.toFixed(1)}`);
-  }
-  path.push(`L ${lx.toFixed(1)} ${ly.toFixed(1)}`);
   path.push("Z");
   return path.join(" ");
+}
+
+// Procedural craters on the top surface — small darker ovals with a
+// brighter rim on the upper-left to suggest shadow casting from a star to
+// the upper-left. Seeded so each asteroid looks distinct.
+interface Crater { cx: number; cy: number; rx: number; ry: number; }
+function craters(seed: string, count = 4): Crater[] {
+  const rand = makeRng(`${seed}-craters`);
+  const out: Crater[] = [];
+  for (let i = 0; i < count; i++) {
+    // Pick a board cell roughly in the inner 80% of the diamond.
+    const gx = 1 + rand() * (BOARD_SIZE - 3);
+    const gy = 1 + rand() * (BOARD_SIZE - 3);
+    const [sx, sy] = iso(gx, gy);
+    const r = 1.4 + rand() * 1.2;
+    out.push({ cx: sx, cy: sy, rx: r, ry: r * 0.55 });
+  }
+  return out;
 }
 
 // Top diamond as a polygon (4 iso corners).
@@ -203,6 +248,45 @@ export function EcosystemSimWidget({
   const asteroidD = useMemo(() => asteroidPath(seed), [seed]);
   const atmStars = useMemo(() => atmosphereStars(seed, 75), [seed]);
   const topD = useMemo(() => topDiamondPoints(), []);
+  const surfaceCraters = useMemo(() => craters(seed, 4), [seed]);
+  // Weather particles — drought dust motes, flood ripple drops, bloom petals.
+  // Each gets a deterministic seed so the canvas isn't reshuffled every render.
+  const weatherParticles = useMemo(() => {
+    const rand = makeRng(`${seed}-weather-${weather}`);
+    const out: Array<{ x: number; y: number; r: number; phase: number; drift: number }> = [];
+    if (weather === "neutral") return out;
+    const count = weather === "bloom" ? 18 : weather === "drought" ? 22 : 14;
+    for (let i = 0; i < count; i++) {
+      out.push({
+        x: 30 + rand() * 140,
+        y: 30 + rand() * 70,
+        r: 0.35 + rand() * 0.55,
+        phase: rand() * 6,
+        drift: -1 + rand() * 2,
+      });
+    }
+    return out;
+  }, [seed, weather]);
+  // Surface specks — pre-compute once per seed so they don't re-shuffle on
+  // every render. Pulled out of a `useMemo` inside `.map()` (anti-pattern).
+  const surfaceSpecks = useMemo(() => {
+    const rand = makeRng(`${seed}-specks`);
+    const dots: Array<{ cx: number; cy: number; r: number; o: number; tone: string }> = [];
+    for (let i = 0; i < 90; i++) {
+      const gx = rand() * (BOARD_SIZE - 1);
+      const gy = rand() * (BOARD_SIZE - 1);
+      const [sx, sy] = iso(gx, gy);
+      const isDark = rand() < 0.35;
+      dots.push({
+        cx: sx,
+        cy: sy,
+        r: 0.14 + rand() * 0.24,
+        o: 0.18 + rand() * 0.22,
+        tone: isDark ? "#2a1810" : "#f0d3a8",
+      });
+    }
+    return dots;
+  }, [seed]);
 
   const { data: bots } = useBots();
   const botById = useMemo(() => {
@@ -412,21 +496,50 @@ export function EcosystemSimWidget({
             })}
           </g>
 
-          {/* Surface texture: scattered rock specks */}
+          {/* Surface texture: scattered rock specks (warm + dark mix) */}
           <g clipPath={`url(#top-clip-${widgetInstanceId})`}>
-            {useMemo(() => {
-              const rand = makeRng(`${seed}-specks`);
-              const dots: Array<{ cx: number; cy: number; r: number; o: number }> = [];
-              for (let i = 0; i < 60; i++) {
-                const gx = rand() * (BOARD_SIZE - 1);
-                const gy = rand() * (BOARD_SIZE - 1);
-                const [sx, sy] = iso(gx, gy);
-                dots.push({ cx: sx, cy: sy, r: 0.18 + rand() * 0.22, o: 0.18 + rand() * 0.18 });
-              }
-              return dots;
-            }, [seed]).map((d, i) => (
-              <circle key={i} cx={d.cx} cy={d.cy} r={d.r} fill="#e6c79c" opacity={d.o} />
+            {surfaceSpecks.map((d, i) => (
+              <circle key={i} cx={d.cx} cy={d.cy} r={d.r} fill={d.tone} opacity={d.o} />
             ))}
+          </g>
+
+          {/* Craters — soft elliptical dimples with a bright upper rim
+              (implied star upper-left) and a dark inner basin. Adds depth
+              without making the surface noisy. */}
+          <g clipPath={`url(#top-clip-${widgetInstanceId})`}>
+            {surfaceCraters.map((c, i) => (
+              <g key={`crater-${i}`}>
+                {/* basin */}
+                <ellipse cx={c.cx} cy={c.cy} rx={c.rx} ry={c.ry} fill="#1d130c" opacity={0.45} />
+                {/* inner highlight */}
+                <ellipse
+                  cx={c.cx - c.rx * 0.25}
+                  cy={c.cy - c.ry * 0.35}
+                  rx={c.rx * 0.55}
+                  ry={c.ry * 0.4}
+                  fill="#c79a73"
+                  opacity={0.3}
+                />
+                {/* rim catchlight */}
+                <ellipse
+                  cx={c.cx}
+                  cy={c.cy}
+                  rx={c.rx}
+                  ry={c.ry}
+                  fill="none"
+                  stroke="#f4d8b4"
+                  strokeWidth={0.18}
+                  opacity={0.35}
+                />
+              </g>
+            ))}
+          </g>
+
+          {/* Directional rim light — implied star to the upper-left casts a
+              warm crescent on the top surface. Positioned via clip so it
+              only paints the top diamond. */}
+          <g clipPath={`url(#top-clip-${widgetInstanceId})`} opacity={0.18}>
+            <ellipse cx={70} cy={32} rx={42} ry={14} fill="#fff5d8" />
           </g>
 
           {/* Weather tint overlay on the surface */}
@@ -443,65 +556,182 @@ export function EcosystemSimWidget({
                 const sp = species[owner];
                 const color = sp?.color ?? "#7aa2c8";
                 const traits = sp?.traits ?? [];
+                const stalkLen = traits.includes("slow")
+                  ? -2.8
+                  : traits.includes("fast")
+                  ? -1.7
+                  : -2.1;
+                const bulbR = traits.includes("slow") ? 1.05 : 0.9;
+                const burrowed = traits.includes("burrowing");
                 return (
                   <g key={`v-${x}-${y}`} transform={`translate(${sx} ${sy})`}>
+                    <title>{`Cell (${x},${y}) · ${owner}${
+                      cell.food ? ` · ${cell.food} food` : ""
+                    }${traits.length ? ` · ${traits.join(", ")}` : ""}`}</title>
                     {/* Soft ground halo */}
-                    <ellipse cx="0" cy="0.5" rx="2.2" ry="1.0" fill={color} opacity={0.22} />
-                    {/* Stalk */}
-                    <line x1="0" y1="0" x2="0" y2={traits.includes("slow") ? -2.6 : -2} stroke={color} strokeWidth={traits.includes("slow") ? 0.6 : 0.4} />
-                    {/* Bulb */}
-                    <circle cx="0" cy={traits.includes("slow") ? -2.6 : -2} r={0.9} fill={color} />
-                    {/* Photosynthetic — soft glow ring */}
+                    <ellipse cx="0" cy="0.5" rx="2.2" ry="1.0" fill={color} opacity={burrowed ? 0.45 : 0.22} />
+                    {/* Burrowing — only the top of the bulb pokes through; small mound below */}
+                    {burrowed && (
+                      <ellipse cx="0" cy="0.25" rx="1.5" ry="0.55" fill="#3a2818" opacity={0.55} />
+                    )}
+                    {/* Stalk (skipped if burrowing) */}
+                    {!burrowed && (
+                      <line
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2={stalkLen}
+                        stroke={color}
+                        strokeWidth={traits.includes("slow") ? 0.6 : 0.4}
+                      />
+                    )}
+                    {/* Photosynthetic — leaf-pair on the stalk */}
+                    {traits.includes("photosynthetic") && !burrowed && (
+                      <>
+                        <ellipse
+                          cx={-0.7}
+                          cy={stalkLen * 0.5}
+                          rx={0.7}
+                          ry={0.3}
+                          fill="#7cc77a"
+                          transform={`rotate(-25 ${-0.7} ${stalkLen * 0.5})`}
+                        />
+                        <ellipse
+                          cx={0.7}
+                          cy={stalkLen * 0.5 + 0.2}
+                          rx={0.7}
+                          ry={0.3}
+                          fill="#7cc77a"
+                          transform={`rotate(25 ${0.7} ${stalkLen * 0.5 + 0.2})`}
+                        />
+                      </>
+                    )}
+                    {/* Bulb (smaller if burrowing) */}
+                    <circle
+                      cx="0"
+                      cy={burrowed ? -0.3 : stalkLen}
+                      r={burrowed ? 0.6 : bulbR}
+                      fill={color}
+                    />
+                    {/* Photosynthetic glow ring */}
                     {traits.includes("photosynthetic") && (
-                      <circle cx="0" cy={-2} r={1.6} fill="none" stroke="#fff7c2" strokeWidth={0.18} opacity={0.65} />
+                      <circle cx="0" cy={burrowed ? -0.3 : stalkLen} r={1.6} fill="none" stroke="#fff7c2" strokeWidth={0.18} opacity={0.55} />
                     )}
                     {/* Luminous — bright pip */}
                     {traits.includes("luminous") && (
-                      <circle cx="0" cy={-2} r={0.4} fill="#fff7e0" opacity={0.95} />
+                      <circle cx="0" cy={burrowed ? -0.3 : stalkLen} r={0.4} fill="#fff7e0" opacity={0.95} />
                     )}
                     {/* Thorny — spikes radiating from bulb */}
-                    {traits.includes("thorny") &&
+                    {traits.includes("thorny") && !burrowed &&
                       [0, 1, 2, 3, 4].map((i) => {
                         const a = (i / 5) * Math.PI * 2;
                         return (
                           <line
                             key={i}
                             x1={Math.cos(a) * 0.9}
-                            y1={-2 + Math.sin(a) * 0.9}
+                            y1={stalkLen + Math.sin(a) * 0.9}
                             x2={Math.cos(a) * 1.5}
-                            y2={-2 + Math.sin(a) * 1.5}
+                            y2={stalkLen + Math.sin(a) * 1.5}
                             stroke={color}
                             strokeWidth={0.18}
                             opacity={0.85}
                           />
                         );
                       })}
-                    {/* Aggressive — small fang triangle */}
-                    {traits.includes("aggressive") && (
+                    {/* Aggressive — small fang triangle on bulb */}
+                    {traits.includes("aggressive") && !burrowed && (
                       <polygon
-                        points={`-0.5,-1.3 0,-2.4 0.5,-1.3`}
+                        points={`-0.5,${stalkLen + 0.7} 0,${stalkLen - 0.4} 0.5,${stalkLen + 0.7}`}
                         fill="#fff"
                         opacity={0.7}
                       />
                     )}
-                    {/* Fast — speed lines */}
-                    {traits.includes("fast") &&
+                    {/* Fast — speed lines trailing right of stalk */}
+                    {traits.includes("fast") && !burrowed &&
                       [0, 1].map((i) => (
                         <line
                           key={i}
                           x1={1.0}
-                          y1={-1.6 + i * 0.4}
+                          y1={stalkLen + 0.4 + i * 0.4}
                           x2={2.2}
-                          y2={-1.6 + i * 0.4}
+                          y2={stalkLen + 0.4 + i * 0.4}
                           stroke={color}
                           strokeWidth={0.15}
                           opacity={0.55}
                         />
                       ))}
+                    {/* Parasitic — wavy tendril reaching out */}
+                    {traits.includes("parasitic") && !burrowed && (
+                      <path
+                        d={`M 0 ${stalkLen} Q 1.4 ${stalkLen - 0.3} 1.8 ${stalkLen + 0.6} T 2.6 ${stalkLen + 0.4}`}
+                        stroke={color}
+                        strokeWidth={0.2}
+                        fill="none"
+                        opacity={0.75}
+                      />
+                    )}
                   </g>
                 );
               })}
           </g>
+
+          {/* Weather particles — drifting visual life. Each system has its
+              own form: drought = dust motes rising, flood = falling drops,
+              bloom = floating petals. Position is per-particle, animation is
+              CSS-driven for cheapness. */}
+          {weather !== "neutral" && (
+            <g className="ecosystem-weather-particles" opacity={0.85}>
+              {weatherParticles.map((p, i) => {
+                const delay = `${p.phase}s`;
+                if (weather === "drought") {
+                  return (
+                    <circle
+                      key={`wp-${i}`}
+                      cx={p.x}
+                      cy={p.y}
+                      r={p.r * 0.8}
+                      fill="#dcae7c"
+                      opacity={0.65}
+                      className="ecosystem-dust"
+                      style={{ animationDelay: delay }}
+                    />
+                  );
+                }
+                if (weather === "flood") {
+                  return (
+                    <line
+                      key={`wp-${i}`}
+                      x1={p.x}
+                      y1={p.y}
+                      x2={p.x + p.drift * 0.4}
+                      y2={p.y + 1.6}
+                      stroke="#9ec9f5"
+                      strokeWidth={0.22}
+                      strokeLinecap="round"
+                      opacity={0.7}
+                      className="ecosystem-drop"
+                      style={{ animationDelay: delay }}
+                    />
+                  );
+                }
+                // bloom — simple petal as a tiny rotated ellipse
+                return (
+                  <ellipse
+                    key={`wp-${i}`}
+                    cx={p.x}
+                    cy={p.y}
+                    rx={p.r * 0.9}
+                    ry={p.r * 0.45}
+                    fill="#f7c0d8"
+                    opacity={0.75}
+                    transform={`rotate(${p.drift * 30} ${p.x} ${p.y})`}
+                    className="ecosystem-petal"
+                    style={{ animationDelay: delay }}
+                  />
+                );
+              })}
+            </g>
+          )}
 
           {/* Food source glints */}
           <g>
@@ -541,54 +771,124 @@ export function EcosystemSimWidget({
             </g>
           )}
 
-          {/* Bot characters — bobbing, rendered last so they sit on top */}
+          {/* Bot characters — bobbing, rendered last so they sit on top.
+              Trait visuals: aggressive=fang mouth, luminous=glow pip,
+              thorny=head spikes, photosynthetic=leaf antenna, parasitic=
+              tendril, fast=lean+streaks, slow=larger body, burrowing=
+              half-buried. */}
           <g>
             {botAvatars
               .sort((a, b) => a.sy - b.sy)
               .map(({ botId, sx, sy, species: sp, phase: phaseOffset }) => {
                 const color = sp.color || "#7aa2c8";
                 const emoji = sp.emoji || "🌱";
+                const tr = sp.traits ?? [];
+                const fast = tr.includes("fast");
+                const slow = tr.includes("slow");
+                const burrowing = tr.includes("burrowing");
+                const bodyScale = slow ? 1.18 : fast ? 0.92 : 1.0;
+                const buriedY = burrowing ? 0.9 : 0;
                 return (
+                  // Position-only outer group. SVG attribute transform —
+                  // never wear a CSS animation here, or the animation's
+                  // `transform` will override this and snap the bot to (0,0).
                   <g
                     key={`bot-${botId}`}
-                    transform={`translate(${sx} ${sy})`}
-                    style={{ animation: `ecosystem-walk 5.5s ease-in-out infinite`, animationDelay: `${phaseOffset * -5.5}s`, transformBox: "fill-box" }}
+                    transform={`translate(${sx} ${sy + buriedY})`}
                   >
+                    <title>
+                      {`${botId}${tr.length ? ` · ${tr.join(", ")}` : ""} · ${sp.food ?? 0} food`}
+                    </title>
+                    {/* Walk animation — runs on a child group so the CSS
+                        `transform` keyframes don't fight the SVG positional
+                        transform on the outer wrapper. */}
+                    <g
+                      style={{
+                        animation: `ecosystem-walk ${slow ? 8 : fast ? 3.5 : 5.5}s ease-in-out infinite`,
+                        animationDelay: `${phaseOffset * -5.5}s`,
+                      }}
+                    >
                     {/* contact shadow */}
-                    <ellipse cx="0" cy="0.4" rx="1.6" ry="0.5" fill={`url(#bot-shadow-${widgetInstanceId})`} />
+                    <ellipse cx="0" cy="0.4" rx={1.6 * bodyScale} ry="0.5" fill={`url(#bot-shadow-${widgetInstanceId})`} />
+                    {/* burrowing — small dirt mound around the base */}
+                    {burrowing && (
+                      <ellipse cx="0" cy="0.1" rx={1.7} ry="0.55" fill="#2a1810" opacity={0.7} />
+                    )}
                     {/* bobbing body */}
                     <g
                       className="ecosystem-bob-body"
-                      style={{ animation: `ecosystem-bob 2.2s ease-in-out infinite`, animationDelay: `${phaseOffset * -2.2}s` }}
+                      style={{
+                        animation: `ecosystem-bob ${slow ? 3.4 : fast ? 1.2 : 2.2}s ease-in-out infinite`,
+                        animationDelay: `${phaseOffset * -2.2}s`,
+                        transform: fast ? "rotate(-4deg)" : undefined,
+                        transformOrigin: "0px 0px",
+                      }}
                     >
-                      {/* back foot/stalk */}
-                      <ellipse cx="-0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
-                      <ellipse cx="0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
+                      {/* back foot/stalk (suppressed when burrowing) */}
+                      {!burrowing && (
+                        <>
+                          <ellipse cx="-0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
+                          <ellipse cx="0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
+                        </>
+                      )}
                       {/* body */}
-                      <ellipse cx="0" cy="-1.4" rx="1.55" ry="1.85" fill={color} />
+                      <ellipse cx="0" cy="-1.4" rx={1.55 * bodyScale} ry={1.85 * bodyScale} fill={color} />
                       {/* belly highlight */}
-                      <ellipse cx="-0.3" cy="-1.7" rx="0.6" ry="0.85" fill="#fff" opacity={0.25} />
+                      <ellipse cx={-0.3 * bodyScale} cy={-1.7} rx={0.6 * bodyScale} ry={0.85 * bodyScale} fill="#fff" opacity={0.25} />
                       {/* eyes */}
                       <circle cx="-0.5" cy="-1.5" r="0.32" fill="#fff" />
                       <circle cx="0.55" cy="-1.5" r="0.32" fill="#fff" />
                       <circle cx="-0.4" cy="-1.45" r="0.16" fill="#0b0612" />
                       <circle cx="0.65" cy="-1.45" r="0.16" fill="#0b0612" />
                       {/* mouth — reflects "aggressive" */}
-                      {sp.traits?.includes("aggressive") ? (
+                      {tr.includes("aggressive") ? (
                         <polygon points="-0.45,-0.85 0,-0.45 0.45,-0.85" fill="#0b0612" />
                       ) : (
                         <path d="M -0.4 -0.9 Q 0 -0.65 0.4 -0.9" stroke="#0b0612" strokeWidth={0.14} fill="none" strokeLinecap="round" />
                       )}
-                      {/* trait flourish on head */}
-                      {sp.traits?.includes("luminous") && (
+                      {/* photosynthetic — leaf antenna */}
+                      {tr.includes("photosynthetic") && (
+                        <g transform="translate(0 -3.0)">
+                          <line x1="0" y1="0" x2="0" y2="-0.6" stroke="#5fa658" strokeWidth={0.14} />
+                          <ellipse cx={0.4} cy={-0.7} rx={0.55} ry={0.28} fill="#7cc77a" transform="rotate(-25 0.4 -0.7)" />
+                          <ellipse cx={-0.4} cy={-0.55} rx={0.45} ry={0.22} fill="#7cc77a" transform="rotate(25 -0.4 -0.55)" />
+                        </g>
+                      )}
+                      {/* luminous — glowing pip on forehead */}
+                      {tr.includes("luminous") && (
                         <circle cx="0" cy="-3.1" r="0.3" fill="#fff7e0" opacity="0.9" filter={`url(#glow-${widgetInstanceId})`} />
                       )}
-                      {sp.traits?.includes("thorny") &&
+                      {/* thorny — head spikes */}
+                      {tr.includes("thorny") &&
                         [0, 1, 2].map((i) => (
                           <polygon
                             key={i}
                             points={`${-0.6 + i * 0.6},-3.0 ${-0.4 + i * 0.6},-3.7 ${-0.2 + i * 0.6},-3.0`}
                             fill={color}
+                          />
+                        ))}
+                      {/* parasitic — tendril reaching off the body */}
+                      {tr.includes("parasitic") && (
+                        <path
+                          d={`M ${1.3 * bodyScale} -1.6 Q ${2.0 * bodyScale} -2.0 ${1.6 * bodyScale} -2.6 T ${2.4 * bodyScale} -3.0`}
+                          stroke={color}
+                          strokeWidth={0.18}
+                          fill="none"
+                          opacity={0.85}
+                        />
+                      )}
+                      {/* fast — speed streaks behind body */}
+                      {fast &&
+                        [0, 1, 2].map((i) => (
+                          <line
+                            key={`fs-${i}`}
+                            x1={1.6 * bodyScale}
+                            y1={-1.4 + (i - 1) * 0.4}
+                            x2={2.6 * bodyScale}
+                            y2={-1.4 + (i - 1) * 0.4}
+                            stroke={color}
+                            strokeWidth={0.13}
+                            opacity={0.6}
                           />
                         ))}
                       {/* species emoji floating above */}
@@ -602,10 +902,11 @@ export function EcosystemSimWidget({
                         {emoji}
                       </text>
                       {/* food count */}
-                      <g transform="translate(1.2, -3.1)">
+                      <g transform={`translate(${1.2 * bodyScale}, -3.1)`}>
                         <rect x="-0.4" y="-0.6" width={String(sp.food ?? 0).length * 0.5 + 0.6} height="0.95" rx="0.45" fill="rgba(0,0,0,0.6)" />
                         <text x="0" y="0.05" fontSize="0.85" fill="#fff7c2">{sp.food ?? 0}</text>
                       </g>
+                    </g>
                     </g>
                   </g>
                 );
@@ -614,8 +915,10 @@ export function EcosystemSimWidget({
         </g>
       </svg>
 
-      {/* ── Floating chrome — invisible until you hover the stage ──── */}
-      <div className="absolute top-2 left-2 flex flex-row items-center gap-1.5 px-2 py-1 rounded-full text-[10px] tracking-wide bg-black/40 backdrop-blur-md text-white/85 border border-white/10 opacity-0 group-hover/ecosystem:opacity-100 transition-opacity duration-300 pointer-events-none">
+      {/* ── Floating chrome — always faintly visible, brightens on hover ──
+          Lets the player glance at round/phase/weather without committing
+          to opening settings. */}
+      <div className="absolute top-2 left-2 flex flex-row items-center gap-1.5 px-2 py-1 rounded-full text-[10px] tracking-wide bg-black/35 backdrop-blur-md text-white/85 border border-white/10 opacity-25 group-hover/ecosystem:opacity-100 transition-opacity duration-300 pointer-events-none">
         <span>{weatherSkin.emoji}</span>
         <span className="capitalize">{weatherSkin.label}</span>
         <span className="text-white/40">·</span>
@@ -737,6 +1040,55 @@ export function EcosystemSimWidget({
           </button>
         </WidgetSettingsSection>
 
+        {/* Feed — direct food balance lever, only useful once playing */}
+        {phase === "playing" && participants.length > 0 && (
+          <WidgetSettingsSection
+            label="Feed species"
+            hint="Hand out or take food directly"
+          >
+            <div className="flex flex-col gap-1">
+              {participants.map((id) => {
+                const sp = species[id];
+                if (!sp) return null;
+                const name = botById.get(id)?.name ?? id;
+                return (
+                  <div
+                    key={id}
+                    className="flex items-center gap-2 px-2 py-1 rounded border border-surface-border bg-surface"
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: sp.color }}
+                    />
+                    <span className="text-[12px] flex-1 truncate">{name}</span>
+                    <span className="text-[11px] text-text-dim font-mono w-7 text-right">
+                      {sp.food ?? 0}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void runAction("feed_species", { bot_id: id, amount: -1 }, `feed-${id}`)}
+                      className="w-6 h-6 rounded text-[12px] border border-surface-border hover:bg-surface-raised text-text-dim disabled:opacity-40"
+                      disabled={busy === `feed-${id}` || (sp.food ?? 0) <= 0}
+                      title="Take 1 food"
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAction("feed_species", { bot_id: id, amount: 1 }, `feed-${id}`)}
+                      className="w-6 h-6 rounded text-[12px] border border-surface-border hover:bg-surface-raised text-text disabled:opacity-40"
+                      disabled={busy === `feed-${id}`}
+                      title="Give 1 food"
+                    >
+                      +
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </WidgetSettingsSection>
+        )}
+
         <GameTurnLogSection
           log={turnLog}
           actorMeta={Object.fromEntries(
@@ -797,6 +1149,34 @@ export function EcosystemSimWidget({
           0%, 100% { opacity: 0.55; }
           50% { opacity: 1; }
         }
+        /* Drought — dust motes drift up and fade. */
+        @keyframes ecosystem-dust {
+          0%   { transform: translate(0, 0); opacity: 0; }
+          15%  { opacity: 0.75; }
+          80%  { opacity: 0.55; }
+          100% { transform: translate(2px, -8px); opacity: 0; }
+        }
+        .ecosystem-dust {
+          animation: ecosystem-dust 6s ease-in-out infinite;
+        }
+        /* Flood — drops fall and fade. */
+        @keyframes ecosystem-drop {
+          0%   { transform: translate(0, -3px); opacity: 0; }
+          25%  { opacity: 0.95; }
+          100% { transform: translate(0, 8px); opacity: 0; }
+        }
+        .ecosystem-drop {
+          animation: ecosystem-drop 2.4s linear infinite;
+        }
+        /* Bloom — petals float side to side. */
+        @keyframes ecosystem-petal {
+          0%   { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+          15%  { opacity: 0.85; }
+          100% { transform: translate(3px, -6px) rotate(180deg); opacity: 0; }
+        }
+        .ecosystem-petal {
+          animation: ecosystem-petal 7s ease-in-out infinite;
+        }
         .ecosystem-bob {
           animation: ecosystem-drift 16s ease-in-out infinite alternate;
         }
@@ -811,7 +1191,8 @@ export function EcosystemSimWidget({
         }
         @media (prefers-reduced-motion: reduce) {
           .ecosystem-bob, .ecosystem-nebula, .ecosystem-glint,
-          .ecosystem-atm-star, .ecosystem-bob-body {
+          .ecosystem-atm-star, .ecosystem-bob-body,
+          .ecosystem-dust, .ecosystem-drop, .ecosystem-petal {
             animation: none !important;
           }
         }

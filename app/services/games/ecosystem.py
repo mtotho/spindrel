@@ -91,6 +91,35 @@ def _seed_xy(actor: str) -> tuple[int, int]:
     return (digest[0] % BOARD_SIZE, digest[1] % BOARD_SIZE)
 
 
+# Distinct fallback species look — used when a bot is auto-seeded without
+# calling `define_species`. Indexed by a stable hash of the bot id so each
+# bot reads as its own creature on the asteroid instead of an identical
+# generic sprout.
+_FALLBACK_EMOJI = ("🌱", "🍄", "🌿", "🪲", "🦠", "🐛", "🪷", "🦀", "🦂", "🪼", "🦑")
+_FALLBACK_COLOR = (
+    "#7aa2c8",  # blue
+    "#c87a7a",  # coral
+    "#7ac88a",  # mint
+    "#c8a87a",  # tan
+    "#b07ac8",  # violet
+    "#7ac8c8",  # teal
+    "#c8c87a",  # olive
+    "#c87aa8",  # pink
+    "#7a86c8",  # indigo
+    "#c8967a",  # peach
+    "#9ac87a",  # leaf
+)
+
+
+def _fallback_species_look(actor: str) -> tuple[str, str]:
+    """Pick a stable (emoji, color) pair from the bot id."""
+    digest = hashlib.sha256(actor.encode("utf-8")).digest()
+    return (
+        _FALLBACK_EMOJI[digest[2] % len(_FALLBACK_EMOJI)],
+        _FALLBACK_COLOR[digest[3] % len(_FALLBACK_COLOR)],
+    )
+
+
 def _in_bounds(x: int, y: int) -> bool:
     return 0 <= x < BOARD_SIZE and 0 <= y < BOARD_SIZE
 
@@ -258,11 +287,29 @@ def _action_eat_neighbor(state: dict[str, Any], actor: str, args: dict[str, Any]
     transferred = max(1, int(state["species"][victim].get("food", 0)) // 2)
     _adjust_food(state, victim, -transferred)
     _adjust_food(state, actor, transferred)
-    _set_cell(state, tx, ty, {"owner": actor, "food": 0})
+    # Thorny defender retaliates — attacker loses 1 food and the cell
+    # capture fizzles half the time (enough to make thorny a real wall).
+    retaliation = 0
+    captured = True
+    if _has_trait(state, victim, "thorny"):
+        retaliation = 1
+        _adjust_food(state, actor, -retaliation)
+        # Burrowing victims hold the ground harder — capture fails.
+        if _has_trait(state, victim, "burrowing"):
+            captured = False
+    if captured:
+        _set_cell(state, tx, ty, {"owner": actor, "food": 0})
+    suffix = ""
+    if retaliation:
+        suffix = f"; thorns bit back -{retaliation}"
+    if not captured:
+        suffix += " (cell held)"
     return {
         "ok": True,
-        "summary": f"ate {victim}'s cell at ({tx},{ty}); +{transferred} food",
+        "summary": f"ate {victim}'s cell at ({tx},{ty}); +{transferred} food{suffix}",
         "transferred": transferred,
+        "retaliation": retaliation,
+        "captured": captured,
     }
 
 
@@ -298,15 +345,26 @@ def _action_set_phase(state: dict[str, Any], actor: str, args: dict[str, Any]) -
         # call define_species during setup) so the game is playable on day 1.
         for bot_id in state.get("participants", []):
             if bot_id not in state.get("species", {}):
+                emoji, color = _fallback_species_look(bot_id)
                 state["species"][bot_id] = {
-                    "emoji": "🌱",
-                    "color": "#7aa2c8",
+                    "emoji": emoji,
+                    "color": color,
                     "traits": [],
                     "food": STARTING_FOOD,
                 }
                 seed_x, seed_y = _seed_xy(bot_id)
                 sx, sy = _find_free_near(state, seed_x, seed_y)
                 _set_cell(state, sx, sy, {"owner": bot_id, "food": 0})
+            else:
+                # Existing species but no cell on the board (e.g. user
+                # added a participant who never called define_species and
+                # got the default look from a previous transition that has
+                # since lost their cell). Make sure they have a starting
+                # tile so they aren't rendered floating off the asteroid.
+                if not _owned_cells(state, bot_id):
+                    seed_x, seed_y = _seed_xy(bot_id)
+                    sx, sy = _find_free_near(state, seed_x, seed_y)
+                    _set_cell(state, sx, sy, {"owner": bot_id, "food": 0})
     return {"ok": True, "phase": phase, "round": state.get("round", 0)}
 
 
@@ -350,6 +408,42 @@ def _action_advance_round(state: dict[str, Any], actor: str, args: dict[str, Any
         elif weather == "bloom":
             food = food * 2
         sp["food"] = food
+    # Trait-driven passive income — runs after weather so bloom amplifies the
+    # base photosynthesis bonus. Photosynthetic species harvest sunlight per
+    # owned cell (capped). Parasitic species leech 1 food per turn from any
+    # adjacent enemy cell owner they touch.
+    for bot_id, sp in species.items():
+        traits = sp.get("traits") or []
+        owned = _owned_cells(state, bot_id)
+        if "photosynthetic" in traits:
+            gain = min(3, max(1, len(owned) // 2))
+            if weather == "bloom":
+                gain += 1
+            if weather == "drought":
+                gain = max(0, gain - 1)
+            _adjust_food(state, bot_id, gain)
+        if "parasitic" in traits:
+            leeched_from: set[str] = set()
+            owned_set = set(owned)
+            for x, y in owned:
+                for dx, dy in DIRECTIONS.values():
+                    nx, ny = x + dx, y + dy
+                    if not _in_bounds(nx, ny):
+                        continue
+                    target = cells[ny][nx]
+                    if not target:
+                        continue
+                    target_owner = target.get("owner")
+                    if not target_owner or target_owner == bot_id:
+                        continue
+                    if target_owner in leeched_from:
+                        continue
+                    if (nx, ny) in owned_set:
+                        continue
+                    if target_owner in species:
+                        _adjust_food(state, target_owner, -1)
+                        _adjust_food(state, bot_id, 1)
+                        leeched_from.add(target_owner)
     # Food sources grant their owner +amount per round.
     for source in state.get("environment", {}).get("food_sources", []):
         x, y = int(source.get("x", -1)), int(source.get("y", -1))
@@ -362,6 +456,30 @@ def _action_advance_round(state: dict[str, Any], actor: str, args: dict[str, Any
     state["last_actor"] = None
     state["round_started_log_index"] = len(state.get("turn_log") or []) + 1
     return {"ok": True, "round": state["round"], "weather": weather}
+
+
+def _action_feed_species(state: dict[str, Any], actor: str, args: dict[str, Any]) -> dict[str, Any]:
+    """User-side balance lever: directly hand food to a species.
+
+    Useful when a species gets stomped early and needs help to stay in the
+    game. Negative amounts are allowed — the user can also penalize.
+    """
+    assert_user_only(actor, "feed_species")
+    target = str(args.get("bot_id") or "").strip()
+    if not target:
+        raise ValidationError("bot_id is required.")
+    if target not in state.get("species", {}):
+        raise ValidationError(f"{target!r} has no species in this game.")
+    amount = int(args.get("amount", 0))
+    if amount == 0:
+        raise ValidationError("amount must be a non-zero integer.")
+    new_food = _adjust_food(state, target, amount)
+    sign = "+" if amount > 0 else ""
+    return {
+        "ok": True,
+        "summary": f"{target} food {sign}{amount} (now {new_food})",
+        "food": new_food,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +499,7 @@ _USER_ACTIONS = {
     "set_phase": _action_set_phase,
     "set_environment": _action_set_environment,
     "advance_round": _action_advance_round,
+    "feed_species": _action_feed_species,
 }
 
 

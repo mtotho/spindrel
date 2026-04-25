@@ -578,9 +578,27 @@ _ECOSYSTEM_ACTIONS = (
         id="advance_round",
         description=(
             "User-only: bump the round counter and apply weather + food source effects. "
-            "Drought halves food; bloom doubles; food sources grant their owner +amount."
+            "Drought halves food; bloom doubles; food sources grant their owner +amount. "
+            "Photosynthetic species harvest sunlight; parasitic species leech 1 food per "
+            "adjacent enemy."
         ),
         args_schema={"type": "object", "properties": {}},
+    ),
+    NativeWidgetActionSpec(
+        id="feed_species",
+        description=(
+            "User-only: directly grant (or take) food from a species. Useful when a "
+            "species gets stomped early and needs help — or when one is running away "
+            "with the game and needs a cap."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "bot_id": {"type": "string"},
+                "amount": {"type": "integer"},
+            },
+            "required": ["bot_id", "amount"],
+        },
     ),
 )
 

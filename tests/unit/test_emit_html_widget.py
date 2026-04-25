@@ -406,6 +406,40 @@ class TestDisplayMode:
         assert "display_mode" not in d
 
 
+class TestRuntimeFlavor:
+    """``runtime`` kwarg — selects html (default) vs the React + Babel
+    iframe preamble. Default and `html` must NOT stamp the field so existing
+    envelopes stay byte-identical; only `react` flips it on."""
+
+    @pytest.mark.asyncio
+    async def test_default_omits_runtime(self):
+        result = await emit_html_widget(html="<p>x</p>")
+        env = _envelope(result)
+        assert "runtime" not in env
+
+    @pytest.mark.asyncio
+    async def test_explicit_html_omits_runtime(self):
+        # Backward-compat: the wire shape only carries the field when the
+        # value diverges from the default. Renderer treats absent === html.
+        result = await emit_html_widget(html="<p>x</p>", runtime="html")
+        env = _envelope(result)
+        assert "runtime" not in env
+
+    @pytest.mark.asyncio
+    async def test_react_stamps_envelope(self):
+        result = await emit_html_widget(
+            html='<div id="root"></div>', runtime="react",
+        )
+        env = _envelope(result)
+        assert env["runtime"] == "react"
+
+    @pytest.mark.asyncio
+    async def test_invalid_runtime_errors(self):
+        result = await emit_html_widget(html="<p>x</p>", runtime="solidjs")
+        err = _parse(result).get("error", "")
+        assert "runtime" in err
+
+
 class TestLibraryRefMode:
     """``library_ref`` mode — render a named widget from the core library."""
 

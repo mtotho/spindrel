@@ -684,6 +684,8 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
           "radial-gradient(rgb(var(--color-text) / 0.05) 1px, transparent 1px)",
         backgroundSize: "32px 32px",
         cursor: panState.current ? "grabbing" : "grab",
+        touchAction: "none",
+        overscrollBehavior: "none",
       }}
     >
       <CanvasStarfield />

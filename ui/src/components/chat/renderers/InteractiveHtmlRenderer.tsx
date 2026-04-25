@@ -280,6 +280,7 @@ function appendCspOrigins(
 function buildCsp(
   extra: Record<string, unknown> | null | undefined,
   appOrigin: string | null,
+  options?: { allowAppScripts?: boolean },
 ): string {
   const merged: Record<string, string[]> = {};
   for (const [directive, sources] of Object.entries(DEFAULT_CSP)) {
@@ -293,6 +294,14 @@ function buildCsp(
     // widgets legitimately load from the app backend.
     for (const directive of ["connect-src", "img-src", "media-src", "frame-src"]) {
       appendCspOrigins(merged, directive, [runtimeOrigin]);
+    }
+    if (options?.allowAppScripts) {
+      // `runtime: react` widgets load vendored React + Babel from the
+      // agent-server static mount. In same-origin prod the relative
+      // `/widget-runtime/...` path is already covered by `'self'`; in dev
+      // (Vite UI on a different origin from the API) the absolute URL
+      // needs an explicit script-src allowance.
+      appendCspOrigins(merged, "script-src", [runtimeOrigin]);
     }
   }
   if (extra && typeof extra === "object") {
@@ -2407,6 +2416,97 @@ function extractToolResultFromBody(body: string): unknown | undefined {
   }
 }
 
+// Minimal frontmatter reader — pulls just the `runtime:` line out of a
+// leading HTML-comment YAML block. Mirrors the server-side scanner regex
+// but only extracts the one field we need at render time. We intentionally
+// do not bring in a full YAML parser: misformed frontmatter degrades to
+// `runtime: html` instead of breaking the renderer.
+const FRONTMATTER_RE = /^\s*<!--\s*\n?---\s*\n([\s\S]*?)\n---\s*\n?\s*-->/;
+const FRONTMATTER_RUNTIME_LINE_RE = /^\s*runtime\s*:\s*(['"]?)(\w+)\1\s*$/m;
+
+function parseFrontmatterRuntime(body: string): "html" | "react" | null {
+  const block = FRONTMATTER_RE.exec(body);
+  if (!block) return null;
+  const line = FRONTMATTER_RUNTIME_LINE_RE.exec(block[1]);
+  if (!line) return null;
+  const v = line[2].toLowerCase();
+  if (v === "react") return "react";
+  if (v === "html") return "html";
+  return null;
+}
+
+function buildReactRuntimePreamble(serverUrl: string | null): string {
+  // `serverUrl` is the absolute origin of the agent-server backend. In
+  // same-origin prod it's empty/null, so relative `/widget-runtime/...`
+  // resolves against the host page. In dev with separate Vite + FastAPI
+  // origins, we need the absolute URL so the iframe can fetch the vendored
+  // bundles from the API host. CSP `script-src` is widened in `buildCsp`
+  // when `allowAppScripts: true` is set.
+  const prefix = serverUrl ? serverUrl.replace(/\/$/, "") : "";
+  const reactSrc = `${prefix}/widget-runtime/react.production.min.js`;
+  const reactDomSrc = `${prefix}/widget-runtime/react-dom.production.min.js`;
+  const babelSrc = `${prefix}/widget-runtime/babel.standalone.min.js`;
+  // The mount shim is intentionally tiny + dependency-free. It scans for
+  // `<script type="text/spindrel-react">` blocks (a custom MIME so
+  // babel-standalone's auto-runner doesn't fight us), compiles each one
+  // through Babel with the `react` + `typescript` presets (TS types
+  // stripped, never checked), and executes inside a closure where
+  // `React`, `ReactDOM`, and `spindrel` are in scope. Compile errors
+  // render a host-styled error card so a broken JSX block degrades
+  // visibly instead of silently producing a blank iframe.
+  const shim = `
+(function(){
+  function showErr(msg){
+    var el=document.createElement('pre');
+    el.id='__spindrel_react_error';
+    el.textContent='[runtime: react] '+msg;
+    el.style.cssText='color:var(--sd-danger,#c00);background:var(--sd-bg-surface,#fff);padding:12px;font:12px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap;border:1px solid var(--sd-border,#ddd);border-radius:6px;margin:12px;';
+    (document.getElementById('__sd_root')||document.body).appendChild(el);
+  }
+  if (typeof Babel==='undefined'||typeof React==='undefined'||typeof ReactDOM==='undefined'){
+    showErr('Failed to load React runtime from /widget-runtime/. Verify the agent-server static mount is reachable.');
+    return;
+  }
+  window.spindrel=window.spindrel||{};
+  window.spindrel.React=React;
+  window.spindrel.ReactDOM=ReactDOM;
+  window.spindrel.useApi=function(){return window.spindrel.api;};
+  window.spindrel.useTheme=function(){
+    var s=React.useState(window.spindrel.theme);
+    React.useEffect(function(){
+      var h=function(){s[1](window.spindrel.theme);};
+      window.addEventListener('spindrel:theme',h);
+      return function(){window.removeEventListener('spindrel:theme',h);};
+    },[]);
+    return s[0];
+  };
+  function run(node,idx){
+    var src=node.textContent||'';
+    try {
+      var compiled=Babel.transform(src,{presets:['react','typescript'],filename:(node.dataset.spindrelFile||('widget-'+idx+'.tsx'))}).code;
+      (new Function('React','ReactDOM','spindrel',compiled))(React,ReactDOM,window.spindrel);
+    } catch(e){
+      showErr((e&&e.message)||String(e));
+    }
+  }
+  function start(){
+    var blocks=document.querySelectorAll('script[type="text/spindrel-react"]');
+    for (var i=0;i<blocks.length;i++) run(blocks[i],i);
+  }
+  if (document.readyState==='loading') {
+    document.addEventListener('DOMContentLoaded',start,{once:true});
+  } else {
+    start();
+  }
+})();`;
+  return [
+    `<script src="${reactSrc}"></script>`,
+    `<script src="${reactDomSrc}"></script>`,
+    `<script src="${babelSrc}"></script>`,
+    `<script>${shim}</script>`,
+  ].join("\n");
+}
+
 function wrapHtml(
   body: string,
   channelId: string | null,
@@ -2427,16 +2527,20 @@ function wrapHtml(
   hostSurface: HostSurface,
   presentationFamily: PresentationFamily,
   hoverScrollbars: boolean,
+  runtime: "html" | "react",
 ): string {
   const hostKind = dashboardPinId ? "pinned" : "inline";
   const hoverScrollbarAttr = hoverScrollbars ? ' data-hover-scrollbars="1"' : "";
+  const reactRuntimePreamble =
+    runtime === "react" ? buildReactRuntimePreamble(serverUrl) : "";
   return `<!doctype html>
-<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}" data-spindrel-host-surface="${hostSurface}"${hoverScrollbarAttr}>
+<html${isDark ? ' class="dark"' : ""} data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}" data-spindrel-host-surface="${hostSurface}" data-spindrel-runtime="${runtime}"${hoverScrollbarAttr}>
 <head>
 <meta charset="utf-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style id="__spindrel_theme">${themeCss}</style>
 ${spindrelBootstrap(channelId, sessionId, botId, botName, serverUrl, widgetToken, initialToolResultJson, themeJson, dashboardPinId, widgetPath, gridDimensions, layout, hostSurface, presentationFamily)}
+${reactRuntimePreamble}
 </head>
 <body data-sd-host="${hostKind}" data-sd-layout="${layout}" data-sd-host-surface="${hostSurface}">
 ${WIDGET_ICON_SPRITE}
@@ -2573,14 +2677,6 @@ export function InteractiveHtmlRenderer({
       theme: widgetThemeQuery.data?.theme,
     })),
     [resolvedWidgetTokens, isDark, widgetThemeQuery.data?.theme],
-  );
-  // CSP is derived per-envelope — widgets declare their third-party origin
-  // needs via ``extra_csp`` (Maps, Mapbox, etc.). ``buildCsp`` merges onto
-  // the locked-down baseline and drops anything that isn't a concrete
-  // ``https://`` origin.
-  const cspString = useMemo(
-    () => buildCsp(envelope.extra_csp, serverUrl),
-    [envelope.extra_csp, serverUrl],
   );
 
   // Mint a bot-scoped bearer token so widget JS authenticates as the
@@ -2819,6 +2915,32 @@ export function InteractiveHtmlRenderer({
     return typeof envelope.body === "string" ? envelope.body : "";
   }, [pathMode, fileQuery.data?.content, envelope.body]);
 
+  // Resolve the effective runtime: envelope-declared value wins; falls back
+  // to YAML frontmatter parsed off the body (so library / path-mode widgets
+  // can self-declare `runtime: react` without the bot needing to pass the
+  // emit-time param). Default `html`.
+  const effectiveRuntime = useMemo<"html" | "react">(() => {
+    const declared = envelope.runtime;
+    if (declared === "react") return "react";
+    if (declared === "html") return "html";
+    const fromBody = parseFrontmatterRuntime(rawBody);
+    return fromBody === "react" ? "react" : "html";
+  }, [envelope.runtime, rawBody]);
+
+  // CSP is derived per-envelope — widgets declare their third-party origin
+  // needs via ``extra_csp`` (Maps, Mapbox, etc.). ``buildCsp`` merges onto
+  // the locked-down baseline and drops anything that isn't a concrete
+  // ``https://`` origin. `runtime: react` widgets additionally need the
+  // app origin allowed under `script-src` so vendored React + Babel can
+  // be loaded across the cross-origin dev split.
+  const cspString = useMemo(
+    () =>
+      buildCsp(envelope.extra_csp, serverUrl, {
+        allowAppScripts: effectiveRuntime === "react",
+      }),
+    [envelope.extra_csp, serverUrl, effectiveRuntime],
+  );
+
   // Declarative HTML widgets ship the tool's JSON result baked into a
   // `window.spindrel.toolResult = {...}` preamble. Splitting it off lets
   // srcDoc depend only on the (stable) HTML fragment while tool-result
@@ -3047,6 +3169,7 @@ export function InteractiveHtmlRenderer({
       hostSurface,
       presentationFamily,
       !!hoverScrollbars,
+      effectiveRuntime,
     )}\n<!-- reload:${reloadNonce} -->`,
     [
       bodyWithoutPreamble,
@@ -3066,6 +3189,7 @@ export function InteractiveHtmlRenderer({
       presentationFamily,
       hoverScrollbars,
       reloadNonce,
+      effectiveRuntime,
     ],
   );
 

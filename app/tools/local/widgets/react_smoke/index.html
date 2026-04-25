@@ -1,0 +1,33 @@
+<!--
+---
+name: React smoke
+description: Minimal counter widget that proves the React runtime flavor works end-to-end.
+runtime: react
+tags: [smoke, dev]
+---
+-->
+<div id="root"></div>
+<script type="text/spindrel-react">
+  const { useState } = React;
+
+  function Counter() {
+    const [n, setN] = useState(0);
+    return (
+      <div className="sd-card sd-stack" style={{ padding: 12 }}>
+        <div style={{ font: "600 13px/1.2 var(--sd-font-sans)" }}>React runtime smoke</div>
+        <div style={{ color: "var(--sd-text-muted)", fontSize: 12 }}>
+          theme + JSX compile + window.spindrel are wired correctly when this counter increments.
+        </div>
+        <button
+          className="sd-btn"
+          onClick={() => setN(n + 1)}
+          style={{ alignSelf: "flex-start" }}
+        >
+          Clicked {n}
+        </button>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<Counter />);
+</script>

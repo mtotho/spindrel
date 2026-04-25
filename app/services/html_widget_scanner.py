@@ -163,6 +163,14 @@ def _entry_from_metadata(
     extra_csp = meta.get("extra_csp")
     suite = meta.get("suite")
     package = meta.get("package")
+    raw_runtime = meta.get("runtime")
+    runtime = (
+        str(raw_runtime).strip().lower()
+        if isinstance(raw_runtime, str) and raw_runtime.strip()
+        else "html"
+    )
+    if runtime not in {"html", "react"}:
+        runtime = "html"
     group_kind: str | None = None
     group_ref: str | None = None
     if isinstance(suite, str) and suite.strip():
@@ -195,6 +203,7 @@ def _entry_from_metadata(
         "widget_kind": "html",
         "widget_binding": "standalone",
         "theme_support": "html",
+        "runtime": runtime,
         "group_kind": group_kind,
         "group_ref": group_ref,
         "context_export": meta.get("context_export") if isinstance(meta.get("context_export"), dict) else None,

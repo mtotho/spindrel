@@ -1099,6 +1099,15 @@ export interface ToolResultEnvelope {
    *  dashboard's main area instead of a normal grid tile. Only meaningful
    *  for `application/vnd.spindrel.html+interactive` envelopes. */
   display_mode?: "inline" | "panel" | null;
+  /** Runtime flavor for the body. Default `html` renders the body as plain
+   *  HTML inside the iframe. `react` adds vendored React + ReactDOM +
+   *  Babel-standalone and auto-compiles `<script type="text/babel"
+   *  data-spindrel-react>` blocks. Both flavors share the same theme,
+   *  sandbox, and `window.spindrel.api` auth — `react` is the ergonomic
+   *  flavor for stateful bot/user-authored widgets. Library / path-mode
+   *  widgets can also self-declare via `runtime: react` in YAML
+   *  frontmatter; envelope value wins. */
+  runtime?: "html" | "react" | null;
 }
 
 /** Action definition for interactive widget components (toggle, button, select, etc.) */

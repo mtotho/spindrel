@@ -165,6 +165,47 @@ class TestScanChannel:
         assert e["tags"] == ["dashboard", "project"]
         assert e["is_bundle"] is True
         assert e["is_loose"] is False
+        # Default runtime is "html" when frontmatter doesn't declare it.
+        assert e["runtime"] == "html"
+
+    def test_runtime_react_frontmatter_lands_on_entry(self, tmp_workspace):
+        """A widget that declares `runtime: react` in YAML frontmatter must
+        surface that on the catalog entry so the renderer can branch."""
+        from app.services.html_widget_scanner import scan_channel
+        ch, bot, ws = tmp_workspace
+        _write(
+            os.path.join(ws, "data/widgets/jsx-counter/index.html"),
+            """<!--
+---
+name: JSX counter
+runtime: react
+---
+-->
+<div id="root"></div>
+<script type="text/spindrel-react">
+const {useState} = React;
+function App(){const [n,setN]=useState(0);return <button onClick={()=>setN(n+1)}>{n}</button>;}
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+""",
+        )
+        entries = scan_channel(ch, bot)
+        assert len(entries) == 1
+        assert entries[0]["runtime"] == "react"
+        assert entries[0]["name"] == "JSX counter"
+
+    def test_runtime_unknown_value_falls_back_to_html(self, tmp_workspace):
+        """An unsupported runtime string must not crash and must default to
+        html — keeps the catalog robust against typos and future flavors."""
+        from app.services.html_widget_scanner import scan_channel
+        ch, bot, ws = tmp_workspace
+        _write(
+            os.path.join(ws, "data/widgets/odd/index.html"),
+            "<!--\n---\nname: Odd\nruntime: solidjs\n---\n-->\n<div/>",
+        )
+        entries = scan_channel(ch, bot)
+        assert len(entries) == 1
+        assert entries[0]["runtime"] == "html"
 
     def test_manifest_panel_metadata_overrides_frontmatter(self, tmp_workspace):
         from app.services.html_widget_scanner import scan_channel

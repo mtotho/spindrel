@@ -215,6 +215,55 @@ HTML widgets own more of their own lifecycle:
 
 They are not tool-bound by default, even if they happen to call tools or APIs internally.
 
+### Runtime flavor: `html` (default) and `react`
+
+HTML widgets ship in two runtime flavors that share the same iframe sandbox, theme tokens, widget-auth mint, and `window.spindrel.api` SDK. Pick by setting `runtime` either in YAML frontmatter (library / path-mode bundles) or as the `runtime` parameter on `emit_html_widget` (runtime emission). The envelope-level value wins; falls back to the body's frontmatter; defaults to `html`.
+
+| Flavor | Body convention | When to pick |
+|---|---|---|
+| `html` (default) | Plain HTML + optional `<script>` | Static layouts, light DOM updates, anything that's already simple in raw HTML |
+| `react` | `<script type="text/spindrel-react">` containing JSX | Stateful widgets, list rendering, anything ergonomic in React |
+
+The `react` flavor injects vendored React 18 + ReactDOM + `@babel/standalone` from `/widget-runtime/` (mounted by `app/main.py`) into the iframe `<head>`. A small mount shim scans for `<script type="text/spindrel-react">` blocks, compiles each through Babel with the `react` + `typescript` presets (TS types are **stripped, never typechecked**), and executes inside a closure where `React`, `ReactDOM`, and `spindrel` are in scope. Compile errors render a host-styled error card so a broken JSX block degrades visibly instead of producing a blank iframe.
+
+Authoring example:
+
+```html
+<!--
+---
+name: Burndown
+runtime: react
+---
+-->
+<div id="root"></div>
+<script type="text/spindrel-react">
+  const { useState, useEffect } = React;
+  function Burndown() {
+    const [issues, setIssues] = useState([]);
+    useEffect(() => {
+      window.spindrel.api('/api/v1/issues').then(r => r.json()).then(setIssues);
+    }, []);
+    return (
+      <div className="sd-card sd-stack">
+        {issues.map(i => <div key={i.id}>{i.title}</div>)}
+      </div>
+    );
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(<Burndown />);
+</script>
+```
+
+Why a custom MIME (`text/spindrel-react`) instead of `text/babel`: `@babel/standalone` auto-runs every `<script type="text/babel">` after `DOMContentLoaded`. The custom MIME stops that auto-runner from racing the spindrel mount shim — the shim controls compile presets and error rendering.
+
+Theming applies identically to both flavors. `var(--sd-accent)`, `className="sd-btn"`, the entire `sd-*` utility set, and dark-mode propagation work without extra wiring. Two ergonomic helpers are exposed on `window.spindrel`:
+
+- `window.spindrel.useApi()` — returns the bearer-attaching `api` function
+- `window.spindrel.useTheme()` — React hook returning the resolved theme tokens; re-renders on host theme flips
+
+Trust boundary is unchanged: a `runtime: react` widget is still authored by a bot or user, runs in the same sandbox, mints the same short-lived token, and inherits the emitting bot's API scopes. It does **not** import host components and is **not** the native lane (see below).
+
+Cost: ~3 MB raw / ~600 KB gzipped for the three vendored bundles, parsed once per iframe boot. Pinned-widget pooling amortizes this for dashboard tiles. Reserve the React flavor for widgets where statefulness actually pays for itself.
+
 ## Native widgets
 
 Native widgets are first-party host-rendered widgets.
