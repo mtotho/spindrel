@@ -1,11 +1,15 @@
 import type { UpcomingItem } from "../../api/hooks/useUpcomingActivity";
-import { channelHue } from "./ChannelTile";
 import {
   WELL_X,
   WELL_Y,
   WELL_Y_SQUASH,
   radiusForMinutes,
-} from "./spatialGeometry";
+} from "./spatialGeometry.ts";
+
+export interface UpcomingOrbitSpread {
+  index: number;
+  count: number;
+}
 
 export function upcomingIdentityKey(item: UpcomingItem): string {
   if (item.type === "task" && item.task_id) return `task:${item.task_id}`;
@@ -36,9 +40,9 @@ export function upcomingHref(item: UpcomingItem): string | null {
 
 export function upcomingTileColor(item: UpcomingItem): string {
   if (item.channel_id) {
-    return `hsl(${channelHue(item.channel_id)}, 55%, 58%)`;
+    return `hsl(${stableHue(item.channel_id)}, 55%, 58%)`;
   }
-  return `hsl(${channelHue(item.bot_id)}, 30%, 55%)`;
+  return `hsl(${stableHue(item.bot_id)}, 30%, 55%)`;
 }
 
 export function formatTimeUntil(
@@ -67,22 +71,42 @@ export function formatTimeUntil(
 export function upcomingOrbit(
   item: UpcomingItem,
   tickedNow: number,
-): { x: number; y: number; minutesUntil: number } {
+  spread: UpcomingOrbitSpread = { index: 0, count: 1 },
+): { x: number; y: number; minutesUntil: number; radius: number; theta: number } {
   const t = Date.parse(item.scheduled_at);
   const minutesUntil = Number.isNaN(t) ? 0 : Math.max(0, (t - tickedNow) / 60_000);
   const r = radiusForMinutes(minutesUntil);
   const theta = angleFor(upcomingIdentityKey(item));
+  const spreadOffset = spread.count > 1
+    ? (spread.index - (spread.count - 1) / 2) * Math.min(28, Math.max(14, r * 0.045))
+    : 0;
+  const tangentX = -Math.sin(theta);
+  const tangentY = Math.cos(theta) * WELL_Y_SQUASH;
   return {
-    x: WELL_X + r * Math.cos(theta),
-    y: WELL_Y + r * Math.sin(theta) * WELL_Y_SQUASH,
+    x: WELL_X + r * Math.cos(theta) + tangentX * spreadOffset,
+    y: WELL_Y + r * Math.sin(theta) * WELL_Y_SQUASH + tangentY * spreadOffset,
     minutesUntil,
+    radius: r,
+    theta,
   };
 }
 
+export function upcomingOrbitBucket(
+  item: UpcomingItem,
+  tickedNow: number,
+): string {
+  const orbit = upcomingOrbit(item, tickedNow);
+  const radiusBucket = Math.round(orbit.radius / 56);
+  const angleBucket = Math.round((orbit.theta * 180 / Math.PI) / 18);
+  return `${radiusBucket}:${angleBucket}`;
+}
+
 function angleFor(key: string): number {
+  return stableHue(key) * (Math.PI / 180);
+}
+
+function stableHue(key: string): number {
   let h = 0;
-  for (let i = 0; i < key.length; i++) {
-    h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  }
-  return (h % 360) * (Math.PI / 180);
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return h % 360;
 }

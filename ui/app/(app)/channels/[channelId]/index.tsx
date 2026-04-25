@@ -1533,6 +1533,7 @@ export default function ChatScreen() {
       botName: bot?.name,
       botModel: bot?.model,
     },
+    onOpenSessions: openSessionsOverlay,
   });
   const terminalBottomSlot = chatMode === "terminal" ? (
     <>

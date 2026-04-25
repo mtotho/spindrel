@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, Clock, Info, MoreHorizontal, X } from "lucide-react";
+import { ChevronDown, Clock, Info, MoreHorizontal, Search, X } from "lucide-react";
 import {
   compactSessionId,
   formatSessionSurfaceLabel,
@@ -13,6 +13,7 @@ interface SessionResumeCardProps {
   onDismiss: () => void;
   onHideChannel?: () => void;
   onHideGlobal: () => void;
+  onOpenSessions?: () => void;
   chatMode?: "default" | "terminal";
 }
 
@@ -43,6 +44,7 @@ export function SessionResumeCard({
   onDismiss,
   onHideChannel,
   onHideGlobal,
+  onOpenSessions,
   chatMode = "default",
 }: SessionResumeCardProps) {
   const [expanded, setExpanded] = useState(false);
@@ -114,6 +116,19 @@ export function SessionResumeCard({
           </button>
           {menuOpen && (
             <div className="absolute right-0 top-7 z-20 min-w-44 rounded-md bg-surface-overlay p-1 text-xs text-text-muted">
+              {onOpenSessions && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenSessions();
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-surface-raised hover:text-text"
+                >
+                  <Search size={12} />
+                  Open session picker
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

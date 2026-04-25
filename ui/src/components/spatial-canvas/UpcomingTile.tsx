@@ -7,6 +7,7 @@ import {
 } from "./spatialGeometry";
 import {
   formatTimeUntil,
+  type UpcomingOrbitSpread,
   upcomingHref,
   upcomingOrbit,
   upcomingTileColor,
@@ -38,6 +39,8 @@ interface UpcomingTileProps {
   /** Per-tile fisheye scale handed down by SpatialCanvas so labels can
    *  counter-scale through the lens compression. Defaults to 1. */
   extraScale?: number;
+  /** Deterministic visual fan-out for items sharing a coarse orbit cell. */
+  spread?: UpcomingOrbitSpread;
   /** Shared spatial projection from the canvas lens pass. */
   lens?: LensTransform | null;
 }
@@ -76,17 +79,18 @@ export function UpcomingTile({
   zoom,
   tickedNow,
   extraScale = 1,
+  spread = { index: 0, count: 1 },
   lens = null,
 }: UpcomingTileProps) {
   const navigate = useNavigate();
 
   const { x, y, color, minutesUntil } = useMemo(() => {
-    const orbit = upcomingOrbit(item, tickedNow);
+    const orbit = upcomingOrbit(item, tickedNow, spread);
     return {
       ...orbit,
       color: upcomingTileColor(item),
     };
-  }, [item, tickedNow]);
+  }, [item, spread, tickedNow]);
 
   const handleClick = () => {
     const href = upcomingHref(item);

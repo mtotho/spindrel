@@ -37,6 +37,11 @@ import { UsageDensityChrome } from "./UsageDensityChrome";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
 import { ChatSession } from "../chat/ChatSession";
+import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
+import {
+  buildChannelSessionRoute,
+  type ChannelSessionSurface,
+} from "../../lib/channelSessionSurfaces";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
   CAMERA_STORAGE_KEY,
@@ -72,6 +77,7 @@ import {
   type LensTransform,
 } from "./spatialGeometry";
 import {
+  upcomingOrbitBucket,
   upcomingOrbit,
   upcomingReactKey,
 } from "./spatialActivity";
@@ -199,6 +205,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     channelId: string;
     channelName: string;
   } | null>(null);
+  const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
   // Token-usage density layer state. Defaults: subtle (on), 24h, channel-hued
   // (compare off), breathing on. Persisted to localStorage so the user's
@@ -669,6 +676,25 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       ? projectFisheye(WELL_X, WELL_Y, camera, focalScreen, lensRadius)
       : null;
 
+  const upcomingSpreadByKey = useMemo(() => {
+    const buckets = new Map<string, string[]>();
+    for (const item of upcomingItems ?? []) {
+      const key = upcomingReactKey(item);
+      const bucket = upcomingOrbitBucket(item, tickedNow);
+      const members = buckets.get(bucket) ?? [];
+      members.push(key);
+      buckets.set(bucket, members);
+    }
+    const spread = new Map<string, { index: number; count: number }>();
+    for (const members of buckets.values()) {
+      members.sort();
+      members.forEach((key, index) => {
+        spread.set(key, { index, count: members.length });
+      });
+    }
+    return spread;
+  }, [upcomingItems, tickedNow]);
+
   const handleActivate = useCallback((nodeId: string) => {
     setActivatedTileId(nodeId);
   }, []);
@@ -724,17 +750,20 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
             lens={nowWellLens}
           />
           {(upcomingItems ?? []).map((item) => {
-            const orbit = upcomingOrbit(item, tickedNow);
+            const itemKey = upcomingReactKey(item);
+            const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
+            const orbit = upcomingOrbit(item, tickedNow, spread);
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(orbit.x, orbit.y, camera, focalScreen, lensRadius)
                 : null;
             return (
               <UpcomingTile
-                key={upcomingReactKey(item)}
+                key={itemKey}
                 item={item}
                 zoom={camera.scale}
                 tickedNow={tickedNow}
+                spread={spread}
                 extraScale={lens?.sizeFactor ?? 1}
                 lens={lens}
               />
@@ -916,12 +945,30 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
           source={{ kind: "channel", channelId: openBotChat.channelId }}
           shape="dock"
           open={true}
-          onClose={() => setOpenBotChat(null)}
+          onClose={() => {
+            setOpenBotChat(null);
+            setSessionPickerOpen(false);
+          }}
           title={`${openBotChat.botName} in #${openBotChat.channelName}`}
           initiallyExpanded
           dockCollapsedTitle={openBotChat.botName}
           dockCollapsedSubtitle={`#${openBotChat.channelName}`}
           dismissMode="close"
+          onOpenSessions={() => setSessionPickerOpen(true)}
+        />
+      )}
+      {openBotChat && (
+        <SessionPickerOverlay
+          open={sessionPickerOpen}
+          onClose={() => setSessionPickerOpen(false)}
+          channelId={openBotChat.channelId}
+          botId={openBotChat.botId}
+          channelLabel={openBotChat.channelName}
+          onActivateSurface={(surface: ChannelSessionSurface) => {
+            setSessionPickerOpen(false);
+            setOpenBotChat(null);
+            navigate(buildChannelSessionRoute(openBotChat.channelId, surface));
+          }}
         />
       )}
     </div>
@@ -1251,7 +1298,13 @@ function LensHint({ engaged }: { engaged: boolean }) {
     "bg-accent/15 border-accent/60 text-accent";
   return (
     <div className={`${base} ${engaged ? active : idle}`} aria-live="polite">
-      <kbd className="px-1.5 py-0 rounded border border-current/40 font-mono text-[10px] leading-tight">
+      <kbd
+        className={`rounded px-1.5 py-0 font-mono text-[10px] leading-tight ${
+          engaged
+            ? "border border-accent/40 bg-accent/[0.08] text-accent"
+            : "border border-surface-border bg-surface-overlay/70 text-text-muted"
+        }`}
+      >
         Space
       </kbd>
       <span>{engaged ? "focusing" : "hold to focus"}</span>

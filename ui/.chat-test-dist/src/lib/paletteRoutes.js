@@ -113,6 +113,9 @@ function matchChannelName(channelId, options) {
 function buildTypedLabel(pageType, title, fallback) {
     return `${pageType} · ${title?.trim() || fallback}`;
 }
+function buildChannelChatLabel(channelLabel) {
+    return channelLabel;
+}
 function resolveStaticRoute(canonicalHref) {
     const { pathname } = splitHref(canonicalHref);
     const meta = STATIC_ROUTES.get(pathname);
@@ -140,7 +143,7 @@ function resolveChannelRoute(canonicalHref, options) {
             pageType: "Chat",
             category: "Channels",
             icon: Hash,
-            label: buildTypedLabel("Chat", null, channelLabel),
+            label: buildChannelChatLabel(channelLabel),
             hint: options?.itemHint?.trim() || "Channels",
             recordable: true,
         };

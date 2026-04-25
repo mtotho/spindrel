@@ -47,6 +47,7 @@ export interface SessionChatViewProps {
   bottomSlot?: React.ReactNode;
   showSessionResumeCard?: boolean;
   sessionResumeSeed?: Partial<SessionResumeMetadata>;
+  onOpenSessions?: () => void;
 }
 
 /**
@@ -72,6 +73,7 @@ export function SessionChatView({
   bottomSlot,
   showSessionResumeCard = false,
   sessionResumeSeed,
+  onOpenSessions,
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -244,6 +246,7 @@ export function SessionChatView({
     isActive: turnsCount > 0 || !!chatState.isProcessing,
     chatMode,
     seed: sessionResumeSeed,
+    onOpenSessions,
   });
 
   return (

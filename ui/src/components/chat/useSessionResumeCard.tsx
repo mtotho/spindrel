@@ -22,6 +22,7 @@ interface UseSessionResumeCardArgs {
   isActive?: boolean;
   chatMode?: "default" | "terminal";
   seed?: Partial<SessionResumeMetadata>;
+  onOpenSessions?: () => void;
 }
 
 function surfaceKindFromSummary(
@@ -43,6 +44,7 @@ export function useSessionResumeCard({
   isActive = false,
   chatMode = "default",
   seed,
+  onOpenSessions,
 }: UseSessionResumeCardArgs) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
@@ -112,6 +114,7 @@ export function useSessionResumeCard({
       onDismiss={prefs.dismissCurrent}
       onHideChannel={channelId ? prefs.hideChannel : undefined}
       onHideGlobal={prefs.hideGlobal}
+      onOpenSessions={onOpenSessions}
     />
   );
 }

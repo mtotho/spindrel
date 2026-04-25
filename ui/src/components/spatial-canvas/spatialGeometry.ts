@@ -97,14 +97,32 @@ export function loadBotsReduced(storage: Storage = localStorage): boolean {
 export const WELL_X = 0;
 export const WELL_Y = 2200;
 export const WELL_Y_SQUASH = 0.55;
-export const WELL_RINGS: { minutes: number; label: string }[] = [
-  { minutes: 60, label: "1h" },
-  { minutes: 60 * 24, label: "1d" },
-  { minutes: 60 * 24 * 7, label: "1w" },
+export const WELL_RINGS: { minutes: number; label: string; major?: boolean }[] = [
+  { minutes: 15, label: "15m" },
+  { minutes: 60, label: "1h", major: true },
+  { minutes: 60 * 6, label: "6h", major: true },
+  { minutes: 60 * 12, label: "12h", major: true },
+  { minutes: 60 * 24, label: "1d", major: true },
+  { minutes: 60 * 24 * 2, label: "2d" },
+  { minutes: 60 * 24 * 3, label: "3d", major: true },
+  { minutes: 60 * 24 * 5, label: "5d" },
+  { minutes: 60 * 24 * 7, label: "1w", major: true },
 ];
-export const WELL_R_MIN = 90;
-export const WELL_R_MAX = 520;
+export const WELL_R_MIN = 110;
+export const WELL_R_MAX = 650;
 export const WELL_MAX_HORIZON_MIN = 60 * 24 * 7;
+const WELL_RADIUS_STOPS: { minutes: number; radius: number }[] = [
+  { minutes: 0, radius: WELL_R_MIN },
+  { minutes: 15, radius: 150 },
+  { minutes: 60, radius: 205 },
+  { minutes: 60 * 6, radius: 285 },
+  { minutes: 60 * 12, radius: 345 },
+  { minutes: 60 * 24, radius: 410 },
+  { minutes: 60 * 24 * 2, radius: 480 },
+  { minutes: 60 * 24 * 3, radius: 540 },
+  { minutes: 60 * 24 * 5, radius: 600 },
+  { minutes: WELL_MAX_HORIZON_MIN, radius: WELL_R_MAX },
+];
 
 export const LENS_NATIVE_FRACTION = 0.22;
 export const LENS_R_MAX_MULT = 1.8;
@@ -148,9 +166,17 @@ export function loadStoredCamera(storage: Storage = localStorage): Camera {
 }
 
 export function radiusForMinutes(minutes: number): number {
-  const m = Math.max(0, minutes);
-  const t = Math.min(1, Math.log(m + 1) / Math.log(WELL_MAX_HORIZON_MIN + 1));
-  return WELL_R_MIN + (WELL_R_MAX - WELL_R_MIN) * t;
+  const m = Math.max(0, Math.min(WELL_MAX_HORIZON_MIN, minutes));
+  for (let i = 1; i < WELL_RADIUS_STOPS.length; i++) {
+    const prev = WELL_RADIUS_STOPS[i - 1];
+    const next = WELL_RADIUS_STOPS[i];
+    if (m <= next.minutes) {
+      const span = next.minutes - prev.minutes;
+      const t = span <= 0 ? 0 : (m - prev.minutes) / span;
+      return prev.radius + (next.radius - prev.radius) * t;
+    }
+  }
+  return WELL_R_MAX;
 }
 
 export function projectFisheye(

@@ -38,3 +38,12 @@ test("now-well radius is monotonic and capped at the outer ring", () => {
   assert.ok(radiusForMinutes(60) > radiusForMinutes(1));
   assert.equal(radiusForMinutes(60 * 24 * 14), radiusForMinutes(60 * 24 * 7));
 });
+
+test("now-well week horizon gives multi-day items visible separation", () => {
+  const oneDay = radiusForMinutes(60 * 24);
+  const threeDays = radiusForMinutes(60 * 24 * 3);
+  const oneWeek = radiusForMinutes(60 * 24 * 7);
+
+  assert.ok(threeDays - oneDay >= 100);
+  assert.ok(oneWeek - threeDays >= 100);
+});

@@ -275,6 +275,7 @@ function ChannelChatSession({
   title,
   emptyState,
   initiallyExpanded,
+  dismissMode,
   dockCollapsedTitle,
   dockCollapsedSubtitle,
   onRestoreToCanvas,
@@ -306,6 +307,7 @@ function ChannelChatSession({
       botName: bot?.name,
       botModel: bot?.model,
     },
+    onOpenSessions,
   });
 
   // Dock expansion (FAB vs panel); controller owns so header X collapses.
@@ -415,13 +417,23 @@ function ChannelChatSession({
   }, [navigate, source.channelId]);
 
   const handleHeaderClose = useCallback(() => {
-    if (shape === "dock" && onRestoreToCanvas) {
+    // Full close when:
+    //   - the dock has a "restore to canvas" path (the bot/widget tile is
+    //     visible elsewhere, no need for a collapsed FAB), or
+    //   - the caller passed `dismissMode="close"` to opt out of the
+    //     collapse-to-pill default (spatial canvas does this — clicking
+    //     a bot reopens its dock fresh, so a leftover pill just creates
+    //     "switching" confusion when the user clicks a different bot).
+    if (
+      shape === "dock" &&
+      (onRestoreToCanvas || dismissMode === "close")
+    ) {
       onClose();
       return;
     }
     if (shape === "dock") setDockExpanded(false);
     else onClose();
-  }, [shape, onClose, onRestoreToCanvas]);
+  }, [shape, onClose, onRestoreToCanvas, dismissMode]);
 
   const { handleSend: srcHandleSend } = src;
   const handleSendMsg = useCallback(
@@ -718,6 +730,10 @@ function ChannelChatSession({
       open={open}
       expanded={dockExpanded}
       onExpandedChange={setDockExpanded}
+      // `dismissMode="close"` (e.g. spatial canvas) wants scrim-click + Esc
+      // to fully close instead of collapsing to a FAB/pill. Default behavior
+      // (collapse) is preserved when the prop is omitted.
+      onDismiss={dismissMode === "close" ? onClose : undefined}
       title={displayTitle}
       collapsedTitle={dockCollapsedTitle}
       collapsedSubtitle={dockCollapsedSubtitle}
@@ -995,6 +1011,7 @@ function FixedSessionChatSession({
             botName: bots?.find((b) => b.id === botId)?.name,
             botModel: bots?.find((b) => b.id === botId)?.model,
           }}
+          onOpenSessions={onOpenSessions}
           bottomSlot={composerInTranscriptFlow ? composer : undefined}
         />
         {!composerInTranscriptFlow && (
@@ -1582,6 +1599,7 @@ function EphemeralChatSession({
               botName: bots?.find((b) => b.id === botId)?.name,
               botModel: bots?.find((b) => b.id === botId)?.model,
             }}
+            onOpenSessions={onOpenSessions}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
@@ -2081,6 +2099,7 @@ function ThreadChatSession({
               botName: bot?.name,
               botModel: bot?.model,
             }}
+            onOpenSessions={onOpenSessions}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
