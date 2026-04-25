@@ -1,7 +1,7 @@
 """spatial bot presence and heartbeat prompt
 
 Revision ID: 249_spatial_bot_presence_and_heartbeat_prompt
-Revises: 248_workspace_spatial_bot_nodes
+Revises: 248
 Create Date: 2026-04-26 06:00:00.000000
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 revision = "249_spatial_bot_presence_and_heartbeat_prompt"
-down_revision = "248_workspace_spatial_bot_nodes"
+down_revision = "248"
 branch_labels = None
 depends_on = None
 
