@@ -38,7 +38,7 @@ interface NodesResponse {
   nodes: SpatialNode[];
 }
 
-const NODES_KEY = ["workspace-spatial-nodes"] as const;
+export const NODES_KEY = ["workspace-spatial-nodes"] as const;
 
 /** List spatial canvas nodes. The server upserts a node row for every
  *  channel that doesn't yet have one, so this is the only call needed to

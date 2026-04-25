@@ -1,8 +1,15 @@
+import { useRef } from "react";
 import { Box } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "../../theme/tokens";
 import { InteractiveHtmlRenderer } from "../chat/renderers/InteractiveHtmlRenderer";
 import type { ToolResultEnvelope } from "../../types/api";
-import type { SpatialNodePin } from "../../api/hooks/useWorkspaceSpatial";
+import {
+  NODES_KEY,
+  useUpdateSpatialNode,
+  type SpatialNode,
+  type SpatialNodePin,
+} from "../../api/hooks/useWorkspaceSpatial";
 
 /**
  * Widget tile with three semantic-zoom levels (P3b — live).
@@ -41,6 +48,9 @@ interface WidgetTileProps {
   onActivate: (nodeId: string) => void;
 }
 
+const MIN_W = 200;
+const MIN_H = 140;
+
 const CHIP_THRESHOLD = 0.4;
 const TITLE_THRESHOLD = 0.6;
 
@@ -68,7 +78,7 @@ export function WidgetTile({
   onActivate,
 }: WidgetTileProps) {
   if (zoom < CHIP_THRESHOLD) return <ChipView />;
-  if (zoom < TITLE_THRESHOLD) return <ChipTitleView pin={pin} />;
+  if (zoom < TITLE_THRESHOLD) return <ChipTitleView pin={pin} zoom={zoom} />;
   return (
     <CardView
       pin={pin}
@@ -76,6 +86,7 @@ export function WidgetTile({
       activated={activated}
       nodeId={nodeId}
       onActivate={onActivate}
+      zoom={zoom}
     />
   );
 }
@@ -114,14 +125,23 @@ function ChipView() {
   );
 }
 
-function ChipTitleView({ pin }: { pin: SpatialNodePin }) {
+function ChipTitleView({ pin, zoom }: { pin: SpatialNodePin; zoom: number }) {
+  // Counter-scale the title so it stays readable at chip+title zoom range
+  // (0.4 ≤ z < 0.6). Same trick as channel DotView.
+  const labelScale = Math.min(3, 1 / Math.max(0.05, zoom));
   return (
     <div
       data-tile-kind="widget"
       className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-grab active:cursor-grabbing"
     >
       <WidgetGlyph size={56} />
-      <div className="text-base font-semibold text-text whitespace-nowrap max-w-full truncate px-2">
+      <div
+        className="text-base font-semibold text-text whitespace-nowrap max-w-full truncate px-2"
+        style={{
+          transform: `scale(${labelScale})`,
+          transformOrigin: "center top",
+        }}
+      >
         {widgetTitle(pin)}
       </div>
     </div>
@@ -134,12 +154,14 @@ function CardView({
   activated,
   nodeId,
   onActivate,
+  zoom,
 }: {
   pin: SpatialNodePin;
   inViewport: boolean;
   activated: boolean;
   nodeId: string;
   onActivate: (id: string) => void;
+  zoom: number;
 }) {
   const t = useThemeTokens();
   const title = widgetTitle(pin);
@@ -149,7 +171,7 @@ function CardView({
   return (
     <div
       data-tile-kind="widget"
-      className={`w-full h-full rounded-xl border bg-surface-raised text-text shadow-lg flex flex-col cursor-grab active:cursor-grabbing overflow-hidden ${
+      className={`group relative w-full h-full rounded-xl border bg-surface-raised text-text shadow-lg flex flex-col cursor-grab active:cursor-grabbing overflow-hidden ${
         activated ? "border-accent" : "border-surface-border"
       }`}
     >
@@ -220,7 +242,91 @@ function CardView({
           Click to interact · Esc to release
         </div>
       )}
+
+      <ResizeHandle nodeId={nodeId} zoom={zoom} />
     </div>
+  );
+}
+
+/**
+ * Bottom-right corner resize handle. Live preview via React Query
+ * optimistic cache (overwrite the cached node's `world_w/h` on each
+ * pointermove tick — re-render is automatic). On pointerup the new size
+ * commits via the same `useUpdateSpatialNode` mutation that drag-reposition
+ * uses; the mutation's onSettled invalidate keeps everything coherent.
+ *
+ * Stops pointerdown propagation so dnd-kit doesn't start a tile reposition
+ * while the user is grabbing the corner.
+ */
+function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
+  const qc = useQueryClient();
+  const update = useUpdateSpatialNode();
+  const startRef = useRef<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    pointerId: number;
+  } | null>(null);
+
+  const findNode = (): SpatialNode | undefined => {
+    const nodes = qc.getQueryData<SpatialNode[]>(NODES_KEY) ?? [];
+    return nodes.find((n) => n.id === nodeId);
+  };
+
+  return (
+    <div
+      role="presentation"
+      aria-label="Resize widget"
+      title="Drag to resize"
+      className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
+      style={{
+        background:
+          "linear-gradient(135deg, transparent 0%, transparent 50%, rgb(var(--color-text-dim) / 0.6) 50%, rgb(var(--color-text-dim) / 0.6) 60%, transparent 60%, transparent 75%, rgb(var(--color-text-dim) / 0.6) 75%, rgb(var(--color-text-dim) / 0.6) 85%, transparent 85%)",
+      }}
+      onPointerDown={(e) => {
+        const node = findNode();
+        if (!node) return;
+        e.stopPropagation();
+        e.preventDefault();
+        startRef.current = {
+          x: e.clientX,
+          y: e.clientY,
+          w: node.world_w,
+          h: node.world_h,
+          pointerId: e.pointerId,
+        };
+        e.currentTarget.setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e) => {
+        const s = startRef.current;
+        if (!s || s.pointerId !== e.pointerId) return;
+        const newW = Math.max(MIN_W, s.w + (e.clientX - s.x) / zoom);
+        const newH = Math.max(MIN_H, s.h + (e.clientY - s.y) / zoom);
+        qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
+          (old ?? []).map((n) =>
+            n.id === nodeId ? { ...n, world_w: newW, world_h: newH } : n,
+          ),
+        );
+      }}
+      onPointerUp={(e) => {
+        const s = startRef.current;
+        if (!s || s.pointerId !== e.pointerId) return;
+        startRef.current = null;
+        const node = findNode();
+        if (node && (node.world_w !== s.w || node.world_h !== s.h)) {
+          update.mutate({
+            nodeId,
+            body: { world_w: node.world_w, world_h: node.world_h },
+          });
+        }
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          /* already released */
+        }
+      }}
+    />
   );
 }
 

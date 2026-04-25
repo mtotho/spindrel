@@ -22,6 +22,7 @@ from tests.helpers.integration_renderer_contracts import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
+CAPABILITY_TRUTH_INTEGRATIONS = ("slack", "discord", "bluebubbles")
 RICH_RESULT_INTEGRATIONS = ("slack", "discord")
 EXPECTED_RICH_CONTENT_TYPES = frozenset({
     "text/plain",
@@ -48,6 +49,8 @@ def _renderer(integration_id: str):
         import integrations.slack.renderer  # noqa: F401
     if integration_id == "discord":
         import integrations.discord.renderer  # noqa: F401
+    if integration_id == "bluebubbles":
+        import integrations.bluebubbles.renderer  # noqa: F401
     renderer = renderer_registry.get(integration_id)
     if renderer is None:
         raise AssertionError(f"{integration_id} renderer was not registered")
@@ -63,10 +66,18 @@ def _target(integration_id: str):
         from integrations.discord.target import DiscordTarget
 
         return DiscordTarget(channel_id="123", token="discord-test")
+    if integration_id == "bluebubbles":
+        from integrations.bluebubbles.target import BlueBubblesTarget
+
+        return BlueBubblesTarget(
+            chat_guid="iMessage;-;+15551234",
+            server_url="http://bb.example.com",
+            password="hunter2",
+        )
     raise AssertionError(f"no test target for {integration_id}")
 
 
-@pytest.mark.parametrize("integration_id", RICH_RESULT_INTEGRATIONS)
+@pytest.mark.parametrize("integration_id", CAPABILITY_TRUTH_INTEGRATIONS)
 def test_renderer_capabilities_match_manifest(integration_id: str) -> None:
     manifest = _manifest(integration_id)
     renderer = _renderer(integration_id)
@@ -76,14 +87,14 @@ def test_renderer_capabilities_match_manifest(integration_id: str) -> None:
         renderer=renderer,
         manifest=manifest,
     )
-    assert_renderer_supports_capabilities(
-        manifest=manifest,
-        expected={Capability.RICH_TOOL_RESULTS.value},
-    )
+    expected = set()
+    if integration_id in RICH_RESULT_INTEGRATIONS:
+        expected.add(Capability.RICH_TOOL_RESULTS.value)
+    assert_renderer_supports_capabilities(manifest=manifest, expected=expected)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("integration_id", RICH_RESULT_INTEGRATIONS)
+@pytest.mark.parametrize("integration_id", CAPABILITY_TRUTH_INTEGRATIONS)
 async def test_renderer_thin_interface_defaults(integration_id: str) -> None:
     renderer = _renderer(integration_id)
     target = _target(integration_id)

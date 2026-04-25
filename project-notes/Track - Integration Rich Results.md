@@ -201,6 +201,18 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 
 **Implementation Recommendations:** Do not use YAML capabilities as product aspiration. Put planned capability expansion in the track, then add the manifest capability only when the renderer and tests support it.
 
+### BlueBubbles renderer deepening and capability truth
+
+**Problem:** BlueBubbles delivery lived in one broad renderer that mixed BB HTTP transport, durable text delivery, echo tracking, approvals, typing, uploads, and target validation. The manifest also advertised platform capabilities the renderer did not actually provide, including threading, approval buttons, display names, and generic attachments.
+
+**Proposed Interface:** `BlueBubblesRenderer` stays the public ChannelRenderer and delegates to BlueBubbles-owned delivery modules: `message_delivery`, `approval_delivery`, `upload_delivery`, and `lifecycle_delivery`. `transport` owns receipt-shaped BB API calls for renderer delivery.
+
+**Dependency Strategy:** True external boundary is the BlueBubbles REST API and is injected/mocked at the transport/delivery boundary. Inbound intake remains webhook-only; the legacy Socket.IO client is disabled and retained only as reference code.
+
+**Testing Strategy:** Boundary tests cover transport result mapping, upload behavior, and renderer routing. The shared integration depth contract now includes BlueBubbles for manifest/runtime capability parity and default renderer protocol behavior.
+
+**Implementation Recommendations:** BlueBubbles should declare only text, image upload, file upload, and typing indicator until richer platform behavior is actually implemented. Keep replies/tapbacks/threading out of manifest truth until selected-message GUID handling and Private API requirements are designed and tested.
+
 ## References
 
 - `docs/guides/integrations.md`

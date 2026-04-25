@@ -271,6 +271,6 @@ class EchoTracker:
             logger.debug("BB echo tracker: could not load reply state from DB", exc_info=True)
 
 
-# Shared singleton — used by both webhook handler and dispatcher
+# Shared singleton — used by both webhook handler and renderer delivery.
 # (both run in the same FastAPI process).
 shared_tracker = EchoTracker()

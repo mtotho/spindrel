@@ -27,7 +27,7 @@ const DOT_THRESHOLD = 0.4;
 const SNAPSHOT_THRESHOLD = 1.0;
 
 export function ChannelTile({ channel, icon, zoom, onDive }: ChannelTileProps) {
-  if (zoom < DOT_THRESHOLD) return <DotView channel={channel} onDive={onDive} />;
+  if (zoom < DOT_THRESHOLD) return <DotView channel={channel} zoom={zoom} onDive={onDive} />;
   if (zoom < SNAPSHOT_THRESHOLD)
     return <PreviewView channel={channel} icon={icon} onDive={onDive} />;
   return <SnapshotView channel={channel} icon={icon} onDive={onDive} />;
@@ -59,8 +59,21 @@ function channelName(channel: Channel): string {
   return channel.display_name || channel.name;
 }
 
-function DotView({ channel, onDive }: { channel: Channel; onDive: () => void }) {
+function DotView({
+  channel,
+  zoom,
+  onDive,
+}: {
+  channel: Channel;
+  zoom: number;
+  onDive: () => void;
+}) {
   const name = channelName(channel);
+  // Counter-scale the label so it stays at a constant *screen* size as the
+  // user zooms out — the world is being scaled by `zoom`, so we scale the
+  // label by `1/zoom` to compensate. Capped at 4× to keep edge cases sane
+  // when the user zooms below MIN_SCALE recovery edges.
+  const labelScale = Math.min(4, 1 / Math.max(0.05, zoom));
   return (
     <div
       data-tile-kind="channel"
@@ -75,7 +88,13 @@ function DotView({ channel, onDive }: { channel: Channel; onDive: () => void }) 
           background: dotColor(channel.id),
         }}
       />
-      <div className="text-lg font-semibold text-text whitespace-nowrap max-w-full truncate px-2">
+      <div
+        className="text-base font-semibold text-text whitespace-nowrap max-w-full truncate px-2"
+        style={{
+          transform: `scale(${labelScale})`,
+          transformOrigin: "center top",
+        }}
+      >
         {name}
       </div>
     </div>

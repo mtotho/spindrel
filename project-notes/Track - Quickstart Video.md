@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, screenshots, video, active]
 status: active
-updated: 2026-04-25 (A2.5-setup TUI: synthetic terminal-frame rig — PIL canvas + JetBrainsMono + AST-parsed PROVIDERS keep the wizard captures drift-resistant)
+updated: 2026-04-25 (Remotion renderer landed as parallel target — `video build --renderer remotion`)
 ---
 
 # Track - Quickstart Video
@@ -116,21 +116,21 @@ Unblocks modal/drawer/tab captures without taking on B3's video-clip scope. Reus
 
 ### Phase A2.5-setup — Setup walkthrough captures (TUI shipped 2026-04-25)
 
-5 of 8 missing `docs/setup.md` heroes shipped; 3 remain.
+5 of 8 setup walkthrough heroes shipped; the 3 onboarding-flow UI shots remain as video/asset backlog but are no longer referenced from `docs/setup.md` until fresh-instance staging exists.
 
 **Shipped (5):**
 
 | File | Approach | Notes |
 |---|---|---|
 | `providers-screen-v1.png` | Reuse | `docs/setup.md` retargeted to existing `providers-settings.png` (same admin route). |
-| `setup-1.png` | Synthetic TUI | Banner + prereq check + LLM Provider select with 7 providers (OpenAI highlighted). |
-| `setup-3-modelname.png` | Synthetic TUI | Default model select after picking OpenAI (gpt-4.1 highlighted). |
+| `setup-1.png` | Synthetic TUI | Banner + prereq check + LLM Provider select including ChatGPT Subscription (OpenAI highlighted). |
+| `setup-3-modelname.png` | Synthetic TUI | Default model select after picking OpenAI (gpt-5.5 highlighted). |
 | `setup-4-websearch-select.png` | Synthetic TUI | Web search backend select (SearXNG built-in highlighted). |
-| `setup-5-start.png` | Synthetic TUI | Final confirm + service-up output (provider-seed.yaml notice + green ✓ http://localhost:8000 / 8081 + spindrel CLI install). |
+| `setup-5-start.png` | Synthetic TUI | Final confirm + service-up output (provider-seed.yaml notice + green ✓ single-port http://localhost:8000 + spindrel CLI install). |
 
 Code shipped: `scripts/screenshots/capture/tui_render.py` (PIL canvas + JetBrainsMono font + ANSI palette + window-chrome title bar), `tui_frames.py` (Frame builders, AST-parses `PROVIDERS` from `scripts/setup.py` so model menus stay current), `--only setup-tui` in `cli.py` (no API, no Playwright — straight PIL render).
 
-Live run: `python -m scripts.screenshots all --only setup-tui` → 4/4 captures land in `docs/images/` in <1s. No staging, no teardown, no test instance required.
+Latest run: `python -m scripts.screenshots capture --only setup-tui` → 4/4 captures land in `docs/images/` in <1s. No staging, no teardown, no test instance required.
 
 **Remaining (3) — onboarding-flow UI:**
 

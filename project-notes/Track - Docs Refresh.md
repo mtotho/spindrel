@@ -1,13 +1,19 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-24 (screenshot pipeline scaffold landed; Phase A now in progress, not pending)
+updated: 2026-04-25 (setup guide refreshed for single-port Docker + subscription OAuth wizard)
 ---
 
 # Track - Docs Refresh
 
 ## North Star
 `docs/` reflects the post-polish product: fresh screenshots of the web-native UI, complete coverage of the April 12–19 feature wave, no references to deprecated features (workflows, per-bot workspaces, old HUD), and a clear showcase of widgets, pipelines, providers, and integrations.
+
+## 2026-04-25 setup refresh
+- `docs/setup.md` now matches the current single-container Docker UI: production users open `http://localhost:8000`; `8081` is no longer presented as the Docker quickstart UI.
+- Setup docs now include the wizard's ChatGPT Subscription option and console device-code behavior: setup prints verification URL + user code when Docker starts immediately; headless/deferred installs connect later in Admin > Providers.
+- `docs/guides/providers.md` now uses the real flat `provider-seed.yaml` shape and the current `openai-subscription` fallback model list.
+- Setup TUI screenshots regenerated via `python -m scripts.screenshots capture --only setup-tui`.
 
 ## 2026-04-23 context/discovery truth pass
 - Added canonical guides `docs/guides/context-management.md` and `docs/guides/discovery-and-enrollment.md` as the owned references for prompt admission, replay profiles, tool/skill discovery, enrollment, and residency semantics.

@@ -1,0 +1,189 @@
+{
+  "meta": {
+    "title": "Spindrel quickstart",
+    "slug": "quickstart-stills",
+    "resolution": [
+      1920,
+      1080
+    ],
+    "fps": 30,
+    "transition": "crossfade",
+    "transition_duration": 0.5,
+    "watermark": {
+      "text": "spindrel.dev",
+      "opacity": 0.45
+    },
+    "caption_style": {
+      "position": "bottom",
+      "font_size": 38,
+      "padding": 56,
+      "bg_opacity": 0.6
+    }
+  },
+  "scenes": [
+    {
+      "id": "title-intro",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "What is Spindrel?"
+    },
+    {
+      "id": "hero_home",
+      "kind": "still",
+      "duration": 6.0,
+      "asset_url": "hero_home.png",
+      "caption": "Spindrel organizes AI around channels \u2014 one bot, one chat, one workspace.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.08,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-first_channel",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "One channel, one bot"
+    },
+    {
+      "id": "channel_chat",
+      "kind": "still",
+      "duration": 5.0,
+      "asset_url": "channel_chat.png",
+      "caption": "Each channel is a persistent conversation with its own bot, widgets, and workspace files.",
+      "ken_burns": {
+        "start": [
+          1.04,
+          0.5,
+          0.4
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-dashboards",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Dashboards from tool results"
+    },
+    {
+      "id": "widget_dashboard",
+      "kind": "still",
+      "duration": 6.0,
+      "asset_url": "widget_dashboard.png",
+      "caption": "Pin tool results as live widgets \u2014 build per-channel dashboards out of the things your bot already runs.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.35,
+          0.5
+        ],
+        "end": [
+          1.05,
+          0.65,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-pipelines",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Pipelines that stream progress"
+    },
+    {
+      "id": "pipeline_live",
+      "kind": "still",
+      "duration": 6.0,
+      "asset_url": "pipeline_live.png",
+      "caption": "Pipelines chain steps \u2014 gather, summarize, post \u2014 streaming progress into the chat.",
+      "ken_burns": {
+        "start": [
+          1.06,
+          0.5,
+          0.3
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    }
+  ]
+}

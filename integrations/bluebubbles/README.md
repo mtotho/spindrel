@@ -20,7 +20,7 @@ Add to your `.env` file or set via the Integration Settings UI:
 | `BLUEBUBBLES_PASSWORD` | Yes | BlueBubbles server password |
 | `AGENT_API_KEY` | Yes | API key for the agent server |
 | `AGENT_BASE_URL` | No | Agent server URL (default: `http://localhost:8000`) |
-| `BB_DEFAULT_BOT` | No | Default bot ID for Socket.IO client (default: `default`). Not used by webhook. |
+| `BB_DEFAULT_BOT` | No | Default bot ID for legacy config paths. Webhook channel bindings normally choose the bot. |
 | `BB_WAKE_WORDS` | No | Extra wake words (comma-separated), added on top of automatic bot name/id. See [Wake Words](#wake-words). |
 | `BB_WEBHOOK_TOKEN` | No | Shared secret for webhook auth. If set, BB must send `?token=` in the webhook URL. |
 | `BB_SEND_METHOD` | No | iMessage send method: `apple-script` (default, reliable) or `private-api` (requires Private API helper). |
@@ -59,7 +59,7 @@ The BlueBubbles integration is auto-discovered. When `BLUEBUBBLES_SERVER_URL` an
 5. Subscribe to the `new-message` event (at minimum)
 6. Save
 
-> **Note:** The Socket.IO client (`bb_client.py`) is kept for connection status diagnostics only — it does NOT receive message events. All message delivery happens through this webhook.
+> **Note:** The Socket.IO client (`bb_client.py`) is disabled. All message delivery happens through this webhook.
 
 ### 5. Bind Channels
 
@@ -262,13 +262,13 @@ Note: Chat bot mappings are in-memory and reset on server restart. For persisten
              │
              v
      ┌────────────────┐
-     │  BB Dispatcher  │  send_text() → iMessage
+     │ BB Renderer     │  send_text() → iMessage
      │  (echo tracked) │
      └────────────────┘
 ```
 
-> The Socket.IO client (`bb_client.py`) maintains a connection for status
-> diagnostics but is **not** used for message delivery.
+> The Socket.IO client (`bb_client.py`) is legacy reference code and is **not**
+> launched for message delivery or status.
 
 ## Binding Suggestions (Channel Picker)
 
@@ -295,5 +295,5 @@ Results are cached server-side for 5 minutes to avoid repeated calls to the Blue
 | Bot replies appearing as your messages | Expected -- bot sends from your iMessage account | The echo tracker prevents these from being re-processed. |
 | Duplicate responses after restart | Echo tracker is in-memory, lost on restart | Self-corrects within ~30 seconds as new echoes are tracked. |
 | Bot responds to everything | `require_mention=false` on the channel | Set `require_mention=true` if you want wake word filtering. |
-| Wake words not working after config change | bb_client caches config on connect | Restart the server, or wait for the next Socket.IO reconnect. |
+| Wake words not working after config change | Channel binding/config does not match the chat path | Check the binding, `require_mention`, and configured wake words with `/diagnose`. |
 | `/diagnose` shows issues | Various misconfigurations | Follow the specific issue messages in the diagnose output. |

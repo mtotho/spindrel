@@ -40,7 +40,9 @@ from app.domain.payloads import (
     TurnStreamTokenPayload,
 )
 from app.integrations import renderer_registry
+from integrations.bluebubbles import message_delivery as bb_message_mod
 from integrations.bluebubbles import renderer as bb_renderer_mod
+from integrations.bluebubbles import transport as bb_transport_mod
 from integrations.bluebubbles.renderer import (
     BlueBubblesRenderer,
     _split_text,
@@ -73,19 +75,22 @@ def fake_send_text():
     calls: list[dict] = []
     return_value: list[dict | None] = [{"ok": True}]
 
-    async def _fake(client, server_url, password, chat_guid, text, *,
-                    temp_guid=None, method=None):
+    async def _fake(target, text, *, temp_guid=None):
         calls.append({
-            "server_url": server_url,
-            "password": password,
-            "chat_guid": chat_guid,
+            "server_url": target.server_url,
+            "password": target.password,
+            "chat_guid": target.chat_guid,
             "text": text,
             "temp_guid": temp_guid,
-            "method": method,
+            "method": target.send_method,
         })
-        return return_value[0]
+        from integrations.bluebubbles.transport import BlueBubblesCallResult
 
-    with patch.object(bb_renderer_mod, "send_text", side_effect=_fake) as mock:
+        if return_value[0] is None:
+            return BlueBubblesCallResult.failed("send failed", retryable=True)
+        return BlueBubblesCallResult.ok(return_value[0])
+
+    with patch.object(bb_transport_mod, "send_text", side_effect=_fake) as mock:
         # Stash a setter so tests can change the return value mid-test.
         mock.calls = calls
         mock.set_return = lambda v: return_value.__setitem__(0, v)
@@ -108,7 +113,7 @@ def fake_tracker():
     fake.track_sent = MagicMock(side_effect=lambda *a, **kw: sequence.append("track"))
     fake.save_to_db = AsyncMock(side_effect=lambda: sequence.append("save"))
 
-    with patch.object(bb_renderer_mod, "shared_tracker", fake):
+    with patch.object(bb_message_mod, "shared_tracker", fake):
         fake.sequence = sequence
         yield fake
 
@@ -192,8 +197,14 @@ class TestRegistration:
 
     def test_capability_set_includes_text_and_approvals(self):
         assert Capability.TEXT in BlueBubblesRenderer.capabilities
-        assert Capability.APPROVAL_BUTTONS in BlueBubblesRenderer.capabilities
-        assert Capability.MENTIONS in BlueBubblesRenderer.capabilities
+        assert Capability.IMAGE_UPLOAD in BlueBubblesRenderer.capabilities
+        assert Capability.FILE_UPLOAD in BlueBubblesRenderer.capabilities
+        assert Capability.TYPING_INDICATOR in BlueBubblesRenderer.capabilities
+        assert Capability.APPROVAL_BUTTONS not in BlueBubblesRenderer.capabilities
+        assert Capability.ATTACHMENTS not in BlueBubblesRenderer.capabilities
+        assert Capability.DISPLAY_NAMES not in BlueBubblesRenderer.capabilities
+        assert Capability.MENTIONS not in BlueBubblesRenderer.capabilities
+        assert Capability.THREADING not in BlueBubblesRenderer.capabilities
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +441,6 @@ class TestApprovalRequested:
 class TestTypingIndicator:
     async def test_turn_started_sends_typing(self, fake_send_text, fake_tracker):
         """TURN_STARTED fires a typing indicator (fire-and-forget)."""
-        renderer = BlueBubblesRenderer()
         event = ChannelEvent(
             channel_id=uuid.uuid4(),
             kind=ChannelEventKind.TURN_STARTED,
@@ -438,7 +448,8 @@ class TestTypingIndicator:
                 bot_id="b", turn_id=uuid.uuid4(), reason="user_message",
             ),
         )
-        with patch.object(bb_renderer_mod, "set_typing", new_callable=AsyncMock, return_value=True) as mock_typing:
+        with patch.object(bb_transport_mod, "set_typing", new_callable=AsyncMock, return_value=True) as mock_typing:
+            renderer = BlueBubblesRenderer()
             receipt = await renderer.render(event, _target())
         assert receipt.success is True
         assert "typing indicator sent" in (receipt.skip_reason or "")
@@ -455,7 +466,7 @@ class TestTypingIndicator:
                 bot_id="b", turn_id=uuid.uuid4(), reason="user_message",
             ),
         )
-        with patch.object(bb_renderer_mod, "set_typing", new_callable=AsyncMock) as mock_typing:
+        with patch.object(bb_transport_mod, "set_typing", new_callable=AsyncMock) as mock_typing:
             receipt = await renderer.render(event, _target(typing_indicator=False))
         assert receipt.success is True
         assert "disabled" in (receipt.skip_reason or "")

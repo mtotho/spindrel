@@ -58,15 +58,6 @@ The wizard generates `.env` and a `provider-seed.yaml` file. On first server boo
 
 Open `http://localhost:8000` and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
 
-![Login screen](images/setup-6-login-screen.png)
-*Log in with your API key.*
-
-![First channel creation](images/setup-7-first-channel.png)
-*Create your first channel — the Orchestrator guides you through it.*
-
-![First chat](images/setup-10-first-chat.png)
-*Your first conversation — the sidebar shows channels, workspace, and navigation.*
-
 > **Tip:** You can add more LLM providers later via **Admin UI > Providers**. The wizard just configures the first one.
 
 ## Manual Setup

@@ -19,12 +19,12 @@ In your `.env` (or via the Admin > Integrations settings page):
 | `BLUEBUBBLES_PASSWORD` | Yes | BB server password |
 | `BB_WEBHOOK_TOKEN` | Recommended | Shared secret for webhook auth |
 | `BB_WAKE_WORDS` | No | Global wake words (comma-separated) |
-| `BB_DEFAULT_BOT` | No | Default bot ID for Socket.IO client (default: `default`) |
+| `BB_DEFAULT_BOT` | No | Default bot ID for legacy config paths; webhook channel bindings normally choose the bot |
 | `BB_SEND_METHOD` | No | `apple-script` (default, reliable) or `private-api` |
 
 ### 2. Configure the Webhook (Recommended)
 
-The **webhook path** is the recommended way to receive inbound messages. It's more feature-complete than the Socket.IO path and supports per-binding wake words.
+The **webhook path** is the supported way to receive inbound messages. It supports per-binding wake words and avoids duplicate intake paths.
 
 In BlueBubbles Server settings:
 
@@ -67,10 +67,10 @@ The webhook resolves which channel(s) are bound to the chat GUID, then for each 
 
 ### Outbound (Bot → iMessage)
 
-When the bot responds (or a heartbeat fires, or a task completes), the dispatcher sends the reply back through the BB API:
+When the bot responds (or a heartbeat fires, or a task completes), the renderer sends the reply back through the BB API:
 
 ```
-Agent response → BlueBubbles Dispatcher → BB API → iMessage
+Agent response → BlueBubblesRenderer → BB API → iMessage
 ```
 
 This works independently of inbound — you can have outbound-only channels (e.g., usage alerts that send to iMessage but don't process incoming messages).
@@ -113,27 +113,6 @@ If the channel has member bots, this passive context is still channel-level.
 Member bots can later absorb it through compaction or dreaming/learning when
 their bot-level learning settings allow it, even if they did not actively reply.
 
-## Chat HUD
-
-When BlueBubbles is activated on a channel, a **status strip** widget appears in the chat interface showing real-time connection status, message delivery state, and quick-access controls.
-
-![BlueBubbles HUD showing connection status in chat](../images/channel-bluebubbles-hud.png)
-
-The HUD polls `/integrations/bluebubbles/hud/status` every 30 seconds and displays:
-
-- **Connection badge** — green (connected), red (disconnected), or yellow (degraded)
-- **Pause/Resume toggle** — immediately stop or resume all message processing
-- **Diagnostics link** — quick access to the diagnose endpoint
-
-### HUD presets
-
-| Preset | Widgets | Description |
-|--------|---------|-------------|
-| `default` | `bb-status` | Connection status strip with pause/resume controls |
-| `none` | *(empty)* | No HUD — integration still active, just no status display |
-
-Select a preset in **Admin > Channels > [channel] > Integrations > BlueBubbles**.
-
 ## Pause / Resume Kill Switch
 
 The integration includes a global pause toggle for emergency situations (e.g., message storms, rate limit issues):
@@ -142,7 +121,7 @@ The integration includes a global pause toggle for emergency situations (e.g., m
 - **`POST /integrations/bluebubbles/resume`** — resumes normal processing
 - **`POST /integrations/bluebubbles/cancel-pending-tasks`** — clears any queued tasks
 
-When paused, the webhook endpoint rejects all incoming messages. The HUD status strip shows a red "Paused" badge. Use this when you need to stop the bot immediately without unbinding channels.
+When paused, the webhook endpoint rejects all incoming messages. Use this when you need to stop the bot immediately without unbinding channels.
 
 ## Diagnostics
 
@@ -155,8 +134,8 @@ curl -H "Authorization: Bearer YOUR_KEY" \
 
 Checks performed:
 
-- Meta registration (integration hooks, dispatcher)
-- Dispatcher registration (can deliver outbound messages)
+- Meta registration (integration hooks, renderer)
+- Renderer registration (can deliver outbound messages)
 - Credentials (`BLUEBUBBLES_SERVER_URL`, `BLUEBUBBLES_PASSWORD` set)
 - Channel bindings (which channels are bound to which chats)
 
@@ -210,7 +189,7 @@ Check in order:
 
 ### Bot responds but messages don't send
 
-The outbound path (dispatcher) requires `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` to be set. Use the test-send endpoint:
+The outbound path requires `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` to be set. Use the test-send endpoint:
 
 ```bash
 curl -X POST "http://your-server:8000/integrations/bluebubbles/test-send?chat_guid=YOUR_CHAT_GUID&text=hello" \
@@ -227,17 +206,11 @@ curl -X POST "http://your-server:8000/integrations/bluebubbles/test-send?chat_gu
 
 The bot tracks its own sent messages for 30 seconds. If BB relay is slow (>30s), an echo may not be detected and the bot could respond to its own message. This is rare but can happen on congested networks.
 
-## Socket.IO Path (Legacy)
+## Socket.IO Path
 
-If `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` are set, Spindrel also auto-starts a Socket.IO client (`bb_client.py`) that connects directly to BB Server. This is the older path, kept for backward compatibility.
+The Socket.IO client (`bb_client.py`) is disabled. Message intake is webhook-only because running both the Socket.IO client and the webhook can duplicate inbound events and trigger response loops.
 
-**Limitations compared to webhook**:
-
-- Only uses global `BB_WAKE_WORDS` — per-binding wake words and bot name detection are not supported
-- Requires `Channel.client_id` to be set directly (not just a ChannelIntegration binding)
-- No per-binding config support
-
-**Recommendation**: Use the webhook path for all new setups. The Socket.IO client will be deprecated in a future release.
+`bb_client.py` remains in the tree only as legacy reference code. Do not rely on it for message delivery, status, or wake-word behavior.
 
 ## Architecture
 
@@ -246,14 +219,20 @@ If `BLUEBUBBLES_SERVER_URL` and `BLUEBUBBLES_PASSWORD` are set, Spindrel also au
 │  BlueBubbles     │ ──────────────────→   │  Spindrel        │
 │  Server (Mac)    │                       │  /webhook         │
 │                  │  ←────────────────    │                   │
-│  iMessage relay  │     BB API send       │  Dispatcher       │
+│  iMessage relay  │     BB API send       │  Renderer         │
 └─────────────────┘                       └─────────────────┘
 ```
 
 Key components:
 - **`router.py`** — Webhook endpoint + config/status/diagnose APIs
-- **`dispatcher.py`** — Sends replies via BB API, tracks echoes
+- **`renderer.py`** — Thin ChannelRenderer entry point
+- **`message_delivery.py`** — NEW_MESSAGE text delivery, chunking, footer, echo tracking
+- **`approval_delivery.py`** — Text-only approval prompts
+- **`upload_delivery.py`** — Image/file upload actions
+- **`lifecycle_delivery.py`** — Typing indicators and no-op turn completion
+- **`transport.py`** — BB API transport boundary for renderer delivery
 - **`echo_tracker.py`** — Deduplicates bot-sent messages (30s TTL)
-- **`bb_client.py`** — Legacy Socket.IO client (auto-started as background process)
+- **`process.py`** — Explicitly disables the legacy Socket.IO process
+- **`bb_client.py`** — Legacy Socket.IO source retained for reference only
 - **`bb_api.py`** — Low-level BB HTTP API helpers
-- **`setup.py`** — Integration manifest (env vars, binding config, dependencies)
+- **`integration.yaml`** — Integration manifest (env vars, binding config, capabilities)

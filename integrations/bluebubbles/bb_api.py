@@ -2,7 +2,7 @@
 
 Thin async wrapper around the BB server HTTP API.
 All functions take explicit server_url and password parameters
-so they work from both the Socket.IO client process and the dispatcher.
+so they work from renderer delivery, routers, and tools.
 """
 from __future__ import annotations
 

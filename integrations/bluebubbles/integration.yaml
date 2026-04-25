@@ -24,7 +24,7 @@ settings:
     label: "Agent server URL (default: http://localhost:8000)"
   - key: BB_DEFAULT_BOT
     type: string
-    label: "Default bot ID for Socket.IO client (default: default). Not used by webhook path."
+    label: "Default bot ID for legacy config paths. Webhook channel bindings normally choose the bot."
   - key: BB_WAKE_WORDS
     type: string
     label: "Extra wake words (comma-separated). Added on top of automatic bot name/id wake words."
@@ -54,11 +54,6 @@ webhook:
   path: /integrations/bluebubbles/webhook
   description: "BlueBubbles new-message webhook receiver (optional ?token=BB_WEBHOOK_TOKEN auth)"
 
-dependencies:
-  python:
-    - { package: python-socketio, import_name: socketio }
-    - { package: aiohttp, import_name: aiohttp }
-
 debug_actions:
   - id: pause
     label: Pause Webhooks
@@ -74,7 +69,7 @@ debug_actions:
     style: default
   - id: diagnose
     label: Run Diagnostics
-    description: "Check dispatcher, credentials, and channel bindings"
+    description: "Check renderer, credentials, and channel bindings"
     endpoint: diagnose
     method: GET
   - id: echo-state
@@ -134,10 +129,9 @@ binding:
 
 capabilities:
   - text
-  - threading
-  - attachments
-  - approval_buttons
-  - display_names
+  - image_upload
+  - file_upload
+  - typing_indicator
 
 provides:
   - target

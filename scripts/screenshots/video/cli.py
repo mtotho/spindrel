@@ -9,7 +9,7 @@ import logging
 import sys
 from pathlib import Path
 
-from scripts.screenshots.video import compose, storyboard
+from scripts.screenshots.video import storyboard
 
 
 logger = logging.getLogger("screenshots.video.cli")
@@ -33,6 +33,12 @@ def run(argv: list[str]) -> int:
         "--skip-capture", action="store_true",
         help="Skip re-staging + capturing screenshots; use existing docs/images/",
     )
+    p_build.add_argument(
+        "--renderer",
+        choices=("moviepy", "remotion"),
+        default="moviepy",
+        help="moviepy = fast preview path; remotion = polished ship target",
+    )
 
     p_preview = sub.add_parser("preview", help="Render one scene for iteration")
     p_preview.add_argument("--scene", required=True, help="Scene id")
@@ -48,18 +54,24 @@ def run(argv: list[str]) -> int:
     if args.sub == "preview":
         return _cmd_preview(args.storyboard, args.scene)
     if args.sub == "build":
-        return _cmd_build(args.storyboard, skip_capture=args.skip_capture)
+        return _cmd_build(
+            args.storyboard,
+            skip_capture=args.skip_capture,
+            renderer=args.renderer,
+        )
     parser.error(f"unknown subcommand: {args.sub}")
     return 2
 
 
 def _cmd_plan(path: Path) -> int:
+    from scripts.screenshots.video import compose
     sb = storyboard.load(path)
     print(compose.plan_outline(sb))
     return 0
 
 
 def _cmd_preview(path: Path, scene_id: str) -> int:
+    from scripts.screenshots.video import compose
     sb = storyboard.load(path)
     out_dir = sb.repo_root / sb.meta.output_dir / "preview"
     out_path = out_dir / f"{scene_id}.mp4"
@@ -68,7 +80,7 @@ def _cmd_preview(path: Path, scene_id: str) -> int:
     return 0
 
 
-def _cmd_build(path: Path, *, skip_capture: bool) -> int:
+def _cmd_build(path: Path, *, skip_capture: bool, renderer: str) -> int:
     sb = storyboard.load(path)
 
     if not skip_capture:
@@ -80,8 +92,15 @@ def _cmd_build(path: Path, *, skip_capture: bool) -> int:
         sb = storyboard.load(path)
 
     out_dir = sb.repo_root / sb.meta.output_dir
-    out_path = out_dir / f"{sb.meta.slug}.mp4"
-    compose.render_to_file(sb, output_path=out_path)
+    if renderer == "remotion":
+        from scripts.screenshots.video import compose_remotion
+
+        out_path = out_dir / f"{sb.meta.slug}-remotion.mp4"
+        compose_remotion.render_to_file(sb, output_path=out_path)
+    else:
+        from scripts.screenshots.video import compose
+        out_path = out_dir / f"{sb.meta.slug}.mp4"
+        compose.render_to_file(sb, output_path=out_path)
     print(f"wrote {out_path}")
     return 0
 
