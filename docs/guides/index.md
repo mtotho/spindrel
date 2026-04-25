@@ -1,5 +1,7 @@
 # Guides
 
+![Spindrel home — channels, dashboards, recent activity](../images/home.png)
+
 These guides are canonical. When they disagree with other docs, UI copy, or track notes, they win. Every session working on these areas should read the relevant one first.
 
 ## Canonical Guides

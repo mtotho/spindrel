@@ -157,8 +157,7 @@ async def run_in_container(
 
     Raises ValueError if the bot has no Docker workspace configured.
     """
-    from app.agent.bots import get_bot
-    from app.services.sandbox import sandbox_service, workspace_to_sandbox_config
+    from integrations.sdk import get_bot, sandbox_service, workspace_to_sandbox_config
     from integrations.claude_code.config import settings as cc_settings
 
     bot = get_bot(bot_id)

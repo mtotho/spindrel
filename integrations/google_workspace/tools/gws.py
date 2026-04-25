@@ -81,15 +81,12 @@ async def _refresh_access_token() -> str | None:
 
         # Persist the refreshed token
         try:
-            from app.db.engine import async_session
-            from app.services.integration_settings import update_settings
-
             setup_vars = [
                 {"key": "GWS_ACCESS_TOKEN", "secret": True},
                 {"key": "GWS_TOKEN_EXPIRES_AT", "secret": False},
             ]
-            async with async_session() as db:
-                await update_settings(
+            async with reg.async_session() as db:
+                await reg.update_settings(
                     "google_workspace",
                     {"GWS_ACCESS_TOKEN": new_access_token, "GWS_TOKEN_EXPIRES_AT": expires_at},
                     setup_vars,
@@ -128,15 +125,13 @@ async def _get_channel_allowed_services(channel_id) -> list[str] | None:
         return None
 
     try:
-        from app.db.engine import async_session
-        from app.db.models import ChannelIntegration
         from sqlalchemy import select
 
-        async with async_session() as db:
-            stmt = select(ChannelIntegration).where(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.integration_type == "google_workspace",
-                ChannelIntegration.activated.is_(True),
+        async with reg.async_session() as db:
+            stmt = select(reg.ChannelIntegration).where(
+                reg.ChannelIntegration.channel_id == channel_id,
+                reg.ChannelIntegration.integration_type == "google_workspace",
+                reg.ChannelIntegration.activated.is_(True),
             )
             result = await db.execute(stmt)
             ci = result.scalar_one_or_none()
@@ -149,9 +144,9 @@ async def _get_channel_allowed_services(channel_id) -> list[str] | None:
                 return services
 
             # Fallback: check binding dispatch_config (pre-migration data)
-            binding_stmt = select(ChannelIntegration).where(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.integration_type == "google_workspace",
+            binding_stmt = select(reg.ChannelIntegration).where(
+                reg.ChannelIntegration.channel_id == channel_id,
+                reg.ChannelIntegration.integration_type == "google_workspace",
             )
             binding_result = await db.execute(binding_stmt)
             for row in binding_result.scalars().all():
@@ -170,15 +165,13 @@ async def _get_channel_drive_root(channel_id) -> str | None:
     if not channel_id:
         return None
     try:
-        from app.db.engine import async_session
-        from app.db.models import ChannelIntegration
         from sqlalchemy import select
 
-        async with async_session() as db:
-            stmt = select(ChannelIntegration).where(
-                ChannelIntegration.channel_id == channel_id,
-                ChannelIntegration.integration_type == "google_workspace",
-                ChannelIntegration.activated.is_(True),
+        async with reg.async_session() as db:
+            stmt = select(reg.ChannelIntegration).where(
+                reg.ChannelIntegration.channel_id == channel_id,
+                reg.ChannelIntegration.integration_type == "google_workspace",
+                reg.ChannelIntegration.activated.is_(True),
             )
             result = await db.execute(stmt)
             ci = result.scalar_one_or_none()
@@ -260,8 +253,7 @@ async def gws(command: str) -> str:
     service = _normalize_service(raw_service)
 
     # Check channel-level service scoping
-    from app.agent.context import current_channel_id
-    channel_id = current_channel_id.get()
+    channel_id = reg.current_channel_id.get()
     allowed = await _get_channel_allowed_services(channel_id)
 
     if allowed is None:

@@ -10,7 +10,7 @@ import { useCompletions, useModelGroups } from "../../api/hooks/useModels";
 import { AutocompleteMenu, clusterSkillPacks, scoreMatch } from "../shared/LlmPrompt";
 import { useThemeTokens } from "../../theme/tokens";
 import type { CompletionItem, SlashCommandArgSpec, SlashCommandSpec } from "../../types/api";
-import { filterSlashCommands } from "./slashCommands";
+import { buildCompletedSlashCommandText, filterSlashCommands } from "./slashCommands";
 import { filterArgItems, resolveArgSourceItems } from "./slashArgSources";
 import { useSlashCommandList } from "@/src/api/hooks/useSlashCommands";
 import type { SuggestionProps, SuggestionKeyDownProps } from "@tiptap/suggestion";
@@ -431,37 +431,22 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
               return false;
             },
             Tab: ({ editor: ed }) => {
-              // Tab selects slash command / arg (same as Enter)
+              // Tab completes slash command text. Enter remains the execution key.
               if (showCmdMenuRef.current && cmdFilteredRef.current.length > 0) {
                 const item = cmdFilteredRef.current[cmdActiveIdxRef.current];
                 const argMode = cmdArgModeRef.current;
                 if (argMode) {
-                  suppressUpdateRef.current = true;
-                  ed.commands.clearContent(true);
-                  suppressUpdateRef.current = false;
+                  ed.commands.setContent(buildCompletedSlashCommandText(argMode.commandId, item.value), { emitUpdate: true });
+                  ed.commands.focus("end");
                   showCmdMenuRef.current = false;
                   setShowCmdMenu(false);
                   cmdArgModeRef.current = null;
-                  onSlashCommandRef.current?.(argMode.commandId, [item.value]);
                   return true;
                 }
-                const pickedSpec = slashCatalogRef.current.find((s) => s.id === item.value);
-                const requiresArg = Array.isArray(pickedSpec?.args)
-                  ? pickedSpec!.args.some((a) => a.required)
-                  : false;
-                if (requiresArg) {
-                  // Emit the update so detectSlashCommand re-runs and the
-                  // dropdown transitions into Mode B (arg picker).
-                  ed.commands.setContent(`/${item.value} `, { emitUpdate: true });
-                  ed.commands.focus("end");
-                  return true;
-                }
-                suppressUpdateRef.current = true;
-                ed.commands.clearContent(true);
-                suppressUpdateRef.current = false;
+                ed.commands.setContent(buildCompletedSlashCommandText(item.value), { emitUpdate: true });
+                ed.commands.focus("end");
                 showCmdMenuRef.current = false;
                 setShowCmdMenu(false);
-                onSlashCommandRef.current?.(item.value);
                 return true;
               }
               if (ed.isActive("codeBlock")) {
@@ -682,12 +667,17 @@ export const TiptapChatInput = forwardRef<TiptapChatInputHandle, TiptapChatInput
 
     const selectCmdItem = useCallback((item: CompletionItem) => {
       if (!editor) return;
-      suppressUpdateRef.current = true;
-      editor.commands.clearContent(true);
-      suppressUpdateRef.current = false;
+      const argMode = cmdArgModeRef.current;
+      editor.commands.setContent(
+        argMode
+          ? buildCompletedSlashCommandText(argMode.commandId, item.value)
+          : buildCompletedSlashCommandText(item.value),
+        { emitUpdate: true },
+      );
+      editor.commands.focus("end");
       showCmdMenuRef.current = false;
       setShowCmdMenu(false);
-      onSlashCommandRef.current?.(item.value);
+      cmdArgModeRef.current = null;
     }, [editor]);
 
     return (

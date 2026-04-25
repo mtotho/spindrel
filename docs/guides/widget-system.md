@@ -1,5 +1,7 @@
 # Widget System
 
+![HTML widget rendered inline](../images/html-widget-hero.png)
+
 This is the canonical reference for how the widget system works.
 
 If other docs, UI copy, or track notes disagree with this page, this page wins.

@@ -1,5 +1,7 @@
 # Tool Policies
 
+![Approvals queue admin](../images/approvals-queue.png)
+
 Tool policies control which tools require approval before execution. Policies can deny tool calls outright or require manual approval from an admin.
 
 ---

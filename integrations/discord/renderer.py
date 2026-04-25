@@ -137,6 +137,7 @@ class DiscordRenderer:
     capabilities: ClassVar[frozenset[Capability]] = frozenset({
         Capability.TEXT,
         Capability.RICH_TEXT,
+        Capability.REACTIONS,
         Capability.ATTACHMENTS,
         Capability.IMAGE_UPLOAD,
         Capability.FILE_UPLOAD,

@@ -1,6 +1,6 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 import { useParams } from "react-router-dom";
 import { Trash2, Zap, Plus, X } from "lucide-react";
@@ -123,12 +123,15 @@ export default function ProviderDetailScreen() {
   const [editModelReasoning, setEditModelReasoning] = useState(false);
   const [editModelPromptCaching, setEditModelPromptCaching] = useState(false);
   const [editModelStructuredOutput, setEditModelStructuredOutput] = useState(false);
+  const [editModelImageGen, setEditModelImageGen] = useState(false);
   const [editModelPromptStyle, setEditModelPromptStyle] = useState<"markdown" | "xml" | "structured">("markdown");
   const [editModelExtraBody, setEditModelExtraBody] = useState("");
   const [editModelExtraBodyError, setEditModelExtraBodyError] = useState<string | null>(null);
   const { confirm, ConfirmDialogSlot } = useConfirm();
 
-  if (provider && !initialized) {
+  useEffect(() => {
+    if (!provider || initialized) return;
+
     setDisplayName(provider.display_name || "");
     setProviderType(provider.provider_type || "litellm");
     setBaseUrl(provider.base_url || "");
@@ -147,7 +150,7 @@ export default function ProviderDetailScreen() {
         : {}
     );
     setInitialized(true);
-  }
+  }, [provider, initialized]);
 
   const handleSave = useCallback(async () => {
     const headersPayload = Object.keys(extraHeaders).length > 0 ? extraHeaders : null;
@@ -213,6 +216,7 @@ export default function ProviderDetailScreen() {
     setEditModelReasoning(!!model.supports_reasoning);
     setEditModelPromptCaching(!!model.supports_prompt_caching);
     setEditModelStructuredOutput(!!model.supports_structured_output);
+    setEditModelImageGen(!!model.supports_image_generation);
     setEditModelPromptStyle(model.prompt_style || "markdown");
     setEditModelExtraBody(
       model.extra_body && Object.keys(model.extra_body).length > 0
@@ -532,6 +536,7 @@ export default function ProviderDetailScreen() {
                                     supports_reasoning: editModelReasoning,
                                     supports_prompt_caching: editModelPromptCaching,
                                     supports_structured_output: editModelStructuredOutput,
+                                    supports_image_generation: editModelImageGen,
                                     prompt_style: editModelPromptStyle,
                                     extra_body: parsedExtraBody ?? {},
                                   },
@@ -770,6 +775,15 @@ export default function ProviderDetailScreen() {
                               />
                               Structured output
                             </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: t.textMuted }}>
+                              <input
+                                type="checkbox"
+                                checked={editModelImageGen}
+                                onChange={(e) => setEditModelImageGen(e.target.checked)}
+                                style={{ accentColor: t.accent }}
+                              />
+                              Image generation
+                            </label>
                           </div>
 
                           <div className="flex flex-col gap-1">
@@ -831,6 +845,13 @@ export default function ProviderDetailScreen() {
                               background: t.surfaceOverlay, padding: "1px 5px",
                               borderRadius: 4,
                             }} title="Model supports reasoning / effort budget">reasoning</span>
+                          )}
+                          {m.supports_image_generation && (
+                            <span style={{
+                              color: t.accent, fontSize: 10, fontWeight: 600,
+                              background: t.surfaceOverlay, padding: "1px 5px",
+                              borderRadius: 4,
+                            }} title="Model can generate images">image-gen</span>
                           )}
                           <span
                             style={{

@@ -30,6 +30,35 @@ function toneColor(isError: boolean, t: ThemeTokens): string {
   return isError ? t.dangerMuted : t.textMuted;
 }
 
+function EndTruncatedPath({
+  value,
+  color,
+  fontFamily,
+  fontSize,
+}: {
+  value: string;
+  color: string;
+  fontFamily?: string;
+  fontSize?: number;
+}) {
+  return (
+    <span
+      className="min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+      title={value}
+      style={{
+        color,
+        direction: "rtl",
+        display: "inline-block",
+        fontFamily,
+        fontSize,
+        textAlign: "left",
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
 function renderDiffTitle(label: string | null | undefined, metaLabel: string | null | undefined, t: ThemeTokens) {
   if (!label?.trim()) return null;
   return (
@@ -244,12 +273,13 @@ export function DefaultToolRows({
                   setExpandedIdx(isExpanded ? null : idx);
                 }
               } : undefined}
-              className={`${isTerminalMode ? "flex w-full max-w-full" : "inline-flex self-start"} items-center gap-1.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${expandable ? "cursor-pointer" : "cursor-default"}`}
+              className="flex w-full max-w-full min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 py-0.5 transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
               style={{
                 fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                 fontSize: isTerminalMode ? 11.5 : undefined,
                 lineHeight: isTerminalMode ? 1.5 : undefined,
-                minWidth: isTerminalMode ? 0 : undefined,
+                minWidth: 0,
+                cursor: expandable ? "pointer" : "default",
               }}
             >
               {isTerminalMode ? (
@@ -279,6 +309,9 @@ export function DefaultToolRows({
                   fontSize: isTerminalMode ? 11.5 : undefined,
                   whiteSpace: isTerminalMode ? "nowrap" : undefined,
                   flexShrink: isTerminalMode ? 0 : undefined,
+                  minWidth: 0,
+                  maxWidth: "100%",
+                  overflowWrap: "anywhere",
                 }}
               >
                 {entry.label}
@@ -300,18 +333,22 @@ export function DefaultToolRows({
               )}
               {entry.target && (
                 <span
-                  className="text-[10px] font-mono normal-case overflow-hidden text-ellipsis"
+                  className="inline-flex min-w-0 max-w-full items-baseline gap-1 text-[10px] font-mono normal-case"
                   style={{
                     color: t.textMuted,
                     opacity: 0.85,
                     fontFamily: isTerminalMode ? TERMINAL_FONT_STACK : undefined,
                     fontSize: isTerminalMode ? 10.5 : undefined,
-                    minWidth: isTerminalMode ? 0 : undefined,
-                    maxWidth: isTerminalMode ? "100%" : undefined,
-                    whiteSpace: "nowrap",
+                    flex: "1 1 12rem",
                   }}
                 >
-                  {"→"} {entry.target}
+                  <span style={{ flexShrink: 0 }}>{"→"}</span>
+                  <EndTruncatedPath
+                    value={entry.target}
+                    color={t.textMuted}
+                    fontFamily={isTerminalMode ? TERMINAL_FONT_STACK : undefined}
+                    fontSize={isTerminalMode ? 10.5 : undefined}
+                  />
                 </span>
               )}
               {!isExpanded && entry.detailKind === "expandable" && (entry.previewText || entry.env) && (

@@ -34,7 +34,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Reframed `/admin/usage` around anomaly investigation instead of billing-only reporting: stat health strip, token timeline markers, trace-burst/top-contributor signals, source/channel filters, shared `TraceInspector` drilldowns, and low-chrome trend charts.
 - [x] Added canonical `TraceInspector` and token-driven chart guidance to `ui-components.md` so usage, task, heartbeat, and debugging drilldowns have one shared trace preview path.
 - [x] Corrected trace inspection into a global modal drawer instead of a page-local sticky panel: `TraceInspectorRoot` now portals from `AppShell`, usage/traces rows call the global opener, and the drawer/full trace page share one low-chrome `TraceTimeline` renderer.
-- [x] Rebuilt the settings foundation: `/settings` is now one nested shell with role-aware redirect, Account owns personal/device preferences, Channels/Bots are catalog-first self-service pages, and admin System moved to a domain-first control center with an Advanced registry fallback. Palette/admin deep links now target `/settings/system#...` instead of the retired generic page.
+- [x] Rebuilt the settings foundation: `/settings` is now one nested shell with role-aware redirect, Account owns personal/device preferences, Channels/Bots are catalog-first self-service pages, and admin System moved to a domain-first control center with an Advanced registry fallback. Palette/admin deep links now target `/settings/system#...` instead of the retired generic page. The System page now has Overview domain cards plus per-domain stat/link headers so settings stay tied to canonical admin workflow surfaces.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
 - [x] Added `docs/guides/ui-components.md` and wired `ui-design.md` / `spindrel-ui` skill to require the shared component catalog before creating selectors or prompt editors.
@@ -43,6 +43,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Collapsed noisy command-palette detail families in the empty browse view: tool detail rows, policy detail rows, and recent trace rows now sit behind `Show ...` toggles, while typed search bypasses the collapse and queries the full catalog.
 - [x] Clarified the composer plan control: inactive chat now shows `Start plan` / `Resume plan` as direct actions, while active plan modes show semantic status labels (`Planning`, `Executing`, `Blocked`, `Done`) and keep the dropdown only for active-mode actions.
 - [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
+- [x] Fixed mobile file-tool path overflow: generic file-tool rows now keep operation labels separate from long workspace paths, target paths left-truncate to show the end-most segment, and the row wraps within chat width instead of forcing horizontal page scroll.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 
@@ -198,6 +199,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Session pane boundary cleaned up** — stale side-panel modules were removed, legacy `sessionPanels` remains migration-only, and `channelSessionSurfaces` owns pane normalization, resize math, picker grouping, and route/source helpers.
 - [x] **Session picker filters out sub-session noise** — the channel session catalog/search now excludes task, pipeline, eval, thread, delegation, and other child transcripts from `/sessions` and `/split`, while keeping primary/previous user chat sessions plus owned scratch sessions visible.
 - [x] **Split-pane chrome merged into the chat surface** — desktop split panes now use slim header strips and vertical gutters instead of framed rounded cards, with aggressive title truncation and flex body sizing so embedded composers stay bottom-aligned.
+- [x] **Session picker and split-pane interaction polished** — `/sessions` now exposes split as an in-picker mode/action with persistent keyboard hints, previous-session grouping is labeled as `Previous chats`, slash-command Tab/click completes instead of executing, split pane headers dropped accent/badge chrome, and pane resizing now updates locally during drag then persists once on mouseup.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -251,6 +253,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/routers/api_v1_channels.py app/tools/local/search_history.py app/services/slash_commands.py`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session split/slash discoverability follow-up
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --noEmit`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session picker/split-pane polish
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --noEmit --pretty false`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/components/chat/slashCommands.test.js && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/services/slash_commands.py`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after header Sessions button unification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json` after writable generic session split panels
@@ -459,3 +464,4 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] `/settings` Chat History `Compaction Model` description is provider-neutral now: "Model used for context compaction." The old "LiteLLM model alias" wording was misleading because the shared picker spans all LLM providers.
 - [x] Fixed stale post-compaction typing indicators: channel-state rehydration now treats lifecycle-only `turn_started` / `skill_index` trace rows as active only while the session lock is active, so reopening a compacted idle thread does not show a phantom bot thinking until the 10-minute TTL expires.
 - [x] Fixed scratch/session context-budget bleed: `context_budget` typed bus payloads now carry `session_id`, and primary/member turn lifecycle streams tag the real session so scratch/session subscribers drop sibling parent-channel budget events instead of showing the parent channel's gross token total.
+- [x] Fixed split-session identity bleed: focused scratch/previous panes now drive the session picker current row and top header mode, while each split pane header owns its own session-specific token/turn/compaction stats.

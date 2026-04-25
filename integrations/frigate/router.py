@@ -15,7 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from integrations import utils
-from integrations.sdk import get_db, resolve_all_channels_by_client_id, ensure_active_session
+from integrations.sdk import (
+    ensure_active_session,
+    get_db,
+    get_setting,
+    resolve_all_channels_by_client_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +35,7 @@ def _get_webhook_token() -> str | None:
         return token
     # Fall back to DB-backed integration settings
     try:
-        from app.services.integration_settings import get_value
-        val = get_value("frigate", "FRIGATE_WEBHOOK_TOKEN")
+        val = get_setting("frigate", "FRIGATE_WEBHOOK_TOKEN")
         return val if val else None
     except Exception:
         return None

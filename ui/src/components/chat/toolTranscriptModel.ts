@@ -415,12 +415,29 @@ function summarizeGenericTool(toolName: string, args?: string): string {
     return widget ? `Inspected widget pin ${widget}` : "Inspected widget pin";
   }
   if (shortName === "file") {
-    const path = (parsed?.path || parsed?.file_path || parsed?.target_path) as string | undefined;
-    return path ? `Updated ${path}` : "Updated file";
+    const operation = typeof parsed?.operation === "string" ? parsed.operation.toLowerCase() : "";
+    const labelByOperation: Record<string, string> = {
+      read: "Read file",
+      create: "Created file",
+      overwrite: "Updated file",
+      append: "Updated file",
+      edit: "Updated file",
+      json_patch: "Updated file",
+      delete: "Deleted file",
+      mkdir: "Created folder",
+      move: "Moved file",
+      restore: "Restored file",
+    };
+    return labelByOperation[operation] ?? "Updated file";
   }
   const path = (parsed?.path || parsed?.file_path || parsed?.target_path || parsed?.source_path) as string | undefined;
   if (path) return `${toolName.replace(/_/g, " ")} ${path}`;
   return toolName.replace(/_/g, " ");
+}
+
+function extractFileToolTarget(toolName: string, args?: string): string | null {
+  if (shortToolName(toolName) !== "file") return null;
+  return extractArgValue(args, "path", "file_path", "target_path", "destination");
 }
 
 function shouldPreferGenericSummary(envelopeSummary: string | null, genericSummary: string): boolean {
@@ -529,6 +546,7 @@ function buildPersistedEntry(
 
   const envelopeSummary = summarizeEnvelope(result);
   const genericSummary = summarizeGenericTool(toolName, args);
+  const fileToolTarget = extractFileToolTarget(toolName, args);
   const summary = shouldPreferGenericSummary(envelopeSummary, genericSummary)
     ? genericSummary
     : envelopeSummary ?? genericSummary;
@@ -547,6 +565,7 @@ function buildPersistedEntry(
       label: summary,
       metaLabel: diffStats ? `(+${diffStats.additions} -${diffStats.deletions})` : null,
       previewText: isRead ? previewText : null,
+      target: fileToolTarget,
       env: result,
       isError: false,
       detailKind: isRead ? "collapsed-read" : diff ? "inline-diff" : "expandable",

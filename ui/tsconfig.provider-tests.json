@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "./.provider-test-dist",
+    "types": ["node"]
+  },
+  "include": [
+    "app/(app)/admin/providers/[providerId]/providerExtraHeadersState.ts",
+    "app/(app)/admin/providers/[providerId]/providerExtraHeadersState.test.ts"
+  ]
+}

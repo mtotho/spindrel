@@ -134,6 +134,7 @@ Authoritative severity list with file:line cites and phase ownership lives in th
 - `app/agent/prompt_cache.py::should_apply_cache_control` now consults `providers.supports_prompt_caching(...)` (DB cache) instead of string-sniffing the model ID. Provider-type fallback retained for legacy bots without a `provider_models` row.
 - `/admin/usage` cost math updated: `_lookup_pricing` now returns `(input, output, cached_input)` triples, `_compute_cost` uses the explicit `cached_input_rate_str` when present and falls back to the discount heuristic otherwise. Pricing map + cache TraceEvent reads unchanged.
 - Admin router + UI: `POST/PUT /providers/{id}/models` accept all new columns; `POST/PUT /providers/{id}` accepts `extra_headers` (validates dict-of-strings, rejects control chars). Provider edit page gains a Custom Headers KV editor (`ProviderExtraHeadersSection.tsx`, Tailwind). Per-model edit form gains rows for `context_window`, `max_output_tokens`, `cached_input_cost_per_1m`, `supports_prompt_caching`, `supports_structured_output`, `extra_body` (JSON textarea with parse-error UX).
+- 2026-04-24 follow-up: `ProviderExtraHeadersSection.tsx` no longer mirrors identical header maps back into parent state on mount. The section now compares content before syncing local rows or emitting `onChange`, and the provider detail screen moved its one-time provider hydration out of render and into a `useEffect`. Regression pinned by `providerExtraHeadersState.test.ts`.
 
 Tests (31 new, all passing in Dockerfile.test on Python 3.12):
 

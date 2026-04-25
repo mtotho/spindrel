@@ -7,6 +7,7 @@ import shutil
 import time as _time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -1164,6 +1165,314 @@ async def _record_compaction_log(
         logger.warning("Failed to record compaction log", exc_info=True)
 
 
+# ===== Cluster 8 compaction stage helpers =====
+
+@dataclass(frozen=True)
+class WatermarkPlan:
+    oldest_kept_id: uuid.UUID
+    oldest_kept_dt: datetime
+    last_msg_id: uuid.UUID
+    prev_watermark_dt: datetime | None
+
+
+@dataclass(frozen=True)
+class SectionPersistOutcome:
+    section_id: uuid.UUID
+    title: str
+    summary: str
+    msg_count: int
+    usage: dict
+    exec_summary: str
+
+
+async def _run_memory_flush_phase(
+    *,
+    channel: Channel | None,
+    bot: BotConfig,
+    session_id: uuid.UUID,
+    messages: list[dict],
+    correlation_id: uuid.UUID | None,
+) -> tuple[bool, str | None]:
+    """Run pre-compaction memory flush (or heartbeat fallback). Errors are log-and-swallowed."""
+    memory_flush_ran = False
+    flush_result: str | None = None
+    if channel and _resolve_memory_flush_enabled(bot, channel):
+        try:
+            flush_result = await _run_memory_flush(
+                channel, bot, session_id, messages, correlation_id=correlation_id,
+            )
+            memory_flush_ran = True
+        except Exception:
+            logger.warning(
+                "Memory flush failed before compaction for channel %s",
+                channel.id, exc_info=True,
+            )
+        if channel:
+            await _flush_member_bots(channel, session_id, messages)
+    elif _resolve_trigger_heartbeat(channel) and channel:
+        from app.services.heartbeat import trigger_channel_heartbeat
+        try:
+            await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
+            logger.info("Triggered heartbeat before compaction for channel %s", channel.id)
+        except Exception:
+            logger.warning(
+                "Failed to trigger heartbeat before compaction for channel %s",
+                channel.id, exc_info=True,
+            )
+    return memory_flush_ran, flush_result
+
+
+async def _compute_compaction_watermark(
+    *,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    keep_turns: int,
+    prev_watermark_id: uuid.UUID | None,
+) -> WatermarkPlan | None:
+    """Compute oldest-kept message + watermark id. Returns None when nothing is compactable."""
+    recent_user_msgs = await db.execute(
+        select(Message.id)
+        .where(Message.session_id == session_id)
+        .where(Message.role == "user")
+        .order_by(Message.created_at.desc())
+        .limit(keep_turns)
+    )
+    user_msg_ids = recent_user_msgs.scalars().all()
+    if not user_msg_ids:
+        return None
+    oldest_kept = await db.get(Message, user_msg_ids[-1])
+    preceding = await db.execute(
+        select(Message.id)
+        .where(Message.session_id == session_id)
+        .where(Message.created_at < oldest_kept.created_at)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    )
+    last_msg_id = preceding.scalar()
+    if last_msg_id is None:
+        return None
+    prev_watermark_dt: datetime | None = None
+    if prev_watermark_id:
+        prev_wm_msg = await db.get(Message, prev_watermark_id)
+        if prev_wm_msg:
+            prev_watermark_dt = prev_wm_msg.created_at
+    return WatermarkPlan(
+        oldest_kept_id=oldest_kept.id,
+        oldest_kept_dt=oldest_kept.created_at,
+        last_msg_id=last_msg_id,
+        prev_watermark_dt=prev_watermark_dt,
+    )
+
+
+async def _persist_section_and_summary(
+    *,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    channel: Channel | None,
+    bot: BotConfig,
+    messages: list[dict],
+    watermark: WatermarkPlan,
+    correlation_id: uuid.UUID | None,
+    client_id: str,
+    model: str,
+    existing_summary: str | None,
+    autoflush_only: bool,
+) -> SectionPersistOutcome:
+    """Generate section, embed, write transcript, insert ConversationSection, prune, build exec summary.
+
+    `autoflush_only=True` (forced path): caller owns the txn; helper calls `db.flush()` only.
+    `autoflush_only=False` (stream path): helper opens its own internal commit and uses
+    a separate session for `prune_sections`, matching pre-refactor stream behavior.
+    """
+    sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
+        messages, model, provider_id=_get_compaction_provider(bot, channel),
+        channel_id=channel.id if channel else None,
+        correlation_id=correlation_id,
+        session_id=session_id,
+        bot_id=bot.id,
+        client_id=client_id,
+    )
+    msg_count = sum(1 for m in messages if m.get("role") in ("user", "assistant"))
+
+    period_query = (
+        select(func.min(Message.created_at), func.max(Message.created_at))
+        .where(Message.session_id == session_id)
+        .where(Message.created_at < watermark.oldest_kept_dt)
+        .where(Message.role.in_(["user", "assistant"]))
+    )
+    if watermark.prev_watermark_dt is not None:
+        period_query = period_query.where(Message.created_at > watermark.prev_watermark_dt)
+    period_result = await db.execute(period_query)
+    row = period_result.one_or_none()
+    period_start, period_end = (row[0], row[1]) if row else (None, None)
+
+    sec_embedding = None
+    try:
+        from app.agent.embeddings import embed_text
+        sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
+    except Exception:
+        logger.warning("Failed to embed section for session %s", session_id, exc_info=True)
+
+    if session_id:
+        max_seq_result = await db.execute(
+            select(func.max(ConversationSection.sequence))
+            .where(ConversationSection.session_id == session_id)
+        )
+        max_seq = max_seq_result.scalar() or 0
+    else:
+        max_seq = 0
+
+    transcript_path = None
+    history_dir = _get_history_dir(bot, channel)
+    ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
+    channel_id = channel.id if channel else None
+    if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
+        try:
+            transcript_path = _write_section_file(
+                history_dir, max_seq + 1, sec_title, sec_summary,
+                sec_transcript, period_start, period_end, msg_count,
+                sec_tags or [], ws_root,
+            )
+        except Exception:
+            logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
+
+    section = ConversationSection(
+        channel_id=channel_id,
+        session_id=session_id,
+        sequence=max_seq + 1,
+        title=sec_title,
+        summary=sec_summary,
+        transcript=sec_transcript,
+        transcript_path=transcript_path,
+        message_count=msg_count,
+        chunk_size=msg_count,
+        period_start=period_start,
+        period_end=period_end,
+        embedding=sec_embedding,
+        tags=sec_tags or None,
+    )
+    db.add(section)
+    if autoflush_only:
+        await db.flush()
+    else:
+        await db.commit()
+
+    if channel_id:
+        try:
+            if autoflush_only:
+                pruned = await prune_sections(channel_id, db=db)
+            else:
+                pruned = await prune_sections(channel_id)
+            if pruned:
+                logger.info("Pruned %d old sections from channel %s", pruned, channel_id)
+        except Exception:
+            logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
+
+    if existing_summary:
+        exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+    else:
+        exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
+
+    _EXEC_SUMMARY_REGEN_CHARS = 2000
+    _EXEC_SUMMARY_REGEN_SECTIONS = 15
+    section_count = exec_summary.count("[Section ")
+    if len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS:
+        logger.info(
+            "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for session %s",
+            len(exec_summary), section_count, session_id,
+        )
+        try:
+            exec_summary = await _regenerate_executive_summary(
+                session_id, model, provider_id=_get_compaction_provider(bot, channel),
+            )
+        except Exception:
+            logger.warning("Failed to regenerate executive summary for session %s", session_id, exc_info=True)
+
+    return SectionPersistOutcome(
+        section_id=section.id,
+        title=sec_title,
+        summary=sec_summary,
+        msg_count=msg_count,
+        usage=sec_usage,
+        exec_summary=exec_summary,
+    )
+
+
+async def _persist_session_compaction_state(
+    *,
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    title: str,
+    summary: str,
+    watermark_id: uuid.UUID,
+) -> None:
+    """Update Session.title/summary/summary_message_id. Does not commit."""
+    await db.execute(
+        update(Session)
+        .where(Session.id == session_id)
+        .values(title=title, summary=summary, summary_message_id=watermark_id)
+    )
+
+
+def _record_compaction_completion(
+    *,
+    correlation_id: uuid.UUID | None,
+    session_id: uuid.UUID,
+    bot_id: str,
+    client_id: str,
+    channel_id: uuid.UUID | None,
+    title: str,
+    summary: str,
+    history_mode: str,
+    model: str,
+    tier: str,
+    forced: bool,
+    memory_flush: bool,
+    messages_archived: int,
+    prompt_tokens: int | None,
+    completion_tokens: int | None,
+    duration_ms: int,
+    section_id: uuid.UUID | None,
+    flush_result: str | None,
+) -> None:
+    """Fire-and-forget compaction_done trace + compaction log row insert."""
+    trace_data: dict[str, Any] = {
+        "title": title,
+        "summary_len": len(summary),
+        "history_mode": history_mode,
+    }
+    if forced:
+        trace_data = {"forced": True, **trace_data}
+    asyncio.create_task(_record_trace_event(
+        correlation_id=correlation_id,
+        session_id=session_id,
+        bot_id=bot_id,
+        client_id=client_id,
+        event_type="compaction_done",
+        data=trace_data,
+    ))
+    asyncio.create_task(_record_compaction_log(
+        channel_id=channel_id,
+        session_id=session_id,
+        bot_id=bot_id,
+        model=model,
+        history_mode=history_mode,
+        tier=tier,
+        forced=forced,
+        memory_flush=memory_flush,
+        messages_archived=messages_archived,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        duration_ms=duration_ms,
+        section_id=section_id,
+        correlation_id=correlation_id,
+        flush_result=flush_result,
+    ))
+
+
+# ===== End Cluster 8 helpers =====
+
+
 async def run_compaction_stream(
     session_id: uuid.UUID, bot: BotConfig, messages: list[dict],
     *,
@@ -1175,7 +1484,7 @@ async def run_compaction_stream(
     Yields compaction_start, then tool_start/tool_result (with compaction=True), then compaction_done.
     If compaction is not due, yields nothing.
     """
-    # Load channel (if any) for channel-level compaction settings
+    # Pre-flight: load session/channel + check enabled.
     channel: Channel | None = None
     async with async_session() as db:
         session = await db.get(Session, session_id)
@@ -1187,12 +1496,12 @@ async def run_compaction_stream(
     if not _is_compaction_enabled(bot, channel):
         return
 
+    # Eligibility check (interval vs unread user-message count).
     interval = _get_compaction_interval(bot, channel)
     async with async_session() as db:
         session = await db.get(Session, session_id)
         if session is None:
             return
-
         watermark_filter = (
             Message.created_at > (
                 select(Message.created_at)
@@ -1230,6 +1539,7 @@ async def run_compaction_stream(
         "budget_triggered": budget_triggered,
     }
 
+    # Reload session for client_id / existing summary / prev watermark.
     client_id: str
     existing_summary: str | None
     prev_watermark_id: uuid.UUID | None = None
@@ -1255,77 +1565,33 @@ async def run_compaction_stream(
     ))
 
     keep_turns = _get_compaction_keep_turns(bot, channel)
-
-    # Run dedicated memory flush before compaction so the bot can save
-    # memories/knowledge/persona while it still sees the full recent window.
-    memory_flush_ran = False
-    flush_result: str | None = None
-    if channel and _resolve_memory_flush_enabled(bot, channel):
-        try:
-            flush_result = await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
-            memory_flush_ran = True
-        except Exception:
-            logger.warning("Memory flush failed before compaction for channel %s", channel.id, exc_info=True)
-        # Also flush member bots in multi-bot channels
-        if channel:
-            await _flush_member_bots(channel, session_id, messages)
-    elif _resolve_trigger_heartbeat(channel) and channel:
-        # Legacy fallback: trigger heartbeat if memory flush not enabled
-        from app.services.heartbeat import trigger_channel_heartbeat
-        try:
-            await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
-            logger.info("Triggered heartbeat before compaction for channel %s", channel.id)
-        except Exception:
-            logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
+    memory_flush_ran, flush_result = await _run_memory_flush_phase(
+        channel=channel, bot=bot, session_id=session_id,
+        messages=messages, correlation_id=correlation_id,
+    )
 
     _t0 = _time.monotonic()
     try:
         model = _get_compaction_model(bot, channel)
         history_mode = _get_history_mode(bot, channel)
 
-        # --- Compute watermark (shared across all modes) ---
+        # Compute watermark + load summary window in a single read-only session.
         async with async_session() as db:
-            recent_user_msgs = await db.execute(
-                select(Message.id)
-                .where(Message.session_id == session_id)
-                .where(Message.role == "user")
-                .order_by(Message.created_at.desc())
-                .limit(keep_turns)
+            watermark = await _compute_compaction_watermark(
+                db=db, session_id=session_id, keep_turns=keep_turns,
+                prev_watermark_id=prev_watermark_id,
             )
-            user_msg_ids = recent_user_msgs.scalars().all()
-
-            if not user_msg_ids:
-                logger.debug("No user messages to compact for %s", session_id)
+            if watermark is None:
+                logger.debug("Nothing to compact for %s", session_id)
                 return
-
-            oldest_kept_id = user_msg_ids[-1]
-            oldest_kept = await db.get(Message, oldest_kept_id)
-            preceding = await db.execute(
-                select(Message.id)
-                .where(Message.session_id == session_id)
-                .where(Message.created_at < oldest_kept.created_at)
-                .order_by(Message.created_at.desc())
-                .limit(1)
-            )
-            watermark_id = preceding.scalar()
-            if watermark_id is None:
-                logger.debug("All messages within keep window for %s, skipping", session_id)
-                return
-
-            lower_bound_dt = None
-            if prev_watermark_id:
-                prev_wm_msg = await db.get(Message, prev_watermark_id)
-                if prev_wm_msg:
-                    lower_bound_dt = prev_wm_msg.created_at
-
             summary_stmt = (
                 select(Message)
                 .where(Message.session_id == session_id)
-                .where(Message.created_at < oldest_kept.created_at)
+                .where(Message.created_at < watermark.oldest_kept_dt)
                 .order_by(Message.created_at)
             )
-            if lower_bound_dt is not None:
-                summary_stmt = summary_stmt.where(Message.created_at > lower_bound_dt)
+            if watermark.prev_watermark_dt is not None:
+                summary_stmt = summary_stmt.where(Message.created_at > watermark.prev_watermark_dt)
             summary_result = await db.execute(summary_stmt)
             summary_window = [_msg_to_dict(m) for m in summary_result.scalars().all()]
 
@@ -1334,193 +1600,52 @@ async def run_compaction_stream(
             logger.debug("No turns to summarize for %s", session_id)
             return
 
+        section_id: uuid.UUID | None = None
         if history_mode in ("structured", "file"):
-            # --- Section-based compaction ---
-            sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
-                to_summarize, model, provider_id=_get_compaction_provider(bot, channel),
-                channel_id=channel.id if channel else None,
-                correlation_id=correlation_id,
-                session_id=session_id,
-                bot_id=bot.id,
-                client_id=client_id,
-            )
-
-            # Compute message count and period
-            msg_count = sum(1 for m in to_summarize if m.get("role") in ("user", "assistant"))
-
-            # Compute period from actual message timestamps
-            period_start = None
-            period_end = None
             async with async_session() as db:
-                period_query = (
-                    select(
-                        func.min(Message.created_at),
-                        func.max(Message.created_at),
-                    )
-                    .where(Message.session_id == session_id)
-                    .where(Message.created_at < oldest_kept.created_at)
-                    .where(Message.role.in_(["user", "assistant"]))
+                outcome = await _persist_section_and_summary(
+                    db=db, session_id=session_id, channel=channel, bot=bot,
+                    messages=to_summarize, watermark=watermark,
+                    correlation_id=correlation_id, client_id=client_id,
+                    model=model, existing_summary=existing_summary,
+                    autoflush_only=False,
                 )
-                # Lower bound: only messages AFTER the previous watermark
-                if lower_bound_dt is not None:
-                    period_query = period_query.where(Message.created_at > lower_bound_dt)
-                period_result = await db.execute(period_query)
-                row = period_result.one_or_none()
-                if row:
-                    period_start, period_end = row[0], row[1]
-
-            # Always embed section (title+summary) for semantic search
-            sec_embedding = None
-            try:
-                from app.agent.embeddings import embed_text
-                sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
-            except Exception:
-                logger.warning("Failed to embed section for session %s", session_id, exc_info=True)
-
-            # Write transcript to filesystem (optional) and DB (always)
-            transcript_path = None
-            history_dir = _get_history_dir(bot, channel)
-            ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
-            channel_id = channel.id if channel else None
-
-            # Get next sequence number
-            async with async_session() as db:
-                if session_id:
-                    max_seq_result = await db.execute(
-                        select(func.max(ConversationSection.sequence))
-                        .where(ConversationSection.session_id == session_id)
-                    )
-                    max_seq = max_seq_result.scalar() or 0
-                else:
-                    max_seq = 0
-
-            if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
-                try:
-                    transcript_path = _write_section_file(
-                        history_dir, max_seq + 1, sec_title, sec_summary,
-                        sec_transcript, period_start, period_end, msg_count,
-                        sec_tags or [], ws_root,
-                    )
-                except Exception:
-                    logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
-
-            async with async_session() as db:
-                section = ConversationSection(
-                    channel_id=channel_id,
-                    session_id=session_id,
-                    sequence=max_seq + 1,
-                    title=sec_title,
-                    summary=sec_summary,
-                    transcript=sec_transcript,
-                    transcript_path=transcript_path,
-                    message_count=msg_count,
-                    chunk_size=msg_count,
-                    period_start=period_start,
-                    period_end=period_end,
-                    embedding=sec_embedding,
-                    tags=sec_tags or None,
-                )
-                db.add(section)
-                await db.commit()
-
-            # Prune old sections per retention policy
-            if channel_id:
-                try:
-                    pruned = await prune_sections(channel_id)
-                    if pruned:
-                        logger.info("Pruned %d old sections from channel %s", pruned, channel_id)
-                except Exception:
-                    logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
-
-            # Append new section summary to existing executive summary
-            if existing_summary:
-                exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
-            else:
-                exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
-
-            # Auto-regenerate if executive summary has grown too large
-            _EXEC_SUMMARY_REGEN_CHARS = 2000
-            _EXEC_SUMMARY_REGEN_SECTIONS = 15
-            section_count = exec_summary.count("[Section ")
-            if len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS:
-                logger.info(
-                    "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for session %s",
-                    len(exec_summary), section_count, session_id,
-                )
-                try:
-                    exec_summary = await _regenerate_executive_summary(
-                        session_id, model, provider_id=_get_compaction_provider(bot, channel),
-                    )
-                except Exception:
-                    logger.warning("Failed to regenerate executive summary for session %s", session_id, exc_info=True)
-
-            # Update session with executive summary + watermark
-            async with async_session() as db:
-                await db.execute(
-                    update(Session)
-                    .where(Session.id == session_id)
-                    .values(
-                        title=sec_title,
-                        summary=exec_summary,
-                        summary_message_id=watermark_id,
-                    )
-                )
-                await db.commit()
-
-            title = sec_title
-            summary = exec_summary
+            title = outcome.title
+            summary = outcome.exec_summary
+            messages_archived = outcome.msg_count
+            usage = outcome.usage
+            section_id = outcome.section_id
         else:
-            # --- Default summary mode ---
             title, summary, sum_usage = await _generate_summary(
                 to_summarize, model, existing_summary, provider_id=_get_compaction_provider(bot, channel),
             )
+            messages_archived = len(to_summarize)
+            usage = sum_usage
 
-            async with async_session() as db:
-                await db.execute(
-                    update(Session)
-                    .where(Session.id == session_id)
-                    .values(
-                        title=title,
-                        summary=summary,
-                        summary_message_id=watermark_id,
-                    )
-                )
-                await db.commit()
+        async with async_session() as db:
+            await _persist_session_compaction_state(
+                db=db, session_id=session_id,
+                title=title, summary=summary,
+                watermark_id=watermark.last_msg_id,
+            )
+            await db.commit()
 
         _duration_ms = int((_time.monotonic() - _t0) * 1000)
-        # Resolve usage info from whichever path ran
-        _usage = sec_usage if history_mode in ("structured", "file") else sum_usage
-        _section_id = section.id if history_mode in ("structured", "file") else None
-
         logger.info(
             "Compaction complete for %s: mode=%s, title=%r, summary_len=%d",
             session_id, history_mode, title, len(summary),
         )
-        asyncio.create_task(_record_trace_event(
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
-            event_type="compaction_done",
-            data={"title": title, "summary_len": len(summary), "history_mode": history_mode},
-        ))
-        asyncio.create_task(_record_compaction_log(
-            channel_id=channel.id if channel else None,
-            session_id=session_id,
-            bot_id=bot.id,
-            model=model,
-            history_mode=history_mode,
-            tier=_usage.get("tier", "normal"),
-            forced=False,
-            memory_flush=memory_flush_ran,
-            messages_archived=msg_count if history_mode in ("structured", "file") else len(to_summarize),
-            prompt_tokens=_usage.get("prompt_tokens"),
-            completion_tokens=_usage.get("completion_tokens"),
-            duration_ms=_duration_ms,
-            section_id=_section_id,
-            correlation_id=correlation_id,
+        _record_compaction_completion(
+            correlation_id=correlation_id, session_id=session_id, bot_id=bot.id,
+            client_id=client_id, channel_id=channel.id if channel else None,
+            title=title, summary=summary, history_mode=history_mode, model=model,
+            tier=usage.get("tier", "normal"), forced=False,
+            memory_flush=memory_flush_ran, messages_archived=messages_archived,
+            prompt_tokens=usage.get("prompt_tokens"),
+            completion_tokens=usage.get("completion_tokens"),
+            duration_ms=_duration_ms, section_id=section_id,
             flush_result=flush_result,
-        ))
+        )
         yield {"type": "compaction_done", "title": title, "summary": summary}
     except Exception as exc:
         logger.exception("Compaction failed for session %s", session_id)
@@ -1832,7 +1957,6 @@ async def run_compaction_forced(
     if session is None:
         raise ValueError("Session not found")
 
-    # Load channel for channel-level compaction settings
     channel: Channel | None = None
     if session.channel_id:
         channel = await db.get(Channel, session.channel_id)
@@ -1857,218 +1981,77 @@ async def run_compaction_forced(
         .order_by(Message.created_at)
     )
     all_msgs = result.scalars().all()
-
     messages = [_msg_to_dict(m) for m in all_msgs]
     messages = [m for m in messages if m.get("role") != "system"]
-
     conversation = _messages_for_summary(messages)
     if not conversation:
         raise ValueError("No conversation content to summarize")
 
-    # Run dedicated memory flush before compaction
-    memory_flush_ran = False
-    flush_result: str | None = None
-    if channel and _resolve_memory_flush_enabled(bot, channel):
-        try:
-            flush_result = await _run_memory_flush(channel, bot, session_id, messages, correlation_id=correlation_id)
-            memory_flush_ran = True
-        except Exception:
-            logger.warning("Memory flush failed before forced compaction for channel %s", channel.id, exc_info=True)
-        # Also flush member bots in multi-bot channels
-        if channel:
-            await _flush_member_bots(channel, session_id, messages)
-    elif _resolve_trigger_heartbeat(channel) and channel:
-        # Legacy fallback: trigger heartbeat if memory flush not enabled
-        from app.services.heartbeat import trigger_channel_heartbeat
-        try:
-            await trigger_channel_heartbeat(channel.id, bot, correlation_id=correlation_id)
-            logger.info("Triggered heartbeat before section compaction for channel %s", channel.id)
-        except Exception:
-            logger.warning("Failed to trigger heartbeat before compaction for channel %s", channel.id, exc_info=True)
+    memory_flush_ran, flush_result = await _run_memory_flush_phase(
+        channel=channel, bot=bot, session_id=session_id,
+        messages=messages, correlation_id=correlation_id,
+    )
 
     _t0 = _time.monotonic()
     model = _get_compaction_model(bot, channel)
     history_mode = _get_history_mode(bot, channel)
-
     keep_turns = _get_compaction_keep_turns(bot, channel)
-    recent_user_msgs = await db.execute(
-        select(Message.id)
-        .where(Message.session_id == session_id)
-        .where(Message.role == "user")
-        .order_by(Message.created_at.desc())
-        .limit(keep_turns)
+
+    watermark = await _compute_compaction_watermark(
+        db=db, session_id=session_id, keep_turns=keep_turns,
+        prev_watermark_id=prev_watermark_id,
     )
-    user_msg_ids = recent_user_msgs.scalars().all()
-    if not user_msg_ids:
-        raise ValueError("No user messages found in session")
-    oldest_kept = await db.get(Message, user_msg_ids[-1])
-    preceding = await db.execute(
-        select(Message.id)
-        .where(Message.session_id == session_id)
-        .where(Message.created_at < oldest_kept.created_at)
-        .order_by(Message.created_at.desc())
-        .limit(1)
-    )
-    last_msg_id = preceding.scalar()
-    if last_msg_id is None:
+    if watermark is None:
+        # Distinguish "no user messages" from "all in keep window" to preserve
+        # the legacy ValueError messages (matched by _is_noop_compaction_error).
+        any_user = await db.execute(
+            select(func.count())
+            .where(Message.session_id == session_id)
+            .where(Message.role == "user")
+        )
+        if (any_user.scalar() or 0) == 0:
+            raise ValueError("No user messages found in session")
         raise ValueError("All messages within keep window, nothing to compact")
 
+    section_id: uuid.UUID | None = None
     if history_mode in ("structured", "file"):
-        sec_title, sec_summary, sec_transcript, sec_tags, sec_usage = await _generate_section(
-            conversation, model, provider_id=_get_compaction_provider(bot, channel),
-            channel_id=session.channel_id,
-            correlation_id=correlation_id,
-            session_id=session_id,
-            bot_id=bot.id,
-            client_id=client_id,
+        outcome = await _persist_section_and_summary(
+            db=db, session_id=session_id, channel=channel, bot=bot,
+            messages=conversation, watermark=watermark,
+            correlation_id=correlation_id, client_id=client_id,
+            model=model, existing_summary=existing_summary,
+            autoflush_only=True,
         )
-        msg_count = sum(1 for m in conversation if m.get("role") in ("user", "assistant"))
-
-        # Compute period from actual message timestamps
-        period_start = None
-        period_end = None
-        period_query = (
-            select(
-                func.min(Message.created_at),
-                func.max(Message.created_at),
-            )
-            .where(Message.session_id == session_id)
-            .where(Message.created_at < oldest_kept.created_at)
-            .where(Message.role.in_(["user", "assistant"]))
-        )
-        # Lower bound: only messages AFTER the previous watermark
-        if prev_watermark_id:
-            prev_wm_msg = await db.get(Message, prev_watermark_id)
-            if prev_wm_msg:
-                period_query = period_query.where(
-                    Message.created_at > prev_wm_msg.created_at
-                )
-        period_result = await db.execute(period_query)
-        row = period_result.one_or_none()
-        if row:
-            period_start, period_end = row[0], row[1]
-
-        # Always embed section for semantic search
-        sec_embedding = None
-        try:
-            from app.agent.embeddings import embed_text
-            sec_embedding = await embed_text(f"{sec_title}\n{sec_summary}")
-        except Exception:
-            logger.warning("Failed to embed section for session %s", session_id, exc_info=True)
-
-        channel_id = session.channel_id
-        if channel_id:
-            max_seq_result = await db.execute(
-                select(func.max(ConversationSection.sequence))
-                .where(ConversationSection.session_id == session_id)
-            )
-            max_seq = max_seq_result.scalar() or 0
-        else:
-            max_seq = 0
-
-        # Write transcript to filesystem (optional) and DB (always)
-        transcript_path = None
-        history_dir = _get_history_dir(bot, channel)
-        ws_root = _get_channel_ws_root(bot) if channel else _get_workspace_root(bot)
-        if settings.HISTORY_WRITE_FILES and history_dir and ws_root:
-            try:
-                transcript_path = _write_section_file(
-                    history_dir, max_seq + 1, sec_title, sec_summary,
-                    sec_transcript, period_start, period_end, msg_count,
-                    sec_tags or [], ws_root,
-                )
-            except Exception:
-                logger.warning("Failed to write section file for session %s", session_id, exc_info=True)
-
-        section = ConversationSection(
-            channel_id=channel_id,
-            session_id=session_id,
-            sequence=max_seq + 1,
-            title=sec_title,
-            summary=sec_summary,
-            transcript=sec_transcript,
-            transcript_path=transcript_path,
-            message_count=msg_count,
-            chunk_size=msg_count,
-            period_start=period_start,
-            period_end=period_end,
-            embedding=sec_embedding,
-            tags=sec_tags or None,
-        )
-        db.add(section)
-        await db.flush()
-
-        # Prune old sections per retention policy (same session — caller commits)
-        if channel_id:
-            try:
-                pruned = await prune_sections(channel_id, db=db)
-                if pruned:
-                    logger.info("Pruned %d old sections from channel %s", pruned, channel_id)
-            except Exception:
-                logger.warning("Section retention pruning failed for channel %s", channel_id, exc_info=True)
-
-        if existing_summary:
-            exec_summary = f"{existing_summary}\n\n[Section {max_seq + 1}] {sec_title}: {sec_summary}"
-        else:
-            exec_summary = f"[Section {max_seq + 1}] {sec_title}: {sec_summary}"
-
-        # Auto-regenerate if executive summary has grown too large
-        _EXEC_SUMMARY_REGEN_CHARS = 2000
-        _EXEC_SUMMARY_REGEN_SECTIONS = 15
-        section_count = exec_summary.count("[Section ")
-        if len(exec_summary) > _EXEC_SUMMARY_REGEN_CHARS or section_count >= _EXEC_SUMMARY_REGEN_SECTIONS:
-            logger.info(
-                "Executive summary exceeded threshold (%d chars, %d sections) — regenerating for session %s",
-                len(exec_summary), section_count, session_id,
-            )
-            try:
-                exec_summary = await _regenerate_executive_summary(
-                    session_id, model, provider_id=_get_compaction_provider(bot, channel),
-                )
-            except Exception:
-                logger.warning("Failed to regenerate executive summary for session %s", session_id, exc_info=True)
-
-        title, summary = sec_title, exec_summary
+        title = outcome.title
+        summary = outcome.exec_summary
+        messages_archived = outcome.msg_count
+        usage = outcome.usage
+        section_id = outcome.section_id
     else:
-        title, summary, sec_usage = await _generate_summary(
+        title, summary, sum_usage = await _generate_summary(
             conversation, model, existing_summary, provider_id=_get_compaction_provider(bot, channel),
         )
+        messages_archived = len(conversation)
+        usage = sum_usage
 
-    await db.execute(
-        update(Session)
-        .where(Session.id == session_id)
-        .values(title=title, summary=summary, summary_message_id=last_msg_id)
+    await _persist_session_compaction_state(
+        db=db, session_id=session_id,
+        title=title, summary=summary,
+        watermark_id=watermark.last_msg_id,
     )
 
     _duration_ms = int((_time.monotonic() - _t0) * 1000)
-    _section_id = section.id if history_mode in ("structured", "file") else None
-    _msg_count = msg_count if history_mode in ("structured", "file") else len(conversation)
-
-    asyncio.create_task(_record_trace_event(
-        correlation_id=correlation_id,
-        session_id=session_id,
-        bot_id=bot.id,
-        client_id=client_id,
-        event_type="compaction_done",
-        data={"forced": True, "title": title, "summary_len": len(summary), "history_mode": history_mode},
-    ))
-    asyncio.create_task(_record_compaction_log(
-        channel_id=session.channel_id,
-        session_id=session_id,
-        bot_id=bot.id,
-        model=model,
-        history_mode=history_mode,
-        tier=sec_usage.get("tier", "normal"),
-        forced=True,
-        memory_flush=memory_flush_ran,
-        messages_archived=_msg_count,
-        prompt_tokens=sec_usage.get("prompt_tokens"),
-        completion_tokens=sec_usage.get("completion_tokens"),
-        duration_ms=_duration_ms,
-        section_id=_section_id,
-        correlation_id=correlation_id,
+    _record_compaction_completion(
+        correlation_id=correlation_id, session_id=session_id, bot_id=bot.id,
+        client_id=client_id, channel_id=session.channel_id,
+        title=title, summary=summary, history_mode=history_mode, model=model,
+        tier=usage.get("tier", "normal"), forced=True,
+        memory_flush=memory_flush_ran, messages_archived=messages_archived,
+        prompt_tokens=usage.get("prompt_tokens"),
+        completion_tokens=usage.get("completion_tokens"),
+        duration_ms=_duration_ms, section_id=section_id,
         flush_result=flush_result,
-    ))
+    )
     return (title, summary)
 
 

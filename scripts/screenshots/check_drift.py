@@ -7,12 +7,40 @@ report and exits non-zero if any are missing.
 Runs standalone — no server, no staging required::
 
     python -m scripts.screenshots check
+    python -m scripts.screenshots check --require-hero
+
+The optional ``--require-hero`` mode additionally flags every guide under
+``docs/guides/`` that has zero ``![...]`` references — the failure mode where
+a feature ships, the guide is written, but the hero capture never gets wired
+in (a class of drift the basic check missed). Exits non-zero if any guide
+under ``docs/guides/`` lacks at least one image reference, EXCEPT the small
+allow-list of intentionally text-only reference docs.
 """
 from __future__ import annotations
 
+import argparse
 import re
 import sys
 from pathlib import Path
+
+
+# Reference / glossary / process docs that legitimately don't carry a hero.
+# Adding a guide here is a deliberate decision — keep the list short and
+# documented in the matching plan/Track entry.
+_HERO_OPTIONAL = frozenset({
+    "api.md",
+    "clients.md",
+    "feature-status.md",
+    "ubiquitous-language.md",
+    "ui-design.md",
+    "ui-components.md",
+    "context-management.md",
+    "development-process.md",
+    "e2e-testing.md",
+    "plan-mode.md",
+    "programmatic-tool-calling.md",
+    "workflows.md",  # deprecated guide, intentionally hero-less
+})
 
 
 # Match ``![alt text](../images/name.png)`` and ``(docs/images/name.png)``.
@@ -43,7 +71,25 @@ def _find_refs(docs_root: Path) -> list[tuple[Path, str, Path]]:
     return out
 
 
-def check() -> int:
+def _guides_without_heroes(docs_root: Path) -> list[Path]:
+    """Return guide paths under ``docs/guides/`` that have zero image refs.
+
+    Skips files in ``_HERO_OPTIONAL``. Result is sorted, repo-rooted-relative.
+    """
+    guides_root = docs_root / "guides"
+    if not guides_root.is_dir():
+        return []
+    out: list[Path] = []
+    for md in sorted(guides_root.glob("*.md")):
+        if md.name in _HERO_OPTIONAL:
+            continue
+        text = md.read_text(encoding="utf-8", errors="replace")
+        if not _MD_IMAGE_RE.search(text):
+            out.append(md)
+    return out
+
+
+def check(require_hero: bool = False) -> int:
     root = _repo_root()
     docs_root = root / "docs"
     if not docs_root.is_dir():
@@ -51,10 +97,6 @@ def check() -> int:
         return 2
 
     refs = _find_refs(docs_root)
-    if not refs:
-        print("No image references found in docs/.")
-        return 0
-
     missing: list[tuple[Path, str, Path]] = []
     ok_count = 0
     for md, raw, resolved in refs:
@@ -67,19 +109,41 @@ def check() -> int:
     print(f"  OK:      {ok_count}")
     print(f"  Missing: {len(missing)}")
 
+    exit_code = 0
     if missing:
         print("\nMissing images (guide → referenced path):")
         for md, raw, resolved in missing:
             rel_md = md.relative_to(root)
             rel_resolved = resolved.relative_to(root) if resolved.is_relative_to(root) else resolved
             print(f"  {rel_md}  →  {raw}  (expected at {rel_resolved})")
-        return 1
+        exit_code = 1
 
-    return 0
+    if require_hero:
+        bare = _guides_without_heroes(docs_root)
+        print(f"\nGuides without a hero image: {len(bare)} (allow-listed: {len(_HERO_OPTIONAL)})")
+        if bare:
+            print("Guides under docs/guides/ that have zero image references:")
+            for md in bare:
+                print(f"  {md.relative_to(root)}")
+            print(
+                "\nFix: add `![Caption](../images/<file>.png)` after the H1 intro,"
+                " or extend `_HERO_OPTIONAL` in scripts/screenshots/check_drift.py"
+                " if this guide is intentionally text-only."
+            )
+            exit_code = 1
+
+    return exit_code
 
 
 def main() -> None:
-    sys.exit(check())
+    parser = argparse.ArgumentParser(prog="scripts.screenshots check")
+    parser.add_argument(
+        "--require-hero",
+        action="store_true",
+        help="also fail if any non-allow-listed guide under docs/guides/ has zero image refs",
+    )
+    args = parser.parse_args()
+    sys.exit(check(require_hero=args.require_hero))
 
 
 if __name__ == "__main__":

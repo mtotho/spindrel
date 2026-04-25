@@ -243,6 +243,361 @@ def _collect_prompt_template_files() -> list[tuple[Path, str, str]]:
     return items
 
 
+# ===== Cluster 10 file_sync stage helpers =====
+#
+# Both `sync_all_files` (full disk → DB scan) and `sync_changed_file` (single
+# watch event) upsert the same three resource kinds (Skill, PromptTemplate,
+# Workflow) with byte-equivalent SQL. The helpers below collapse that
+# duplication. The `log_path` kwarg threads two variants of the same log
+# line — when None, the helper formats the watch-mode message
+# ("file_sync(watch): added skill 'X'") and skips sync_all-only branches
+# (manual-skip on workflows, source-drift fix on unchanged). When truthy,
+# the full sync_all behavior runs.
+#
+# Helpers raise on DB error; callers wrap (sync_all_files records into
+# counts["errors"]; watch_files() catches at the outer loop). This preserves
+# today's two error-handling shapes.
+
+
+def _log_action(action: str, kind: str, ident: str, log_path: Path | None) -> str:
+    """Format a sync log message in either watch or sync_all style."""
+    if log_path is None:
+        return f"file_sync(watch): {action} {kind} '{ident}'"
+    return f"file_sync: {action} {kind} '{ident}' from {log_path}"
+
+
+async def _upsert_skill_row(
+    *,
+    skill_id: str,
+    raw: str,
+    source_path: str,
+    source_type: str,
+    log_path: Path | None,
+) -> str:
+    """Upsert a Skill row from raw markdown. Returns 'added', 'updated', or 'unchanged'."""
+    content_hash = _sha256(raw)
+    skill_meta = _extract_skill_metadata(raw, skill_id)
+    is_watch = log_path is None
+
+    async with async_session() as session:
+        existing = await session.get(SkillRow, skill_id)
+        if existing is None:
+            row = SkillRow(
+                id=skill_id,
+                name=skill_meta["name"],
+                description=skill_meta["description"],
+                category=skill_meta["category"],
+                triggers=skill_meta["triggers"],
+                content=raw,
+                content_hash=content_hash,
+                source_path=source_path,
+                source_type=source_type,
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(row)
+            await session.commit()
+            logger.info(_log_action("added", "skill", skill_id, log_path))
+            await _embed_skill_from_content(skill_id, raw, content_hash)
+            return "added"
+        if existing.content_hash != content_hash:
+            existing.name = skill_meta["name"]
+            existing.description = skill_meta["description"]
+            existing.category = skill_meta["category"]
+            existing.triggers = skill_meta["triggers"]
+            existing.content = raw
+            existing.content_hash = content_hash
+            existing.source_path = source_path
+            existing.source_type = source_type
+            existing.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+            logger.info(_log_action("updated", "skill", skill_id, log_path))
+            await _embed_skill_from_content(skill_id, raw, content_hash)
+            return "updated"
+        # Unchanged — sync_all also patches drifted source metadata silently.
+        if not is_watch and (
+            existing.source_type != source_type or existing.source_path != source_path
+        ):
+            existing.source_type = source_type
+            existing.source_path = source_path
+            await session.commit()
+        return "unchanged"
+
+
+def _build_prompt_template_fields(raw: str, name: str) -> dict[str, Any]:
+    """Parse frontmatter into PromptTemplate column values shared by both wrappers."""
+    meta, _ = _parse_frontmatter(raw)
+    display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
+    category = meta.get("category")
+    description = meta.get("description")
+    group = meta.get("group")
+    recommended_heartbeat = meta.get("recommended_heartbeat")
+    tags = meta.get("tags", [])
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    mc_ver = meta.get("mc_min_version")
+    if mc_ver:
+        ver_tag = f"mc_min_version:{mc_ver}"
+        if ver_tag not in tags:
+            tags.append(ver_tag)
+    return {
+        "name": display_name,
+        "description": description,
+        "category": category,
+        "tags": tags if tags else [],
+        "group": group,
+        "recommended_heartbeat": recommended_heartbeat,
+    }
+
+
+async def _upsert_prompt_template_row(
+    *,
+    name: str,
+    raw: str,
+    source_path: str,
+    source_type: str,
+    log_path: Path | None,
+) -> str:
+    """Upsert a PromptTemplate row. Returns 'added', 'updated', or 'unchanged'."""
+    content_hash = _sha256(raw)
+    fields = _build_prompt_template_fields(raw, name)
+    is_watch = log_path is None
+
+    async with async_session() as session:
+        stmt = select(PromptTemplate).where(
+            PromptTemplate.source_path == source_path,
+            PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
+        )
+        existing = (await session.execute(stmt)).scalar_one_or_none()
+
+        if existing is None:
+            row = PromptTemplate(
+                name=fields["name"],
+                description=fields["description"],
+                content=raw,
+                category=fields["category"],
+                tags=fields["tags"],
+                group=fields["group"],
+                recommended_heartbeat=fields["recommended_heartbeat"],
+                source_type=source_type,
+                source_path=source_path,
+                content_hash=content_hash,
+            )
+            session.add(row)
+            await session.commit()
+            logger.info(_log_action("added", "prompt template", fields["name"], log_path))
+            return "added"
+        if existing.content_hash != content_hash:
+            existing.name = fields["name"]
+            existing.description = fields["description"]
+            existing.content = raw
+            existing.category = fields["category"]
+            existing.tags = fields["tags"]
+            existing.group = fields["group"]
+            existing.recommended_heartbeat = fields["recommended_heartbeat"]
+            existing.content_hash = content_hash
+            if not is_watch:
+                existing.source_path = source_path
+                existing.source_type = source_type
+            existing.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+            logger.info(_log_action("updated", "prompt template", fields["name"], log_path))
+            return "updated"
+        return "unchanged"
+
+
+async def _upsert_workflow_row(
+    *,
+    workflow_id: str,
+    raw: str,
+    source_path: str,
+    source_type: str,
+    log_path: Path | None,
+) -> tuple[str, str]:
+    """Upsert a Workflow row. Returns (status, resolved_workflow_id).
+
+    `status` is 'added', 'updated', or 'unchanged'. The resolved id may
+    differ from the path-derived `workflow_id` when the YAML contains an
+    explicit `id:` field.
+    """
+    import yaml as _yaml
+    from app.db.models import Workflow as WorkflowRow
+
+    is_watch = log_path is None
+    content_hash = _sha256(raw)
+    data = _yaml.safe_load(raw) or {}
+    wid = data.get("id", workflow_id)
+
+    async with async_session() as session:
+        existing = await session.get(WorkflowRow, wid)
+        if existing is None:
+            kwargs: dict[str, Any] = dict(
+                id=wid,
+                name=data.get("name", wid),
+                description=data.get("description"),
+                params=data.get("params", {}),
+                secrets=data.get("secrets", []),
+                defaults=data.get("defaults", {}),
+                steps=data.get("steps", []),
+                triggers=data.get("triggers", {}),
+                tags=data.get("tags", []),
+                source_path=source_path,
+                source_type=source_type,
+                content_hash=content_hash,
+                updated_at=datetime.now(timezone.utc),
+            )
+            if not is_watch:
+                kwargs["session_mode"] = data.get("session_mode", "isolated")
+            row = WorkflowRow(**kwargs)
+            session.add(row)
+            await session.commit()
+            logger.info(_log_action("added", "workflow", wid, log_path))
+            return ("added", wid)
+        if (not is_watch) and existing.source_type == "manual":
+            logger.debug("file_sync: skipping detached workflow '%s'", wid)
+            return ("unchanged", wid)
+        if existing.content_hash != content_hash:
+            existing.name = data.get("name", wid)
+            existing.description = data.get("description")
+            existing.params = data.get("params", {})
+            existing.secrets = data.get("secrets", [])
+            existing.defaults = data.get("defaults", {})
+            existing.steps = data.get("steps", [])
+            existing.triggers = data.get("triggers", {})
+            existing.tags = data.get("tags", [])
+            if not is_watch:
+                existing.session_mode = data.get("session_mode", "isolated")
+            existing.source_path = source_path
+            existing.source_type = source_type
+            existing.content_hash = content_hash
+            existing.updated_at = datetime.now(timezone.utc)
+            await session.commit()
+            logger.info(_log_action("updated", "workflow", wid, log_path))
+            return ("updated", wid)
+        if not is_watch and (
+            existing.source_type != source_type or existing.source_path != source_path
+        ):
+            existing.source_type = source_type
+            existing.source_path = source_path
+            await session.commit()
+        return ("unchanged", wid)
+
+
+async def _delete_orphan_skills(
+    *, seen_ids: set[str], any_files_on_disk: bool, cwd: str
+) -> tuple[int, list[str]]:
+    """Delete file/integration-sourced skill rows whose IDs aren't in `seen_ids`.
+
+    When `any_files_on_disk` is False, skips deletion if any rows exist
+    (likely a volume-mount issue) and returns an error message instead.
+    Returns (deleted_count, error_messages).
+    """
+    if any_files_on_disk:
+        deleted = 0
+        async with async_session() as session:
+            stmt = select(SkillRow).where(
+                SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            )
+            all_file_skills = list((await session.execute(stmt)).scalars().all())
+            for row in all_file_skills:
+                if row.id not in seen_ids:
+                    await session.delete(row)
+                    deleted += 1
+                    logger.info("file_sync: deleted orphaned skill '%s'", row.id)
+            await session.commit()
+        return (deleted, [])
+
+    # Zero files on disk — likely a mount issue. Skip deletion.
+    async with async_session() as session:
+        existing_count = (await session.execute(
+            select(func.count()).select_from(SkillRow).where(
+                SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            )
+        )).scalar_one()
+    if existing_count > 0:
+        logger.warning(
+            "file_sync: found 0 skill files on disk but %d file-sourced skills in DB. "
+            "Skipping orphan deletion — possible volume mount issue. cwd=%s",
+            existing_count, cwd,
+        )
+        return (0, [
+            f"Found 0 files on disk but {existing_count} file-sourced skills in DB — "
+            f"skipping orphan deletion (possible mount issue, cwd={cwd})"
+        ])
+    return (0, [])
+
+
+async def _delete_orphan_prompt_templates(*, seen_paths: set[str]) -> int:
+    """Delete file/integration-managed prompt templates whose source_path isn't in `seen_paths`."""
+    deleted = 0
+    async with async_session() as session:
+        stmt = select(PromptTemplate).where(
+            PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+        )
+        all_file_templates = list((await session.execute(stmt)).scalars().all())
+        for row in all_file_templates:
+            if row.source_path not in seen_paths:
+                await session.delete(row)
+                deleted += 1
+                logger.info("file_sync: deleted orphaned prompt template '%s'", row.name)
+        await session.commit()
+    return deleted
+
+
+async def _delete_orphan_workflows(*, seen_ids: set[str]) -> int:
+    """Delete file/integration workflows whose IDs aren't in `seen_ids`."""
+    from app.db.models import Workflow as WorkflowRow
+    deleted = 0
+    async with async_session() as session:
+        stmt = select(WorkflowRow).where(
+            WorkflowRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+        )
+        all_file_workflows = list((await session.execute(stmt)).scalars().all())
+        for row in all_file_workflows:
+            if row.id not in seen_ids:
+                await session.delete(row)
+                deleted += 1
+                logger.info("file_sync: deleted orphaned workflow '%s'", row.id)
+        await session.commit()
+    return deleted
+
+
+async def _delete_rows_by_source_path(*, path_str: str) -> tuple[bool, bool]:
+    """Delete Skill / PromptTemplate / Workflow rows whose source_path == path_str.
+
+    Returns (any_deleted, workflow_deleted) — the latter signals the caller
+    to reload the workflow registry.
+    """
+    from app.db.models import Workflow as WorkflowRow
+    async with async_session() as session:
+        skill_rows = list(
+            (await session.execute(select(SkillRow).where(SkillRow.source_path == path_str)))
+            .scalars().all()
+        )
+        for row in skill_rows:
+            await session.delete(row)
+        template_rows = list(
+            (await session.execute(
+                select(PromptTemplate).where(PromptTemplate.source_path == path_str)
+            )).scalars().all()
+        )
+        for row in template_rows:
+            await session.delete(row)
+        workflow_rows = list(
+            (await session.execute(
+                select(WorkflowRow).where(WorkflowRow.source_path == path_str)
+            )).scalars().all()
+        )
+        for row in workflow_rows:
+            await session.delete(row)
+        any_deleted = bool(skill_rows or template_rows or workflow_rows)
+        if any_deleted:
+            await session.commit()
+        return (any_deleted, bool(workflow_rows))
+
+
+# ===== End Cluster 10 file_sync stage helpers =====
+
+
 async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
     """Scan all file-drop directories, upsert changed rows, delete orphaned rows.
 
@@ -293,88 +648,27 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
             continue
         seen_skill_ids.add(skill_id)
 
-        content_hash = _sha256(raw)
-        skill_meta = _extract_skill_metadata(raw, skill_id)
-        source_path = str(path.resolve())
-
         try:
-            async with async_session() as session:
-                existing = await session.get(SkillRow, skill_id)
-                if existing is None:
-                    row = SkillRow(
-                        id=skill_id,
-                        name=skill_meta["name"],
-                        description=skill_meta["description"],
-                        category=skill_meta["category"],
-                        triggers=skill_meta["triggers"],
-                        content=raw,
-                        content_hash=content_hash,
-                        source_path=source_path,
-                        source_type=source_type,
-                        updated_at=datetime.now(timezone.utc),
-                    )
-                    session.add(row)
-                    await session.commit()
-                    counts["added"] += 1
-                    logger.info("file_sync: added skill '%s' from %s", skill_id, path)
-                    await _embed_skill_from_content(skill_id, raw, content_hash)
-                elif existing.content_hash != content_hash:
-                    existing.name = skill_meta["name"]
-                    existing.description = skill_meta["description"]
-                    existing.category = skill_meta["category"]
-                    existing.triggers = skill_meta["triggers"]
-                    existing.content = raw
-                    existing.content_hash = content_hash
-                    existing.source_path = source_path
-                    existing.source_type = source_type
-                    existing.updated_at = datetime.now(timezone.utc)
-                    await session.commit()
-                    counts["updated"] += 1
-                    logger.info("file_sync: updated skill '%s' from %s", skill_id, path)
-                    await _embed_skill_from_content(skill_id, raw, content_hash)
-                else:
-                    counts["unchanged"] += 1
-                    # Ensure source metadata is up to date even if content unchanged
-                    if existing.source_type != source_type or existing.source_path != source_path:
-                        existing.source_type = source_type
-                        existing.source_path = source_path
-                        await session.commit()
+            status = await _upsert_skill_row(
+                skill_id=skill_id,
+                raw=raw,
+                source_path=str(path.resolve()),
+                source_type=source_type,
+                log_path=path,
+            )
         except Exception:
             logger.exception("file_sync: DB error syncing skill '%s'", skill_id)
             counts["errors"].append(f"DB error for skill '{skill_id}'")
+            continue
+        counts[status] = counts.get(status, 0) + 1
 
-    # Delete orphaned file/integration skills no longer on disk
-    # Safety: skip orphan deletion if we found zero files — likely a mount/CWD issue
-    if skill_files:
-        async with async_session() as session:
-            stmt = select(SkillRow).where(
-                SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
-            )
-            all_file_skills = list((await session.execute(stmt)).scalars().all())
-            for row in all_file_skills:
-                if row.id not in seen_skill_ids:
-                    await session.delete(row)
-                    counts["deleted"] += 1
-                    logger.info("file_sync: deleted orphaned skill '%s'", row.id)
-            await session.commit()
-    elif not skill_files:
-        # Log a warning — zero files found might mean a mount issue
-        async with async_session() as session:
-            existing_count = (await session.execute(
-                select(func.count()).select_from(SkillRow).where(
-                    SkillRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
-                )
-            )).scalar_one()
-        if existing_count > 0:
-            logger.warning(
-                "file_sync: found 0 skill files on disk but %d file-sourced skills in DB. "
-                "Skipping orphan deletion — possible volume mount issue. cwd=%s",
-                existing_count, cwd,
-            )
-            counts["errors"].append(
-                f"Found 0 files on disk but {existing_count} file-sourced skills in DB — "
-                f"skipping orphan deletion (possible mount issue, cwd={cwd})"
-            )
+    skill_deleted, skill_errors = await _delete_orphan_skills(
+        seen_ids=seen_skill_ids,
+        any_files_on_disk=bool(skill_files),
+        cwd=cwd,
+    )
+    counts["deleted"] += skill_deleted
+    counts["errors"].extend(skill_errors)
 
     # --- Prompt Templates ---
     template_files = _collect_prompt_template_files()
@@ -389,80 +683,23 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
             logger.exception("Cannot read prompt template file %s", path)
             continue
 
-        content_hash = _sha256(raw)
-        meta, body = _parse_frontmatter(raw)
-        display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
-        category = meta.get("category")
-        description = meta.get("description")
-        group = meta.get("group")
-        recommended_heartbeat = meta.get("recommended_heartbeat")
-        tags = meta.get("tags", [])
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-        # Expand mc_min_version frontmatter into mc_min_version:* tag
-        mc_ver = meta.get("mc_min_version")
-        if mc_ver:
-            ver_tag = f"mc_min_version:{mc_ver}"
-            if ver_tag not in tags:
-                tags.append(ver_tag)
-
-        async with async_session() as session:
-            stmt = select(PromptTemplate).where(
-                PromptTemplate.source_path == source_path,
-                PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
+        try:
+            status = await _upsert_prompt_template_row(
+                name=name,
+                raw=raw,
+                source_path=source_path,
+                source_type=source_type,
+                log_path=path,
             )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
+        except Exception:
+            logger.exception("file_sync: DB error syncing prompt template '%s'", name)
+            continue
+        counts[status] = counts.get(status, 0) + 1
 
-            if existing is None:
-                row = PromptTemplate(
-                    name=display_name,
-                    description=description,
-                    content=raw,
-                    category=category,
-                    tags=tags if tags else [],
-                    group=group,
-                    recommended_heartbeat=recommended_heartbeat,
-                    source_type=source_type,
-                    source_path=source_path,
-                    content_hash=content_hash,
-                )
-                session.add(row)
-                await session.commit()
-                counts["added"] += 1
-                logger.info("file_sync: added prompt template '%s' from %s", display_name, path)
-            elif existing.content_hash != content_hash:
-                existing.name = display_name
-                existing.description = description
-                existing.content = raw
-                existing.category = category
-                existing.tags = tags if tags else []
-                existing.group = group
-                existing.recommended_heartbeat = recommended_heartbeat
-                existing.content_hash = content_hash
-                existing.source_path = source_path
-                existing.source_type = source_type
-                existing.updated_at = datetime.now(timezone.utc)
-                await session.commit()
-                counts["updated"] += 1
-                logger.info("file_sync: updated prompt template '%s' from %s", display_name, path)
-
-    # Delete orphaned file/integration-managed prompt templates
-    async with async_session() as session:
-        stmt = select(PromptTemplate).where(
-            PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
-        )
-        all_file_templates = list((await session.execute(stmt)).scalars().all())
-        for row in all_file_templates:
-            if row.source_path not in seen_template_paths:
-                await session.delete(row)
-                counts["deleted"] += 1
-                logger.info("file_sync: deleted orphaned prompt template '%s'", row.name)
-        await session.commit()
+    counts["deleted"] += await _delete_orphan_prompt_templates(seen_paths=seen_template_paths)
 
     # --- Workflows ---
     from app.services.workflows import collect_workflow_files
-    from app.db.models import Workflow as WorkflowRow
-    import yaml as _wf_yaml
 
     workflow_files = collect_workflow_files()
     seen_workflow_ids: set[str] = set()
@@ -475,80 +712,23 @@ async def sync_all_files(db: AsyncSession | None = None) -> dict[str, Any]:
             counts["errors"].append(f"Cannot read {path}")
             continue
 
-        content_hash = _sha256(raw)
-        data = _wf_yaml.safe_load(raw) or {}
-        wid = data.get("id", workflow_id)
-        seen_workflow_ids.add(wid)
-        source_path = str(path.resolve())
-
         try:
-            async with async_session() as session:
-                existing = await session.get(WorkflowRow, wid)
-                if existing is None:
-                    row = WorkflowRow(
-                        id=wid,
-                        name=data.get("name", wid),
-                        description=data.get("description"),
-                        params=data.get("params", {}),
-                        secrets=data.get("secrets", []),
-                        defaults=data.get("defaults", {}),
-                        steps=data.get("steps", []),
-                        triggers=data.get("triggers", {}),
-                        tags=data.get("tags", []),
-                        session_mode=data.get("session_mode", "isolated"),
-                        source_path=source_path,
-                        source_type=source_type,
-                        content_hash=content_hash,
-                        updated_at=datetime.now(timezone.utc),
-                    )
-                    session.add(row)
-                    await session.commit()
-                    counts["added"] += 1
-                    logger.info("file_sync: added workflow '%s' from %s", wid, path)
-                elif existing.source_type == "manual":
-                    # Workflow was detached from file — don't overwrite manual edits
-                    counts["unchanged"] += 1
-                    logger.debug("file_sync: skipping detached workflow '%s'", wid)
-                elif existing.content_hash != content_hash:
-                    existing.name = data.get("name", wid)
-                    existing.description = data.get("description")
-                    existing.params = data.get("params", {})
-                    existing.secrets = data.get("secrets", [])
-                    existing.defaults = data.get("defaults", {})
-                    existing.steps = data.get("steps", [])
-                    existing.triggers = data.get("triggers", {})
-                    existing.tags = data.get("tags", [])
-                    existing.session_mode = data.get("session_mode", "isolated")
-                    existing.source_path = source_path
-                    existing.source_type = source_type
-                    existing.content_hash = content_hash
-                    existing.updated_at = datetime.now(timezone.utc)
-                    await session.commit()
-                    counts["updated"] += 1
-                    logger.info("file_sync: updated workflow '%s' from %s", wid, path)
-                else:
-                    counts["unchanged"] += 1
-                    if existing.source_type != source_type or existing.source_path != source_path:
-                        existing.source_type = source_type
-                        existing.source_path = source_path
-                        await session.commit()
-        except Exception:
-            logger.exception("file_sync: DB error syncing workflow '%s'", wid)
-            counts["errors"].append(f"DB error for workflow '{wid}'")
-
-    # Delete orphaned file/integration workflows
-    if workflow_files:
-        async with async_session() as session:
-            stmt = select(WorkflowRow).where(
-                WorkflowRow.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION])
+            status, wid = await _upsert_workflow_row(
+                workflow_id=workflow_id,
+                raw=raw,
+                source_path=str(path.resolve()),
+                source_type=source_type,
+                log_path=path,
             )
-            all_file_workflows = list((await session.execute(stmt)).scalars().all())
-            for row in all_file_workflows:
-                if row.id not in seen_workflow_ids:
-                    await session.delete(row)
-                    counts["deleted"] += 1
-                    logger.info("file_sync: deleted orphaned workflow '%s'", row.id)
-            await session.commit()
+        except Exception:
+            logger.exception("file_sync: DB error syncing workflow '%s'", workflow_id)
+            counts["errors"].append(f"DB error for workflow '{workflow_id}'")
+            continue
+        seen_workflow_ids.add(wid)
+        counts[status] = counts.get(status, 0) + 1
+
+    if workflow_files:
+        counts["deleted"] += await _delete_orphan_workflows(seen_ids=seen_workflow_ids)
 
     # Reload workflow registry after sync
     if workflow_files or seen_workflow_ids:
@@ -584,176 +764,53 @@ async def sync_changed_file(path: Path) -> None:
     path_str = str(path)
 
     if not path.exists():
-        # File deleted — remove DB rows referencing it
-        async with async_session() as session:
-            # Skill
-            stmt = select(SkillRow).where(SkillRow.source_path == path_str)
-            rows = list((await session.execute(stmt)).scalars().all())
-            for row in rows:
-                await session.delete(row)
-            # Prompt templates
-            stmt3 = select(PromptTemplate).where(PromptTemplate.source_path == path_str)
-            rows3 = list((await session.execute(stmt3)).scalars().all())
-            for row in rows3:
-                await session.delete(row)
-            # Workflows
-            from app.db.models import Workflow as WorkflowRow
-            stmt5 = select(WorkflowRow).where(WorkflowRow.source_path == path_str)
-            rows5 = list((await session.execute(stmt5)).scalars().all())
-            for row in rows5:
-                await session.delete(row)
-            if rows or rows3 or rows5:
-                await session.commit()
-                logger.info("file_sync: removed DB rows for deleted file %s", path)
-            if rows5:
-                try:
-                    from app.services.workflows import reload_workflows
-                    await reload_workflows()
-                except Exception:
-                    pass
+        any_deleted, workflow_deleted = await _delete_rows_by_source_path(path_str=path_str)
+        if any_deleted:
+            logger.info("file_sync: removed DB rows for deleted file %s", path)
+        if workflow_deleted:
+            try:
+                from app.services.workflows import reload_workflows
+                await reload_workflows()
+            except Exception:
+                pass
         return
 
     if path.suffix not in (".md", ".yaml"):
         return
 
     raw = path.read_text(encoding="utf-8")
-    content_hash = _sha256(raw)
 
     # Determine what kind of file this is by checking its location
     rel_parts = _classify_path(path)
     if rel_parts is None:
         return
 
-    kind, skill_id_or_name, bot_id, source_type = rel_parts
+    kind, skill_id_or_name, _bot_id, source_type = rel_parts
 
     if kind == "skill":
-        skill_id = skill_id_or_name
-        skill_meta = _extract_skill_metadata(raw, skill_id)
-        async with async_session() as session:
-            existing = await session.get(SkillRow, skill_id)
-            if existing is None:
-                row = SkillRow(
-                    id=skill_id,
-                    name=skill_meta["name"],
-                    description=skill_meta["description"],
-                    category=skill_meta["category"],
-                    triggers=skill_meta["triggers"],
-                    content=raw,
-                    content_hash=content_hash,
-                    source_path=path_str,
-                    source_type=source_type,
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.commit()
-                logger.info("file_sync(watch): added skill '%s'", skill_id)
-                await _embed_skill_from_content(skill_id, raw, content_hash)
-            elif existing.content_hash != content_hash:
-                existing.name = skill_meta["name"]
-                existing.description = skill_meta["description"]
-                existing.category = skill_meta["category"]
-                existing.triggers = skill_meta["triggers"]
-                existing.content = raw
-                existing.content_hash = content_hash
-                existing.source_path = path_str
-                existing.source_type = source_type
-                existing.updated_at = datetime.now(timezone.utc)
-                await session.commit()
-                logger.info("file_sync(watch): updated skill '%s'", skill_id)
-                await _embed_skill_from_content(skill_id, raw, content_hash)
+        await _upsert_skill_row(
+            skill_id=skill_id_or_name,
+            raw=raw,
+            source_path=path_str,
+            source_type=source_type,
+            log_path=None,
+        )
     elif kind == "prompt_template":
-        name = skill_id_or_name
-        meta, _ = _parse_frontmatter(raw)
-        display_name = meta.get("name", name.replace("_", " ").replace("-", " ").title())
-        category = meta.get("category")
-        description = meta.get("description")
-        group = meta.get("group")
-        recommended_heartbeat = meta.get("recommended_heartbeat")
-        tags = meta.get("tags", [])
-        if isinstance(tags, str):
-            tags = [t.strip() for t in tags.split(",") if t.strip()]
-        # Expand mc_min_version frontmatter into mc_min_version:* tag
-        mc_ver = meta.get("mc_min_version")
-        if mc_ver:
-            ver_tag = f"mc_min_version:{mc_ver}"
-            if ver_tag not in tags:
-                tags.append(ver_tag)
-        async with async_session() as session:
-            stmt = select(PromptTemplate).where(
-                PromptTemplate.source_path == path_str,
-                PromptTemplate.source_type.in_([SOURCE_FILE, SOURCE_INTEGRATION]),
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-            if existing is None:
-                row = PromptTemplate(
-                    name=display_name,
-                    description=description,
-                    content=raw,
-                    category=category,
-                    tags=tags if tags else [],
-                    group=group,
-                    recommended_heartbeat=recommended_heartbeat,
-                    source_type=source_type,
-                    source_path=path_str,
-                    content_hash=content_hash,
-                )
-                session.add(row)
-                await session.commit()
-                logger.info("file_sync(watch): added prompt template '%s'", display_name)
-            elif existing.content_hash != content_hash:
-                existing.name = display_name
-                existing.description = description
-                existing.content = raw
-                existing.category = category
-                existing.tags = tags if tags else []
-                existing.group = group
-                existing.recommended_heartbeat = recommended_heartbeat
-                existing.content_hash = content_hash
-                existing.updated_at = datetime.now(timezone.utc)
-                await session.commit()
-                logger.info("file_sync(watch): updated prompt template '%s'", display_name)
+        await _upsert_prompt_template_row(
+            name=skill_id_or_name,
+            raw=raw,
+            source_path=path_str,
+            source_type=source_type,
+            log_path=None,
+        )
     elif kind == "workflow":
-        import yaml as _yaml
-        from app.db.models import Workflow as WorkflowRow
-        wid = skill_id_or_name
-        data = _yaml.safe_load(raw) or {}
-        wid = data.get("id", wid)
-        async with async_session() as session:
-            existing = await session.get(WorkflowRow, wid)
-            if existing is None:
-                row = WorkflowRow(
-                    id=wid,
-                    name=data.get("name", wid),
-                    description=data.get("description"),
-                    params=data.get("params", {}),
-                    secrets=data.get("secrets", []),
-                    defaults=data.get("defaults", {}),
-                    steps=data.get("steps", []),
-                    triggers=data.get("triggers", {}),
-                    tags=data.get("tags", []),
-                    source_path=path_str,
-                    source_type=source_type,
-                    content_hash=content_hash,
-                    updated_at=datetime.now(timezone.utc),
-                )
-                session.add(row)
-                await session.commit()
-                logger.info("file_sync(watch): added workflow '%s'", wid)
-            elif existing.content_hash != content_hash:
-                existing.name = data.get("name", wid)
-                existing.description = data.get("description")
-                existing.params = data.get("params", {})
-                existing.secrets = data.get("secrets", [])
-                existing.defaults = data.get("defaults", {})
-                existing.steps = data.get("steps", [])
-                existing.triggers = data.get("triggers", {})
-                existing.tags = data.get("tags", [])
-                existing.source_path = path_str
-                existing.source_type = source_type
-                existing.content_hash = content_hash
-                existing.updated_at = datetime.now(timezone.utc)
-                await session.commit()
-                logger.info("file_sync(watch): updated workflow '%s'", wid)
+        await _upsert_workflow_row(
+            workflow_id=skill_id_or_name,
+            raw=raw,
+            source_path=path_str,
+            source_type=source_type,
+            log_path=None,
+        )
         try:
             from app.services.workflows import reload_workflows
             await reload_workflows()

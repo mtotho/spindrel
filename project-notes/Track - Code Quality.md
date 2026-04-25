@@ -2,7 +2,7 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (Cluster 7 COMPLETE — assemble_context now 357 LOC, all 33 stages extracted via 16 helpers; cumulative 7a–7e-d: 1490 → 357 LOC, -76%)
+updated: 2026-04-24 (Cluster 10 shipped — file_sync.py sync_all/watch duplication collapsed into 8 stage helpers; sync_all_files 333 → 159 LOC -52%, sync_changed_file 180 → 60 LOC -67%)
 ---
 # Track — Code Quality & Refactoring
 
@@ -310,10 +310,10 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 |------|----------|-------|---------------|
 | context_assembly.py | `assemble_context()` | ~~1400~~ ~~990~~ ~~1490~~ ~~1341~~ ~~1211~~ ~~898~~ ~~740~~ ~~654~~ ~~498~~ ~~441~~ **357** (file: ~~2730~~ ~~2857~~ ~~2963~~ ~~3013~~ ~~3047~~ ~~3083~~ ~~3122~~ ~~3167~~ **3220**) | **✅ CLUSTER 7 COMPLETE.** 16 in-file helpers extracted across 7a-7e-d covering all 33 pipeline stages. Cumulative 1490 → 357 LOC (**-76%**). Final sub-cluster 7e-d shipped Stages 30-33 finalization traces helper (105 LOC → 20 LOC caller). `assemble_context` is now a readable top-to-bottom driver: each `# --- stage ---` divider marks a helper call, and stages that aren't yet helpers (channel workspace, conversation sections, RAG, bot KB, plan artifact, memory scheme) already had their own inline helpers pre-Cluster 7. |
 | loop.py | `run_agent_tool_loop()` | ~~960~~ ~~1030~~ ~~809~~ **591** (file: ~~**1684**~~ ~~1358~~ **1136**) | Clusters 6a+6b shipped. 929 → 591 LOC (-36%). Remaining 591 LOC is cohesive per-iteration orchestration (cancellation checks, LLM streaming, dispatch, image injection, skill-nudge, cycle detection) — further reduction needs cross-iteration state objects, not more extractions. |
-| file_sync.py | `sync_all_files()` | ~518 | 5 resource types × collect-upsert-orphan-delete |
+| file_sync.py | `sync_all_files()` + `sync_changed_file()` | ~~333~~ **159** + ~~180~~ **60** (file: ~~851~~ **908**) | **✅ CLUSTER 10 SHIPPED.** 8 in-file stage helpers (`_log_action`, `_upsert_skill_row`, `_build_prompt_template_fields`, `_upsert_prompt_template_row`, `_upsert_workflow_row`, `_delete_orphan_skills`, `_delete_orphan_prompt_templates`, `_delete_orphan_workflows`, `_delete_rows_by_source_path`) collapse the sync_all/watch duplication. sync_all_files 333 → 159 (-52%); sync_changed_file 180 → 60 (-67%). `log_path: Path \| None` toggles watch vs sync_all logging + sync_all-only branches (manual-skip on workflows, source-drift fix on unchanged). |
 | tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
 | tool_dispatch.py | `dispatch_tool_call()` | ~385 | auth, policy, approval, routing, recording, redaction, summarization |
-| compaction.py | `run_compaction_stream()` | ~342 | flush, watermark, section, summary, persistence, trace |
+| compaction.py | `run_compaction_stream()` | ~~342~~ ~~363~~ **177** + `run_compaction_forced()` ~~254~~ **106** (file: ~~2653~~ **2637**) | **✅ CLUSTER 8 SHIPPED.** 5 in-file stage helpers (`_run_memory_flush_phase`, `_compute_compaction_watermark`, `_persist_section_and_summary`, `_persist_session_compaction_state`, `_record_compaction_completion`) collapse the stream/forced duplication. Stream 361 → 177 (-51%); forced 248 → 106 (-57%). Both wrappers now linear drivers. |
 | bots.py | `_bot_row_to_config()` | ~180 | manual field-by-field mapping |
 | sessions.py | `persist_turn()` | ~150 | filtering, metadata, delegation, heartbeat, DB, attachments |
 
@@ -376,13 +376,11 @@ Collapsed behind `_make_dispatch_kwargs()` in `loop_dispatch.py` plus the `Summa
 6 near-identical closures (`_make_attempt`, `_make_no_tools`, `_make_no_images` × 2). Same kwargs construction repeated 6 times.
 - **Fix**: Unify into single factory with `stream: bool` parameter
 
-### compaction.py:830-1474 — Stream vs forced compaction
-~250 lines of duplicated pipeline (watermark, section, summary, session update).
-- **Fix**: Extract shared compaction core into private helper
+### ~~compaction.py:830-1474 — Stream vs forced compaction~~ FIXED 2026-04-24 (Cluster 8)
+Extracted 5 in-file stage helpers (`_run_memory_flush_phase`, `_compute_compaction_watermark`, `_persist_section_and_summary`, `_persist_session_compaction_state`, `_record_compaction_completion`) that both wrappers now drive sequentially. ~250 LOC of duplicated pipeline collapsed; commit boundaries preserved (stream commits internally, forced lets caller commit). Behavior-preserving: focused 7-file suite 157 passed / 2 pre-existing fails (exact baseline match).
 
-### file_sync.py:241-1041 — Full sync vs watch handler
-Per-type upsert logic duplicated with inconsistencies (the skill metadata bug above).
-- **Fix**: Extract per-type upsert functions called by both paths
+### ~~file_sync.py:241-1041 — Full sync vs watch handler~~ FIXED 2026-04-24 (Cluster 10)
+Extracted 8 in-file stage helpers (3 upsert + 3 orphan-delete + 1 path-delete + 1 log-formatter). `log_path: Path | None` kwarg threads watch vs sync_all variants of log lines and behavior (sync_all-only manual-workflow skip, source-drift fix on unchanged). ~250 LOC of duplicated per-resource-type upsert logic collapsed; both wrappers now linear drivers. Behavior-preserving: focused 3-file suite 34 passed / 8 pre-existing fixture errors (exact baseline match).
 
 ### sandbox.py:319-844 — `exec` vs `exec_bot_local`
 Secret injection (~15 lines), API key injection, subprocess creation, output truncation — all duplicated.
@@ -1121,3 +1119,115 @@ Same-day execution across 8 sub-clusters (7a, 7b, 7c, 7d, 7e-a, 7e-b, 7e-c, 7e-d
 - No consolidation of out_state dicts across helpers — each helper's state scope is deliberately topic-scoped (`_ch_state`, `_skill_state`, `_ws_state`, `_tr_state`, `_ft_state`).
 - No re-ordering of stages — every helper was extracted in-place.
 - No test changes — baseline identity preserved across all 8 sub-clusters.
+
+---
+
+### RFC — Cluster 8 — compaction stream/forced duplication collapse (2026-04-24)
+
+**Target:** `app/services/compaction.py` — both the god function `run_compaction_stream()` (361 LOC) and its near-twin `run_compaction_forced()` (248 LOC), which had run the same 6-stage pipeline (memory flush, watermark, section generation, summary synthesis, session persistence, trace emission) with ~250 LOC of byte-equivalent code. Stream owns its own session and yields SSE events; forced uses a caller-owned `db` and returns a `(title, summary)` tuple.
+
+**Result:**
+- `run_compaction_stream`: **361 → 177 LOC (-51%)**.
+- `run_compaction_forced`: **248 → 106 LOC (-57%)**.
+- File: 2653 → 2637 LOC (-16 net; helpers replaced more code than they added).
+- Combined god-function delta: 609 → 283 LOC across the two wrappers (-326 LOC, -54%).
+- Focused 7-file suite (`test_compaction*` × 6 + `test_compaction.py` integration): **157 passed, 2 failed, 0 skipped** — exact baseline match. The 2 failures (`test_settings_override`, `test_stream_path_captures_prev_watermark`) are pre-existing and were confirmed identical pre-/post-refactor.
+- Neighbor sweep on remaining `-k compaction` unit tests: 49 passed + 2 pre-existing fails in `test_lc_compaction_improvements.py` (verified pre-existing via `git stash` and re-running on clean HEAD — both fail with `no such table: sessions` due to test-fixture gap, unchanged by Cluster 8).
+
+**Five helpers added (in-file, above the wrappers):**
+
+1. `_run_memory_flush_phase(*, channel, bot, session_id, messages, correlation_id) -> tuple[bool, str | None]` — pre-compaction memory flush + member-bot fan-out + heartbeat fallback. Errors log-and-swallow; returns `(memory_flush_ran, flush_result)`.
+2. `_compute_compaction_watermark(*, db, session_id, keep_turns, prev_watermark_id) -> WatermarkPlan | None` — single source for the `oldest_kept` + `last_msg_id` query. Returns `None` for both empty-user-msgs and all-in-keep-window cases (forced wrapper distinguishes via a follow-up count query to preserve its two ValueError messages).
+3. `_persist_section_and_summary(*, db, session_id, channel, bot, messages, watermark, correlation_id, client_id, model, existing_summary, autoflush_only) -> SectionPersistOutcome` — generates section, embeds, computes period bounds, writes transcript file, inserts `ConversationSection`, prunes old sections, builds the executive summary (with auto-regen). The `autoflush_only` kwarg is the commit-boundary switch: stream calls with `False` (helper commits + uses internal session for `prune_sections`); forced calls with `True` (helper flushes only, caller commits, `prune_sections` reuses the caller's `db`).
+4. `_persist_session_compaction_state(*, db, session_id, title, summary, watermark_id) -> None` — single `update(Session)`. Does not commit.
+5. `_record_compaction_completion(*, …)` — fire-and-forget `compaction_done` trace + `_record_compaction_log` task creation. The `forced=True` branch prepends `{"forced": True}` to the trace data dict to match the legacy shape.
+
+Two new dataclasses (`WatermarkPlan`, `SectionPersistOutcome`) carry helper outputs as frozen records.
+
+**Wrappers post-refactor:**
+
+`run_compaction_stream` (177 LOC) reads as: pre-flight session/channel load → enabled check → eligibility count → emit `compaction_start` → reload session for client_id/summary/prev_watermark → trace start → memory flush → (try) compute watermark + summary window → guard → branch on history_mode (section helper or `_generate_summary`) → persist session state → record completion → yield `compaction_done` (or `compaction_failed`).
+
+`run_compaction_forced` (106 LOC) reads as: load session/channel → trace start → load all messages → memory flush → compute watermark (with two-case ValueError disambiguation) → branch on history_mode → persist session state → record completion → return tuple.
+
+**Key design choices worth remembering:**
+
+- **`autoflush_only` kwarg over two helpers.** The section-persist phase has identical logic except for transaction ownership. Two near-identical helpers would re-introduce the duplication; one helper with an explicit boundary switch keeps the seam visible.
+- **Watermark `None` disambiguation lives in the forced wrapper.** Stream simply returns silently on either case; forced has to raise ValueErrors with specific substrings (`"No user messages found in session"` / `"All messages within keep window, nothing to compact"`) because `_is_noop_compaction_error` (line 275) substring-matches against `_COMPACTION_NOOP_ERRORS`. The disambiguation is a single follow-up `select(func.count())` query — cheap, and keeps the helper signature honest.
+- **Session boundaries preserved.** Stream still opens its own multiple internal sessions across pre-flight, watermark/window, section persist, and session update steps. The section persist helper opens a session-internal commit when `autoflush_only=False`; the session-state persist is then in its own session. This collapses the previous five stream sessions into three (pre-flight + section-persist + state-persist). No commit timing change observable to tests.
+- **Trace event shape preserved.** `_record_compaction_completion` builds the data dict with `{"forced": True}` first when forced=True so dict-key iteration order matches the legacy shape (relevant for any consumer that compared serialized JSON).
+
+**Why this is deep, not shallow:** the five helpers hide substantial logic — `_persist_section_and_summary` alone is 132 LOC including LLM call, embedding, period computation, transcript file write, DB insert, retention pruning, executive-summary append-or-create, and auto-regeneration. Callers see "persist a section and produce a summary"; they don't see the dual transaction-ownership branch, the lazy `embed_text` import, the period-bound logic with optional prev-watermark fence, or the regen threshold constants.
+
+**Non-goals (explicit):**
+- No signature changes to `run_compaction_stream` or `run_compaction_forced` — `_drain_compaction`, `_run_manual_compaction_operation`, and the SSE/router callers are unaffected.
+- No behavioural deltas: event shape, SSE yield order, ValueError message strings, trace data shape, compaction_log column values, retention pruning timing, transcript file path resolution, executive-summary regen thresholds — all byte-equivalent.
+- No fix to the 2 pre-existing test failures (`test_settings_override`, `test_stream_path_captures_prev_watermark`). Test Quality track item.
+- No `_generate_section` internal restructure (separate from duplication scope).
+- No section-prompt consolidation.
+
+**Out of scope (next clusters):**
+- **Cluster 9 — `tasks.run_task()` (now 656 LOC, drifted from track's 490 estimate)** — 7 distinct concerns (session resolve, config extraction, prompt resolution, agent run, persistence, dispatch, follow-up creation) plus 4× "mark task failed" duplication. No section markers, heavier dependency-injection surface than compaction (get_bot, async_session, session_locks, openai.RateLimitError, etc.). Largest remaining absolute target.
+- **Cluster 10 — `file_sync.sync_all_files()` (333 LOC) + `sync_changed_file()` (181 LOC)** — three resource types (Skills/Prompt Templates/Workflows), already has clean `# --- Stage ---` markers. Tightest duplication of the remaining set.
+
+---
+
+### RFC — Cluster 10 — file_sync sync_all/watch duplication collapse (2026-04-24)
+
+**Goal**: collapse `sync_all_files` (full disk → DB scan) and `sync_changed_file` (single watch event) into thin drivers that share per-resource-type upsert / orphan-delete helpers. Both wrappers ran the same three resource pipelines (Skill, PromptTemplate, Workflow) with byte-equivalent SQL and ~250 LOC of duplication.
+
+**Shipped**: 8 in-file stage helpers under `# ===== Cluster 10 file_sync stage helpers =====` block above `sync_all_files`:
+
+1. `_log_action(action, kind, ident, log_path) -> str` — formats either watch-mode (`"file_sync(watch): added skill 'X'"`) or sync_all-mode (`"file_sync: added skill 'X' from /path"`) log messages depending on whether `log_path` is None.
+2. `_upsert_skill_row(*, skill_id, raw, source_path, source_type, log_path) -> str` — returns `"added"`, `"updated"`, or `"unchanged"`. Raises on DB error so callers handle their own try/except (sync_all → counts["errors"]; watch → outer `watch_files()` try/except).
+3. `_build_prompt_template_fields(raw, name) -> dict` — pure parser for PromptTemplate column values shared by both upsert paths. Includes the `mc_min_version` → tag expansion.
+4. `_upsert_prompt_template_row(*, name, raw, source_path, source_type, log_path) -> str` — same status return, same raise-on-error. Watch-mode update preserves today's behavior of NOT touching `source_path`/`source_type` on hash mismatch (sync_all does).
+5. `_upsert_workflow_row(*, workflow_id, raw, source_path, source_type, log_path) -> tuple[str, str]` — returns `(status, resolved_workflow_id)` because the YAML may contain an explicit `id:` field that differs from the path-derived id, and both wrappers need the resolved id (sync_all to populate `seen_workflow_ids`). Watch-mode skips `session_mode` setting and the `existing.source_type == "manual"` skip branch — preserved exactly.
+6. `_delete_orphan_skills(*, seen_ids, any_files_on_disk, cwd) -> tuple[int, list[str]]` — encapsulates the "skip orphan deletion if zero files on disk" mount-protection branch with its warning log + error message. Returns `(deleted, error_messages)` for caller to fold into `counts`.
+7. `_delete_orphan_prompt_templates(*, seen_paths) -> int` — straight orphan delete by source_path.
+8. `_delete_orphan_workflows(*, seen_ids) -> int` — straight orphan delete by id.
+9. `_delete_rows_by_source_path(*, path_str) -> tuple[bool, bool]` — used only by watch's deleted-file branch. Returns `(any_deleted, workflow_deleted)` so the caller can emit the "removed DB rows" log and decide whether to reload workflows.
+
+**LOC delta**:
+- `sync_all_files`: 333 → 159 LOC (-174, **-52%**)
+- `sync_changed_file`: 180 → 60 LOC (-120, **-67%**)
+- Combined wrappers: 513 → 219 LOC (-294, **-57%**)
+- File: 851 → 908 LOC (+57 net; helpers add ~355 LOC, duplicated wrapper code -294 LOC)
+
+**Tests — exact baseline match**:
+- Focused 3-file suite (`test_file_sync.py`, `test_file_sync_core_gaps.py`, `test_file_sync_skills.py`): 34 passed, 8 errors (pre/post identical).
+- The 8 errors are a pre-existing fixture bug at `tests/unit/test_file_sync.py:249` — `yield {"tmp_path": tmp_path, "embed": embed}` references `embed` but the matching `with patch(...)` is missing the `as embed` clause. Test Quality follow-up; **fixing it would unblock 8 tests covering `sync_all_files`'s skill + prompt template paths** that are currently dark.
+- Neighbor sweep (`-k file_sync`): 35 passed, 8 errors (same pre-existing fixture bug).
+- Workflow + skill_enroll sweep (`-k "workflow or skill_enroll"`): 216 passed, 18 skipped — clean.
+
+**Design choices worth remembering**:
+- **`log_path: Path | None` is the watch-vs-sync_all switch**. Threading a single Path-or-None kwarg into each upsert helper does double duty: (a) chooses log-message format, (b) gates sync_all-only behavior (workflow `manual` skip, source-drift fix on unchanged). Two helpers per kind would have re-introduced ~70% of the duplication; one helper with an `is_watch = log_path is None` flag keeps the seam visible in a single line per call site.
+- **Helpers raise on DB error; callers wrap**. Watch mode lets exceptions bubble to `watch_files()` which does its own `logger.exception`, while sync_all mode wraps each per-file call to record into `counts["errors"]`. Embedding try/except inside the helper would have collapsed the two error-handling shapes into one and silently swallowed watch-mode errors — a regression.
+- **Workflow upsert returns `(status, wid)`**. The YAML-level `id:` override means the resolved workflow id may differ from the path-derived input. Sync_all needs the resolved id to populate `seen_workflow_ids` so orphan deletion doesn't nuke the just-upserted row. Tuple return keeps that contract honest.
+- **Watch-mode workflow doesn't set `session_mode`**. Today's watch handler omits `session_mode=data.get("session_mode", "isolated")` from both add and update paths — preserved exactly via `if not is_watch: kwargs["session_mode"] = ...`. This is a probable bug (watch-mode YAML edits to `session_mode` are silently dropped), but Cluster 10's contract is behavior preservation. **Filed under Loose Ends as a follow-up.**
+- **Watch-mode prompt-template update doesn't update `source_path`/`source_type`**. Same preservation pattern: `if not is_watch: existing.source_path = source_path; existing.source_type = source_type`. Same probable bug, same Loose Ends entry.
+
+**Gotchas**:
+- **`_delete_rows_by_source_path` returns two bools, not one**. Watch needs to know whether ANY rows deleted (for the log message) AND whether a workflow row deleted (to gate the registry reload). Single bool would have either over-reloaded or under-logged.
+- **`_upsert_prompt_template_row` lookup is by `source_path`**, not by `name`. PromptTemplate has no unique key on name, so the helper has to find the matching row via the same `(source_path, source_type IN [file, integration])` predicate both wrappers use. Lookup-by-name would have created or updated the wrong row when two integrations ship a template with the same stem.
+- **`session_mode` is sync_all-only via `**({"session_mode": ...} if not is_watch else {})`**. Spread-into-kwargs because passing `session_mode=None` to the WorkflowRow constructor would have *set* the column to None, not skipped it. Conditional spread skips the kwarg entirely.
+
+**Track update**:
+- Frontmatter bumped to "Cluster 10 shipped — file_sync.py sync_all/watch duplication collapsed into 8 stage helpers; sync_all_files 333 → 159 LOC -52%, sync_changed_file 180 → 60 LOC -67%".
+- God-functions table row for `file_sync.py sync_all_files()` updated with strikethrough chain + ✅ CLUSTER 10 SHIPPED prefix; combined sync_all + sync_changed_file LOC tracked.
+- Major Duplication entry `file_sync.py:241-1041 — Full sync vs watch handler` struck through and noted FIXED.
+- Full RFC — Cluster 10 — appended after Cluster 8 RFC.
+
+**Follow-ups**:
+- **Test fixture fix** at `tests/unit/test_file_sync.py:249` — add `as embed` to the first `patch(...)` call. Single-line change, unblocks 8 tests covering sync_all's skill + prompt template paths.
+- **Watch-mode workflow `session_mode` drop** — preserved as-is for Cluster 10. Probable bug; should be a Loose Ends entry.
+- **Watch-mode prompt-template update doesn't update `source_path`/`source_type`** — same probable bug class.
+- **Cluster 9 — `tasks.run_task()` (656 LOC)** — last remaining structural cluster from the original audit. Largest absolute target.
+
+**Why this is deep, not shallow**: the eight helpers hide substantial logic — each upsert carries the get-or-fetch-by-predicate, content-hash short-circuit, frontmatter parsing, mc_min_version tag expansion, source-type/source-path drift fix, and per-kind add/update SQL with the right column subset. Callers see "upsert this skill from raw" or "delete orphans by seen_ids"; they don't see the watch-vs-sync_all log format toggle, the manual-skip branch, the optional session_mode kwarg conditional, or the lookup-by-source_path predicate.
+
+**Non-goals (explicit)**:
+- No signature changes to `sync_all_files` or `sync_changed_file` — `app/main.py` startup, `watch_files()`, the admin trigger router, and the test patch surface are all unaffected.
+- No behavioral deltas: log message strings, log levels, error messages in `counts["errors"]`, source_path/source_type drift behavior, manual-workflow skip, watch-mode `session_mode` omission, watch-mode prompt-template field omission — all byte-equivalent.
+- No fix to the 8 pre-existing test fixture errors. Test Quality track follow-up.
+- No fix to the watch-mode `session_mode` drop or watch-mode prompt-template `source_path`/`source_type` drop. Loose Ends follow-ups.

@@ -1,8 +1,7 @@
 """Integration boundary guard.
 
 Integrations should consume app-owned behavior through ``integrations.sdk``.
-The allowlist below records existing debt so this test blocks new direct
-``app.*`` imports without pretending the current tree is already clean.
+Only integration infrastructure shims may import ``app.*`` directly.
 """
 from __future__ import annotations
 
@@ -12,27 +11,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATIONS_ROOT = REPO_ROOT / "integrations"
 
-_ALLOWLIST = {
+_INFRASTRUCTURE_SHIMS = {
     "__init__.py",
-    "browser_live/router.py",
-    "claude_code/executor.py",
-    "claude_code/runner.py",
-    "claude_code/tools/run_claude_code.py",
-    "excalidraw/tools/excalidraw.py",
-    "frigate/router.py",
-    "frigate/tools/frigate.py",
-    "frigate/widget_transforms.py",
-    "github/renderer.py",
-    "google_workspace/router.py",
-    "google_workspace/tools/gws.py",
-    "local_companion/machine_control.py",
-    "local_companion/router.py",
-    "ssh/machine_control.py",
+    "sdk.py",
     "utils.py",
-    "web_search/config.py",
-    "web_search/tools/web_search.py",
-    "wyoming/config.py",
-    "wyoming/router.py",
 }
 
 
@@ -54,14 +36,15 @@ def test_no_new_direct_app_imports_under_integrations() -> None:
     offenders: list[str] = []
     for path in sorted(INTEGRATIONS_ROOT.rglob("*.py")):
         rel = path.relative_to(INTEGRATIONS_ROOT).as_posix()
-        if rel == "sdk.py" or "/tests/" in f"/{rel}":
+        if rel in _INFRASTRUCTURE_SHIMS or "/tests/" in f"/{rel}":
             continue
         imports = _direct_app_imports(path)
-        if imports and rel not in _ALLOWLIST:
+        if imports:
             offenders.append(f"{rel}: {sorted(set(imports))}")
 
     assert not offenders, (
         "New direct app.* imports under integrations must go through "
-        "integrations.sdk or be added to the tracked allowlist:\n"
+        "integrations.sdk. Only integration infrastructure shims "
+        "(__init__.py, sdk.py, utils.py) may import app.* directly:\n"
         + "\n".join(offenders)
     )

@@ -11,7 +11,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.integration_settings import get_status, get_value, set_status, update_settings
+from integrations.sdk import (
+    get_status,
+    get_value,
+    machine_utc_now_iso,
+    set_status,
+    update_settings,
+)
 
 TARGETS_KEY = "SSH_TARGETS_JSON"
 PROFILES_KEY = "SSH_PROFILES_JSON"
@@ -20,9 +26,7 @@ _PROFILES_SETUP_VARS = [{"key": PROFILES_KEY, "secret": True}]
 
 
 def _utc_now_iso() -> str:
-    from app.services.machine_control import _utc_now_iso as _shared_utc_now_iso
-
-    return _shared_utc_now_iso()
+    return machine_utc_now_iso()
 
 
 def _parse_int(value: Any, default: int) -> int:

@@ -125,6 +125,7 @@ class ProviderModelOut(BaseModel):
     supports_reasoning: bool = False
     supports_prompt_caching: bool = False
     supports_structured_output: bool = False
+    supports_image_generation: bool = False
     prompt_style: str = "markdown"
     extra_body: dict = {}
     created_at: datetime
@@ -154,6 +155,7 @@ class ProviderModelCreateIn(BaseModel):
     supports_reasoning: bool = False
     supports_prompt_caching: bool = False
     supports_structured_output: bool = False
+    supports_image_generation: bool = False
     prompt_style: str = "markdown"
     extra_body: dict | None = None
 
@@ -177,6 +179,7 @@ class ProviderModelUpdateIn(BaseModel):
     supports_reasoning: bool | None = None
     supports_prompt_caching: bool | None = None
     supports_structured_output: bool | None = None
+    supports_image_generation: bool | None = None
     prompt_style: str | None = None
     extra_body: dict | None = None
 
@@ -288,6 +291,7 @@ async def admin_add_provider_model(
         supports_reasoning=body.supports_reasoning,
         supports_prompt_caching=body.supports_prompt_caching,
         supports_structured_output=body.supports_structured_output,
+        supports_image_generation=body.supports_image_generation,
         prompt_style=body.prompt_style,
         extra_body=dict(body.extra_body) if body.extra_body else {},
     )
@@ -356,6 +360,8 @@ async def admin_update_provider_model(
         row.supports_prompt_caching = bool(body.supports_prompt_caching)
     if "supports_structured_output" in updates:
         row.supports_structured_output = bool(body.supports_structured_output)
+    if "supports_image_generation" in updates:
+        row.supports_image_generation = bool(body.supports_image_generation)
     if "prompt_style" in updates and body.prompt_style is not None:
         row.prompt_style = body.prompt_style
     if "extra_body" in updates:

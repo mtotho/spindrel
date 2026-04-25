@@ -1,5 +1,7 @@
 # Custom Tools & Extensions
 
+![Tools admin — every registered tool grouped by source (local / integration / MCP)](../images/tools-library.png)
+
 This guide covers creating your own tools, managing a personal extensions repo, and loading external capabilities and tools into Spindrel.
 
 ---

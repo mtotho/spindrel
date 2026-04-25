@@ -9,10 +9,13 @@ import {
   buildScratchChatSource,
   getScratchSessionLabel,
   isUntouchedDraftSession,
+  maximizeChannelChatPane,
+  minimizeChannelChatPane,
   normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
   removeChannelSessionPanel,
   replaceFocusedChannelChatPane,
+  restoreChannelChatPanes,
   resizeChannelChatPanes,
 } from "./channelSessionSurfaces.js";
 
@@ -160,6 +163,8 @@ const migratedLayout = normalizeChannelChatPaneLayout(null, [
 ]);
 assert.deepEqual(migratedLayout.panes.map((pane) => pane.id), ["primary", "scratch:scratch-a", "channel:old"]);
 assert.equal(migratedLayout.focusedPaneId, "primary");
+assert.equal(migratedLayout.maximizedPaneId, null);
+assert.equal(migratedLayout.miniPane, null);
 
 const splitLayout = addChannelChatPane(migratedLayout, { kind: "scratch", sessionId: "scratch-a" });
 assert.deepEqual(splitLayout.panes.map((pane) => pane.id), ["primary", "scratch:scratch-a", "channel:old"]);
@@ -173,8 +178,23 @@ const resizedLayout = resizeChannelChatPanes(replacedLayout, "primary", "channel
 assert.equal(Math.round(Object.values(resizedLayout.widths).reduce((sum, width) => sum + width, 0) * 1000), 1000);
 assert.ok(resizedLayout.widths.primary > replacedLayout.widths.primary);
 
+const maximizedLayout = maximizeChannelChatPane(resizedLayout, "channel:later");
+assert.equal(maximizedLayout.maximizedPaneId, "channel:later");
+assert.equal(maximizedLayout.focusedPaneId, "channel:later");
+assert.deepEqual(maximizedLayout.panes.map((pane) => pane.id), resizedLayout.panes.map((pane) => pane.id));
+
+const restoredLayout = restoreChannelChatPanes(maximizedLayout);
+assert.equal(restoredLayout.maximizedPaneId, null);
+assert.deepEqual(restoredLayout.panes.map((pane) => pane.id), resizedLayout.panes.map((pane) => pane.id));
+
+const minimizedLayout = minimizeChannelChatPane(restoredLayout, "channel:later");
+assert.equal(minimizedLayout.miniPane?.id, "channel:later");
+assert.deepEqual(minimizedLayout.panes.map((pane) => pane.id), ["primary", "channel:old"]);
+assert.equal(minimizedLayout.maximizedPaneId, null);
+
 const browseGroups = buildChannelSessionPickerGroups(catalogEntries, "");
 assert.deepEqual(browseGroups.map((group) => group.id), ["previous"]);
+assert.deepEqual(browseGroups.map((group) => group.label), ["Previous chats"]);
 assert.deepEqual(browseGroups[0]?.entries.map((entry) => entry.id), ["old"]);
 
 const searchGroups = buildChannelSessionPickerGroups(catalogEntries, "rollback");

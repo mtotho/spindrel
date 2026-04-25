@@ -123,7 +123,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 from app.domain.dispatch_target import _BaseTarget as BaseTarget  # noqa: E402, F401
-from app.domain.dispatch_target import DispatchTarget  # noqa: E402, F401
+from app.domain.dispatch_target import DispatchTarget, parse_dispatch_target  # noqa: E402, F401
 from app.domain import target_registry  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
@@ -133,8 +133,11 @@ from app.domain import target_registry  # noqa: E402, F401
 from app.integrations.renderer import ChannelRenderer, DeliveryReceipt, SimpleRenderer  # noqa: E402, F401
 from app.integrations import renderer_registry  # noqa: E402, F401
 from app.domain.capability import Capability  # noqa: E402, F401
+from app.domain.actor import ActorRef  # noqa: E402, F401
 from app.domain.channel_events import ChannelEvent, ChannelEventKind  # noqa: E402, F401
+from app.domain.message import Message as DomainMessage  # noqa: E402, F401
 from app.domain.outbound_action import OutboundAction, UploadFile, UploadImage  # noqa: E402, F401
+from app.domain.payloads import MessagePayload  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Hooks authoring
@@ -153,8 +156,13 @@ from app.agent.hooks import (  # noqa: E402, F401
 # ---------------------------------------------------------------------------
 
 from app.agent.context import (  # noqa: E402, F401
+    current_client_id,
+    current_correlation_id,
     current_dispatch_config,
     current_dispatch_type,
+    current_model_override,
+    current_provider_id_override,
+    current_session_id,
     current_user_id,
 )
 
@@ -165,6 +173,7 @@ from app.agent.context import (  # noqa: E402, F401
 from app.services.integration_settings import (  # noqa: E402, F401
     delete_setting,
     get_status,
+    get_value,
     get_value as get_setting,
     set_status,
     update_settings,
@@ -212,7 +221,10 @@ from app.db.models import (  # noqa: E402, F401
     Bot as BotRow,
     Channel,
     ChannelIntegration,
+    IntegrationDocument,
     IntegrationSetting,
+    Message,
+    Session,
     Task,
 )
 
@@ -239,6 +251,11 @@ from app.services.channels import (  # noqa: E402, F401
 from app.services.outbox import (  # noqa: E402, F401
     count_pending_outbox,
 )
+from app.services.machine_control import (  # noqa: E402, F401
+    _utc_now_iso as machine_utc_now_iso,
+    get_provider,
+    get_target_by_id,
+)
 
 # ---------------------------------------------------------------------------
 # Agent context (runtime ContextVars available inside tool/hook callbacks)
@@ -254,10 +271,17 @@ from app.agent.context import (  # noqa: E402, F401
 # ---------------------------------------------------------------------------
 
 from app.security.prompt_sanitize import sanitize_unicode  # noqa: E402, F401
+from app.security.audit import log_outbound_request  # noqa: E402, F401
 from app.utils import safe_create_task  # noqa: E402, F401
+from app.utils.url_validation import pin_url, resolve_and_pin, validate_url  # noqa: E402, F401
 from app.agent.bots import get_bot  # noqa: E402, F401
 from app.config import settings as app_settings  # noqa: E402, F401
 from app.services.approval_suggestions import build_suggestions  # noqa: E402, F401
+from app.services.attachments import create_widget_backed_attachment  # noqa: E402, F401
+from app.services.prompt_resolution import resolve_prompt  # noqa: E402, F401
+from app.services.sandbox import sandbox_service, workspace_to_sandbox_config  # noqa: E402, F401
+from app.services.sessions import load_or_create, store_passive_message  # noqa: E402, F401
+from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Utility
@@ -266,6 +290,26 @@ from app.services.approval_suggestions import build_suggestions  # noqa: E402, F
 
 # Compat alias — legacy code imports `sdk.register` (without the _tool suffix)
 register = register_tool
+
+
+def get_setting_value(integration_id: str, key: str) -> str | None:
+    """Read an integration setting when present, returning ``None`` for empty/missing."""
+    value = get_setting(integration_id, key, "")
+    return value if value else None
+
+
+def resolve_task_timeout(task) -> int:
+    """Resolve a task timeout without importing the agent task module at SDK import time."""
+    from app.agent.tasks import resolve_task_timeout as _resolve_task_timeout
+
+    return _resolve_task_timeout(task)
+
+
+def get_widget_template(tool_name: str):
+    """Look up a widget template without importing widget rendering at SDK import time."""
+    from app.services.widget_templates import get_widget_template as _get_widget_template
+
+    return _get_widget_template(tool_name)
 
 
 def client_id(prefix: str, raw_id: str) -> str:

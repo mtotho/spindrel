@@ -1,5 +1,7 @@
 # Workspace Templates & Activation
 
+![Workspace files explorer](../images/workspace-files.png)
+
 When you create a channel in Spindrel, it starts as a conversation with a bot plus an optional workspace. Templates and integration activation are secondary setup tools, not the center of the product.
 
 ---

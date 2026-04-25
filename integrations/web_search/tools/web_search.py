@@ -5,8 +5,14 @@ import re
 import httpx
 
 from integrations.web_search.config import settings
-from integrations.sdk import register_tool as register
-from app.utils.url_validation import resolve_and_pin, pin_url, validate_url as _validate_url
+from integrations.sdk import (
+    get_widget_template,
+    log_outbound_request,
+    pin_url,
+    register_tool as register,
+    resolve_and_pin,
+    validate_url as _validate_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +128,6 @@ def _search_result(query: str, items: list[dict]) -> str:
     search-results view across default and terminal modes. Without a template
     we fall back to a components-JSON ``links`` envelope for older clients.
     """
-    from app.services.widget_templates import get_widget_template
-
     payload: dict = {
         "query": query,
         "results": items,
@@ -199,7 +203,6 @@ async def fetch_url(url: str) -> str:
         _orig_url, pinned_ip = resolve_and_pin(url)
     except ValueError as exc:
         return f"Error: {exc}"
-    from app.security.audit import log_outbound_request
     log_outbound_request(url=url, method="GET", tool_name="fetch_url")
     try:
         return await _fetch_with_playwright(url)

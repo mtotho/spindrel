@@ -27,6 +27,7 @@ import httpx
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
+    renderer_registry,
 )
 from integrations.github.target import GitHubTarget
 
@@ -243,7 +244,6 @@ class GitHubRenderer:
 
 
 def _register() -> None:
-    from app.integrations import renderer_registry
     if renderer_registry.get(GitHubRenderer.integration_id) is None:
         renderer_registry.register(GitHubRenderer())
 

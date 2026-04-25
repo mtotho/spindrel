@@ -120,8 +120,9 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Gemini 2.5 family | `litellm` | `high` | Extensively used through the LiteLLM provider path. |
 | GPT-5.4 | `litellm` | `high` | Tested and working through LiteLLM. |
 | GPT-5.4 | `openai-subscription` | `high` | Tested and working through the ChatGPT-subscription provider path. |
-| `gemini-2.5-flash-image` | `litellm` | `high` | Tested image generation path. |
+| `gemini-2.5-flash-image` | `litellm` | `high` | Tested image generation path (true multimodal edit via `chat.completions` modalities). |
 | `gpt-image-1-mini` | `litellm` | `high` | Tested image generation path. |
+| `gpt-image-1` | `openai-subscription` | `high` | Tested image generation path via the Codex Responses API built-in `image_generation` tool. |
 | `gemma4:e4b` | `ollama` | `medium` | Local model path works, but not tested heavily. |
 | `gemma4:e2b` | `ollama` | `medium` | Local model path works, but not tested heavily. |
 | `gemma4:31b` | `ollama` | `medium` | Local model path works, but not tested heavily. |
@@ -133,7 +134,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 |---|---|---|---|
 | Tool calls on supported models | `working` | `high` | Working on the tested model/provider paths above where the model itself supports tool use. |
 | Vision on supported models | `working` | `high` | Working on the tested model/provider paths above where the model itself supports vision. |
-| Image generation | `working` | `high` | Confirmed on `gemini-2.5-flash-image` and `gpt-image-1-mini`, both via LiteLLM. |
+| Image generation | `working` | `high` | Any bot with the `generate_image` tool can produce/edit images. Tested on `gpt-image-1-mini` (LiteLLM), `gemini-2.5-flash-image` (LiteLLM, true multimodal edit), and `gpt-image-1` (`openai-subscription` via Responses API). Routing keyed on the `supports_image_generation` flag. |
 | Local-model general path | `working (beta)` | `medium` | Local models generally work, but confidence is lower because the soak time is much lighter than the hosted-model paths. |
 
 ### Embeddings

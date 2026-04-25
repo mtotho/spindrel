@@ -7,7 +7,13 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.integration_settings import get_status, get_value, set_status, update_settings
+from integrations.sdk import (
+    get_status,
+    get_value,
+    machine_utc_now_iso,
+    set_status,
+    update_settings,
+)
 
 from .bridge import bridge
 
@@ -16,9 +22,7 @@ _TARGETS_SETUP_VARS = [{"key": TARGETS_KEY, "secret": True}]
 
 
 def _utc_now_iso() -> str:
-    from app.services.machine_control import _utc_now_iso as _shared_utc_now_iso
-
-    return _shared_utc_now_iso()
+    return machine_utc_now_iso()
 
 
 def _parse_targets(raw: str) -> list[dict[str, Any]]:

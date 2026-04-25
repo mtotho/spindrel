@@ -1,5 +1,7 @@
 # Chat State Rehydration
 
+![Channel chat — what rehydrates on tab wake](../images/chat-main.png)
+
 Close a tab mid-turn and come back. Answer an approval prompt on your phone hours after the bot asked. Let the laptop sleep while a tool is still running. The chat should look the same when you come back — because nothing in the system *actually* went away, only your subscription to it did.
 
 This guide explains how Spindrel rebuilds a chat's in-flight state on mount, tab-wake, and reconnect, and why that replaced the old fragile 256-event replay buffer.

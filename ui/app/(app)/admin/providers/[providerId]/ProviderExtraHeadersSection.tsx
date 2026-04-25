@@ -1,23 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Section } from "@/src/components/shared/FormControls";
-
-type HeaderRow = { key: string; value: string };
-
-function rowsFromMap(map: Record<string, string> | undefined | null): HeaderRow[] {
-  if (!map) return [];
-  return Object.entries(map).map(([key, value]) => ({ key, value: String(value) }));
-}
-
-function mapFromRows(rows: HeaderRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const r of rows) {
-    const k = r.key.trim();
-    if (!k) continue;
-    out[k] = r.value;
-  }
-  return out;
-}
+import {
+  type HeaderRow,
+  mapFromRows,
+  rowsFromMap,
+  shouldEmitMap,
+  shouldSyncRows,
+} from "./providerExtraHeadersState";
 
 interface Props {
   initial: Record<string, string> | undefined | null;
@@ -28,14 +18,17 @@ export function ProviderExtraHeadersSection({ initial, onChange }: Props) {
   const [rows, setRows] = useState<HeaderRow[]>(rowsFromMap(initial));
 
   useEffect(() => {
-    setRows(rowsFromMap(initial));
+    setRows((currentRows) =>
+      shouldSyncRows(currentRows, initial) ? rowsFromMap(initial) : currentRows
+    );
   }, [initial]);
 
   const computedMap = useMemo(() => mapFromRows(rows), [rows]);
 
   useEffect(() => {
+    if (!shouldEmitMap(initial, computedMap)) return;
     onChange(computedMap);
-  }, [computedMap, onChange]);
+  }, [computedMap, initial, onChange]);
 
   const updateRow = (idx: number, patch: Partial<HeaderRow>) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));

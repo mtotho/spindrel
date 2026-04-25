@@ -1,5 +1,7 @@
 # LLM Providers
 
+![Providers settings page](../images/providers-settings.png)
+
 A **provider** is a configured endpoint that the agent loop can call for chat completions. Spindrel supports seven provider types, each backed by a typed driver that declares what it can do beyond basic chat (model listing, model pull/delete, live pricing, plan billing, etc.).
 
 This guide covers the full catalog, the feature matrix, how to add a new provider, and the walkthroughs for the less-obvious flows (ChatGPT Subscription OAuth, Ollama, LiteLLM).
@@ -59,8 +61,9 @@ Each row supports inline **edit / save / cancel**, toggling the per-model flags 
 
 - `no_system_messages` — fold the system message into the first user message
 - `supports_tools` — function-calling / tool use allowed
-- `supports_vision` — image content parts allowed
+- `supports_vision` — image content parts allowed (input)
 - `supports_reasoning` — model takes an effort / thinking-budget knob (see [Reasoning / effort](#reasoning--effort))
+- `supports_image_generation` — model can produce images via the `generate_image` tool (output). Authoritative gate for the Image Generation settings model picker.
 - `prompt_style` — framework-prompt dialect (see [Prompt dialect](#prompt-dialect-prompt_style))
 
 Any row mutation triggers a `load_providers()` reload so the in-memory capability caches refresh on the same request. No server restart needed.
@@ -254,6 +257,7 @@ Per-model flags live on the `provider_models` table. Each row exposes the capabi
 | `supports_reasoning` | `false` | Whether the model takes an effort / thinking-budget knob. Gates the `/effort` command and the bot editor control |
 | `supports_prompt_caching` | `false` | Whether the model accepts `cache_control` breakpoints. Replaces the legacy `"claude" in model_id` string sniff in `app/agent/prompt_cache.py`. Backfilled true for Claude families, GPT-4o/5/Codex, Gemini 2.x. |
 | `supports_structured_output` | `false` | Whether the model accepts `response_format={"type":"json_schema",...}`. Forward-looking gate — no consumer today, lets admin opt-in when a pipeline step needs it. |
+| `supports_image_generation` | `false` | Whether the model can produce images. Authoritative gate for the `generate_image` tool's family routing and for the Image Generation settings model picker. Replaces the legacy `"gpt-image"` / `"dall-e"` / `"gemini"` / `"imagen"` substring sniffers in `app/tools/local/image.py`. Backfilled true at migration 246 for GPT Image, DALL-E, Gemini `*-image*`, and Imagen families. |
 | `input_cost_per_1m` | `null` | USD per 1M input tokens, e.g. `"$3.00"`. Used by `/admin/usage` cost math. |
 | `output_cost_per_1m` | `null` | USD per 1M output tokens. |
 | `cached_input_cost_per_1m` | `null` | USD per 1M **cached** input tokens, e.g. Anthropic's `"$0.30"` for Claude Sonnet. When set, the cost aggregator splits `(input - cached) * input_rate + cached * cached_rate` instead of applying a percent-discount heuristic. Stops `/admin/usage` from overstating Anthropic spend ~10× while prompt caching is active. |
@@ -269,6 +273,14 @@ All are loaded into in-memory sets by `load_providers()` (`app/services/provider
 3. Save. The `load_providers()` reload on the same request repopulates `_reasoning_capable_models`, the `/effort` validator and bot editor pick it up immediately.
 
 Existing rows were backfilled by migration 242 for the known reasoning-capable families: Claude Opus / Sonnet / Haiku 4.5, gpt-5-*, o-series, codex-*, Gemini 2.5-*, DeepSeek Reasoner / R1, Grok 3. Anything else starts as `false`.
+
+### Marking a new model as image-generation-capable
+
+1. **Admin → Providers → [your provider] → Add model.** (Or edit an existing row.)
+2. Tick the **Image generation** checkbox.
+3. Save. The `load_providers()` reload repopulates `_image_gen_models` and the model immediately appears in **Admin → Settings → Image Generation → Model**.
+
+Existing rows were backfilled by migration 246 for `gpt-image-*`, `dall-e-*`, `gemini-*-image*`, and `imagen-*` families (including provider-prefixed forms like `openai/gpt-image-1`). Anything else starts as `false`. Any bot whose tools include `generate_image` can produce images — there is no dedicated "image bot" pattern.
 
 ---
 

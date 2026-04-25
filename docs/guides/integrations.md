@@ -1,5 +1,7 @@
 # Integrations
 
+![Integrations library — the catalog of shipped integrations](../images/integrations-library.png)
+
 This is the canonical reference for how integrations work in Spindrel.
 
 If other docs, UI copy, or track notes disagree with this page, this page wins.

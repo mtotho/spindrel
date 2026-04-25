@@ -6,9 +6,16 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
-from app.db.engine import async_session
-from app.db.models import Bot as BotRow, Channel, ChannelIntegration
-from app.schemas.binding_suggestions import BindingSuggestion
+from integrations.sdk import (
+    BindingSuggestion,
+    BotRow,
+    Channel,
+    ChannelIntegration,
+    app_settings,
+    async_session,
+    has_scope,
+    validate_api_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,18 +29,15 @@ async def wyoming_config(request: Request):
     Merges legacy Channel-level bindings and modern ChannelIntegration bindings.
     Each device entry includes satellite_uri so the orchestrator knows where to connect.
     """
-    from app.config import settings
-
     api_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         api_key = api_key or auth_header[7:]
 
-    expected = getattr(settings, "API_KEY", None)
+    expected = getattr(app_settings, "API_KEY", None)
     authed = bool(expected and api_key == expected)
 
     if not authed and api_key and api_key.startswith("ask_"):
-        from app.services.api_keys import validate_api_key, has_scope
         async with async_session() as key_db:
             key_row = await validate_api_key(key_db, api_key)
             if key_row and has_scope(key_row.scopes or [], "admin"):

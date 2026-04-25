@@ -78,10 +78,13 @@ import {
 } from "@/src/lib/channelFileNavigation";
 import {
   addChannelChatPane,
+  maximizeChannelChatPane,
+  minimizeChannelChatPane,
   paneIdForSurface,
   removeChannelChatPane,
   replaceFocusedChannelChatPane,
-  resizeChannelChatPanes,
+  restoreChannelChatPanes,
+  buildChannelSessionChatSource,
   buildScratchChatSource,
   type ChannelChatPane,
   type ChannelSessionSurface,
@@ -646,6 +649,94 @@ export default function ChatScreen() {
   const queryClient = useQueryClient();
   const promoteScratch = usePromoteScratchSession();
   const { data: channelSessionCatalog } = useChannelSessionCatalog(channelId);
+  const miniPane = panelPrefs.chatPaneLayout.miniPane;
+  const miniPaneSource = useMemo(() => {
+    if (!channelId || !miniPane) return null;
+    if (miniPane.surface.kind === "primary") {
+      return { kind: "channel" as const, channelId };
+    }
+    if (miniPane.surface.kind === "scratch") {
+      return buildScratchChatSource({
+        channelId,
+        botId: channel?.bot_id,
+        sessionId: miniPane.surface.sessionId,
+      });
+    }
+    return buildChannelSessionChatSource({
+      channelId,
+      botId: channel?.bot_id,
+      sessionId: miniPane.surface.sessionId,
+    });
+  }, [channel?.bot_id, channelId, miniPane]);
+  const handleCloseMiniPane = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: {
+        ...current.chatPaneLayout,
+        miniPane: null,
+      },
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const visibleChatPanes = useMemo(() => {
+    const layout = panelPrefs.chatPaneLayout;
+    return layout.maximizedPaneId
+      ? layout.panes.filter((pane) => pane.id === layout.maximizedPaneId)
+      : layout.panes;
+  }, [panelPrefs.chatPaneLayout]);
+  const headerPane = visibleChatPanes.length === 1 ? visibleChatPanes[0] ?? null : null;
+  const headerPaneSessionId = headerPane?.surface.kind === "primary"
+    ? channel?.active_session_id ?? null
+    : headerPane?.surface.sessionId ?? null;
+  const headerPaneCatalogRow = headerPaneSessionId
+    ? channelSessionCatalog?.find((item) => item.session_id === headerPaneSessionId) ?? null
+    : null;
+  const headerPaneTitle = headerPane
+    ? headerPaneCatalogRow?.label?.trim()
+      || headerPaneCatalogRow?.summary?.trim()
+      || headerPaneCatalogRow?.preview?.trim()
+      || (headerPane.surface.kind === "primary" ? "Primary session" : "Untitled session")
+    : null;
+  const headerPaneMeta = headerPane
+    ? headerPane.surface.kind === "primary"
+      ? "Primary"
+      : headerPane.surface.kind === "scratch"
+        ? "Scratch"
+        : headerPaneCatalogRow?.is_active
+          ? "Primary"
+          : "Previous"
+    : null;
+  const channelHeaderChromeMode = visibleChatPanes.length > 1 ? "canvas" : headerPane ? "session" : "canvas";
+  const { data: headerSavedBudget } = useChannelContextBudget(
+    channelHeaderChromeMode === "session" ? channelId : undefined,
+    channelHeaderChromeMode === "session" ? headerPaneSessionId : null,
+  );
+  const { data: headerSessionStats } = useSessionHeaderStats(
+    channelHeaderChromeMode === "session" ? channelId : undefined,
+    channelHeaderChromeMode === "session" ? headerPaneSessionId : null,
+  );
+  const headerPaneChatState = useChatStore((s) =>
+    headerPaneSessionId ? s.getChannel(headerPaneSessionId) : null,
+  );
+  const headerContextBudget = channelHeaderChromeMode === "session"
+    ? (headerPaneSessionId ? headerPaneChatState?.contextBudget : chatState.contextBudget) ?? (
+        headerSavedBudget?.utilization != null ? {
+          utilization: headerSavedBudget.utilization,
+          consumed: headerSavedBudget.consumed_tokens ?? 0,
+          total: headerSavedBudget.total_tokens ?? 0,
+          gross: headerSavedBudget.gross_prompt_tokens ?? headerSavedBudget.consumed_tokens ?? 0,
+          current: headerSavedBudget.current_prompt_tokens ?? headerSavedBudget.gross_prompt_tokens ?? headerSavedBudget.consumed_tokens ?? 0,
+          cached: headerSavedBudget.cached_prompt_tokens ?? undefined,
+          contextProfile: headerSavedBudget.context_profile ?? undefined,
+        } : null
+      )
+    : null;
+  const selectedPickerSessionId = useMemo(() => {
+    if (isScratchRoute) return scratchUrlSessionId;
+    const layout = panelPrefs.chatPaneLayout;
+    const focusedPane = layout.panes.find((pane) => pane.id === layout.focusedPaneId) ?? layout.panes[0] ?? null;
+    if (!focusedPane || focusedPane.surface.kind === "primary") return null;
+    return focusedPane.surface.sessionId;
+  }, [isScratchRoute, panelPrefs.chatPaneLayout, scratchUrlSessionId]);
   const leaveScratchSurface = useCallback(() => {
     setScratchPinnedSessionId(null);
     setScratchOpen(false);
@@ -662,10 +753,33 @@ export default function ChatScreen() {
       chatPaneLayout: removeChannelChatPane(current.chatPaneLayout, paneId),
     }));
   }, [channelId, patchChannelPanelPrefs]);
-  const resizePanePair = useCallback((leftPaneId: string, rightPaneId: string, deltaRatio: number) => {
+  const maximizePane = useCallback((paneId: string) => {
     if (!channelId) return;
     patchChannelPanelPrefs(channelId, (current) => ({
-      chatPaneLayout: resizeChannelChatPanes(current.chatPaneLayout, leftPaneId, rightPaneId, deltaRatio),
+      chatPaneLayout: maximizeChannelChatPane(current.chatPaneLayout, paneId),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const restorePanes = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: restoreChannelChatPanes(current.chatPaneLayout),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const minimizePane = useCallback((paneId: string) => {
+    if (!channelId) return;
+    setScratchOpen(false);
+    setScratchPinnedSessionId(null);
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: minimizeChannelChatPane(current.chatPaneLayout, paneId),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const commitPaneWidths = useCallback((widths: Record<string, number>) => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: {
+        ...current.chatPaneLayout,
+        widths,
+      },
     }));
   }, [channelId, patchChannelPanelPrefs]);
   const activateChannelSessionSurface = useCallback((surface: ChannelSessionSurface, intent: "switch" | "split") => {
@@ -1436,16 +1550,20 @@ export default function ChatScreen() {
           toggleExplorer={toggleExplorer}
           onBrowseWorkspace={openBrowseFiles}
           isMobile={isMobile}
-          contextBudget={effectiveContextBudget}
-          sessionHeaderStats={sessionHeaderStats ?? null}
-          sessionId={channel?.active_session_id ?? null}
+          contextBudget={headerContextBudget}
+          sessionHeaderStats={channelHeaderChromeMode === "session" ? headerSessionStats ?? null : null}
+          sessionId={channelHeaderChromeMode === "session" ? headerPaneSessionId : null}
+          sessionChromeMode={channelHeaderChromeMode}
+          sessionChromeTitle={channelHeaderChromeMode === "session" ? headerPaneTitle : null}
+          sessionChromeMeta={channelHeaderChromeMode === "session" ? headerPaneMeta : null}
+          canvasSessionCount={visibleChatPanes.length}
           onContextBudgetClick={() => setBotInfoBotId(channel?.bot_id || null)}
           isSystemChannel={isSystemChannel}
           findingsPanelOpen={isSystemChannel ? findingsPanelOpen : undefined}
           toggleFindingsPanel={isSystemChannel ? () => setFindingsPanelOpen((p) => !p) : undefined}
           findingsCount={isSystemChannel ? findingsCount : 0}
-          scratchOpen={isScratchRoute || scratchOpen}
-          scratchSessionId={scratchUrlSessionId}
+          scratchOpen={isScratchRoute || scratchOpen || visibleChatPanes.length > 1}
+          scratchSessionId={channelHeaderChromeMode === "session" ? headerPaneSessionId : null}
           onOpenMainChat={isScratchRoute ? handleExitScratchRoute : undefined}
           dashboardHref={channelDashboardHref}
           onOpenSessions={openSessionsOverlay}
@@ -1715,13 +1833,17 @@ export default function ChatScreen() {
                   panes={panelPrefs.chatPaneLayout.panes}
                   widths={panelPrefs.chatPaneLayout.widths}
                   focusedPaneId={panelPrefs.chatPaneLayout.focusedPaneId}
+                  maximizedPaneId={panelPrefs.chatPaneLayout.maximizedPaneId}
                   catalog={channelSessionCatalog}
                   primaryNode={primaryChatNode}
                   emptyState={scratchEmptyState}
                   chatMode={chatMode}
                   onFocusPane={focusPane}
                   onClosePane={closePane}
-                  onResizePanePair={resizePanePair}
+                  onMaximizePane={maximizePane}
+                  onRestorePanes={restorePanes}
+                  onMinimizePane={minimizePane}
+                  onCommitPaneWidths={commitPaneWidths}
                   onMakePrimary={makePanePrimary}
                   onOpenSessions={openSessionsOverlay}
                   onOpenSessionSplit={openSplitOverlay}
@@ -1941,11 +2063,14 @@ export default function ChatScreen() {
           channelId={channelId}
           botId={channel?.bot_id}
           channelLabel={displayName}
-          selectedSessionId={isScratchRoute ? scratchUrlSessionId : null}
+          selectedSessionId={selectedPickerSessionId}
           onActivateSurface={activateChannelSessionSurface}
           allowSplit={!isMobile}
           mode={sessionsOverlayMode}
-          hiddenSurfaces={panelPrefs.chatPaneLayout.panes.map((pane) => pane.surface)}
+          hiddenSurfaces={[
+            ...panelPrefs.chatPaneLayout.panes.map((pane) => pane.surface),
+            ...(miniPane ? [miniPane.surface] : []),
+          ]}
         />
       )}
       {threadSource && (
@@ -1962,7 +2087,21 @@ export default function ChatScreen() {
           onToggleFocusLayout={focusOrRestorePanels}
         />
       )}
-      {scratchSource && !activeThread && !isScratchRoute && (
+      {miniPaneSource && !activeThread && !isScratchRoute && (
+        <ChatSession
+          source={miniPaneSource}
+          shape="dock"
+          open
+          onClose={handleCloseMiniPane}
+          title="Session"
+          initiallyExpanded
+          chatMode={chatMode}
+          onOpenSessions={openSessionsOverlay}
+          onOpenSessionSplit={openSplitOverlay}
+          onToggleFocusLayout={focusOrRestorePanels}
+        />
+      )}
+      {scratchSource && !miniPaneSource && !activeThread && !isScratchRoute && (
         <ChatSession
           source={scratchSource}
           shape="dock"

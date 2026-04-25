@@ -802,11 +802,13 @@ function FixedSessionChatSession({
           model_provider_id_override: modelProviderId,
         } : {}),
       });
-      if (result.queued && result.task_id) {
-        useChatStore.getState().setProcessing(sessionId, result.task_id);
-      }
+      useChatStore.getState().setProcessing(
+        sessionId,
+        result.task_id ?? result.turn_id ?? clientLocalId,
+      );
       qc.invalidateQueries({ queryKey: ["session-messages", sessionId] });
     } catch (err) {
+      useChatStore.getState().clearProcessing(sessionId);
       setSendError(err instanceof Error ? err.message : "Failed to send message");
     }
   }, [botId, modelOverride, modelProviderId, parentChannelId, qc, sessionId, source.externalDelivery, submitChat]);

@@ -21,12 +21,17 @@ from scripts.screenshots.capture.browser import AuthBundle
 from scripts.screenshots.capture.runner import capture_batch
 from scripts.screenshots.capture.specs import (
     A3_DOCS_SPECS,
+    CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
     INTEGRATIONS_SPECS,
     resolve_specs,
 )
 from scripts.screenshots.stage.client import SpindrelClient
+from scripts.screenshots.stage.scenarios.core_features import (
+    stage_core_features,
+    teardown_core_features,
+)
 from scripts.screenshots.stage.scenarios.docs_repair import (
     BLUEBUBBLES_CHANNEL_CLIENT_ID,
     stage_docs_repair,
@@ -49,7 +54,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -89,6 +94,16 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         # staging required. Server state (whatever's been seeded by other
         # scenarios or normal use) is what shows up in the captures.
         print("staged (a3-docs): no-op — admin routes need no staging")
+        return None
+    if only == "core-features":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            stage_core_features(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+                dry_run=dry_run,
+            )
+        print("staged (core-features): seeded webhook rows + bot knowledge-base chunks")
         return None
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":
@@ -131,11 +146,26 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             user=login["user"],
         )
 
+        # Purge test debris BEFORE every capture so the channel sidebar
+        # never leaks `chat:e2e:*`, `dbg-*`, `frag-*`, `smoke-*` rows into
+        # a hero shot. Allow-list is `screenshot:*` + `orchestrator:*` +
+        # `default`. Idempotent — clean instances are a no-op.
+        purged = client.purge_test_channels()
+        if purged:
+            print(f"purged {len(purged)} test channel(s):")
+            for cid in purged[:10]:
+                print(f"  - {cid}")
+            if len(purged) > 10:
+                print(f"  ... and {len(purged) - 10} more")
+
         placeholders: dict[str, str] = {}
 
         if only == "integrations":
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
+        elif only == "core-features":
+            # Both routes are static admin pages — no placeholders.
+            spec_list = CORE_FEATURE_SPECS
         elif only == "a3-docs":
             # Most admin routes are static, but workspace-files needs the
             # default workspace UUID resolved from the API at capture time.
@@ -225,6 +255,15 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
     if only == "a3-docs":
         print("teardown (a3-docs): no-op — admin routes have no scenario records")
         return
+    if only == "core-features":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_core_features(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+            )
+        print("teardown (core-features): removed seeded webhook rows + KB chunks")
+        return
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":
             teardown_flagship(client)
@@ -258,7 +297,8 @@ def main() -> None:
         sys.exit(video_cli.run(args.rest or []))
     elif args.action == "check":
         from scripts.screenshots.check_drift import check
-        sys.exit(check())
+        require_hero = "--require-hero" in (args.rest or [])
+        sys.exit(check(require_hero=require_hero))
 
 
 if __name__ == "__main__":

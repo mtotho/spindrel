@@ -10,9 +10,7 @@ logger = logging.getLogger(__name__)
 
 async def run_claude_code_task(task) -> None:
     """Execute a claude_code task: run CLI in Docker container, store result, dispatch."""
-    from app.agent.tasks import resolve_task_timeout
-    from app.db.engine import async_session
-    from app.db.models import Task
+    from integrations.sdk import Task, async_session, resolve_task_timeout
 
     logger.info("Running claude_code task %s", task.id)
     now = datetime.now(timezone.utc)
@@ -45,7 +43,7 @@ async def run_claude_code_task(task) -> None:
         _timeout = max(_timeout, cc_settings.TIMEOUT)
 
         # Resolve prompt (supports template/workspace-file-linked tasks)
-        from app.services.prompt_resolution import resolve_prompt
+        from integrations.sdk import resolve_prompt
         async with async_session() as resolve_db:
             prompt = await resolve_prompt(
                 workspace_id=str(task.workspace_id) if task.workspace_id else None,
@@ -168,9 +166,7 @@ async def run_claude_code_task(task) -> None:
 
 async def _notify_parent(task, cfg, result, result_text, output_dispatch_type, output_dispatch_config):
     """Create a callback task so the parent bot can react to the result."""
-    from app.db.engine import async_session
-    from app.db.models import Task
-    from integrations.claude_code.runner import ClaudeCodeResult
+    from integrations.sdk import Task, async_session
 
     _parent_bot_id = cfg.get("parent_bot_id")
     _parent_session_str = cfg.get("parent_session_id")
@@ -251,15 +247,15 @@ async def _deliver_result_via_renderer(
     try:
         from datetime import datetime, timezone
 
-        from app.domain.actor import ActorRef
-        from app.domain.channel_events import (
+        from integrations.sdk import (
+            ActorRef,
             ChannelEvent,
             ChannelEventKind,
+            DomainMessage,
+            MessagePayload,
+            parse_dispatch_target,
+            renderer_registry,
         )
-        from app.domain.dispatch_target import parse_dispatch_target
-        from app.domain.message import Message as DomainMessage
-        from app.domain.payloads import MessagePayload
-        from app.integrations import renderer_registry
 
         renderer = renderer_registry.get(output_dispatch_type)
         if renderer is None:

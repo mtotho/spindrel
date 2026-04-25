@@ -24,6 +24,7 @@ the client_id constant.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -874,6 +875,168 @@ class _Chat:
         self.completions = _Completions(adapter)
 
 
+@dataclass
+class _ImageItem:
+    """Mirror of ``openai.types.images_response.Image`` — only ``b64_json`` /
+    ``url`` are read by ``app/tools/local/image.py``."""
+    b64_json: str | None = None
+    url: str | None = None
+
+
+@dataclass
+class _ImagesResponse:
+    data: list[_ImageItem] = field(default_factory=list)
+
+
+class _Images:
+    """``client.images.*`` shim that translates to the Codex Responses API.
+
+    The Codex backend exposes image generation via the built-in
+    ``image_generation`` tool — see OpenAI's "image_generation tool" docs.
+    Calling ``generate`` / ``edit`` on this namespace builds a Responses
+    request that forces invocation of that tool, then parses the
+    ``image_generation_call`` output items into the same shape the OpenAI
+    Images API would have returned (``response.data[i].b64_json``).
+
+    Reference images for editing are passed as ``input_image`` parts on
+    the user message; the server-side tool handles the edit semantics.
+    """
+
+    def __init__(self, adapter: "OpenAIResponsesAdapter"):
+        self._adapter = adapter
+
+    async def generate(self, *, model: str, prompt: str, n: int = 1, size: str | None = None, **_) -> _ImagesResponse:
+        return await self._call(model=model, prompt=prompt, n=n, size=size, image_files=None)
+
+    async def edit(self, *, model: str, prompt: str, image, n: int = 1, size: str | None = None, **_) -> _ImagesResponse:
+        # ``image`` may be a single tuple ``(name, bytes, mime)`` or a list of them.
+        if image is None:
+            files: list[tuple] = []
+        elif isinstance(image, list):
+            files = list(image)
+        else:
+            files = [image]
+        return await self._call(model=model, prompt=prompt, n=n, size=size, image_files=files)
+
+    async def _call(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        n: int,
+        size: str | None,
+        image_files: list[tuple] | None,
+    ) -> _ImagesResponse:
+        user_content: list[dict] = [{"type": "input_text", "text": prompt}]
+        for entry in image_files or []:
+            if not isinstance(entry, (tuple, list)) or len(entry) < 3:
+                continue
+            _name, data, mime = entry[0], entry[1], entry[2]
+            if not data:
+                continue
+            b64 = base64.b64encode(data).decode("ascii")
+            user_content.append({
+                "type": "input_image",
+                "image_url": f"data:{mime or 'image/png'};base64,{b64}",
+                "detail": "auto",
+            })
+
+        tool_def: dict = {"type": "image_generation"}
+        if size:
+            tool_def["size"] = size
+        if n and n > 1:
+            tool_def["n"] = int(n)
+
+        body: dict = {
+            "model": model,
+            "input": [{
+                "type": "message",
+                "role": "user",
+                "content": user_content,
+            }],
+            "tools": [tool_def],
+            "tool_choice": {"type": "image_generation"},
+            "stream": False,
+            "store": False,
+        }
+
+        tokens = await self._adapter._tokens_source()
+        headers = self._adapter._build_headers(tokens)
+        url = f"{self._adapter._base_url.rstrip('/')}/responses"
+        client = self._adapter._http_client
+
+        try:
+            resp = await client.post(url, headers=headers, json=body)
+        except httpx.TimeoutException as exc:
+            raise openai.APITimeoutError(request=getattr(exc, "request", None)) from exc  # type: ignore[arg-type]
+        except httpx.RequestError as exc:
+            raise openai.APIConnectionError(message=str(exc), request=getattr(exc, "request", None)) from exc  # type: ignore[arg-type]
+
+        if not resp.is_success:
+            try:
+                err_body = resp.json()
+            except (json.JSONDecodeError, ValueError):
+                err_body = resp.text
+            _log_error_body(body, resp.status_code, err_body)
+        _raise_for_httpx(resp)
+
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise openai.APIStatusError(
+                message=f"Non-JSON response from Responses API images call: {resp.text[:500]}",
+                response=resp, body=resp.text,
+            ) from exc
+
+        return _parse_image_generation_response(data)
+
+
+def _parse_image_generation_response(data: Any) -> _ImagesResponse:
+    """Extract base64 / URL images from ``image_generation_call`` output items.
+
+    The Responses API surfaces tool results as ``output[i].type ==
+    "image_generation_call"`` items; each carries either a base64 ``result``
+    string or a URL.  We tolerate both shapes plus the alternate
+    ``content[].type == "image"`` placement seen in some preview builds.
+    """
+    items: list[_ImageItem] = []
+
+    def _push(b64: str | None, url: str | None) -> None:
+        if b64 or url:
+            items.append(_ImageItem(b64_json=b64, url=url))
+
+    if not isinstance(data, dict):
+        return _ImagesResponse(data=items)
+
+    for out in data.get("output") or []:
+        if not isinstance(out, dict):
+            continue
+        otype = out.get("type")
+        if otype == "image_generation_call":
+            b64 = out.get("result") or out.get("b64_json")
+            url = out.get("url") or (out.get("image_url") or {}).get("url") if isinstance(out.get("image_url"), dict) else out.get("url")
+            _push(b64, url)
+            continue
+        # Some preview builds wrap the tool-call result in a message-shaped
+        # output with content blocks; sniff for image-bearing parts.
+        for part in out.get("content") or []:
+            if not isinstance(part, dict):
+                continue
+            ptype = part.get("type")
+            if ptype in ("image", "output_image", "image_generation_call"):
+                b64 = part.get("b64_json") or part.get("result")
+                url = part.get("url")
+                if not (b64 or url):
+                    iu = part.get("image_url")
+                    if isinstance(iu, dict):
+                        url = iu.get("url")
+                    elif isinstance(iu, str):
+                        url = iu
+                _push(b64, url)
+
+    return _ImagesResponse(data=items)
+
+
 class OpenAIResponsesAdapter:
     """Drop-in replacement for ``AsyncOpenAI`` that talks to the Codex Responses API.
 
@@ -907,6 +1070,7 @@ class OpenAIResponsesAdapter:
         self._http_client = httpx.AsyncClient(timeout=timeout)
         self._extra_headers: dict[str, str] = dict(default_headers or {})
         self.chat = _Chat(self)
+        self.images = _Images(self)
         # Attributes that llm.py logs.
         self.api_key = ""
         self.base_url = self._base_url

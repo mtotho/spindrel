@@ -1,5 +1,7 @@
 # Knowledge Bases
 
+![Memory & Knowledge admin — Knowledge Library inventory of indexed bot and channel knowledge-base folders](../images/kb-detail.png)
+
 Spindrel has two curated knowledge layers plus one short-form memory layer:
 
 - `channels/<channel_id>/knowledge-base/`

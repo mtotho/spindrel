@@ -13,7 +13,14 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from integrations.sdk import register_tool as register
+from integrations.sdk import (
+    create_widget_backed_attachment,
+    current_bot_id,
+    current_channel_id,
+    current_dispatch_type,
+    get_setting,
+    register_tool as register,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +37,7 @@ def _find_chrome_path() -> str | None:
     """
     # 1. Integration setting (configured via admin UI)
     try:
-        from app.services.integration_settings import get_value
-        val = get_value("excalidraw", "EXCALIDRAW_CHROME_PATH")
+        val = get_setting("excalidraw", "EXCALIDRAW_CHROME_PATH")
         if val and shutil.which(val):
             return val
     except Exception:
@@ -272,9 +278,6 @@ async def _deliver(data: bytes, filename: str, mime: str, *, tool_name: str) -> 
     payload for Slack/Discord renderers — those surfaces don't render the
     widget and rely on ``client_action`` as their only display path.
     """
-    from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_widget_backed_attachment
-
     channel_id = current_channel_id.get()
     bot_id = current_bot_id.get()
     source = current_dispatch_type.get() or "web"

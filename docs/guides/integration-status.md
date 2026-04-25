@@ -1,5 +1,7 @@
 # Integration Status
 
+![Active integrations grouped by readiness](../images/integrations-active.png)
+
 This page is the honest status snapshot for Spindrel's integrations.
 
 It is **not** a marketing matrix. If something is rough, partial, untested, or likely to change, this page should say so plainly.

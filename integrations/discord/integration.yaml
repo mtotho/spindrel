@@ -34,7 +34,6 @@ binding:
 capabilities:
   - text
   - rich_text
-  - threading
   - reactions
   - attachments
   - image_upload

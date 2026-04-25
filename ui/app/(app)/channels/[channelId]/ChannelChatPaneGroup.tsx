@@ -1,11 +1,13 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
-import { MoreHorizontal, X as CloseIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Maximize2, Minimize2, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
+import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import {
   buildChannelSessionChatSource,
   buildScratchChatSource,
   formatScratchSessionTimestamp,
+  resizeChannelChatPanes,
   type ChannelChatPane,
   type ChannelSessionCatalogItem,
 } from "@/src/lib/channelSessionSurfaces";
@@ -17,13 +19,17 @@ interface ChannelChatPaneGroupProps {
   panes: ChannelChatPane[];
   widths: Record<string, number>;
   focusedPaneId: string | null;
+  maximizedPaneId?: string | null;
   catalog?: ChannelSessionCatalogItem[] | null;
   primaryNode: ReactNode;
   emptyState?: ReactNode;
   chatMode?: "default" | "terminal";
   onFocusPane: (paneId: string) => void;
   onClosePane: (paneId: string) => void;
-  onResizePanePair: (leftPaneId: string, rightPaneId: string, deltaRatio: number) => void;
+  onMaximizePane: (paneId: string) => void;
+  onRestorePanes: () => void;
+  onMinimizePane: (paneId: string) => void;
+  onCommitPaneWidths: (widths: Record<string, number>) => void;
   onMakePrimary: (pane: ChannelChatPane) => void;
   onOpenSessions?: () => void;
   onOpenSessionSplit?: () => void;
@@ -59,13 +65,38 @@ function labelForPane(
   };
 }
 
+function formatPaneTokens(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
+  return String(Math.round(value));
+}
+
+function formatPaneContextStats(stats: ReturnType<typeof useSessionHeaderStats>["data"]): string | null {
+  if (!stats) return null;
+  const tokenBits = [
+    formatPaneTokens(stats.currentPromptTokens ?? stats.grossPromptTokens ?? stats.consumedTokens),
+    formatPaneTokens(stats.totalTokens),
+  ];
+  const bits = [
+    tokenBits[0] && tokenBits[1] ? `${tokenBits[0]}/${tokenBits[1]}` : tokenBits[0],
+    typeof stats.turnsInContext === "number" ? `${stats.turnsInContext} turns in ctx` : null,
+    typeof stats.turnsUntilCompaction === "number" ? `${stats.turnsUntilCompaction} until compact` : null,
+  ].filter(Boolean);
+  return bits.length > 0 ? bits.join(" · ") : null;
+}
+
 function PaneHeader({
   pane,
   channelId,
   activeSessionId,
   catalog,
   focused,
+  maximized,
   onClose,
+  onMaximize,
+  onRestore,
+  onMinimize,
   onMakePrimary,
 }: {
   pane: ChannelChatPane;
@@ -73,7 +104,11 @@ function PaneHeader({
   activeSessionId?: string | null;
   catalog?: ChannelSessionCatalogItem[] | null;
   focused: boolean;
+  maximized: boolean;
   onClose: () => void;
+  onMaximize: () => void;
+  onRestore: () => void;
+  onMinimize: () => void;
   onMakePrimary: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -81,8 +116,10 @@ function PaneHeader({
   const [title, setTitle] = useState("");
   const rename = useRenameSession();
   const sessionId = sessionIdForPane(pane, activeSessionId);
+  const { data: sessionStats } = useSessionHeaderStats(channelId, sessionId);
   const header = labelForPane(pane, catalog);
-  const tooltip = [header.title, header.meta].filter(Boolean).join(" · ");
+  const contextStats = formatPaneContextStats(sessionStats);
+  const tooltip = [header.title, header.meta, contextStats].filter(Boolean).join(" · ");
 
   const commitRename = () => {
     if (!sessionId || !title.trim()) return;
@@ -98,7 +135,7 @@ function PaneHeader({
   };
 
   return (
-    <div className={`flex h-9 shrink-0 items-center gap-2 border-b px-3 ${focused ? "border-accent/35 bg-surface-overlay/25" : "border-surface-border/70 bg-surface"}`}>
+    <div className={`group/pane-header flex h-9 shrink-0 items-center gap-2 border-b border-surface-border/45 bg-surface px-3 ${focused ? "text-text" : "text-text-muted"}`}>
       <div className="min-w-0 flex-1">
         {renaming ? (
           <input
@@ -113,17 +150,51 @@ function PaneHeader({
           />
         ) : (
           <div className="flex min-w-0 items-center gap-2" title={tooltip}>
-            <span className="min-w-0 max-w-[62%] truncate text-[12px] font-semibold text-text">{header.title}</span>
-            <span className="shrink-0 rounded-sm border border-surface-border/80 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
+            <span className="min-w-0 max-w-[45%] truncate text-[12px] font-semibold text-text">{header.title}</span>
+            <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-dim">
               {header.kind}
             </span>
             {!header.primary && pane.surface.kind === "channel" && (
-              <span className="shrink-0 rounded-sm border border-surface-border/80 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-text-dim">
+              <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-dim">
                 Web-only
+              </span>
+            )}
+            {contextStats && (
+              <span className="min-w-0 truncate text-[10px] text-text-dim">
+                {contextStats}
               </span>
             )}
           </div>
         )}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          onClick={maximized ? onRestore : onMaximize}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          aria-label={maximized ? "Restore splits" : "Maximize pane"}
+          title={maximized ? "Restore splits" : "Maximize pane"}
+        >
+          {maximized ? <Rows3 size={13} /> : <Maximize2 size={13} />}
+        </button>
+        <button
+          type="button"
+          onClick={onMinimize}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          aria-label="Minimize to mini chat"
+          title="Minimize to mini chat"
+        >
+          <Minimize2 size={13} />
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          aria-label="Close pane"
+          title="Close pane"
+        >
+          <CloseIcon size={13} />
+        </button>
       </div>
       <div className="relative shrink-0">
         <button
@@ -132,8 +203,9 @@ function PaneHeader({
             event.stopPropagation();
             setMenuOpen((open) => !open);
           }}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
           aria-label="Session pane actions"
+          title="More session actions"
         >
           <MoreHorizontal size={14} />
         </button>
@@ -173,14 +245,6 @@ function PaneHeader({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={onClose}
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
-        aria-label="Close pane"
-      >
-        <CloseIcon size={13} />
-      </button>
     </div>
   );
 }
@@ -192,33 +256,53 @@ export function ChannelChatPaneGroup({
   panes,
   widths,
   focusedPaneId,
+  maximizedPaneId,
   catalog,
   primaryNode,
   emptyState,
   chatMode = "default",
   onFocusPane,
   onClosePane,
-  onResizePanePair,
+  onMaximizePane,
+  onRestorePanes,
+  onMinimizePane,
+  onCommitPaneWidths,
   onMakePrimary,
   onOpenSessions,
   onOpenSessionSplit,
   onToggleFocusLayout,
 }: ChannelChatPaneGroupProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const total = panes.reduce((sum, pane) => sum + (widths[pane.id] ?? 0), 0) || panes.length || 1;
-  if (panes.length === 1 && panes[0]?.surface.kind === "primary") {
+  const [localWidths, setLocalWidths] = useState<Record<string, number>>(widths);
+  const localWidthsRef = useRef(localWidths);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setLocalWidths(widths);
+    localWidthsRef.current = widths;
+  }, [widths, panes]);
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  const visiblePanes = maximizedPaneId
+    ? panes.filter((pane) => pane.id === maximizedPaneId)
+    : panes;
+  const total = visiblePanes.reduce((sum, pane) => sum + (localWidths[pane.id] ?? 0), 0) || visiblePanes.length || 1;
+  if (visiblePanes.length === 1 && visiblePanes[0]?.surface.kind === "primary" && !maximizedPaneId) {
     return (
       <div
         ref={containerRef}
         className="flex min-h-0 flex-1"
-        onMouseDown={() => onFocusPane(panes[0]!.id)}
+        onMouseDown={() => onFocusPane(visiblePanes[0]!.id)}
       >
         {primaryNode}
       </div>
     );
   }
 
-  if (panes.length === 0) {
+  if (visiblePanes.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-surface p-6">
         <div className="flex max-w-sm flex-col items-center gap-3 text-center">
@@ -241,9 +325,10 @@ export function ChannelChatPaneGroup({
 
   return (
     <div ref={containerRef} className="flex min-h-0 flex-1 overflow-hidden bg-surface">
-      {panes.map((pane, index) => {
-        const width = ((widths[pane.id] ?? 1 / panes.length) / total) * 100;
+      {visiblePanes.map((pane, index) => {
+        const width = ((localWidths[pane.id] ?? 1 / panes.length) / total) * 100;
         const focused = pane.id === focusedPaneId;
+        const maximized = pane.id === maximizedPaneId;
         const body = pane.surface.kind === "primary"
           ? primaryNode
           : (
@@ -268,7 +353,7 @@ export function ChannelChatPaneGroup({
               role="button"
               tabIndex={-1}
               onMouseDown={() => onFocusPane(pane.id)}
-              className={`flex min-w-0 flex-1 flex-col overflow-hidden bg-surface ${index === 0 ? "" : "border-l border-surface-border/70"}`}
+              className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface"
             >
               <PaneHeader
                 pane={pane}
@@ -276,12 +361,16 @@ export function ChannelChatPaneGroup({
                 activeSessionId={activeSessionId}
                 catalog={catalog}
                 focused={focused}
+                maximized={maximized}
                 onClose={() => onClosePane(pane.id)}
+                onMaximize={() => onMaximizePane(pane.id)}
+                onRestore={onRestorePanes}
+                onMinimize={() => onMinimizePane(pane.id)}
                 onMakePrimary={() => onMakePrimary(pane)}
               />
               <div className="flex min-h-0 flex-1 flex-col">{body}</div>
             </div>
-            {index < panes.length - 1 && (
+            {index < visiblePanes.length - 1 && (
               <div
                 className="flex w-2 shrink-0 cursor-col-resize items-stretch justify-center bg-surface"
                 onMouseDown={(event) => {
@@ -290,11 +379,34 @@ export function ChannelChatPaneGroup({
                   const rect = containerRef.current?.getBoundingClientRect();
                   const widthPx = rect?.width || 1;
                   const leftId = pane.id;
-                  const rightId = panes[index + 1]!.id;
-                  const onMove = (moveEvent: MouseEvent) => {
-                    onResizePanePair(leftId, rightId, (moveEvent.clientX - startX) / widthPx);
+                  const rightId = visiblePanes[index + 1]!.id;
+                  const startWidths = { ...localWidthsRef.current };
+                  const applyDelta = (clientX: number) => {
+                    const deltaRatio = (clientX - startX) / widthPx;
+                    const next = resizeChannelChatPanes(
+                      { panes, focusedPaneId, widths: startWidths, maximizedPaneId: maximizedPaneId ?? null, miniPane: null },
+                      leftId,
+                      rightId,
+                      deltaRatio,
+                    ).widths;
+                    localWidthsRef.current = next;
+                    setLocalWidths(next);
                   };
-                  const onUp = () => {
+                  const onMove = (moveEvent: MouseEvent) => {
+                    const clientX = moveEvent.clientX;
+                    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+                    frameRef.current = requestAnimationFrame(() => {
+                      frameRef.current = null;
+                      applyDelta(clientX);
+                    });
+                  };
+                  const onUp = (upEvent: MouseEvent) => {
+                    if (frameRef.current !== null) {
+                      cancelAnimationFrame(frameRef.current);
+                      frameRef.current = null;
+                    }
+                    applyDelta(upEvent.clientX);
+                    onCommitPaneWidths(localWidthsRef.current);
                     window.removeEventListener("mousemove", onMove);
                     window.removeEventListener("mouseup", onUp);
                   };

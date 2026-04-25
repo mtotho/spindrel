@@ -28,7 +28,7 @@ import logging
 import time
 from typing import Any
 
-from app.services.time_coercion import to_iso_z_or_none
+from integrations.sdk import to_iso_z_or_none
 
 logger = logging.getLogger(__name__)
 

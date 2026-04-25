@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Brain, Download, Loader2 } from "lucide-react";
+import { Brain, Download, Image as ImageIcon, Loader2 } from "lucide-react";
 
 import {
   useDownloadEmbeddingModel,
@@ -21,6 +21,12 @@ interface Props {
   variant?: "llm" | "embedding";
   /** When set, only highlight the model in the matching provider group. */
   selectedProviderId?: string | null;
+  /**
+   * Restrict the option list to models with a specific capability flag.
+   * Used by Image Generation server settings — only flagged image-gen
+   * models appear in the dropdown.
+   */
+  capabilityFilter?: "image_generation";
   className?: string;
 }
 
@@ -131,6 +137,15 @@ function ModelOptionRow({
               reasoning
             </span>
           )}
+          {option.model.supports_image_generation && (
+            <span
+              title="Generates images"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/[0.08] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.06em] text-accent"
+            >
+              <ImageIcon size={9} />
+              image-gen
+            </span>
+          )}
         </span>
         {option.model.display !== option.model.id && (
           <span className="mt-0.5 block truncate text-[11px] text-text-dim">{option.model.display}</span>
@@ -238,13 +253,21 @@ export function LlmModelDropdown({
   allowClear = true,
   variant = "llm",
   selectedProviderId,
+  capabilityFilter,
   className = "",
 }: Props) {
   const llmQuery = useModelGroups();
   const embeddingQuery = useEmbeddingModelGroups();
   const { data: groups, isLoading } = variant === "embedding" ? embeddingQuery : llmQuery;
   const downloadMutation = useDownloadEmbeddingModel();
-  const modelOptions = useMemo(() => buildModelOptions(groups), [groups]);
+  const allOptions = useMemo(() => buildModelOptions(groups), [groups]);
+  const modelOptions = useMemo(() => {
+    if (!capabilityFilter) return allOptions;
+    if (capabilityFilter === "image_generation") {
+      return allOptions.filter((option) => option.model.supports_image_generation);
+    }
+    return allOptions;
+  }, [allOptions, capabilityFilter]);
   const selectedKey = selectedKeyFor(modelOptions, value, selectedProviderId);
   const options = useMemo(() => {
     if (!value || selectedKey) return modelOptions;

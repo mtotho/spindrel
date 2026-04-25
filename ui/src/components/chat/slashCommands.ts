@@ -48,6 +48,13 @@ export function filterSlashCommands(
     }));
 }
 
+export function buildCompletedSlashCommandText(commandId: string, arg?: string): string {
+  const cleanedCommand = commandId.trim().replace(/^\/+/, "");
+  if (!cleanedCommand) return "/";
+  const cleanedArg = arg?.trim();
+  return cleanedArg ? `/${cleanedCommand} ${cleanedArg} ` : `/${cleanedCommand} `;
+}
+
 export function resolveSlashCommand(
   raw: string,
   surface: SlashCommandSurface,

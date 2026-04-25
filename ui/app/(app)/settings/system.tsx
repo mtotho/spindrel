@@ -3,9 +3,12 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
+  Brain,
+  Cpu,
   Database,
   ExternalLink,
   HardDrive,
+  Image as ImageIcon,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -203,6 +206,51 @@ const DOMAIN_DESCRIPTIONS: Record<SystemTab, string> = {
   Advanced: "Full server settings registry. Use this when a setting is not promoted into a domain section yet.",
 };
 
+const DOMAIN_TABS = TABS.filter((tab): tab is Exclude<SystemTab, "Overview" | "Advanced"> => (
+  tab !== "Overview" && tab !== "Advanced"
+));
+
+const DOMAIN_ICONS: Record<Exclude<SystemTab, "Overview" | "Advanced">, React.ReactNode> = {
+  Models: <Cpu size={15} />,
+  "Memory & Context": <Brain size={15} />,
+  Retrieval: <Database size={15} />,
+  "Runtime & Tools": <Wrench size={15} />,
+  "Media & Voice": <ImageIcon size={15} />,
+  "Security & Access": <Shield size={15} />,
+  Operations: <HardDrive size={15} />,
+};
+
+const DOMAIN_SURFACES: Record<Exclude<SystemTab, "Overview" | "Advanced">, Array<{ label: string; href: string }>> = {
+  Models: [
+    { label: "Providers", href: "/admin/providers" },
+    { label: "Config state", href: "/admin/config-state" },
+  ],
+  "Memory & Context": [
+    { label: "Memory & Knowledge", href: "/admin/learning" },
+    { label: "Tasks", href: "/admin/tasks" },
+  ],
+  Retrieval: [
+    { label: "Memory & Knowledge", href: "/admin/learning#Knowledge" },
+    { label: "Tools", href: "/admin/tools" },
+  ],
+  "Runtime & Tools": [
+    { label: "Tool policies", href: "/admin/tool-policies" },
+    { label: "Docker stacks", href: "/admin/docker-stacks" },
+  ],
+  "Media & Voice": [
+    { label: "Attachments", href: "/admin/attachments" },
+    { label: "Providers", href: "/admin/providers" },
+  ],
+  "Security & Access": [
+    { label: "API keys", href: "/admin/api-keys" },
+    { label: "Secrets", href: "/admin/secret-values" },
+  ],
+  Operations: [
+    { label: "Diagnostics", href: "/admin/diagnostics" },
+    { label: "Config state", href: "/admin/config-state" },
+  ],
+};
+
 function decodeHash(hash: string): string {
   if (!hash) return "";
   try {
@@ -218,6 +266,10 @@ function settingMap(groups: SettingsGroup[]) {
     for (const setting of group.settings) map.set(setting.key, setting);
   }
   return map;
+}
+
+function settingsForDomain(tab: Exclude<SystemTab, "Overview" | "Advanced">, settingsByKey: Map<string, SettingItem>) {
+  return DOMAIN_KEYS[tab].map((key) => settingsByKey.get(key)).filter(Boolean) as SettingItem[];
 }
 
 function formatSettingValue(value: unknown): string {
@@ -268,14 +320,22 @@ function SettingControl({
     );
   }
 
-  if (item.widget === "model" || item.widget === "embedding_model") {
+  if (item.widget === "model" || item.widget === "embedding_model" || item.widget === "image_model") {
+    const placeholder =
+      item.widget === "embedding_model"
+        ? "Select embedding model..."
+        : item.widget === "image_model"
+          ? "Select image-gen model..."
+          : "Select model...";
     return (
       <div className="max-w-[420px]">
         <LlmModelDropdown
           value={value}
           onChange={(model) => onChange(model)}
-          placeholder={item.widget === "embedding_model" ? "Select embedding model..." : "Select model..."}
+          placeholder={placeholder}
           allowClear={item.nullable}
+          variant={item.widget === "embedding_model" ? "embedding" : "llm"}
+          capabilityFilter={item.widget === "image_model" ? "image_generation" : undefined}
         />
       </div>
     );
@@ -320,11 +380,12 @@ function SettingsDomainSection({
     Object.fromEntries(settings.map((item) => [item.key, formatSettingValue(item.value)])),
   );
   const [status, setStatus] = useState<"idle" | "dirty" | "pending" | "saved" | "error">("idle");
+  const settingsSignature = settings.map((item) => `${item.key}:${formatSettingValue(item.value)}`).join("|");
 
   useEffect(() => {
     setValues(Object.fromEntries(settings.map((item) => [item.key, formatSettingValue(item.value)])));
     setStatus("idle");
-  }, [settings]);
+  }, [settingsSignature]);
 
   const dirtyKeys = settings
     .filter((item) => values[item.key] !== formatSettingValue(item.value))
@@ -500,6 +561,32 @@ function OverviewPanel({ groups, settingsByKey }: { groups: SettingsGroup[]; set
         </div>
       </Section>
 
+      <Section title="System domains" description="Jump by operational intent instead of raw environment variable group. Each domain keeps detailed ownership links close by.">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {DOMAIN_TABS.map((tab) => {
+            const settings = settingsForDomain(tab, settingsByKey);
+            const overriddenCount = settings.filter((item) => item.overridden).length;
+            const missingCount = DOMAIN_KEYS[tab].length - settings.length;
+            return (
+              <Link key={tab} to={`/settings/system#${encodeURIComponent(tab)}`}>
+                <SettingsControlRow
+                  leading={DOMAIN_ICONS[tab]}
+                  title={tab}
+                  description={DOMAIN_DESCRIPTIONS[tab]}
+                  meta={
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <QuietPill label={`${settings.length} settings`} />
+                      {overriddenCount > 0 && <StatusBadge label={`${overriddenCount} overrides`} variant="info" />}
+                      {missingCount > 0 && <QuietPill label={`${missingCount} unmapped`} />}
+                    </div>
+                  }
+                />
+              </Link>
+            );
+          })}
+        </div>
+      </Section>
+
       <Section title="Canonical admin surfaces" description="Settings summarizes global defaults. These pages own the detailed workflows.">
         <div className="grid gap-2 md:grid-cols-2">
           {links.map((link) => (
@@ -558,9 +645,39 @@ function AdvancedPanel({ groups }: { groups: SettingsGroup[] }) {
 }
 
 function DomainPanel({ tab, settingsByKey }: { tab: Exclude<SystemTab, "Overview" | "Advanced">; settingsByKey: Map<string, SettingItem> }) {
-  const keys = DOMAIN_KEYS[tab];
-  const settings = keys.map((key) => settingsByKey.get(key)).filter(Boolean) as SettingItem[];
-  return <SettingsDomainSection title={tab} description={DOMAIN_DESCRIPTIONS[tab]} settings={settings} />;
+  const settings = useMemo(() => settingsForDomain(tab, settingsByKey), [tab, settingsByKey]);
+  const overriddenCount = settings.filter((item) => item.overridden).length;
+  const readOnlyCount = settings.filter((item) => item.read_only).length;
+  const missingCount = DOMAIN_KEYS[tab].length - settings.length;
+  const surfaces = DOMAIN_SURFACES[tab];
+
+  return (
+    <div className="flex flex-col gap-6">
+      <Section title="Domain map" description="The setting rows below are global defaults. These linked surfaces own the deeper workflows and inspection views.">
+        <SettingsStatGrid
+          items={[
+            { label: "Mapped", value: settings.length },
+            { label: "Overrides", value: overriddenCount, tone: overriddenCount ? "accent" : "default" },
+            { label: "Read only", value: readOnlyCount },
+            { label: "Unmapped", value: missingCount, tone: missingCount ? "warning" : "success" },
+          ]}
+        />
+        <div className="grid gap-2 md:grid-cols-2">
+          {surfaces.map((surface) => (
+            <Link key={surface.href} to={surface.href}>
+              <SettingsControlRow
+                leading={DOMAIN_ICONS[tab]}
+                title={surface.label}
+                description={`Open the canonical ${surface.label.toLowerCase()} surface.`}
+                action={<ExternalLink size={13} className="text-text-dim" />}
+              />
+            </Link>
+          ))}
+        </div>
+      </Section>
+      <SettingsDomainSection title={tab} description={DOMAIN_DESCRIPTIONS[tab]} settings={settings} />
+    </div>
+  );
 }
 
 export default function SystemSettingsPage() {

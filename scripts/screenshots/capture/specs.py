@@ -231,34 +231,44 @@ DOCS_REPAIR_SPECS: list[ScreenshotSpec] = [
         output="integration-edit-v2.png",
     ),
     # 7. bot-skills.md — /admin/learning#Skills (skill catalog)
-    # Wait until the bot-authored-skills + catalog queries resolve: both
-    # sections render Tailwind ``animate-pulse`` skeletons while loading.
-    # We wait for those to disappear, then require the filter input to
-    # exist (the page structure is mounted).
+    # The skeletons are plain `bg-surface-raised/35` divs (NOT animate-pulse),
+    # so the old wait predicate never gated on actual data resolution. The
+    # SettingsStatGrid rendered post-load shows "Surfacings", "Auto-injects",
+    # "Unused" labels — those only appear when isLoading=false. The skill
+    # catalog area then renders rows OR the "No bot-authored skills..."
+    # empty-state. We also gate on the channel sidebar settling.
     ScreenshotSpec(
         name="bot-skills-learning-1",
         route="/admin/learning#Skills",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            '!!document.querySelector(\'input[placeholder*="Filter skills" i]\')'
-            ' && document.querySelectorAll(".animate-pulse").length === 0'
-            ' && document.querySelectorAll(".animate-spin").length === 0'
+            # Stat-grid labels are CSS-uppercased ("SURFACINGS"); innerText
+            # reflects text-transform in Chromium so we use case-insensitive
+            # regex to match either form.
+            '/Surfacings/i.test(document.body.innerText)'
+            ' && /Auto.injects/i.test(document.body.innerText)'
+            ' && /Unused/i.test(document.body.innerText)'
+            # Skill catalog has resolved when at least one row's "X uses"
+            # meta is in the DOM — those only render once `parsed` is built.
+            ' && /\\d+\\s*uses/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
         output="bot-skills-learning-1.png",
     ),
-    # 8. bot-skills.md — /admin/learning#History with recent activity rows
-    # (alternative to the always-empty Dreaming tab on a fresh e2e instance).
-    # History tab shows loop/attribution rows — closer to the "learning
-    # analytics with health badges" the guide references.
+    # 8. bot-skills.md — /admin/learning#History
+    # Same channel-sidebar settling gate as -1. The History tab renders the
+    # search-results-or-empty surface; "Archived Sections" header is the
+    # post-mount marker (only renders once the History panel mounts).
     ScreenshotSpec(
         name="bot-skills-learning-2",
         route="/admin/learning#History",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            '(!document.querySelector(".animate-spin"))'
-            ' && /History|Turn|Bot|Channel|No history/i.test(document.body.innerText)'
+            '/Archived Sections/.test(document.body.innerText)'
+            ' && /Run a history search|Bot|Channel/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
         output="bot-skills-learning-2.png",
     ),
@@ -514,6 +524,89 @@ A3_DOCS_SPECS: list[ScreenshotSpec] = [
         ),
         full_page=True,
         output="skill-detail.png",
+    ),
+]
+
+
+# ---------------------------------------------------------------------------
+# Core-feature specs (Track A3-docs continuation, sub-pass 1).
+#
+# Admin-page heroes for guides that today have zero images. Two captures in
+# this pass; KB + chat-content captures land in a follow-up sub-pass with
+# their own staging primitives.
+# ---------------------------------------------------------------------------
+
+
+CORE_FEATURE_SPECS: list[ScreenshotSpec] = [
+    # Webhooks — feeds `docs/guides/webhooks.md`. WebhooksScreen renders a
+    # PageHeader title "Webhooks" then either a Spinner or a card grid. With
+    # the seed scenario, three named cards are present; their names contain
+    # the literal "screenshot:" prefix so the predicate is unique.
+    ScreenshotSpec(
+        name="webhooks-list",
+        route="/admin/webhooks",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Webhooks/.test(document.body.innerText)'
+            ' && /GitHub Actions trigger|Datadog tool-call traces|Slack status pings/'
+            '.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="webhooks-list.png",
+    ),
+    # Tools library — feeds `docs/guides/custom-tools.md`. ToolsScreen has a
+    # PageHeader title "Tools", a "{N} tools" count chip, a search input, and
+    # the ToolsTab list. The chip displays "0 tools" while useTools is in
+    # flight, and the count regex would otherwise gate on the loading state.
+    # Gate strictly: count must be > 0 AND a section header ("Local") must
+    # have rendered (only present once the list mounted with real rows).
+    ScreenshotSpec(
+        name="tools-library",
+        route="/admin/tools",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Tools/.test(document.body.innerText)'
+            # Match "<N> tools" where N is a positive integer (excludes "0 tools").
+            ' && /(?:^|\\s)([1-9]\\d*)\\s+tools?\\b/i.test(document.body.innerText)'
+            # Section headers use `text-transform: uppercase`; innerText reflects
+            # the rendered casing in Chromium, so case-insensitive match.
+            ' && /\\bLocal\\b/i.test(document.body.innerText)'
+            ' && !!document.querySelector(\'input[placeholder="Filter tools..."]\')'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="tools-library.png",
+    ),
+    # Memory & Knowledge — feeds `docs/guides/knowledge-bases.md`. The page is
+    # ``/admin/learning`` and uses ``useHashTab`` so ``#Knowledge`` lands on
+    # the Knowledge Library tab on first paint. The default sort is alphabetical
+    # by ``owner_name``, so without filtering the seeded "Orion" row sits below
+    # the visible viewport behind a stack of unrelated zero-state rows. Use
+    # the filter input to narrow to the seeded bot — same UI control a real
+    # admin would use to inspect a single bot's KB inventory. Predicate gates
+    # on the exact file/chunk counts the seeder produces (4 files / 8 chunks).
+    ScreenshotSpec(
+        name="kb-detail",
+        route="/admin/learning#Knowledge",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Memory\\s*&\\s*Knowledge/.test(document.body.innerText)'
+            ' && /Knowledge Library/.test(document.body.innerText)'
+            ' && /Orion/.test(document.body.innerText)'
+            ' && /\\b4\\s+files\\b/.test(document.body.innerText)'
+            ' && /\\b8\\s+chunks\\b/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        actions=[
+            Action(
+                kind="fill",
+                selector='input[placeholder="Filter knowledge bases..."]',
+                value="Orion",
+            ),
+        ],
+        output="kb-detail.png",
     ),
 ]
 

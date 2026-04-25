@@ -7,7 +7,13 @@ from typing import Optional
 import httpx
 
 from integrations.frigate.config import settings
-from integrations.sdk import register_tool as register
+from integrations.sdk import (
+    create_widget_backed_attachment,
+    current_bot_id,
+    current_channel_id,
+    current_dispatch_type,
+    register_tool as register,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,9 +395,6 @@ async def _download_media(
     while keeping it fetchable by id; ``client_action`` (Slack/Discord
     path) is untouched below.
     """
-    from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
-    from app.services.attachments import create_widget_backed_attachment
-
     data = await _get_bytes(path, params=params, timeout=timeout)
 
     if max_bytes and len(data) > max_bytes:

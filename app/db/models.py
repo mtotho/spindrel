@@ -729,6 +729,7 @@ class ProviderModel(Base):
     supports_reasoning: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     supports_prompt_caching: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     supports_structured_output: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    supports_image_generation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     prompt_style: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'markdown'"))
     extra_body: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))

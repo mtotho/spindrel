@@ -727,3 +727,16 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 
 **Remaining gap.**
 - Semantic review now exists, but it is still warning-only and judge-calibration/eval work is still needed before any sampled auto-review or hard gating.
+
+### Integration runtime modules depend on the SDK bridge, not `app.*`
+**Decided 2026-04-24.** Runtime integration code imports app-owned contracts through `integrations.sdk`. The only integration files allowed to import `app.*` directly are the infrastructure shims: `integrations/__init__.py`, `integrations/sdk.py`, and `integrations/utils.py`.
+
+**What this means.**
+- New integration routers, tools, renderers, config modules, and machine-control modules should not import `app.*` directly.
+- If an integration needs an app-owned model, service, context var, dependency, or helper, expose it through `integrations.sdk` first.
+- The static import-boundary test is now strict: there is no runtime-module allowlist for direct app imports.
+
+**Why.**
+- The SDK is the thin public interface for a deep integration module.
+- Keeping app imports inside infrastructure shims makes dependency direction obvious and keeps future integration packaging work tractable.
+- Tests should protect the boundary instead of documenting a growing debt list.

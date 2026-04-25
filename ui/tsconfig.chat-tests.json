@@ -36,6 +36,8 @@
     "src/lib/historyModeMeta.test.ts",
     "src/components/chat/slashCommandRequest.ts",
     "src/components/chat/slashCommandRequest.test.ts",
+    "src/components/chat/slashCommands.ts",
+    "src/components/chat/slashCommands.test.ts",
     "src/components/chat/slashCommandSurfaces.ts",
     "src/components/chat/slashCommandSurfaces.test.ts",
     "src/components/chat/planControl.ts",

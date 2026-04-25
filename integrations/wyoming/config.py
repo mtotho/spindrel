@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 
+from integrations import sdk
+
 
 def _setting(key: str, default: str = "") -> str:
     """Read an integration setting from the DB-backed manifest, falling back to env."""
     try:
-        from app.services.integration_manifests import get_setting_value
-        val = get_setting_value("wyoming", key)
+        val = sdk.get_setting_value("wyoming", key)
         if val is not None:
             return val
     except Exception:
@@ -22,9 +23,8 @@ def _in_docker() -> bool:
 
 def _instance_id() -> str:
     try:
-        from app.config import settings as _s
-        if _s.SPINDREL_INSTANCE_ID:
-            return _s.SPINDREL_INSTANCE_ID
+        if sdk.app_settings.SPINDREL_INSTANCE_ID:
+            return sdk.app_settings.SPINDREL_INSTANCE_ID
     except Exception:
         pass
     return os.environ.get("SPINDREL_INSTANCE_ID", "").strip() or "default"

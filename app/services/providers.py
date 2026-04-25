@@ -35,6 +35,9 @@ _prompt_caching_models: set[str] = set()
 # Cached set of model_ids flagged as supports_structured_output=True. Forward-looking
 # gate for response_format=json_schema pass-through.
 _structured_output_models: set[str] = set()
+# Cached set of model_ids flagged as supports_image_generation=True. Replaces the
+# string-sniffing routing in app/tools/local/image.py.
+_image_gen_models: set[str] = set()
 # Per-provider+model extra_body merge map (e.g. Ollama options.num_ctx).
 _extra_body_by_provider_model: dict[tuple[str, str], dict] = {}
 # Per-provider extra_headers passed into AsyncOpenAI(default_headers=...).
@@ -242,6 +245,8 @@ async def load_providers() -> None:
     _live_model_to_provider = {}
     _prompt_style_by_provider_model = {}
     _prompt_style_by_model = {}
+    global _image_gen_models
+    _image_gen_models = set()
 
     async with async_session() as db:
         rows = (
@@ -316,6 +321,17 @@ async def load_providers() -> None:
             )
         ).scalars().all()
         _structured_output_models = set(structured)
+
+        # Load model IDs flagged as supporting image generation. Authoritative
+        # source for app/tools/local/image.py routing — replaces string sniffing.
+        image_gen = (
+            await db.execute(
+                select(ProviderModel.model_id).where(
+                    ProviderModel.supports_image_generation == True  # noqa: E712
+                )
+            )
+        ).scalars().all()
+        _image_gen_models = set(image_gen)
 
         # Load per-(provider, model) extra_body, cached_input_cost, and the new
         # context_window / max_output_tokens columns for accurate budgeting.
@@ -423,8 +439,13 @@ async def load_providers() -> None:
         logger.info("Models with supports_vision=false flag: %s", _no_vision_models)
     if _reasoning_capable_models:
         logger.info("Models with supports_reasoning=true flag: %s", _reasoning_capable_models)
+    if _image_gen_models:
+        logger.info("Models with supports_image_generation=true flag: %s", _image_gen_models)
     if _plan_billed_models:
         logger.info("Models on plan-billed providers: %s", _plan_billed_models)
+
+    # Auto-populate IMAGE_GENERATION_MODEL on first boot if both image settings are empty.
+    await _auto_populate_image_settings()
 
     # Pre-warm model info cache for all litellm providers + .env fallback
     await _warm_model_info_cache()
@@ -435,6 +456,55 @@ async def load_providers() -> None:
         asyncio.create_task(_rebuild_secrets())
     except Exception:
         pass
+
+
+_IMAGE_DEFAULT_PRIORITY = (
+    "gpt-image-1-mini",
+    "openai/gpt-image-1-mini",
+    "gemini-2.5-flash-image",
+    "gemini/gemini-2.5-flash-image",
+    "google/gemini-2.5-flash-image",
+    "gpt-image-1",
+    "openai/gpt-image-1",
+    "dall-e-3",
+)
+
+
+async def _auto_populate_image_settings() -> None:
+    """First-boot only: if IMAGE_GENERATION_MODEL is empty and we have a flagged
+    model available, set the model + its provider to a sensible default so a
+    fresh install works without admins hunting in Settings.
+    """
+    if settings.IMAGE_GENERATION_MODEL:
+        return
+    if not _image_gen_models:
+        return
+
+    pick = next(
+        (m for m in _IMAGE_DEFAULT_PRIORITY if m in _image_gen_models),
+        next(iter(sorted(_image_gen_models)), None),
+    )
+    if not pick:
+        return
+
+    provider_id = _model_to_provider.get(pick) or ""
+    try:
+        from app.services.server_settings import update_settings
+        async with async_session() as db:
+            await update_settings(
+                {
+                    "IMAGE_GENERATION_MODEL": pick,
+                    "IMAGE_GENERATION_PROVIDER_ID": provider_id,
+                },
+                db,
+            )
+        logger.info(
+            "Auto-populated IMAGE_GENERATION_MODEL=%s, IMAGE_GENERATION_PROVIDER_ID=%s",
+            pick,
+            provider_id or "(none)",
+        )
+    except Exception:
+        logger.warning("Failed to auto-populate image generation settings", exc_info=True)
 
 
 async def has_encrypted_secrets() -> bool:
@@ -604,6 +674,21 @@ def supports_structured_output(model: str, provider_id: str | None = None) -> bo
     structured-task tool) can opt in safely.
     """
     return model in _structured_output_models
+
+
+def supports_image_generation(model: str) -> bool:
+    """Return True iff ``model`` is flagged supports_image_generation=true.
+
+    Authoritative gate for ``app/tools/local/image.py`` routing and the
+    Image Generation admin settings model picker.  Unknown models (no DB
+    row) return False — admin must explicitly toggle the flag.
+    """
+    return model in _image_gen_models
+
+
+def supports_image_generation_set() -> list[str]:
+    """Return a sorted copy of the image-gen-capable model_id set."""
+    return sorted(_image_gen_models)
 
 
 def get_provider_model_extra_body(

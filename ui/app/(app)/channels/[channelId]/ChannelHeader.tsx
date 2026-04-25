@@ -53,6 +53,10 @@ export interface ChannelHeaderProps {
     turnsUntilCompaction: number | null;
   } | null;
   sessionId?: string | null;
+  sessionChromeMode?: "primary" | "session" | "canvas";
+  sessionChromeTitle?: string | null;
+  sessionChromeMeta?: string | null;
+  canvasSessionCount?: number;
   /** Orchestrator / system-control channel — renders SYSTEM pill next to title. */
   isSystemChannel?: boolean;
   /** Findings panel state (awaiting-user-input pipelines). Inline icon shows
@@ -99,6 +103,10 @@ export function ChannelHeader({
   onContextBudgetClick,
   sessionHeaderStats,
   sessionId,
+  sessionChromeMode,
+  sessionChromeTitle,
+  sessionChromeMeta,
+  canvasSessionCount,
   isSystemChannel,
   findingsPanelOpen,
   toggleFindingsPanel,
@@ -162,7 +170,9 @@ export function ChannelHeader({
   const showDashboardButton = !!channelId && !isSystemChannel;
   const showFindingsButton =
     !!toggleFindingsPanel && (findingsCount > 0 || !!findingsPanelOpen);
-  const showScratchState = !!scratchFullpageMode;
+  const resolvedChromeMode = sessionChromeMode ?? (scratchFullpageMode ? "session" : "primary");
+  const showScratchState = resolvedChromeMode === "session";
+  const showCanvasState = resolvedChromeMode === "canvas";
   const sessionButtonLabel = "Sessions";
   const showFindingsInline = !isMobile && showFindingsButton;
   const showSettingsInline = !isMobile;
@@ -200,9 +210,13 @@ export function ChannelHeader({
   }, [currentScratchSession, scratchHistory, scratchSessionId, showScratchState]);
   const headerSessionChrome = resolveRouteSessionChrome(
     showScratchState,
-    scratchSessionMeta?.label ?? null,
-    scratchSessionMeta?.lastActiveLabel ?? null,
+    sessionChromeTitle ?? scratchSessionMeta?.label ?? null,
+    sessionChromeMeta ?? scratchSessionMeta?.lastActiveLabel ?? null,
   );
+  const modeLabel = showCanvasState ? "Canvas" : headerSessionChrome.modeLabel;
+  const canvasTitle = showCanvasState && typeof canvasSessionCount === "number"
+    ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
+    : null;
   const headerMetaBits = [
     resolvedMetrics.hasAnyTokenUsage ? (
       <span
@@ -369,32 +383,32 @@ export function ChannelHeader({
               }}
               title={
                 [
-                  showScratchState ? "Session" : "Primary",
-                  scratchSessionMeta?.label ?? null,
-                  scratchSessionMeta?.stats ?? null,
-                ].filter(Boolean).join("\n") || headerSessionChrome.modeLabel
+                  showCanvasState ? "Channel canvas" : showScratchState ? "Session" : "Primary",
+                  showCanvasState ? canvasTitle : (sessionChromeTitle ?? scratchSessionMeta?.label ?? null),
+                  showCanvasState ? null : (sessionChromeMeta ?? scratchSessionMeta?.stats ?? null),
+                ].filter(Boolean).join("\n") || modeLabel
               }
             >
-              {showScratchState ? <StickyNote size={10} color={t.textDim} /> : null}
-              {headerSessionChrome.modeLabel}
+              {showScratchState || showCanvasState ? <StickyNote size={10} color={t.textDim} /> : null}
+              {modeLabel}
             </span>
           )}
-          {headerSessionChrome.inlineMeta ? (
+          {(showCanvasState ? null : headerSessionChrome.inlineMeta) ? (
             <span
               className="shrink-0 text-[10px] uppercase tracking-[0.12em]"
               style={{ color: t.textDim }}
-              title={headerSessionChrome.inlineMeta}
+              title={headerSessionChrome.inlineMeta ?? undefined}
             >
               {headerSessionChrome.inlineMeta}
             </span>
           ) : null}
-          {headerSessionChrome.inlineTitle ? (
+          {(showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle) ? (
             <span
               className="truncate text-[11px] shrink max-w-[28rem]"
               style={{ color: t.textMuted }}
-              title={headerSessionChrome.inlineTitle}
+              title={showCanvasState ? canvasTitle ?? undefined : headerSessionChrome.inlineTitle ?? undefined}
             >
-              {headerSessionChrome.inlineTitle}
+              {showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle}
             </span>
           ) : null}
           {isSystemChannel && (

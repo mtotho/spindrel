@@ -1,5 +1,7 @@
 # Discovery and Enrollment
 
+![Bots admin list — enrollment surface](../images/admin-bots-list.png)
+
 This is the canonical document for how Spindrel makes tools and skills available to a bot.
 
 If tool discovery, skill discovery, enrollment, `get_skill`, `get_tool_info`, or residency semantics change, update this file first and then update shorter docs that point at it.

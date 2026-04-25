@@ -1,5 +1,7 @@
 # PWA & Web Push Notifications
 
+![Spindrel running as a PWA on mobile](../images/omnipanel-mobile.png)
+
 Spindrel installs as a Progressive Web App on desktop, Android, and iOS (16.4+). Once installed, bots can wake you with Web Push notifications — pipeline completions, approval requests, alerts, anything you explicitly asked to be buzzed about.
 
 This guide covers installing the PWA, enabling push, using the `send_push_notification` bot tool, and the server-side `POST /api/v1/push/send` endpoint.

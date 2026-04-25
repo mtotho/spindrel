@@ -171,6 +171,7 @@ export interface ProviderModelItem {
   supports_reasoning?: boolean;
   supports_prompt_caching?: boolean;
   supports_structured_output?: boolean;
+  supports_image_generation?: boolean;
   prompt_style?: PromptStyle;
   extra_body?: Record<string, any>;
   created_at: string;
@@ -191,6 +192,7 @@ export interface ProviderModelCreatePayload {
   supports_reasoning?: boolean;
   supports_prompt_caching?: boolean;
   supports_structured_output?: boolean;
+  supports_image_generation?: boolean;
   prompt_style?: PromptStyle;
   extra_body?: Record<string, any> | null;
 }
@@ -209,6 +211,7 @@ export interface ProviderModelUpdatePayload {
   supports_reasoning?: boolean;
   supports_prompt_caching?: boolean;
   supports_structured_output?: boolean;
+  supports_image_generation?: boolean;
   prompt_style?: PromptStyle;
   extra_body?: Record<string, any> | null;
 }

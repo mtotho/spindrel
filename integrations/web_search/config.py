@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import os
 
-from integrations.sdk import make_settings
+from integrations import sdk
 
-_Base = make_settings("web_search", {
+_Base = sdk.make_settings("web_search", {
     "WEB_SEARCH_MODE": "searxng",
 })
 
@@ -19,9 +19,8 @@ def _instance_id() -> str:
     # Prefer the app-level setting when available (populated at startup with a
     # hostname-slug default). Fall back to the raw env var and then "default".
     try:
-        from app.config import settings as _s
-        if _s.SPINDREL_INSTANCE_ID:
-            return _s.SPINDREL_INSTANCE_ID
+        if sdk.app_settings.SPINDREL_INSTANCE_ID:
+            return sdk.app_settings.SPINDREL_INSTANCE_ID
     except Exception:
         pass
     return os.environ.get("SPINDREL_INSTANCE_ID", "").strip() or "default"

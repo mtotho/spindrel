@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from integrations.sdk import get_db
+from integrations.sdk import (
+    app_settings,
+    delete_setting,
+    get_db,
+    get_setting,
+    update_settings,
+)
 from integrations.google_workspace.config import settings, SCOPE_MAP
 
 logger = logging.getLogger(__name__)
@@ -73,7 +79,6 @@ h1{{color:{color};margin:0 0 .5rem}}</style></head>
 def _get_base_url() -> str:
     """Get the server's base URL for OAuth redirect."""
     try:
-        from app.config import settings as app_settings
         return app_settings.BASE_URL.rstrip("/")
     except Exception:
         return "http://localhost:8000"
@@ -204,8 +209,6 @@ async def auth_callback(
             granted_service_names.append(name)
 
     # Store tokens as integration settings
-    from app.services.integration_settings import update_settings
-
     updates = {
         "GWS_ACCESS_TOKEN": access_token,
         "GWS_TOKEN_EXPIRES_AT": expires_at,
@@ -225,13 +228,11 @@ async def auth_callback(
 @router.get("/auth/status")
 async def auth_status():
     """Check if a Google account is connected."""
-    from app.services.integration_settings import get_value
-
-    refresh_token = get_value("google_workspace", "GWS_REFRESH_TOKEN")
+    refresh_token = get_setting("google_workspace", "GWS_REFRESH_TOKEN")
     connected = bool(refresh_token)
-    scopes_str = get_value("google_workspace", "GWS_GRANTED_SCOPES") if connected else ""
-    email = get_value("google_workspace", "GWS_CONNECTED_EMAIL") if connected else ""
-    expires_at_str = get_value("google_workspace", "GWS_TOKEN_EXPIRES_AT") if connected else ""
+    scopes_str = get_setting("google_workspace", "GWS_GRANTED_SCOPES") if connected else ""
+    email = get_setting("google_workspace", "GWS_CONNECTED_EMAIL") if connected else ""
+    expires_at_str = get_setting("google_workspace", "GWS_TOKEN_EXPIRES_AT") if connected else ""
 
     scopes = [s.strip() for s in scopes_str.split(",") if s.strip()] if scopes_str else []
 
@@ -255,10 +256,8 @@ async def auth_status():
 @router.post("/auth/disconnect")
 async def auth_disconnect(db: AsyncSession = Depends(get_db)):
     """Disconnect Google account — revoke and delete stored tokens."""
-    from app.services.integration_settings import get_value, delete_setting
-
     # Try to revoke the token with Google
-    access_token = get_value("google_workspace", "GWS_ACCESS_TOKEN")
+    access_token = get_setting("google_workspace", "GWS_ACCESS_TOKEN")
     if access_token:
         try:
             async with httpx.AsyncClient(timeout=10) as http:

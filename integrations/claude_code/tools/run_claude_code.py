@@ -131,10 +131,9 @@ async def run_claude_code(
     # -----------------------------------------------------------------------
     # Sync mode: run Claude Code CLI in Docker container
     # -----------------------------------------------------------------------
-    from app.agent.context import current_bot_id
     from integrations.claude_code.runner import run_in_container
 
-    bot_id = current_bot_id.get()
+    bot_id = reg.current_bot_id.get()
     if not bot_id:
         return json.dumps({"error": "No bot context — cannot resolve workspace."}, ensure_ascii=False)
 
@@ -177,26 +176,12 @@ async def _create_deferred_task(
     notify_parent: bool,
 ) -> str:
     """Create a deferred task for the task worker to execute."""
-    from app.agent.context import (
-        current_bot_id,
-        current_channel_id,
-        current_client_id,
-        current_correlation_id,
-        current_dispatch_config,
-        current_dispatch_type,
-        current_model_override,
-        current_provider_id_override,
-        current_session_id,
-    )
-    from app.db.engine import async_session
-    from app.db.models import Task
-
-    parent_bot_id = current_bot_id.get() or "default"
-    session_id = current_session_id.get()
-    client_id = current_client_id.get()
-    channel_id = current_channel_id.get()
-    dispatch_type = current_dispatch_type.get()
-    dispatch_config = dict(current_dispatch_config.get() or {})
+    parent_bot_id = reg.current_bot_id.get() or "default"
+    session_id = reg.current_session_id.get()
+    client_id = reg.current_client_id.get()
+    channel_id = reg.current_channel_id.get()
+    dispatch_type = reg.current_dispatch_type.get()
+    dispatch_config = dict(reg.current_dispatch_config.get() or {})
 
     delivery_config = dict(dispatch_config)
     delivery_config["reply_in_thread"] = reply_in_thread
@@ -216,7 +201,7 @@ async def _create_deferred_task(
     if allowed_tools:
         exec_cfg["allowed_tools"] = allowed_tools
 
-    src_corr = current_correlation_id.get()
+    src_corr = reg.current_correlation_id.get()
     if src_corr is not None:
         exec_cfg["source_correlation_id"] = str(src_corr)
 
@@ -228,14 +213,14 @@ async def _create_deferred_task(
         callback_cfg["parent_session_id"] = str(session_id)
         if client_id:
             callback_cfg["parent_client_id"] = client_id
-        _mo = current_model_override.get()
-        _po = current_provider_id_override.get()
+        _mo = reg.current_model_override.get()
+        _po = reg.current_provider_id_override.get()
         if _mo:
             callback_cfg["parent_model_override"] = _mo
         if _po:
             callback_cfg["parent_provider_id_override"] = _po
 
-    task = Task(
+    task = reg.Task(
         bot_id=parent_bot_id,
         client_id=client_id,
         session_id=session_id,
@@ -248,7 +233,7 @@ async def _create_deferred_task(
         execution_config=exec_cfg,
         callback_config=callback_cfg or None,
     )
-    async with async_session() as db:
+    async with reg.async_session() as db:
         db.add(task)
         await db.commit()
         await db.refresh(task)

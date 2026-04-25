@@ -791,6 +791,7 @@ export interface LlmModel {
   download_status?: "cached" | "not_downloaded" | "downloading";
   size_mb?: number;
   supports_reasoning?: boolean;
+  supports_image_generation?: boolean;
 }
 
 export interface ModelGroup {

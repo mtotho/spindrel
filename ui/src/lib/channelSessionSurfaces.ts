@@ -20,6 +20,8 @@ export interface ChannelChatPaneLayout {
   panes: ChannelChatPane[];
   focusedPaneId: string | null;
   widths: Record<string, number>;
+  maximizedPaneId: string | null;
+  miniPane: ChannelChatPane | null;
 }
 
 export interface ChannelSessionPickerGroup {
@@ -195,6 +197,8 @@ export function defaultChannelChatPaneLayout(): ChannelChatPaneLayout {
     panes: [primary],
     focusedPaneId: primary.id,
     widths: { [primary.id]: 1 },
+    maximizedPaneId: null,
+    miniPane: null,
   };
 }
 
@@ -225,10 +229,17 @@ export function normalizeChannelChatPaneLayout(
     && deduped.some((pane) => pane.id === raw.focusedPaneId)
     ? raw.focusedPaneId
     : (deduped[0]?.id ?? null);
+  const maximizedPaneId = typeof raw?.maximizedPaneId === "string"
+    && deduped.some((pane) => pane.id === raw.maximizedPaneId)
+    ? raw.maximizedPaneId
+    : null;
+  const miniPane = isChannelChatPane(raw?.miniPane) ? raw.miniPane : null;
   return {
     panes: deduped,
     focusedPaneId,
     widths: normalizeWidths(deduped, raw?.widths),
+    maximizedPaneId,
+    miniPane,
   };
 }
 
@@ -245,6 +256,10 @@ export function addChannelChatPane(
     panes,
     focusedPaneId: id,
     widths: normalizeWidths(panes, existing.widths),
+    maximizedPaneId: existing.maximizedPaneId && panes.some((pane) => pane.id === existing.maximizedPaneId)
+      ? existing.maximizedPaneId
+      : null,
+    miniPane: existing.miniPane?.id === id ? null : existing.miniPane,
   };
 }
 
@@ -264,6 +279,8 @@ export function replaceFocusedChannelChatPane(
     panes,
     focusedPaneId: nextId,
     widths: normalizeWidths(panes, existing.widths),
+    maximizedPaneId: existing.maximizedPaneId === targetId ? nextId : null,
+    miniPane: existing.miniPane?.id === nextId ? null : existing.miniPane,
   };
 }
 
@@ -277,6 +294,46 @@ export function removeChannelChatPane(
     panes,
     focusedPaneId: panes[0]?.id ?? null,
     widths: normalizeWidths(panes, existing.widths),
+    maximizedPaneId: existing.maximizedPaneId === paneId ? null : existing.maximizedPaneId,
+    miniPane: existing.miniPane?.id === paneId ? null : existing.miniPane,
+  };
+}
+
+export function maximizeChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  paneId: string,
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  if (!existing.panes.some((pane) => pane.id === paneId)) return existing;
+  return {
+    ...existing,
+    focusedPaneId: paneId,
+    maximizedPaneId: paneId,
+  };
+}
+
+export function restoreChannelChatPanes(layout: ChannelChatPaneLayout): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  return {
+    ...existing,
+    maximizedPaneId: null,
+  };
+}
+
+export function minimizeChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  paneId: string,
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const pane = existing.panes.find((candidate) => candidate.id === paneId) ?? null;
+  if (!pane) return existing;
+  const panes = existing.panes.filter((candidate) => candidate.id !== paneId);
+  return {
+    panes,
+    focusedPaneId: panes[0]?.id ?? null,
+    widths: normalizeWidths(panes, existing.widths),
+    maximizedPaneId: existing.maximizedPaneId === paneId ? null : existing.maximizedPaneId,
+    miniPane: pane,
   };
 }
 
@@ -538,7 +595,7 @@ export function buildChannelSessionPickerGroups(
   const scratch = entries.filter((entry) => entry.kind === "scratch");
   const groups: ChannelSessionPickerGroup[] = [
     { id: "primary", label: "Primary", entries: primary },
-    { id: "previous", label: "Previous channel sessions", entries: previous },
+    { id: "previous", label: "Previous chats", entries: previous },
     { id: "scratch", label: "Scratch", entries: scratch },
   ];
   return groups.filter((group) => group.entries.length > 0);

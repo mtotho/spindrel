@@ -1,5 +1,7 @@
 # How Spindrel Works
 
+![Channel chat — bot, workspace, widgets](../images/chat-main.png)
+
 This guide explains the mental model — how the pieces fit together, not API details.
 
 For the canonical document covering replay policy, compaction, history modes, context profiles, and prompt-budget reporting, see [Context Management](context-management.md).

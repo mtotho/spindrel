@@ -1,5 +1,7 @@
 # Task Sub-Sessions
 
+![Pipeline sub-session running in a channel](../images/chat-pipeline-live.png)
+
 A **sub-session** is a dedicated chat session that lives *inside* a parent channel. Pipeline runs, ephemeral ad-hoc chats, and (eventually) interactive agent runs all use the same primitive: a `Session` row with `channel_id=None` and `parent_session_id` pointing at an ancestor that is a channel session.
 
 The model says: *a pipeline run is a conversation.* It has a transcript. It has tool calls, LLM thinking, rich widgets, Markdown output. The user can watch it live or come back to it later and scroll through. It just happens to be a conversation with one specific author (the pipeline) and a predetermined script (the pipeline's steps).

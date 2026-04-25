@@ -43,6 +43,8 @@ manage_bot_skill(
 
 The skill is stored with ID `bots/{bot_id}/docker-networking-fixes` and immediately embedded for RAG retrieval.
 
+![Skill detail page — frontmatter, triggers, content](../images/skill-detail.png)
+
 ### Skill ID Convention
 
 All bot-authored skills follow the pattern `bots/{bot_id}/{slug}`. This ensures:

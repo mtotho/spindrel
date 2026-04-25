@@ -175,8 +175,8 @@ SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "DOCKER_STACK_EXEC_TIMEOUT": {"group": "Docker Stacks", "label": "Exec Timeout", "description": "Timeout in seconds for exec commands in stack containers", "type": "int", "min": 5, "max": 300},
     "DOCKER_STACK_LOG_TAIL_MAX": {"group": "Docker Stacks", "label": "Log Tail Max", "description": "Maximum number of log lines to retrieve", "type": "int", "min": 10, "max": 10000},
     # --- Image Generation ---
-    "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation", "type": "string", "widget": "model"},
-    "IMAGE_GENERATION_PROVIDER_ID": {"group": "Image Generation", "label": "Image Gen Provider", "type": "string", "description": "Provider for image generation model", "ui_hidden": True},
+    "IMAGE_GENERATION_MODEL": {"group": "Image Generation", "label": "Model", "description": "Model for image generation. Only models flagged supports_image_generation appear here — flag a model in Admin → Providers → (provider) if it's missing.", "type": "string", "widget": "image_model"},
+    "IMAGE_GENERATION_PROVIDER_ID": {"group": "Image Generation", "label": "Image Gen Provider", "type": "string", "description": "Provider for image generation model. Auto-derived from the chosen model when blank."},
     # --- Prompt Generation ---
     "PROMPT_GENERATION_MODEL": {"group": "Prompt Generation", "label": "Model", "description": "Model used for the Generate Prompt feature in admin UI (empty = default LiteLLM model)", "type": "string", "widget": "model"},
     "PROMPT_GENERATION_MODEL_PROVIDER_ID": {"group": "Prompt Generation", "label": "Prompt Gen Provider", "type": "string", "description": "Provider for prompt generation model", "ui_hidden": True},

@@ -1,5 +1,7 @@
 # Webhooks
 
+![Webhooks admin — registered endpoints with their event filters](../images/webhooks-list.png)
+
 Spindrel can POST signed JSON payloads to your endpoints on key lifecycle events — LLM calls, tool executions, agent responses, task completions, and more. Use these for monitoring, cost analytics, audit logging, and alerting.
 
 ## Setup

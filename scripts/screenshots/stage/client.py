@@ -126,6 +126,38 @@ class SpindrelClient:
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
 
+    def purge_test_channels(self) -> list[str]:
+        """Delete every channel whose ``client_id`` is not in the allow-list.
+
+        Allow-list: ``screenshot:*`` (our staged scenario channels),
+        ``orchestrator:*`` (Orchestrator-managed home/system channels),
+        and the bare ``default`` channel.
+
+        Returns the list of deleted ``client_id`` values for logging.
+        Idempotent: a clean instance returns an empty list. Safe to run
+        before every capture — production channels never use the patterns
+        we delete (`chat:e2e:*`, `e2e-test:*`, `dbg-*`, `frag-*`,
+        `smoke-*`, etc. are all test-runner debris).
+        """
+        deleted: list[str] = []
+        for ch in self.list_channels():
+            cid = ch.get("client_id") or ""
+            if cid.startswith("screenshot:"):
+                continue
+            if cid.startswith("orchestrator:"):
+                continue
+            if cid == "default":
+                continue
+            if self._dry_run:
+                deleted.append(cid)
+                continue
+            try:
+                self.delete_channel(ch["id"])
+                deleted.append(cid)
+            except Exception as e:
+                logger.warning("purge: failed to delete %s: %s", cid, e)
+        return deleted
+
     # --- workspaces --------------------------------------------------------
 
     def list_workspaces(self) -> list[dict]:
@@ -346,6 +378,45 @@ class SpindrelClient:
             f"/api/v1/admin/channels/{channel_id}/heartbeat/toggle",
             json={"enabled": enabled},
         ).json()
+
+    # --- webhooks ----------------------------------------------------------
+
+    def list_webhooks(self) -> list[dict]:
+        r = self._http.get("/api/v1/admin/webhooks")
+        r.raise_for_status()
+        return r.json()
+
+    def ensure_webhook(
+        self,
+        *,
+        name: str,
+        url: str,
+        events: list[str],
+        description: str = "",
+        is_active: bool = True,
+    ) -> dict:
+        """Create a webhook (or return the existing one with the same ``name``).
+
+        The admin API does not enforce name-uniqueness, so reruns must dedupe
+        client-side. We key on ``name`` because ``screenshot:*`` prefixing is
+        not honored by the webhook model (no ``client_id``).
+        """
+        for existing in self.list_webhooks():
+            if existing.get("name") == name:
+                return existing
+        body = {
+            "name": name,
+            "url": url,
+            "events": events,
+            "is_active": is_active,
+            "description": description,
+        }
+        return self._post("/api/v1/admin/webhooks", json=body).json().get("endpoint", {})
+
+    def delete_webhook(self, webhook_id: str) -> None:
+        r = self._http.delete(f"/api/v1/admin/webhooks/{webhook_id}")
+        if r.status_code not in (200, 204, 404):
+            r.raise_for_status()
 
     def create_channel_binding(
         self,

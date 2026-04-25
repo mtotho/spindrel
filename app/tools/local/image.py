@@ -1,6 +1,25 @@
+"""generate_image — single canonical entrypoint for image generation and editing.
+
+Routing is driven by **model family**, not strings:
+
+* ``openai``               — call ``client.images.generate`` / ``client.images.edit``
+* ``openai-subscription``  — same surface, but the underlying client is the
+  ``OpenAIResponsesAdapter._Images`` namespace, which translates to the
+  Codex Responses API + built-in ``image_generation`` tool.
+* ``gemini``               — call ``client.chat.completions.create`` with
+  multimodal output (``modalities=["text","image"]``) so reference images
+  are passed natively as ``image_url`` content parts.
+
+The capability flag ``ProviderModel.supports_image_generation`` is the
+authoritative gate: unknown / unflagged models route via a defensive string
+sniff with a WARNING log so admins can see what to flag.
+"""
+from __future__ import annotations
+
 import base64
 import json
 import logging
+from typing import Literal
 
 import httpx
 
@@ -10,75 +29,123 @@ from app.tools.registry import register
 logger = logging.getLogger(__name__)
 
 
-def _is_openai_model(model: str) -> bool:
-    """True for OpenAI-native image models (gpt-image, dall-e)."""
-    m = (model or "").lower()
-    return any(t in m for t in ("gpt-image", "dall-e"))
+ImageFamily = Literal["openai", "openai-subscription", "gemini"]
 
 
-def _is_gpt_image_model(model: str) -> bool:
-    """True for GPT Image family (gpt-image-1, gpt-image-1.5, etc.)."""
-    return "gpt-image" in (model or "").lower()
+_GEMINI_PATTERNS = ("gemini", "imagen", "flash-image", "pro-image")
+_OPENAI_PATTERNS = ("gpt-image", "dall-e")
 
 
-def _is_dalle_model(model: str) -> bool:
-    """True for DALL-E family (dall-e-2, dall-e-3)."""
-    return "dall-e" in (model or "").lower()
+def _image_family(model: str, provider_id: str | None) -> ImageFamily:
+    """Resolve which API call shape ``model`` requires.
 
-
-def _is_gemini_model(model: str) -> bool:
-    m = (model or "").lower()
-    return "gemini" in m or "imagen" in m
-
-
-def _supports_edit(model: str) -> bool:
-    """Whether the model supports the images.edit() endpoint.
-
-    OpenAI models support it; Gemini does not (image editing goes through
-    chat completions, which isn't wired here).
+    Order:
+      1. If the resolved provider's ``provider_type`` is ``openai-subscription``,
+         the call MUST go through the Responses API adapter.
+      2. Otherwise look at the model name itself — model name determines the
+         wire format regardless of which provider proxies it (LiteLLM, direct,
+         OpenAI-compatible, etc.).
+      3. Fallback: log WARNING + return ``"openai"`` so we never crash on an
+         unknown model that happens to be flagged.
     """
-    return _is_openai_model(model)
+    from app.services.providers import get_provider, supports_image_generation
+
+    if provider_id:
+        provider = get_provider(provider_id)
+        if provider and provider.provider_type == "openai-subscription":
+            return "openai-subscription"
+
+    m = (model or "").lower()
+    if any(p in m for p in _GEMINI_PATTERNS):
+        return "gemini"
+    if any(p in m for p in _OPENAI_PATTERNS):
+        return "openai"
+
+    if not supports_image_generation(model):
+        logger.warning(
+            "generate_image: model %r has no recognized family and is not "
+            "flagged supports_image_generation=true — defaulting to 'openai' "
+            "routing. Flag the model in admin UI or rename to a known prefix.",
+            model,
+        )
+    return "openai"
 
 
-def _generate_kwargs(model: str, n: int = 1) -> dict:
-    """Build provider-optimal kwargs for images.generate()."""
-    kw: dict = {}
-    if _is_gpt_image_model(model):
-        # GPT Image family: supports n>1, uses output_format not response_format
-        kw["n"] = n
-    elif _is_dalle_model(model):
-        # dall-e-3 only supports n=1; dall-e-2 supports n but is legacy
-        kw["n"] = 1 if "dall-e-3" in model.lower() else n
-        kw["response_format"] = "b64_json"
-    # Gemini / unknown: no extra params — n, response_format, style all rejected
-    return kw
+def _generate_kwargs(family: ImageFamily, model: str, n: int, size: str | None, seed: int | None) -> dict:
+    """Provider-optimal kwargs for ``client.images.generate``."""
+    if family == "openai-subscription":
+        kw: dict = {"n": max(1, n)}
+        if size:
+            kw["size"] = size
+        return kw
+    if family == "openai":
+        m = (model or "").lower()
+        if "gpt-image" in m:
+            kw = {"n": max(1, n)}
+            if size:
+                kw["size"] = size
+            return kw
+        # dall-e family
+        kw = {
+            "n": 1 if "dall-e-3" in m else max(1, n),
+            "response_format": "b64_json",
+        }
+        if size:
+            kw["size"] = size
+        return kw
+    # Gemini goes through chat.completions; no kwargs apply here.
+    return {}
 
 
-def _edit_kwargs(model: str, n: int = 1) -> dict:
-    """Build provider-optimal kwargs for images.edit()."""
-    kw: dict = {}
-    if _is_gpt_image_model(model):
-        kw["n"] = n
-    elif _is_dalle_model(model):
-        kw["n"] = 1 if "dall-e-3" in model.lower() else n
-    return kw
+def _edit_kwargs(family: ImageFamily, model: str, n: int, size: str | None) -> dict:
+    """Provider-optimal kwargs for ``client.images.edit``."""
+    if family == "openai-subscription":
+        kw: dict = {"n": max(1, n)}
+        if size:
+            kw["size"] = size
+        return kw
+    if family == "openai":
+        m = (model or "").lower()
+        kw: dict = {"n": 1 if "dall-e-3" in m else max(1, n)}
+        if size:
+            kw["size"] = size
+        return kw
+    return {}
+
+
+def _aspect_to_size(aspect_ratio: str | None) -> str | None:
+    """Map a Gemini-style ``aspect_ratio`` to an OpenAI-style ``size``.
+
+    Used so callers can pass one provider-agnostic param and the right one
+    reaches each family.  Conservative mapping — falls back to ``None`` for
+    ratios OpenAI doesn't natively accept (caller can still pass ``size``).
+    """
+    if not aspect_ratio:
+        return None
+    table = {
+        "1:1": "1024x1024",
+        "3:2": "1536x1024",
+        "2:3": "1024x1536",
+        "16:9": "1792x1024",
+        "9:16": "1024x1792",
+    }
+    return table.get(aspect_ratio.strip())
 
 
 def _resolve_image_client(provider_id: str | None = None):
     """Get an AsyncOpenAI-compatible client for image generation.
 
     Resolution order:
-    1. Explicit provider_id parameter (from tool call)
-    2. IMAGE_GENERATION_PROVIDER_ID config setting
-    3. Current bot's model_provider_id (from context)
-    4. .env fallback (LLM_BASE_URL / LLM_API_KEY)
+      1. Explicit ``provider_id`` parameter (from tool call)
+      2. ``IMAGE_GENERATION_PROVIDER_ID`` config setting
+      3. Current bot's ``model_provider_id`` (from context)
+      4. ``.env`` fallback (``LLM_BASE_URL`` / ``LLM_API_KEY``)
     """
     from app.services.providers import get_llm_client
 
     effective_pid = provider_id or settings.IMAGE_GENERATION_PROVIDER_ID or None
 
     if not effective_pid:
-        # Try to inherit from the current bot's provider
         try:
             from app.agent.bots import get_bot
             from app.agent.context import current_bot_id
@@ -93,8 +160,31 @@ def _resolve_image_client(provider_id: str | None = None):
     return get_llm_client(effective_pid)
 
 
+def _resolve_effective_provider_id(provider_id: str | None) -> str | None:
+    """Same cascade as ``_resolve_image_client`` but returns the provider_id.
+
+    Lets ``_image_family`` consult ``provider_type`` even when the caller
+    omitted ``provider_id``.
+    """
+    if provider_id:
+        return provider_id
+    if settings.IMAGE_GENERATION_PROVIDER_ID:
+        return settings.IMAGE_GENERATION_PROVIDER_ID
+    try:
+        from app.agent.bots import get_bot
+        from app.agent.context import current_bot_id
+        bot_id = current_bot_id.get()
+        if bot_id:
+            bot = get_bot(bot_id)
+            if bot and bot.model_provider_id:
+                return bot.model_provider_id
+    except Exception:
+        pass
+    return None
+
+
 async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | None]:
-    """Fetch attachment objects from IDs. Returns (list_of_Attachment, error_or_None)."""
+    """Fetch attachment objects from IDs. Returns ``(list_of_Attachment, error_or_None)``."""
     import uuid as _uuid
     from app.services.attachments import get_attachment_by_id
 
@@ -112,15 +202,98 @@ async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | N
     return attachments, None
 
 
+def _extract_b64_from_completion_message(message) -> list[str]:
+    """Pull base64-encoded images out of a chat.completions message.
+
+    Different LiteLLM versions surface multimodal output differently.  We
+    handle the two shapes seen in the wild:
+
+      * ``message.images`` — a list of dicts with ``image_url.url`` values
+        that may be ``data:image/png;base64,...`` URIs or remote URLs.
+      * ``message.content`` — a string OR a list of content parts where
+        each part can be ``{"type": "image_url", "image_url": {...}}``.
+
+    Remote URLs are NOT downloaded here; the caller should pass them
+    through the SSRF guard (``assert_public_url``) and fetch separately.
+    """
+    out: list[str] = []
+
+    images = getattr(message, "images", None) or []
+    for item in images:
+        url = None
+        if isinstance(item, dict):
+            url = (item.get("image_url") or {}).get("url") or item.get("url")
+        else:
+            url = getattr(getattr(item, "image_url", None), "url", None) or getattr(item, "url", None)
+        if isinstance(url, str) and url.startswith("data:"):
+            try:
+                out.append(url.split(",", 1)[1])
+            except IndexError:
+                continue
+
+    content = getattr(message, "content", None)
+    if isinstance(content, list):
+        for part in content:
+            ptype = part.get("type") if isinstance(part, dict) else getattr(part, "type", None)
+            if ptype != "image_url":
+                continue
+            iu = part.get("image_url") if isinstance(part, dict) else getattr(part, "image_url", None)
+            url = iu.get("url") if isinstance(iu, dict) else getattr(iu, "url", None)
+            if isinstance(url, str) and url.startswith("data:"):
+                try:
+                    out.append(url.split(",", 1)[1])
+                except IndexError:
+                    continue
+
+    return out
+
+
+async def _gemini_generate_or_edit(
+    client,
+    model: str,
+    prompt: str,
+    image_files: list[tuple],
+) -> list[str]:
+    """Run Gemini multimodal generate/edit via ``chat.completions.create``.
+
+    Reference images are passed as ``image_url`` content parts on the user
+    message; the response carries inline base64 image data (PNG).  Returns
+    a list of raw base64 strings (one per generated image).
+    """
+    if len(image_files) > 3:
+        raise ValueError("Gemini accepts at most 3 reference images per call.")
+
+    user_parts: list[dict] = [{"type": "text", "text": prompt}]
+    for _name, data, mime in image_files:
+        b64 = base64.b64encode(data).decode("ascii")
+        user_parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        })
+
+    resp = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": user_parts}],
+        modalities=["text", "image"],
+    )
+
+    if not resp.choices:
+        return []
+    return _extract_b64_from_completion_message(resp.choices[0].message)
+
+
 @register({
     "type": "function",
     "function": {
         "name": "generate_image",
         "description": (
-            "Generate or edit an image. Pass only `prompt` to generate from scratch. "
-            "To edit an existing image, pass one or more `attachment_ids` (from list_attachments) "
-            "plus a prompt describing the changes. Image bytes are fetched directly "
-            "from the database — do NOT use get_attachment first."
+            "Generate or edit an image. Pass ``prompt`` alone to generate from "
+            "scratch, or pass ``attachment_ids`` (UUIDs from list_attachments) "
+            "with a prompt describing the changes to edit/combine existing "
+            "images. Image bytes are read from the attachment store directly — "
+            "do not call get_attachment first. Generated images are persisted "
+            "as channel attachments and delivered to every connected client "
+            "(web, Slack, Discord) automatically."
         ),
         "parameters": {
             "type": "object",
@@ -132,31 +305,41 @@ async def _resolve_attachments(attachment_ids: list[str]) -> tuple[list, str | N
                 "model": {
                     "type": "string",
                     "description": (
-                        "Image model to use (e.g. 'gpt-image-1', 'dall-e-3', 'gemini/gemini-2.5-flash-image'). "
-                        "Omit to use the server default."
+                        "Override the server-default image model "
+                        "(e.g. ``gpt-image-1``, ``dall-e-3``, "
+                        "``gemini/gemini-2.5-flash-image``). Omit to use the "
+                        "server default."
                     ),
                 },
                 "provider_id": {
                     "type": "string",
                     "description": (
-                        "Provider to route the request to (e.g. 'openai-prod', 'gemini'). "
-                        "Required when two providers serve models with the same name. "
-                        "Omit to use the default provider."
+                        "Route the request to a specific provider. Required "
+                        "only when two providers serve models with the same "
+                        "name. Omit to use the default provider."
                     ),
                 },
                 "n": {
                     "type": "integer",
-                    "description": "Number of images to generate (1-10). Only supported by OpenAI models (gpt-image, dall-e). Ignored for Gemini.",
+                    "description": "Number of images to generate (1-10). Honored where the provider supports batch.",
                     "default": 1,
+                },
+                "size": {
+                    "type": "string",
+                    "description": "Output size, e.g. ``1024x1024``, ``1792x1024``. OpenAI-style.",
+                },
+                "aspect_ratio": {
+                    "type": "string",
+                    "description": "Aspect ratio, e.g. ``1:1``, ``16:9``. Mapped to ``size`` for OpenAI providers when ``size`` is omitted.",
+                },
+                "seed": {
+                    "type": "integer",
+                    "description": "Random seed for reproducible output where the provider supports it.",
                 },
                 "attachment_ids": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "UUIDs of attachments to use as source/reference images for editing. Get IDs from list_attachments.",
-                },
-                "source_image_b64": {
-                    "type": "string",
-                    "description": "DEPRECATED: use attachment_ids instead. Base64-encoded source image for editing.",
+                    "description": "UUIDs of attachments to use as source/reference images for editing or combining. Get IDs from list_attachments.",
                 },
             },
             "required": ["prompt"],
@@ -186,80 +369,72 @@ async def generate_image_tool(
     model: str | None = None,
     provider_id: str | None = None,
     n: int = 1,
+    size: str | None = None,
+    aspect_ratio: str | None = None,
+    seed: int | None = None,
     attachment_ids: list[str] | None = None,
-    source_image_b64: str | None = None,
 ) -> str:
     prompt = (prompt or "").strip()
     if not prompt:
         return json.dumps({"error": "prompt is required"}, ensure_ascii=False)
 
-    # Resolve source images from attachment_ids (preferred) or legacy source_image_b64
     image_files: list[tuple] = []
-    attachment_descriptions: list[str] = []
     if attachment_ids:
         attachments, err = await _resolve_attachments(attachment_ids)
         if err:
             return json.dumps({"error": err}, ensure_ascii=False)
         for i, att in enumerate(attachments):
-            image_files.append((f"image_{i}.png", att.file_data, "image/png"))
-            if att.description:
-                attachment_descriptions.append(att.description)
-    elif source_image_b64:
-        image_files.append(("image.png", base64.b64decode(source_image_b64), "image/png"))
+            mime = att.mime_type or "image/png"
+            image_files.append((f"image_{i}.png", att.file_data, mime))
 
-    n = max(1, min(n, 10))
+    n = max(1, min(int(n or 1), 10))
     effective_model = model or settings.IMAGE_GENERATION_MODEL
+    effective_provider_id = _resolve_effective_provider_id(provider_id)
+    family = _image_family(effective_model, effective_provider_id)
     client = _resolve_image_client(provider_id)
 
-    gemini_fallback = False
+    # If caller passed only aspect_ratio, derive a size for OpenAI-shaped calls.
+    effective_size = size or (_aspect_to_size(aspect_ratio) if family != "gemini" else None)
+
     try:
-        if image_files:
-            if not _supports_edit(effective_model):
-                # Gemini doesn't support images.edit() — fall back to generation
-                # with attachment descriptions baked into the prompt.
-                if attachment_descriptions:
-                    desc_block = "\n".join(
-                        f"- Reference image {i+1}: {d}"
-                        for i, d in enumerate(attachment_descriptions)
-                    )
-                    prompt = (
-                        f"Based on these reference images:\n{desc_block}\n\n"
-                        f"Generate: {prompt}"
-                    )
-                gemini_fallback = True
-                logger.info(
-                    "Model %s doesn't support edit — falling back to generate "
-                    "(descriptions=%d, prompt=%s)",
-                    effective_model, len(attachment_descriptions), prompt[:120],
-                )
-                resp = await client.images.generate(
-                    model=effective_model,
-                    prompt=prompt,
-                    **_generate_kwargs(effective_model, n),
-                )
-            else:
-                # Single image → pass directly; multiple → pass as list
-                image_param = image_files[0] if len(image_files) == 1 else image_files
-                resp = await client.images.edit(
-                    model=effective_model,
-                    image=image_param,
-                    prompt=prompt,
-                    **_edit_kwargs(effective_model, n),
-                )
+        if family == "gemini":
+            extra: dict = {}
+            if seed is not None:
+                extra["seed"] = seed
+            b64_list = await _gemini_generate_or_edit(
+                client, effective_model, prompt, image_files,
+            )
+            data_items = [type("Img", (), {"b64_json": b, "url": None})() for b in b64_list]
+            resp = type("Resp", (), {"data": data_items})()
+        elif image_files:
+            kw = _edit_kwargs(family, effective_model, n, effective_size)
+            if seed is not None and family == "openai":
+                # OpenAI Images API accepts ``user`` but not ``seed`` — drop silently.
+                pass
+            image_param = image_files[0] if len(image_files) == 1 else image_files
+            resp = await client.images.edit(
+                model=effective_model,
+                image=image_param,
+                prompt=prompt,
+                **kw,
+            )
         else:
+            kw = _generate_kwargs(family, effective_model, n, effective_size, seed)
             resp = await client.images.generate(
                 model=effective_model,
                 prompt=prompt,
-                **_generate_kwargs(effective_model, n),
+                **kw,
             )
+    except ValueError as e:
+        return json.dumps({"error": str(e)}, ensure_ascii=False)
     except Exception as e:
         logger.exception("Image generation/edit failed")
         return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-    if not resp.data:
+    data_items = getattr(resp, "data", None) or []
+    if not data_items:
         return json.dumps({"error": "No image returned"}, ensure_ascii=False)
 
-    # Collect all returned images and persist as attachments
     from app.agent.context import current_bot_id, current_channel_id, current_dispatch_type
     from app.services.attachments import create_widget_backed_attachment
 
@@ -269,10 +444,7 @@ async def generate_image_tool(
 
     results: list[dict] = []
     images: list[dict] = []
-    for idx, item in enumerate(resp.data):
-        # GPT Image family returns base64 directly in .b64_json or .b64
-        # DALL-E returns .b64_json or .url
-        # Gemini via LiteLLM returns .b64_json
+    for idx, item in enumerate(data_items):
         b64: str | None = getattr(item, "b64_json", None) or getattr(item, "b64", None)
         if not b64 and getattr(item, "url", None):
             from app.services.url_safety import UnsafePublicURLError, assert_public_url
@@ -290,52 +462,46 @@ async def generate_image_tool(
             except Exception as e:
                 logger.warning("Could not download image %d URL: %s", idx, e)
                 continue
-        if b64:
-            img_bytes = base64.b64decode(b64)
-            filename = f"generated_{idx}.png" if len(resp.data) > 1 else "generated.png"
+        if not b64:
+            continue
 
-            # Persist to attachments table so it's available for future edits/references
-            gen_att_id = None
-            try:
-                gen_att = await create_widget_backed_attachment(
-                    tool_name="generate_image",
-                    channel_id=channel_id,
-                    filename=filename,
-                    mime_type="image/png",
-                    size_bytes=len(img_bytes),
-                    posted_by=bot_id or "image-bot",
-                    source_integration=source,
-                    file_data=img_bytes,
-                    attachment_type="image",
-                    bot_id=bot_id,
-                )
-                gen_att_id = str(gen_att.id)
-            except Exception:
-                logger.warning("Failed to persist generated image %d as attachment", idx, exc_info=True)
+        img_bytes = base64.b64decode(b64)
+        filename = f"generated_{idx}.png" if len(data_items) > 1 else "generated.png"
 
-            action_dict: dict = {
-                "type": "upload_image",
-                "data": b64,
-                "filename": filename,
-                "caption": "",
-            }
-            if gen_att_id:
-                action_dict["attachment_id"] = gen_att_id
-                images.append({"attachment_id": gen_att_id, "filename": filename})
-            results.append(action_dict)
+        gen_att_id = None
+        try:
+            gen_att = await create_widget_backed_attachment(
+                tool_name="generate_image",
+                channel_id=channel_id,
+                filename=filename,
+                mime_type="image/png",
+                size_bytes=len(img_bytes),
+                posted_by=bot_id or "system",
+                source_integration=source,
+                file_data=img_bytes,
+                attachment_type="image",
+                bot_id=bot_id,
+            )
+            gen_att_id = str(gen_att.id)
+        except Exception:
+            logger.warning("Failed to persist generated image %d as attachment", idx, exc_info=True)
+
+        action_dict: dict = {
+            "type": "upload_image",
+            "data": b64,
+            "filename": filename,
+            "caption": "",
+        }
+        if gen_att_id:
+            action_dict["attachment_id"] = gen_att_id
+            images.append({"attachment_id": gen_att_id, "filename": filename})
+        results.append(action_dict)
 
     if not results:
         return json.dumps({"error": "No images could be retrieved from response"}, ensure_ascii=False)
 
-    msg = f"{len(results)} image(s) generated successfully."
-    if gemini_fallback:
-        msg += (
-            " Note: this model doesn't support direct image editing, so a new image "
-            "was generated using descriptions of the reference images. The result may "
-            "not exactly match the originals."
-        )
     return json.dumps({
-        "message": msg,
+        "message": f"{len(results)} image(s) generated successfully.",
         "prompt": prompt,
         "model": effective_model,
         "images": images,

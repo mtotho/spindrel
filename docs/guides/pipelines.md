@@ -1,5 +1,7 @@
 # Pipelines
 
+![Pipeline definitions in the Tasks admin](../images/pipeline-library.png)
+
 Pipelines are the automation primitive. A pipeline is a Task with a `steps` array — an ordered list of step definitions that execute sequentially. Each step picks the cheapest engine for its job: a shell command, a direct tool call, an LLM turn, a human approval gate, or a loop over a list.
 
 Design principle: use `exec` and `tool` steps for deterministic work (they don't burn LLM tokens); use `agent` steps only where judgment is required; use `user_prompt` / `foreach` where you'd otherwise reach for bespoke plumbing.

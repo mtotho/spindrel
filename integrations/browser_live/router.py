@@ -16,7 +16,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
-from integrations.sdk import async_session, verify_admin_auth
+from integrations.sdk import async_session, get_setting, update_settings, verify_admin_auth
 
 from .bridge import bridge
 
@@ -29,9 +29,7 @@ TOKEN_KEY = "BROWSER_LIVE_PAIRING_TOKEN"
 
 
 def _stored_token() -> str:
-    from app.services.integration_settings import get_value
-
-    return get_value(INTEGRATION_ID, TOKEN_KEY, "")
+    return get_setting(INTEGRATION_ID, TOKEN_KEY, "")
 
 
 @router.websocket("/ws")
@@ -88,8 +86,6 @@ async def admin_rotate_token() -> dict:
     """Generate and persist a fresh pairing token. Returns the plaintext —
     surface it once in the admin UI; the user pastes it into the extension.
     Subsequent reads via the regular settings endpoint will be masked."""
-    from app.services.integration_settings import update_settings
-
     new_token = secrets.token_urlsafe(32)
     setup_var = [{"key": TOKEN_KEY, "secret": True}]
     async with async_session() as db:

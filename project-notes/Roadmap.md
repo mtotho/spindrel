@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-24 (added Standing Orders + Widget Primitives tracks)
+updated: 2026-04-24 (image-gen canonical overhaul, Standing Orders, Widget Primitives)
 ---
 # Agent Server — Roadmap
 
@@ -38,13 +38,16 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 New north-star guide at `docs/guides/integrations.md` (mirroring `widget-system.md`'s authority model), a central canonical-guides index at `docs/guides/index.md`, retirement of the legacy `chat_hud` / `chat_hud_presets` surface in favor of dashboard widgets, `binding.suggestions_endpoint` shape standardization, three `integration_id == "x"` boundary fixes in `app/` via a new hook registry, and a pytest drift gate. See [[Track - Integration Contract]]. Plan: `~/.claude/plans/so-currently-our-wiggly-teapot.md`.
 
 ### Integration Rich Results (2026-04-24)
-Slack-led v1 for declared rich tool-result rendering: `rich_tool_results` capability, manifest `tool_result_rendering` support matrix, SDK portable-card boundary, and Slack read-only Block Kit adapter. Also adds an SDK-only integration import allowlist gate for future cleanup. See [[Track - Integration Rich Results]].
+Slack-led v1 for declared rich tool-result rendering: `rich_tool_results` capability, manifest `tool_result_rendering` support matrix, SDK portable-card boundary, Slack read-only Block Kit adapter, Slack approval presenter split, and shared Slack/Discord depth contract tests. Also adds an SDK-only integration import allowlist gate for future cleanup. See [[Track - Integration Rich Results]].
 
 ### `browser_live` integration — v0.1 shipped 2026-04-19
 MV3 Chrome-extension bridge drives the user's real logged-in session. Five tools: `browser_goto/act/eval/screenshot/status`. Pairing via a single `BROWSER_LIVE_PAIRING_TOKEN` admin setting. See `integrations/browser_live/README.md`.
 
 ### Local machine control — provider profiles shipped 2026-04-24
 Machine control is now a core subsystem with pluggable providers, probe-based readiness, and provider-scoped profiles. Targets are addressed as `(provider_id, target_id)`; session leases enforce one-session-one-target. `local_companion` and `ssh` are both shipped, and SSH now binds each target to an explicit named profile instead of ambient provider-global credentials. Shared broker, `browser_live` lease convergence, and richer capabilities remain. See [[Track - Local Machine Control]].
+
+### Image Generation Canonical Overhaul — shipped 2026-04-24
+`generate_image` is now first-class for any bot — no dedicated image-bot delegation needed. Migration 246 adds `provider_models.supports_image_generation` (backfilled for gpt-image / dall-e / gemini-*-image / imagen families). `app/tools/local/image.py` retired the string-sniffer routing in favor of `_image_family(model, provider_id)` (returns `openai` / `openai-subscription` / `gemini`); dropped legacy `source_image_b64`; added `size` / `aspect_ratio` / `seed` parameters. **Real Gemini multimodal edit** via `chat.completions.create(modalities=["text","image"])` replaces the prior description-fallback. **`OpenAIResponsesAdapter._Images`** namespace lights up the openai-subscription path via the Responses API built-in `image_generation` tool. Settings panel filters the model dropdown to flagged models only; admin model rows expose an image-gen checkbox + badge. Skill rewritten; `docs/guides/providers.md` updated. 38 unit tests across `test_image_tool.py` / `test_openai_responses_images.py` / `test_image_capability_flag.py`. Plan: `~/.claude/plans/functional-jingling-aurora.md`. Session log: `Sessions/agent-server/2026-04-24-39-image-generation-overhaul.md`.
 
 ### Provider Refactor — Phases 5 + 6 shipped 2026-04-24
 Phase 1 shipped: unified reasoning/effort knob + `/effort <off|low|medium|high>`, single slash-command registry source of truth, canonical `docs/guides/providers.md`, silent Codex `reasoning_effort` drop fixed. Phase 2 shipped: `ProviderModel.supports_reasoning` column (migration 242 + known-family backfill), bot editor UI gates the reasoning control per model, `/effort` rejects with a helpful toast on non-reasoning bots, admin models form exposes the flag. **Phase 5 (2026-04-24)** added capability metadata + foot-gun fixes: `context_window` / `max_output_tokens` split, `supports_prompt_caching` + `supports_structured_output` + `cached_input_cost_per_1m` columns (migration 245 + backfill), per-provider `extra_headers` JSON (OpenRouter / OpenAI org / anthropic-beta), per-model `extra_body` JSON (Ollama `num_ctx` foot-gun), `Retry-After` honoring in the rate-limit retry path, `prompt_cache.py` consults the DB column instead of sniffing `"claude" in model_id.lower()`, `/admin/usage` cached pricing math stops overstating Anthropic ~10× while cache is active. 31 tests. **Phase 6 (2026-04-24)** added catalog auto-refresh + Provider Health: daily `asyncio.create_task` loop walks enabled providers, records `last_refresh_ts` / `last_refresh_error`, `POST /providers/{id}/refresh-now` endpoint + success-test-triggered refresh, `GET /usage/provider-health` aggregator (p50/p95 latency, cache-hit, circuit-breaker cooldown), new `/admin/usage` → Providers tab. Phases 3–4 (adapter dedup, prompt-dialect polish) still queued. See [[Track - Provider Refactor]].

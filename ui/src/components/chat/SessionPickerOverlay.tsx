@@ -54,6 +54,7 @@ export function SessionPickerOverlay({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [pickerMode, setPickerMode] = useState<"switch" | "split">(mode);
 
   useEffect(() => {
     if (!open) {
@@ -75,6 +76,7 @@ export function SessionPickerOverlay({
     setQuery("");
     setActiveIndex(0);
     setEditingId(null);
+    setPickerMode(mode);
     let innerFrame = 0;
     const a = requestAnimationFrame(() => {
       innerFrame = requestAnimationFrame(() => inputRef.current?.focus());
@@ -83,7 +85,7 @@ export function SessionPickerOverlay({
       cancelAnimationFrame(a);
       if (innerFrame) cancelAnimationFrame(innerFrame);
     };
-  }, [open]);
+  }, [mode, open]);
 
   const hiddenKeys = useMemo(() => new Set(hiddenSurfaces.map((surface) => {
     if (surface.kind === "primary") return "primary";
@@ -99,12 +101,12 @@ export function SessionPickerOverlay({
       deepMatches,
       query,
     });
-    if (mode !== "split") return built;
+    if (pickerMode !== "split") return built;
     return built.filter((entry) => {
       if (entry.surface.kind === "primary") return !hiddenKeys.has("primary");
       return !hiddenKeys.has(`${entry.surface.kind}:${entry.surface.sessionId}`);
     });
-  }, [channelLabel, channelSessions, deepMatches, hiddenKeys, history, mode, query, selectedSessionId]);
+  }, [channelLabel, channelSessions, deepMatches, hiddenKeys, history, pickerMode, query, selectedSessionId]);
 
   const groups = useMemo(
     () => buildChannelSessionPickerGroups(entries, query),
@@ -119,15 +121,16 @@ export function SessionPickerOverlay({
 
   const choose = (entry: ChannelSessionPickerEntry) => {
     onClose();
-    onActivateSurface(entry.surface, mode === "split" ? "split" : "switch");
+    onActivateSurface(entry.surface, pickerMode === "split" ? "split" : "switch");
   };
 
   const startNewSession = () => {
     if (!botId) return;
+    const intent = pickerMode === "split" ? "split" : "switch";
     const blankCurrent = (history ?? []).find((row) => row.is_current && isUntouchedDraftSession(row));
     if (blankCurrent) {
       onClose();
-      onActivateSurface({ kind: "scratch", sessionId: blankCurrent.session_id }, "switch");
+      onActivateSurface({ kind: "scratch", sessionId: blankCurrent.session_id }, intent);
       return;
     }
     resetScratch.mutate(
@@ -135,7 +138,7 @@ export function SessionPickerOverlay({
       {
         onSuccess: (row) => {
           onClose();
-          onActivateSurface({ kind: "scratch", sessionId: row.session_id }, "switch");
+          onActivateSurface({ kind: "scratch", sessionId: row.session_id }, intent);
         },
       },
     );
@@ -193,11 +196,11 @@ export function SessionPickerOverlay({
               const entry = entries[activeIndex];
               if (entry) {
                 onClose();
-                onActivateSurface(entry.surface, event.metaKey || event.ctrlKey ? "split" : mode === "split" ? "split" : "switch");
+                onActivateSurface(entry.surface, event.metaKey || event.ctrlKey ? "split" : pickerMode === "split" ? "split" : "switch");
               }
             }
           }}
-            placeholder={mode === "split" ? "Search session to split..." : "Search or pick a session..."}
+            placeholder={pickerMode === "split" ? "Search session to split..." : "Search or pick a session..."}
             className="min-w-0 flex-1 bg-transparent text-[15px] text-text outline-none placeholder:text-text-dim"
           />
           <button
@@ -211,21 +214,33 @@ export function SessionPickerOverlay({
         </div>
         <div className="flex items-center justify-between gap-2 border-b border-surface-border px-4 py-2">
           <div className="min-w-0 text-[12px] text-text-dim">
-            {mode === "split"
+            {pickerMode === "split"
               ? `Add split${channelLabel ? ` in #${channelLabel}` : ""}`
               : query.trim()
                 ? `Search results${channelLabel ? ` in #${channelLabel}` : ""}`
                 : `Showing recent sessions${channelLabel ? ` in #${channelLabel}` : ""}`}
           </div>
-          <button
-            type="button"
-            onClick={startNewSession}
-            disabled={!botId || resetScratch.isPending}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-accent transition-colors hover:bg-surface-overlay disabled:opacity-50"
-          >
-            <Plus size={13} />
-            New session
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {allowSplit && (
+              <button
+                type="button"
+                onClick={() => setPickerMode((current) => current === "split" ? "switch" : "split")}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-text-muted transition-colors hover:bg-surface-overlay hover:text-text"
+              >
+                <Columns2 size={13} />
+                {pickerMode === "split" ? "Switch mode" : "Add split"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={startNewSession}
+              disabled={!botId || resetScratch.isPending}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-accent transition-colors hover:bg-surface-overlay disabled:opacity-50"
+            >
+              <Plus size={13} />
+              New session
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto py-1">
           {(isLoading || catalogLoading) && <div className="px-4 py-8 text-sm text-text-dim">Loading sessions...</div>}
@@ -253,8 +268,7 @@ export function SessionPickerOverlay({
                 const active = index === activeIndex;
             const scratch = entry.kind === "scratch" ? entry : null;
             const splitEligible = allowSplit
-              && mode === "switch"
-              && query.trim().length > 0
+              && pickerMode === "switch"
               && (entry.kind === "scratch" || entry.kind === "channel");
             const editing = scratch && editingId === scratch.id;
             return (
@@ -329,7 +343,7 @@ export function SessionPickerOverlay({
                               onClose();
                               onActivateSurface(entry.surface, "split");
                             }}
-                            className="inline-flex h-7 items-center gap-1 rounded-md border border-surface-border px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
+                            className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-text-dim transition-colors hover:bg-surface-overlay hover:text-text"
                             title="Open this session as a split pane (Ctrl/Cmd+Enter)"
                           >
                             <Columns2 size={12} />
@@ -381,9 +395,9 @@ export function SessionPickerOverlay({
               })}
             </div>
           ))}
-          {mode === "switch" && query.trim().length > 0 && entries[activeIndex] && (
+          {entries[activeIndex] && (
             <div className="border-t border-surface-border px-4 py-2 text-[11px] text-text-dim">
-              Enter switches · Ctrl/Cmd+Enter splits
+              {pickerMode === "split" ? "Enter adds split · Esc closes" : "Enter switches · Ctrl/Cmd+Enter splits · /split opens split mode"}
             </div>
           )}
           {deepSearchLoading && query.trim().length >= 2 && (

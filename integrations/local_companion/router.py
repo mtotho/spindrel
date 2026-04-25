@@ -7,9 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
-from integrations.sdk import async_session
-
-from app.services.machine_control import get_provider, get_target_by_id
+from integrations.sdk import async_session, get_provider, get_target_by_id
 
 from .bridge import bridge
 
