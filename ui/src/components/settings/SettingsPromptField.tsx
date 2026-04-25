@@ -1,12 +1,6 @@
-/**
- * Settings-adapted prompt field that wraps LlmPrompt.
- * For prompts with built-in defaults: shows the default as read-only text,
- * with a "Customize" action to switch to an editable LlmPrompt.
- */
 import { useState, useEffect } from "react";
 import { ChevronDown, Pencil, RotateCcw } from "lucide-react";
-import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { PromptEditor } from "@/src/components/shared/LlmPrompt";
 import type { SettingItem } from "@/src/api/hooks/useSettings";
 
 interface Props {
@@ -24,10 +18,10 @@ const FIELD_TYPE_MAP: Record<string, string> = {
 };
 
 export function SettingsPromptField({ item, value, onChange }: Props) {
-  const t = useThemeTokens();
   const fieldType = FIELD_TYPE_MAP[item.key];
-  const hasBuiltinDefault = !!item.builtin_default;
-  const hasCustomValue = !!value;
+  const builtinDefault = item.builtin_default?.trim() ? item.builtin_default : "";
+  const hasBuiltinDefault = !!builtinDefault;
+  const hasCustomValue = value.trim().length > 0;
 
   const [editing, setEditing] = useState(!hasBuiltinDefault || hasCustomValue);
   const [showDefault, setShowDefault] = useState(false);
@@ -39,8 +33,8 @@ export function SettingsPromptField({ item, value, onChange }: Props) {
   // No built-in default — just show the editor
   if (!hasBuiltinDefault) {
     return (
-      <div style={{ width: "100%" }}>
-        <LlmPrompt
+      <div className="w-full">
+        <PromptEditor
           value={value}
           onChange={onChange}
           placeholder="Enter prompt..."
@@ -54,10 +48,10 @@ export function SettingsPromptField({ item, value, onChange }: Props) {
 
   // Has built-in default — toggle between viewing default and editing custom
   return (
-    <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 8 }}>
+    <div className="flex w-full flex-col gap-2">
       {editing ? (
         <>
-          <LlmPrompt
+          <PromptEditor
             value={value}
             onChange={onChange}
             placeholder="Enter custom prompt..."
@@ -65,83 +59,62 @@ export function SettingsPromptField({ item, value, onChange }: Props) {
             fieldType={fieldType}
             generateContext={`Setting: ${item.label}. ${item.description}`}
           />
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => { onChange(""); setEditing(false); }}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 5,
-                fontSize: 11, color: t.textDim, background: "transparent",
-                border: "none", cursor: "pointer", padding: 0,
-              }}
+              className="inline-flex min-h-[28px] items-center gap-1.5 rounded-md bg-transparent px-2 text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
             >
               <RotateCcw size={11} />
-              Revert to built-in default
+              Use built-in default
             </button>
           </div>
-          {/* Collapsible reference to built-in default */}
-          <div style={{ borderRadius: 6, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden" }}>
+          <div className="overflow-hidden rounded-md bg-surface-raised/45">
             <button
               type="button"
               onClick={() => setShowDefault(!showDefault)}
-              style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                padding: "5px 10px", width: "100%", textAlign: "left",
-                background: "transparent", border: "none", cursor: "pointer",
-              }}
+              className="flex min-h-[32px] w-full items-center gap-1.5 px-2.5 text-left text-[11px] font-semibold text-text-dim transition-colors hover:bg-surface-overlay/50 hover:text-text-muted"
             >
               <ChevronDown
                 size={11}
-                color={t.textDim}
-                style={{ transform: showDefault ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
+                className={`transition-transform duration-100 ${showDefault ? "" : "-rotate-90"}`}
               />
-              <span style={{ fontSize: 10, color: t.textDim }}>
-                View built-in default for reference
-              </span>
+              View built-in default for reference
             </button>
             {showDefault && (
-              <div style={{ padding: "0 10px 8px 10px" }}>
-                <pre style={{
-                  margin: 0, fontSize: 10, lineHeight: "16px", fontFamily: "monospace",
-                  whiteSpace: "pre-wrap", color: t.textDim,
-                  background: t.surfaceOverlay, borderRadius: 4, padding: 8,
-                }}>
-                  {item.builtin_default}
+              <div className="px-2.5 pb-2.5">
+                <pre className="max-h-[220px] overflow-auto whitespace-pre-wrap rounded bg-surface-overlay px-2.5 py-2 font-mono text-[11px] leading-relaxed text-text-muted">
+                  {builtinDefault}
                 </pre>
               </div>
             )}
           </div>
         </>
       ) : (
-        /* View mode — show built-in default as read-only with customize button */
-        <div style={{ borderRadius: 8, border: `1px solid ${t.surfaceBorder}`, overflow: "hidden" }}>
-          <div style={{
-            display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-            padding: "8px 12px", borderBottom: `1px solid ${t.surfaceBorder}`,
-          }}>
-            <span style={{ fontSize: 10, fontWeight: 600, color: t.purple }}>
+        <div className="overflow-hidden rounded-md bg-input">
+          <div className="flex min-h-[38px] flex-wrap items-center justify-between gap-2 px-3 py-1.5">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">
               Built-in default active
             </span>
             <button
               type="button"
-              onClick={() => { onChange(item.builtin_default!); setEditing(true); }}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: 4,
-                fontSize: 10, color: t.accent, background: "transparent",
-                border: "none", cursor: "pointer", padding: 0,
-              }}
+              onClick={() => { onChange(builtinDefault); setEditing(true); }}
+              className="inline-flex min-h-[28px] items-center gap-1.5 rounded-md bg-transparent px-2 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/[0.08]"
             >
               <Pencil size={10} />
               Customize
             </button>
           </div>
-          <pre style={{
-            margin: 0, fontSize: 11, lineHeight: "18px", fontFamily: "monospace",
-            whiteSpace: "pre-wrap", color: t.textMuted, padding: 12,
-            maxHeight: 200, overflowY: "auto",
-          }}>
-            {item.builtin_default}
-          </pre>
+          <textarea
+            value={builtinDefault}
+            readOnly
+            rows={8}
+            className="block max-h-[360px] min-h-[180px] w-full resize-y bg-transparent px-3 pb-3 pt-1 font-mono text-[16px] leading-[1.55] text-text-dim outline-none"
+            aria-label={`${item.label} built-in default`}
+          />
+          <div className="flex justify-end px-3 pb-2 text-[11px] text-text-dim">
+            {builtinDefault.length} chars {"\u00b7"} ~{Math.ceil(builtinDefault.length / 4)} tokens
+          </div>
         </div>
       )}
     </div>

@@ -94,6 +94,8 @@ async def test_admin_sections_default_scope_is_active_session(client, db_session
     assert [s["title"] for s in data["sections"]] == ["Active Section"]
     assert data["sections"][0]["session"]["id"] == str(active_id)
     assert data["sections"][0]["session"]["kind"] == "primary"
+    assert data["sections"][0]["transcript_path"] is None
+    assert data["sections"][0]["has_transcript"] is True
     assert data["stats"]["coverage_mode"] == "current"
     assert data["stats"]["covered_messages"] == 2
     assert data["stats"]["total_messages"] == 2

@@ -18,6 +18,10 @@ export function adminMachineTargetPath(providerId: string, targetId: string): st
   return `/api/v1/admin/machines/providers/${encodeURIComponent(providerId)}/targets/${encodeURIComponent(targetId)}`;
 }
 
+export function adminMachineTargetSetupPath(providerId: string, targetId: string): string {
+  return `${adminMachineTargetPath(providerId, targetId)}/setup`;
+}
+
 export function adminMachineProfilesPath(providerId: string): string {
   return `/api/v1/admin/machines/providers/${encodeURIComponent(providerId)}/profiles`;
 }

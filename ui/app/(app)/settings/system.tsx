@@ -46,6 +46,7 @@ import {
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useVersion } from "@/src/api/hooks/useVersion";
 import { useCheckUpdate, useTogglePause } from "@/src/api/hooks/useServerOps";
+import { SettingsPromptField } from "@/src/components/settings/SettingsPromptField";
 import { RestartConfirmModal } from "@/src/components/settings/RestartConfirmModal";
 import { cn } from "@/src/lib/cn";
 
@@ -341,7 +342,17 @@ function SettingControl({
     );
   }
 
-  if (item.widget === "textarea" || item.key.includes("PROMPT") || item.key === "CORS_ORIGINS") {
+  if (item.widget === "textarea" || item.key.includes("PROMPT")) {
+    return (
+      <SettingsPromptField
+        item={item}
+        value={value}
+        onChange={onChange}
+      />
+    );
+  }
+
+  if (item.key === "CORS_ORIGINS") {
     return (
       <textarea
         value={value}

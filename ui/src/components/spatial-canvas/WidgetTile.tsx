@@ -42,6 +42,10 @@ import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedW
 interface WidgetTileProps {
   pin: SpatialNodePin;
   zoom: number;
+  /** Extra wrapper scale applied by the spatial canvas (e.g., fisheye lens
+   *  shrink). Lets counter-scaled labels compensate so they stay readable
+   *  when the tile has been visually compressed. Defaults to 1. */
+  extraScale?: number;
   /** True when the tile's world-bounds intersect the camera's viewport
    *  (with a 1-viewport margin). Iframe mounts only when this is true and
    *  zoom ≥ 0.6 — culling keeps iframe count bounded as the user pans. */
@@ -78,13 +82,15 @@ function bareToolName(toolName: string): string {
 export function WidgetTile({
   pin,
   zoom,
+  extraScale = 1,
   inViewport,
   activated,
   nodeId,
   onActivate,
 }: WidgetTileProps) {
   if (zoom < CHIP_THRESHOLD) return <ChipView />;
-  if (zoom < TITLE_THRESHOLD) return <ChipTitleView pin={pin} zoom={zoom} />;
+  if (zoom < TITLE_THRESHOLD)
+    return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} />;
   return (
     <CardView
       pin={pin}
@@ -131,10 +137,21 @@ function ChipView() {
   );
 }
 
-function ChipTitleView({ pin, zoom }: { pin: SpatialNodePin; zoom: number }) {
+function ChipTitleView({
+  pin,
+  zoom,
+  extraScale,
+}: {
+  pin: SpatialNodePin;
+  zoom: number;
+  extraScale: number;
+}) {
   // Counter-scale the title so it stays readable at chip+title zoom range
-  // (0.4 ≤ z < 0.6). Same trick as channel DotView.
-  const labelScale = Math.min(3, 1 / Math.max(0.05, zoom));
+  // (0.4 ≤ z < 0.6). Same trick as channel DotView. `extraScale` covers
+  // fisheye / lens shrinking so the label stays legible when the lens has
+  // compressed the tile.
+  const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
+  const labelScale = Math.min(3, 1 / effectiveScale);
   return (
     <div
       data-tile-kind="widget"
@@ -219,6 +236,21 @@ function CardView({
     pin.widget_config ?? null,
     pin.id,
   );
+  // Anchor identity for swap-gating. Some integrations (Home Assistant
+  // most visibly) dispatch tool actions whose result envelope is the *full*
+  // integration live-state widget, regardless of which sub-widget the user
+  // interacted with. Without this gate the canvas tile mutates from "single
+  // switch" into the giant state grid on first toggle.
+  const originalIdentity = useMemo(
+    () =>
+      envelopeIdentityKey(
+        pin.tool_name,
+        pin.envelope as unknown as ToolResultEnvelope,
+        pin.widget_config ?? null,
+      ),
+    [pin.tool_name, pin.envelope, pin.widget_config],
+  );
+
   const interceptingDispatch = useCallback(
     async (
       action: import("../../types/api").WidgetAction,
@@ -230,7 +262,18 @@ function CardView({
         && result.envelope.content_type === "application/vnd.spindrel.components+json"
         && result.envelope.body
       ) {
-        setCurrentEnvelope(result.envelope);
+        const resultIdentity = envelopeIdentityKey(
+          pin.tool_name,
+          result.envelope,
+          pin.widget_config ?? null,
+        );
+        // Only swap when the result is a refresh of THIS widget. Different
+        // identity → broadcast it (so any other surface displaying that
+        // identity catches the update) but keep our tile pointing at the
+        // original widget.
+        if (resultIdentity === originalIdentity) {
+          setCurrentEnvelope(result.envelope);
+        }
         if (channelId) {
           broadcastEnvelope(channelId, pin.tool_name, result.envelope, {
             kind: "tool_result",
@@ -239,7 +282,7 @@ function CardView({
       }
       return result;
     },
-    [rawDispatch, channelId, pin.tool_name, broadcastEnvelope],
+    [rawDispatch, channelId, pin.tool_name, pin.widget_config, broadcastEnvelope, originalIdentity],
   );
   const actionCtx = useMemo(
     () => (channelId ? { dispatchAction: interceptingDispatch } : null),

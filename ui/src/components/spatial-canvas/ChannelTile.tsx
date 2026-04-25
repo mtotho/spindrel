@@ -20,14 +20,19 @@ interface ChannelTileProps {
    *  null, the tile falls back to the generic `#` Hash glyph. */
   icon: string | null;
   zoom: number;
+  /** Extra wrapper scale applied by the spatial canvas (e.g., fisheye
+   *  shrink). Used by counter-scaled labels so they stay readable when the
+   *  whole tile has been visually compressed. Defaults to 1. */
+  extraScale?: number;
   onDive: () => void;
 }
 
 const DOT_THRESHOLD = 0.4;
 const SNAPSHOT_THRESHOLD = 1.0;
 
-export function ChannelTile({ channel, icon, zoom, onDive }: ChannelTileProps) {
-  if (zoom < DOT_THRESHOLD) return <DotView channel={channel} zoom={zoom} onDive={onDive} />;
+export function ChannelTile({ channel, icon, zoom, extraScale = 1, onDive }: ChannelTileProps) {
+  if (zoom < DOT_THRESHOLD)
+    return <DotView channel={channel} zoom={zoom} extraScale={extraScale} onDive={onDive} />;
   if (zoom < SNAPSHOT_THRESHOLD)
     return <PreviewView channel={channel} icon={icon} onDive={onDive} />;
   return <SnapshotView channel={channel} icon={icon} onDive={onDive} />;
@@ -42,8 +47,11 @@ function ChannelGlyph({ icon, size, active }: { icon: string | null; size: numbe
 /**
  * Stable hue per channel id. Hash → 0..360. Same id always lands the same
  * color across reloads / different viewers — no DB column needed for this.
+ *
+ * Exported so other canvas surfaces (e.g. orbital scheduled tiles) can color
+ * themselves to match their source channel.
  */
-function channelHue(id: string): number {
+export function channelHue(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) {
     h = (h * 31 + id.charCodeAt(i)) >>> 0;
@@ -51,7 +59,7 @@ function channelHue(id: string): number {
   return h % 360;
 }
 
-function dotColor(id: string): string {
+export function dotColor(id: string): string {
   return `hsl(${channelHue(id)}, 55%, 58%)`;
 }
 
@@ -62,18 +70,23 @@ function channelName(channel: Channel): string {
 function DotView({
   channel,
   zoom,
+  extraScale,
   onDive,
 }: {
   channel: Channel;
   zoom: number;
+  extraScale: number;
   onDive: () => void;
 }) {
   const name = channelName(channel);
   // Counter-scale the label so it stays at a constant *screen* size as the
   // user zooms out — the world is being scaled by `zoom`, so we scale the
-  // label by `1/zoom` to compensate. Capped at 4× to keep edge cases sane
-  // when the user zooms below MIN_SCALE recovery edges.
-  const labelScale = Math.min(4, 1 / Math.max(0.05, zoom));
+  // label by `1/zoom` to compensate. `extraScale` covers fisheye / lens
+  // shrinking — when the lens compresses a tile, the label shrinks with it
+  // unless we compensate. Capped at 4× to keep edge cases sane when the user
+  // zooms below MIN_SCALE recovery edges.
+  const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
+  const labelScale = Math.min(4, 1 / effectiveScale);
   return (
     <div
       data-tile-kind="channel"

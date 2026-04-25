@@ -8,13 +8,13 @@ import platform as py_platform
 import re
 import shlex
 import socket
+import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
-
-import websockets
 
 
 def _parse_args() -> argparse.Namespace:
@@ -30,6 +30,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--blocked-pattern", action="append", default=[])
     parser.add_argument("--timeout-seconds", type=int, default=120)
     parser.add_argument("--max-output-bytes", type=int, default=65536)
+    parser.add_argument("--once", action="store_true", help="Exit instead of reconnecting when the websocket closes.")
+    parser.add_argument("--reconnect-initial-seconds", type=float, default=1.0)
+    parser.add_argument("--reconnect-max-seconds", type=float, default=30.0)
+    parser.add_argument("--install-systemd-user", action="store_true", help="Install and start a reconnecting systemd user service.")
+    parser.add_argument("--service-name", default="spindrel-local-companion")
     return parser.parse_args()
 
 
@@ -172,6 +177,14 @@ async def _handle_request(payload: dict[str, Any], args: argparse.Namespace) -> 
 
 async def _run_client(args: argparse.Namespace) -> int:
     ws_url = _build_ws_url(args.server_url, target_id=args.target_id, token=args.token)
+    try:
+        import websockets
+    except ImportError as exc:
+        raise RuntimeError(
+            "Python package 'websockets' is required. Install it with `python -m pip install websockets`, "
+            "or rerun this script with --install-systemd-user to create an isolated service environment.",
+        ) from exc
+
     async with websockets.connect(ws_url, max_size=2**22) as ws:
         await ws.send(json.dumps({
             "type": "hello",
@@ -197,10 +210,113 @@ async def _run_client(args: argparse.Namespace) -> int:
     return 0
 
 
+async def _run_reconnecting_client(args: argparse.Namespace) -> int:
+    delay = max(0.25, float(args.reconnect_initial_seconds))
+    max_delay = max(delay, float(args.reconnect_max_seconds))
+    while True:
+        try:
+            await _run_client(args)
+            if args.once:
+                return 0
+            print("Disconnected; reconnecting...", file=sys.stderr, flush=True)
+            delay = max(0.25, float(args.reconnect_initial_seconds))
+        except Exception as exc:
+            if args.once:
+                print(f"Companion exited: {exc}", file=sys.stderr, flush=True)
+                return 1
+            print(f"Connection failed: {exc}; retrying in {delay:.1f}s", file=sys.stderr, flush=True)
+        await asyncio.sleep(delay)
+        delay = min(max_delay, delay * 2)
+
+
+def _service_args(args: argparse.Namespace, client_path: Path, python_path: Path) -> list[str]:
+    out = [
+        str(python_path),
+        str(client_path),
+        "--server-url",
+        args.server_url,
+        "--target-id",
+        args.target_id,
+        "--token",
+        args.token,
+        "--label",
+        args.label,
+        "--hostname",
+        args.hostname,
+        "--platform",
+        args.platform,
+        "--timeout-seconds",
+        str(args.timeout_seconds),
+        "--max-output-bytes",
+        str(args.max_output_bytes),
+        "--reconnect-initial-seconds",
+        str(args.reconnect_initial_seconds),
+        "--reconnect-max-seconds",
+        str(args.reconnect_max_seconds),
+    ]
+    for value in args.inspect_prefix:
+        out.extend(["--inspect-prefix", value])
+    for value in args.allowed_root:
+        out.extend(["--allowed-root", value])
+    for value in args.blocked_pattern:
+        out.extend(["--blocked-pattern", value])
+    return out
+
+
+def _systemd_exec_start(argv: list[str]) -> str:
+    return " ".join(shlex.quote(part) for part in argv)
+
+
+def _install_systemd_user(args: argparse.Namespace) -> int:
+    home = Path.home()
+    app_dir = home / ".local" / "share" / "spindrel-local-companion"
+    venv_dir = app_dir / ".venv"
+    client_path = app_dir / "client.py"
+    service_dir = home / ".config" / "systemd" / "user"
+    service_path = service_dir / f"{args.service_name}.service"
+
+    app_dir.mkdir(parents=True, exist_ok=True)
+    service_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(Path(__file__).resolve(), client_path)
+
+    if not venv_dir.exists():
+        subprocess.run([sys.executable, "-m", "venv", str(venv_dir)], check=True)
+    python_path = venv_dir / "bin" / "python"
+    subprocess.run([str(python_path), "-m", "pip", "install", "--upgrade", "pip", "websockets"], check=True)
+
+    service_path.write_text(
+        "\n".join([
+            "[Unit]",
+            "Description=Spindrel Local Companion",
+            "After=network-online.target",
+            "Wants=network-online.target",
+            "",
+            "[Service]",
+            "Type=simple",
+            f"WorkingDirectory={shlex.quote(os.getcwd())}",
+            f"ExecStart={_systemd_exec_start(_service_args(args, client_path, python_path))}",
+            "Restart=always",
+            "RestartSec=5",
+            "",
+            "[Install]",
+            "WantedBy=default.target",
+            "",
+        ]),
+        encoding="utf-8",
+    )
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
+    subprocess.run(["systemctl", "--user", "enable", "--now", f"{args.service_name}.service"], check=True)
+    print(f"Installed and started {args.service_name}.service", file=sys.stderr, flush=True)
+    print("Optional: run `loginctl enable-linger $USER` to keep it running after logout.", file=sys.stderr, flush=True)
+    return 0
+
+
 def main() -> int:
     args = _parse_args()
+    if args.install_systemd_user:
+        return _install_systemd_user(args)
     try:
-        return asyncio.run(_run_client(args))
+        return asyncio.run(_run_reconnecting_client(args))
     except KeyboardInterrupt:
         return 130
 

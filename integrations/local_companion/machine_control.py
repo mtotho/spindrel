@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shlex
 import uuid
 from typing import Any
 
@@ -63,9 +64,19 @@ def _dump_targets(targets: list[dict[str, Any]]) -> str:
 def _build_example_command(server_url: str, *, target_id: str, token: str) -> str:
     client_url = f"{server_url}/integrations/local_companion/client.py"
     return (
-        f"curl -fsSL {client_url} -o /tmp/spindrel-local-companion.py && "
+        f"curl -fsSL {shlex.quote(client_url)} -o /tmp/spindrel-local-companion.py && "
         "python /tmp/spindrel-local-companion.py "
-        f"--server-url {server_url} --target-id {target_id} --token {token}"
+        f"--server-url {shlex.quote(server_url)} --target-id {shlex.quote(target_id)} --token {shlex.quote(token)}"
+    )
+
+
+def _build_systemd_user_install_command(server_url: str, *, target_id: str, token: str) -> str:
+    client_url = f"{server_url}/integrations/local_companion/client.py"
+    return (
+        f"curl -fsSL {shlex.quote(client_url)} -o /tmp/spindrel-local-companion.py && "
+        "python /tmp/spindrel-local-companion.py "
+        f"--server-url {shlex.quote(server_url)} --target-id {shlex.quote(target_id)} "
+        f"--token {shlex.quote(token)} --install-systemd-user"
     )
 
 
@@ -183,7 +194,44 @@ class LocalCompanionMachineControlProvider:
                 "websocket_path": "/integrations/local_companion/ws",
                 "download_url": f"{server_url}/integrations/local_companion/client.py",
                 "example_command": _build_example_command(server_url, target_id=target_id, token=token),
+                "install_systemd_user_command": _build_systemd_user_install_command(
+                    server_url,
+                    target_id=target_id,
+                    token=token,
+                ),
             },
+        }
+
+    async def get_target_setup(
+        self,
+        db: AsyncSession,
+        *,
+        target_id: str,
+        server_base_url: str,
+    ) -> dict[str, Any] | None:
+        _ = db
+        target = self.get_target(target_id)
+        if target is None:
+            raise ValueError("Unknown machine target.")
+        token = str(target.get("token") or "").strip()
+        if not token:
+            raise ValueError("This Local Companion target is missing its pairing token.")
+        server_url = server_base_url.rstrip("/")
+        return {
+            "kind": "local_companion",
+            "download_url": f"{server_url}/integrations/local_companion/client.py",
+            "websocket_path": "/integrations/local_companion/ws",
+            "launch_command": _build_example_command(server_url, target_id=target_id, token=token),
+            "install_systemd_user_command": _build_systemd_user_install_command(
+                server_url,
+                target_id=target_id,
+                token=token,
+            ),
+            "notes": [
+                "Run the launch command in the foreground first to verify the target connects.",
+                "Use the user-service command when this machine should reconnect automatically after crashes or server restarts.",
+                "Run `loginctl enable-linger $USER` separately if the companion should stay connected after logout.",
+            ],
         }
 
     async def create_profile(

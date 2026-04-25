@@ -204,6 +204,9 @@ function IntegrationCard({ item }: { item: IntegrationItem }) {
         <div className="min-w-0 flex-1">
           <div className="truncate text-[13px] font-semibold text-text">{item.name}</div>
           <StatusDot item={item} />
+          {item.description && (
+            <div className="mt-1 line-clamp-2 text-[11px] leading-snug text-text-dim">{item.description}</div>
+          )}
         </div>
         {!available && envTotal > 0 && (
           <span

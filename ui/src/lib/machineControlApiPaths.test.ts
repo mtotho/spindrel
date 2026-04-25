@@ -6,6 +6,7 @@ import {
   adminMachineProfilePath,
   adminMachineProfilesPath,
   adminMachineTargetPath,
+  adminMachineTargetSetupPath,
   adminMachinesPath,
   sessionMachineTargetLeasePath,
   sessionMachineTargetPath,
@@ -20,6 +21,10 @@ test("machine-control admin endpoints use the api/v1 namespace", () => {
   assert.equal(
     adminMachineTargetPath("local_companion", "desk mac"),
     "/api/v1/admin/machines/providers/local_companion/targets/desk%20mac",
+  );
+  assert.equal(
+    adminMachineTargetSetupPath("local_companion", "desk mac"),
+    "/api/v1/admin/machines/providers/local_companion/targets/desk%20mac/setup",
   );
   assert.equal(
     adminMachineProfilesPath("ssh"),

@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import type { ThemeTokens } from "@/src/theme/tokens";
 import type { MachineTarget, SessionMachineTargetLease, SessionMachineTargetState } from "@/src/api/hooks/useMachineTargets";
+import { writeToClipboard } from "@/src/utils/clipboard";
 
 export type MachineTargetStatusPayload = SessionMachineTargetState & {
   ready_target_count?: number;
@@ -191,6 +192,50 @@ export function MachineLeaseSummary({
         Lease expires {expiresAt ?? lease.expires_at}
       </div>
     </div>
+  );
+}
+
+export function buildMachineStarterPrompt({
+  targetLabel,
+  leaseActive,
+}: {
+  targetLabel?: string | null;
+  leaseActive?: boolean;
+}): string {
+  const target = targetLabel ? ` for "${targetLabel}"` : "";
+  return [
+    `Use machine control${target} in this session.`,
+    leaseActive
+      ? "A machine lease is already active; confirm it with machine_status."
+      : "Start by calling machine_status so I can grant the session lease if needed.",
+    "Use machine_inspect_command for readonly discovery first.",
+    "Use machine_exec_command only when real execution on that machine is necessary; if approval is required, wait for me to approve it.",
+  ].join(" ");
+}
+
+export function MachineStarterPromptButton({
+  targetLabel,
+  leaseActive,
+  t,
+}: {
+  targetLabel?: string | null;
+  leaseActive?: boolean;
+  t: ThemeTokens;
+}) {
+  const [copied, setCopied] = useState(false);
+  async function handleCopy() {
+    await writeToClipboard(buildMachineStarterPrompt({ targetLabel, leaseActive }));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void handleCopy()}
+      style={machineButtonStyle(t, "default", false)}
+    >
+      {copied ? "Copied" : "Copy starter prompt"}
+    </button>
   );
 }
 

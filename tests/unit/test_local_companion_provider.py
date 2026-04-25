@@ -39,6 +39,7 @@ async def test_local_companion_enroll_returns_curl_bootstrap_launch_command(monk
     )
 
     command = payload["launch"]["example_command"]
+    service_command = payload["launch"]["install_systemd_user_command"]
 
     assert "curl -fsSL http://10.10.30.208:8000/integrations/local_companion/client.py" in command
     assert "-o /tmp/spindrel-local-companion.py" in command
@@ -48,8 +49,40 @@ async def test_local_companion_enroll_returns_curl_bootstrap_launch_command(monk
     assert "--token token-123" in command
     assert "-m integrations.local_companion.client" not in command
     assert "--server " not in command
+    assert "--install-systemd-user" in service_command
+    assert "token-123" in service_command
     assert saved_targets
     assert enabled_states == [("local_companion", "enabled")]
+
+
+@pytest.mark.asyncio
+async def test_local_companion_target_setup_regenerates_launch_commands(monkeypatch):
+    target = {
+        "target_id": "target-123",
+        "driver": "companion",
+        "label": "Desk",
+        "hostname": "",
+        "platform": "",
+        "capabilities": ["shell"],
+        "token": "token-abc",
+        "enrolled_at": "2026-04-25T12:00:00+00:00",
+    }
+
+    monkeypatch.setattr(local_companion_machine_control, "get_registered_targets", lambda: [target])
+
+    provider = local_companion_machine_control.LocalCompanionMachineControlProvider()
+    setup = await provider.get_target_setup(
+        _FakeDb(),
+        target_id="target-123",
+        server_base_url="https://spindrel.example.com/base/",
+    )
+
+    assert setup["kind"] == "local_companion"
+    assert setup["download_url"] == "https://spindrel.example.com/base/integrations/local_companion/client.py"
+    assert "--target-id target-123" in setup["launch_command"]
+    assert "--token token-abc" in setup["launch_command"]
+    assert "--install-systemd-user" in setup["install_systemd_user_command"]
+    assert setup["notes"]
 
 
 def test_local_companion_router_serves_client_script_file():
@@ -83,3 +116,42 @@ def test_local_companion_client_converts_https_server_url_to_wss_url():
         "wss://spindrel.example.com/base/integrations/local_companion/ws?"
         "target_id=target-123&token=token-123"
     )
+
+
+@pytest.mark.asyncio
+async def test_local_companion_reconnects_after_failed_attempt(monkeypatch):
+    attempts = {"count": 0}
+
+    async def _fake_run_client(_args):
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise RuntimeError("server down")
+        raise KeyboardInterrupt
+
+    async def _fake_sleep(_delay):
+        return None
+
+    args = type("Args", (), {
+        "once": False,
+        "reconnect_initial_seconds": 0.25,
+        "reconnect_max_seconds": 1.0,
+    })()
+
+    monkeypatch.setattr(local_companion_client, "_run_client", _fake_run_client)
+    monkeypatch.setattr(local_companion_client.asyncio, "sleep", _fake_sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        await local_companion_client._run_reconnecting_client(args)
+
+    assert attempts["count"] == 2
+
+
+def test_local_companion_service_exec_start_quotes_arguments():
+    command = local_companion_client._systemd_exec_start([
+        "/home/me/.venv/bin/python",
+        "/home/me/client.py",
+        "--server-url",
+        "https://spindrel.example.com/base path",
+    ])
+
+    assert "'https://spindrel.example.com/base path'" in command

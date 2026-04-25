@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, ExternalLink, KeyRound, Monitor, Pencil, Plug, RefreshCw, SearchCheck, Trash2 } from "lucide-react";
+import { Copy, Download, ExternalLink, KeyRound, Monitor, Pencil, Plug, RefreshCw, SearchCheck, Trash2 } from "lucide-react";
 
 import { PageHeader } from "@/src/components/layout/PageHeader";
 import { Spinner } from "@/src/components/shared/Spinner";
@@ -20,6 +20,7 @@ import {
   useDeleteMachineProfile,
   useDeleteMachineTarget,
   useEnrollMachineTarget,
+  useMachineTargetSetup,
   useProbeMachineTarget,
   useUpdateMachineProfile,
   type MachineControlEnrollField,
@@ -62,9 +63,19 @@ function profileConfiguredSecrets(profile: MachineProviderProfile): string[] {
   return Array.isArray(configured) ? configured.map((value) => String(value)) : [];
 }
 
+function buildMachineStarterPrompt(target: MachineTarget): string {
+  return [
+    `Use machine control with the target "${target.label || target.target_id}" in this session.`,
+    "Start by calling machine_status so I can grant the session lease if needed.",
+    "Use machine_inspect_command for readonly discovery first.",
+    "Use machine_exec_command only when real execution on that machine is necessary; if approval is required, wait for me to approve it.",
+  ].join(" ");
+}
+
 function ProviderSection({ provider }: { provider: MachineProviderState }) {
   const { confirm, ConfirmDialogSlot } = useConfirm();
   const enroll = useEnrollMachineTarget(provider.provider_id);
+  const setup = useMachineTargetSetup(provider.provider_id);
   const remove = useDeleteMachineTarget(provider.provider_id);
   const probe = useProbeMachineTarget(provider.provider_id);
   const createProfile = useCreateMachineProfile(provider.provider_id);
@@ -73,7 +84,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
 
   const [labelDraft, setLabelDraft] = useState("");
   const [configDraft, setConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.enroll_fields));
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [profileLabelDraft, setProfileLabelDraft] = useState("");
   const [profileConfigDraft, setProfileConfigDraft] = useState<MachineEnrollDraft>(() => initialDraft(provider.profile_fields));
@@ -105,7 +116,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
   }, [provider.provider_id, JSON.stringify(provider.profile_fields)]);
 
   const profilePending = createProfile.isPending || updateProfile.isPending || deleteProfile.isPending;
-  const pending = enroll.isPending || remove.isPending || probe.isPending || profilePending;
+  const pending = enroll.isPending || setup.isPending || remove.isPending || probe.isPending || profilePending;
   const launch = enroll.data?.launch ?? null;
   const targetConfig = normalizeMachineEnrollConfig(effectiveEnrollFields, configDraft);
   const profileConfig = normalizeMachineEnrollConfig(provider.profile_fields, profileConfigDraft);
@@ -116,8 +127,24 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
 
   async function handleCopy(command: string) {
     await writeToClipboard(command);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
+    setCopiedKey("launch");
+    window.setTimeout(() => setCopiedKey(null), 1200);
+  }
+
+  async function handleCopyTargetSetup(target: MachineTarget, kind: "launch" | "service") {
+    const result = await setup.mutateAsync(target.target_id);
+    const payload = result.setup ?? {};
+    const command = kind === "service" ? payload.install_systemd_user_command : payload.launch_command;
+    if (!command) return;
+    await writeToClipboard(command);
+    setCopiedKey(`${target.target_id}:${kind}`);
+    window.setTimeout(() => setCopiedKey(null), 1200);
+  }
+
+  async function handleCopyStarterPrompt(target: MachineTarget) {
+    await writeToClipboard(buildMachineStarterPrompt(target));
+    setCopiedKey(`${target.target_id}:prompt`);
+    window.setTimeout(() => setCopiedKey(null), 1200);
   }
 
   function handleStartEditProfile(profile: MachineProviderProfile) {
@@ -347,7 +374,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                   Run this on the target machine to finish provider-specific setup.
                 </div>
                 <ActionButton
-                  label={copied ? "Copied" : "Copy command"}
+                  label={copiedKey === "launch" ? "Copied" : "Copy command"}
                   onPress={() => void handleCopy(launch.example_command || "")}
                   variant="secondary"
                   size="small"
@@ -388,6 +415,36 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                     }
                     action={
                       <div className="flex flex-wrap items-center gap-1.5">
+                        {target.ready && (
+                          <ActionButton
+                            label={copiedKey === `${target.target_id}:prompt` ? "Copied" : "Copy prompt"}
+                            onPress={() => void handleCopyStarterPrompt(target)}
+                            variant="secondary"
+                            size="small"
+                            disabled={pending}
+                            icon={<Copy size={12} />}
+                          />
+                        )}
+                        {target.driver === "companion" && (
+                          <>
+                            <ActionButton
+                              label={copiedKey === `${target.target_id}:launch` ? "Copied" : "Copy launcher"}
+                              onPress={() => void handleCopyTargetSetup(target, "launch")}
+                              variant="secondary"
+                              size="small"
+                              disabled={pending}
+                              icon={<Copy size={12} />}
+                            />
+                            <ActionButton
+                              label={copiedKey === `${target.target_id}:service` ? "Copied" : "Install service"}
+                              onPress={() => void handleCopyTargetSetup(target, "service")}
+                              variant="secondary"
+                              size="small"
+                              disabled={pending}
+                              icon={<Download size={12} />}
+                            />
+                          </>
+                        )}
                         <ActionButton
                           label="Probe"
                           onPress={() => probe.mutate(target.target_id)}
@@ -443,8 +500,11 @@ export default function AdminMachinesPage() {
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
           <div className="max-w-[72ch] text-[13px] leading-relaxed text-text-dim">
-            Machine profile management, target enrollment, probing, and removal live here. Session-level lease grant and revoke remain chat-scoped.
+            Machine profile management, target enrollment, probing, and removal live here. Session leases are granted from chat, and exec-capable commands may still ask for approval.
           </div>
+          <InfoBanner variant="info">
+            Local Companion pairs this workstation through an outbound reconnecting process. SSH controls headless or LAN machines through explicit key and known_hosts profiles.
+          </InfoBanner>
 
           {isLoading ? (
             <div className="flex min-h-[180px] items-center justify-center">

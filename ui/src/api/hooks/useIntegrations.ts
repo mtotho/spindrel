@@ -90,6 +90,7 @@ export interface IntegrationMachineControlInfo {
 export interface IntegrationItem {
   id: string;
   name: string;
+  description?: string | null;
   source: "integration" | "package" | "external";
   has_router: boolean;
   has_dispatcher: boolean;

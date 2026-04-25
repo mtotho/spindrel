@@ -2,7 +2,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
-  Cog, PanelRight, StickyNote,
+  Cog, PanelRight, Sparkles, StickyNote,
   X as CloseIcon,
   User as UserIcon, MoreHorizontal,
 } from "lucide-react";
@@ -588,6 +588,22 @@ export function ChannelHeader({
           title="Channel settings"
         >
           <Settings size={16} color={t.textDim} />
+        </button>
+      )}
+
+      {/* Beam to spatial canvas — sits to the LEFT of the dashboard switch
+          so the dashboard button stays the rightmost slot (mirrors the
+          chat button's position on the dashboard top bar). Sparkles glyph
+          carries the "beam me up" transport vibe. Desktop-only for now. */}
+      {!isMobile && (
+        <button
+          className="header-icon-btn"
+          style={{ width: iconSize, height: iconSize }}
+          onClick={() => navigate("/")}
+          title="Beam to spatial canvas"
+          aria-label="Beam to spatial canvas"
+        >
+          <Sparkles size={16} color={t.textDim} />
         </button>
       )}
 

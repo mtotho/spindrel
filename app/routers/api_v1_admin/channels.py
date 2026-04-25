@@ -1756,6 +1756,16 @@ async def admin_channel_sections(
             .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
     ).scalars().all()
+    row_ids = [s.id for s in rows]
+    transcript_section_ids = set(
+        (
+            await db.execute(
+                select(ConversationSection.id)
+                .where(ConversationSection.id.in_(row_ids))
+                .where(ConversationSection.transcript.is_not(None))
+            )
+        ).scalars().all()
+    ) if row_ids else set()
 
     all_section_count = (
         await db.execute(
@@ -1817,7 +1827,7 @@ async def admin_channel_sections(
             "last_viewed_at": s.last_viewed_at.isoformat() if s.last_viewed_at else None,
             "tags": s.tags or [],
             "file_exists": fe,
-            "has_transcript": bool(s.transcript_path),
+            "has_transcript": s.id in transcript_section_ids,
             "session": _section_session_out(session_by_id.get(s.session_id), channel.active_session_id),
         })
 

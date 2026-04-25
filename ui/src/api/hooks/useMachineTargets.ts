@@ -6,6 +6,7 @@ import {
   adminMachineProfilePath,
   adminMachineProfilesPath,
   adminMachineTargetPath,
+  adminMachineTargetSetupPath,
   adminMachinesPath,
   sessionMachineTargetLeasePath,
   sessionMachineTargetPath,
@@ -119,8 +120,24 @@ export interface MachineTargetEnrollment {
     token?: string;
     websocket_path?: string;
     example_command?: string;
+    install_systemd_user_command?: string;
   } | null;
   metadata?: Record<string, unknown> | null;
+}
+
+export interface MachineTargetSetupPayload {
+  kind?: string | null;
+  download_url?: string | null;
+  websocket_path?: string | null;
+  launch_command?: string | null;
+  install_systemd_user_command?: string | null;
+  notes?: string[] | null;
+}
+
+export interface MachineTargetSetupResult {
+  provider: Omit<MachineProviderState, "targets" | "target_count" | "ready_target_count" | "connected_target_count">;
+  target: MachineTarget;
+  setup?: MachineTargetSetupPayload | null;
 }
 
 export interface MachineTargetProbeResult {
@@ -208,6 +225,15 @@ export function useProbeMachineTarget(providerId: string) {
       qc.invalidateQueries({ queryKey: ["admin-machines"] });
       qc.invalidateQueries({ queryKey: ["session-machine-target"] });
     },
+  });
+}
+
+export function useMachineTargetSetup(providerId: string) {
+  return useMutation({
+    mutationFn: (targetId: string) =>
+      apiFetch<MachineTargetSetupResult>(adminMachineTargetSetupPath(providerId, targetId), {
+        method: "POST",
+      }),
   });
 }
 

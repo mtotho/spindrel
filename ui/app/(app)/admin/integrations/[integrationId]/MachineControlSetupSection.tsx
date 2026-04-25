@@ -21,7 +21,11 @@ export function MachineControlSetupSection({
   return (
     <div className="flex flex-col gap-3">
       <InfoBanner variant="info">
-        Machine lifecycle is owned by the core machine center. This integration page only covers provider-wide settings and status.
+        Machine lifecycle is owned by the core machine center. {machineControl.driver === "companion"
+          ? "Local Companion is for this workstation or laptop: run a paired outbound process, then grant it to a session."
+          : machineControl.driver === "ssh"
+            ? "SSH is for headless or LAN machines: configure key and known_hosts profiles, enroll hosts, then grant a probed target to a session."
+            : "This integration page only covers provider-wide settings and status."}
       </InfoBanner>
 
       <SettingsStatGrid

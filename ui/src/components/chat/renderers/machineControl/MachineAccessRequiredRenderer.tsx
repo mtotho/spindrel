@@ -5,6 +5,7 @@ import { useClearSessionMachineTargetLease, useGrantSessionMachineTargetLease, u
 import type { RichResultViewProps } from "../../RichToolResult";
 import {
   MachineLeaseSummary,
+  MachineStarterPromptButton,
   MachineTargetRow,
   coerceMachineAccessRequiredPayload,
   machineButtonStyle,
@@ -78,6 +79,9 @@ export function MachineAccessRequiredRenderer({
               </button>
             ) : null}
           </div>
+          <div style={{ marginTop: 10 }}>
+            <MachineStarterPromptButton targetLabel={lease.target_label || lease.target_id} leaseActive t={t} />
+          </div>
         </div>
       ) : null}
 
@@ -101,6 +105,9 @@ export function MachineAccessRequiredRenderer({
               </button>
             ) : null}
           </div>
+          <div style={{ marginTop: 10 }}>
+            <MachineStarterPromptButton targetLabel={singleReady.label || singleReady.target_id} t={t} />
+          </div>
         </div>
       ) : readyTargets.length > 1 ? (
         <div style={{ ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>
@@ -119,6 +126,9 @@ export function MachineAccessRequiredRenderer({
               t={t}
             />
           ))}
+          <div style={{ marginTop: 10 }}>
+            <MachineStarterPromptButton targetLabel={readyTargets[0]?.label || readyTargets[0]?.target_id} t={t} />
+          </div>
         </div>
       ) : (
         <div style={{ ...machineCardStyle(t), padding: 10, background: t.surfaceRaised }}>

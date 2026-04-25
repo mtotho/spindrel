@@ -67,6 +67,14 @@ class MachineControlProvider(Protocol):
         config: dict[str, Any] | None = None,
     ) -> dict[str, Any]: ...
 
+    async def get_target_setup(
+        self,
+        db: AsyncSession,
+        *,
+        target_id: str,
+        server_base_url: str,
+    ) -> dict[str, Any] | None: ...
+
     async def create_profile(
         self,
         db: AsyncSession,
@@ -741,6 +749,34 @@ async def enroll_machine_target(
         ),
         "launch": enrolled.get("launch") if isinstance(enrolled.get("launch"), dict) else None,
         "metadata": enrolled.get("metadata") if isinstance(enrolled.get("metadata"), dict) else None,
+    }
+
+
+async def get_machine_target_setup(
+    db: AsyncSession,
+    *,
+    provider_id: str,
+    target_id: str,
+    server_base_url: str,
+) -> dict[str, Any]:
+    provider = get_provider(provider_id)
+    target = provider.get_target(target_id)
+    if target is None:
+        raise ValueError("Unknown machine target.")
+    setup = await provider.get_target_setup(
+        db,
+        target_id=target_id,
+        server_base_url=server_base_url,
+    )
+    return {
+        "provider": _provider_summary(provider_id, provider),
+        "target": _public_target_payload(
+            provider_id,
+            target,
+            provider=provider,
+            runtime_status=provider.get_target_status(target_id),
+        ),
+        "setup": setup,
     }
 
 

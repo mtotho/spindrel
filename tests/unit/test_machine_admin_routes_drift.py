@@ -97,6 +97,7 @@ class _Calls:
         self.enroll: list[dict[str, Any]] = []
         self.probe: list[dict[str, Any]] = []
         self.delete: list[dict[str, Any]] = []
+        self.setup: list[dict[str, Any]] = []
         self.create_profile: list[dict[str, Any]] = []
         self.update_profile: list[dict[str, Any]] = []
         self.delete_profile: list[dict[str, Any]] = []
@@ -126,6 +127,16 @@ def calls(monkeypatch):
         record.delete.append({"provider_id": provider_id, "target_id": target_id})
         return True
 
+    async def _fake_setup(db, *, provider_id, target_id, server_base_url):
+        record.setup.append(
+            {"provider_id": provider_id, "target_id": target_id, "server_base_url": server_base_url}
+        )
+        return {
+            "provider": {"provider_id": provider_id},
+            "target": {"provider_id": provider_id, "target_id": target_id},
+            "setup": {"kind": "local_companion", "launch_command": "python client.py"},
+        }
+
     async def _fake_create_profile(db, *, provider_id, label=None, config=None):
         record.create_profile.append({"provider_id": provider_id, "label": label, "config": config})
         return {"provider_id": provider_id, "profile": {"profile_id": "profile-1"}}
@@ -147,6 +158,7 @@ def calls(monkeypatch):
     monkeypatch.setattr(machines_router_module, "enroll_machine_target", _fake_enroll)
     monkeypatch.setattr(machines_router_module, "probe_machine_target", _fake_probe)
     monkeypatch.setattr(machines_router_module, "delete_machine_target", _fake_delete)
+    monkeypatch.setattr(machines_router_module, "get_machine_target_setup", _fake_setup)
     monkeypatch.setattr(machines_router_module, "create_machine_profile", _fake_create_profile)
     monkeypatch.setattr(machines_router_module, "update_machine_profile", _fake_update_profile)
     monkeypatch.setattr(machines_router_module, "delete_machine_profile", _fake_delete_profile)
@@ -212,6 +224,26 @@ class TestExceptionToHttpMapping:
         monkeypatch.setattr(machines_router_module, "probe_machine_target", _raise)
         resp = _client(scopes=["integrations:write"]).post(
             "/admin/machines/providers/local_companion/targets/ghost/probe"
+        )
+        assert resp.status_code == 400
+
+    def test_setup_keyerror_is_404(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise KeyError("unknown provider")
+
+        monkeypatch.setattr(machines_router_module, "get_machine_target_setup", _raise)
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/nope/targets/t1/setup"
+        )
+        assert resp.status_code == 404
+
+    def test_setup_valueerror_is_400(self, monkeypatch):
+        async def _raise(db, **_kwargs):
+            raise ValueError("Unknown machine target.")
+
+        monkeypatch.setattr(machines_router_module, "get_machine_target_setup", _raise)
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/local_companion/targets/ghost/setup"
         )
         assert resp.status_code == 400
 
@@ -296,6 +328,13 @@ class TestScopeGate:
         )
         assert resp.status_code == 403
         assert calls.probe == []
+
+    def test_read_only_scope_cannot_regenerate_setup(self, calls):
+        resp = _client(scopes=["integrations:read"]).post(
+            "/admin/machines/providers/local_companion/targets/t1/setup"
+        )
+        assert resp.status_code == 403
+        assert calls.setup == []
 
     def test_read_only_scope_cannot_delete(self, calls):
         resp = _client(scopes=["integrations:read"]).delete(
@@ -432,6 +471,15 @@ class TestServerBaseUrlPassthrough:
         sent = calls.enroll[0]["server_base_url"]
         assert isinstance(sent, str)
         # FastAPI TestClient's ``base_url`` is http://testserver/ by default.
+        assert sent.startswith("http://testserver")
+
+    def test_setup_forwards_request_base_url(self, calls):
+        resp = _client(scopes=["integrations:write"]).post(
+            "/admin/machines/providers/local_companion/targets/t1/setup",
+        )
+        assert resp.status_code == 200
+        sent = calls.setup[0]["server_base_url"]
+        assert isinstance(sent, str)
         assert sent.startswith("http://testserver")
 
 

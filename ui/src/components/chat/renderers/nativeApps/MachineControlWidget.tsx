@@ -12,6 +12,7 @@ import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared
 import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
 import {
   MachineLeaseSummary,
+  MachineStarterPromptButton,
   MachineTargetRow,
   machineButtonStyle,
   machineCardStyle,
@@ -158,7 +159,8 @@ export function MachineControlWidget({
               <div style={{ marginTop: 8 }}>
                 <MachineLeaseSummary lease={lease} t={t} />
               </div>
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <MachineStarterPromptButton targetLabel={lease.target_label || lease.target_id} leaseActive t={t} />
                 <button
                   type="button"
                   disabled={busy}

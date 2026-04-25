@@ -655,7 +655,7 @@ export default function IntegrationDetailScreen() {
         parentLabel="Integrations"
         backTo="/admin/integrations"
         title={item.name}
-        subtitle={item.id}
+        subtitle={item.description || item.id}
         right={<StatusBadge status={headerStatus} />}
       />
       <RefreshableScrollView refreshing={refreshing} onRefresh={onRefresh} className="min-h-0 flex-1">
@@ -665,6 +665,11 @@ export default function IntegrationDetailScreen() {
           <div className={item.lifecycle_status === "available" ? "flex flex-col gap-7 opacity-70" : "flex flex-col gap-7"}>
             <Section title="Overview" description="Declared surfaces and runtime identity for this integration.">
               <div className="flex flex-col gap-3">
+                {item.description && (
+                  <div className="max-w-[72ch] text-[13px] leading-relaxed text-text-muted">
+                    {item.description}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-1.5">
                   <CapBadge label="router" active={item.has_router} />
                   <CapBadge label="renderer" active={item.has_renderer} />

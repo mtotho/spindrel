@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useUIStore } from "@/src/stores/ui";
 import { useKioskMode } from "@/src/hooks/useKioskMode";
-import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Wrench } from "lucide-react";
+import { Check, ChevronDown, Info, LayoutDashboard, Maximize2, MessageSquare, Minimize2, Move, Plus, Settings, Sparkles, Wrench } from "lucide-react";
 // Using the v1-compat legacy entry — flat props (cols, rowHeight, draggableHandle)
 // match the API older examples/docs use and keep this file readable.
 import {
@@ -496,6 +496,22 @@ export default function WidgetsDashboardPage() {
           title="Open channel settings"
         >
           <Settings size={14} />
+        </button>
+      )}
+      {/* Beam to spatial canvas — "warp out" of the channel and land on the
+          workspace-scope canvas. Sits to the LEFT of the chat-switch button
+          so the rightmost slot stays the chat-mirror affordance. Sparkles
+          glyph leans into the transport vibe. Desktop-only for now (mobile
+          canvas is P11). */}
+      {!isMobile && (
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-accent transition-colors"
+          aria-label="Beam to spatial canvas"
+          title="Beam to spatial canvas"
+        >
+          <Sparkles size={14} />
         </button>
       )}
       {/* Open chat — ALWAYS rendered as the rightmost button so it occupies

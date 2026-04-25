@@ -391,6 +391,26 @@ class SSHMachineControlProvider:
             await set_status("ssh", "enabled")
         return {"target": target}
 
+    async def get_target_setup(
+        self,
+        db: AsyncSession,
+        *,
+        target_id: str,
+        server_base_url: str,
+    ) -> dict[str, Any] | None:
+        _ = (db, server_base_url)
+        target = self.get_target(target_id)
+        if target is None:
+            raise ValueError("Unknown machine target.")
+        return {
+            "kind": "ssh",
+            "notes": [
+                "SSH targets do not need a companion process.",
+                "Keep the target profile's private key and known_hosts entries current in Admin > Machines.",
+                "Use Probe to verify reachability before granting a session lease.",
+            ],
+        }
+
     async def create_profile(
         self,
         db: AsyncSession,

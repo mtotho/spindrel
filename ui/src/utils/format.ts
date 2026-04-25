@@ -23,6 +23,31 @@ export function formatBytes(bytes: number): string {
 }
 
 /**
+ * Short *forward-looking* timestamp for upcoming work: "in 5m", "in 2h",
+ * "in 3d", "in 4w". Returns "now" when the target is within 60s either way,
+ * "due" when the target is in the past. Empty string for null/invalid input.
+ */
+export function formatTimeUntil(iso: string | null | undefined, now: number = Date.now()): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const diffMs = t - now;
+  if (diffMs < -60_000) return "due";
+  const sec = Math.floor(Math.abs(diffMs) / 1000);
+  if (sec < 60) return "now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `in ${min}m`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `in ${hr}h`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `in ${day}d`;
+  const wk = Math.floor(day / 7);
+  if (wk < 52) return `in ${wk}w`;
+  const yr = Math.floor(day / 365);
+  return `in ${yr}y`;
+}
+
+/**
  * Short relative timestamp for tiles: "5m", "2h", "3d", "4w".
  * Empty string for null/invalid input or timestamps in the future.
  */
