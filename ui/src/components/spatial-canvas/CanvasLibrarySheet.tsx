@@ -163,6 +163,7 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
               mode="pin"
               scopeChannelId={null}
               onPin={handlePresetPin}
+              layout="narrow"
             />
           ) : (
             <WidgetLibrary
@@ -172,6 +173,7 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
               libraryBotId={null}
               scopeChannelId={null}
               onPin={handleLibraryPin}
+              hideToolRenderers
             />
           )}
         </div>

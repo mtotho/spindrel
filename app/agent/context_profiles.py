@@ -45,7 +45,9 @@ class ContextProfile:
             "name": self.name,
             "live_history_turns": self.live_history_turns,
             "allow_plan_artifact": self.allow_plan_artifact,
+            "allow_tool_index": self.allow_tool_index,
             "allow_skill_index": self.allow_skill_index,
+            "keep_iterations_override": self.keep_iterations_override,
             "mandatory_static_injections": list(self.mandatory_static_injections),
             "optional_static_injections": list(self.optional_static_injections),
         }

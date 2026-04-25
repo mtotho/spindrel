@@ -133,13 +133,15 @@ function atmosphereStars(seed: string, count = 60): AtmStar[] {
 }
 
 // Isometric projection. (gx, gy, gz) — grid coordinates where
-// +x runs east, +y runs south, +z runs up. Returns SVG coords on a
-// shared 360×220 viewBox.
-const TILE_W = 12; // half-width of a block top in screen units
-const TILE_H = 6;  // half-height of a block top
-const TILE_Z = 12; // vertical lift per z-step
-const ORIGIN_X = 180;
-const ORIGIN_Y = 158;
+// +x runs east, +y runs south, +z runs up. Returns SVG coords on the
+// 400×340 viewBox declared on the main <svg>. Origin sits high enough
+// that an 8-tall stack at corner (0,0) clears the top edge AND the full
+// 16×16 ground diamond + asteroid hang stay inside the bottom.
+const TILE_W = 12;
+const TILE_H = 6;
+const TILE_Z = 12;
+const ORIGIN_X = 200;
+const ORIGIN_Y = 100;
 
 function iso(x: number, y: number, z: number): [number, number] {
   return [
@@ -389,7 +391,10 @@ export function BlockyardWidget({
   const hoverPreview = hoverCell;
 
   return (
-    <div className="blockyard-stage group/blockyard relative flex w-full h-full min-h-0 overflow-hidden">
+    // `pointer-events-none` on the wrapper so the empty rectangle around
+    // the floating asteroid stays click-through to the canvas under us.
+    // Re-enabled per-element on the actual map shapes + chrome below.
+    <div className="blockyard-stage group/blockyard relative flex w-full h-full min-h-0 overflow-hidden pointer-events-none">
       {/* Atmosphere halo */}
       <div
         aria-hidden
@@ -423,8 +428,9 @@ export function BlockyardWidget({
       {/* ── Main stage ─────────────────────────────────────────── */}
       <svg
         className="absolute inset-0 w-full h-full"
-        viewBox="0 0 360 220"
+        viewBox="0 0 400 340"
         preserveAspectRatio="xMidYMid meet"
+        style={{ pointerEvents: "none" }}
       >
         <defs>
           <radialGradient id={`by-ground-${widgetInstanceId}`} cx="0.5" cy="0.4" r="0.7">
@@ -445,8 +451,11 @@ export function BlockyardWidget({
           </filter>
         </defs>
 
-        {/* Asteroid drifting */}
-        <g className="blockyard-drift" style={{ transformOrigin: "180px 110px" }}>
+        {/* Asteroid drifting. `pointer-events: auto` is restored on the
+            map shapes themselves so the asteroid + ground + blocks +
+            hit zones capture clicks while the surrounding empty SVG
+            stays click-through (for canvas pan). */}
+        <g className="blockyard-drift" style={{ transformOrigin: "200px 170px", pointerEvents: "auto" }}>
           {/* Underside silhouette */}
           <path d={asteroidD} fill={`url(#by-rock-${widgetInstanceId})`} />
           <path d={asteroidD} fill="none" stroke="rgba(170, 200, 255, 0.18)" strokeWidth="0.6" />
@@ -641,7 +650,7 @@ export function BlockyardWidget({
           e.stopPropagation();
           setSettingsOpen(true);
         }}
-        className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white/70 border border-white/10 flex items-center justify-center opacity-30 hover:opacity-100 group-hover/blockyard:opacity-90 hover:bg-black/55 transition-all duration-300"
+        className="absolute top-2 left-2 z-20 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white/70 border border-white/10 flex items-center justify-center opacity-30 hover:opacity-100 group-hover/blockyard:opacity-90 hover:bg-black/55 transition-all duration-300 pointer-events-auto"
         title="Game settings"
       >
         <Settings size={12} />
@@ -652,7 +661,7 @@ export function BlockyardWidget({
           through settings. */}
       {phase !== "ended" && (
         <div
-          className="absolute top-2 right-2 z-10 flex flex-col gap-1 p-1 rounded-md bg-black/35 backdrop-blur-md border border-white/10 opacity-50 group-hover/blockyard:opacity-100 transition-opacity"
+          className="absolute top-2 right-2 z-10 flex flex-col gap-1 p-1 rounded-md bg-black/35 backdrop-blur-md border border-white/10 opacity-50 group-hover/blockyard:opacity-100 transition-opacity pointer-events-auto"
           onPointerDown={(e) => e.stopPropagation()}
         >
           <button
@@ -698,7 +707,7 @@ export function BlockyardWidget({
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-[11px] bg-black/55 backdrop-blur-md text-white/90 border border-white/15 flex items-center gap-1.5 hover:bg-black/70 transition-colors"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-[11px] bg-black/55 backdrop-blur-md text-white/90 border border-white/15 flex items-center gap-1.5 hover:bg-black/70 transition-colors pointer-events-auto"
         >
           <Plus size={12} />
           Add bots to begin

@@ -498,6 +498,7 @@ Heartbeat runs now have their own profile:
 - heartbeat reload trims live history to `0`
 - heartbeat runs do not admit optional conversation-derived or ambient static injections
 - heartbeat runs suppress the ambient enrolled-skill index; explicitly tagged skills can still be loaded
+- heartbeat execution policy can additionally narrow the tool surface after profile admission; the default `focused_escape` surface avoids broad chat-like pinned tools while preserving retrieval and explicit escape hatches
 
 That is the intended steady-state behavior.
 
@@ -558,6 +559,7 @@ Concrete runtime notes:
 - "Allowed" for optional sources still means "subject to budget."
 - `task_recent` keeps the additive policy narrow even when it carries some conversation history.
 - `task_none` and `heartbeat` deliberately suppress ambient prompt growth.
+- Heartbeat `execution_policy.tool_surface` is a runtime tool-exposure policy layered on top of the context profile. It must not be treated as a prompt hint; traces should show the effective surface and tool count.
 
 ### Restricted-profile runtime note
 

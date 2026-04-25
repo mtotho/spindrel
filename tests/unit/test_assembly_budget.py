@@ -378,6 +378,139 @@ class TestAssemblyBudgetTight:
         assert result.context_profile == "task_none"
 
     @pytest.mark.asyncio
+    async def test_heartbeat_focused_escape_excludes_broad_pinned_tools(self):
+        bot = _minimal_bot(
+            local_tools=["web_search", "file", "exec_command"],
+            pinned_tools=["file", "exec_command"],
+            tool_retrieval=True,
+            tool_discovery=True,
+        )
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        def schema(name: str) -> dict:
+            return {
+                "type": "function",
+                "function": {"name": name, "description": name, "parameters": {}},
+            }
+
+        mock_schemas = {
+            name: schema(name)
+            for name in (
+                "web_search",
+                "file",
+                "exec_command",
+                "get_tool_info",
+                "search_tools",
+                "list_tool_signatures",
+                "run_script",
+                "get_skill",
+                "get_skill_list",
+            )
+        }
+
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.get_local_tool_schemas", side_effect=lambda names: [mock_schemas[n] for n in names if n in mock_schemas]),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
+                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+            )),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="search for cats",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="heartbeat",
+                tool_surface_policy="focused_escape",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "web_search" in exposed
+        assert "get_tool_info" in exposed
+        assert "search_tools" in exposed
+        assert "file" not in exposed
+        assert "exec_command" not in exposed
+        assert result.tool_discovery_info["tool_surface"] == "focused_escape"
+        assert result.tool_discovery_info["excluded_broad_pin_count"] >= 2
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_full_tool_surface_keeps_broad_pinned_tools(self):
+        bot = _minimal_bot(
+            local_tools=["web_search", "file"],
+            pinned_tools=["file"],
+            tool_retrieval=True,
+        )
+        messages = [{"role": "system", "content": "System."}]
+        budget = ContextBudget(total_tokens=128_000, reserve_tokens=19_200)
+        result = AssemblyResult()
+
+        mock_schemas = {
+            "web_search": {"type": "function", "function": {"name": "web_search", "description": "Search", "parameters": {}}},
+            "file": {"type": "function", "function": {"name": "file", "description": "File ops", "parameters": {}}},
+            "get_tool_info": {"type": "function", "function": {"name": "get_tool_info", "description": "Info", "parameters": {}}},
+            "get_skill": {"type": "function", "function": {"name": "get_skill", "description": "Skill", "parameters": {}}},
+            "get_skill_list": {"type": "function", "function": {"name": "get_skill_list", "description": "Skills", "parameters": {}}},
+        }
+
+        patches = _assembly_patches() + [
+            patch("app.agent.context_assembly._all_tool_schemas_by_name", new_callable=AsyncMock, return_value=mock_schemas),
+            patch("app.agent.context_assembly.retrieve_tools", new_callable=AsyncMock, return_value=(
+                [mock_schemas["web_search"]], 0.8, [("web_search", 0.8)],
+            )),
+            patch("app.agent.context_assembly.get_client_tool_schemas", return_value=[]),
+            patch("app.agent.context_assembly.get_mcp_server_for_tool", return_value=None),
+        ]
+
+        for p in patches:
+            p.start()
+        try:
+            await _drain(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="search for cats",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                budget=budget,
+                context_profile_name="heartbeat",
+                tool_surface_policy="full",
+            ))
+        finally:
+            for p in patches:
+                p.stop()
+
+        exposed = {t["function"]["name"] for t in result.pre_selected_tools or []}
+        assert "web_search" in exposed
+        assert "file" in exposed
+        assert result.tool_discovery_info["tool_surface"] == "full"
+
+    @pytest.mark.asyncio
     async def test_multimodal_user_message_uses_detail_aware_token_estimate(self):
         bot = _minimal_bot()
         messages = [{"role": "system", "content": "System."}]

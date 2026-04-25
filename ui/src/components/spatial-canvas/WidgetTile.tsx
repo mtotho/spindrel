@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDragActivator } from "./dragActivatorContext";
 import { Box, GripVertical, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "../../theme/tokens";
@@ -210,6 +211,12 @@ function CardView({
   // the widget's "background" and the widget itself reads as artwork.
   const isFramelessNative = isNativeWidget && pin.tool_name?.startsWith("core/game_");
   const live = inViewport;
+  // When the parent DraggableNode runs in `scoped` activator mode (frameless
+  // games), it provides this bundle so a specific element — the grip — can
+  // become the drag handle. In `full` mode this is null and the entire tile
+  // body is already the activator.
+  const dragActivator = useDragActivator();
+  const useScopedActivator = isFramelessNative && !!dragActivator;
 
   // Local envelope state — component-widget action results return a fresh
   // envelope; we track it here and re-render the body. Native widgets manage
@@ -317,10 +324,10 @@ function CardView({
   return (
     <div
       data-tile-kind="widget"
-      className={`group relative w-full h-full text-text flex flex-col cursor-grab active:cursor-grabbing overflow-hidden ${
+      className={`group relative w-full h-full text-text flex flex-col overflow-hidden ${
         isFramelessNative
-          ? ""
-          : `rounded-xl border bg-surface-raised shadow-lg ${
+          ? "pointer-events-none"
+          : `cursor-grab active:cursor-grabbing rounded-xl border bg-surface-raised shadow-lg ${
               activated ? "border-accent" : "border-surface-border"
             }`
       }`}
@@ -332,9 +339,14 @@ function CardView({
       {isFramelessNative && (
         <>
           <div
+            ref={useScopedActivator ? dragActivator!.setRef : undefined}
+            {...(useScopedActivator ? dragActivator!.attributes : {})}
+            {...(useScopedActivator ? dragActivator!.listeners : {})}
             title={`Drag to move · ${title}`}
             aria-label="Drag handle"
-            className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-50 group-hover:opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center cursor-grab active:cursor-grabbing"
+            // `pointer-events-auto` re-enables this element for events
+            // when the surrounding tile body is otherwise click-through.
+            className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-50 group-hover:opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center cursor-grab active:cursor-grabbing pointer-events-auto"
           >
             <GripVertical size={11} />
           </div>
@@ -347,7 +359,7 @@ function CardView({
               e.stopPropagation();
               deleteNode.mutate(nodeId);
             }}
-            className="absolute top-9 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-0 group-hover:opacity-80 hover:!opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center"
+            className="absolute top-9 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-0 group-hover:opacity-80 hover:!opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center pointer-events-auto"
           >
             <X size={11} />
           </button>
@@ -433,8 +445,18 @@ function CardView({
           // expect their host to provide horizontal padding (their own padding
           // is vertical-only).
           <div
-            className={`absolute inset-0 ${isFramelessNative ? "overflow-hidden" : "overflow-y-auto px-3 py-2"}`}
-            onPointerDown={(e) => e.stopPropagation()}
+            className={`absolute inset-0 ${
+              isFramelessNative
+                ? "overflow-hidden pointer-events-none"
+                : "overflow-y-auto px-3 py-2"
+            }`}
+            // For framed natives (Notes, Todo, etc.) we still stop drag-start
+            // propagation so scrolling/clicking inside the widget doesn't
+            // reposition the tile. Frameless game tiles handle their own
+            // pointer-events selectively, so empty space remains canvas-pannable.
+            onPointerDown={
+              isFramelessNative ? undefined : (e) => e.stopPropagation()
+            }
           >
             {renderNativeWidget({
               envelope: currentEnvelope,

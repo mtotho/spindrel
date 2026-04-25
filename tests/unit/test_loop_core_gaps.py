@@ -407,6 +407,129 @@ class TestInLoopPruning:
         assert pruning
         assert pruning[0]["triggered_by"] == "heartbeat_soft_budget"
 
+    @pytest.mark.asyncio
+    async def test_heartbeat_target_seconds_forces_soft_budget_pressure(self):
+        """Heartbeat target_seconds is an enforced soft elapsed-time budget."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("step_tool", "{}", "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        acc_final = _mock_accumulated("Done")
+
+        bot = _make_bot()
+        events = []
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_final)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
+             patch("time.monotonic", side_effect=[
+                 0.0,  # run start
+                 0.1, 0.2,  # first LLM call timing
+                 2.0,  # second iteration soft-budget check
+                 2.1, 2.2, 2.3, 2.4, 2.5, 2.6,
+             ]), \
+             patch("app.agent.loop.settings") as ms:
+            _base_loop_settings(ms, pruning_enabled=True)
+            ms.IN_LOOP_PRUNING_PRESSURE_THRESHOLD = 0.99
+            async for evt in run_agent_tool_loop(
+                _prior_iter_messages(),
+                bot,
+                pre_selected_tools=[{"type": "function", "function": {"name": "step_tool"}}],
+                context_profile_name="heartbeat",
+                run_control_policy={
+                    "soft_max_llm_calls": 0,
+                    "hard_max_llm_calls": 12,
+                    "soft_current_prompt_tokens": 0,
+                    "target_seconds": 1,
+                },
+            ):
+                events.append(evt)
+
+        pressure = [e for e in events if e.get("type") == "heartbeat_budget_pressure"]
+        assert pressure
+        assert pressure[0]["reason"] == "target_seconds"
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_hard_cap_replaces_global_default(self):
+        """Heartbeat hard caps should be able to exceed the generic global default."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tool_call_results = [
+            _mock_accumulated(
+                content=None,
+                tool_calls=[_mock_tool_call("step_tool", "{}", f"tc_{i}")],
+            )
+            for i in range(6)
+        ]
+        acc_final = _mock_accumulated("Done")
+
+        bot = _make_bot()
+        events = []
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(*tool_call_results, acc_final)) as stream, \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
+             patch("app.agent.loop.settings") as ms:
+            _base_loop_settings(ms, pruning_enabled=False)
+            ms.AGENT_MAX_ITERATIONS = 5
+            async for evt in run_agent_tool_loop(
+                [{"role": "user", "content": "do extended heartbeat"}],
+                bot,
+                pre_selected_tools=[{"type": "function", "function": {"name": "step_tool"}}],
+                context_profile_name="heartbeat",
+                run_control_policy={
+                    "soft_max_llm_calls": 0,
+                    "hard_max_llm_calls": 7,
+                    "soft_current_prompt_tokens": 0,
+                },
+            ):
+                events.append(evt)
+
+        warnings = [e for e in events if e.get("type") == "warning" and e.get("code") == "max_iterations"]
+        assert not warnings
+        assert stream.call_count == 7
+
+    @pytest.mark.asyncio
+    async def test_explicit_max_iterations_still_caps_heartbeat(self):
+        """Explicit channel/run caps remain authoritative below the heartbeat hard cap."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tool_call_results = [
+            _mock_accumulated(
+                content=None,
+                tool_calls=[_mock_tool_call("step_tool", "{}", f"tc_{i}")],
+            )
+            for i in range(5)
+        ]
+
+        bot = _make_bot()
+        events = []
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(*tool_call_results)) as stream, \
+             patch("app.agent.loop._llm_call", new_callable=AsyncMock, return_value="Forced final"), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
+             patch("app.agent.loop.settings") as ms:
+            _base_loop_settings(ms, pruning_enabled=False)
+            ms.AGENT_MAX_ITERATIONS = 5
+            async for evt in run_agent_tool_loop(
+                [{"role": "user", "content": "do bounded heartbeat"}],
+                bot,
+                pre_selected_tools=[{"type": "function", "function": {"name": "step_tool"}}],
+                context_profile_name="heartbeat",
+                max_iterations=3,
+                run_control_policy={
+                    "soft_max_llm_calls": 0,
+                    "hard_max_llm_calls": 7,
+                    "soft_current_prompt_tokens": 0,
+                },
+            ):
+                events.append(evt)
+
+        warnings = [e for e in events if e.get("type") == "warning" and e.get("code") == "max_iterations"]
+        assert warnings
+        assert stream.call_count == 3
+
 
 class TestContextWindowGuard:
     @pytest.mark.asyncio

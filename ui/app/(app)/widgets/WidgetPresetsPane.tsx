@@ -37,7 +37,7 @@ interface Props {
   onSelectedPresetIdChange?: (presetId: string) => void;
   step?: PresetStep;
   onStepChange?: (step: PresetStep) => void;
-  layout?: "compact" | "builder";
+  layout?: "compact" | "builder" | "narrow";
   /** Override the default dashboard pin path. When provided, the pane calls
    *  `onPin(ctx)` instead of `pinPreset(...)`. Use to route pins to the
    *  workspace canvas, a sub-dashboard, or any non-default destination. The
@@ -381,10 +381,11 @@ export function WidgetPresetsPane({
   };
 
   const builder = layout === "builder";
+  const narrow = layout === "narrow";
 
   return (
     <div className={builder ? "flex h-full min-h-0 min-w-0 flex-col overflow-x-hidden overflow-y-auto" : "flex flex-col gap-3 p-3"}>
-      {!builder && (
+      {!builder && !narrow && (
         <div className="flex items-start gap-2 rounded-md bg-accent/5 px-3 py-2 text-[11px] text-text-muted">
           <Home size={12} className="mt-0.5 shrink-0 text-accent/70" />
           <span>
@@ -396,6 +397,8 @@ export function WidgetPresetsPane({
       <div
         className={builder
           ? "flex min-w-0 flex-col gap-6 overflow-visible px-5 pb-8 xl:min-h-0 xl:flex-1 xl:overflow-x-hidden xl:grid xl:grid-cols-[260px_minmax(0,1fr)] 2xl:grid-cols-[260px_360px_minmax(0,1fr)]"
+          : narrow
+          ? "flex flex-col gap-3"
           : "grid gap-3 lg:grid-cols-[240px_minmax(0,1fr)]"}
       >
         <section className={builder ? "relative z-20 min-w-0 shrink-0 bg-transparent xl:min-h-0 xl:overflow-hidden" : "min-h-0 border border-surface-border bg-surface"}>

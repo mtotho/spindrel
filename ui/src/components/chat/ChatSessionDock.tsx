@@ -247,7 +247,13 @@ export function ChatSessionDock({
     // top-most button in the bottom-right region.
     if (collapsedTitle) {
       return (
-        <div className="fixed bottom-4 right-4 z-[30] flex max-w-[min(360px,calc(100vw-32px))] items-center gap-1 rounded-md border border-surface-border bg-surface-raised p-1 text-text shadow-[0_4px_16px_rgba(0,0,0,0.28)]">
+        <div
+          // Stop pointerdown so the surface beneath (e.g. the SpatialCanvas
+          // pan handler) doesn't eat the same gesture and swallow these
+          // clicks. Same reasoning as the expanded panel below.
+          onPointerDown={(e) => e.stopPropagation()}
+          className="fixed bottom-4 right-4 z-[30] flex max-w-[min(360px,calc(100vw-32px))] items-center gap-1 rounded-md border border-surface-border bg-surface-raised p-1 text-text shadow-[0_4px_16px_rgba(0,0,0,0.28)]"
+        >
           <button
             onClick={() => onExpandedChange(true)}
             aria-label={`Open ${title}`}
@@ -278,6 +284,7 @@ export function ChatSessionDock({
     return (
       <button
         onClick={() => onExpandedChange(true)}
+        onPointerDown={(e) => e.stopPropagation()}
         aria-label={`Open ${title}`}
         className="fixed bottom-4 right-4 z-[30] w-12 h-12 rounded-full bg-accent text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all"
       >
@@ -328,19 +335,25 @@ export function ChatSessionDock({
 
   return (
     <>
-      {/* Invisible scrim — click outside dismisses */}
+      {/* Invisible scrim — click outside dismisses. Stop pointerdown so
+          the underlying surface (e.g. the SpatialCanvas pan handler) does
+          not also start a drag/pan in response to the same gesture. */}
       <div
         className="fixed inset-0 z-[9990]"
         onClick={handleDismiss}
+        onPointerDown={(e) => e.stopPropagation()}
         aria-hidden="true"
       />
 
-      {/* Panel */}
+      {/* Panel — same stopPropagation reasoning as the scrim. Without it,
+          dragging text inside the chat would also pan the canvas, and the
+          close/resize buttons could be swallowed by an in-flight pan. */}
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        onPointerDown={(e) => e.stopPropagation()}
         className={`fixed z-[9991] flex flex-col overflow-hidden
                    bg-surface-raised
                    shadow-[0_8px_32px_rgba(0,0,0,0.4)]

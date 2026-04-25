@@ -401,6 +401,7 @@ class AssemblyResult:
     context_profile: str | None = None
     context_origin: str | None = None
     context_policy: dict[str, Any] = field(default_factory=dict)
+    tool_discovery_info: dict[str, Any] = field(default_factory=dict)
 
 
 def _mark_injection_decision(
@@ -1342,6 +1343,7 @@ async def _run_tool_retrieval(
     session_id: Any,
     client_id: Any,
     context_profile: Any,
+    tool_surface_policy: str | None,
     inject_decisions: dict,
     budget_can_afford: Any,
     budget_consume: Any,
@@ -1381,6 +1383,7 @@ async def _run_tool_retrieval(
             for _sk_schema in get_local_tool_schemas([_sk_name]):
                 by_name[_sk_schema["function"]["name"]] = _sk_schema
 
+    _surface_policy = tool_surface_policy if tool_surface_policy in {"focused_escape", "strict", "full"} else "full"
     _authorized_names: set[str] = set(by_name.keys())
     out_state["authorized_names"] = _authorized_names
 
@@ -1434,15 +1437,27 @@ async def _run_tool_retrieval(
 
     pre_selected_tools: list[dict[str, Any]] | None = None
     if by_name:
-        _effective_pinned = list(bot.pinned_tools or []) + tagged_tool_names + ["get_tool_info"]
-        if bot.tool_discovery:
-            _effective_pinned.append("search_tools")
-            _effective_pinned.append("list_tool_signatures")
-            _effective_pinned.append("run_script")
-        if _enrolled_tool_names:
-            _effective_pinned += _enrolled_tool_names
-        if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
-            _effective_pinned += ["get_skill", "get_skill_list"]
+        _broad_pinned = list(bot.pinned_tools or [])
+        if _surface_policy == "full":
+            _effective_pinned = _broad_pinned + tagged_tool_names + ["get_tool_info"]
+            if bot.tool_discovery:
+                _effective_pinned.append("search_tools")
+                _effective_pinned.append("list_tool_signatures")
+                _effective_pinned.append("run_script")
+            if _enrolled_tool_names:
+                _effective_pinned += _enrolled_tool_names
+            if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
+                _effective_pinned += ["get_skill", "get_skill_list"]
+        elif _surface_policy == "focused_escape":
+            _effective_pinned = tagged_tool_names + ["get_tool_info"]
+            if bot.tool_discovery:
+                _effective_pinned.append("search_tools")
+            if tagged_skill_names:
+                _effective_pinned += ["get_skill", "get_skill_list"]
+        else:
+            _effective_pinned = list(tagged_tool_names)
+            if tagged_skill_names:
+                _effective_pinned += ["get_skill", "get_skill_list"]
         pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
         _server_pins = {n for n in _effective_pinned if n not in by_name}
         if _server_pins:
@@ -1452,11 +1467,14 @@ async def _run_tool_retrieval(
         client_only = get_client_tool_schemas(bot.client_tools)
         merged = _merge_tool_schemas(pinned_list, retrieved, client_only)
         if not merged:
-            pre_selected_tools = list(by_name.values())
+            pre_selected_tools = list(by_name.values()) if _surface_policy == "full" else []
         else:
             pre_selected_tools = merged
 
         _retrieved_names = {t["function"]["name"] for t in pre_selected_tools}
+        if _surface_policy != "full":
+            _authorized_names = set(_retrieved_names)
+            out_state["authorized_names"] = _authorized_names
         _unretrieved = [
             (n, s["function"])
             for n, s in by_name.items()
@@ -1507,6 +1525,11 @@ async def _run_tool_retrieval(
             "enrolled_working_set": list(_enrolled_tool_names),
             "retrieved": [t["function"]["name"] for t in retrieved],
             "retrieved_count": len(retrieved),
+            "tool_surface": _surface_policy,
+            "excluded_broad_pin_count": len({
+                n for n in _broad_pinned
+                if n in by_name and n not in _retrieved_names
+            }) if _surface_policy != "full" else 0,
             "top_candidates": tool_candidates[:5] if tool_candidates else [],
             "best_similarity": _safe_sim(tool_sim),
             "unretrieved_count": len(_unretrieved) if _unretrieved else 0,
@@ -1531,6 +1554,7 @@ async def _finalize_exposed_tools(
     ch_row: Any,
     pre_selected_tools: list[dict[str, Any]] | None,
     authorized_names: set[str] | None,
+    tool_surface_policy: str | None,
     out_state: dict,
 ) -> None:
     # --- merge dynamically injected tools (e.g. post_heartbeat_to_channel) ---
@@ -1554,7 +1578,7 @@ async def _finalize_exposed_tools(
     # surface them as `widget__<slug>__<handler>` tools. Visibility is the
     # caller's channel dashboard + any dashboard the calling bot authored.
     # See `app/services/widget_handler_tools.py` for visibility + dispatch.
-    if channel_id or bot.id:
+    if (channel_id or bot.id) and tool_surface_policy not in {"focused_escape", "strict"}:
         try:
             from app.db.engine import async_session as _wh_session_factory
             from app.services.widget_handler_tools import list_widget_handler_tools
@@ -2819,6 +2843,7 @@ async def assemble_context(
     context_profile_name: str | None = None,
     model_override: str | None = None,
     provider_id_override: str | None = None,
+    tool_surface_policy: str | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Inject all RAG context into messages and yield status events.
 
@@ -3090,6 +3115,7 @@ async def assemble_context(
             session_id=session_id,
             client_id=client_id,
             context_profile=context_profile,
+            tool_surface_policy=tool_surface_policy,
             inject_decisions=_inject_decisions,
             budget_can_afford=_budget_can_afford,
             budget_consume=_budget_consume,
@@ -3107,6 +3133,7 @@ async def assemble_context(
         ch_row=_ch_row,
         pre_selected_tools=pre_selected_tools,
         authorized_names=_authorized_names,
+        tool_surface_policy=tool_surface_policy,
         out_state=_ft_state,
     )
     pre_selected_tools = _ft_state.get("pre_selected_tools", pre_selected_tools)
@@ -3115,6 +3142,7 @@ async def assemble_context(
     result.pre_selected_tools = pre_selected_tools
     result.authorized_tool_names = _authorized_names
     result.effective_local_tools = list(bot.local_tools)
+    result.tool_discovery_info = dict(_tool_discovery_info)
 
     # --- late cache-safe injections (temporal + pinned widgets + refusal guard + profile note) ---
     await _inject_late_cache_safe_context(

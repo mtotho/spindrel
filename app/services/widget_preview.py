@@ -86,7 +86,11 @@ def render_preview_envelope(
 
     html_template = widget_def.get("html_template")
     if isinstance(html_template, dict) and isinstance(html_template.get("body"), str):
-        body = build_html_widget_body(html_template["body"], data)
+        body = build_html_widget_body(
+            html_template["body"],
+            result_json=data,
+            widget_config=merged_config,
+        )
         return PreviewEnvelope(
             content_type=widget_def.get(
                 "content_type", "application/vnd.spindrel.html+interactive",

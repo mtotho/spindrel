@@ -512,6 +512,7 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] `StepsJsonEditor` and `JsonObjectEditor` now use CSS design tokens for syntax colors and editor chrome instead of hard-coded dark-theme hex/RGBA.
 - [x] Channel pipeline pre-run/live modal pieces now match the same task status/error/action vocabulary.
 - [x] Follow-up: `/admin/tasks` header controls now sit in a separate compact toolbar, and the shared Schedule/Event/Manual trigger section uses neutral segmented controls/source rows instead of filled tabs, colored rails, and hard-coded integration colors.
+- [x] Follow-up 2: `/admin/tasks` top chrome now follows the settings/channel pattern directly — title/action header only, bounded bot/system controls, then shared segmented view subnav. The previous right-floating toolbar layout is removed.
 
 ### Verification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — clean.

@@ -16,6 +16,7 @@ import { PageHeader } from "@/src/components/layout/PageHeader";
 import { useResponsiveColumns } from "@/src/hooks/useResponsiveColumns";
 import { formatDate } from "@/src/utils/time";
 import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
+import { SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
 import type { TaskItem, TasksResponse } from "@/src/components/shared/TaskConstants";
 import { CronJobsView } from "./CronJobsView";
 import { DayColumn, MobileWeekSummary } from "./TaskTimelineComponents";
@@ -375,56 +376,53 @@ export default function TasksScreen() {
       />
 
       {!isMobile && (
-        <div className="flex shrink-0 flex-row items-center justify-between gap-3 px-4 py-2">
-          <SelectDropdown
-            value={botFilter}
-            onChange={setBotFilter}
-            options={[
-              { value: "", label: "All Bots" },
-              ...(bots?.map((b: any) => ({ value: b.id, label: b.name || b.id, searchText: `${b.name ?? ""} ${b.id}` })) ?? []),
-            ]}
-            searchable={(bots?.length ?? 0) > 8}
-            size="compact"
-            popoverWidth="content"
-            triggerClassName="min-h-[30px] min-w-[180px] bg-surface-raised/50 text-[11px]"
-          />
-
-          <div className="flex min-w-0 flex-1 flex-row items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-col gap-2 px-4 py-3">
+          <div className="flex min-w-0 flex-row items-center gap-2">
+            <div className="w-[260px] shrink-0">
+              <SelectDropdown
+                value={botFilter}
+                onChange={setBotFilter}
+                options={[
+                  { value: "", label: "All Bots" },
+                  ...(bots?.map((b: any) => ({ value: b.id, label: b.name || b.id, searchText: `${b.name ?? ""} ${b.id}` })) ?? []),
+                ]}
+                searchable={(bots?.length ?? 0) > 8}
+                size="compact"
+                popoverWidth="content"
+                triggerClassName="min-h-[34px] w-full bg-surface-raised/50 text-[12px]"
+              />
+            </div>
             <button
               onClick={toggleShowSystem}
               title={showSystem ? "Hide system-seeded pipelines" : "Show system-seeded pipelines"}
-              className={`flex flex-row items-center gap-1.5 px-2 py-[5px] text-[11px] rounded-md cursor-pointer outline-none transition-colors ${
+              className={`flex min-h-[34px] shrink-0 cursor-pointer flex-row items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[11px] font-semibold outline-none transition-colors ${
                 showSystem
                   ? "bg-accent/10 text-accent"
-                  : "bg-surface-raised/50 text-text-dim hover:text-text"
+                  : "bg-surface-raised/40 text-text-dim hover:bg-surface-overlay/45 hover:text-text"
               }`}
             >
               <Cog size={12} />
               {showSystem ? "System on" : systemHiddenCount > 0 ? `${systemHiddenCount} system hidden` : "System"}
             </button>
+          </div>
 
-            <div className="flex flex-row gap-0.5 bg-surface-raised/40 rounded-md p-1">
-              {VIEW_MODES.map((m) => {
+          <div className="flex min-w-0 flex-row items-center gap-2 overflow-x-auto">
+            <SettingsSegmentedControl<ViewMode>
+              value={viewMode}
+              onChange={setViewMode}
+              options={VIEW_MODES.map((m) => {
                 const IconCmp = m.icon;
-                return (
-                  <button
-                    key={m.key}
-                    onClick={() => setViewMode(m.key)}
-                    className={`flex px-3 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 capitalize transition-colors duration-100 ${
-                      viewMode === m.key
-                        ? "bg-surface-overlay text-text"
-                        : "bg-transparent text-text-muted hover:text-text"
-                    }`}
-                  >
-                    {IconCmp && <IconCmp size={12} />}
-                    {m.label}
-                  </button>
-                );
+                return {
+                  value: m.key,
+                  label: m.label,
+                  icon: IconCmp ? <IconCmp size={12} /> : undefined,
+                };
               })}
-            </div>
+              className="shrink-0"
+            />
 
             {isCalendar && (
-              <div className="flex flex-row items-center gap-1.5">
+              <div className="flex shrink-0 flex-row items-center gap-1.5">
                 <button
                   onClick={goToday}
                   className="px-2 py-[5px] text-[11px] rounded-md bg-transparent text-text-muted cursor-pointer hover:bg-surface-overlay/50 hover:text-text transition-colors"
@@ -451,24 +449,19 @@ export default function TasksScreen() {
       {/* Mobile control bar — view modes + date nav */}
       {isMobile && (
         <div className="flex flex-row items-center gap-1.5 px-3 py-2">
-          <div className="flex flex-row gap-0.5 rounded-md bg-surface-raised/40 p-1">
-            {VIEW_MODES.map((m) => {
+          <SettingsSegmentedControl<ViewMode>
+            value={viewMode}
+            onChange={setViewMode}
+            options={VIEW_MODES.map((m) => {
               const IconCmp = m.icon;
-              return (
-                <button
-                  key={m.key}
-                  onClick={() => setViewMode(m.key)}
-                  className={`flex px-2.5 py-[5px] text-[11px] font-semibold border-none cursor-pointer rounded-md flex-row items-center gap-1 transition-colors duration-100 ${
-                    viewMode === m.key
-                      ? "bg-surface-overlay text-text"
-                      : "bg-transparent text-text-muted hover:text-text"
-                  }`}
-                >
-                  {IconCmp && <IconCmp size={12} />}
-                </button>
-              );
+              return {
+                value: m.key,
+                label: "",
+                icon: IconCmp ? <IconCmp size={12} /> : undefined,
+              };
             })}
-          </div>
+            className="shrink-0"
+          />
 
           {isCalendar && (
             <>

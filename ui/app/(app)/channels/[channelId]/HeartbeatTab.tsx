@@ -40,6 +40,28 @@ const INTERVAL_OPTIONS = [
   { label: "24 hours", value: "1440" },
 ];
 
+const EXECUTION_DEPTH_OPTIONS = [
+  { label: "Low", value: "low" },
+  { label: "Medium", value: "medium" },
+  { label: "High", value: "high" },
+  { label: "Custom", value: "custom" },
+];
+
+function normalizeExecutionPolicy(raw: any, defaultPolicy?: any, presets?: Record<string, any>) {
+  const fallback = defaultPolicy ?? { preset: "medium" };
+  const preset = typeof raw?.preset === "string" ? raw.preset : fallback.preset ?? "medium";
+  const base = presets?.[preset] ?? presets?.[fallback.preset] ?? fallback;
+  return {
+    preset: presets?.[preset] || preset === "custom" ? preset : fallback.preset ?? "medium",
+    tool_surface: raw?.tool_surface ?? fallback.tool_surface ?? "focused_escape",
+    continuation_mode: raw?.continuation_mode ?? fallback.continuation_mode ?? "stateless",
+    soft_max_llm_calls: raw?.soft_max_llm_calls ?? base.soft_max_llm_calls,
+    hard_max_llm_calls: raw?.hard_max_llm_calls ?? base.hard_max_llm_calls,
+    soft_current_prompt_tokens: raw?.soft_current_prompt_tokens ?? base.soft_current_prompt_tokens,
+    target_seconds: raw?.target_seconds ?? base.target_seconds,
+  };
+}
+
 function formatIntervalLabel(minutes: number): string {
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
   if (minutes % 60 === 0) {
@@ -318,6 +340,11 @@ export function HeartbeatTab({
         workflow_session_mode: data.config.workflow_session_mode ?? null,
         skip_tool_approval: data.config.skip_tool_approval ?? false,
         append_spatial_prompt: data.config.append_spatial_prompt ?? false,
+        execution_policy: normalizeExecutionPolicy(
+          data.config.execution_policy,
+          data.default_execution_policy,
+          data.execution_policy_presets,
+        ),
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -347,6 +374,11 @@ export function HeartbeatTab({
         workflow_session_mode: null,
         skip_tool_approval: false,
         append_spatial_prompt: false,
+        execution_policy: normalizeExecutionPolicy(
+          null,
+          data.default_execution_policy,
+          data.execution_policy_presets,
+        ),
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -410,6 +442,41 @@ export function HeartbeatTab({
     saveMutationRef.current.reset();
     scheduleSave();
   }, [scheduleSave]);
+
+  const updateExecutionPreset = useCallback((preset: string) => {
+    updateHbForm((f: any) => {
+      const values = data?.execution_policy_presets?.[preset];
+      if (!values) {
+        return {
+          ...f,
+          execution_policy: {
+            ...normalizeExecutionPolicy(f.execution_policy, data?.default_execution_policy, data?.execution_policy_presets),
+            preset: "custom",
+          },
+        };
+      }
+      return {
+        ...f,
+        execution_policy: {
+          ...normalizeExecutionPolicy(f.execution_policy, data?.default_execution_policy, data?.execution_policy_presets),
+          preset,
+          ...values,
+        },
+      };
+    });
+  }, [data?.default_execution_policy, data?.execution_policy_presets, updateHbForm]);
+
+  const updateExecutionNumber = useCallback((field: string, value: string) => {
+    const parsed = parseInt(value, 10);
+    updateHbForm((f: any) => ({
+      ...f,
+      execution_policy: {
+        ...normalizeExecutionPolicy(f.execution_policy, data?.default_execution_policy, data?.execution_policy_presets),
+        preset: "custom",
+        [field]: Number.isNaN(parsed) ? null : parsed,
+      },
+    }));
+  }, [data?.default_execution_policy, data?.execution_policy_presets, updateHbForm]);
 
   useEffect(() => {
     onSaveStateChange?.({
@@ -825,6 +892,57 @@ export function HeartbeatTab({
                     type="number"
                   />
                 </FormRow>
+                <FormRow label="Execution depth" description="Controls the heartbeat's LLM-call budget. Max run time remains the outer timeout.">
+                  <SelectInput
+                    value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).preset}
+                    onChange={updateExecutionPreset}
+                    options={EXECUTION_DEPTH_OPTIONS}
+                  />
+                </FormRow>
+                <Row stack={isMobile}>
+                  <Col minWidth={isMobile ? 0 : 150}>
+                    <FormRow label="Soft LLM calls">
+                      <TextInput
+                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).soft_max_llm_calls?.toString() ?? ""}
+                        onChangeText={(v) => updateExecutionNumber("soft_max_llm_calls", v)}
+                        type="number"
+                        min={1}
+                      />
+                    </FormRow>
+                  </Col>
+                  <Col minWidth={isMobile ? 0 : 150}>
+                    <FormRow label="Hard LLM calls">
+                      <TextInput
+                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).hard_max_llm_calls?.toString() ?? ""}
+                        onChangeText={(v) => updateExecutionNumber("hard_max_llm_calls", v)}
+                        type="number"
+                        min={1}
+                      />
+                    </FormRow>
+                  </Col>
+                </Row>
+                <Row stack={isMobile}>
+                  <Col minWidth={isMobile ? 0 : 190}>
+                    <FormRow label="Soft current tokens">
+                      <TextInput
+                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).soft_current_prompt_tokens?.toString() ?? ""}
+                        onChangeText={(v) => updateExecutionNumber("soft_current_prompt_tokens", v)}
+                        type="number"
+                        min={0}
+                      />
+                    </FormRow>
+                  </Col>
+                  <Col minWidth={isMobile ? 0 : 150}>
+                    <FormRow label="Target seconds">
+                      <TextInput
+                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).target_seconds?.toString() ?? ""}
+                        onChangeText={(v) => updateExecutionNumber("target_seconds", v)}
+                        type="number"
+                        min={1}
+                      />
+                    </FormRow>
+                  </Col>
+                </Row>
                 <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
                   <TextInput
                     value={hbForm.previous_result_max_chars?.toString() ?? ""}

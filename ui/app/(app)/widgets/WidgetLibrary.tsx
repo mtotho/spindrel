@@ -90,6 +90,10 @@ export interface WidgetLibraryProps {
   onToolRendererPinCreated?: (pinId: string) => void;
   /** Optional external filter text (Add Widget sheet has a global search). */
   query?: string;
+  /** Hide the "Tool renderers" top tab. Used by surfaces (e.g. spatial canvas)
+   *  where tool renderers are not directly pinnable — those flow through their
+   *  preset wrapper instead. */
+  hideToolRenderers?: boolean;
 }
 
 export function libraryPinIdentity(envelope: ToolResultEnvelope): string | null {
@@ -222,6 +226,7 @@ export function WidgetLibrary({
   onPin,
   onToolRendererPinCreated,
   query = "",
+  hideToolRenderers = false,
 }: WidgetLibraryProps) {
   const [catalog, setCatalog] = useState<WidgetLibraryCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -298,32 +303,36 @@ export function WidgetLibrary({
     return by;
   }, [catalog]);
 
+  const effectiveTopTab: TopTab = hideToolRenderers ? "pinnable" : topTab;
+
   return (
     <div className="flex flex-col gap-3 p-3">
-      <div className="flex items-center gap-2 border-b border-surface-border/50 px-1 pb-2">
-        <TopTabButton
-          label={`Pinnable ${catalog ? `(${totals.all})` : ""}`}
-          active={topTab === "pinnable"}
-          onClick={() => setTopTab("pinnable")}
-          icon={<Pin size={11} />}
-        />
-        <TopTabButton
-          label="Tool renderers"
-          active={topTab === "renderers"}
-          onClick={() => setTopTab("renderers")}
-          icon={<Wrench size={11} />}
-        />
-        {mode === "browse" && !query && (
-          <input
-            value={localQuery}
-            onChange={(e) => setLocalQuery(e.target.value)}
-            placeholder="Filter..."
-            className="ml-auto w-48 rounded-md bg-surface-overlay px-2 py-1 text-[11px] text-text placeholder-text-dim outline-none focus:ring-1 focus:ring-accent/60"
+      {!hideToolRenderers && (
+        <div className="flex items-center gap-2 border-b border-surface-border/50 px-1 pb-2">
+          <TopTabButton
+            label={`Pinnable ${catalog ? `(${totals.all})` : ""}`}
+            active={effectiveTopTab === "pinnable"}
+            onClick={() => setTopTab("pinnable")}
+            icon={<Pin size={11} />}
           />
-        )}
-      </div>
+          <TopTabButton
+            label="Tool renderers"
+            active={effectiveTopTab === "renderers"}
+            onClick={() => setTopTab("renderers")}
+            icon={<Wrench size={11} />}
+          />
+          {mode === "browse" && !query && (
+            <input
+              value={localQuery}
+              onChange={(e) => setLocalQuery(e.target.value)}
+              placeholder="Filter..."
+              className="ml-auto w-48 rounded-md bg-surface-overlay px-2 py-1 text-[11px] text-text placeholder-text-dim outline-none focus:ring-1 focus:ring-accent/60"
+            />
+          )}
+        </div>
+      )}
 
-      {topTab === "pinnable" && (
+      {effectiveTopTab === "pinnable" && (
         <PinnablePane
           catalog={catalog}
           error={error}
@@ -349,7 +358,7 @@ export function WidgetLibrary({
         />
       )}
 
-      {topTab === "renderers" && (
+      {effectiveTopTab === "renderers" && (
         <ToolRenderersPane
           query={effectiveQuery}
           mode={mode}

@@ -35,6 +35,7 @@ from app.db.models import (
 from app.config import settings
 from app.dependencies import get_db, require_scopes
 from app.services.channels import apply_channel_visibility
+from app.services.heartbeat_policy import DEFAULT_HEARTBEAT_EXECUTION_POLICY, HEARTBEAT_EXECUTION_PRESETS
 from app.services.widget_themes import normalize_widget_theme_ref, resolve_widget_theme
 
 from ._helpers import _heartbeat_correlation_ids, build_tool_call_previews
@@ -345,6 +346,8 @@ class HeartbeatOut(BaseModel):
     default_max_run_seconds: int = settings.TASK_MAX_RUN_SECONDS
     default_previous_result_chars: int = settings.HEARTBEAT_PREVIOUS_CONCLUSION_CHARS
     default_repetition_detection: bool = settings.HEARTBEAT_REPETITION_DETECTION
+    default_execution_policy: dict = Field(default_factory=lambda: dict(DEFAULT_HEARTBEAT_EXECUTION_POLICY))
+    execution_policy_presets: dict = Field(default_factory=lambda: {k: dict(v) for k, v in HEARTBEAT_EXECUTION_PRESETS.items()})
     default_quiet_hours: Optional[str] = settings.HEARTBEAT_QUIET_HOURS or None
     default_timezone: str = settings.TIMEZONE
     channel_name: Optional[str] = None

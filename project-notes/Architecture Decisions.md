@@ -440,6 +440,22 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Compaction summary reload is also profile-aware. Restrictive profiles may suppress it even if the session has archival summary state.
 - Admission decisions must be observable. Traces now record per-source reasons such as `admitted`, `skipped_by_profile`, and `skipped_by_budget`.
 
+### Heartbeat execution policy is an enforced runtime layer
+**Decided 2026-04-25.** Heartbeat `execution_policy` is not prompt guidance; it is a runtime policy layered on top of the restrictive `heartbeat` context profile.
+
+**What changed.**
+- `target_seconds` is an enforced soft elapsed-time budget. It triggers the same `heartbeat_budget_pressure` and in-loop pruning path as soft LLM-call and current-token budgets.
+- `tool_surface` is enforced during context assembly:
+  - `focused_escape` exposes retrieved tools, explicit tags, heartbeat-injected tools, and limited discovery escape hatches.
+  - `strict` exposes retrieved/explicit/injected tools only.
+  - `full` preserves broad chat-like pinned/discovery behavior.
+- `provider_state` is reserved and normalizes back to `stateless` until the loop owns response-id retention, expiry, and replay semantics end to end.
+
+**Load-bearing invariants.**
+- Heartbeat policies must not expose fields that look active unless the runtime enforces them.
+- Broad pinned tools must not leak into default heartbeat runs through a separate discovery or widget-handler path.
+- `max_run_seconds` remains the outer hard timeout; soft budgets are pressure signals that ask the model to finish after pruning.
+
 ### Prompt-size reporting distinguishes gross, current, and cached prompt tokens
 **Decided 2026-04-22.** Context reporting must not flatten all prompt usage into one number once caching and multi-iteration runs exist.
 

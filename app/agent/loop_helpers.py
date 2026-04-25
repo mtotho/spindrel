@@ -365,6 +365,7 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
 @dataclass
 class LoopRunConfig:
     effective_max_iterations: int
+    max_iterations_source: str
     model: str
     provider_id: str | None
     effective_model_params: dict[str, Any]
@@ -395,11 +396,15 @@ def _resolve_loop_config(
         if profile_override is not None:
             in_loop_keep_iterations = profile_override
 
-    effective_max_iterations = (
-        max_iterations
-        or getattr(bot, "max_iterations", None)
-        or cfg.AGENT_MAX_ITERATIONS
-    )
+    max_iterations_source = "global"
+    if max_iterations:
+        effective_max_iterations = max_iterations
+        max_iterations_source = "explicit"
+    elif getattr(bot, "max_iterations", None):
+        effective_max_iterations = bot.max_iterations
+        max_iterations_source = "bot"
+    else:
+        effective_max_iterations = cfg.AGENT_MAX_ITERATIONS
     model = model_override or bot.model
     provider_id = _resolve_effective_provider(
         model_override, provider_id_override, bot.model_provider_id,
@@ -421,6 +426,7 @@ def _resolve_loop_config(
     )
     return LoopRunConfig(
         effective_max_iterations=effective_max_iterations,
+        max_iterations_source=max_iterations_source,
         model=model,
         provider_id=provider_id,
         effective_model_params=effective_model_params,

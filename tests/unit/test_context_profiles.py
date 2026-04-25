@@ -92,3 +92,26 @@ def test_heartbeat_profile_suppresses_ambient_skill_index():
     assert get_context_profile("chat").allow_skill_index is True
     assert get_context_profile("executing").allow_skill_index is True
     assert get_context_profile("heartbeat").allow_skill_index is False
+
+
+def test_profile_policy_matrix_for_restricted_origins():
+    expected = {
+        "chat": (None, True, True, True),
+        "planning": (2, True, True, False),
+        "executing": (4, True, True, True),
+        "task_recent": (None, True, True, False),
+        "task_none": (0, False, False, False),
+        "heartbeat": (0, False, False, False),
+    }
+
+    for name, (
+        live_history_turns,
+        allow_tool_index,
+        allow_skill_index,
+        allow_workspace_rag,
+    ) in expected.items():
+        profile = get_context_profile(name)
+        assert profile.live_history_turns == live_history_turns
+        assert profile.allow_tool_index is allow_tool_index
+        assert profile.allow_skill_index is allow_skill_index
+        assert profile.allow_workspace_rag is allow_workspace_rag

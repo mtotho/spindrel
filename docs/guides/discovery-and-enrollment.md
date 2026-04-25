@@ -21,6 +21,7 @@ This guide explains:
 - which older mechanisms are no longer part of the product model
 
 It is not the place for per-profile prompt-admission policy. That belongs in [Context Management](context-management.md).
+Heartbeat execution policy may further narrow the exposed tool surface after retrieval. The default `focused_escape` surface keeps retrieved tools and discovery escape hatches without treating broad pinned tools as automatically resident.
 
 ---
 

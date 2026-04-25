@@ -69,6 +69,11 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
         c, u = 0, 0
         for row in users:
             uid = row["id"]
+            execution_policy = row.get("execution_policy")
+            if execution_policy is not None:
+                from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
+                execution_policy = normalize_heartbeat_execution_policy(execution_policy)
+
             vals = {
                 "email": row["email"],
                 "display_name": row["display_name"],
@@ -446,6 +451,7 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "workspace_file_path": row.get("workspace_file_path"),
                 "workspace_id": row.get("workspace_id"),
                 "max_run_seconds": row.get("max_run_seconds"),
+                "execution_policy": execution_policy,
             }
             stmt = pg_insert(ChannelHeartbeat).values(id=row["id"], **vals)
             stmt = stmt.on_conflict_do_update(index_elements=["id"], set_=vals)

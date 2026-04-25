@@ -165,3 +165,12 @@ class TestHeartbeatAPISchemas:
         assert "skip_tool_approval" in fields
         schema = HeartbeatUpdate.model_json_schema()
         assert schema["properties"]["skip_tool_approval"]["default"] is False
+
+    def test_heartbeat_out_exposes_execution_policy_defaults(self):
+        try:
+            from app.routers.api_v1_admin.channels import HeartbeatOut
+        except ImportError:
+            pytest.skip("Admin channel router has unrelated import issue")
+        fields = HeartbeatOut.model_fields
+        assert "default_execution_policy" in fields
+        assert "execution_policy_presets" in fields

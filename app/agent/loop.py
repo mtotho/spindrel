@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import traceback
 import uuid
 
@@ -104,6 +105,7 @@ async def run_agent_tool_loop(
         settings_obj=settings,
     )
     effective_max_iterations = _loop_config.effective_max_iterations
+    _max_iterations_source = _loop_config.max_iterations_source
     model = _loop_config.model
     provider_id = _loop_config.provider_id
     _effective_model_params = _loop_config.effective_model_params
@@ -129,8 +131,13 @@ async def run_agent_tool_loop(
     _soft_max_llm_calls = int(_run_control_policy.get("soft_max_llm_calls") or 0)
     _hard_max_llm_calls = int(_run_control_policy.get("hard_max_llm_calls") or 0)
     _soft_current_prompt_tokens = int(_run_control_policy.get("soft_current_prompt_tokens") or 0)
+    _target_seconds = int(_run_control_policy.get("target_seconds") or 0)
+    _run_started_at = time.monotonic()
     if _hard_max_llm_calls > 0:
-        effective_max_iterations = min(effective_max_iterations, _hard_max_llm_calls)
+        if context_profile_name == "heartbeat" and _max_iterations_source == "global":
+            effective_max_iterations = _hard_max_llm_calls
+        else:
+            effective_max_iterations = min(effective_max_iterations, _hard_max_llm_calls)
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
 
@@ -144,6 +151,9 @@ async def run_agent_tool_loop(
             "tool_schema_tokens_estimate": estimate_chars_to_tokens(_tool_schema_chars),
             "tools": [(t.get("function") or {}).get("name") for t in (tools_param or [])],
             "tool_surface": _run_control_policy.get("tool_surface") or "unknown",
+            "continuation_mode": _run_control_policy.get("continuation_mode") or "stateless",
+            "max_iterations_source": _max_iterations_source,
+            "effective_max_iterations": effective_max_iterations,
         }
         yield _event_with_compaction_tag(_tool_surface_event, compaction)
         if correlation_id is not None:
@@ -223,6 +233,7 @@ async def run_agent_tool_loop(
             # this turn. Runs only when live-history utilization crosses the
             # pressure threshold; below threshold, pruning is pure loss.
             if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
+                _elapsed_seconds = time.monotonic() - _run_started_at
                 _soft_budget_pressure = (
                     context_profile_name == "heartbeat"
                     and not _soft_budget_slimmed
@@ -232,16 +243,31 @@ async def run_agent_tool_loop(
                             _soft_current_prompt_tokens > 0
                             and _current_prompt_tokens_total >= _soft_current_prompt_tokens
                         )
+                        or (
+                            _target_seconds > 0
+                            and _elapsed_seconds >= _target_seconds
+                        )
                     )
                 )
                 if _soft_budget_pressure:
+                    _pressure_reason = "soft_max_llm_calls"
+                    if _target_seconds > 0 and _elapsed_seconds >= _target_seconds:
+                        _pressure_reason = "target_seconds"
+                    elif (
+                        _soft_current_prompt_tokens > 0
+                        and _current_prompt_tokens_total >= _soft_current_prompt_tokens
+                    ):
+                        _pressure_reason = "soft_current_prompt_tokens"
                     _soft_budget_slimmed = True
                     _pressure_event = {
                         "type": "heartbeat_budget_pressure",
                         "iteration": iteration + 1,
+                        "reason": _pressure_reason,
                         "soft_max_llm_calls": _soft_max_llm_calls or None,
                         "soft_current_prompt_tokens": _soft_current_prompt_tokens or None,
                         "current_prompt_tokens_total": _current_prompt_tokens_total,
+                        "target_seconds": _target_seconds or None,
+                        "elapsed_seconds": round(_elapsed_seconds, 3),
                     }
                     yield _event_with_compaction_tag(_pressure_event, compaction)
                     if correlation_id is not None:
@@ -1005,6 +1031,7 @@ async def run_stream(
         context_profile_name=_resolved_context_profile,
         model_override=model_override,
         provider_id_override=provider_id_override,
+        tool_surface_policy=(run_control_policy or {}).get("tool_surface"),
     ):
         yield event
 

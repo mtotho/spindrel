@@ -779,6 +779,9 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         context_export={"enabled": False, "summary_kind": "native_state", "hint_kind": "none"},
         panel_title="Ecosystem Sim",
         show_panel_title=True,
+        # Hidden from the catalog while we focus on Blockyard. Existing pins
+        # still render; flip back to True (or delete this) to re-list.
+        catalog_visible=False,
     ),
     "core/notes_native": NativeWidgetSpec(
         widget_ref="core/notes_native",

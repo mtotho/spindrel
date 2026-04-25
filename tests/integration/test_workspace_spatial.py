@@ -189,7 +189,7 @@ class TestSpatialNodesAutoSeed:
 
 
 class TestSpatialUpcomingActivity:
-    async def test_workspace_activity_uses_canvas_scope_not_admin_payload(self, client, db_session):
+    async def test_workspace_activity_includes_hygiene_and_channelless_tasks(self, client, db_session):
         ch = await _create_channel(client)
         now = datetime.now(timezone.utc)
         db_session.add(
@@ -240,17 +240,10 @@ class TestSpatialUpcomingActivity:
         )
         assert canvas.status_code == 200, canvas.text
         canvas_items = canvas.json()["items"]
-        assert {item["type"] for item in canvas_items} == {"heartbeat", "task"}
-        assert {item["title"] for item in canvas_items} == {"Heartbeat", "Channel task"}
-        assert all(item["channel_id"] == ch["id"] for item in canvas_items)
-
-        admin = await client.get(
-            "/api/v1/admin/upcoming-activity?limit=20",
-            headers=AUTH_HEADERS,
-        )
-        assert admin.status_code == 200, admin.text
-        admin_titles = {item["title"] for item in admin.json()["items"]}
-        assert {"Heartbeat", "Channel task", "Admin-only task", "Dreaming"} <= admin_titles
+        assert {item["type"] for item in canvas_items} == {"heartbeat", "task", "memory_hygiene"}
+        assert {"Heartbeat", "Channel task", "Admin-only task", "Dreaming"} <= {
+            item["title"] for item in canvas_items
+        }
 
 
 class TestUpdateAndDelete:

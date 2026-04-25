@@ -118,18 +118,17 @@ async def get_upcoming_activity(
 ):
     """List scheduled work visible to the workspace canvas.
 
-    This is the canvas-facing seam for scheduled activity. It intentionally
-    omits admin-only memory-hygiene rows and channel-less tasks; the admin task
-    surface continues to use ``/api/v1/admin/upcoming-activity`` for the full
-    operational view.
+    The canvas is the workspace-level "what's about to happen" surface, so it
+    includes memory hygiene runs and channel-less tasks alongside heartbeats —
+    a spot check should surface anything scheduled, not just channel-bound work.
     """
     items = await list_upcoming_activity(
         db,
         limit=max(1, min(limit, 1000)),
         type_filter=type,
         auth=auth,
-        include_memory_hygiene=False,
-        include_channelless_tasks=False,
+        include_memory_hygiene=True,
+        include_channelless_tasks=True,
     )
     return {"items": items}
 

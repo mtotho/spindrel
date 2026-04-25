@@ -219,7 +219,7 @@ This gives the bot situational awareness without consuming prompt space. The met
 | `quiet_end` | string | — | Quiet window end (HH:MM) |
 | `timezone` | string | — | Timezone for quiet hours |
 | `max_run_seconds` | int | — | Execution timeout (overrides global) |
-| `execution_policy` | object | focused soft budget | Tool-surface and LLM-loop budget controls for autonomous heartbeat runs |
+| `execution_policy` | object | Medium depth | Tool-surface and LLM-loop budget controls for autonomous heartbeat runs |
 | `previous_result_max_chars` | int | 500 | How much of last result to inject |
 | `repetition_detection` | bool | — | Override global repetition detection |
 | `workflow_id` | string | — | Trigger a (deprecated) workflow instead of a prompt. For pipelines, use `prompt` + `run_pipeline`. |
@@ -253,20 +253,37 @@ TIMEZONE=UTC
 
 ### Execution Policy
 
-Heartbeat runs normalize an optional `execution_policy` object before entering the agent loop. Defaults prioritize useful autonomous work without repeating a full broad-context turn indefinitely:
+Heartbeat runs normalize an optional `execution_policy` object before entering the agent loop. The UI exposes execution depth presets plus raw numeric controls:
+
+| Preset | Soft LLM calls | Hard LLM calls | Soft current tokens | Target seconds |
+|--------|----------------|----------------|---------------------|----------------|
+| Low | 6 | 12 | 50,000 | 90 |
+| Medium (default) | 12 | 30 | 150,000 | 180 |
+| High | 20 | 50 | 300,000 | 300 |
+
+Editing the numeric controls stores the policy as `custom`.
 
 ```json
 {
+  "preset": "medium",
   "tool_surface": "focused_escape",
   "continuation_mode": "stateless",
-  "soft_max_llm_calls": 6,
-  "hard_max_llm_calls": 12,
-  "soft_current_prompt_tokens": 50000,
-  "target_seconds": 90
+  "soft_max_llm_calls": 12,
+  "hard_max_llm_calls": 30,
+  "soft_current_prompt_tokens": 150000,
+  "target_seconds": 180
 }
 ```
 
-`focused_escape` keeps the default heartbeat tool surface narrower while preserving `get_tool_info` / `search_tools` escape hatches. When a soft budget trips, the loop emits `heartbeat_budget_pressure`, prunes older in-loop tool results even if the model context window still has headroom, and asks the model to finish unless one more tool call is clearly high-value. `provider_state` continuation is reserved for opt-in provider support; the default remains stateless.
+`max_run_seconds` remains the outer hard timeout. The heartbeat hard LLM-call cap replaces the generic global turn default for heartbeat runs, but explicit channel or bot iteration caps still apply if they are lower. `target_seconds` is an enforced soft elapsed-time budget: crossing it triggers the same soft-pressure path as the LLM-call and current-token budgets.
+
+Tool-surface modes are runtime-enforced:
+
+- `focused_escape` (default): expose retrieved tools, explicitly tagged tools, heartbeat-injected tools such as optional posting, and the limited discovery escape hatches `get_tool_info` / `search_tools` when discovery is enabled. Broad pinned tools and widget-handler tools are not surfaced just because they are generally available.
+- `strict`: expose retrieved tools, explicitly tagged tools, and heartbeat-injected tools only; no discovery escape hatches.
+- `full`: preserve the broad chat-like surface, including pinned tools and normal discovery helper pins.
+
+When a soft budget trips, the loop emits `heartbeat_budget_pressure` with a reason (`soft_max_llm_calls`, `soft_current_prompt_tokens`, or `target_seconds`), prunes older in-loop tool results even if the model context window still has headroom, and asks the model to finish unless one more tool call is clearly high-value. `provider_state` continuation is reserved until loop state retention is implemented end to end; submitted policies normalize it back to `stateless`.
 
 ---
 

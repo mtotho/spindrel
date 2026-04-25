@@ -35,6 +35,7 @@ import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
+import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
 import { ChatSession } from "../chat/ChatSession";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
@@ -124,11 +125,20 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const channelForBot = useCallback(
     (botId: string): Channel | null => {
       const all = channels ?? [];
-      return (
-        all.find((c) => c.bot_id === botId) ??
-        all.find((c) => (c.member_bots ?? []).some((m) => m.bot_id === botId)) ??
-        null
+      // "last channel/session you spoke to it in" — pick the most recently
+      // active channel where this bot is the primary or a member, falling
+      // back to alphabetic if `last_message_at` is missing on every match.
+      const matches = all.filter(
+        (c) =>
+          c.bot_id === botId ||
+          (c.member_bots ?? []).some((m) => m.bot_id === botId),
       );
+      if (matches.length === 0) return null;
+      const ts = (c: Channel): number => {
+        const raw = c.last_message_at ?? c.updated_at ?? c.created_at;
+        return raw ? new Date(raw).getTime() : 0;
+      };
+      return [...matches].sort((a, b) => ts(b) - ts(a))[0];
     },
     [channels],
   );
@@ -791,6 +801,15 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
                   onPointerUp={(e) => handleBotPointerUp(node, e)}
+                  onClick={() => {
+                    if (!channel) return;
+                    setOpenBotChat({
+                      botId: node.bot_id!,
+                      botName,
+                      channelId: channel.id,
+                      channelName: channel.name,
+                    });
+                  }}
                   onDoubleClick={() =>
                     navigate(`/admin/bots/${node.bot_id}`, {
                       state: { backTo: `${location.pathname}${location.search}` },
@@ -823,6 +842,10 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
             // at a vanished pin row — render nothing rather than a broken
             // placeholder; the next list refresh should clean it up.
             if (!node.pin) return null;
+            // Frameless game widgets get a scoped drag activator so empty
+            // areas around the floating asteroid stay canvas-pannable.
+            const isFramelessGame =
+              node.pin.tool_name?.startsWith("core/game_") ?? false;
             return (
               <DraggableNode
                 key={node.id}
@@ -832,6 +855,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 diving={diving}
                 lens={lens}
                 lensSettling={lensSettling}
+                activatorMode={isFramelessGame ? "scoped" : "full"}
                 onHoverChange={(hovered) =>
                   setHoveredNodeId((curr) => {
                     if (hovered) return node.id;
@@ -1265,6 +1289,13 @@ interface DraggableNodeProps {
   /** Optional hover callback — used by the connection-line layer to
    *  brighten the line for the currently-hovered widget. */
   onHoverChange?: (hovered: boolean) => void;
+  /** "full" wraps the children in the dnd-kit activator so the entire
+   *  tile body starts a drag (default — channels, regular widgets).
+   *  "scoped" provides the activator via `DragActivatorContext`; the
+   *  child is responsible for attaching it to a specific element (e.g. a
+   *  grip handle), which lets the rest of the tile fall through to the
+   *  canvas pan. Used by frameless game widgets. */
+  activatorMode?: "full" | "scoped";
   children: React.ReactNode;
 }
 
@@ -1279,6 +1310,10 @@ interface ManualBotNodeProps {
   onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  /** Single-click action — typically "open mini chat". Wrapped in a
+   *  ~220ms timer so a follow-up click resolves to `onDoubleClick` instead.
+   *  Pass null/undefined to disable. */
+  onClick?: () => void;
   onDoubleClick: () => void;
   children: React.ReactNode;
 }
@@ -1294,9 +1329,21 @@ function ManualBotNode({
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onClick,
   onDoubleClick,
   children,
 }: ManualBotNodeProps) {
+  // Click-vs-double-click disambiguation: delay the single-click action so
+  // that a follow-up second click within 220ms cancels it and resolves to
+  // the navigate-to-admin double-click instead.
+  const clickTimerRef = useRef<number | null>(null);
+  const cancelPendingClick = () => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+  };
+  useEffect(() => () => cancelPendingClick(), []);
   const lensTransform = lens
     ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
     : "";
@@ -1334,8 +1381,22 @@ function ManualBotNode({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onClick={(e) => {
+        if (!onClick || diving || isDragging) return;
+        // Don't fire when the click came from a child that wants its own
+        // behavior (e.g. the inline MessageCircle button calls
+        // stopPropagation, so it never reaches us). The avatar disc is the
+        // bare canvas inside `children` — clicking it lands here.
+        e.stopPropagation();
+        cancelPendingClick();
+        clickTimerRef.current = window.setTimeout(() => {
+          clickTimerRef.current = null;
+          onClick();
+        }, 220);
+      }}
       onDoubleClick={(e) => {
         e.stopPropagation();
+        cancelPendingClick();
         if (!diving && !isDragging) onDoubleClick();
       }}
     >
@@ -1352,12 +1413,20 @@ function DraggableNode({
   lens,
   lensSettling,
   onHoverChange,
+  activatorMode = "full",
   children,
 }: DraggableNodeProps) {
   const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform } = useDraggable({
     id: node.id,
     disabled: diving,
   });
+  const activatorBundle: DragActivatorBundle = {
+    setRef: setActivatorNodeRef,
+    // dnd-kit's generated types don't have an index signature; cast through
+    // `unknown` at the boundary so consumers get a stable shape.
+    listeners: listeners as unknown as DragActivatorBundle["listeners"],
+    attributes: attributes as unknown as DragActivatorBundle["attributes"],
+  };
   // dnd-kit returns a screen-pixel translate during drag. The tile lives
   // inside a parent that's scaled by `camera.scale`, so dividing by scale
   // makes the tile's screen movement match the cursor 1:1.
@@ -1407,14 +1476,23 @@ function DraggableNode({
       onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
       onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
     >
-      <div
-        ref={setActivatorNodeRef}
-        style={{ display: "contents", pointerEvents: "auto" }}
-        {...attributes}
-        {...listeners}
-      >
-        {children}
-      </div>
+      <DragActivatorContext.Provider value={activatorBundle}>
+        {activatorMode === "full" ? (
+          <div
+            ref={setActivatorNodeRef}
+            style={{ display: "contents", pointerEvents: "auto" }}
+            {...attributes}
+            {...listeners}
+          >
+            {children}
+          </div>
+        ) : (
+          // Scoped mode — child consumes the bundle via `useDragActivator`
+          // and attaches it to a specific element (e.g. a grip handle).
+          // The rest of the tile body stays click-through.
+          children
+        )}
+      </DragActivatorContext.Provider>
     </div>
   );
 }
