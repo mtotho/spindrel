@@ -12,6 +12,7 @@ import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { PromptTemplateLink } from "@/src/components/shared/PromptTemplateLink";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
 import { usePromptTemplates } from "@/src/api/hooks/usePromptTemplates";
+import { useChannels } from "@/src/api/hooks/useChannels";
 import { apiFetch } from "@/src/api/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { WorkflowSelector } from "@/src/components/shared/WorkflowSelector";
@@ -20,6 +21,7 @@ import { useWorkflows } from "@/src/api/hooks/useWorkflows";
 import { QuietHoursPicker } from "./QuietHoursPicker";
 import { HeartbeatHistoryList } from "./HeartbeatHistoryList";
 import { ContextPreview, HeartbeatTemplatePreview } from "./HeartbeatContextPreview";
+import { SpatialPolicyCard } from "./SpatialBotPolicyControls";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -228,6 +230,16 @@ export function HeartbeatTab({
     queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/heartbeat`),
     refetchOnMount: "always",
   });
+  const { data: channels } = useChannels();
+  const channel = channels?.find((c: any) => c.id === channelId) as any;
+  const spatialBots = [
+    channel?.bot_id ? { botId: channel.bot_id, name: channel.bot_name || channel.bot_id, label: "Primary" } : null,
+    ...((channel?.member_bots ?? []) as Array<any>).map((m) => ({
+      botId: m.bot_id,
+      name: m.bot_name || m.bot_id,
+      label: "Member",
+    })),
+  ].filter(Boolean) as Array<{ botId: string; name: string; label: string }>;
 
   const [hbForm, setHbForm] = useState<any>(null);
   const [initialHeartbeatApplied, setInitialHeartbeatApplied] = useState(false);
@@ -276,6 +288,7 @@ export function HeartbeatTab({
         workflow_id: data.config.workflow_id ?? null,
         workflow_session_mode: data.config.workflow_session_mode ?? null,
         skip_tool_approval: data.config.skip_tool_approval ?? false,
+        append_spatial_prompt: data.config.append_spatial_prompt ?? false,
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -304,6 +317,7 @@ export function HeartbeatTab({
         workflow_id: null,
         workflow_session_mode: null,
         skip_tool_approval: false,
+        append_spatial_prompt: false,
       };
       setHbForm(nextForm);
       hbFormRef.current = nextForm;
@@ -330,6 +344,7 @@ export function HeartbeatTab({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+      queryClient.invalidateQueries({ queryKey: ["channel-spatial-bot-policy", channelId] });
       hbDirtyRef.current = false;
       setHbDirty(false);
       setHbLastSavedAt(Date.now());
@@ -421,7 +436,7 @@ export function HeartbeatTab({
   const isWorkflowMode = !!hbForm.workflow_id;
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
-    : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path);
+    : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt);
 
   return (
     <>
@@ -463,6 +478,37 @@ export function HeartbeatTab({
             </Col>
           </Row>
         </Section>
+
+        {/* ---- Spatial Section ---- */}
+        {!isWorkflowMode && (
+          <Section
+            title="Spatial Canvas"
+            description="Canned spatial context is appended to heartbeat runs. Per-bot policy controls movement, nearby inspection, object tugging, and bot-owned spatial widgets."
+          >
+            <div className="flex flex-col gap-3">
+              <Toggle
+                value={hbForm.append_spatial_prompt ?? false}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, append_spatial_prompt: v }))}
+                label="Use spatial heartbeat prompt"
+                description="Adds a standard prompt that tells the bot how to use its canvas context without posting routine status updates."
+              />
+              {spatialBots.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {spatialBots.map((bot, index) => (
+                    <SpatialPolicyCard
+                      key={bot.botId}
+                      channelId={channelId}
+                      botId={bot.botId}
+                      botName={bot.name}
+                      label={bot.label}
+                      defaultExpanded={index === 0}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {/* ---- Action: Workflow or Prompt ---- */}
         <Section title="Action">

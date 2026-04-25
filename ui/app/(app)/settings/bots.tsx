@@ -21,6 +21,7 @@ interface MyBotEntry {
   name: string;
   display_name: string | null;
   avatar_url: string | null;
+  avatar_emoji: string | null;
   model: string;
   role: "owner" | "view" | "manage";
 }
@@ -86,13 +87,9 @@ export default function SettingsBotsPage() {
                 <Link key={bot.id} to={target}>
                   <SettingsControlRow
                     leading={
-                      bot.avatar_url ? (
-                        <img src={bot.avatar_url} alt={bot.name} className="h-8 w-8 rounded-full object-cover" />
-                      ) : (
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-accent">
-                          <Bot size={16} />
-                        </div>
-                      )
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-[17px] text-accent">
+                        <span aria-hidden>{bot.avatar_emoji || "🤖"}</span>
+                      </div>
                     }
                     title={bot.display_name || bot.name}
                     description={bot.model}

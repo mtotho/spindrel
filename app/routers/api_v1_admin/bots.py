@@ -469,6 +469,7 @@ class BotUpdateIn(BaseModel):
     fallback_models: Optional[list[dict]] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    avatar_emoji: Optional[str] = None
     local_tools: Optional[list[str]] = None
     mcp_servers: Optional[list[str]] = None
     client_tools: Optional[list[str]] = None
@@ -660,6 +661,7 @@ class BotCreateIn(BaseModel):
     fallback_models: Optional[list[dict]] = None
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    avatar_emoji: Optional[str] = None
     local_tools: Optional[list[str]] = None
     mcp_servers: Optional[list[str]] = None
     client_tools: Optional[list[str]] = None

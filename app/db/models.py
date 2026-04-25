@@ -775,6 +775,7 @@ class Bot(Base):
     filesystem_access: Mapped[list] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
     display_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_emoji: Mapped[str | None] = mapped_column(Text, nullable=True)
     integration_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     tool_result_config: Mapped[dict] = mapped_column(JSONB, server_default=text("'{}'::jsonb"))
     memory_max_inject_chars: Mapped[int | None] = mapped_column(nullable=True)
@@ -1090,6 +1091,7 @@ class ChannelHeartbeat(Base):
     workflow_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     skip_tool_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    append_spatial_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
 
     channel: Mapped["Channel"] = relationship("Channel")
 

@@ -10,6 +10,28 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Spatial bot autonomy uses global bot nodes with channel-scoped policy
+**Decided 2026-04-26. Updated 2026-04-26.** Bots are first-class spatial canvas objects, but their authority to perceive or modify the canvas is granted per channel and surfaced primarily through heartbeat settings.
+
+**What changed.**
+- `workspace_spatial_nodes` now supports a third target shape, `bot_id`, alongside `channel_id` and `widget_pin_id`; the exactly-one CHECK and unique partial indexes cover all three.
+- Bot positions are global per bot. The service auto-seeds nodes only for bots that participate as a channel primary bot or member bot, initially near one of their channels.
+- Spatial access lives in `Channel.config["spatial_bots"][bot_id]`, not bot config and not the node row. The policy gates awareness injection, self movement, object tugs, nearby inspection, step sizes, per-turn budgets, radii, nearest-neighbor floor, and movement trace TTL.
+- Bot movement is step-based. Bots never receive arbitrary coordinate writes; tools translate bounded cardinal steps into world-coordinate deltas.
+- Object tugs require proximity, leave `last_movement` trace metadata on the target node, and publish a synthetic assistant message into the channel so the change is visible in normal chat history.
+- Bot nodes render on the canvas and open a docked `ChatSession` resolved through an existing channel for that bot.
+- `ChannelHeartbeat.append_spatial_prompt` is the opt-in canned context path for heartbeat runs. It appends a standard spatial-turn instruction block and seeds awareness-only policy defaults for the primary bot if no policy exists.
+- Spatial runtime controls live in the channel Heartbeat tab. Participants is a roster/status surface, not the primary place to configure movement, inspection, tugging, or widget-management behavior.
+- Bots use `bots.avatar_emoji` for Spindrel bot presentation. The old URL field remains a data field, but current bot list/canvas UI does not fall back to it for spatial identity.
+- Spatial widget management is distinct from object tugging. A bot can create/move/resize/remove only widgets it owns (`source_bot_id == acting bot`) and only when `allow_spatial_widget_management` is enabled.
+
+**Load-bearing invariants.**
+- Defaults are off. A bot receives no spatial context and no movement tools with effect unless the channel policy grants them.
+- `workspace_spatial_nodes` remains the only source of truth for world positions. Channel config stores permission, not coordinates.
+- Neighborhoods are hybrid: radius plus a nearest-neighbor floor, so a too-small radius does not make the bot blind.
+- Widget-management authority never implies arbitrary canvas editing. Bot-owned widget tools operate on owned pins; tugs remain proximity-bounded and auditable.
+- Bot-to-bot spatial notes / command cards are deferred; v1 only exposes awareness, movement, inspection, and auditable object tugs.
+
 ### Single visible sessions are route-level pages; chat panes are split/canvas layout only
 **Decided 2026-04-24. Updated 2026-04-25.** Channel session switching now separates four concerns: browsing sessions, navigating to one visible session, arranging multiple visible chat panes, and choosing which session is primary for integrations.
 

@@ -89,10 +89,10 @@ function warningBadges(bot: BotConfig): React.ReactNode[] {
 }
 
 function BotIcon({ bot }: { bot: BotConfig }) {
-  if (bot.avatar_url) return <img src={bot.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />;
+  const avatar = bot.avatar_emoji || "🤖";
   return (
-    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-accent">
-      <Bot size={16} />
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-[17px] text-accent">
+      <span aria-hidden>{avatar}</span>
     </div>
   );
 }

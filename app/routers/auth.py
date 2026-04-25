@@ -155,6 +155,7 @@ class MyBotEntry(BaseModel):
     name: str
     display_name: str | None = None
     avatar_url: str | None = None
+    avatar_emoji: str | None = None
     model: str
     role: str  # "owner" | "view" | "manage"
 
@@ -398,6 +399,7 @@ async def auth_me_bots(
             name=bot.name,
             display_name=bot.display_name,
             avatar_url=bot.avatar_url,
+            avatar_emoji=getattr(bot, "avatar_emoji", None),
             model=bot.model,
             role="owner",
         )
@@ -410,6 +412,7 @@ async def auth_me_bots(
             name=bot.name,
             display_name=bot.display_name,
             avatar_url=bot.avatar_url,
+            avatar_emoji=getattr(bot, "avatar_emoji", None),
             model=bot.model,
             role=str(role) if role else "view",
         )

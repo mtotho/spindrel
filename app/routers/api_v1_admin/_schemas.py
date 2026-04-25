@@ -33,6 +33,7 @@ class BotOut(BaseModel):
     system_prompt: str = ""
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    avatar_emoji: Optional[str] = None
     local_tools: list[str] = []
     mcp_servers: list[str] = []
     client_tools: list[str] = []
@@ -104,4 +105,3 @@ class BotOut(BaseModel):
 class BotListOut(BaseModel):
     bots: list[BotOut]
     total: int
-

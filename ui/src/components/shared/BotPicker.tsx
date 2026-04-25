@@ -13,22 +13,15 @@ function shortModel(model: string): string {
 }
 
 function BotAvatar({ bot, size }: { bot: BotConfig; size: number }) {
-  if (bot.avatar_url) {
-    return (
-      <img
-        src={bot.avatar_url}
-        alt=""
-        className="shrink-0 rounded-full object-cover"
-        style={{ width: size, height: size }}
-      />
-    );
-  }
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-accent/[0.12] text-[10px] font-bold uppercase text-accent"
+      className="flex shrink-0 items-center justify-center rounded-full bg-accent/[0.12] text-accent"
       style={{ width: size, height: size }}
+      aria-hidden
     >
-      {bot.name.charAt(0)}
+      <span style={{ fontSize: Math.max(10, Math.round(size * 0.55)) }}>
+        {bot.avatar_emoji || "🤖"}
+      </span>
     </span>
   );
 }

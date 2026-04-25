@@ -14,6 +14,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import selectinload
 
 from app.agent.bots import get_bot
@@ -285,6 +286,7 @@ class HeartbeatConfigOut(BaseModel):
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
+    append_spatial_prompt: bool = False
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -310,6 +312,7 @@ class HeartbeatConfigOut(BaseModel):
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
+            "append_spatial_prompt",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -369,6 +372,7 @@ class HeartbeatUpdate(BaseModel):
     workflow_id: Optional[str] = None
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
+    append_spatial_prompt: bool = False
 
 
 class TaskOut(BaseModel):
@@ -1306,6 +1310,26 @@ async def admin_channel_heartbeat_update(
         heartbeat.workflow_session_mode = val if val in ("shared", "isolated") else None
     if "skip_tool_approval" in updates:
         heartbeat.skip_tool_approval = updates["skip_tool_approval"]
+    if "append_spatial_prompt" in updates:
+        heartbeat.append_spatial_prompt = bool(updates["append_spatial_prompt"])
+        if heartbeat.append_spatial_prompt:
+            from app.services.workspace_spatial import (
+                DEFAULT_SPATIAL_POLICY,
+                SPATIAL_POLICY_KEY,
+                normalize_spatial_policy,
+            )
+
+            cfg = dict(channel.config or {})
+            policies = dict(cfg.get(SPATIAL_POLICY_KEY) or {})
+            if channel.bot_id not in policies:
+                policies[channel.bot_id] = normalize_spatial_policy({
+                    **DEFAULT_SPATIAL_POLICY,
+                    "enabled": True,
+                    "allow_nearby_inspect": True,
+                })
+                cfg[SPATIAL_POLICY_KEY] = policies
+                channel.config = cfg
+                flag_modified(channel, "config")
     heartbeat.updated_at = now
 
     if heartbeat.enabled:

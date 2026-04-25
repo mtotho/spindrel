@@ -16,6 +16,15 @@ from app.db.models import Channel, ChannelHeartbeat, HeartbeatRun, Task, ToolCal
 logger = logging.getLogger(__name__)
 
 
+SPATIAL_HEARTBEAT_PROMPT = """Spatial canvas turn:
+- Use the [spatial canvas] context to understand your position, nearby channels/widgets/bots, radius, nearest-neighbor fallback, and any movement/tug/widget-management budgets.
+- If inspect is available, inspect only nearby objects that could help organize the space or make the heartbeat useful.
+- If spatial widget management is available, create or arrange widgets that would make this channel's workspace easier to understand at a glance.
+- If movement or tugging is available, make small intentional moves only when they improve organization or visibility.
+- If file tools are available, keep durable spatial notes in data/spatial-canvas.md: useful landmarks, why widgets are placed where they are, and follow-ups for the next spatial turn.
+- Do not post a routine status update unless you changed something or found something worth sharing."""
+
+
 def _trim_history_for_task(messages: list[dict], max_turns: int) -> list[dict]:
     """Trim conversation history to last *max_turns* non-heartbeat turn-pairs.
 
@@ -404,6 +413,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             inline_prompt=hb.prompt or settings.HEARTBEAT_DEFAULT_PROMPT,
             db=db,
         )
+        if getattr(hb, "append_spatial_prompt", False):
+            prompt = "\n\n".join(part for part in [prompt.strip(), SPATIAL_HEARTBEAT_PROMPT] if part)
 
         # --- Build heartbeat metadata header ---
         # NOTE: This is injected as a system_preamble right before the user message.

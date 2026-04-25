@@ -191,6 +191,7 @@ async def assemble_config_state(db) -> dict:
             "filesystem_access": b.filesystem_access,
             "display_name": b.display_name,
             "avatar_url": b.avatar_url,
+            "avatar_emoji": getattr(b, "avatar_emoji", None),
             "integration_config": b.integration_config,
             "tool_result_config": b.tool_result_config,
             "memory_max_inject_chars": b.memory_max_inject_chars,

@@ -187,6 +187,7 @@ class BotConfig:
     filesystem_access: list[FilesystemAccessEntry] = field(default_factory=list)
     display_name: str | None = None
     avatar_url: str | None = None
+    avatar_emoji: str | None = None
     integration_config: dict = field(default_factory=dict)
     # Bot-level overrides for tool result summarization. Keys: enabled (bool|None),
     # threshold (int|None), model (str|None), max_tokens (int|None), exclude_tools (list[str]).
@@ -477,6 +478,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         filesystem_access=_build_filesystem_access(row),
         display_name=row.display_name,
         avatar_url=row.avatar_url,
+        avatar_emoji=getattr(row, "avatar_emoji", None),
         integration_config=row.integration_config or {},
         tool_result_config=row.tool_result_config or {},
         memory_max_inject_chars=row.memory_max_inject_chars,
@@ -559,6 +561,7 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         ],
         "display_name": data.get("display_name"),
         "avatar_url": data.get("avatar_url"),
+        "avatar_emoji": data.get("avatar_emoji"),
         "integration_config": data.get("integration_config", {}),
         "tool_result_config": data.get("tool_result_config", {}),
         "memory_max_inject_chars": data.get("memory_max_inject_chars"),

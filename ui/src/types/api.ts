@@ -31,6 +31,7 @@ export interface BotConfig {
   fallback_models?: Array<{ model: string; provider_id?: string | null }>;
   display_name?: string;
   avatar_url?: string;
+  avatar_emoji?: string | null;
   local_tools?: string[];
   mcp_servers?: string[];
   client_tools?: string[];

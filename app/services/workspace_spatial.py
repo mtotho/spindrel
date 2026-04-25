@@ -51,8 +51,8 @@ _DEFAULT_TILE_H = 180.0
 # zoom level. Existing rows keep their stored size; only new pins use these.
 _DEFAULT_WIDGET_W = 360.0
 _DEFAULT_WIDGET_H = 240.0
-_DEFAULT_BOT_W = 72.0
-_DEFAULT_BOT_H = 72.0
+_DEFAULT_BOT_W = 260.0
+_DEFAULT_BOT_H = 180.0
 # Satellite ring around a source channel — first widget sits ~_SAT_RING out
 # from the channel's center; subsequent widgets spiral outward by the golden
 # angle so they don't pile up at one bearing.
@@ -68,6 +68,7 @@ DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "awareness_radius_steps": 8,
     "nearest_neighbor_floor": 3,
     "allow_moving_spatial_objects": False,
+    "allow_spatial_widget_management": False,
     "tug_radius_steps": 2,
     "max_tug_steps_per_turn": 1,
     "allow_nearby_inspect": False,
@@ -122,6 +123,7 @@ def serialize_node(
                 "name": bot.name,
                 "display_name": bot.display_name,
                 "avatar_url": bot.avatar_url,
+                "avatar_emoji": getattr(bot, "avatar_emoji", None),
             }
         except Exception:
             out["bot"] = {"id": node.bot_id, "name": node.bot_id}
@@ -299,6 +301,13 @@ async def _ensure_bot_node(
         select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.bot_id == bot_id)
     )).scalar_one_or_none()
     if existing is not None:
+        if existing.world_w < _DEFAULT_BOT_W or existing.world_h < _DEFAULT_BOT_H:
+            cx, cy = _node_center(existing)
+            existing.world_w = _DEFAULT_BOT_W
+            existing.world_h = _DEFAULT_BOT_H
+            existing.world_x = cx - _DEFAULT_BOT_W / 2
+            existing.world_y = cy - _DEFAULT_BOT_H / 2
+            await db.flush()
         return existing
 
     seed = await _next_seed_index(db)
@@ -398,6 +407,7 @@ def normalize_spatial_policy(raw: dict | None) -> dict[str, Any]:
         "enabled",
         "allow_movement",
         "allow_moving_spatial_objects",
+        "allow_spatial_widget_management",
         "allow_nearby_inspect",
     ):
         policy[key] = bool(policy.get(key))
@@ -724,6 +734,11 @@ async def build_canvas_neighborhood(
             "channel_id": str(node.channel_id) if node.channel_id else None,
             "bot_id": node.bot_id,
             "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
+            "manageable": (
+                bool(policy["allow_spatial_widget_management"])
+                and pin is not None
+                and pin.source_bot_id == bot_id
+            ),
         })
     rows.sort(key=lambda r: float(r["distance"]))
     nearby = [r for r in rows if r["within_radius"]]
@@ -767,6 +782,8 @@ async def build_canvas_neighborhood_block(
         lines.append("You may use tug_spatial_object on tuggable nearby objects only.")
     if policy["allow_nearby_inspect"]:
         lines.append("You may use inspect_nearby_spatial_object for nearby object details.")
+    if policy["allow_spatial_widget_management"]:
+        lines.append("You may use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own.")
     lines.append("")
     lines.append("nearby objects:")
     for row in neighborhood["neighbors"][:12]:
@@ -775,6 +792,8 @@ async def build_canvas_neighborhood_block(
             flags.append("nearest")
         if row.get("tuggable"):
             flags.append("tuggable")
+        if row.get("manageable"):
+            flags.append("manageable")
         flag_text = f" [{' '.join(flags)}]" if flags else ""
         lines.append(
             f"  - {row['label']} ({row['kind']}) id={row['id']} dist={row['distance']}{flag_text}"

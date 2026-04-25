@@ -44,6 +44,7 @@ def _bot_to_out(
         system_prompt=bot.system_prompt,
         display_name=bot.display_name,
         avatar_url=bot.avatar_url,
+        avatar_emoji=getattr(bot, "avatar_emoji", None),
         local_tools=bot.local_tools,
         mcp_servers=bot.mcp_servers,
         client_tools=bot.client_tools,

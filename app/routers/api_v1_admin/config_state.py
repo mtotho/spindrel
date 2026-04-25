@@ -256,6 +256,7 @@ async def do_restore(payload: dict, db: AsyncSession) -> dict:
                 "filesystem_access": row.get("filesystem_access", []),
                 "display_name": row.get("display_name"),
                 "avatar_url": row.get("avatar_url"),
+                "avatar_emoji": row.get("avatar_emoji"),
                 "integration_config": row.get("integration_config", {}),
                 "tool_result_config": row.get("tool_result_config", {}),
                 "memory_max_inject_chars": row.get("memory_max_inject_chars"),

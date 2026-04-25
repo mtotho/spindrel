@@ -48,6 +48,7 @@ export interface SpatialNode {
     name?: string;
     display_name?: string | null;
     avatar_url?: string | null;
+    avatar_emoji?: string | null;
   };
   /** Present only when `widget_pin_id` is set. */
   pin?: SpatialNodePin;
@@ -61,6 +62,7 @@ export interface SpatialBotPolicy {
   awareness_radius_steps: number;
   nearest_neighbor_floor: number;
   allow_moving_spatial_objects: boolean;
+  allow_spatial_widget_management: boolean;
   tug_radius_steps: number;
   max_tug_steps_per_turn: number;
   allow_nearby_inspect: boolean;

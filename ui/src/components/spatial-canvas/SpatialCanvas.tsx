@@ -17,7 +17,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Bot as BotIcon, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
@@ -161,6 +161,14 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     }
   }, [camera, diving]);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  const [manualBotDrag, setManualBotDrag] = useState<{
+    nodeId: string;
+    pointerId: number;
+    grabDx: number;
+    grabDy: number;
+    currentX: number;
+    currentY: number;
+  } | null>(null);
   // One activated widget tile at a time. Activation makes a widget tile
   // hand pointer events to its iframe; Esc / click on the canvas background
   // / dragging the tile / activating another tile deactivates.
@@ -218,6 +226,16 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   });
 
   const viewportRef = useRef<HTMLDivElement>(null);
+
+  const pointerToWorld = useCallback((clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const c = cameraRef.current;
+    if (!rect) return null;
+    return {
+      x: (clientX - rect.left - c.x) / c.scale,
+      y: (clientY - rect.top - c.y) / c.scale,
+    };
+  }, []);
 
   useEffect(() => {
     const el = viewportRef.current;
@@ -532,6 +550,66 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     [nodes, updateNode],
   );
 
+  const handleBotPointerDown = useCallback(
+    (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0 || diving) return;
+      const world = pointerToWorld(e.clientX, e.clientY);
+      if (!world) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDraggingNodeId(node.id);
+      setActivatedTileId(null);
+      setManualBotDrag({
+        nodeId: node.id,
+        pointerId: e.pointerId,
+        grabDx: world.x - node.world_x,
+        grabDy: world.y - node.world_y,
+        currentX: node.world_x,
+        currentY: node.world_y,
+      });
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [diving, pointerToWorld],
+  );
+
+  const handleBotPointerMove = useCallback(
+    (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!manualBotDrag || manualBotDrag.nodeId !== node.id || manualBotDrag.pointerId !== e.pointerId) return;
+      const world = pointerToWorld(e.clientX, e.clientY);
+      if (!world) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setManualBotDrag((drag) =>
+        drag && drag.nodeId === node.id
+          ? { ...drag, currentX: world.x - drag.grabDx, currentY: world.y - drag.grabDy }
+          : drag,
+      );
+    },
+    [manualBotDrag, pointerToWorld],
+  );
+
+  const handleBotPointerUp = useCallback(
+    (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!manualBotDrag || manualBotDrag.nodeId !== node.id || manualBotDrag.pointerId !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      setDraggingNodeId(null);
+      setManualBotDrag(null);
+      if (manualBotDrag.currentX !== node.world_x || manualBotDrag.currentY !== node.world_y) {
+        updateNode.mutate({
+          nodeId: node.id,
+          body: { world_x: manualBotDrag.currentX, world_y: manualBotDrag.currentY },
+        });
+      }
+    },
+    [manualBotDrag, updateNode],
+  );
+
   // Viewport bounds in WORLD coordinates, expanded by a 1-viewport margin on
   // each side. Tiles whose `world_*` rectangle intersects this box are
   // considered "in viewport" and get a live iframe; others render the static
@@ -681,19 +759,26 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
             if (node.bot_id) {
               const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
               const channel = channelForBot(node.bot_id);
+              const dragPosition = manualBotDrag?.nodeId === node.id
+                ? { x: manualBotDrag.currentX, y: manualBotDrag.currentY }
+                : null;
               return (
-                <DraggableNode
+                <ManualBotNode
                   key={node.id}
                   node={node}
-                  scale={camera.scale}
                   isDragging={draggingNodeId === node.id}
                   diving={diving}
-                  lens={lens}
+                  lens={dragPosition ? null : lens}
                   lensSettling={lensSettling}
+                  dragPosition={dragPosition}
+                  onPointerDown={(e) => handleBotPointerDown(node, e)}
+                  onPointerMove={(e) => handleBotPointerMove(node, e)}
+                  onPointerUp={(e) => handleBotPointerUp(node, e)}
                 >
                   <BotTile
                     name={botName}
                     botId={node.bot_id}
+                    avatarEmoji={node.bot?.avatar_emoji ?? null}
                     zoom={camera.scale}
                     onOpenChat={() => {
                       if (!channel) return;
@@ -706,7 +791,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                     }}
                     chatDisabled={!channel}
                   />
-                </DraggableNode>
+                </ManualBotNode>
               );
             }
             // Widget node — render via embedded pin payload (P3a). The
@@ -880,32 +965,36 @@ function MovementTraceLayer({ nodes }: { nodes: SpatialNode[] }) {
 function BotTile({
   name,
   botId,
+  avatarEmoji,
   zoom,
   onOpenChat,
   chatDisabled,
 }: {
   name: string;
   botId: string;
+  avatarEmoji: string | null;
   zoom: number;
   onOpenChat: () => void;
   chatDisabled: boolean;
 }) {
-  const compact = zoom < 0.65;
-  const initial = (name || botId).slice(0, 1).toUpperCase();
+  const compact = zoom < 0.55;
+  const avatar = avatarEmoji || "🤖";
   return (
     <div
-      className="w-full h-full rounded-full border border-accent/45 bg-surface-raised shadow-sm flex items-center justify-center relative overflow-hidden"
+      className="relative flex h-full w-full items-center justify-center overflow-visible"
       title={`${name} (${botId})`}
     >
-      <div className="absolute inset-1 rounded-full border border-surface-border/70" />
-      <div className="flex flex-col items-center justify-center gap-0.5 text-center px-2">
-        <BotIcon className="w-5 h-5 text-accent" aria-hidden />
-        {compact ? (
-          <span className="text-[11px] font-semibold text-text leading-none">{initial}</span>
-        ) : (
-          <span className="max-w-[58px] truncate text-[10px] font-medium text-text leading-tight">{name}</span>
-        )}
+      <div className="absolute left-1/2 top-1/2 h-[112px] w-[112px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]" />
+      <div className="absolute left-1/2 top-1/2 h-[82px] w-[82px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center text-[38px]">
+        <span aria-hidden>{avatar}</span>
       </div>
+      {!compact && (
+        <div className="absolute left-1/2 top-[132px] max-w-[230px] -translate-x-1/2 text-center">
+          <div className="truncate rounded-md bg-surface-raised/88 px-2.5 py-1 text-[16px] font-semibold leading-tight text-text shadow-sm">
+            {name}
+          </div>
+        </div>
+      )}
       <button
         type="button"
         disabled={chatDisabled}
@@ -916,7 +1005,7 @@ function BotTile({
         onPointerDown={(e) => e.stopPropagation()}
         title={chatDisabled ? "No channel available for this bot" : "Open mini chat"}
         aria-label={chatDisabled ? "No channel available" : `Open mini chat with ${name}`}
-        className="absolute -right-0.5 -bottom-0.5 w-7 h-7 rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim flex items-center justify-center"
+        className="absolute left-[154px] top-[104px] flex h-8 w-8 items-center justify-center rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim"
       >
         <MessageCircle className="w-3.5 h-3.5" aria-hidden />
       </button>
@@ -1008,6 +1097,71 @@ interface DraggableNodeProps {
    *  brighten the line for the currently-hovered widget. */
   onHoverChange?: (hovered: boolean) => void;
   children: React.ReactNode;
+}
+
+interface ManualBotNodeProps {
+  node: SpatialNode;
+  isDragging: boolean;
+  diving: boolean;
+  lens: LensTransform | null;
+  lensSettling: boolean;
+  dragPosition: { x: number; y: number } | null;
+  onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
+}
+
+function ManualBotNode({
+  node,
+  isDragging,
+  diving,
+  lens,
+  lensSettling,
+  dragPosition,
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  children,
+}: ManualBotNodeProps) {
+  const lensTransform = lens
+    ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
+    : "";
+  let transition: string;
+  if (isDragging) {
+    transition = "none";
+  } else if (lensSettling) {
+    transition = `transform ${LENS_SETTLE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+  } else if (lens) {
+    transition = "none";
+  } else {
+    transition = "transform 120ms";
+  }
+  const style: CSSProperties = {
+    position: "absolute",
+    left: dragPosition?.x ?? node.world_x,
+    top: dragPosition?.y ?? node.world_y,
+    width: node.world_w,
+    height: node.world_h,
+    zIndex: isDragging ? 10 : node.z_index,
+    transform: lensTransform || undefined,
+    transformOrigin: "center center",
+    transition,
+    touchAction: "none",
+    cursor: diving ? "default" : isDragging ? "grabbing" : "grab",
+  };
+  return (
+    <div
+      style={style}
+      data-tile-kind="bot"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+    >
+      {children}
+    </div>
+  );
 }
 
 function DraggableNode({

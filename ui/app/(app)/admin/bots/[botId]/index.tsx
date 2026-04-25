@@ -317,9 +317,9 @@ function AdvancedSection({ draft, isNew, deleteMutation, showDeleteConfirm, setS
       <SectionFrame title="Display" description="Bot presentation in integrations.">
         <Row>
           <Col><FormRow label="Display name"><TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} /></FormRow></Col>
-          <Col><FormRow label="Avatar URL"><TextInput value={draft.avatar_url || ""} onChangeText={(v) => update({ avatar_url: v || undefined })} placeholder="https://..." /></FormRow></Col>
+          <Col><EmojiAvatarPicker value={draft.avatar_emoji || ""} onChange={(avatar_emoji) => update({ avatar_emoji: avatar_emoji || null })} /></Col>
         </Row>
-        <FormRow label="Slack icon emoji" description="Overrides Avatar URL in Slack when chat:write.customize is available.">
+        <FormRow label="Slack icon emoji" description="Overrides the integration default in Slack when chat:write.customize is available.">
           <TextInput value={draft.integration_config?.slack?.icon_emoji || ""} onChangeText={(v) => {
             const integration_config = { ...(draft.integration_config ?? {}) };
             integration_config.slack = { ...(integration_config.slack || {}), icon_emoji: v || undefined };
@@ -372,6 +372,42 @@ function AdvancedSection({ draft, isNew, deleteMutation, showDeleteConfirm, setS
       )}
       {!isNew && draft.source_type === "system" && <InfoBanner>System bots cannot be deleted.</InfoBanner>}
     </div>
+  );
+}
+
+const BOT_AVATAR_EMOJI = [
+  "🤖", "🧠", "🧭", "🛰️", "📡", "🛠️", "🧰", "🧪",
+  "🌱", "🍞", "🏡", "🎛️", "🧵", "📝", "🔍", "⚙️",
+  "🗂️", "🎨", "💡", "🔥", "✨", "🧬", "🧮", "🗺️",
+];
+
+function EmojiAvatarPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <FormRow label="Bot avatar emoji" description="Shown on the spatial canvas and bot lists.">
+      <div className="flex flex-wrap gap-1.5">
+        {BOT_AVATAR_EMOJI.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            onClick={() => onChange(value === emoji ? "" : emoji)}
+            className={`flex h-9 w-9 items-center justify-center rounded-md border text-[18px] transition-colors ${
+              value === emoji
+                ? "border-accent bg-accent/12"
+                : "border-input-border bg-input hover:border-accent/50"
+            }`}
+            aria-label={`Use ${emoji} as bot avatar`}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </FormRow>
   );
 }
 
