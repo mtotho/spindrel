@@ -9,11 +9,12 @@ Heartbeats are periodic autonomous check-ins. Configure a heartbeat on a channel
 
 ## Quick Start
 
-1. Open a channel → **Settings** → **Heartbeat** tab
+1. Open a channel → **Settings** → **Automation** → **Heartbeat**
 2. Toggle **Enabled**
 3. Set an **interval** (e.g., 60 minutes)
 4. Enter a **prompt** (e.g., "Check system health and report any anomalies")
-5. Save
+5. Use **Advanced Settings → Limits** when a heartbeat needs a different execution depth or tool surface
+6. Save
 
 The bot now runs that prompt every 60 minutes and posts the result to the channel.
 
@@ -253,7 +254,7 @@ TIMEZONE=UTC
 
 ### Execution Policy
 
-Heartbeat runs normalize an optional `execution_policy` object before entering the agent loop. The UI exposes execution depth presets plus raw numeric controls:
+Heartbeat runs normalize an optional `execution_policy` object before entering the agent loop. The channel **Settings → Automation → Heartbeat → Advanced Settings → Limits** UI exposes execution depth presets and tool-surface controls:
 
 | Preset | Soft LLM calls | Hard LLM calls | Soft current tokens | Target seconds |
 |--------|----------------|----------------|---------------------|----------------|
@@ -261,7 +262,7 @@ Heartbeat runs normalize an optional `execution_policy` object before entering t
 | Medium (default) | 12 | 30 | 150,000 | 180 |
 | High | 20 | 50 | 300,000 | 300 |
 
-Editing the numeric controls stores the policy as `custom`.
+Choosing Custom, or editing a numeric limit, stores the policy as `custom`. Numeric fields are hidden for preset-backed policies and shown for Custom policies.
 
 ```json
 {

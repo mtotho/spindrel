@@ -474,6 +474,12 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean again after Memory/Automation follow-up edits.
 
+### Heartbeat limits follow-up (2026-04-25)
+- [x] Channel Settings → Automation → Heartbeat → Advanced Settings → Limits now exposes execution-depth rows (`Low`, `Medium`, `High`, `Custom`) with visible budgets instead of only a compact raw select.
+- [x] Tool-surface selection (`Focused escape`, `Strict`, `Full`) is visible on the same surface and persists through the existing heartbeat `execution_policy`.
+- [x] Execution controls split into `HeartbeatExecutionControls.tsx`; `HeartbeatTab.tsx` stays under the 1000-line UI file limit.
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — clean.
+
 ## Pass 4d: Admin bot catalog/editor sweep (2026-04-25)
 
 - [x] `/admin/bots` now uses the dense admin catalog pattern instead of the old card grid, fixing mobile horizontal overflow and surfacing model, owner, usage, source, workspace, API-scope, and file-backed prompt/persona signals in-row.

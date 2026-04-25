@@ -22,6 +22,7 @@ import { QuietHoursPicker } from "./QuietHoursPicker";
 import { HeartbeatHistoryList } from "./HeartbeatHistoryList";
 import { ContextPreview, HeartbeatTemplatePreview } from "./HeartbeatContextPreview";
 import { SpatialPolicyCard } from "./SpatialBotPolicyControls";
+import { HeartbeatExecutionControls, normalizeExecutionPolicy } from "./HeartbeatExecutionControls";
 
 // ---------------------------------------------------------------------------
 // Interval options for heartbeat
@@ -39,28 +40,6 @@ const INTERVAL_OPTIONS = [
   { label: "12 hours", value: "720" },
   { label: "24 hours", value: "1440" },
 ];
-
-const EXECUTION_DEPTH_OPTIONS = [
-  { label: "Low", value: "low" },
-  { label: "Medium", value: "medium" },
-  { label: "High", value: "high" },
-  { label: "Custom", value: "custom" },
-];
-
-function normalizeExecutionPolicy(raw: any, defaultPolicy?: any, presets?: Record<string, any>) {
-  const fallback = defaultPolicy ?? { preset: "medium" };
-  const preset = typeof raw?.preset === "string" ? raw.preset : fallback.preset ?? "medium";
-  const base = presets?.[preset] ?? presets?.[fallback.preset] ?? fallback;
-  return {
-    preset: presets?.[preset] || preset === "custom" ? preset : fallback.preset ?? "medium",
-    tool_surface: raw?.tool_surface ?? fallback.tool_surface ?? "focused_escape",
-    continuation_mode: raw?.continuation_mode ?? fallback.continuation_mode ?? "stateless",
-    soft_max_llm_calls: raw?.soft_max_llm_calls ?? base.soft_max_llm_calls,
-    hard_max_llm_calls: raw?.hard_max_llm_calls ?? base.hard_max_llm_calls,
-    soft_current_prompt_tokens: raw?.soft_current_prompt_tokens ?? base.soft_current_prompt_tokens,
-    target_seconds: raw?.target_seconds ?? base.target_seconds,
-  };
-}
 
 function formatIntervalLabel(minutes: number): string {
   if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
@@ -474,6 +453,16 @@ export function HeartbeatTab({
         ...normalizeExecutionPolicy(f.execution_policy, data?.default_execution_policy, data?.execution_policy_presets),
         preset: "custom",
         [field]: Number.isNaN(parsed) ? null : parsed,
+      },
+    }));
+  }, [data?.default_execution_policy, data?.execution_policy_presets, updateHbForm]);
+
+  const updateExecutionToolSurface = useCallback((toolSurface: string) => {
+    updateHbForm((f: any) => ({
+      ...f,
+      execution_policy: {
+        ...normalizeExecutionPolicy(f.execution_policy, data?.default_execution_policy, data?.execution_policy_presets),
+        tool_surface: toolSurface,
       },
     }));
   }, [data?.default_execution_policy, data?.execution_policy_presets, updateHbForm]);
@@ -892,57 +881,17 @@ export function HeartbeatTab({
                     type="number"
                   />
                 </FormRow>
-                <FormRow label="Execution depth" description="Controls the heartbeat's LLM-call budget. Max run time remains the outer timeout.">
-                  <SelectInput
-                    value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).preset}
-                    onChange={updateExecutionPreset}
-                    options={EXECUTION_DEPTH_OPTIONS}
+                <FormRow label="Heartbeat execution budget" description="Controls autonomous LLM-call depth and tool exposure. Max run time remains the outer timeout.">
+                  <HeartbeatExecutionControls
+                    policy={hbForm.execution_policy}
+                    defaultPolicy={data?.default_execution_policy}
+                    presets={data?.execution_policy_presets}
+                    isMobile={isMobile}
+                    onPresetChange={updateExecutionPreset}
+                    onToolSurfaceChange={updateExecutionToolSurface}
+                    onNumberChange={updateExecutionNumber}
                   />
                 </FormRow>
-                <Row stack={isMobile}>
-                  <Col minWidth={isMobile ? 0 : 150}>
-                    <FormRow label="Soft LLM calls">
-                      <TextInput
-                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).soft_max_llm_calls?.toString() ?? ""}
-                        onChangeText={(v) => updateExecutionNumber("soft_max_llm_calls", v)}
-                        type="number"
-                        min={1}
-                      />
-                    </FormRow>
-                  </Col>
-                  <Col minWidth={isMobile ? 0 : 150}>
-                    <FormRow label="Hard LLM calls">
-                      <TextInput
-                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).hard_max_llm_calls?.toString() ?? ""}
-                        onChangeText={(v) => updateExecutionNumber("hard_max_llm_calls", v)}
-                        type="number"
-                        min={1}
-                      />
-                    </FormRow>
-                  </Col>
-                </Row>
-                <Row stack={isMobile}>
-                  <Col minWidth={isMobile ? 0 : 190}>
-                    <FormRow label="Soft current tokens">
-                      <TextInput
-                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).soft_current_prompt_tokens?.toString() ?? ""}
-                        onChangeText={(v) => updateExecutionNumber("soft_current_prompt_tokens", v)}
-                        type="number"
-                        min={0}
-                      />
-                    </FormRow>
-                  </Col>
-                  <Col minWidth={isMobile ? 0 : 150}>
-                    <FormRow label="Target seconds">
-                      <TextInput
-                        value={normalizeExecutionPolicy(hbForm.execution_policy, data?.default_execution_policy, data?.execution_policy_presets).target_seconds?.toString() ?? ""}
-                        onChangeText={(v) => updateExecutionNumber("target_seconds", v)}
-                        type="number"
-                        min={1}
-                      />
-                    </FormRow>
-                  </Col>
-                </Row>
                 <FormRow label="Previous result max chars" description="Per-heartbeat override. 0 = no truncation.">
                   <TextInput
                     value={hbForm.previous_result_max_chars?.toString() ?? ""}

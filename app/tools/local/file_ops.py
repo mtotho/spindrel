@@ -295,15 +295,39 @@ async def _enforce_session_plan_write_policy(operation: str, resolved_path: str,
                 },
                 "find": {
                     "type": "string",
-                    "description": "Exact string to find (for edit operation).",
+                    "description": (
+                        "Exact string to find (for single-hunk edit). For multiple "
+                        "non-contiguous changes in the same file, prefer `edits: [...]` "
+                        "over issuing N parallel edit calls."
+                    ),
                 },
                 "replace": {
                     "type": "string",
-                    "description": "Replacement string (for edit operation).",
+                    "description": "Replacement string (for single-hunk edit).",
                 },
                 "replace_all": {
                     "type": "boolean",
-                    "description": "Replace all occurrences (for edit). Default: false (first only).",
+                    "description": "Replace all occurrences (for single-hunk edit). Default: false (first only).",
+                },
+                "edits": {
+                    "type": "array",
+                    "description": (
+                        "For edit: multiple find/replace hunks applied to the same "
+                        "file in one call. Each item: {find, replace, replace_all?}. "
+                        "Hunks apply left-to-right; each one sees the buffer after "
+                        "prior hunks have been applied. Atomic — if any hunk's `find` "
+                        "doesn't match, the file is not written. Pass either `edits` "
+                        "or `find`/`replace`, not both."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "find": {"type": "string"},
+                            "replace": {"type": "string"},
+                            "replace_all": {"type": "boolean"},
+                        },
+                        "required": ["find", "replace"],
+                    },
                 },
                 "offset": {
                     "type": "integer",
@@ -502,6 +526,7 @@ async def file(
     older_than_days: int | None = None,
     heading: str | None = None,
     create_if_missing: bool = True,
+    edits: list[dict] | None = None,
 ) -> str:
     """Dispatch file operations."""
     # batch dispatches before path resolution — sub-ops carry their own paths.
@@ -603,7 +628,10 @@ async def file(
         elif operation == "append":
             result = _op_append(resolved, content)
         elif operation == "edit":
-            result = _op_edit(resolved, find, replace, replace_all, content=content, bot_id=bot_id)
+            result = _op_edit(
+                resolved, find, replace, replace_all,
+                content=content, bot_id=bot_id, edits=edits,
+            )
         elif operation == "json_patch":
             result = _op_json_patch(resolved, patch)
         elif operation == "history":
@@ -1170,64 +1198,26 @@ def _find_closest_hint(find: str, text: str) -> str:
     )
 
 
-def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool,
-             content: str | None = None, bot_id: str | None = None) -> str:
-    # Auto-recover when LLM passes content instead of find/replace
-    if find is None and content is not None:
-        if replace is not None and replace != content:
-            # LLM put old text in content, new text in replace → treat content as find
-            find = content
-        else:
-            # LLM just wants to overwrite — route to the safe overwrite op so the
-            # read-before-write precondition still applies.
-            logger.info("edit: no find provided, routing to overwrite for %s", path)
-            if not os.path.isfile(path):
-                return _op_create(path, content)
-            return _op_overwrite(path, content, bot_id)
-    if find is None:
-        return _error(
-            "find is required for edit. For a full rewrite, read the file first "
-            "then call operation=\"overwrite\". For structured JSON changes, use "
-            "operation=\"json_patch\"."
-        )
-    if replace is None:
-        replace = content if content is not None else None
-    if replace is None:
-        return _error("replace is required for edit.")
-    if not os.path.isfile(path):
-        return _error("File not found.")
+def _apply_one_edit(
+    text: str,
+    find: str,
+    replace: str,
+    replace_all: bool,
+) -> tuple[str, int, str | None] | None:
+    """Apply one find/replace hunk against an in-memory string.
 
-    text = Path(path).read_text()
-
-    rel = os.path.basename(path)
-
-    def _edit_envelope(new_text: str, count: int, *, matched: str | None = None) -> dict:
-        diff_text = _make_diff(text, new_text, rel)
-        added, removed = _diff_stats(diff_text)
-        out: dict = {
-            "ok": True,
-            "replacements": count,
-            "_envelope": {
-                "content_type": "application/vnd.spindrel.diff+text",
-                "body": diff_text,
-                "plain_body": f"Edited {rel}: +{added} −{removed} lines ({count} replacement{'s' if count != 1 else ''})",
-                "display": "inline",
-            },
-        }
-        if matched:
-            out["matched"] = matched
-        return out
-
+    Returns (new_text, count, matched_kind) on success, None if no match.
+    `matched_kind` is "whitespace-normalized" or "line-contains" when a
+    fallback tier matched, else None for an exact match. Pure function —
+    does no I/O — so it can be reused by both the single-hunk and multi-hunk
+    paths and applied repeatedly against a running buffer.
+    """
     # 1. Exact match — fastest, safest
     if find in text:
         if replace_all:
             count = text.count(find)
-            new_text = text.replace(find, replace)
-        else:
-            count = 1
-            new_text = text.replace(find, replace, 1)
-        Path(path).write_text(new_text)
-        return json.dumps(_edit_envelope(new_text, count), ensure_ascii=False)
+            return text.replace(find, replace), count, None
+        return text.replace(find, replace, 1), 1, None
 
     # 2. Whitespace-normalized match — handles LLM whitespace drift
     pat = _whitespace_flex_pattern(find)
@@ -1246,11 +1236,9 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
                 count = 1
                 m = matches[0]
                 new_text = text[:m.start()] + replace + text[m.end():]
-            Path(path).write_text(new_text)
-            logger.info("edit: whitespace-flex match on %s (%d replacement(s))", path, count)
-            return json.dumps(_edit_envelope(new_text, count, matched="whitespace-normalized"), ensure_ascii=False)
+            return new_text, count, "whitespace-normalized"
 
-    # 3. Line-contains match — find is a long substring of exactly one line
+    # 3. Line-contains match — find is a long substring of exactly one line.
     # Handles the common case where the LLM omits a bullet prefix or trailing text.
     if len(find.strip()) >= 60:
         _find_stripped = find.strip()
@@ -1259,19 +1247,140 @@ def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool
             if _find_stripped in line or line.strip() in _find_stripped
         ]
         if len(_matching_lines) == 1:
-            _idx, _matched_line = _matching_lines[0]
-            # Replace the entire line, preserving the line's leading whitespace
+            _idx, _ = _matching_lines[0]
             lines = text.splitlines(keepends=True)
             _leading = lines[_idx][:len(lines[_idx]) - len(lines[_idx].lstrip())]
             lines[_idx] = _leading + replace.lstrip() + "\n"
-            new_text = "".join(lines)
-            Path(path).write_text(new_text)
-            logger.info("edit: line-contains match on %s (line %d)", path, _idx + 1)
-            return json.dumps(_edit_envelope(new_text, 1, matched="line-contains"), ensure_ascii=False)
+            return "".join(lines), 1, "line-contains"
 
-    # 4. No match — provide helpful error with closest text
-    hint = _find_closest_hint(find, text)
-    return _error(f"find string not found in file.{hint}")
+    return None
+
+
+def _op_edit(path: str, find: str | None, replace: str | None, replace_all: bool,
+             content: str | None = None, bot_id: str | None = None,
+             edits: list[dict] | None = None) -> str:
+    # Multi-hunk path — atomic against the in-memory buffer. Each hunk sees
+    # the buffer after prior hunks have been applied. Any single-hunk failure
+    # aborts the whole call before anything is written to disk.
+    if edits is not None:
+        if not isinstance(edits, list) or not edits:
+            return _error(
+                "edits must be a non-empty list of {find, replace, replace_all?} objects."
+            )
+        if not os.path.isfile(path):
+            return _error("File not found.")
+        if find is not None or replace is not None:
+            return _error(
+                "Pass either `edits` (array) or `find`/`replace` (single hunk), not both."
+            )
+
+        original_text = Path(path).read_text()
+        text = original_text
+        rel = os.path.basename(path)
+        total = 0
+        annotations: list[str] = []
+
+        for i, hunk in enumerate(edits):
+            if not isinstance(hunk, dict):
+                return _error(f"edits[{i}] must be an object with find and replace keys.")
+            h_find = hunk.get("find")
+            h_replace = hunk.get("replace")
+            if h_find is None or h_replace is None:
+                return _error(f"edits[{i}] missing find or replace.")
+            h_all = bool(hunk.get("replace_all", False))
+            applied = _apply_one_edit(text, h_find, h_replace, h_all)
+            if applied is None:
+                hint = _find_closest_hint(h_find, text)
+                return _error(
+                    f"edits[{i}] find string not found in file "
+                    f"(no partial writes were made).{hint}"
+                )
+            text, n, matched = applied
+            total += n
+            if matched:
+                annotations.append(f"#{i}:{matched}")
+
+        Path(path).write_text(text)
+        diff_text = _make_diff(original_text, text, rel)
+        added, removed = _diff_stats(diff_text)
+        hunk_count = len(edits)
+        plain = (
+            f"Edited {rel}: +{added} −{removed} lines "
+            f"({total} replacement{'s' if total != 1 else ''} "
+            f"across {hunk_count} hunk{'s' if hunk_count != 1 else ''})"
+        )
+        out: dict = {
+            "ok": True,
+            "replacements": total,
+            "hunks": hunk_count,
+            "_envelope": {
+                "content_type": "application/vnd.spindrel.diff+text",
+                "body": diff_text,
+                "plain_body": plain,
+                "display": "inline",
+            },
+        }
+        if annotations:
+            out["matched"] = ", ".join(annotations)
+        logger.info("edit: %d hunk(s) on %s (%d replacement(s))", hunk_count, path, total)
+        return json.dumps(out, ensure_ascii=False)
+
+    # Auto-recover when LLM passes content instead of find/replace
+    if find is None and content is not None:
+        if replace is not None and replace != content:
+            # LLM put old text in content, new text in replace → treat content as find
+            find = content
+        else:
+            # LLM just wants to overwrite — route to the safe overwrite op so the
+            # read-before-write precondition still applies.
+            logger.info("edit: no find provided, routing to overwrite for %s", path)
+            if not os.path.isfile(path):
+                return _op_create(path, content)
+            return _op_overwrite(path, content, bot_id)
+    if find is None:
+        return _error(
+            "find is required for edit. For a full rewrite, read the file first "
+            "then call operation=\"overwrite\". For structured JSON changes, use "
+            "operation=\"json_patch\". For multiple changes in the same file, "
+            "pass `edits: [...]`."
+        )
+    if replace is None:
+        replace = content if content is not None else None
+    if replace is None:
+        return _error("replace is required for edit.")
+    if not os.path.isfile(path):
+        return _error("File not found.")
+
+    text = Path(path).read_text()
+    rel = os.path.basename(path)
+
+    applied = _apply_one_edit(text, find, replace, replace_all)
+    if applied is None:
+        hint = _find_closest_hint(find, text)
+        return _error(f"find string not found in file.{hint}")
+
+    new_text, count, matched = applied
+    Path(path).write_text(new_text)
+    if matched:
+        logger.info("edit: %s match on %s (%d replacement(s))", matched, path, count)
+    diff_text = _make_diff(text, new_text, rel)
+    added, removed = _diff_stats(diff_text)
+    out_single: dict = {
+        "ok": True,
+        "replacements": count,
+        "_envelope": {
+            "content_type": "application/vnd.spindrel.diff+text",
+            "body": diff_text,
+            "plain_body": (
+                f"Edited {rel}: +{added} −{removed} lines "
+                f"({count} replacement{'s' if count != 1 else ''})"
+            ),
+            "display": "inline",
+        },
+    }
+    if matched:
+        out_single["matched"] = matched
+    return json.dumps(out_single, ensure_ascii=False)
 
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+\S")

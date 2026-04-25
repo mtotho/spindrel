@@ -2115,6 +2115,133 @@ class TestEditAutoRecoverRouting:
         assert Path(target).read_text() == "new\n"
 
 
+class TestEditMultiHunk:
+    """`edits: [...]` applies multiple find/replace hunks atomically against
+    the file's in-memory buffer. Captures the only practical advantage a
+    unified-diff dialect has over single-hunk SEARCH/REPLACE.
+    """
+
+    def test_two_hunks_happy_path(self, ws):
+        path = str(ws / "story.md")
+        Path(path).write_text("alpha\nbeta\ngamma\ndelta\n")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[
+                {"find": "alpha", "replace": "ALPHA"},
+                {"find": "gamma", "replace": "GAMMA"},
+            ],
+        ))
+        assert parsed["ok"] is True
+        assert parsed["replacements"] == 2
+        assert parsed["hunks"] == 2
+        assert Path(path).read_text() == "ALPHA\nbeta\nGAMMA\ndelta\n"
+
+    def test_atomic_first_succeeds_second_fails_no_write(self, ws):
+        """If hunk N's `find` doesn't match, the file must remain pristine."""
+        path = str(ws / "atomic.md")
+        original = "alpha\nbeta\ngamma\n"
+        Path(path).write_text(original)
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[
+                {"find": "alpha", "replace": "ALPHA"},
+                {"find": "NOT_PRESENT", "replace": "x"},
+            ],
+        ))
+        assert "error" in parsed
+        # No partial write — file must be exactly what we started with.
+        assert Path(path).read_text() == original
+
+    def test_second_hunk_sees_post_first_hunk_buffer(self, ws):
+        """Sequential semantics: hunk 2 operates on text after hunk 1 applied."""
+        path = str(ws / "seq.txt")
+        Path(path).write_text("foo\n")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[
+                {"find": "foo", "replace": "bar"},
+                {"find": "bar", "replace": "baz"},
+            ],
+        ))
+        assert parsed["ok"] is True
+        assert Path(path).read_text() == "baz\n"
+
+    def test_envelope_combines_hunks_into_one_diff(self, ws):
+        path = str(ws / "envelope.md")
+        Path(path).write_text("one\ntwo\nthree\nfour\nfive\n")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[
+                {"find": "one", "replace": "ONE"},
+                {"find": "five", "replace": "FIVE"},
+            ],
+        ))
+        assert parsed["ok"] is True
+        envelope = parsed["_envelope"]
+        assert envelope["content_type"] == "application/vnd.spindrel.diff+text"
+        body = envelope["body"]
+        # Both edits show up in the same diff body, with their respective hunks.
+        assert "-one" in body and "+ONE" in body
+        assert "-five" in body and "+FIVE" in body
+
+    def test_single_hunk_back_compat(self, ws):
+        """Old find/replace path still works; envelope still 1 replacement."""
+        path = str(ws / "compat.md")
+        Path(path).write_text("hello world\n")
+        parsed = json.loads(_op_edit(
+            path, "hello", "HELLO", False,
+        ))
+        assert parsed["ok"] is True
+        assert parsed["replacements"] == 1
+        assert "hunks" not in parsed  # single-hunk path doesn't emit `hunks`
+
+    def test_rejects_both_edits_and_find(self, ws):
+        path = str(ws / "hello.txt")
+        parsed = json.loads(_op_edit(
+            path, find="Hello", replace="X", replace_all=False,
+            edits=[{"find": "Hello", "replace": "Y"}],
+        ))
+        assert "error" in parsed
+
+    def test_rejects_empty_edits_list(self, ws):
+        path = str(ws / "hello.txt")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False, edits=[],
+        ))
+        assert "error" in parsed
+
+    def test_rejects_missing_find_or_replace_in_hunk(self, ws):
+        path = str(ws / "hello.txt")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[{"find": "Hello"}],
+        ))
+        assert "error" in parsed
+
+    def test_file_not_found_errors_before_any_apply(self, ws):
+        parsed = json.loads(_op_edit(
+            str(ws / "nope.txt"), find=None, replace=None, replace_all=False,
+            edits=[{"find": "x", "replace": "y"}],
+        ))
+        assert "error" in parsed
+        assert "not found" in parsed["error"].lower()
+
+    def test_per_hunk_replace_all(self, ws):
+        path = str(ws / "rallm.txt")
+        Path(path).write_text("x x x y y y\n")
+        parsed = json.loads(_op_edit(
+            path, find=None, replace=None, replace_all=False,
+            edits=[
+                {"find": "x", "replace": "X", "replace_all": True},
+                {"find": "y", "replace": "Y"},
+            ],
+        ))
+        assert parsed["ok"] is True
+        # x replaced 3 times, y once → 4 total replacements.
+        assert parsed["replacements"] == 4
+        assert Path(path).read_text() == "X X X Y y y\n"
+
+
 class TestReplaceSectionOp:
     """Heading-bounded markdown section replacement.
 

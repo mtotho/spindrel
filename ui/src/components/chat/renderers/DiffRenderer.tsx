@@ -7,6 +7,11 @@
  * long lines wrap inside the line's content cell rather than offsetting
  * subsequent lines.
  *
+ * Line-number gutter: each row carries the source-side line number (for
+ * removals + context) and target-side line number (for additions + context),
+ * derived from the `@@ -O,c +N,c @@` hunk headers. Numbers are rendered in
+ * tabular-nums so column widths stay stable.
+ *
  * Empty diff body → "(no changes)" placeholder.
  */
 import type { ThemeTokens } from "../../../theme/tokens";
@@ -21,25 +26,53 @@ interface Props {
 }
 
 type DiffLine =
-  | { kind: "add"; text: string }
-  | { kind: "remove"; text: string }
-  | { kind: "context"; text: string }
-  | { kind: "hunk"; text: string }
+  | { kind: "add"; text: string; newNo: number }
+  | { kind: "remove"; text: string; oldNo: number }
+  | { kind: "context"; text: string; oldNo: number; newNo: number }
+  | { kind: "hunk"; text: string; oldStart: number; newStart: number }
   | { kind: "header"; text: string };
 
-function parseDiff(body: string): DiffLine[] {
+const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+export function parseDiff(body: string): DiffLine[] {
   const out: DiffLine[] = [];
-  for (const line of body.split("\n")) {
+  let oldNo = 0;
+  let newNo = 0;
+  const rawLines = body.split("\n");
+  // Drop a trailing empty line caused by a body that ends with "\n" — it isn't
+  // part of the diff and would otherwise advance the counters by one.
+  if (rawLines.length > 0 && rawLines[rawLines.length - 1] === "") {
+    rawLines.pop();
+  }
+  for (const line of rawLines) {
     if (line.startsWith("+++") || line.startsWith("---")) {
       out.push({ kind: "header", text: line });
     } else if (line.startsWith("@@")) {
-      out.push({ kind: "hunk", text: line });
+      const m = HUNK_RE.exec(line);
+      if (m) {
+        oldNo = parseInt(m[1], 10);
+        newNo = parseInt(m[2], 10);
+        out.push({ kind: "hunk", text: line, oldStart: oldNo, newStart: newNo });
+      } else {
+        out.push({ kind: "hunk", text: line, oldStart: 0, newStart: 0 });
+      }
+    } else if (line.startsWith("\\")) {
+      // "\ No newline at end of file" and similar metadata — render as
+      // header-style so it carries no line numbers and doesn't advance counters.
+      out.push({ kind: "header", text: line });
     } else if (line.startsWith("+")) {
-      out.push({ kind: "add", text: line.slice(1) });
+      out.push({ kind: "add", text: line.slice(1), newNo });
+      newNo += 1;
     } else if (line.startsWith("-")) {
-      out.push({ kind: "remove", text: line.slice(1) });
+      out.push({ kind: "remove", text: line.slice(1), oldNo });
+      oldNo += 1;
     } else {
-      out.push({ kind: "context", text: line.startsWith(" ") ? line.slice(1) : line });
+      // Context — `unified_diff` prefixes context lines with a single space,
+      // but be lenient if the leading space is missing.
+      const text = line.startsWith(" ") ? line.slice(1) : line;
+      out.push({ kind: "context", text, oldNo, newNo });
+      oldNo += 1;
+      newNo += 1;
     }
   }
   return out;
@@ -74,6 +107,18 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
       ? summary
       : null;
 
+  // Width of each line-number column: enough digits for the largest number we
+  // expect to render, capped sensibly.
+  const maxNo = lines.reduce((acc, line) => {
+    if (line.kind === "add") return Math.max(acc, line.newNo);
+    if (line.kind === "remove") return Math.max(acc, line.oldNo);
+    if (line.kind === "context") return Math.max(acc, line.oldNo, line.newNo);
+    return acc;
+  }, 0);
+  const numCh = Math.max(2, String(maxNo).length);
+  // ch units keep the gutter monospace-aligned regardless of font.
+  const numCol = `${numCh + 1}ch`;
+
   return (
     <div style={{ fontFamily: CODE_FONT_STACK }}>
       {diffSummary && (
@@ -90,10 +135,12 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
           overflow: "hidden",
           maxHeight: 400,
           overflowY: isTerminal ? "hidden" : "auto",
+          fontVariantNumeric: "tabular-nums",
         }}
       >
         {lines.map((line, i) => {
           const styles = lineStyles(line, t, isTerminal);
+          const { oldNo, newNo } = lineNumbers(line);
           return (
             <div
               key={i}
@@ -105,7 +152,31 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
             >
               <div
                 style={{
-                  flex: isTerminal ? "0 0 24px" : "0 0 18px",
+                  flex: `0 0 ${numCol}`,
+                  textAlign: "right",
+                  padding: "0 6px 0 4px",
+                  color: t.textDim,
+                  userSelect: "none",
+                  opacity: 0.9,
+                }}
+              >
+                {oldNo ?? ""}
+              </div>
+              <div
+                style={{
+                  flex: `0 0 ${numCol}`,
+                  textAlign: "right",
+                  padding: "0 6px 0 0",
+                  color: t.textDim,
+                  userSelect: "none",
+                  opacity: 0.9,
+                }}
+              >
+                {newNo ?? ""}
+              </div>
+              <div
+                style={{
+                  flex: isTerminal ? "0 0 20px" : "0 0 16px",
                   textAlign: "center",
                   color: styles.gutterColor,
                   userSelect: "none",
@@ -123,7 +194,7 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
                   color: styles.textColor,
                 }}
               >
-                {line.text || "\u00a0"}
+                {line.text || " "}
               </div>
             </div>
           );
@@ -131,6 +202,20 @@ export function DiffRenderer({ body, rendererVariant = "default-chat", summary, 
       </div>
     </div>
   );
+}
+
+function lineNumbers(line: DiffLine): { oldNo: number | null; newNo: number | null } {
+  switch (line.kind) {
+    case "add":
+      return { oldNo: null, newNo: line.newNo };
+    case "remove":
+      return { oldNo: line.oldNo, newNo: null };
+    case "context":
+      return { oldNo: line.oldNo, newNo: line.newNo };
+    case "hunk":
+    case "header":
+      return { oldNo: null, newNo: null };
+  }
 }
 
 function DiffTitle({ summary, t }: { summary: ToolCallSummary; t: ThemeTokens }) {

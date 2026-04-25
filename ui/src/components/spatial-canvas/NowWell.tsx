@@ -142,10 +142,10 @@ export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
                 rx={r}
                 ry={r * WELL_Y_SQUASH}
                 fill="none"
-                stroke="rgb(var(--color-text) / 0.16)"
-                strokeWidth={isMajor ? 1.2 : 0.8}
+                stroke="rgb(var(--color-text) / 0.11)"
+                strokeWidth={isMajor ? 1 : 0.7}
                 strokeDasharray={isMajor ? "5 7" : "2 10"}
-                opacity={isMajor ? 1 : 0.58}
+                opacity={isMajor ? 0.72 : 0.32}
               />
               {showLabels && isMajor && (
                 <text

@@ -97,13 +97,14 @@ The lens is render-only — no DB writes, no persisted state changes — so it i
 
 ![The Now Well — concentric ellipses with two scheduled-task diamonds in orbit](../images/spatial-blackhole.png)
 
-A landmark sits below the channel constellation: the **Now Well**, a stack of concentric squashed ellipses with a dark inner gradient and a live `now · HH:MM` clock. It reads as an isometric hole in the floor, with three labeled time bands at `1h`, `1d`, `1w`.
+A landmark sits below the channel constellation: the **Now Well**, a stack of quiet concentric squashed ellipses with a black inner gradient, soft blue/violet haze, and a live `now · HH:MM` clock. It reads as an isometric hole in the floor. The 1-week horizon uses granular time bands (`15m`, `1h`, `6h`, `12h`, `1d`, `2d`, `3d`, `5d`, `1w`) so multi-day work does not collapse into one crowded ring.
 
 Scheduled work orbits the well. Each upcoming item — a scheduled task, a heartbeat, a memory-hygiene job — renders as a diamond glyph at a polar position whose **radius** encodes how far in the future the item fires (closer = sooner) and whose **angle** is a stable hash of the item's identity. Three semantic-zoom levels mirror channel tiles: distant items are dots, mid-zoom shows the diamond glyph, close-up shows glyph + title + relative time.
 
 - Items firing within 60 minutes get an **imminent boost** — they jump up a tier so they are readable without zooming in.
 - Type-specific inner icons: tasks get a clock, heartbeats get an activity pulse, memory-hygiene gets a sparkle.
 - Color follows the source channel's hue (or the bot's, when no channel is bound).
+- Items in the same coarse radius/angle cell get a small deterministic visual fan-out so they do not sit directly on top of each other.
 - A 5-second client tick advances orbit radii smoothly between fetches.
 - Click a tile: tasks open the task detail page; heartbeats open the channel.
 - Click the well's center to jump to the admin tasks list.
