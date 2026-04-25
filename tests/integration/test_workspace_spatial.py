@@ -611,3 +611,32 @@ class TestPositionHistory:
         await db_session.refresh(row)
         assert len(row.position_history) == 1
         assert row.position_history[0]["x"] != 1.0  # old entry pruned
+
+    async def test_world_coord_clamp_rejects_pathological_drag(self, client):
+        """A glitched drag that produces |world_x| or |world_y| beyond the
+        sanity limit must be refused — the tile stays put rather than being
+        flung to ~1e9 world units, where it'd be unreachable without the
+        Cmd+K palette."""
+        await _create_channel(client)
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        node = nodes[0]
+        prev_x, prev_y = node["world_x"], node["world_y"]
+        # Out-of-range x — refused.
+        r = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node['id']}",
+            json={"world_x": 1.0e9, "world_y": 0.0},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code in (400, 422), r.text
+        # Tile still at original coords.
+        nodes2 = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        cur = next(n for n in nodes2 if n["id"] == node["id"])
+        assert cur["world_x"] == prev_x
+        assert cur["world_y"] == prev_y
+        # Out-of-range y — refused.
+        r2 = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node['id']}",
+            json={"world_y": -1.0e9},
+            headers=AUTH_HEADERS,
+        )
+        assert r2.status_code in (400, 422), r2.text

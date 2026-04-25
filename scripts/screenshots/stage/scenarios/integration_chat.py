@@ -184,21 +184,30 @@ def stage_integration_chat(
     bot_scenarios.ensure_demo_bots(client)
     core._ensure_chat_content_bots(client)  # noqa: SLF001 — internal helper, intentional reuse
 
-    # Pin the integration tools directly on the orchestrator so the agent
-    # loop hits them without going through the multi-turn search_tools /
-    # get_tool_info discovery dance. Both legacy + new tool names included
-    # so the same scenario works against commit-tip code and older e2e
-    # snapshots. Restored to ``[]`` in teardown.
-    pinned = [
+    # Make the integration tools both (a) visible to the LLM and (b)
+    # authorized for execution. ``local_tools`` puts the tool name directly
+    # into the bot's static tool list, which is what the agent loop checks
+    # against ``allowed_tool_names`` at dispatch time. ``pinned_tools``
+    # alone only puts the schema in front of the LLM but doesn't grant
+    # execute permission — discovered the hard way; pinning excalidraw
+    # surfaced its schema but the dispatcher returned "must be explicitly
+    # assigned to this bot". Both legacy and new tool names are listed so
+    # the same scenario works on commit-tip code and on older e2e
+    # snapshots that still expose ``create_slides`` etc.
+    integration_tools = [
         "mermaid_to_excalidraw", "create_excalidraw",
         "create_marp_slides", "create_slides",
         "browser_status", "browser_goto", "browser_screenshot",
     ]
     try:
-        client.update_bot(core.KB_BOT_ID, pinned_tools=pinned)
+        client.update_bot(
+            core.KB_BOT_ID,
+            local_tools=integration_tools,
+            pinned_tools=integration_tools,
+        )
     except Exception:
         logger.exception(
-            "failed to pin integration tools on %s; bot will fall back to "
+            "failed to assign integration tools on %s; bot will fall back to "
             "discovery (and likely respond with search_tools / get_tool_info)",
             core.KB_BOT_ID,
         )
@@ -245,6 +254,9 @@ def teardown_integration_chat(client: SpindrelClient) -> None:
     # Restore the orchestrator to its default (no pinned tools) so unrelated
     # captures don't run with a sticky integration-chat tool surface.
     try:
-        client.update_bot(core.KB_BOT_ID, pinned_tools=[])
+        client.update_bot(core.KB_BOT_ID, local_tools=[], pinned_tools=[])
     except Exception:
-        logger.exception("failed to clear pinned_tools on %s", core.KB_BOT_ID)
+        logger.exception(
+            "failed to clear local_tools / pinned_tools on %s",
+            core.KB_BOT_ID,
+        )

@@ -31,6 +31,7 @@ import {
   ExternalLink,
   Trash2,
   Locate,
+  Move,
 } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
@@ -1078,6 +1079,57 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         // Background — no tile under the cursor.
         const worldX = world?.x ?? 0;
         const worldY = world?.y ?? 0;
+        const screenX = e.clientX;
+        const screenY = e.clientY;
+        // "Move <kind> here" picker. Builds a second-level menu of every
+        // existing node of the chosen kind; clicking moves it so its CENTER
+        // lands at the right-click point. Doubles as an escape hatch when a
+        // tile glitches off-screen — pick it from the list and reseat it.
+        const openMovePicker = (
+          kind: "channel" | "widget" | "bot",
+        ) => {
+          const candidates = list.filter((n) => {
+            if (kind === "channel") return Boolean(n.channel_id);
+            if (kind === "widget") return Boolean(n.pin);
+            return Boolean(n.bot_id);
+          });
+          const labelFor = (n: SpatialNode): string => {
+            if (n.channel_id) {
+              const c = channelsById.get(n.channel_id);
+              return c?.name ? `#${c.name}` : "channel";
+            }
+            if (n.bot_id) {
+              return n.bot?.display_name || n.bot?.name || n.bot_id;
+            }
+            return n.pin?.display_label
+              || n.pin?.tool_name
+              || "widget";
+          };
+          const sorted = [...candidates].sort((a, b) =>
+            labelFor(a).localeCompare(labelFor(b)),
+          );
+          const pickerItems: SpatialContextMenuItem[] = sorted.map((n) => ({
+            label: labelFor(n),
+            icon: <Move size={14} />,
+            onClick: () =>
+              updateNode.mutate({
+                nodeId: n.id,
+                body: {
+                  world_x: worldX - n.world_w / 2,
+                  world_y: worldY - n.world_h / 2,
+                },
+              }),
+          }));
+          if (pickerItems.length === 0) {
+            pickerItems.push({
+              label: `No ${kind}s on the canvas`,
+              icon: <Move size={14} />,
+              disabled: true,
+              onClick: () => {},
+            });
+          }
+          setContextMenu({ screenX, screenY, items: pickerItems });
+        };
         items.push({
           label: "Add widget here",
           icon: <Plus size={14} />,
@@ -1085,6 +1137,26 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             setPinPositionOverride({ x: worldX - 160, y: worldY - 110 });
             setLibraryOpen(true);
           },
+        });
+        items.push({
+          label: "Move channel here…",
+          icon: <Move size={14} />,
+          onClick: () => openMovePicker("channel"),
+          // The menu re-opens with the picker; suppress the default
+          // post-click close.
+          keepOpen: true,
+        });
+        items.push({
+          label: "Move widget here…",
+          icon: <Move size={14} />,
+          onClick: () => openMovePicker("widget"),
+          keepOpen: true,
+        });
+        items.push({
+          label: "Move bot here…",
+          icon: <Move size={14} />,
+          onClick: () => openMovePicker("bot"),
+          keepOpen: true,
         });
         items.push({
           label: "Recenter",
@@ -1337,6 +1409,17 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 lens={lens}
                 lensSettling={lensSettling}
                 activatorMode={isFramelessGame ? "scoped" : "full"}
+                onScopedDragStart={() => {
+                  setDraggingNodeId(node.id);
+                  setActivatedTileId(null);
+                  if (lensEngaged) {
+                    setLensEngaged(false);
+                    triggerLensSettle();
+                  }
+                }}
+                onScopedDragEnd={() => {
+                  setDraggingNodeId((curr) => (curr === node.id ? null : curr));
+                }}
                 onHoverChange={(hovered) =>
                   setHoveredNodeId((curr) => {
                     if (hovered) return node.id;
@@ -1842,6 +1925,8 @@ interface DraggableNodeProps {
    *  grip handle), which lets the rest of the tile fall through to the
    *  canvas pan. Used by frameless game widgets. */
   activatorMode?: "full" | "scoped";
+  onScopedDragStart?: () => void;
+  onScopedDragEnd?: () => void;
   children: React.ReactNode;
 }
 
@@ -1966,24 +2051,98 @@ function DraggableNode({
   lensSettling,
   onHoverChange,
   activatorMode = "full",
+  onScopedDragStart,
+  onScopedDragEnd,
   children,
 }: DraggableNodeProps) {
+  const updateNode = useUpdateSpatialNode();
+  const [scopedDrag, setScopedDrag] = useState<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dx: number;
+    dy: number;
+  } | null>(null);
   const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform } = useDraggable({
     id: node.id,
-    disabled: diving,
+    disabled: diving || activatorMode === "scoped",
   });
+  const handleScopedPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (activatorMode !== "scoped" || diving || e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setScopedDrag({
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        dx: 0,
+        dy: 0,
+      });
+      onScopedDragStart?.();
+      e.currentTarget.setPointerCapture(e.pointerId);
+    },
+    [activatorMode, diving, onScopedDragStart],
+  );
+  const handleScopedPointerMove = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (!scopedDrag || scopedDrag.pointerId !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setScopedDrag((drag) =>
+        drag && drag.pointerId === e.pointerId
+          ? { ...drag, dx: e.clientX - drag.startX, dy: e.clientY - drag.startY }
+          : drag,
+      );
+    },
+    [scopedDrag],
+  );
+  const finishScopedDrag = useCallback(
+    (e: ReactPointerEvent<HTMLElement>) => {
+      if (!scopedDrag || scopedDrag.pointerId !== e.pointerId) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      setScopedDrag(null);
+      onScopedDragEnd?.();
+      if (scopedDrag.dx === 0 && scopedDrag.dy === 0) return;
+      updateNode.mutate({
+        nodeId: node.id,
+        body: {
+          world_x: node.world_x + scopedDrag.dx / scale,
+          world_y: node.world_y + scopedDrag.dy / scale,
+        },
+      });
+    },
+    [node.id, node.world_x, node.world_y, onScopedDragEnd, scale, scopedDrag, updateNode],
+  );
   const activatorBundle: DragActivatorBundle = {
-    setRef: setActivatorNodeRef,
+    setRef: activatorMode === "scoped" ? () => {} : setActivatorNodeRef,
     // dnd-kit's generated types don't have an index signature; cast through
     // `unknown` at the boundary so consumers get a stable shape.
-    listeners: listeners as unknown as DragActivatorBundle["listeners"],
-    attributes: attributes as unknown as DragActivatorBundle["attributes"],
+    listeners: (activatorMode === "scoped"
+      ? {
+          onPointerDown: handleScopedPointerDown,
+          onPointerMove: handleScopedPointerMove,
+          onPointerUp: finishScopedDrag,
+          onPointerCancel: finishScopedDrag,
+        }
+      : listeners) as unknown as DragActivatorBundle["listeners"],
+    attributes: (activatorMode === "scoped"
+      ? { role: "button", tabIndex: 0 }
+      : attributes) as unknown as DragActivatorBundle["attributes"],
   };
   // dnd-kit returns a screen-pixel translate during drag. The tile lives
   // inside a parent that's scaled by `camera.scale`, so dividing by scale
   // makes the tile's screen movement match the cursor 1:1.
   const dragTranslate = transform
     ? `translate(${transform.x / scale}px, ${transform.y / scale}px)`
+    : scopedDrag
+    ? `translate(${scopedDrag.dx / scale}px, ${scopedDrag.dy / scale}px)`
     : "";
   // Fisheye contribution composes after drag: translate to projected position
   // (in world coords so it pre-multiplies through the parent's scale), then
@@ -1998,7 +2157,7 @@ function DraggableNode({
   // Lens settling = 250ms ease-out (smooth pop-in / pop-out).
   // Otherwise default 120ms for nudges and post-drag commit.
   let transition: string;
-  if (isDragging) {
+  if (isDragging || scopedDrag) {
     transition = "none";
   } else if (lensSettling) {
     transition = `transform ${LENS_SETTLE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
@@ -2014,7 +2173,7 @@ function DraggableNode({
     top: node.world_y,
     width: node.world_w,
     height: node.world_h,
-    zIndex: isDragging ? 10 : node.z_index,
+    zIndex: isDragging || scopedDrag ? 10 : node.z_index,
     transform: transformStack || undefined,
     transformOrigin: "center center",
     transition,

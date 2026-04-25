@@ -19,6 +19,9 @@ export interface SpatialContextMenuItem {
   separator?: boolean;
   /** Renders the row in muted/disabled style and skips onClick. */
   disabled?: boolean;
+  /** When true, do NOT auto-close after onClick. Used by submenu launchers
+   *  (e.g. "Move ... here...") that re-set the menu items inside onClick. */
+  keepOpen?: boolean;
 }
 
 interface SpatialContextMenuProps {
@@ -101,7 +104,7 @@ export function SpatialContextMenu({
                 e.stopPropagation();
                 if (item.disabled) return;
                 item.onClick();
-                onClose();
+                if (!item.keepOpen) onClose();
               }}
               className={`w-full flex flex-row items-center gap-2 px-3 py-1.5 text-left text-xs leading-tight cursor-pointer bg-transparent border-0 ${
                 item.disabled

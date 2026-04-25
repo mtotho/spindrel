@@ -66,6 +66,13 @@ _SAT_RING_GROWTH = 60.0
 MOVEMENT_HISTORY_TTL_HOURS = 72
 MAX_HISTORY_POINTS = 30
 
+# Hard sanity bound on world coordinates. Phyllotaxis seeds + tug steps stay
+# inside ±5k; even pathological pinch-zoom-mid-drag cases land within ±20k.
+# A drag that produces |world_x| or |world_y| beyond this is treated as a
+# client glitch and rejected — the tile stays put, recoverable via Cmd+K or
+# the right-click "Move … here" picker.
+WORLD_COORD_LIMIT = 50_000.0
+
 SPATIAL_POLICY_KEY = "spatial_bots"
 DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "enabled": False,
@@ -1176,9 +1183,19 @@ async def update_node_position(
     node = await get_node(db, node_id)
     prev_x, prev_y = node.world_x, node.world_y
     if world_x is not None:
-        node.world_x = float(world_x)
+        wx = float(world_x)
+        if not math.isfinite(wx) or abs(wx) > WORLD_COORD_LIMIT:
+            raise ValidationError(
+                f"world_x out of range: {wx} (limit ±{WORLD_COORD_LIMIT})"
+            )
+        node.world_x = wx
     if world_y is not None:
-        node.world_y = float(world_y)
+        wy = float(world_y)
+        if not math.isfinite(wy) or abs(wy) > WORLD_COORD_LIMIT:
+            raise ValidationError(
+                f"world_y out of range: {wy} (limit ±{WORLD_COORD_LIMIT})"
+            )
+        node.world_y = wy
     if world_w is not None:
         if world_w <= 0:
             raise ValidationError("world_w must be > 0")
