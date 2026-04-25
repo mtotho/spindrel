@@ -4,7 +4,8 @@ status: active
 updated: 2026-04-25 (Admin Tasks + pipeline builder cleanup)
 ---
 
-<!-- Latest pass (2026-04-25): Admin Tasks and the shared pipeline builder migrated to low-chrome task control surfaces. -->
+<!-- Latest pass (2026-04-25): Agent Smell native widget added as a low-chrome trace-investigation card that opens evidence in the shared inspector. -->
+<!-- Previous pass (2026-04-25): Admin Tasks and the shared pipeline builder migrated to low-chrome task control surfaces. -->
 <!-- Previous pass (2026-04-25): usage/cost tabs refreshed, trace drilldowns promoted to shared drawer action, SettingsMeter added to shared controls. -->
 <!-- Latest pass (2026-04-24): Memory & Knowledge Dreaming tab/table cleanup completed the missed shared-control migration. See UI Polish shared-control reset. -->
 <!-- Previous pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->

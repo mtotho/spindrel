@@ -26,6 +26,7 @@ from app.services.workspace_spatial import (
     delete_node,
     get_channel_bot_spatial_policy,
     list_nodes,
+    pin_dashboard_pin_to_canvas,
     pin_widget_to_canvas,
     serialize_node,
     update_channel_bot_spatial_policy,
@@ -46,9 +47,10 @@ class UpdateNodePositionRequest(BaseModel):
 
 
 class PinWidgetToCanvasRequest(BaseModel):
-    source_kind: str = Field(..., description="'channel' or 'adhoc'")
-    tool_name: str
-    envelope: dict
+    source_dashboard_pin_id: uuid.UUID | None = None
+    source_kind: str | None = Field(None, description="'channel' or 'adhoc'")
+    tool_name: str | None = None
+    envelope: dict | None = None
     source_channel_id: uuid.UUID | None = None
     source_bot_id: str | None = None
     tool_args: dict | None = None
@@ -217,24 +219,40 @@ async def pin_widget(
     ``workspace_spatial_nodes`` row in one transaction.
     """
     try:
-        pin, node = await pin_widget_to_canvas(
-            db,
-            source_kind=body.source_kind,
-            tool_name=body.tool_name,
-            envelope=body.envelope,
-            source_channel_id=body.source_channel_id,
-            source_bot_id=body.source_bot_id,
-            tool_args=body.tool_args,
-            widget_config=body.widget_config,
-            widget_origin=body.widget_origin,
-            display_label=body.display_label,
-            world_x=body.world_x,
-            world_y=body.world_y,
-            world_w=body.world_w if body.world_w is not None else 220.0,
-            world_h=body.world_h if body.world_h is not None else 140.0,
-        )
+        if body.source_dashboard_pin_id is not None:
+            pin, node = await pin_dashboard_pin_to_canvas(
+                db,
+                source_dashboard_pin_id=body.source_dashboard_pin_id,
+                world_x=body.world_x,
+                world_y=body.world_y,
+                world_w=body.world_w if body.world_w is not None else 220.0,
+                world_h=body.world_h if body.world_h is not None else 140.0,
+            )
+        else:
+            if body.source_kind is None or body.tool_name is None or body.envelope is None:
+                raise ValidationError(
+                    "source_kind, tool_name, and envelope are required unless source_dashboard_pin_id is provided",
+                )
+            pin, node = await pin_widget_to_canvas(
+                db,
+                source_kind=body.source_kind,
+                tool_name=body.tool_name,
+                envelope=body.envelope,
+                source_channel_id=body.source_channel_id,
+                source_bot_id=body.source_bot_id,
+                tool_args=body.tool_args,
+                widget_config=body.widget_config,
+                widget_origin=body.widget_origin,
+                display_label=body.display_label,
+                world_x=body.world_x,
+                world_y=body.world_y,
+                world_w=body.world_w if body.world_w is not None else 220.0,
+                world_h=body.world_h if body.world_h is not None else 140.0,
+            )
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
     return {"pin": serialize_pin(pin), "node": serialize_node(node)}
 
 

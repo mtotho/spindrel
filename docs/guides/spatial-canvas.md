@@ -47,9 +47,9 @@ Each channel renders at one of three semantic-zoom levels — the bounding box s
 Widgets are **opt-in**. The canvas does not auto-populate with every pinned widget — that would be noise. Two paths put a widget on the canvas:
 
 1. **From a chat widget** — every widget card in chat has a `Pin to canvas` action (`LayoutGrid` icon, sibling of "Add to dashboard").
-2. **From an existing channel-dashboard pin** — the same `LayoutGrid` icon appears on hover in `PinnedToolWidget` chrome rows. One click clones the widget onto the canvas.
+2. **From an existing channel-dashboard pin** — the same `LayoutGrid` icon appears on hover in `PinnedToolWidget` chrome rows. One click projects the widget onto the canvas.
 
-Pinning to the canvas creates an **independent** pin. Channel-dashboard edits never propagate to the canvas pin (and vice versa).
+Pinning to the canvas creates an **independent placement**. For ordinary tool/HTML widgets, the canvas pin has its own envelope/config row. For channel-scoped native widgets like Notes and Todo, promoting from the channel dashboard projects the same `WidgetInstance`, so edits in the channel dashboard and on the spatial tile stay identical. Adding a native widget directly from the canvas catalog still creates a fresh instance.
 
 Widget tiles also have three semantic-zoom levels:
 

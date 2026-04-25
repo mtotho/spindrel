@@ -30,6 +30,8 @@ export function envelopeIdentityKey(
   widgetConfig?: Record<string, unknown> | null,
 ): string {
   const prefix = toolName.includes("-") ? toolName.split("-")[0] : toolName;
+  const nativeInstanceId = extractNativeInstanceId(envelope.body);
+  if (nativeInstanceId) return `${prefix}::instance:${nativeInstanceId}`;
   // HTML widgets loaded from a workspace file have an empty `body`; their
   // identity is the path within the channel's workspace. Without this, two
   // different emit_html_widget calls collapse to the same anon identity and
@@ -45,6 +47,22 @@ export function envelopeIdentityKey(
   if (envelope.display_label) return `${prefix}::${envelope.display_label.toLowerCase()}`;
   if (envelope.record_id) return `${prefix}::rec:${envelope.record_id}`;
   return `${prefix}::${toolName}::${envelope.record_id ?? "anon"}`;
+}
+
+function extractNativeInstanceId(body: unknown): string | null {
+  let parsed = body;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const widgetInstanceId = (parsed as { widget_instance_id?: unknown }).widget_instance_id;
+  return typeof widgetInstanceId === "string" && widgetInstanceId.trim()
+    ? widgetInstanceId.trim()
+    : null;
 }
 
 function extractConfigBinding(widgetConfig?: Record<string, unknown> | null): string | null {

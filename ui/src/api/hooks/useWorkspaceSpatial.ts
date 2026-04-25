@@ -12,6 +12,7 @@ export interface SpatialNodePin {
   display_label: string | null;
   source_bot_id: string | null;
   source_channel_id: string | null;
+  widget_instance_id?: string | null;
   envelope: Record<string, unknown>;
   widget_origin?: Record<string, unknown> | null;
   widget_config?: Record<string, unknown>;
@@ -148,9 +149,10 @@ export function useDeleteSpatialNode() {
 }
 
 interface PinWidgetBody {
-  source_kind: "channel" | "adhoc";
-  tool_name: string;
-  envelope: Record<string, unknown>;
+  source_dashboard_pin_id?: string;
+  source_kind?: "channel" | "adhoc";
+  tool_name?: string;
+  envelope?: Record<string, unknown>;
   source_channel_id?: string;
   source_bot_id?: string | null;
   tool_args?: Record<string, unknown>;

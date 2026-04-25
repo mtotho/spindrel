@@ -11,7 +11,7 @@ There are two shapes of dashboard, and both are used by the same pins, grid, and
 - **Named user dashboards** at `/widgets/<slug>` — your personal pinboards (`default`, plus any you create: `home`, `monitoring`, etc.). Cross-channel; mix tools from any bot on any channel.
 - **Channel dashboards** at `/widgets/channel/:channelId` — one per channel, lazy-created. Unlike user dashboards, these map onto the actual chat layout zones: left rail, center dashboard, right rail, and the floating top-center header rail.
 
-A third surface — the **[Spatial Canvas](spatial-canvas.md)** — also pins widgets, on a workspace-scope infinite plane instead of a grid. Canvas pins ride the same envelope, contract snapshot, and bot-scoped auth as channel-dashboard pins; they live under a reserved dashboard slug that is filtered out of every dashboard-listing surface.
+A third surface — the **[Spatial Canvas](spatial-canvas.md)** — also pins widgets, on a workspace-scope infinite plane instead of a grid. Canvas pins ride the same envelope, contract snapshot, and bot-scoped auth as channel-dashboard pins; they live under a reserved dashboard slug that is filtered out of every dashboard-listing surface. When a channel-dashboard native widget is pinned to the canvas, the canvas placement reuses the channel widget's instance so both surfaces show and edit the same Notes/Todo state.
 
 You reach the `/widgets` page from the left sidebar rail ("Widgets" tab). Channel dashboards are reachable from the channel header's `LayoutDashboard` icon and the command palette ("Channel dashboard" under THIS CHANNEL).
 

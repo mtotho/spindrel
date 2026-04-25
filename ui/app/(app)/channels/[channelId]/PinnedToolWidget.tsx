@@ -1034,8 +1034,9 @@ function PinToCanvasIconButton({
   const sourceWidgetConfig = useDashboardPinsStore(
     (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
   );
+  const widgetConfig = sourceWidgetConfig ?? widget.config ?? null;
 
-  const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope);
+  const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope, widgetConfig);
   const onCanvasNode = useFindCanvasNodeByIdentity(identityKey, (p) =>
     canvasEnvelopeIdentityKey(
       p.tool_name,
@@ -1053,13 +1054,14 @@ function PinToCanvasIconButton({
     }
     pin.mutate(
       {
+        source_dashboard_pin_id: widget.id,
         source_kind: "channel",
         tool_name: widget.tool_name,
         envelope: widget.envelope as unknown as Record<string, unknown>,
         source_channel_id: channelId,
         source_bot_id: sourceBotId,
         display_label: widget.envelope?.display_label ?? undefined,
-        widget_config: sourceWidgetConfig ?? undefined,
+        widget_config: widgetConfig ?? undefined,
       },
       {
         onSuccess: () => {

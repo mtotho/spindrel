@@ -30,9 +30,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Channel, ChannelBotMember, Message, Session, WidgetDashboardPin, WorkspaceSpatialNode
+from app.db.models import Channel, ChannelBotMember, Message, Session, WidgetDashboardPin, WidgetInstance, WorkspaceSpatialNode
 from app.domain.errors import NotFoundError, ValidationError
-from app.services.dashboard_pins import create_pin
+from app.services.dashboard_pins import create_pin, get_pin
 from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY
 
 
@@ -1020,10 +1020,12 @@ async def pin_widget_to_canvas(
     widget_config: dict | None = None,
     widget_origin: dict | None = None,
     display_label: str | None = None,
+    pin_display_label: str | None = None,
     world_x: float | None = None,
     world_y: float | None = None,
     world_w: float = _DEFAULT_WIDGET_W,
     world_h: float = _DEFAULT_WIDGET_H,
+    override_widget_instance: WidgetInstance | None = None,
 ) -> tuple[WidgetDashboardPin, WorkspaceSpatialNode]:
     """Atomically create a widget pin on the workspace:spatial dashboard
     AND its matching workspace_spatial_nodes row.
@@ -1036,13 +1038,17 @@ async def pin_widget_to_canvas(
     # state. The default get-or-create path would singleton them all to the
     # same workspace:spatial scope_ref. (Channel-scoped pins keep the
     # one-per-channel singleton — that's intentional.)
-    override_instance = None
+    override_instance = override_widget_instance
     from app.services.native_app_widgets import (
         NATIVE_APP_CONTENT_TYPE,
         create_unique_native_widget_instance,
         extract_native_widget_ref_from_envelope,
     )
-    if isinstance(envelope, dict) and envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
+    if (
+        override_instance is None
+        and isinstance(envelope, dict)
+        and envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE
+    ):
         widget_ref = extract_native_widget_ref_from_envelope(envelope)
         if widget_ref:
             override_instance = await create_unique_native_widget_instance(
@@ -1067,6 +1073,8 @@ async def pin_widget_to_canvas(
         override_widget_instance=override_instance,
         commit=False,
     )
+    if pin_display_label:
+        pin.display_label = pin_display_label
 
     try:
         # Position priority:
@@ -1126,3 +1134,92 @@ async def pin_widget_to_canvas(
         logger.exception("register_pin_events failed for canvas pin %s", pin.id)
 
     return pin, node
+
+
+def _source_widget_label(pin: WidgetDashboardPin) -> str:
+    envelope = pin.envelope or {}
+    label = (
+        pin.display_label
+        or envelope.get("display_label")
+        or pin.tool_name
+        or "Widget"
+    )
+    return str(label).strip() or "Widget"
+
+
+async def _channel_widget_label(
+    db: AsyncSession,
+    *,
+    source_channel_id: uuid.UUID | None,
+    widget_label: str,
+) -> str:
+    if source_channel_id is None:
+        return widget_label
+    channel = await db.get(Channel, source_channel_id)
+    channel_label = (channel.name if channel is not None else "").strip()
+    if not channel_label:
+        return widget_label
+    lower_widget = widget_label.lower()
+    if lower_widget.startswith(channel_label.lower()):
+        return widget_label
+    return f"{channel_label} {widget_label}"
+
+
+async def pin_dashboard_pin_to_canvas(
+    db: AsyncSession,
+    *,
+    source_dashboard_pin_id: uuid.UUID,
+    world_x: float | None = None,
+    world_y: float | None = None,
+    world_w: float = _DEFAULT_WIDGET_W,
+    world_h: float = _DEFAULT_WIDGET_H,
+) -> tuple[WidgetDashboardPin, WorkspaceSpatialNode]:
+    """Project an existing dashboard pin onto the workspace canvas.
+
+    For native widgets, the canvas pin reuses the source pin's
+    ``WidgetInstance`` so channel dashboard and spatial tile edit the same
+    Notes/Todo state. Direct canvas catalog pins still use
+    ``pin_widget_to_canvas`` and get fresh instances.
+    """
+    source_pin = await get_pin(db, source_dashboard_pin_id)
+    if source_pin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY:
+        raise ValidationError("source_dashboard_pin_id already belongs to the workspace canvas")
+
+    override_instance = None
+    if source_pin.widget_instance_id is not None:
+        instance = await db.get(WidgetInstance, source_pin.widget_instance_id)
+        if instance is not None and instance.widget_kind == "native_app":
+            override_instance = instance
+
+    widget_origin = dict(source_pin.widget_origin or {})
+    prior_instantiation = widget_origin.get("instantiation_kind")
+    if isinstance(prior_instantiation, str) and prior_instantiation:
+        widget_origin["projected_from_instantiation_kind"] = prior_instantiation
+    widget_origin["source_dashboard_pin_id"] = str(source_pin.id)
+    widget_origin["instantiation_kind"] = "channel_dashboard_projection"
+
+    base_label = _source_widget_label(source_pin)
+    canvas_label = await _channel_widget_label(
+        db,
+        source_channel_id=source_pin.source_channel_id,
+        widget_label=base_label,
+    )
+
+    return await pin_widget_to_canvas(
+        db,
+        source_kind=source_pin.source_kind,
+        tool_name=source_pin.tool_name,
+        envelope=source_pin.envelope or {},
+        source_channel_id=source_pin.source_channel_id,
+        source_bot_id=source_pin.source_bot_id,
+        tool_args=source_pin.tool_args or {},
+        widget_config=source_pin.widget_config or {},
+        widget_origin=widget_origin,
+        display_label=base_label,
+        pin_display_label=canvas_label,
+        world_x=world_x,
+        world_y=world_y,
+        world_w=world_w,
+        world_h=world_h,
+        override_widget_instance=override_instance,
+    )

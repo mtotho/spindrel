@@ -354,6 +354,7 @@ does their real data live?"
 | `core/todo_native` | `channel`, `dashboard` | `widget_instances.state` | Persistent todo item list plus timestamps; items are stored as explicit open/completed records with add/toggle/rename/delete/reorder/clear actions. |
 | `core/context_tracker` | `channel` | native widget instance + host-rendered payload | Channel-scoped first-party context surface. Instance identity is durable; the meaningful displayed payload is host-provided context budget / compaction state rather than user-authored content. |
 | `core/usage_forecast_native` | `channel`, `dashboard` | native widget instance + host-rendered payload | Usage/forecast surface with minimal durable instance state; the meaningful visible data is host-provided forecast/activity data. |
+| `core/agent_smell_native` | `dashboard` | native widget instance + host-rendered payload | Agent Smell ranking with minimal durable instance state; the meaningful visible data is computed live from trace events and tool calls. |
 | `core/channel_files_native` | `channel` | native widget instance + shared channel file/navigation state | Channel file browser surface. It intentionally reuses the main channel file/navigation model instead of inventing a separate widget-local file database. |
 | `core/pinned_files_native` | `channel` | `widget_instances.state` | Stores `pinned_files[]`, `active_path`, and timestamps in the channel-scoped widget instance. This hidden native widget is the source of truth for pinned channel files. |
 | `core/upcoming_activity_native` | `channel`, `dashboard` | native widget instance + host-rendered payload | First-party schedule/activity view with little durable user-edited state; the meaningful payload is derived by the host. |
@@ -367,6 +368,9 @@ does their real data live?"
   indirectly and hidden from the normal widget catalog
 - deleting a native pin is not the same thing as deleting the authoritative
   native widget state unless the underlying widget instance is also removed
+- spatial-canvas promotions from channel dashboards may reuse the source
+  channel widget instance; this is intentional for Notes/Todo projections so
+  the channel dashboard and spatial tile show the same values
 - "native widget" does not automatically mean "instance-backed persistence" for
   every case; `core/plan_questions` is the deliberate transcript-native
   exception

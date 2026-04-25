@@ -20,6 +20,7 @@ from app.db.models import (
     Task,
     WidgetDashboard,
     WidgetDashboardPin,
+    WidgetInstance,
     WorkspaceSpatialNode,
 )
 from app.services.dashboards import (
@@ -349,3 +350,119 @@ class TestPinWidgetToCanvas:
             )
         ).scalar_one_or_none()
         assert node_row is None
+
+    async def test_channel_native_pin_projects_same_instance_to_canvas(self, client, db_session):
+        from app.services.dashboard_pins import create_pin, list_pins
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        ch = await _create_channel(client, name="QA")
+        channel_id = uuid.UUID(ch["id"])
+        source_pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="core/notes_native",
+            envelope=build_native_widget_preview_envelope("core/notes_native"),
+            source_channel_id=channel_id,
+            display_label="Notes",
+            dashboard_key=f"channel:{channel_id}",
+        )
+        source_instance_id = source_pin.widget_instance_id
+        assert source_instance_id is not None
+
+        r = await client.post(
+            "/api/v1/workspace/spatial/widget-pins",
+            json={
+                "source_dashboard_pin_id": str(source_pin.id),
+                "world_x": 10.0,
+                "world_y": 20.0,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 201, r.text
+        projected = r.json()["pin"]
+        canvas_pin_id = projected["id"]
+        assert projected["widget_instance_id"] == str(source_instance_id)
+        assert projected["display_label"] == "QA Notes"
+        assert projected["widget_origin"]["source_dashboard_pin_id"] == str(source_pin.id)
+
+        action = await client.post(
+            "/api/v1/widget-actions",
+            json={
+                "dispatch": "native_widget",
+                "dashboard_pin_id": canvas_pin_id,
+                "action": "replace_body",
+                "args": {"body": "shared from canvas"},
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert action.status_code == 200, action.text
+        assert action.json()["ok"] is True
+
+        channel_pins = await list_pins(db_session, dashboard_key=f"channel:{channel_id}")
+        channel_pin = next(p for p in channel_pins if p.id == source_pin.id)
+        assert channel_pin.widget_instance_id == source_instance_id
+        assert channel_pin.envelope["body"]["state"]["body"] == "shared from canvas"
+
+    async def test_native_canvas_projection_duplicate_rule_is_per_channel_instance(self, client, db_session):
+        from app.services.dashboard_pins import create_pin
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        channels = [
+            await _create_channel(client, name="QA"),
+            await _create_channel(client, name="Rolland"),
+        ]
+        source_pins = []
+        for ch in channels:
+            channel_id = uuid.UUID(ch["id"])
+            source_pins.append(
+                await create_pin(
+                    db_session,
+                    source_kind="adhoc",
+                    tool_name="core/todo_native",
+                    envelope=build_native_widget_preview_envelope("core/todo_native"),
+                    source_channel_id=channel_id,
+                    display_label="Todo",
+                    dashboard_key=f"channel:{channel_id}",
+                )
+            )
+
+        projected_instances = []
+        for source_pin in source_pins:
+            r = await client.post(
+                "/api/v1/workspace/spatial/widget-pins",
+                json={"source_dashboard_pin_id": str(source_pin.id)},
+                headers=AUTH_HEADERS,
+            )
+            assert r.status_code == 201, r.text
+            projected_instances.append(r.json()["pin"]["widget_instance_id"])
+
+        assert projected_instances == [str(p.widget_instance_id) for p in source_pins]
+        assert len(set(projected_instances)) == 2
+
+    async def test_direct_native_canvas_pins_get_fresh_instances(self, client, db_session):
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        instance_ids = []
+        for _ in range(2):
+            r = await client.post(
+                "/api/v1/workspace/spatial/widget-pins",
+                json={
+                    "source_kind": "adhoc",
+                    "tool_name": "core/notes_native",
+                    "envelope": build_native_widget_preview_envelope("core/notes_native"),
+                },
+                headers=AUTH_HEADERS,
+            )
+            assert r.status_code == 201, r.text
+            instance_ids.append(r.json()["pin"]["widget_instance_id"])
+
+        assert len(set(instance_ids)) == 2
+        rows = (
+            await db_session.execute(
+                select(WidgetInstance).where(
+                    WidgetInstance.id.in_([uuid.UUID(i) for i in instance_ids])
+                )
+            )
+        ).scalars().all()
+        assert {row.scope_kind for row in rows} == {"dashboard"}
+        assert all(row.scope_ref.startswith("notes_native/") for row in rows)

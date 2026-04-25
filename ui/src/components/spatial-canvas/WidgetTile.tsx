@@ -67,8 +67,8 @@ const TITLE_THRESHOLD = 0.6;
 
 function widgetTitle(pin: SpatialNodePin): string {
   return (
-    pin.panel_title?.trim() ||
     pin.display_label?.trim() ||
+    pin.panel_title?.trim() ||
     bareToolName(pin.tool_name)
   );
 }

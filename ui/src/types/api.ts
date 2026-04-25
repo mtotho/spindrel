@@ -379,6 +379,7 @@ export interface PinnedWidget {
   tool_name: string;
   display_name: string;
   bot_id: string;
+  widget_instance_id?: string | null;
   envelope: ToolResultEnvelope;
   position: number;
   pinned_at: string;

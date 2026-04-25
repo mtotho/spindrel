@@ -52,7 +52,7 @@ Use this checklist when adding or modernizing a widget.
 
 | Area | Count | Notes |
 |---|---:|---|
-| Native widgets | 9 | First-party host-rendered widgets; most are catalog-backed and instance-backed, while `core/plan_questions` is transcript-native. |
+| Native widgets | 10 | First-party host-rendered widgets; most are catalog-backed and instance-backed, while `core/plan_questions` is transcript-native. |
 | Core/local tool widgets | 9 | Includes YAML-defined tool widgets plus core semantic machine-control result views. |
 | Core/local standalone HTML widgets | 2 | One superseded/legacy bundle plus one QA/example. Legacy HTML Notes was deleted; current Notes/Context surfaces use native widgets. |
 | Integration tool widgets | 17 | Current-standard metadata is now present across the audited shipped set. |
@@ -66,6 +66,7 @@ Use this checklist when adding or modernizing a widget.
 | `core/todo_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native Todo with instance state and explicit add/toggle/rename/delete/reorder/clear actions. |
 | `core/context_tracker` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel context tracker. Current shipped context surface; the older standalone HTML `context_tracker` bundle is superseded. |
 | `core/usage_forecast_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native usage/forecast surface with responsive compact/wide/tall layouts. |
+| `core/agent_smell_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party dashboard ranking of bots by suspicious trace/tool behavior, backed by live usage and tool-call aggregation. |
 | `core/channel_files_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native channel file browser. Reuses shared channel file/navigation state instead of a widget-local file store. |
 | `core/pinned_files_native` | `native_widget` | `app/services/native_app_widgets.py` + `app/services/pinned_panels.py` | Current | Hidden channel-scoped native widget whose instance state stores pinned file paths and active file selection. |
 | `core/upcoming_activity_native` | `native_widget` | `app/services/native_app_widgets.py` | Current | First-party native upcoming-activity/schedule surface. |

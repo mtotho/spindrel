@@ -40,6 +40,7 @@ function asPinnedWidget(pin: WidgetDashboardPin): PinnedWidget {
     tool_name: pin.tool_name,
     display_name: pin.display_label ?? pin.tool_name,
     bot_id: pin.source_bot_id ?? "",
+    widget_instance_id: pin.widget_instance_id ?? null,
     envelope: pin.envelope,
     position: pin.position,
     pinned_at: pin.pinned_at ?? new Date().toISOString(),
