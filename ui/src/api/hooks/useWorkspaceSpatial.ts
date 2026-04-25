@@ -1,6 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "../client";
 
+/** Inline pin payload embedded by the server when a node has a
+ *  `widget_pin_id`. Contains everything the client needs to render the
+ *  widget tile without a second roundtrip — envelope, contract/presentation
+ *  snapshots, source bot. Untyped contents (Record) since the snapshots
+ *  evolve and the canvas only reads a few top-level fields. */
+export interface SpatialNodePin {
+  id: string;
+  tool_name: string;
+  display_label: string | null;
+  source_bot_id: string | null;
+  source_channel_id: string | null;
+  envelope: Record<string, unknown>;
+  widget_origin?: Record<string, unknown> | null;
+  widget_config?: Record<string, unknown>;
+  panel_title?: string | null;
+}
+
 export interface SpatialNode {
   id: string;
   channel_id: string | null;
@@ -13,6 +30,8 @@ export interface SpatialNode {
   seed_index: number | null;
   pinned_at: string | null;
   updated_at: string | null;
+  /** Present only when `widget_pin_id` is set. */
+  pin?: SpatialNodePin;
 }
 
 interface NodesResponse {

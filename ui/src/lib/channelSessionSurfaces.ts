@@ -25,7 +25,7 @@ export interface ChannelChatPaneLayout {
 }
 
 export interface ChannelSessionPickerGroup {
-  id: "primary" | "previous" | "scratch" | "results";
+  id: "current" | "primary" | "previous" | "scratch" | "results";
   label: string;
   entries: ChannelSessionPickerEntry[];
 }
@@ -539,6 +539,7 @@ export function buildChannelSessionPickerEntries({
   if (channelSessions && channelSessions.length > 0) {
     const seen = new Set<string>();
     const rows: ChannelSessionPickerEntry[] = [];
+    let hasPrimary = false;
     for (const base of channelSessions) {
       const row = deepById.get(base.session_id) ?? base;
       seen.add(row.session_id);
@@ -554,6 +555,7 @@ export function buildChannelSessionPickerEntries({
           matches: row.matches ?? [],
         });
       } else if (row.is_active) {
+        hasPrimary = true;
         rows.push({
           kind: "primary",
           id: "primary",
@@ -575,6 +577,17 @@ export function buildChannelSessionPickerEntries({
           matches: row.matches ?? [],
         });
       }
+    }
+    if (!hasPrimary) {
+      rows.unshift({
+        kind: "primary",
+        id: "primary",
+        surface: { kind: "primary" },
+        label: "Primary session",
+        meta: channelLabel ? `Default conversation for #${channelLabel}` : "Default channel conversation",
+        selected: !selectedSessionId,
+        matches: [],
+      });
     }
     for (const row of deepMatches ?? []) {
       if (seen.has(row.session_id)) continue;
@@ -647,10 +660,12 @@ export function buildChannelSessionPickerGroups(
   if (query?.trim()) {
     return [{ id: "results", label: "Results", entries: [...entries] }];
   }
-  const primary = entries.filter((entry) => entry.kind === "primary");
-  const previous = entries.filter((entry) => entry.kind === "channel");
-  const scratch = entries.filter((entry) => entry.kind === "scratch");
+  const current = entries.filter((entry) => entry.selected);
+  const primary = entries.filter((entry) => entry.kind === "primary" && !entry.selected);
+  const previous = entries.filter((entry) => entry.kind === "channel" && !entry.selected);
+  const scratch = entries.filter((entry) => entry.kind === "scratch" && !entry.selected);
   const groups: ChannelSessionPickerGroup[] = [
+    { id: "current", label: "This chat", entries: current },
     { id: "primary", label: "Primary", entries: primary },
     { id: "previous", label: "Previous chats", entries: previous },
     { id: "scratch", label: "Scratch", entries: scratch },

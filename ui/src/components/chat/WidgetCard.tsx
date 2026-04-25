@@ -9,7 +9,7 @@
  * Pin-ready: accepts optional widgetId + onPin for future side-panel pinning.
  */
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Pin, Plus, ChevronDown } from "lucide-react";
+import { Pin, Plus, ChevronDown, LayoutGrid } from "lucide-react";
 import type { ToolResultEnvelope } from "../../types/api";
 import type { ThemeTokens } from "../../theme/tokens";
 import { useWidgetAction } from "../../api/hooks/useWidgetAction";
@@ -19,6 +19,7 @@ import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 import { useDashboardPinsStore } from "../../stores/dashboardPins";
 import { apiFetch } from "../../api/client";
+import { usePinWidgetToCanvas } from "../../api/hooks/useWorkspaceSpatial";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -353,6 +354,15 @@ export function WidgetCard({
             <span>Add to dashboard</span>
           </button>
         )}
+        {channelId && (
+          <PinToCanvasButton
+            envelope={currentEnvelope}
+            toolName={toolName}
+            channelId={channelId}
+            sourceBotId={botId ?? currentEnvelope.source_bot_id ?? null}
+            t={t}
+          />
+        )}
       </div>
 
       {/* Body: component or HTML content. HTML widgets own their own scroll
@@ -370,5 +380,61 @@ export function WidgetCard({
       </div>
 
     </div>
+  );
+}
+
+/**
+ * "Pin to workspace canvas" button. Sibling to the existing
+ * "Add to dashboard" — pins a widget to the reserved `workspace:spatial`
+ * dashboard via the atomic backend service so a corresponding spatial node
+ * row is created in the same transaction. Click → `pinned ✓` flash and the
+ * `["workspace-spatial-nodes"]` query invalidates, so the canvas (when next
+ * opened) shows the newly pinned tile.
+ */
+function PinToCanvasButton({
+  envelope,
+  toolName,
+  channelId,
+  sourceBotId,
+  t,
+}: {
+  envelope: ToolResultEnvelope;
+  toolName: string;
+  channelId: string;
+  sourceBotId: string | null;
+  t: ThemeTokens;
+}) {
+  const pin = usePinWidgetToCanvas();
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={pin.isPending || done}
+      onClick={(e) => {
+        e.stopPropagation();
+        pin.mutate(
+          {
+            source_kind: "channel",
+            tool_name: toolName,
+            envelope: envelope as unknown as Record<string, unknown>,
+            source_channel_id: channelId,
+            source_bot_id: sourceBotId,
+            display_label: envelope.display_label ?? undefined,
+          },
+          {
+            onSuccess: () => {
+              setDone(true);
+              window.setTimeout(() => setDone(false), 1500);
+            },
+          },
+        );
+      }}
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100 disabled:cursor-default"
+      style={{ color: done ? t.accent : t.textDim }}
+      title="Pin to workspace canvas"
+    >
+      <LayoutGrid size={11} />
+      <span>{done ? "pinned to canvas" : "Pin to canvas"}</span>
+    </button>
   );
 }

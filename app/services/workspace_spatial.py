@@ -60,8 +60,15 @@ def phyllotaxis_position(seed_index: int) -> tuple[float, float]:
     return (cx - _DEFAULT_TILE_W / 2, cy - _DEFAULT_TILE_H / 2)
 
 
-def serialize_node(node: WorkspaceSpatialNode) -> dict[str, Any]:
-    return {
+def serialize_node(
+    node: WorkspaceSpatialNode,
+    pin: "WidgetDashboardPin | None" = None,
+) -> dict[str, Any]:
+    """Serialize a node row. When `pin` is supplied (widget nodes only) the
+    pin's full payload is embedded inline so the client can render the
+    widget without a second roundtrip — envelope, contract/presentation
+    snapshots, source bot, display label, tool name."""
+    out: dict[str, Any] = {
         "id": str(node.id),
         "channel_id": str(node.channel_id) if node.channel_id else None,
         "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
@@ -74,6 +81,13 @@ def serialize_node(node: WorkspaceSpatialNode) -> dict[str, Any]:
         "pinned_at": node.pinned_at.isoformat() if node.pinned_at else None,
         "updated_at": node.updated_at.isoformat() if node.updated_at else None,
     }
+    if pin is not None:
+        # Lazy import — keeps the dashboard_pins serializer optional for
+        # callers that only need bare-bones channel-node serialization.
+        from app.services.dashboard_pins import serialize_pin
+
+        out["pin"] = serialize_pin(pin)
+    return out
 
 
 async def _next_seed_index(db: AsyncSession) -> int:
@@ -127,14 +141,28 @@ async def _ensure_channel_nodes(db: AsyncSession) -> int:
     return len(missing_ids)
 
 
-async def list_nodes(db: AsyncSession) -> list[WorkspaceSpatialNode]:
-    """Return every spatial node, auto-populating channel rows on first
-    read so the canvas is never empty for a workspace with channels."""
+async def list_nodes(
+    db: AsyncSession,
+) -> list[tuple[WorkspaceSpatialNode, WidgetDashboardPin | None]]:
+    """Return every spatial node paired with its pin (or None for channel
+    nodes). Auto-populates channel rows on first read so the canvas is
+    never empty for a workspace with channels.
+
+    A single follow-up query loads pins by id for the widget nodes, so the
+    response shape stays one-roundtrip from the client perspective."""
     await _ensure_channel_nodes(db)
     rows = (await db.execute(
         select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
     )).scalars().all()
-    return list(rows)
+    nodes = list(rows)
+    pin_ids = [n.widget_pin_id for n in nodes if n.widget_pin_id is not None]
+    pin_map: dict[uuid.UUID, WidgetDashboardPin] = {}
+    if pin_ids:
+        pin_rows = (await db.execute(
+            select(WidgetDashboardPin).where(WidgetDashboardPin.id.in_(pin_ids))
+        )).scalars().all()
+        pin_map = {p.id: p for p in pin_rows}
+    return [(n, pin_map.get(n.widget_pin_id) if n.widget_pin_id else None) for n in nodes]
 
 
 async def get_node(db: AsyncSession, node_id: uuid.UUID) -> WorkspaceSpatialNode:

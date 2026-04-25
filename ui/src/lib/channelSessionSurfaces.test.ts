@@ -163,6 +163,32 @@ assert.equal(catalogEntries[0]?.kind, "channel");
 assert.deepEqual(catalogEntries[0]?.surface, { kind: "channel", sessionId: "old" });
 assert.equal(catalogEntries[0]?.matches?.[0]?.preview, "rollback checklist");
 
+const routePickerEntries = buildChannelSessionPickerEntries({
+  channelLabel: "ops",
+  selectedSessionId: "scratch-current",
+  channelSessions: [
+    {
+      session_id: "scratch-current",
+      surface_kind: "scratch",
+      bot_id: "bot",
+      created_at: "2026-04-24T00:00:00Z",
+      last_active: "2026-04-24T00:00:00Z",
+      label: "Current scratch",
+      message_count: 2,
+      section_count: 0,
+      is_active: false,
+      is_current: true,
+    },
+  ],
+});
+assert.equal(routePickerEntries[0]?.kind, "primary");
+assert.equal(routePickerEntries[0]?.selected, false);
+assert.equal(routePickerEntries[1]?.kind, "scratch");
+assert.equal(routePickerEntries[1]?.selected, true);
+const routePickerGroups = buildChannelSessionPickerGroups(routePickerEntries, "");
+assert.deepEqual(routePickerGroups.map((group) => group.id), ["current", "primary"]);
+assert.deepEqual(routePickerGroups.map((group) => group.label), ["This chat", "Primary"]);
+
 const migratedLayout = normalizeChannelChatPaneLayout(null, [
   { kind: "scratch", sessionId: "scratch-a" },
   { kind: "channel", sessionId: "old" },

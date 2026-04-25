@@ -122,6 +122,7 @@ export function SessionPickerOverlay({
   if (!open || typeof document === "undefined") return null;
 
   const choose = (entry: ChannelSessionPickerEntry) => {
+    if (entry.selected) return;
     onClose();
     onActivateSurface(entry.surface, pickerMode === "split" ? "split" : "switch");
   };
@@ -196,7 +197,7 @@ export function SessionPickerOverlay({
             } else if (event.key === "Enter") {
               event.preventDefault();
               const entry = entries[activeIndex];
-              if (entry) {
+              if (entry && !entry.selected) {
                 onClose();
                 onActivateSurface(entry.surface, event.metaKey || event.ctrlKey ? "split" : pickerMode === "split" ? "split" : "switch");
               }
@@ -271,6 +272,7 @@ export function SessionPickerOverlay({
             const scratch = entry.kind === "scratch" ? entry : null;
             const splitEligible = allowSplit
               && pickerMode === "switch"
+              && !entry.selected
               && (entry.kind === "scratch" || entry.kind === "channel");
             const editing = scratch && editingId === scratch.id;
             return (
@@ -280,7 +282,7 @@ export function SessionPickerOverlay({
                 tabIndex={-1}
                 onMouseMove={() => setActiveIndex(index)}
                 onClick={() => !editing && choose(entry)}
-                className={`mx-1 flex cursor-pointer items-start gap-3 rounded-md px-3 py-2 transition-colors ${active ? "bg-accent/[0.08]" : ""}`}
+                className={`mx-1 flex items-start gap-3 rounded-md px-3 py-2 transition-colors ${entry.selected ? "cursor-default opacity-75" : "cursor-pointer"} ${active ? "bg-accent/[0.08]" : ""}`}
               >
                 <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay text-text-dim">
                   {entry.kind === "primary" ? <MessageSquare size={14} /> : <Star size={13} />}

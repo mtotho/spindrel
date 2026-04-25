@@ -1,5 +1,6 @@
 import { Hash } from "lucide-react";
 import { formatRelativeTime } from "../../utils/format";
+import { LucideIconByName } from "../IconPicker";
 import type { Channel } from "../../types/api";
 
 /**
@@ -15,6 +16,9 @@ import type { Channel } from "../../types/api";
 
 interface ChannelTileProps {
   channel: Channel;
+  /** Icon name from the channel's dashboard (`channel:{id}` slug). When
+   *  null, the tile falls back to the generic `#` Hash glyph. */
+  icon: string | null;
   zoom: number;
   onDive: () => void;
 }
@@ -22,10 +26,17 @@ interface ChannelTileProps {
 const DOT_THRESHOLD = 0.4;
 const SNAPSHOT_THRESHOLD = 1.0;
 
-export function ChannelTile({ channel, zoom, onDive }: ChannelTileProps) {
+export function ChannelTile({ channel, icon, zoom, onDive }: ChannelTileProps) {
   if (zoom < DOT_THRESHOLD) return <DotView channel={channel} onDive={onDive} />;
-  if (zoom < SNAPSHOT_THRESHOLD) return <PreviewView channel={channel} onDive={onDive} />;
-  return <SnapshotView channel={channel} onDive={onDive} />;
+  if (zoom < SNAPSHOT_THRESHOLD)
+    return <PreviewView channel={channel} icon={icon} onDive={onDive} />;
+  return <SnapshotView channel={channel} icon={icon} onDive={onDive} />;
+}
+
+function ChannelGlyph({ icon, size, active }: { icon: string | null; size: number; active?: boolean }) {
+  const className = active ? "text-accent" : "text-text-dim";
+  if (icon) return <LucideIconByName name={icon} size={size} className={className} />;
+  return <Hash size={size} className={className} />;
 }
 
 /**
@@ -71,7 +82,15 @@ function DotView({ channel, onDive }: { channel: Channel; onDive: () => void }) 
   );
 }
 
-function PreviewView({ channel, onDive }: { channel: Channel; onDive: () => void }) {
+function PreviewView({
+  channel,
+  icon,
+  onDive,
+}: {
+  channel: Channel;
+  icon: string | null;
+  onDive: () => void;
+}) {
   const name = channelName(channel);
   const last = formatRelativeTime(channel.last_message_at);
   return (
@@ -85,7 +104,7 @@ function PreviewView({ channel, onDive }: { channel: Channel; onDive: () => void
           className="w-1.5 h-1.5 rounded-full"
           style={{ background: dotColor(channel.id) }}
         />
-        <Hash size={11} />
+        <ChannelGlyph icon={icon} size={11} />
         <span>Channel</span>
         {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}
       </div>
@@ -97,7 +116,15 @@ function PreviewView({ channel, onDive }: { channel: Channel; onDive: () => void
   );
 }
 
-function SnapshotView({ channel, onDive }: { channel: Channel; onDive: () => void }) {
+function SnapshotView({
+  channel,
+  icon,
+  onDive,
+}: {
+  channel: Channel;
+  icon: string | null;
+  onDive: () => void;
+}) {
   const name = channelName(channel);
   const last = formatRelativeTime(channel.last_message_at);
   const members = channel.member_bots ?? [];
@@ -112,7 +139,7 @@ function SnapshotView({ channel, onDive }: { channel: Channel; onDive: () => voi
           className="w-2 h-2 rounded-full"
           style={{ background: dotColor(channel.id) }}
         />
-        <Hash size={12} />
+        <ChannelGlyph icon={icon} size={12} />
         <span>Channel</span>
         {channel.private && <span className="ml-1">· private</span>}
         {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}

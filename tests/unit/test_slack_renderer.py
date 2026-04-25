@@ -267,6 +267,17 @@ def _ephemeral_event() -> ChannelEvent:
     )
 
 
+def _attachment_deleted_event() -> ChannelEvent:
+    return ChannelEvent(
+        channel_id=uuid.uuid4(),
+        kind=ChannelEventKind.ATTACHMENT_DELETED,
+        payload=AttachmentDeletedPayload(
+            attachment_id=uuid.uuid4(),
+            metadata={"slack_file_id": "F123"},
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Self-registration & capability declarations
 # ---------------------------------------------------------------------------
@@ -674,6 +685,53 @@ class TestEphemeralMessageRouting:
         assert len(fake_http.calls) == 1
         assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.postEphemeral"
         assert fake_http.calls[0]["body"]["user"] == "UALICE"
+
+
+# ---------------------------------------------------------------------------
+# ATTACHMENT_DELETED routing
+# ---------------------------------------------------------------------------
+
+
+class TestAttachmentDeletedRouting:
+    async def test_routes_attachment_deleted_to_delivery(self):
+        class AttachmentDelivery:
+            def __init__(self):
+                self.render_calls = []
+
+            async def render(self, event, target):
+                self.render_calls.append((event, target))
+                return DeliveryReceipt.ok()
+
+        delivery = AttachmentDelivery()
+        renderer = SlackRenderer()
+        renderer._attachments = delivery
+        event = _attachment_deleted_event()
+        target = _slack_target("C123")
+
+        receipt = await renderer.render(event, target)
+
+        assert receipt.success is True
+        assert delivery.render_calls == [(event, target)]
+
+    async def test_delete_attachment_delegates_to_delivery(self):
+        class AttachmentDelivery:
+            def __init__(self):
+                self.delete_calls = []
+
+            async def delete_attachment(self, metadata, target):
+                self.delete_calls.append((metadata, target))
+                return True
+
+        delivery = AttachmentDelivery()
+        renderer = SlackRenderer()
+        renderer._attachments = delivery
+        metadata = {"slack_file_id": "F123"}
+        target = _slack_target("C123")
+
+        ok = await renderer.delete_attachment(metadata, target)
+
+        assert ok is True
+        assert delivery.delete_calls == [(metadata, target)]
 
 
 # ---------------------------------------------------------------------------

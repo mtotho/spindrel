@@ -39,6 +39,7 @@ from integrations.sdk import (
     renderer_registry,
 )
 from integrations.slack.approval_delivery import SlackApprovalDelivery
+from integrations.slack.attachment_delivery import SlackAttachmentDelivery
 from integrations.slack.client import bot_attribution
 from integrations.slack.ephemeral_delivery import SlackEphemeralDelivery
 from integrations.slack.message_delivery import SlackMessageDelivery
@@ -123,6 +124,7 @@ class SlackRenderer:
             call_slack=call_slack,
             bot_attribution=bot_attribution,
         )
+        self._attachments = SlackAttachmentDelivery()
 
     async def render(
         self,
@@ -148,7 +150,7 @@ class SlackRenderer:
             if kind == ChannelEventKind.EPHEMERAL_MESSAGE:
                 return await self._ephemeral.render(event, target)
             if kind == ChannelEventKind.ATTACHMENT_DELETED:
-                return await self._handle_attachment_deleted(event, target)
+                return await self._attachments.render(event, target)
         except Exception as exc:
             logger.exception("SlackRenderer.render: unexpected failure for %s", kind.value)
             return DeliveryReceipt.failed(f"unexpected: {exc}", retryable=True)
@@ -174,17 +176,7 @@ class SlackRenderer:
         attachment_metadata: dict,
         target: DispatchTarget,
     ) -> bool:
-        if not isinstance(target, SlackTarget):
-            return False
-        slack_file_id = (attachment_metadata or {}).get("slack_file_id")
-        if not target.token or not slack_file_id:
-            return False
-        try:
-            from integrations.slack.uploads import delete_slack_file
-            return await delete_slack_file(target.token, slack_file_id)
-        except Exception:
-            logger.exception("SlackRenderer.delete_attachment failed for %s", slack_file_id)
-            return False
+        return await self._attachments.delete_attachment(attachment_metadata, target)
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -201,25 +193,6 @@ class SlackRenderer:
         return DeliveryReceipt.skipped(
             "message_updated needs an external_id slack ts (not yet wired)"
         )
-
-    async def _handle_attachment_deleted(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        payload = event.payload
-        metadata = getattr(payload, "metadata", {}) or {}
-        slack_file_id = metadata.get("slack_file_id")
-        if not slack_file_id:
-            return DeliveryReceipt.skipped("attachment_deleted without slack_file_id")
-        try:
-            from integrations.slack.uploads import delete_slack_file
-            ok = await delete_slack_file(target.token, slack_file_id)
-        except Exception as exc:
-            logger.exception("SlackRenderer: file delete failed for %s", slack_file_id)
-            return DeliveryReceipt.failed(str(exc), retryable=True)
-        return DeliveryReceipt.ok() if ok else DeliveryReceipt.failed(
-            "delete_slack_file returned False", retryable=True,
-        )
-
 
 # ---------------------------------------------------------------------------
 # Self-registration — same idempotent pattern as core_renderers.py

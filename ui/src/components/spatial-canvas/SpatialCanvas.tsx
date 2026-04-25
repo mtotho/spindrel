@@ -18,6 +18,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { useChannels } from "../../api/hooks/useChannels";
+import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
   useSpatialNodes,
   useUpdateSpatialNode,
@@ -25,6 +26,7 @@ import {
 } from "../../api/hooks/useWorkspaceSpatial";
 import type { Channel } from "../../types/api";
 import { ChannelTile } from "./ChannelTile";
+import { WidgetTile } from "./WidgetTile";
 
 /**
  * Backend-driven spatial canvas. Renders one tile per `WorkspaceSpatialNode`
@@ -68,6 +70,19 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     for (const c of channels ?? []) m.set(c.id, c);
     return m;
   }, [channels]);
+
+  // Channel dashboards carry an `icon` field already used by the sidebar
+  // rail; lift it onto the canvas tile too. Map `channelId → icon name`
+  // (or null if the user hasn't picked one yet — tile falls back to Hash).
+  const { channelDashboards } = useDashboards();
+  const iconByChannelId = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const d of channelDashboards) {
+      const cid = channelIdFromSlug(d.slug);
+      if (cid) m.set(cid, d.icon);
+    }
+    return m;
+  }, [channelDashboards]);
 
   const [camera, setCamera] = useState<Camera>(DEFAULT_CAMERA);
   const cameraRef = useRef(camera);
@@ -245,6 +260,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 >
                   <ChannelTile
                     channel={channel}
+                    icon={iconByChannelId.get(channel.id) ?? null}
                     zoom={camera.scale}
                     onDive={() =>
                       diveToChannel(channel.id, {
@@ -258,7 +274,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 </DraggableNode>
               );
             }
-            // Widget node — placeholder until P3 lands the live iframe.
+            // Widget node — render via embedded pin payload (P3a). The
+            // live iframe at zoom ≥ 0.6 lands in P3b; for now all zoom
+            // levels are static cards. If `pin` is missing the node points
+            // at a vanished pin row — render nothing rather than a broken
+            // placeholder; the next list refresh should clean it up.
+            if (!node.pin) return null;
             return (
               <DraggableNode
                 key={node.id}
@@ -267,7 +288,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 isDragging={draggingNodeId === node.id}
                 diving={diving}
               >
-                <WidgetTilePlaceholder />
+                <WidgetTile pin={node.pin} zoom={camera.scale} />
               </DraggableNode>
             );
           })}
@@ -361,13 +382,3 @@ function DraggableNode({ node, scale, isDragging, diving, children }: DraggableN
   );
 }
 
-function WidgetTilePlaceholder() {
-  return (
-    <div
-      data-tile-kind="widget"
-      className="w-full h-full rounded-xl border border-dashed border-surface-border bg-surface-raised/60 text-text-dim flex flex-col items-center justify-center text-[11px]"
-    >
-      Widget (placeholder)
-    </div>
-  );
-}

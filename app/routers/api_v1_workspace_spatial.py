@@ -64,9 +64,11 @@ async def get_nodes(
     db: AsyncSession = Depends(get_db),
 ):
     """List all spatial nodes; auto-seeds channel rows for any channel
-    that doesn't yet have a position. Idempotent."""
-    nodes = await list_nodes(db)
-    return {"nodes": [serialize_node(n) for n in nodes]}
+    that doesn't yet have a position. Widget nodes embed their pin payload
+    inline (envelope, contract/presentation snapshots, source bot) so the
+    client renders without a second roundtrip. Idempotent."""
+    pairs = await list_nodes(db)
+    return {"nodes": [serialize_node(n, pin) for n, pin in pairs]}
 
 
 @router.patch("/nodes/{node_id}")

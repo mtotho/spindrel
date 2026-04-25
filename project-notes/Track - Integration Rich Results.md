@@ -27,6 +27,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 | 11 | Slack NEW_MESSAGE delivery deepening | ✅ shipped |
 | 12 | Slack approval + ephemeral delivery deepening | ✅ shipped |
 | 13 | Slack renderer dead component-converter cleanup | ✅ shipped |
+| 14 | Slack attachment deletion delivery deepening | ✅ shipped |
 
 ## Current Implementation Shape
 
@@ -39,6 +40,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - Slack streaming delivery now lives in a dedicated Slack-owned module. `SlackRenderer` delegates streaming event kinds to it, preserving the placeholder lifecycle, coalesced `chat.update` behavior, and context handoff to durable `NEW_MESSAGE`.
 - Slack durable `NEW_MESSAGE` delivery now lives in `SlackMessageDelivery`. The module owns UI-only/internal-role skips, Slack echo prevention, actor attribution, placeholder reuse/cleanup, thread targeting, rich-result block attachment, and final Slack `ts` receipt shaping.
 - Slack ephemeral message delivery now lives in `SlackEphemeralDelivery`, keeping one-shot `chat.postEphemeral` policy out of the renderer.
+- Slack attachment deletion now lives in `SlackAttachmentDelivery`, which owns both `ATTACHMENT_DELETED` event delivery and the public `delete_attachment(...) -> bool` renderer path used by admin attachment deletion.
 - Slack renderer Web API calls now go through a dedicated receipt-shaped transport module; renderer tests patch that boundary directly.
 - Slack renderer no longer carries the legacy component-vocabulary-to-Block-Kit converter; rich-result Block Kit mapping lives in `tool_result_adapter`.
 - Widget/component actions are out of scope for v1. Approvals remain on `approval_buttons`.
@@ -63,6 +65,11 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - `pytest tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally: 65 passed, 3 warnings.
 - `pytest tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally: 67 passed, 3 warnings.
 - `pytest tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally after the dead-code cleanup: 67 passed, 3 warnings.
+- `pytest tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_renderer.py -q` passed locally: 32 passed, 2 warnings.
+- `pytest tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_ephemeral.py tests/unit/test_slack_transport.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally after attachment delivery extraction: 62 passed, 3 warnings.
+- `pytest tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally after attachment delivery extraction: 78 passed, 3 warnings.
+- `PYTHONDONTWRITEBYTECODE=1 python -c "import integrations.slack.renderer; print('slack renderer import ok')"` passed locally after attachment delivery extraction.
+- `git diff --check -- integrations/slack/renderer.py integrations/slack/attachment_delivery.py tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_renderer.py project-notes/Track\ -\ Integration\ Rich\ Results.md` passed locally. Unscoped `git diff --check` is blocked by unrelated spatial-canvas WIP whitespace.
 - Broader websocket/TestClient suites still time out in this Python 3.14 local environment: even a minimal `FastAPI()` + `TestClient` context hangs before app code runs. Treat those as environment verification gaps, not integration boundary regressions.
 
 ## Audit Issues
@@ -150,6 +157,18 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 **Testing Strategy:** Approval behavior moved to `test_slack_approval_delivery.py`; ephemeral behavior now tests `SlackEphemeralDelivery` directly. Renderer keeps routing smoke coverage for both event kinds.
 
 **Implementation Recommendations:** Keep attachment deletion and the not-yet-wired `MESSAGE_UPDATED` skip in the renderer for now. The next cleanup pass should remove unused legacy component-vocabulary helpers if grep proves they are dead.
+
+### Slack attachment deletion delivery deepening
+
+**Problem:** Slack file deletion still lived in `SlackRenderer` across two entry points: the event-driven `ATTACHMENT_DELETED` path and the public `delete_attachment(...) -> bool` method used by admin attachment deletion.
+
+**Proposed Interface:** `SlackAttachmentDelivery.render(event, target)` owns `ATTACHMENT_DELETED`; `SlackAttachmentDelivery.delete_attachment(metadata, target)` owns the direct renderer-protocol deletion path.
+
+**Dependency Strategy:** True external boundary remains Slack `files.delete`, injected as a `delete_file(token, file_id)` callable for tests and defaulting to `integrations.slack.uploads.delete_slack_file`.
+
+**Testing Strategy:** New boundary tests cover event deletion success/skip/failure/exception and direct deletion target/token/file-id guards. Renderer tests only assert delegation.
+
+**Implementation Recommendations:** Treat Slack renderer as complete after this local split except for the explicit `MESSAGE_UPDATED` no-op, which should stay in the router until upstream publishers carry an addressable Slack `ts`.
 
 ### Discord capability truth
 

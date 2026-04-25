@@ -811,7 +811,10 @@ export default function ChatScreen() {
         const next = removeChannelChatPane(current.chatPaneLayout, paneId);
         if (next.panes.length === 1) {
           remainingSurface = next.panes[0]?.surface ?? { kind: "primary" };
-          return defaultChannelChatPaneLayout();
+          return {
+            ...defaultChannelChatPaneLayout(),
+            miniPane: next.miniPane,
+          };
         }
         return next;
       })(),
