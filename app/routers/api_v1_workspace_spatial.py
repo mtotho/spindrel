@@ -29,6 +29,7 @@ from app.services.workspace_spatial import (
     serialize_node,
     update_node_position,
 )
+from app.services.upcoming_activity import list_upcoming_activity
 
 
 router = APIRouter(prefix="/workspace/spatial", tags=["workspace-spatial"])
@@ -69,6 +70,31 @@ async def get_nodes(
     client renders without a second roundtrip. Idempotent."""
     pairs = await list_nodes(db)
     return {"nodes": [serialize_node(n, pin) for n, pin in pairs]}
+
+
+@router.get("/upcoming-activity")
+async def get_upcoming_activity(
+    limit: int = 50,
+    type: str | None = None,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    """List scheduled work visible to the workspace canvas.
+
+    This is the canvas-facing seam for scheduled activity. It intentionally
+    omits admin-only memory-hygiene rows and channel-less tasks; the admin task
+    surface continues to use ``/api/v1/admin/upcoming-activity`` for the full
+    operational view.
+    """
+    items = await list_upcoming_activity(
+        db,
+        limit=max(1, min(limit, 1000)),
+        type_filter=type,
+        auth=auth,
+        include_memory_hygiene=False,
+        include_channelless_tasks=False,
+    )
+    return {"items": items}
 
 
 @router.patch("/nodes/{node_id}")

@@ -24,18 +24,33 @@ import {
   useUpdateSpatialNode,
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
-import { useUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
+import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import type { Channel } from "../../types/api";
 import { ChannelTile } from "./ChannelTile";
 import { WidgetTile } from "./WidgetTile";
+import { NowWell } from "./NowWell";
+import { UpcomingTile } from "./UpcomingTile";
 import {
-  NowWell,
+  CAMERA_STORAGE_KEY,
+  DEFAULT_CAMERA,
+  LENS_NATIVE_FRACTION,
+  LENS_SETTLE_MS,
+  MAX_SCALE,
+  MIN_SCALE,
+  WELL_R_MAX,
   WELL_X,
   WELL_Y,
-  WELL_R_MAX,
   WELL_Y_SQUASH,
-} from "./NowWell";
-import { UpcomingTile } from "./UpcomingTile";
+  clampCamera,
+  loadStoredCamera,
+  projectFisheye,
+  type Camera,
+  type LensTransform,
+} from "./spatialGeometry";
+import {
+  upcomingOrbit,
+  upcomingReactKey,
+} from "./spatialActivity";
 
 /**
  * Backend-driven spatial canvas. Renders one tile per `WorkspaceSpatialNode`
@@ -49,117 +64,9 @@ import { UpcomingTile } from "./UpcomingTile";
  * via the `["workspace-spatial-nodes"]` key.
  */
 
-interface Camera {
-  x: number;
-  y: number;
-  scale: number;
-}
-
-const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 1 };
-const MIN_SCALE = 0.05;
-const MAX_SCALE = 3.0;
 const DIVE_MS = 300;
 const TILE_W = 220;
 const TILE_H = 140;
-const CAMERA_STORAGE_KEY = "spatial.camera";
-
-// Fisheye lens (P16). Hold Space → tiles outside `lensRadius` are pulled
-// toward the cursor focal point and visually shrunk.
-//
-// `lensRadius` = native zone (screen px). Tiles inside it are untouched.
-// `LENS_R_MAX_MULT` caps how far a projected tile can land — distant tiles
-// asymptote to `lensRadius * LENS_R_MAX_MULT` regardless of how far away
-// they actually are. Drives the visual "everything compresses into a ring"
-// look that makes the effect obvious.
-// `LENS_SIZE_EXP` amplifies the size shrink (sizeFactor = ratio ** exp).
-// >1 makes shrinking visibly stronger than the position pull, which reads
-// as proper depth-of-field instead of a subtle wobble.
-const LENS_NATIVE_FRACTION = 0.22;
-const LENS_R_MAX_MULT = 1.8;
-const LENS_SIZE_EXP = 1.5;
-const LENS_SETTLE_MS = 250;
-const LENS_MIN_SCALE = 0.2;
-
-interface LensTransform {
-  dxWorld: number;
-  dyWorld: number;
-  sizeFactor: number;
-}
-
-/**
- * Project a tile's world-coord center through the fisheye lens. Returns
- * additive world-coord translate + a size scale factor; identity when the
- * tile sits inside the native zone.
- *
- * Math runs in screen space (post pan/zoom) so distances are pixel-perceptual.
- * The projection saturates: distant tiles asymptote to `R_max = lensRadius *
- * LENS_R_MAX_MULT`, so no matter how far away a tile lives, it lands somewhere
- * in the ring `[lensRadius, R_max]`. Saturation curve:
- *   r' = lensRadius + (R_max - lensRadius) * (1 - exp(-d / (R_max - lensRadius)))
- * where d = r - lensRadius. This is much more visible than a log curve at
- * typical distances — at r = 2*lensRadius, log gives ratio=1.0 (no shrink),
- * the saturation curve gives ratio ~0.85 with a pronounced size shrink via
- * `sizeFactor = ratio ^ LENS_SIZE_EXP`.
- *
- * Convert back to world coords by dividing by `camera.scale` so the parent
- * world transform's scale composes correctly.
- */
-function projectFisheye(
-  worldCx: number,
-  worldCy: number,
-  camera: Camera,
-  focalScreen: { x: number; y: number },
-  lensRadius: number,
-): LensTransform {
-  if (lensRadius <= 0) return { dxWorld: 0, dyWorld: 0, sizeFactor: 1 };
-  const screenCx = camera.x + worldCx * camera.scale;
-  const screenCy = camera.y + worldCy * camera.scale;
-  const dxs = screenCx - focalScreen.x;
-  const dys = screenCy - focalScreen.y;
-  const r = Math.hypot(dxs, dys);
-  if (r <= lensRadius) return { dxWorld: 0, dyWorld: 0, sizeFactor: 1 };
-  const d = r - lensRadius;
-  const Rmax = lensRadius * LENS_R_MAX_MULT;
-  const span = Rmax - lensRadius;
-  const rPrime = lensRadius + span * (1 - Math.exp(-d / span));
-  const ratio = rPrime / r;
-  const screenDx = (focalScreen.x - screenCx) * (1 - ratio);
-  const screenDy = (focalScreen.y - screenCy) * (1 - ratio);
-  const sizeFactor = Math.max(
-    LENS_MIN_SCALE,
-    Math.min(1, Math.pow(ratio, LENS_SIZE_EXP)),
-  );
-  return {
-    dxWorld: screenDx / camera.scale,
-    dyWorld: screenDy / camera.scale,
-    sizeFactor,
-  };
-}
-
-/**
- * Read the persisted camera position. Returns DEFAULT_CAMERA on any failure
- * (missing key, malformed JSON, missing fields, NaN/Infinity scale, etc.) so
- * a corrupted localStorage entry can never strand the user off-canvas.
- */
-function loadStoredCamera(): Camera {
-  try {
-    const raw = localStorage.getItem(CAMERA_STORAGE_KEY);
-    if (!raw) return DEFAULT_CAMERA;
-    const parsed = JSON.parse(raw);
-    if (
-      parsed
-      && typeof parsed.x === "number" && Number.isFinite(parsed.x)
-      && typeof parsed.y === "number" && Number.isFinite(parsed.y)
-      && typeof parsed.scale === "number" && Number.isFinite(parsed.scale)
-      && parsed.scale >= MIN_SCALE && parsed.scale <= MAX_SCALE
-    ) {
-      return { x: parsed.x, y: parsed.y, scale: parsed.scale };
-    }
-  } catch {
-    /* fall through */
-  }
-  return DEFAULT_CAMERA;
-}
 
 interface SpatialCanvasProps {
   /** Called after the dive animation completes and `router.push` has fired.
@@ -171,11 +78,11 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const navigate = useNavigate();
   const { data: nodes } = useSpatialNodes();
   const { data: channels } = useChannels();
-  const { data: upcomingItems } = useUpcomingActivity(50);
+  const { data: upcomingItems } = useSpatialUpcomingActivity(50);
   const updateNode = useUpdateSpatialNode();
 
   // Live tick for the Now Well + orbital tile positions. Server data is
-  // 60s-fresh (`useUpcomingActivity` refetchInterval), but tile radii decay
+  // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii decay
   // continuously toward the well between fetches — a 5s client tick keeps
   // motion smooth without spamming the network.
   const [tickedNow, setTickedNow] = useState(() => Date.now());
@@ -389,11 +296,11 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panState.current;
     if (!p || p.pointerId !== e.pointerId) return;
-    setCamera((c) => ({
-      ...c,
-      x: p.cameraX + (e.clientX - p.startX),
-      y: p.cameraY + (e.clientY - p.startY),
-    }));
+        setCamera((c) => clampCamera({
+          ...c,
+          x: p.cameraX + (e.clientX - p.startX),
+          y: p.cameraY + (e.clientY - p.startY),
+        }));
   }, []);
 
   const onBgPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -423,11 +330,11 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       setCamera((c) => {
         const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
         const k = newScale / c.scale;
-        return {
+        return clampCamera({
           scale: newScale,
           x: cx - (cx - c.x) * k,
           y: cy - (cy - c.y) * k,
-        };
+        });
       });
     }
     viewport.addEventListener("wheel", handler, { passive: false });
@@ -449,7 +356,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       }
       setDiving(true);
       requestAnimationFrame(() => {
-        setCamera({ x: targetX, y: targetY, scale: targetScale });
+        setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
       });
       // Animate-THEN-navigate: route change happens after the transition
       // completes. onAfterDive (overlay close) runs a tick later so the new
@@ -476,7 +383,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     );
     const targetX = rect.width / 2 - WELL_X * targetScale;
     const targetY = rect.height / 2 - WELL_Y * targetScale;
-    setCamera({ x: targetX, y: targetY, scale: targetScale });
+    setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
   }, []);
 
   // dnd-kit sensor with a small activation distance so a click-drag of the
@@ -574,18 +481,19 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
           <OriginMarker />
           <NowWell tickedNow={tickedNow} zoom={camera.scale} />
           {(upcomingItems ?? []).map((item) => {
-            const key =
-              item.type === "task" && item.task_id
-                ? `task:${item.task_id}`
-                : item.type === "heartbeat"
-                ? `hb:${item.channel_id ?? item.bot_id}:${item.scheduled_at}`
-                : `mh:${item.bot_id}:${item.scheduled_at}`;
+            const orbit = upcomingOrbit(item, tickedNow);
+            const lens =
+              lensEngaged && focalScreen
+                ? projectFisheye(orbit.x, orbit.y, camera, focalScreen, lensRadius)
+                : null;
             return (
               <UpcomingTile
-                key={key}
+                key={upcomingReactKey(item)}
                 item={item}
                 zoom={camera.scale}
                 tickedNow={tickedNow}
+                extraScale={lens?.sizeFactor ?? 1}
+                lens={lens}
               />
             );
           })}
@@ -828,4 +736,3 @@ function DraggableNode({
     </div>
   );
 }
-

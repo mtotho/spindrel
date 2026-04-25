@@ -1,15 +1,17 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Activity, Clock, Sparkles } from "lucide-react";
-import { formatTimeUntil } from "../../utils/format";
 import type { UpcomingItem } from "../../api/hooks/useUpcomingActivity";
-import { channelHue } from "./ChannelTile";
 import {
-  WELL_X,
-  WELL_Y,
-  WELL_Y_SQUASH,
-  radiusForMinutes,
-} from "./NowWell";
+  type LensTransform,
+} from "./spatialGeometry";
+import {
+  formatTimeUntil,
+  upcomingHref,
+  upcomingOrbit,
+  upcomingTileColor,
+  upcomingTypeLabel,
+} from "./spatialActivity";
 
 /**
  * UpcomingTile — a single piece of scheduled work orbiting the Now Well
@@ -36,6 +38,8 @@ interface UpcomingTileProps {
   /** Per-tile fisheye scale handed down by SpatialCanvas so labels can
    *  counter-scale through the lens compression. Defaults to 1. */
   extraScale?: number;
+  /** Shared spatial projection from the canvas lens pass. */
+  lens?: LensTransform | null;
 }
 
 const TILE_W = 48;
@@ -45,32 +49,6 @@ const TILE_H_CLOSE = 80;
 
 const FAR_THRESHOLD = 0.4;
 const CLOSE_THRESHOLD = 1.0;
-
-function identityKey(item: UpcomingItem): string {
-  if (item.type === "task" && item.task_id) return `task:${item.task_id}`;
-  if (item.type === "heartbeat") return `heartbeat:${item.channel_id ?? item.bot_id}`;
-  if (item.type === "memory_hygiene") return `mh:${item.bot_id}`;
-  return `${item.type}:${item.scheduled_at}`;
-}
-
-function angleFor(key: string): number {
-  // Stable hash → [0, 2π). Same item always lands at the same orbital slot.
-  let h = 0;
-  for (let i = 0; i < key.length; i++) {
-    h = (h * 31 + key.charCodeAt(i)) >>> 0;
-  }
-  return (h % 360) * (Math.PI / 180);
-}
-
-function tileColor(item: UpcomingItem): string {
-  if (item.channel_id) {
-    return `hsl(${channelHue(item.channel_id)}, 55%, 58%)`;
-  }
-  // Memory-hygiene cycles often have no channel — fall back to bot hue so
-  // they're still differentiated from each other (different bots' cycles
-  // get different colors), without coopting the channel palette.
-  return `hsl(${channelHue(item.bot_id)}, 30%, 55%)`;
-}
 
 function TypeGlyph({ type, size, color }: { type: UpcomingItem["type"]; size: number; color: string }) {
   const Icon = type === "heartbeat" ? Activity : type === "memory_hygiene" ? Sparkles : Clock;
@@ -93,36 +71,31 @@ function TypeGlyph({ type, size, color }: { type: UpcomingItem["type"]; size: nu
   );
 }
 
-export function UpcomingTile({ item, zoom, tickedNow, extraScale = 1 }: UpcomingTileProps) {
+export function UpcomingTile({
+  item,
+  zoom,
+  tickedNow,
+  extraScale = 1,
+  lens = null,
+}: UpcomingTileProps) {
   const navigate = useNavigate();
 
-  const { x, y, color, key, minutesUntil } = useMemo(() => {
-    const k = identityKey(item);
-    const t = Date.parse(item.scheduled_at);
-    const m = Number.isNaN(t) ? 0 : Math.max(0, (t - tickedNow) / 60_000);
-    const r = radiusForMinutes(m);
-    const theta = angleFor(k);
+  const { x, y, color, minutesUntil } = useMemo(() => {
+    const orbit = upcomingOrbit(item, tickedNow);
     return {
-      x: WELL_X + r * Math.cos(theta),
-      y: WELL_Y + r * Math.sin(theta) * WELL_Y_SQUASH,
-      color: tileColor(item),
-      key: k,
-      minutesUntil: m,
+      ...orbit,
+      color: upcomingTileColor(item),
     };
   }, [item, tickedNow]);
 
   const handleClick = () => {
-    if (item.type === "task" && item.task_id) {
-      navigate(`/admin/tasks/${item.task_id}`);
-    } else if (item.type === "heartbeat" && item.channel_id) {
-      navigate(`/channels/${item.channel_id}`);
-    }
-    // memory_hygiene: no nav for v1 (no bot detail page yet).
+    const href = upcomingHref(item);
+    if (href) navigate(href);
   };
 
   const tooltip = [
     item.title,
-    item.type,
+    upcomingTypeLabel(item),
     item.channel_name || item.bot_name,
     formatTimeUntil(item.scheduled_at, tickedNow),
   ]
@@ -146,6 +119,8 @@ export function UpcomingTile({ item, zoom, tickedNow, extraScale = 1 }: Upcoming
           borderRadius: "50%",
           background: color,
           opacity: 0.9,
+          transform: lens ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})` : undefined,
+          transformOrigin: "center center",
         }}
         title={tooltip}
         onClick={handleClick}
@@ -163,6 +138,8 @@ export function UpcomingTile({ item, zoom, tickedNow, extraScale = 1 }: Upcoming
           top: y - TILE_H / 2,
           width: TILE_W,
           height: TILE_H,
+          transform: lens ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})` : undefined,
+          transformOrigin: "center center",
         }}
         title={tooltip}
         onClick={handleClick}
@@ -183,6 +160,8 @@ export function UpcomingTile({ item, zoom, tickedNow, extraScale = 1 }: Upcoming
         top: y - TILE_H_CLOSE / 2,
         width: TILE_W_CLOSE,
         height: TILE_H_CLOSE,
+        transform: lens ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})` : undefined,
+        transformOrigin: "center center",
       }}
       title={tooltip}
       onClick={handleClick}

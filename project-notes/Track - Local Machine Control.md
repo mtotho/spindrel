@@ -2,7 +2,7 @@
 tags: [agent-server, track, local-control, integrations]
 status: active
 created: 2026-04-23
-updated: 2026-04-24 (admin machine-center UI refreshed)
+updated: 2026-04-25 (guided companion recovery + reconnect install)
 ---
 # Track — Local Machine Control
 
@@ -37,6 +37,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 | 8 | Transcript-first UX, header chrome removal, optional native widget | ✅ shipped 2026-04-24 |
 | 9 | Generic provider profiles, SSH-first adoption, machine-center profile UI | ✅ shipped 2026-04-24 |
 | 10 | Admin machine-center UI refresh against canonical control-surface standards | ✅ shipped 2026-04-24 |
+| 11 | Guided machine-center flow, recoverable companion setup, reconnecting Linux user service | ✅ shipped 2026-04-25 |
 
 ## What Shipped
 
@@ -158,6 +159,14 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 - The downloaded `local_companion` client now derives its WebSocket endpoint from the HTTP(S) `--server-url` emitted by the setup command, mapping `http -> ws` and `https -> wss` while preserving path prefixes. This keeps the `curl` bootstrap command copyable as-is and avoids passing an `http://.../ws` URI into `websockets.connect`.
 - Startup tool discovery now loads `app/tools/local/machine_control.py` without a `ToolResultEnvelope` circular import while `app.agent.tool_dispatch` is still initializing; the machine-control tool lazily imports the envelope class inside its builder like the other envelope-producing tools.
 
+### Phase 11 — Guided companion recovery and reconnect install
+
+- Added a write-scoped target setup endpoint so Local Companion launch/install commands can be regenerated after the original enrollment response is gone; normal target list payloads stay token-redacted.
+- `Admin > Machines` now explains Local Companion vs SSH, exposes per-target `Copy launcher`, `Install service`, and `Copy prompt` actions, and clarifies that session leases and exec approvals are separate gates.
+- Machine status/access cards and the optional native widget now expose copyable starter prompts for the active session.
+- Local Companion client now reconnects by default, supports `--once`, lazy-loads `websockets`, and can install itself as a Linux `systemd --user` service with its own venv.
+- Integration list/detail surfaces now render manifest descriptions so provider purpose is visible outside setup instructions.
+
 ## Current Architecture Shape
 
 - Core:
@@ -176,7 +185,7 @@ Let a live signed-in admin grant one chat/session temporary control over one exp
 
 ## Deferred
 
-- Stronger standalone packaging for the companion client; v1 bootstrap no longer requires a repo checkout, but it still assumes Python plus the `websockets` dependency on the target machine.
+- macOS and Windows companion service/install packaging; Linux/systemd user service is the current robust path.
 - Shared lease/consent model for `browser_live` if that path should converge.
 - Richer machine capabilities beyond shell once the provider contract settles.
 - Multi-worker/shared-broker support for live provider connection state.

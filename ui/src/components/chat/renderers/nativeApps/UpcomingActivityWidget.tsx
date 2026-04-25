@@ -2,33 +2,11 @@ import { Link } from "react-router-dom";
 import { useUpcomingActivity, type UpcomingItem } from "@/src/api/hooks/useUpcomingActivity";
 import { PreviewCard, parsePayload, type NativeAppRendererProps } from "./shared";
 import { deriveNativeWidgetLayoutProfile } from "./nativeWidgetLayout";
-
-function fmtFuture(iso: string): string {
-  const target = Date.parse(iso);
-  if (!Number.isFinite(target)) return "--";
-  const diffMs = target - Date.now();
-  if (diffMs <= 0) return "now";
-  const minutes = Math.round(diffMs / 60_000);
-  if (minutes < 60) return `in ${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const remMinutes = minutes % 60;
-  if (hours < 24) return remMinutes ? `in ${hours}h ${remMinutes}m` : `in ${hours}h`;
-  const days = Math.floor(hours / 24);
-  const remHours = hours % 24;
-  return remHours ? `in ${days}d ${remHours}h` : `in ${days}d`;
-}
-
-function itemHref(item: UpcomingItem): string | null {
-  if (item.type === "task" && item.task_id) return `/admin/tasks/${item.task_id}`;
-  if (item.type === "heartbeat" && item.channel_id) return `/channels/${item.channel_id}`;
-  if (item.type === "memory_hygiene") return "/admin/learning";
-  return item.channel_id ? `/channels/${item.channel_id}` : null;
-}
-
-function typeLabel(item: UpcomingItem): string {
-  if (item.type === "memory_hygiene") return "dreaming";
-  return item.type;
-}
+import {
+  formatTimeUntil,
+  upcomingHref,
+  upcomingTypeLabel,
+} from "@/src/components/spatial-canvas/spatialActivity";
 
 function UpcomingRow({
   item,
@@ -39,7 +17,7 @@ function UpcomingRow({
   stackedMeta?: boolean;
   t: NativeAppRendererProps["t"];
 }) {
-  const href = itemHref(item);
+  const href = upcomingHref(item);
   const body = (
     <div
       style={{
@@ -64,7 +42,7 @@ function UpcomingRow({
               flexShrink: 0,
             }}
           >
-            {typeLabel(item)}
+            {upcomingTypeLabel(item)}
           </span>
           <span
             style={{
@@ -106,7 +84,7 @@ function UpcomingRow({
           alignSelf: stackedMeta ? "flex-start" : undefined,
         }}
       >
-        {fmtFuture(item.scheduled_at)}
+        {formatTimeUntil(item.scheduled_at)}
       </div>
     </div>
   );
@@ -188,14 +166,14 @@ export function UpcomingActivityWidget({
               Up next
             </span>
             <span style={{ fontSize: 11, color: t.textDim, fontVariantNumeric: "tabular-nums" }}>
-              {fmtFuture(next.scheduled_at)}
+              {formatTimeUntil(next.scheduled_at)}
             </span>
           </div>
           <div style={{ color: t.text, fontSize: 14, fontWeight: 600, lineHeight: 1.35 }}>
             {next.title}
           </div>
           <div style={{ color: t.textMuted, fontSize: 12, lineHeight: 1.5 }}>
-            {typeLabel(next)} · {next.channel_name ?? next.bot_name} · {new Date(next.scheduled_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+            {upcomingTypeLabel(next)} · {next.channel_name ?? next.bot_name} · {new Date(next.scheduled_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
           </div>
         </div>
         <div style={{ fontSize: 11, color: t.textDim }}>

@@ -35,3 +35,16 @@ export function useUpcomingActivity(limit: number = 50, typeFilter?: string) {
     select: (data) => data.items,
   });
 }
+
+export function useSpatialUpcomingActivity(limit: number = 50, typeFilter?: string) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (typeFilter) params.set("type", typeFilter);
+
+  return useQuery({
+    queryKey: ["spatial-upcoming-activity", limit, typeFilter],
+    queryFn: () =>
+      apiFetch<UpcomingResponse>(`/api/v1/workspace/spatial/upcoming-activity?${params}`),
+    refetchInterval: 60_000,
+    select: (data) => data.items,
+  });
+}

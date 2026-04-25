@@ -8,12 +8,16 @@ reserved-slug isolation.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
 from app.db.models import (
+    Bot as BotRow,
     Channel,
+    ChannelHeartbeat,
+    Task,
     WidgetDashboard,
     WidgetDashboardPin,
     WorkspaceSpatialNode,
@@ -112,6 +116,71 @@ class TestSpatialNodesAutoSeed:
         ids_1 = {n["id"] for n in r1.json()["nodes"]}
         ids_2 = {n["id"] for n in r2.json()["nodes"]}
         assert ids_1 == ids_2, "second GET must not create duplicate rows"
+
+
+class TestSpatialUpcomingActivity:
+    async def test_workspace_activity_uses_canvas_scope_not_admin_payload(self, client, db_session):
+        ch = await _create_channel(client)
+        now = datetime.now(timezone.utc)
+        db_session.add(
+            ChannelHeartbeat(
+                channel_id=uuid.UUID(ch["id"]),
+                enabled=True,
+                interval_minutes=30,
+                next_run_at=now + timedelta(minutes=30),
+            )
+        )
+        db_session.add(
+            Task(
+                bot_id="test-bot",
+                channel_id=uuid.UUID(ch["id"]),
+                prompt="channel task",
+                title="Channel task",
+                status="pending",
+                scheduled_at=now + timedelta(minutes=45),
+            )
+        )
+        db_session.add(
+            Task(
+                bot_id="test-bot",
+                channel_id=None,
+                prompt="admin task",
+                title="Admin-only task",
+                status="pending",
+                scheduled_at=now + timedelta(minutes=50),
+            )
+        )
+        db_session.add(
+            BotRow(
+                id="hygiene-bot",
+                name="Hygiene Bot",
+                model="test/model",
+                system_prompt="",
+                memory_scheme="workspace-files",
+                memory_hygiene_enabled=True,
+                memory_hygiene_interval_hours=24,
+                next_hygiene_run_at=now + timedelta(hours=1),
+            )
+        )
+        await db_session.commit()
+
+        canvas = await client.get(
+            "/api/v1/workspace/spatial/upcoming-activity?limit=20",
+            headers=AUTH_HEADERS,
+        )
+        assert canvas.status_code == 200, canvas.text
+        canvas_items = canvas.json()["items"]
+        assert {item["type"] for item in canvas_items} == {"heartbeat", "task"}
+        assert {item["title"] for item in canvas_items} == {"Heartbeat", "Channel task"}
+        assert all(item["channel_id"] == ch["id"] for item in canvas_items)
+
+        admin = await client.get(
+            "/api/v1/admin/upcoming-activity?limit=20",
+            headers=AUTH_HEADERS,
+        )
+        assert admin.status_code == 200, admin.text
+        admin_titles = {item["title"] for item in admin.json()["items"]}
+        assert {"Heartbeat", "Channel task", "Admin-only task", "Dreaming"} <= admin_titles
 
 
 class TestUpdateAndDelete:

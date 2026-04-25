@@ -13,31 +13,17 @@
  * sit on the same ellipses.
  */
 
-export const WELL_X = 0;
-export const WELL_Y = 2200;
-export const WELL_Y_SQUASH = 0.55;
+import {
+  WELL_R_MAX,
+  WELL_R_MIN,
+  WELL_RINGS,
+  WELL_X,
+  WELL_Y,
+  WELL_Y_SQUASH,
+  radiusForMinutes,
+} from "./spatialGeometry";
 
-// Time-band ring radii in world px. Match the `radiusForMinutes` math in
-// UpcomingTile so a heartbeat scheduled "in 1h" lands on the "1h" ring.
-export const WELL_RINGS: { minutes: number; label: string }[] = [
-  { minutes: 60, label: "1h" },
-  { minutes: 60 * 24, label: "1d" },
-  { minutes: 60 * 24 * 7, label: "1w" },
-];
-
-export const WELL_R_MIN = 90;
-export const WELL_R_MAX = 520;
-export const WELL_MAX_HORIZON_MIN = 60 * 24 * 7; // 1 week
-
-/**
- * Map minutes-until → world-px radius. Log-scaled so imminent items crowd
- * close to the well and distant items spread to the outer ring.
- */
-export function radiusForMinutes(minutes: number): number {
-  const m = Math.max(0, minutes);
-  const t = Math.min(1, Math.log(m + 1) / Math.log(WELL_MAX_HORIZON_MIN + 1));
-  return WELL_R_MIN + (WELL_R_MAX - WELL_R_MIN) * t;
-}
+export { WELL_R_MAX, WELL_X, WELL_Y, WELL_Y_SQUASH } from "./spatialGeometry";
 
 interface NowWellProps {
   /** Live `Date.now()`-ish tick from the canvas. Drives the center clock
