@@ -311,6 +311,10 @@ SSH profiles live in app-managed provider settings, not ephemeral container file
 4. Run that command on the target machine. The current launch flow downloads the companion script from the server first, then starts it locally with Python.
 5. Confirm the machine appears as ready in `Admin > Machines`.
 
+If you lose the launch command, open the target row in `Admin > Machines` and use `Copy launcher` to regenerate it. Use `Install service` when the target should reconnect automatically after a crash, server restart, or websocket disconnect. The user-service installer creates an isolated Python environment under the user's home directory, installs the `websockets` dependency, writes a `systemd --user` service, and starts it.
+
+Local Companion is the best fit for a workstation or laptop where outbound WebSocket pairing is easier than exposing SSH. It runs locally as the user's account and uses target-side guardrails such as allowed roots, inspect prefixes, blocked patterns, timeouts, and output caps.
+
 #### SSH
 
 1. Go to `Admin > Machines`.
@@ -328,6 +332,8 @@ SSH profiles live in app-managed provider settings, not ephemeral container file
 
 SSH profiles and target references survive container rebuilds because they live in app-managed provider settings. Only short-lived temp files are created at runtime for the actual `ssh` subprocess.
 
+SSH is the best fit for headless machines, LAN boxes, and hosts that already have key-based access. It does not run a companion process; readiness comes from a fresh probe using the selected profile's private key and `known_hosts`.
+
 ### Session flow
 
 1. Open the session you want to use.
@@ -337,6 +343,12 @@ SSH profiles and target references survive container rebuilds because they live 
 5. Use `machine_inspect_command` for discovery first.
 6. Use `machine_exec_command` when you really need execution on that machine.
 7. Revoke the lease or let it expire.
+
+The UI now offers copyable starter prompts on machine status/access cards and in the machine center. Those prompts are only guidance for the bot. They do not grant access. The actual gates remain:
+
+- the bot must have or discover the `machine_*` tools
+- a live signed-in admin must grant a session-scoped lease
+- `machine_exec_command` may still require normal tool-policy approval
 
 ## Safety model
 
@@ -400,7 +412,8 @@ For `ssh`, the provider still enforces:
 ## Planned next steps
 
 - Unify other machine-adjacent control surfaces such as `browser_live` onto the same live-user lease model where appropriate.
-- Improve companion packaging so the bootstrap path does not rely on preinstalled Python dependencies on the target machine.
+- Broaden companion packaging beyond the current Linux/systemd user-service installer.
+- Add macOS and Windows service installers if Local Companion grows beyond the current Linux/systemd-first shape.
 - Expand provider capabilities beyond shell only after the provider/lease contract stays stable.
 - Add shared coordination for live provider state where needed for multi-worker deployments.
 

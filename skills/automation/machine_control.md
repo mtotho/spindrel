@@ -25,6 +25,14 @@ Always make that distinction explicit in your reasoning and wording.
 3. If no lease exists, let the user grant one through the inline machine-access card or session controls.
 4. Prefer `machine_inspect_command()` for discovery.
 5. Use `machine_exec_command()` only when you actually need mutation or real execution.
+6. If `machine_exec_command()` returns or triggers an approval state, stop and wait for the user to approve or deny it.
+
+The lease and the approval are separate gates. A lease says this session may use this target. Tool approval says this specific exec-capable command may run.
+
+## Provider choice
+
+- Local Companion: use for the user's workstation or laptop. It runs a paired outbound process on the target machine and can reconnect as a user service.
+- SSH: use for headless or LAN machines that already have key-based SSH and known_hosts trust material. It does not need a companion process.
 
 ## When to use each tool
 

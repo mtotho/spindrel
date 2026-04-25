@@ -40,10 +40,13 @@ chat / plan session
 
 The provider stores SSH profiles and target references in app-managed provider settings, so container rebuilds do not wipe setup. The runtime only creates short-lived temp files for the actual `ssh` subprocess.
 
+Use SSH for headless or LAN machines that already have key-based access. Use Local Companion instead for a workstation/laptop where an outbound paired process is easier than SSH setup. SSH does not need a launcher or background companion service; `Probe` is the readiness check.
+
 ## Safety
 
 - Access is session-scoped through machine-target leases.
 - The runtime requires a live signed-in admin user with active presence.
+- `machine_exec_command` is still `exec_capable`, so normal tool-policy approval may be required even after the session lease exists.
 - Lease grant and lease-gated execution require a fresh SSH probe.
 - The provider uses key-only auth with strict host verification.
 - No password prompts, TTY allocation, forwarding, or interactive auth paths are allowed.

@@ -50,7 +50,7 @@ The canonical architecture and end-user flow live in [docs/guides/local-machine-
 
 ## Client launch
 
-The enrollment response includes `target_id`, `token`, and an example command. The current bootstrap path downloads the companion script directly from the server, then runs it locally with Python.
+The enrollment response includes `target_id`, `token`, and an example command. The current bootstrap path downloads the companion script directly from the server, then runs it locally with Python. If you lose the command later, use `Copy launcher` on the target row in `Admin > Machines`; the write-scoped setup endpoint regenerates it from the stored target token without exposing that token in the normal target list.
 
 ```bash
 curl -fsSL http://localhost:8000/integrations/local_companion/client.py \
@@ -61,18 +61,22 @@ python /tmp/spindrel-local-companion.py \
   --token <token>
 ```
 
-Run it in the foreground first so you can verify pairing, then wrap it in your own user service if you want reconnect behavior.
+By default the client reconnects after websocket errors or server restarts. Use `--once` for the old foreground-test behavior.
+
+For a Linux user service, copy the `Install service` command from `Admin > Machines`. It runs the same downloaded script with `--install-systemd-user`, creates an isolated venv under `~/.local/share/spindrel-local-companion`, installs `websockets`, writes a `systemd --user` service, and starts/enables it. Run `loginctl enable-linger $USER` separately if the companion should stay up after logout.
 
 ## Tool UX
 
 - `machine_status` renders a native machine-status card and can refresh while pinned.
 - `machine_inspect_command` and `machine_exec_command` render terminal-style command result cards.
 - Lease denials in chat return a `core.machine_access_required` rich result so the transcript can offer inline grant/revoke actions.
+- Machine status/access cards and `Admin > Machines` expose a copyable starter prompt for the target session. The prompt guides the bot; it does not grant the lease.
 
 ## Safety
 
 - Companion access is session-scoped through machine-target leases.
 - The runtime requires a live signed-in admin user with active presence.
+- `machine_exec_command` is still `exec_capable`, so normal tool-policy approval may be required even after the session lease exists.
 - Autonomous origins such as tasks, heartbeats, subagents, and hygiene runs are denied by default.
 - The companion still enforces local guardrails such as allowed roots, inspect prefixes, blocked patterns, timeouts, and output caps.
 
