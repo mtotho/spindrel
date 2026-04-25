@@ -54,7 +54,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -95,6 +95,11 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         # scenarios or normal use) is what shows up in the captures.
         print("staged (a3-docs): no-op — admin routes need no staging")
         return None
+    if only == "setup-tui":
+        # Synthetic terminal frames — no API, no browser. Stage is a no-op;
+        # all work happens in the capture step (PIL render).
+        print("staged (setup-tui): no-op — synthetic terminal frames")
+        return None
     if only == "core-features":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             stage_core_features(
@@ -129,6 +134,10 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
 
 
 def _run_capture(cfg: config.Config, *, only: str = "flagship"):
+    if only == "setup-tui":
+        _run_capture_setup_tui(cfg)
+        return
+
     if not cfg.login_email or not cfg.login_password:
         raise SystemExit(
             "SPINDREL_LOGIN_EMAIL / SPINDREL_LOGIN_PASSWORD required for capture "
@@ -264,6 +273,27 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
         sys.exit(1)
 
 
+def _run_capture_setup_tui(cfg: config.Config) -> None:
+    """Render the four setup.sh wizard frames as PNGs into docs/images.
+
+    No API, no Playwright — frames are built from PROVIDERS in scripts/setup.py
+    (parsed via AST so the wizard's questionary import doesn't have to load).
+    """
+    from scripts.screenshots.capture import tui_render
+    from scripts.screenshots.capture.tui_frames import SETUP_TUI_FRAMES
+
+    out_dir = cfg.docs_images_dir
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print("\ncapture results:")
+    ok = 0
+    for name, builder in SETUP_TUI_FRAMES.items():
+        path = out_dir / f"{name}.png"
+        tui_render.render(builder(), path)
+        print(f"  ✓ {name:<30} ok             {path}")
+        ok += 1
+    print(f"\n{ok}/{len(SETUP_TUI_FRAMES)} ok")
+
+
 def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
     if only == "integrations":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
@@ -272,6 +302,9 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
         return
     if only == "a3-docs":
         print("teardown (a3-docs): no-op — admin routes have no scenario records")
+        return
+    if only == "setup-tui":
+        print("teardown (setup-tui): no-op — synthetic frames have no scenario records")
         return
     if only == "core-features":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

@@ -6,7 +6,7 @@
  */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { CSSProperties } from "react";
-import { Pencil, X, GripVertical, RefreshCw, Bug } from "lucide-react";
+import { Pencil, X, GripVertical, RefreshCw, Bug, LayoutGrid } from "lucide-react";
 import { useMatch, useSearchParams } from "react-router-dom";
 import { WidgetInspector } from "./WidgetInspector";
 import { useSortable } from "@dnd-kit/sortable";
@@ -24,6 +24,7 @@ import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
+import { usePinWidgetToCanvas } from "@/src/api/hooks/useWorkspaceSpatial";
 import { formatRelativeTime } from "@/src/utils/format";
 import {
   buildWidgetSyncSignature,
@@ -838,6 +839,16 @@ export function PinnedToolWidget({
           >
             <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.6 }} />
           </button>
+          {channelId && (
+            <PinToCanvasIconButton
+              widget={widget}
+              channelId={channelId}
+              btnClass={`${ctrlBtnClass} opacity-0 group-hover:opacity-100`}
+              iconSize={ctrlIconSize}
+              iconColor={t.textMuted}
+              accentColor={t.accent}
+            />
+          )}
           {(!isDashboard || editMode) && (
             <button
               type="button"
@@ -895,6 +906,17 @@ export function PinnedToolWidget({
           >
             <Bug size={ctrlIconSize} style={{ color: t.textMuted, opacity: 0.7 }} />
           </button>
+          {channelId && (
+            <PinToCanvasIconButton
+              widget={widget}
+              channelId={channelId}
+              btnClass={ctrlBtnClass}
+              iconSize={ctrlIconSize}
+              iconColor={t.textMuted}
+              iconOpacity={0.7}
+              accentColor={t.accent}
+            />
+          )}
           <button
             type="button"
             onClick={() => onUnpin(widget.id)}
@@ -966,5 +988,73 @@ export function PinnedToolWidget({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * "Pin to workspace canvas" icon button. Shipped originally on inline
+ * `WidgetCard` (chat); now also reachable from any pinned widget tile so the
+ * user can promote already-curated channel-dashboard pins onto the canvas
+ * without having to wait for a fresh bot emission. Creates a NEW
+ * `widget_dashboard_pins` row on the reserved `workspace:spatial` dashboard
+ * — independent from the source pin (track decision 4: world pins are their
+ * own rows, channel-dashboard edits never touch the world).
+ */
+function PinToCanvasIconButton({
+  widget,
+  channelId,
+  btnClass,
+  iconSize,
+  iconColor,
+  iconOpacity = 0.6,
+  accentColor,
+}: {
+  widget: PinnedWidget;
+  channelId: string;
+  btnClass: string;
+  iconSize: number;
+  iconColor: string;
+  iconOpacity?: number;
+  accentColor: string;
+}) {
+  const pin = usePinWidgetToCanvas();
+  const [done, setDone] = useState(false);
+  const sourceBotId =
+    widget.bot_id || widget.envelope?.source_bot_id || null;
+  return (
+    <button
+      type="button"
+      disabled={pin.isPending || done}
+      onClick={(e) => {
+        e.stopPropagation();
+        pin.mutate(
+          {
+            source_kind: "channel",
+            tool_name: widget.tool_name,
+            envelope: widget.envelope as unknown as Record<string, unknown>,
+            source_channel_id: channelId,
+            source_bot_id: sourceBotId,
+            display_label: widget.envelope?.display_label ?? undefined,
+          },
+          {
+            onSuccess: () => {
+              setDone(true);
+              window.setTimeout(() => setDone(false), 1500);
+            },
+          },
+        );
+      }}
+      className={btnClass}
+      aria-label="Pin to workspace canvas"
+      title={done ? "Pinned to canvas" : "Pin to canvas"}
+    >
+      <LayoutGrid
+        size={iconSize}
+        style={{
+          color: done ? accentColor : iconColor,
+          opacity: done ? 1 : iconOpacity,
+        }}
+      />
+    </button>
   );
 }

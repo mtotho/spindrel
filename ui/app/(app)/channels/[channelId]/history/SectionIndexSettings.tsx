@@ -22,9 +22,9 @@ export function SectionIndexSettings({ form, patch, channelId }: {
   const verbosity = form.section_index_verbosity ?? "standard";
 
   const { data: preview } = useQuery({
-    queryKey: ["section-index-preview", channelId, count, verbosity],
+    queryKey: ["section-index-preview", channelId, count, verbosity, "current"],
     queryFn: () => apiFetch<{ content: string; section_count: number; chars: number }>(
-      `/api/v1/admin/channels/${channelId}/section-index-preview?count=${count}&verbosity=${verbosity}`,
+      `/api/v1/admin/channels/${channelId}/section-index-preview?count=${count}&verbosity=${verbosity}&scope=current`,
     ),
     enabled: count > 0,
   });
@@ -32,7 +32,7 @@ export function SectionIndexSettings({ form, patch, channelId }: {
   return (
     <div>
       <div className="mb-2 text-[11px] leading-relaxed text-text-muted">
-        The bot sees what's in the archive without spending a tool call and can use{" "}
+        The bot sees the current session archive without spending a tool call and can use{" "}
         <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history</code>{" "}
         with a section number to read full transcripts.
       </div>

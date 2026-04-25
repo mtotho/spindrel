@@ -1,4 +1,5 @@
 """Unit tests for integration hot-reload and scaffolding."""
+import ast
 import json
 import os
 import shutil
@@ -121,14 +122,18 @@ class TestScaffold:
         assert (int_dir / "hooks.py").exists()
         assert (int_dir / "process.py").exists()
         assert (int_dir / "workflows").is_dir()
-        # Renderer feature lays down both target.py and renderer.py.
+        # Renderer feature lays down the thin renderer plus deep delivery rails.
         assert (int_dir / "target.py").exists()
+        assert (int_dir / "transport.py").exists()
+        assert (int_dir / "message_delivery.py").exists()
         assert (int_dir / "renderer.py").exists()
 
     def test_scaffold_renderer_feature_generates_target_and_renderer(self, tmp_path):
-        """The ``renderer`` feature generates target.py + renderer.py
-        boilerplate using the ChannelRenderer protocol. New integrations
-        no longer have to write these by hand."""
+        """The ``renderer`` feature generates thin-router boilerplate.
+
+        New integrations start with the same module shape as Slack:
+        target + transport + delivery module + renderer router.
+        """
         scaffold = self._get_scaffold_fn()
         with patch(
             "app.tools.local.admin_integrations._get_scaffold_dir",
@@ -139,23 +144,47 @@ class TestScaffold:
         assert result["ok"] is True
         int_dir = tmp_path / "my_renderer_int"
         target_py = int_dir / "target.py"
+        transport_py = int_dir / "transport.py"
+        message_delivery_py = int_dir / "message_delivery.py"
         renderer_py = int_dir / "renderer.py"
         assert target_py.exists()
+        assert transport_py.exists()
+        assert message_delivery_py.exists()
         assert renderer_py.exists()
+
+        for generated in (target_py, transport_py, message_delivery_py, renderer_py):
+            ast.parse(generated.read_text(), filename=str(generated))
 
         target_src = target_py.read_text()
         # Class name uses CamelCase derived from integration_id.
         assert "class MyRendererIntTarget" in target_src
+        assert "from integrations.sdk import BaseTarget, target_registry" in target_src
         assert 'integration_id: ClassVar[str] = "my_renderer_int"' in target_src
         assert "target_registry.register(MyRendererIntTarget)" in target_src
+
+        transport_src = transport_py.read_text()
+        assert "class MyRendererIntRendererCallResult" in transport_src
+        assert "async def call_platform" in transport_src
+        assert "from integrations.sdk import DeliveryReceipt" in transport_src
+
+        message_src = message_delivery_py.read_text()
+        assert "class MyRendererIntRendererMessageDelivery" in message_src
+        assert "from integrations.sdk import ChannelEvent, DeliveryReceipt" in message_src
+        assert "def _handle_new_message" not in message_src
 
         renderer_src = renderer_py.read_text()
         assert "class MyRendererIntRenderer" in renderer_src
         assert "from integrations.my_renderer_int.target import MyRendererIntTarget" in renderer_src
+        assert "from integrations.my_renderer_int.message_delivery import MyRendererIntRendererMessageDelivery" in renderer_src
+        assert "from integrations.my_renderer_int.transport import call_platform" in renderer_src
+        assert "from integrations.sdk import (" in renderer_src
+        assert "from app." not in renderer_src
+        assert "httpx" not in renderer_src
         assert "_register()" in renderer_src
-        # Renderer template wires NEW_MESSAGE + TURN_ENDED handlers.
-        assert "_handle_new_message" in renderer_src
-        assert "_handle_turn_ended" in renderer_src
+        # Renderer template routes NEW_MESSAGE to the deep delivery module.
+        assert "self._messages.render(event, target)" in renderer_src
+        assert "_handle_new_message" not in renderer_src
+        assert "_handle_turn_ended" not in renderer_src
 
     def test_scaffold_no_features(self, tmp_path):
         """Scaffold with no features creates only base files."""

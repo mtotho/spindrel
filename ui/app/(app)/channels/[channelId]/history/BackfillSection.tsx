@@ -6,9 +6,13 @@ import { ConfirmDialog } from "@/src/components/shared/ConfirmDialog";
 import { ActionButton, InfoBanner, SaveStatusPill, SettingsStatGrid } from "@/src/components/shared/SettingsControls";
 
 export type SectionsStats = {
+  scope?: "current" | "all";
+  coverage_mode?: "current" | "inventory";
   total_messages: number;
   covered_messages: number;
   estimated_remaining: number;
+  all_section_count?: number;
+  other_session_section_count?: number;
   files_ok: number;
   files_missing: number;
   files_none: number;
@@ -23,8 +27,8 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
   const [result, setResult] = useState<{ sections: number; error?: string } | null>(null);
   const queryClient = useQueryClient();
   const { data: sectionsData } = useQuery({
-    queryKey: ["channel-sections", channelId],
-    queryFn: () => apiFetch<{ total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
+    queryKey: ["channel-sections", channelId, "current"],
+    queryFn: () => apiFetch<{ total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections?scope=current`),
   });
   const existingSections = sectionsData?.total ?? 0;
   const stats = sectionsData?.stats;
@@ -97,14 +101,14 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
   }, [channelId, queryClient]);
 
   const pct = stats && stats.total_messages > 0
-    ? Math.round((stats.covered_messages / stats.total_messages) * 100) : 0;
+    ? Math.min(100, Math.round((stats.covered_messages / stats.total_messages) * 100)) : 0;
   const progressPct = progress && progress.total > 0
     ? Math.round((progress.section / progress.total) * 100) : 0;
 
   return (
     <div className="flex flex-col gap-3 py-1">
       {/* Coverage bar — shown when sections exist and stats are available */}
-      {stats && existingSections > 0 && (
+      {stats && stats.coverage_mode !== "inventory" && existingSections > 0 && (
         <div className="flex flex-col gap-2">
           <div className="h-1.5 overflow-hidden rounded-full bg-surface-overlay">
             <div
@@ -146,6 +150,12 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         </div>
       )}
 
+      {stats && existingSections === 0 && (stats.other_session_section_count ?? 0) > 0 && (
+        <InfoBanner variant="info">
+          This session has no archived sections yet. {stats.other_session_section_count} section{stats.other_session_section_count === 1 ? "" : "s"} exist in other sessions for this channel.
+        </InfoBanner>
+      )}
+
       {/* Buttons */}
       <div className="flex flex-wrap items-center gap-2">
         {existingSections > 0 && stats && stats.estimated_remaining > 0 && (
@@ -177,10 +187,10 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
         )}
         <span className="min-w-[220px] flex-1 text-[11px] leading-snug text-text-dim">
           {existingSections > 0 && stats && stats.estimated_remaining > 0
-            ? "Resume adds new sections for uncovered messages. Re-chunk deletes everything and starts fresh."
+            ? "Resume adds new sections for uncovered messages in the current session. Re-chunk deletes this session's sections and starts fresh."
             : existingSections > 0
-            ? "All messages covered. Re-chunk to regenerate with different settings."
-            : "Chunk existing messages into navigable sections with .md transcripts."
+            ? "Current session messages are covered. Re-chunk to regenerate this session with different settings."
+            : "Chunk the current session into navigable sections with .md transcripts."
           }
         </span>
       </div>
@@ -205,7 +215,7 @@ export function BackfillButton({ channelId, historyMode }: { channelId: string; 
       <ConfirmDialog
         open={showClearConfirm}
         title="Re-chunk Sections"
-        message={`This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} (DB + .history files) and re-chunk everything from scratch. Continue?`}
+        message={`This will delete all ${existingSections} existing section${existingSections !== 1 ? "s" : ""} for the current session (DB + .history files) and re-chunk it from scratch. Continue?`}
         confirmLabel="Re-chunk"
         variant="warning"
         onConfirm={() => { setShowClearConfirm(false); doRunBackfill(true); }}

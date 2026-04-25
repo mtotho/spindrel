@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, docs, screenshots, video, active]
 status: active
-updated: 2026-04-24 (B2: doc-view scenes shipping — `mkdocs serve` lifecycle + Playwright capture + Ken Burns over the rendered docs site)
+updated: 2026-04-25 (A2.5-setup TUI: synthetic terminal-frame rig — PIL canvas + JetBrainsMono + AST-parsed PROVIDERS keep the wizard captures drift-resistant)
 ---
 
 # Track - Quickstart Video
@@ -30,7 +30,7 @@ This track supersedes the **video-generation** scope of `Track - Docs Refresh.md
 | A2.5 | A | Unbreak 9 broken docs image links | **done** — shipped 2026-04-24; 9/9 captures landed in `docs/images/` after three iteration passes (route fixes, tab-selector fixes, wait-on-skeleton fixes). Drift check clean for `docs/guides/*`. |
 | A2 | A | Integration hero shots (admin-detail pass) | **done** — shipped 2026-04-24; reworked from 8 templated captures (all looked identical in the "Available - not adopted" zero-state) down to 5 differentiated heroes: `integrations-library.png` (17-card Library catalog), `integrations-active.png` (4 adopted, grouped Needs Setup/Ready), `integration-github.png` (ENABLED + 9 events + missing-secrets banner), `integration-homeassistant.png` (ENABLED + 6 tool widgets), `integration-frigate.png` (NEEDS SETUP + webhook + 8 tools + 1 skill). Now uses real adoption: `stage_integrations` enables 4 curated integrations via `PUT /api/v1/admin/integrations/{id}/status`. Hash-routed list views (`#library`, `#active`) bypass tab-click stale styling. Cleanup: deleted 86 stale `chat:e2e:*` channels so the channel sidebar shows a real DAILY/HOME/SHOWCASE/WORK product environment. |
 | A2-channel | A | In-channel widget heroes (frigate cameras grid, HA dashboard tiles, github PR card) | later — requires seeding persisted tool-result messages with widget envelopes; admin-detail pass covers the docs-guide need for now |
-| A2.5-setup | A | 8 missing `docs/setup.md` images (`setup-1.png` … `setup-10-first-chat.png`, `providers-screen-v1.png`) | later — surfaced by the new drift check; these are the manual setup-wizard walkthrough, likely need a dedicated scenario or user-captured frames |
+| A2.5-setup | A | 8 missing `docs/setup.md` images | **partially shipped 2026-04-25** — 5 of 8 done. (1) `providers-screen-v1.png` resolved by retargeting setup.md to existing `providers-settings.png`. (4) TUI-walkthrough captures (`setup-1`, `setup-3-modelname`, `setup-4-websearch-select`, `setup-5-start`) shipped via new synthetic terminal-frame rig (`scripts/screenshots/capture/tui_render.py` + `tui_frames.py`, `--only setup-tui`). Remaining 3 are onboarding-flow UI shots (`setup-6-login-screen`, `setup-7-first-channel`, `setup-10-first-chat`) — need fresh-instance staging since the test instance is already onboarded. |
 | A3-docs | A | Docs-gap-ordered feature deep-dives (10 captures) replacing prior A3 list | **in-progress** — 5 of 8 shipped 2026-04-24: `providers-settings.png`, `pipeline-library.png`, `approvals-queue.png` (admin slice, zero-staging); `workspace-files.png` (Default Workspace explorer with `bots/channels/common/integrations/users` tree); `skill-detail.png` (`/admin/skills/widgets%2Fhtml` — emit_html_widget, full markdown + frontmatter + triggers). Remaining: `knowledge-base` (deferred — orchestrator KB empty, needs content seeding), `pipeline-run-detail` (needs completed sub-session card), `setup-wizard` (terminal frame / manual capture). `usage-and-budgets` already covered by `usage-and-forecast.png` from A2.5. `dev-panel-widget` already covered by `dev-panel-tools.png` from A1. |
 | A3-core | A | Core-feature heroes — admin sub-pass 1 (2 captures) | **done** — shipped 2026-04-24; `webhooks-list.png` (3 seeded webhooks with varied event-filter chips) + `tools-library.png` (Local section with full tool catalog, type badges, dates) wired into `webhooks.md` + `custom-tools.md`. New scenario `stage_core_features` seeds + tears down webhook rows by exact-name dedupe. |
 | A3-core-2a | A | Core-feature heroes — KB inventory hero | **done** — shipped 2026-04-24; `kb-detail.png` (Memory & Knowledge → Knowledge tab, filtered to seeded "Orion" row showing "4 files / 8 chunks / 12m ago" + path prefix `bots/screenshot-orchestrator/knowledge-base`) wired into `knowledge-bases.md`. Two new server helpers (`seed_bot_knowledge_chunks.py` + `clear_bot_knowledge_chunks.py`) insert/delete `FilesystemChunk` rows directly — embeddings are NULL because the inventory page only counts. Helpers call `load_bots()` first because the registry is server-startup-populated and the helper subprocess is fresh. Prefix is computed via `workspace_service.get_bot_knowledge_base_index_prefix(bot)` so shared-workspace bots (Orion is one) get `bots/<id>/knowledge-base` and standalone bots get `knowledge-base` — same source the inventory route queries. |
@@ -113,6 +113,34 @@ Three capture-capability additions landed same session as A2.5 scaffolding:
 - `scripts/screenshots/check_drift.py` + `python -m scripts.screenshots check` — scans `docs/**/*.md` for `![](...png)` refs, verifies each exists, exits non-zero on miss. Immediately surfaced 17 broken refs (9 in guides → A2.5; 8 in `docs/setup.md` → A2.5-setup).
 
 Unblocks modal/drawer/tab captures without taking on B3's video-clip scope. Reusable by B3's `playwright_action` clip — same `Action` dataclass.
+
+### Phase A2.5-setup — Setup walkthrough captures (TUI shipped 2026-04-25)
+
+5 of 8 missing `docs/setup.md` heroes shipped; 3 remain.
+
+**Shipped (5):**
+
+| File | Approach | Notes |
+|---|---|---|
+| `providers-screen-v1.png` | Reuse | `docs/setup.md` retargeted to existing `providers-settings.png` (same admin route). |
+| `setup-1.png` | Synthetic TUI | Banner + prereq check + LLM Provider select with 7 providers (OpenAI highlighted). |
+| `setup-3-modelname.png` | Synthetic TUI | Default model select after picking OpenAI (gpt-4.1 highlighted). |
+| `setup-4-websearch-select.png` | Synthetic TUI | Web search backend select (SearXNG built-in highlighted). |
+| `setup-5-start.png` | Synthetic TUI | Final confirm + service-up output (provider-seed.yaml notice + green ✓ http://localhost:8000 / 8081 + spindrel CLI install). |
+
+Code shipped: `scripts/screenshots/capture/tui_render.py` (PIL canvas + JetBrainsMono font + ANSI palette + window-chrome title bar), `tui_frames.py` (Frame builders, AST-parses `PROVIDERS` from `scripts/setup.py` so model menus stay current), `--only setup-tui` in `cli.py` (no API, no Playwright — straight PIL render).
+
+Live run: `python -m scripts.screenshots all --only setup-tui` → 4/4 captures land in `docs/images/` in <1s. No staging, no teardown, no test instance required.
+
+**Remaining (3) — onboarding-flow UI:**
+
+| File | Blocker |
+|---|---|
+| `setup-6-login-screen.png` | Browser screenshot of `/login` — straightforward but the test instance has the auth page, just needs a Playwright nav without auth context (existing rig assumes a logged-in `AuthBundle`). |
+| `setup-7-first-channel.png` | Onboarding modal / "create your first channel" UX. The test instance is already onboarded, so capturing this requires either (a) ephemeral fresh-DB instance, (b) destructive stage that clears all channels + re-runs the welcome flow, or (c) reusing an existing `New Channel` dialog as a stand-in. |
+| `setup-10-first-chat.png` | Same as above — needs a "first time chatting" framing (empty channel + onboarding cue). Could share infrastructure with `setup-7` if we go fresh-instance. |
+
+Recommendation when these come up next: split into a `--only setup-flow` bundle that stands up an ephemeral container (separate compose project, isolated volume) with `SPINDREL_HEADLESS=1` first-boot, captures the three frames, then tears down. Heavier than the TUI rig but isolates onboarding-flow staging from the live test instance.
 
 ### Phase A2.5 — Unbreak 9 broken docs image links (scaffolding done 2026-04-24)
 
@@ -203,6 +231,14 @@ After B2 the quickstart grows to ~60–90s with 6–8 scenes mixing product stil
 - Copies to `spindrel-website/public/videos/`.
 - Optional upload to Cloudflare R2 / S3 via provider interface.
 - Optional cron on e2e host for fully-hands-off weekly regen (default stays: user triggers manually).
+
+## Capture-pipeline lessons (TUI rig — A2.5-setup, 2026-04-25)
+
+- **Synthetic > real recording for wizard heroes.** termtosvg / asciinema can record `setup.sh` but the recording is non-deterministic (depends on timing, terminal width, prompt animations, venv install delays) and re-running setup.sh requires git clone + venv create. A PIL canvas with a monospace font driven by `Frame(lines=[Line(spans=[Span(text, color, bold)])])` renders four heroes in <1s, every byte deterministic.
+- **Drift-resistance comes from sourcing data, not output.** The frame builders import `PROVIDERS` from `scripts/setup.py` (via `ast.literal_eval` on the source — see below) so when the wizard adds Mistral, the model menu hero auto-inherits it. Synthetic ≠ frozen if the data is sourced from the live module.
+- **AST-parse > module-import for source-of-truth modules with heavy top-level deps.** `scripts/setup.py` does `Style([...])` at top level which imports `questionary`. Even `SPINDREL_HEADLESS=1` doesn't dodge it — `STYLE = Style([...])` is unconditional. Reading the file as text and pulling the `PROVIDERS` Assign node out via `ast.parse` + `ast.literal_eval` gets the same data without the import-time side effects.
+- **The TUI rig is fully outside the existing capture path.** No Playwright, no `capture_batch`, no `AuthBundle` — `_run_capture_setup_tui` branches early on `only == "setup-tui"` and calls the renderer directly. Stage and teardown are no-ops. This keeps the TUI rig orthogonal to the browser-automation path; it doesn't even need a running test instance.
+- **Window-chrome title bar reads as "this is a terminal".** Three colored circles (red/yellow/green dots) + a dim title string at the top of the canvas frames the screenshot as a desktop terminal window without faking an actual window manager. Uses ~56px of vertical space — well worth it for context.
 
 ## Key invariants
 

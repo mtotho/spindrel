@@ -120,6 +120,9 @@ Custom integration scaffolded via `manage_integration(action="scaffold")`.
 
 - `integration.yaml` — Declarative manifest (settings, dependencies, bindings)
 - `router.py` — FastAPI endpoints (webhooks, APIs)
+- `renderer.py` — Thin ChannelRenderer router (when scaffolded)
+- `transport.py` — Receipt-shaped platform API calls (when scaffolded)
+- `message_delivery.py` — Durable NEW_MESSAGE delivery policy (when scaffolded)
 - `__init__.py` — Package marker
 ''')
 
@@ -185,12 +188,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Literal
 
-from app.domain import target_registry
-from app.domain.dispatch_target import _BaseTarget
+from integrations.sdk import BaseTarget, target_registry
 
 
 @dataclass(frozen=True)
-class {target_class}(_BaseTarget):
+class {target_class}(BaseTarget):
     """{pretty_name} dispatch destination.
 
     Add the fields your renderer needs to actually deliver a message
@@ -213,9 +215,172 @@ class {target_class}(_BaseTarget):
 target_registry.register({target_class})
 ''')
 
-        # ``renderer.py`` — channel renderer that converts typed bus
-        # events into platform API calls. Slack and Discord renderers
-        # are the canonical templates.
+        # ``transport.py`` — receipt-shaped platform API calls for renderer
+        # delivery. Keep this separate from tools, which often want
+        # exception-shaped API helpers instead.
+        (integration_dir / "transport.py").write_text(f'''"""{pretty_name} renderer transport.
+
+Renderer delivery wants receipt-shaped API results so the outbox drainer
+can decide whether to retry. Replace the placeholder URL/body mapping
+with the platform's real API.
+"""
+from __future__ import annotations
+
+import logging
+
+import httpx
+
+from integrations.sdk import DeliveryReceipt
+
+logger = logging.getLogger(__name__)
+
+_http = httpx.AsyncClient(timeout=30.0)
+
+
+class {renderer_class}CallResult:
+    """Success/failure carrier for {pretty_name} renderer API calls."""
+
+    __slots__ = ("success", "data", "error", "retryable")
+
+    def __init__(
+        self,
+        success: bool,
+        *,
+        data: dict | None = None,
+        error: str | None = None,
+        retryable: bool = False,
+    ) -> None:
+        self.success = success
+        self.data = data
+        self.error = error
+        self.retryable = retryable
+
+    @classmethod
+    def ok(cls, data: dict | None = None) -> "{renderer_class}CallResult":
+        return cls(True, data=data or {{}})
+
+    @classmethod
+    def failed(
+        cls,
+        error: str,
+        *,
+        retryable: bool,
+    ) -> "{renderer_class}CallResult":
+        return cls(False, error=error, retryable=retryable)
+
+    def to_receipt(self) -> DeliveryReceipt:
+        if self.success:
+            external_id = (self.data or {{}}).get("id")
+            return DeliveryReceipt.ok(external_id=external_id)
+        return DeliveryReceipt.failed(
+            self.error or "unknown",
+            retryable=self.retryable,
+        )
+
+
+async def call_platform(
+    method: str,
+    token: str,
+    body: dict,
+) -> {renderer_class}CallResult:
+    """Make one {pretty_name} API call for renderer delivery."""
+    if not token:
+        return {renderer_class}CallResult.failed(
+            "{integration_id} target missing token",
+            retryable=False,
+        )
+
+    # TODO: map method/body to the platform's real endpoint.
+    url = f"https://api.example.invalid/{integration_id}/{{method}}"
+    try:
+        response = await _http.post(
+            url,
+            json=body,
+            headers={{"Authorization": f"Bearer {{token}}"}},
+        )
+    except httpx.RequestError as exc:
+        logger.warning("{integration_id} transport: %s connection error: %s", method, exc)
+        return {renderer_class}CallResult.failed(
+            f"connection error: {{exc}}",
+            retryable=True,
+        )
+
+    try:
+        data = response.json()
+    except ValueError:
+        data = {{}}
+
+    if not response.is_success:
+        return {renderer_class}CallResult.failed(
+            f"{integration_id} {{method}} HTTP {{response.status_code}}",
+            retryable=response.status_code >= 500,
+        )
+    return {renderer_class}CallResult.ok(data)
+
+
+__all__ = ["{renderer_class}CallResult", "call_platform"]
+''')
+
+        # ``message_delivery.py`` — owns durable NEW_MESSAGE delivery policy.
+        # The renderer delegates here rather than growing per-kind handlers.
+        (integration_dir / "message_delivery.py").write_text(f'''"""{pretty_name} durable NEW_MESSAGE delivery."""
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any
+
+from integrations.sdk import ChannelEvent, DeliveryReceipt
+from integrations.{integration_id}.target import {target_class}
+
+PlatformCall = Callable[[str, str, dict], Awaitable[Any]]
+
+
+class {renderer_class}MessageDelivery:
+    """Deliver durable ``NEW_MESSAGE`` events for {pretty_name}."""
+
+    def __init__(self, *, call_platform: PlatformCall) -> None:
+        self._call_platform = call_platform
+
+    async def render(
+        self,
+        event: ChannelEvent,
+        target: {target_class},
+    ) -> DeliveryReceipt:
+        payload = event.payload
+        msg = getattr(payload, "message", None)
+        if msg is None:
+            return DeliveryReceipt.skipped("new_message without message payload")
+
+        role = getattr(msg, "role", "") or ""
+        if role in ("tool", "system"):
+            return DeliveryReceipt.skipped(
+                f"{integration_id} skips internal role={{role}}"
+            )
+
+        text = (getattr(msg, "content", "") or "").strip()
+        if not text:
+            return DeliveryReceipt.skipped("new_message with empty content")
+
+        channel_id = getattr(target, "channel_id", "") or ""
+        token = getattr(target, "token", "") or ""
+        if not channel_id or not token:
+            return DeliveryReceipt.failed(
+                "{integration_id} target missing channel_id or token",
+                retryable=False,
+            )
+
+        return (await self._call_platform(
+            "send_message",
+            token,
+            {{"channel_id": channel_id, "text": text}},
+        )).to_receipt()
+
+
+__all__ = ["{renderer_class}MessageDelivery"]
+''')
+
+        # ``renderer.py`` — thin router over deep delivery modules. Slack's
+        # renderer is the canonical example for richer integrations.
         (integration_dir / "renderer.py").write_text(f'''"""{renderer_class} — channel renderer for {pretty_name} delivery.
 
 Subscribes to the channel-events bus via the renderer registry. The
@@ -232,21 +397,20 @@ from __future__ import annotations
 import logging
 from typing import ClassVar
 
-import httpx
-
-from app.domain.capability import Capability
-from app.domain.channel_events import ChannelEvent, ChannelEventKind
-from app.domain.dispatch_target import DispatchTarget
-from app.domain.outbound_action import OutboundAction
-from app.integrations.renderer import DeliveryReceipt
+from integrations.sdk import (
+    Capability,
+    ChannelEvent,
+    ChannelEventKind,
+    DeliveryReceipt,
+    DispatchTarget,
+    OutboundAction,
+    renderer_registry,
+)
+from integrations.{integration_id}.message_delivery import {renderer_class}MessageDelivery
 from integrations.{integration_id}.target import {target_class}
+from integrations.{integration_id}.transport import call_platform
 
 logger = logging.getLogger(__name__)
-
-
-# Module-level shared httpx client. Closed in ``app/main.py`` lifespan
-# shutdown via the renderer-module reflective sweep.
-_http = httpx.AsyncClient(timeout=30.0)
 
 
 class {renderer_class}:
@@ -265,6 +429,12 @@ class {renderer_class}:
         # Capability.ATTACHMENTS,
         # Capability.APPROVAL_BUTTONS,
     }})
+    tool_result_rendering = None
+
+    def __init__(self) -> None:
+        self._messages = {renderer_class}MessageDelivery(
+            call_platform=call_platform,
+        )
 
     async def render(
         self,
@@ -281,9 +451,7 @@ class {renderer_class}:
         kind = event.kind
         try:
             if kind == ChannelEventKind.NEW_MESSAGE:
-                return await self._handle_new_message(event, target)
-            if kind == ChannelEventKind.TURN_ENDED:
-                return await self._handle_turn_ended(event, target)
+                return await self._messages.render(event, target)
         except Exception as exc:
             logger.exception(
                 "{renderer_class}.render: unexpected failure for %s",
@@ -302,7 +470,9 @@ class {renderer_class}:
         action: OutboundAction,
         target: DispatchTarget,
     ) -> DeliveryReceipt:
-        return DeliveryReceipt.skipped("not implemented")
+        return DeliveryReceipt.skipped(
+            "{integration_id} outbound actions are not implemented"
+        )
 
     async def delete_attachment(
         self,
@@ -311,27 +481,9 @@ class {renderer_class}:
     ) -> bool:
         return False
 
-    # ------------------------------------------------------------------
-    # Event handlers — implement the ones your integration supports
-    # ------------------------------------------------------------------
-
-    async def _handle_new_message(
-        self, event: ChannelEvent, target: {target_class}
-    ) -> DeliveryReceipt:
-        # TODO: implement message delivery via ``_http``.
-        return DeliveryReceipt.skipped("not implemented")
-
-    async def _handle_turn_ended(
-        self, event: ChannelEvent, target: {target_class}
-    ) -> DeliveryReceipt:
-        # TODO: implement final-message delivery.
-        return DeliveryReceipt.skipped("not implemented")
-
 
 def _register() -> None:
     """Self-register at module import. Idempotent."""
-    from app.integrations import renderer_registry
-
     if renderer_registry.get({renderer_class}.integration_id) is None:
         renderer_registry.register({renderer_class}())
 

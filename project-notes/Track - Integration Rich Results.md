@@ -28,6 +28,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 | 12 | Slack approval + ephemeral delivery deepening | ✅ shipped |
 | 13 | Slack renderer dead component-converter cleanup | ✅ shipped |
 | 14 | Slack attachment deletion delivery deepening | ✅ shipped |
+| 15 | Integration renderer authoring rails | ✅ shipped |
 
 ## Current Implementation Shape
 
@@ -43,6 +44,8 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - Slack attachment deletion now lives in `SlackAttachmentDelivery`, which owns both `ATTACHMENT_DELETED` event delivery and the public `delete_attachment(...) -> bool` renderer path used by admin attachment deletion.
 - Slack renderer Web API calls now go through a dedicated receipt-shaped transport module; renderer tests patch that boundary directly.
 - Slack renderer no longer carries the legacy component-vocabulary-to-Block-Kit converter; rich-result Block Kit mapping lives in `tool_result_adapter`.
+- New integration renderer scaffolds now generate the Slack-style thin-router shape: `target.py`, `transport.py`, `message_delivery.py`, and `renderer.py`.
+- Reusable renderer contract assertions live under `tests.helpers.integration_renderer_contracts` for capability parity, unsupported-event skip behavior, and safe delete-attachment defaults.
 - Widget/component actions are out of scope for v1. Approvals remain on `approval_buttons`.
 - Integration runtime modules now reach app-owned contracts through `integrations.sdk`; only infrastructure shims (`integrations/__init__.py`, `integrations/sdk.py`, `integrations/utils.py`) may import `app.*` directly.
 
@@ -70,6 +73,10 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - `pytest tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally after attachment delivery extraction: 78 passed, 3 warnings.
 - `PYTHONDONTWRITEBYTECODE=1 python -c "import integrations.slack.renderer; print('slack renderer import ok')"` passed locally after attachment delivery extraction.
 - `git diff --check -- integrations/slack/renderer.py integrations/slack/attachment_delivery.py tests/unit/test_slack_attachment_delivery.py tests/unit/test_slack_renderer.py project-notes/Track\ -\ Integration\ Rich\ Results.md` passed locally. Unscoped `git diff --check` is blocked by unrelated spatial-canvas WIP whitespace.
+- `pytest tests/unit/test_integration_reload.py::TestScaffold::test_scaffold_renderer_feature_generates_target_and_renderer tests/unit/test_integration_reload.py::TestScaffold::test_scaffold_all_features -q` passed locally after renderer scaffold rails: 2 passed.
+- `pytest tests/unit/test_integration_depth_contract.py -q` passed locally after renderer contract helper adoption: 6 passed.
+- `pytest tests/unit/test_integration_reload.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py tests/unit/test_canonical_docs_drift.py tests/unit/test_renderer_registry.py -q` passed locally after renderer authoring rails: 44 passed.
+- `PYTHONDONTWRITEBYTECODE=1 python -c "import app.tools.local.admin_integrations; import tests.helpers.integration_renderer_contracts; print('integration rails imports ok')"` passed locally.
 - Broader websocket/TestClient suites still time out in this Python 3.14 local environment: even a minimal `FastAPI()` + `TestClient` context hangs before app code runs. Treat those as environment verification gaps, not integration boundary regressions.
 
 ## Audit Issues
@@ -169,6 +176,18 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 **Testing Strategy:** New boundary tests cover event deletion success/skip/failure/exception and direct deletion target/token/file-id guards. Renderer tests only assert delegation.
 
 **Implementation Recommendations:** Treat Slack renderer as complete after this local split except for the explicit `MESSAGE_UPDATED` no-op, which should stay in the router until upstream publishers carry an addressable Slack `ts`.
+
+### Integration renderer authoring rails
+
+**Problem:** The scaffolded renderer still taught the old shape: direct `app.*` imports, module-local `httpx`, and `_handle_*` methods in `renderer.py`, which encouraged every new integration to grow another shallow god renderer.
+
+**Proposed Interface:** `manage_integration(..., features=["renderer"])` now creates `target.py`, `transport.py`, `message_delivery.py`, and a thin `renderer.py`. `docs/guides/integrations.md` documents the recommended optional modules for streaming, approvals, and attachment deletion.
+
+**Dependency Strategy:** True external platform calls are isolated behind `transport.py` or injected delivery callables. Integration runtime code imports app-owned contracts through `integrations.sdk`.
+
+**Testing Strategy:** Scaffold tests assert the generated files and thin-router imports. `tests.helpers.integration_renderer_contracts` provides reusable assertions, and the rich-result depth contract uses them for Slack/Discord parity and safe default behavior.
+
+**Implementation Recommendations:** New first-party integrations should start with the scaffold and grow by adding delivery modules, not renderer-private handlers. Keep renderer tests as routing smoke; move behavior tests to the delivery module that owns the policy.
 
 ### Discord capability truth
 

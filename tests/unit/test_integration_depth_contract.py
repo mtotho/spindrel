@@ -13,6 +13,12 @@ import yaml
 
 from app.domain.capability import Capability
 from integrations.sdk import renderer_registry
+from tests.helpers.integration_renderer_contracts import (
+    assert_renderer_capabilities_match_manifest,
+    assert_renderer_delete_attachment_empty_metadata_false,
+    assert_renderer_skips_unsupported_event,
+    assert_renderer_supports_capabilities,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,17 +54,42 @@ def _renderer(integration_id: str):
     return renderer
 
 
+def _target(integration_id: str):
+    if integration_id == "slack":
+        from integrations.slack.target import SlackTarget
+
+        return SlackTarget(channel_id="C123", token="xoxb-test")
+    if integration_id == "discord":
+        from integrations.discord.target import DiscordTarget
+
+        return DiscordTarget(channel_id="123", token="discord-test")
+    raise AssertionError(f"no test target for {integration_id}")
+
+
 @pytest.mark.parametrize("integration_id", RICH_RESULT_INTEGRATIONS)
 def test_renderer_capabilities_match_manifest(integration_id: str) -> None:
     manifest = _manifest(integration_id)
     renderer = _renderer(integration_id)
 
-    manifest_caps = frozenset(manifest["capabilities"])
-    renderer_caps = frozenset(cap.value for cap in renderer.capabilities)
+    assert_renderer_capabilities_match_manifest(
+        integration_id=integration_id,
+        renderer=renderer,
+        manifest=manifest,
+    )
+    assert_renderer_supports_capabilities(
+        manifest=manifest,
+        expected={Capability.RICH_TOOL_RESULTS.value},
+    )
 
-    assert renderer.integration_id == integration_id
-    assert renderer_caps == manifest_caps
-    assert Capability.RICH_TOOL_RESULTS.value in manifest_caps
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("integration_id", RICH_RESULT_INTEGRATIONS)
+async def test_renderer_thin_interface_defaults(integration_id: str) -> None:
+    renderer = _renderer(integration_id)
+    target = _target(integration_id)
+
+    await assert_renderer_skips_unsupported_event(renderer, target)
+    await assert_renderer_delete_attachment_empty_metadata_false(renderer, target)
 
 
 @pytest.mark.parametrize("integration_id", RICH_RESULT_INTEGRATIONS)

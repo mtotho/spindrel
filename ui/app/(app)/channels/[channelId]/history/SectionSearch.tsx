@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ActionButton, SettingsControlRow, SettingsSearchBox, StatusBadge } from "@/src/components/shared/SettingsControls";
 import { apiFetch } from "@/src/api/client";
+import type { SectionScope } from "../HistoryTab";
 
 type SearchResult = {
   section: {
@@ -12,11 +13,17 @@ type SearchResult = {
     period_start: string | null;
     tags: string[];
   };
+  session: {
+    id: string;
+    title: string;
+    kind: "primary" | "previous" | "scratch" | "legacy";
+    is_current: boolean;
+  } | null;
   source: string;
   snippet: string | null;
 };
 
-export function SectionSearch({ channelId }: { channelId: string }) {
+export function SectionSearch({ channelId, scope }: { channelId: string; scope: SectionScope }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -29,7 +36,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
     setError(null);
     try {
       const data = await apiFetch<{ results: SearchResult[] }>(
-        `/api/v1/admin/channels/${channelId}/sections/search?q=${encodeURIComponent(q)}`
+        `/api/v1/admin/channels/${channelId}/sections/search?q=${encodeURIComponent(q)}&scope=${scope}`
       );
       setResults(data.results);
     } catch (e: unknown) {
@@ -48,8 +55,14 @@ export function SectionSearch({ channelId }: { channelId: string }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="text-[11px] leading-relaxed text-text-muted">
-        Search archived sections by topic, transcript content, or semantic similarity.
-        This uses the same search the bot sees via <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history</code>.
+        {scope === "current" ? (
+          <>
+            Search the active session by topic, transcript content, or semantic similarity. This mirrors what the bot sees via{" "}
+            <code className="rounded bg-surface-overlay px-1 py-px font-mono text-[10px] text-text-muted">read_conversation_history(section=&quot;search:&lt;query&gt;&quot;)</code>.
+          </>
+        ) : (
+          "Search the admin archive inventory across sessions in this channel. Runtime bots still browse one active session at a time unless they intentionally jump sessions."
+        )}
       </div>
       <div className="flex items-center gap-1.5">
         <SettingsSearchBox
@@ -104,6 +117,7 @@ export function SectionSearch({ channelId }: { channelId: string }) {
                 meta={
                   <div className="flex items-center gap-2">
                     {badge && <StatusBadge label={badge} variant="info" />}
+                    {scope === "all" && r.session && <StatusBadge label={r.session.title} variant={r.session.is_current ? "info" : "neutral"} />}
                     <span>{r.section.message_count} msgs</span>
                     {dateStr && <span>{dateStr}</span>}
                   </div>

@@ -6,7 +6,7 @@ import {
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { LlmPrompt } from "@/src/components/shared/LlmPrompt";
 import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import { InfoBanner } from "@/src/components/shared/SettingsControls";
+import { InfoBanner, SettingsSegmentedControl } from "@/src/components/shared/SettingsControls";
 import { AlertTriangle } from "lucide-react";
 import { DocsMarkdownModal } from "@/src/components/shared/DocsMarkdownModal";
 import type { ChannelSettings } from "@/src/types/api";
@@ -21,6 +21,7 @@ import { SectionSearch } from "./history/SectionSearch";
 
 // Re-export sub-components for convenience
 export { HistoryModeSection, BackfillButton, SectionsViewer, SectionIndexSettings, CompactionActivity, SectionSearch };
+export type SectionScope = "current" | "all";
 
 // ---------------------------------------------------------------------------
 // History Tab — orchestrator
@@ -35,6 +36,7 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
 }) {
   const isMobile = useIsMobile();
   const [guideOpen, setGuideOpen] = useState(false);
+  const [sectionScope, setSectionScope] = useState<SectionScope>("current");
   const effectiveMode = form.history_mode || botHistoryMode || "file";
   const isFileOrStructured = effectiveMode === "file" || effectiveMode === "structured";
 
@@ -168,20 +170,31 @@ export function HistoryTab({ form, patch, channelId, workspaceId, memoryScheme, 
           <div className="flex max-w-[95ch] items-start gap-2 text-[12px] leading-relaxed text-text-dim">
             <AlertTriangle size={12} className="mt-0.5 shrink-0 text-warning-muted/80" />
             <span>
-              Backfill makes one LLM call per chunk plus one executive-summary call. At 500 messages with chunk size 50,
-              expect about 11 calls. Set interval and keep-turns first; resume only covers uncovered messages, while
-              re-chunk deletes existing sections and starts over.
+              Backfill works on the channel's current primary session. It makes one LLM call per chunk plus one
+              executive-summary call. At 500 messages with chunk size 50, expect about 11 calls. Resume only covers
+              uncovered messages in the current session; re-chunk deletes that session's existing sections and starts over.
             </span>
           </div>
           <BackfillButton channelId={channelId} historyMode={effectiveMode} />
         </Section>
 
-        <Section title="Section Search" description="Search archived sections by topic, content, or semantic similarity.">
-          <SectionSearch channelId={channelId} />
+        <Section title="Archive Scope" description="Current session mirrors what the active chat can browse. All sessions is an admin inventory view across this channel's sessions.">
+          <SettingsSegmentedControl<SectionScope>
+            value={sectionScope}
+            onChange={setSectionScope}
+            options={[
+              { value: "current", label: "Current session" },
+              { value: "all", label: "All sessions" },
+            ]}
+          />
         </Section>
 
-        <Section title="Archived Sections" description="Browse and manage archived conversation sections. Transcripts are stored in the database; file writing is optional (see global settings).">
-          <SectionsViewer channelId={channelId} />
+        <Section title="Section Search" description={sectionScope === "current" ? "Search the active session's archived sections by topic, content, or semantic similarity." : "Search archived sections across sessions in this channel."}>
+          <SectionSearch channelId={channelId} scope={sectionScope} />
+        </Section>
+
+        <Section title="Archived Sections" description={sectionScope === "current" ? "Browse the active session archive. Transcripts are stored in the database; file writing is optional." : "Browse the channel archive inventory grouped by session."}>
+          <SectionsViewer channelId={channelId} scope={sectionScope} onScopeChange={setSectionScope} />
         </Section>
         </>
       ) : (

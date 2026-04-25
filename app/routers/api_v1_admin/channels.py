@@ -7,7 +7,7 @@ import logging
 import time as _time
 import uuid
 from datetime import datetime, time as dt_time, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
@@ -43,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+SectionScope = Literal["current", "all"]
+
 
 def _resolve_workspace_id(bot_id: str) -> str | None:
     """Get the shared workspace ID for a bot, if any."""
@@ -75,6 +77,86 @@ def _resolve_index_segment_defaults(bot_id: str) -> dict:
         "similarity_threshold": _s.FS_INDEX_SIMILARITY_THRESHOLD,
         "top_k": _s.FS_INDEX_TOP_K,
     }
+
+
+def _section_session_label(session: Session | None, active_session_id: uuid.UUID | None) -> str:
+    if session is None:
+        return "Legacy channel archive"
+    if session.title:
+        return session.title
+    if session.id == active_session_id:
+        return "Primary session"
+    return "Untitled session"
+
+
+def _section_session_kind(session: Session | None, active_session_id: uuid.UUID | None) -> str:
+    if session is None:
+        return "legacy"
+    if session.id == active_session_id:
+        return "primary"
+    if session.parent_channel_id:
+        return "scratch"
+    return "previous"
+
+
+def _section_session_out(session: Session | None, active_session_id: uuid.UUID | None) -> dict | None:
+    if session is None:
+        return None
+    return {
+        "id": str(session.id),
+        "title": _section_session_label(session, active_session_id),
+        "summary": session.summary,
+        "kind": _section_session_kind(session, active_session_id),
+        "is_current": session.id == active_session_id,
+        "last_active": session.last_active.isoformat() if session.last_active else None,
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+    }
+
+
+async def _load_section_sessions(
+    db: AsyncSession,
+    rows: list,
+    active_session_id: uuid.UUID | None,
+) -> dict[uuid.UUID, Session]:
+    session_ids = {r.session_id for r in rows if r.session_id}
+    if active_session_id:
+        session_ids.add(active_session_id)
+    if not session_ids:
+        return {}
+    sessions = (
+        await db.execute(select(Session).where(Session.id.in_(session_ids)))
+    ).scalars().all()
+    return {s.id: s for s in sessions}
+
+
+async def _count_eligible_messages_for_session(db: AsyncSession, session: Session | None) -> int:
+    if session is None:
+        return 0
+
+    watermark_filter = True  # type: ignore[assignment]
+    if session.summary_message_id:
+        watermark_msg = await db.get(Message, session.summary_message_id)
+        if watermark_msg:
+            watermark_filter = Message.created_at <= watermark_msg.created_at
+
+    rows = (
+        await db.execute(
+            select(Message)
+            .where(Message.session_id == session.id)
+            .where(watermark_filter)
+            .where(Message.role.in_(["user", "assistant"]))
+            .order_by(Message.created_at)
+        )
+    ).scalars().all()
+
+    count = 0
+    for message in rows:
+        if message.role == "user" and (message.metadata_ or {}).get("passive", False):
+            continue
+        if not message.content:
+            continue
+        count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -1636,37 +1718,61 @@ async def admin_backfill_section_transcripts(
 @router.get("/channels/{channel_id}/sections")
 async def admin_channel_sections(
     channel_id: uuid.UUID,
+    scope: SectionScope = Query("current"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
-    """List all conversation sections for a channel, ordered by sequence."""
+    """List conversation sections for the active session or all channel sessions."""
     import math
     import os
     from sqlalchemy.orm import defer
     from app.db.models import ConversationSection
-    from app.services.compaction import count_eligible_messages, _get_workspace_root
+    from app.services.compaction import _get_workspace_root
+
+    if scope not in ("current", "all"):
+        raise HTTPException(status_code=400, detail="scope must be current or all")
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    active_session = await db.get(Session, channel.active_session_id) if channel.active_session_id else None
+
+    query = select(ConversationSection).where(ConversationSection.channel_id == channel_id)
+    if scope == "current":
+        if not active_session:
+            query = query.where(ConversationSection.session_id.is_(None), ConversationSection.id.is_(None))
+        else:
+            query = query.where(ConversationSection.session_id == active_session.id)
 
     rows = (
         await db.execute(
-            select(ConversationSection)
-            .where(ConversationSection.channel_id == channel_id)
+            query
             .order_by(ConversationSection.sequence)
             .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
     ).scalars().all()
 
+    all_section_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(ConversationSection)
+            .where(ConversationSection.channel_id == channel_id)
+        )
+    ).scalar_one()
+    other_session_section_count = all_section_count - len(rows) if scope == "current" else 0
+    session_by_id = await _load_section_sessions(db, rows, channel.active_session_id)
+
     # Resolve workspace root for file existence checks
     ws_root = None
     channel_ws_root = None
-    channel = await db.get(Channel, channel_id)
-    if channel:
-        try:
-            bot = get_bot(channel.bot_id)
-            ws_root = _get_workspace_root(bot)
-            from app.services.channel_workspace import _get_ws_root
-            channel_ws_root = _get_ws_root(bot)
-        except Exception:
-            pass
+    try:
+        bot = get_bot(channel.bot_id)
+        ws_root = _get_workspace_root(bot)
+        from app.services.channel_workspace import _get_ws_root
+        channel_ws_root = _get_ws_root(bot)
+    except Exception:
+        pass
 
     def _file_exists(s) -> bool | None:
         if not s.transcript_path:
@@ -1708,22 +1814,28 @@ async def admin_channel_sections(
             "tags": s.tags or [],
             "file_exists": fe,
             "has_transcript": bool(s.transcript_path),
+            "session": _section_session_out(session_by_id.get(s.session_id), channel.active_session_id),
         })
 
     # Coverage stats
-    total_messages = await count_eligible_messages(channel_id)
+    total_messages = await _count_eligible_messages_for_session(db, active_session) if scope == "current" else 0
     covered_messages = sum(s.message_count for s in rows)
-    remaining_messages = max(0, total_messages - covered_messages)
+    remaining_messages = max(0, total_messages - covered_messages) if scope == "current" else 0
     last_chunk = rows[-1].chunk_size if rows else 50
     estimated_remaining = math.ceil(remaining_messages / last_chunk) if remaining_messages > 0 else 0
 
     return {
         "sections": sections_out,
         "total": len(rows),
+        "scope": scope,
         "stats": {
+            "scope": scope,
+            "coverage_mode": "current" if scope == "current" else "inventory",
             "total_messages": total_messages,
             "covered_messages": covered_messages,
             "estimated_remaining": estimated_remaining,
+            "all_section_count": all_section_count,
+            "other_session_section_count": other_session_section_count,
             "files_ok": files_ok,
             "files_missing": files_missing,
             "files_none": files_none,
@@ -1736,14 +1848,48 @@ async def admin_channel_sections(
 async def admin_channel_section_search(
     channel_id: uuid.UUID,
     q: str = Query(..., min_length=1),
+    scope: SectionScope = Query("current"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
     """Search conversation sections by topic, content, or semantic similarity."""
+    from app.db.models import ConversationSection
     from app.tools.local.conversation_history import search_sections
 
-    results = await search_sections(channel_id, q)
+    if scope not in ("current", "all"):
+        raise HTTPException(status_code=400, detail="scope must be current or all")
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    if scope == "current":
+        session_ids = [channel.active_session_id] if channel.active_session_id else []
+    else:
+        session_ids = (
+            await db.execute(
+                select(ConversationSection.session_id)
+                .where(ConversationSection.channel_id == channel_id)
+                .where(ConversationSection.session_id.is_not(None))
+                .distinct()
+            )
+        ).scalars().all()
+
+    sessions = (
+        await db.execute(select(Session).where(Session.id.in_(session_ids)))
+    ).scalars().all() if session_ids else []
+    session_by_id = {s.id: s for s in sessions}
+
+    results = []
+    for session_id in session_ids:
+        if not session_id:
+            continue
+        for result in await search_sections(session_id, q):
+            result["session"] = session_by_id.get(session_id)
+            results.append(result)
+
     return {
+        "scope": scope,
         "results": [
             {
                 "section": {
@@ -1755,6 +1901,7 @@ async def admin_channel_section_search(
                     "period_start": r["section"].period_start.isoformat() if r["section"].period_start else None,
                     "tags": r["section"].tags or [],
                 },
+                "session": _section_session_out(r.get("session"), channel.active_session_id),
                 "source": r["source"],
                 "snippet": r.get("snippet"),
             }
@@ -1768,6 +1915,7 @@ async def admin_section_index_preview(
     channel_id: uuid.UUID,
     count: int = Query(10, ge=0, le=100),
     verbosity: str = Query("standard"),
+    scope: SectionScope = Query("current"),
     db: AsyncSession = Depends(get_db),
     _auth: str = Depends(require_scopes("channels:read")),
 ):
@@ -1777,21 +1925,33 @@ async def admin_section_index_preview(
 
     if verbosity not in ("compact", "standard", "detailed"):
         raise HTTPException(status_code=400, detail="verbosity must be compact, standard, or detailed")
+    if scope not in ("current", "all"):
+        raise HTTPException(status_code=400, detail="scope must be current or all")
+
+    channel = await db.get(Channel, channel_id)
+    if not channel:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    query = select(ConversationSection).where(ConversationSection.channel_id == channel_id)
+    if scope == "current":
+        if not channel.active_session_id:
+            query = query.where(ConversationSection.session_id.is_(None), ConversationSection.id.is_(None))
+        else:
+            query = query.where(ConversationSection.session_id == channel.active_session_id)
 
     rows = (
         await db.execute(
-            select(ConversationSection)
-            .where(ConversationSection.channel_id == channel_id)
+            query
             .order_by(ConversationSection.sequence.desc())
             .limit(count)
         )
     ).scalars().all()
 
     if not rows:
-        return {"content": "", "section_count": 0, "chars": 0}
+        return {"content": "", "section_count": 0, "chars": 0, "scope": scope}
 
     content = format_section_index(rows, verbosity=verbosity)
-    return {"content": content, "section_count": len(rows), "chars": len(content)}
+    return {"content": content, "section_count": len(rows), "chars": len(content), "scope": scope}
 
 
 # ---------------------------------------------------------------------------
@@ -2152,9 +2312,13 @@ async def admin_channel_context_preview(
         si_count = channel.section_index_count if channel.section_index_count is not None else 10
         if si_count > 0:
             si_verbosity = channel.section_index_verbosity or "standard"
+            si_query = select(ConversationSection).where(ConversationSection.channel_id == channel_id)
+            if channel.active_session_id:
+                si_query = si_query.where(ConversationSection.session_id == channel.active_session_id)
+            else:
+                si_query = si_query.where(ConversationSection.session_id.is_(None), ConversationSection.id.is_(None))
             si_rows = (await db.execute(
-                select(ConversationSection)
-                .where(ConversationSection.channel_id == channel_id)
+                si_query
                 .order_by(ConversationSection.sequence.desc())
                 .limit(si_count)
             )).scalars().all()

@@ -5,31 +5,76 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SectionsStats } from "./BackfillSection";
 import { EmptyState } from "@/src/components/shared/FormControls";
 import { ActionButton, QuietPill, StatusBadge } from "@/src/components/shared/SettingsControls";
+import type { SectionScope } from "../HistoryTab";
 
-export function SectionsViewer({ channelId }: { channelId: string }) {
+type SectionSession = {
+  id: string;
+  title: string;
+  summary: string | null;
+  kind: "primary" | "previous" | "scratch" | "legacy";
+  is_current: boolean;
+  last_active: string | null;
+  created_at: string | null;
+} | null;
+
+type SectionRow = {
+  id: string; sequence: number; title: string; summary: string;
+  transcript_path: string | null; message_count: number; chunk_size: number;
+  period_start: string | null; period_end: string | null;
+  created_at: string | null; view_count: number;
+  last_viewed_at: string | null; tags: string[];
+  file_exists: boolean | null;
+  has_transcript: boolean;
+  session: SectionSession;
+};
+
+export function SectionsViewer({ channelId, scope, onScopeChange }: {
+  channelId: string;
+  scope: SectionScope;
+  onScopeChange?: (scope: SectionScope) => void;
+}) {
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [migrating, setMigrating] = useState(false);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["channel-sections", channelId],
-    queryFn: () => apiFetch<{ sections: Array<{
-      id: string; sequence: number; title: string; summary: string;
-      transcript_path: string | null; message_count: number; chunk_size: number;
-      period_start: string | null; period_end: string | null;
-      created_at: string | null; view_count: number;
-      last_viewed_at: string | null; tags: string[];
-      file_exists: boolean | null;
-      has_transcript: boolean;
-    }>; total: number; stats: SectionsStats }>(`/api/v1/admin/channels/${channelId}/sections`),
+    queryKey: ["channel-sections", channelId, scope],
+    queryFn: () => apiFetch<{ sections: SectionRow[]; total: number; stats: SectionsStats; scope: SectionScope }>(
+      `/api/v1/admin/channels/${channelId}/sections?scope=${scope}`,
+    ),
   });
 
   if (isLoading) return <Spinner size={16} />;
   if (!data?.sections?.length) return (
-    <EmptyState message="No sections yet. Use backfill or let compaction create them automatically." />
+    <div className="flex flex-col gap-2">
+      <EmptyState
+        message={scope === "current"
+          ? "No sections for the current session yet. Use backfill or let compaction create them automatically."
+          : "No archived sections found for this channel."}
+      />
+      {scope === "current" && (data?.stats?.other_session_section_count ?? 0) > 0 && (
+        <ActionButton
+          label={`Show ${data?.stats?.other_session_section_count} from other sessions`}
+          onPress={() => onScopeChange?.("all")}
+          size="small"
+          variant="secondary"
+        />
+      )}
+    </div>
   );
 
   const missingTranscripts = data.sections.filter((s) => !s.has_transcript && s.transcript_path).length;
+  const sortedSections = [...data.sections].reverse();
+  const sectionsBySession = sortedSections.reduce<Array<{ key: string; session: SectionSession; sections: SectionRow[] }>>((groups, section) => {
+    const key = section.session?.id ?? "legacy";
+    const existing = groups.find((g) => g.key === key);
+    if (existing) {
+      existing.sections.push(section);
+    } else {
+      groups.push({ key, session: section.session, sections: [section] });
+    }
+    return groups;
+  }, []);
 
   const migrateTranscripts = async () => {
     setMigrating(true);
@@ -44,7 +89,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
         <div className="text-[12px] font-semibold text-text-muted">
-          Archived Sections ({data.total})
+          {scope === "current" ? "Current Session Sections" : "Archived Sections"} ({data.total})
         </div>
         {missingTranscripts > 0 && (
           <ActionButton
@@ -57,7 +102,15 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
         )}
       </div>
       <div className="flex flex-col gap-1.5">
-        {[...data.sections].reverse().map((s) => {
+        {(scope === "all" ? sectionsBySession : [{ key: "current", session: null, sections: sortedSections }]).map((group) => (
+          <div key={group.key} className="flex flex-col gap-1.5">
+            {scope === "all" && (
+              <div className="mt-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted first:mt-0">
+                <span className="truncate">{group.session?.title ?? "Legacy channel archive"}</span>
+                {group.session && <StatusBadge label={group.session.kind} variant={group.session.is_current ? "info" : "neutral"} />}
+              </div>
+            )}
+            {group.sections.map((s) => {
           const isOpen = expandedId === s.id;
           const dateStr = s.period_start
             ? new Date(s.period_start).toLocaleDateString(undefined, { month: "short", day: "numeric" })
@@ -73,6 +126,7 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
                 <span className="font-mono text-[10px] leading-none text-text-dim">#{s.sequence}</span>
                 <span className="min-w-0 truncate text-[12px] font-semibold leading-none text-text">{s.title}</span>
                 <span className="hidden items-center justify-end gap-1.5 md:flex">
+                  {scope === "all" && s.session && <QuietPill label={s.session.kind} maxWidthClass="max-w-[90px]" />}
                   {s.tags?.slice(0, 3).map((tag, i) => (
                     <QuietPill key={i} label={tag} title={tag} maxWidthClass="max-w-[180px]" />
                   ))}
@@ -128,7 +182,9 @@ export function SectionsViewer({ channelId }: { channelId: string }) {
               )}
             </div>
           );
-        })}
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
