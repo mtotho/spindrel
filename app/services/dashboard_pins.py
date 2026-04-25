@@ -348,6 +348,7 @@ async def create_pin(
     zone: str | None = None,
     grid_layout: dict | None = None,
     override_widget_instance: "WidgetInstance | None" = None,
+    commit: bool = True,
 ) -> WidgetDashboardPin:
     if source_kind not in ("channel", "adhoc"):
         raise ValidationError(f"Invalid source_kind: {source_kind}")
@@ -498,8 +499,16 @@ async def create_pin(
     )
     db.add(pin)
     await db.flush()
-    await db.commit()
-    await db.refresh(pin)
+    if commit:
+        await db.commit()
+        await db.refresh(pin)
+    # When commit=False the caller composes a wider transaction (e.g. pin a
+    # widget AND create its workspace_spatial_nodes row atomically). Caller
+    # is responsible for the final commit + refresh and for invoking the
+    # post-commit cron/event registration once the row is durable.
+
+    if not commit:
+        return pin
 
     # Register any @on_cron handlers declared in the bundle's widget.yaml.
     # Best-effort: a bundle with no manifest or no cron entries is a no-op.

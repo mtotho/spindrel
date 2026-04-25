@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-24 (image-gen canonical overhaul, Standing Orders, Widget Primitives)
+updated: 2026-04-26 (Spatial Canvas track opened)
 ---
 # Agent Server — Roadmap
 
@@ -33,6 +33,9 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 | User Management | Admin-vs-user experience locked down across 8 phases. See [[Completed Tracks#User Management]] and [[Track - User Management]] |
 
 ## Active
+
+### Spatial Canvas (2026-04-26)
+Workspace-scope infinite plane replacing `HomeGrid` on desktop. Channels auto-populate as draggable tiles seeded by phyllotaxis; widgets are opt-in via a new "Pin to workspace canvas" action. Double-click a channel tile → animated zoom-dive (~300ms) to its existing dashboard. `Ctrl+Shift+Space` toggles canvas as an overlay from any route (swaps main content; sidebar stays; contextual camera). New `workspace_spatial_nodes` polymorphic table is the single source of truth for world positions. Custom DOM + CSS transforms + `@use-gesture/react`; no react-flow / tldraw. Edges, activity pulses, Gossamer HUD, minimap, embedded-live-channel-at-max-zoom all stacked as Phase 2+. Mobile keeps `HomeChannelsList`. See [[Track - Spatial Canvas]]. Prototype: `scratch/alt-ui-prototypes/spatial-canvas.html`.
 
 ### Integration Contract + Canonical Guide (2026-04-23)
 New north-star guide at `docs/guides/integrations.md` (mirroring `widget-system.md`'s authority model), a central canonical-guides index at `docs/guides/index.md`, retirement of the legacy `chat_hud` / `chat_hud_presets` surface in favor of dashboard widgets, `binding.suggestions_endpoint` shape standardization, three `integration_id == "x"` boundary fixes in `app/` via a new hook registry, and a pytest drift gate. See [[Track - Integration Contract]]. Plan: `~/.claude/plans/so-currently-our-wiggly-teapot.md`.

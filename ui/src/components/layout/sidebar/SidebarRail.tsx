@@ -24,6 +24,7 @@ import { useVersion } from "../../../api/hooks/useVersion";
 import {
   channelIdFromSlug,
   isChannelSlug,
+  isWorkspaceSpatialSlug,
   useDashboards,
 } from "../../../stores/dashboards";
 import { useChannels } from "../../../api/hooks/useChannels";
@@ -87,6 +88,7 @@ export function SidebarRail() {
     return m;
   }, [channels]);
   const railDashboards = allDashboards
+    .filter((d) => !isWorkspaceSpatialSlug(d.slug))
     .filter((d) => d.rail.me_pinned || d.rail.everyone_pinned)
     .sort((a, b) => {
       const ap = a.rail.effective_position ?? Number.MAX_SAFE_INTEGER;

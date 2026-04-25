@@ -3,7 +3,7 @@ from datetime import datetime, time, timezone
 from typing import Optional
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Float, ForeignKey, Index, Integer, LargeBinary, String, Text, Time, UniqueConstraint, text
 
 from app.config import settings
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR, UUID
@@ -2162,4 +2162,82 @@ class PushSubscription(Base):
 
     __table_args__ = (
         Index("ix_push_subscriptions_user_id", "user_id"),
+    )
+
+
+class WorkspaceSpatialNode(Base):
+    """A tile placement on the workspace-scope Spatial Canvas.
+
+    One row per *thing* on the canvas. The "thing" is either a channel (the
+    canvas auto-populates one node per channel on first read) or a widget pin
+    that lives on the reserved ``workspace:spatial`` dashboard. The two
+    target columns are mutually exclusive — exactly one is non-null,
+    enforced by a CHECK constraint and a pair of unique partial indexes so
+    a given target can only have one canvas position.
+
+    Cascade-on-delete handles cleanup: deleting a channel or a dashboard pin
+    removes its spatial node automatically. World position lives only here —
+    ``channels`` and ``widget_dashboard_pins`` never gain spatial columns.
+
+    ``seed_index`` is a per-row monotonic counter assigned at insert time
+    and never recomputed. Used to derive the deterministic phyllotaxis
+    placement on first appearance; persisting it makes the layout stable
+    across tabs, deletes, and re-orders.
+    """
+
+    __tablename__ = "workspace_spatial_nodes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    widget_pin_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    world_x: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    world_y: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    world_w: Mapped[float] = mapped_column(Float, nullable=False, default=220.0)
+    world_h: Mapped[float] = mapped_column(Float, nullable=False, default=140.0)
+    z_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0,
+    )
+    seed_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pinned_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        # Exactly one target FK is set. ``IS NULL`` arithmetic works on both
+        # Postgres and SQLite — `(a IS NULL) + (b IS NULL)` is 0/1/2.
+        CheckConstraint(
+            "(channel_id IS NULL) <> (widget_pin_id IS NULL)",
+            name="ck_workspace_spatial_nodes_target_exactly_one",
+        ),
+        # One spatial node per target. Partial unique indexes are honored on
+        # both Postgres and SQLite ≥3.8.
+        Index(
+            "uq_workspace_spatial_nodes_channel",
+            "channel_id",
+            unique=True,
+            postgresql_where=text("channel_id IS NOT NULL"),
+            sqlite_where=text("channel_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_workspace_spatial_nodes_widget_pin",
+            "widget_pin_id",
+            unique=True,
+            postgresql_where=text("widget_pin_id IS NOT NULL"),
+            sqlite_where=text("widget_pin_id IS NOT NULL"),
+        ),
+        Index("ix_workspace_spatial_nodes_seed_index", "seed_index"),
     )

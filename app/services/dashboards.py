@@ -102,6 +102,12 @@ RESERVED_SLUGS = {"default", "dev", "new"}
 # Channel-scoped dashboards. Never user-created; `channel_slug()` builds them
 # and `list_dashboards(scope="user")` filters them out of the generic tab bar.
 CHANNEL_SLUG_PREFIX = "channel:"
+# Workspace-scope Spatial Canvas. Singleton dashboard seeded by migration
+# 247 — hosts world-pinned widgets so the canvas reuses the existing pin
+# host plumbing. Never user-created; never visible in any dashboard-listing
+# surface (tabs, picker, recents, sidebar). Mirror of the frontend constant
+# in ``ui/src/stores/dashboards.ts``.
+WORKSPACE_SPATIAL_DASHBOARD_KEY = "workspace:spatial"
 
 
 def channel_slug(channel_id: uuid_mod.UUID | str) -> str:
@@ -115,6 +121,16 @@ def channel_slug(channel_id: uuid_mod.UUID | str) -> str:
 
 def is_channel_slug(slug: str) -> bool:
     return isinstance(slug, str) and slug.startswith(CHANNEL_SLUG_PREFIX)
+
+
+def is_workspace_spatial_slug(slug: str) -> bool:
+    return slug == WORKSPACE_SPATIAL_DASHBOARD_KEY
+
+
+def is_reserved_listing_slug(slug: str) -> bool:
+    """Slugs that exist in ``widget_dashboards`` but should never appear in
+    user-facing dashboard listings (tabs, picker, recents, sidebar)."""
+    return is_channel_slug(slug) or is_workspace_spatial_slug(slug)
 
 
 def _validate_slug(slug: str) -> str:
@@ -182,7 +198,10 @@ async def list_dashboards(
     """
     stmt = select(WidgetDashboard)
     if scope == "user":
-        stmt = stmt.where(~WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"))
+        stmt = stmt.where(
+            ~WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"),
+            WidgetDashboard.slug != WORKSPACE_SPATIAL_DASHBOARD_KEY,
+        )
     elif scope == "channel":
         stmt = stmt.where(WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"))
     # Rail ordering is per-viewer and lives on ``dashboard_rail_pins`` —
@@ -218,6 +237,10 @@ async def create_dashboard(
     # reject the colon anyway, but this gives a clearer error than "invalid slug".
     if slug.startswith(CHANNEL_SLUG_PREFIX):
         raise ValidationError(f"'{CHANNEL_SLUG_PREFIX}*' slugs are reserved for channels")
+    if slug == WORKSPACE_SPATIAL_DASHBOARD_KEY:
+        raise ValidationError(
+            f"'{WORKSPACE_SPATIAL_DASHBOARD_KEY}' is reserved for the Spatial Canvas",
+        )
     name = _validate_name(name)
 
     existing = (await db.execute(
@@ -323,6 +346,7 @@ async def redirect_target_slug(db: AsyncSession) -> str:
         .where(
             WidgetDashboard.last_viewed_at.is_not(None),
             ~WidgetDashboard.slug.like(f"{CHANNEL_SLUG_PREFIX}%"),
+            WidgetDashboard.slug != WORKSPACE_SPATIAL_DASHBOARD_KEY,
         )
         .order_by(WidgetDashboard.last_viewed_at.desc())
         .limit(1)

@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-25 (usage trace shared controls)
+updated: 2026-04-25 (`/find` current-session jump fix)
 ---
 # Track — UI Polish
 
@@ -45,9 +45,11 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Trimmed the command palette browse defaults so per-channel `Settings · #channel` entries stay searchable and recent-eligible but no longer appear beside every `Chat · #channel` row in the empty Ctrl+K listing.
 - [x] Collapsed noisy command-palette detail families in the empty browse view: tool detail rows, policy detail rows, and recent trace rows now sit behind `Show ...` toggles, while typed search bypasses the collapse and queries the full catalog.
 - [x] Reduced typed command-palette tool spam: individual `Tool · name` admin detail pages no longer appear in typed search, while the single top-level Tools page matches installed tool names through hidden search aliases. Channel matches rank above the Tools aggregate for tool-family names like `jell`.
+- [x] Tightened mobile/channel palette ergonomics: channel chat rows now render as `#channel` while still matching `chat` in search, channel hamburger drawers default to Jump unless that channel has a remembered tab, empty widget drawers fall through to Jump, and the browse-mode `This Channel` action group shows the first four actions behind a `Show more` toggle.
 - [x] Clarified the composer plan control: inactive chat now shows `Start plan` / `Resume plan` as direct actions, while active plan modes show semantic status labels (`Planning`, `Executing`, `Blocked`, `Done`) and keep the dropdown only for active-mode actions.
 - [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
 - [x] Fixed mobile file-tool path overflow: generic file-tool rows now keep operation labels separate from long workspace paths, target paths left-truncate to show the end-most segment, and the row wraps within chat width instead of forcing horizontal page scroll.
+- [x] Fixed `/find` chat jumps: default search now matches the active visible session, `--all` makes broader channel-session search explicit, and result clicks load older pages until the target message is mounted before scrolling/highlighting.
 
 ## Pass 1: Stitch-Inspired Chat Polish (April 9, 2026)
 
@@ -204,6 +206,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] **Session picker filters out sub-session noise** — the channel session catalog/search now excludes task, pipeline, eval, thread, delegation, and other child transcripts from `/sessions` and `/split`, while keeping primary/previous user chat sessions plus owned scratch sessions visible.
 - [x] **Split-pane chrome merged into the chat surface** — desktop split panes now use slim header strips and vertical gutters instead of framed rounded cards, with aggressive title truncation and flex body sizing so embedded composers stay bottom-aligned.
 - [x] **Session picker and split-pane interaction polished** — `/sessions` now exposes split as an in-picker mode/action with persistent keyboard hints, previous-session grouping is labeled as `Previous chats`, slash-command Tab/click completes instead of executing, split pane headers dropped accent/badge chrome, and pane resizing now updates locally during drag then persists once on mouseup.
+- [x] **Idle session resume cards** — composer-bearing chat surfaces now show a UI-only session info card above the composer when the latest real visible user/assistant message is at least two hours old. The card is mounted through `ChatMessageArea.sessionResumeSlot`, uses lightweight session metadata, supports dismiss/hide local preferences, and stays out of persisted messages, model context, search, and compaction.
 
 ### Verification
 - [x] `cd agent-server/ui && npx tsc --noEmit`
@@ -218,6 +221,8 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after session-aware context header + scratch session widget plumbing
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json`
 - [x] `cd /home/mtoth/personal/agent-server/ui && node '.chat-test-dist/app/(app)/channels/[channelId]/sessionHeaderChrome.test.js'`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false` after mobile/channel palette polish
+- [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/components/palette/recent.test.js` after removing the visible `Chat ·` channel prefix
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` after primary/session header clarification + partial-budget token fallback
 - [x] `cd agent-server && pytest tests/unit/test_tool_presentation.py -q`
 - [x] `cd agent-server && pytest tests/unit/test_turn_event_emit.py tests/unit/test_tool_presentation.py -q`
@@ -258,6 +263,10 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session split/slash discoverability follow-up
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false --noEmit`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` after session picker/split-pane polish
+- [x] `cd /home/mtoth/personal/agent-server && env PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/routers/api_v1_sessions.py` after idle session resume card metadata endpoint
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false` after idle session resume card helpers
+- [x] `cd /home/mtoth/personal/agent-server/ui && node .chat-test-dist/src/lib/sessionResume.test.js`
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — former admin-bot page blockers resolved by the 2026-04-25 admin bot catalog/editor sweep.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/components/chat/slashCommands.test.js && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
 - [x] `PYTHONPYCACHEPREFIX=/tmp/agent-server-pycache python -m py_compile app/services/slash_commands.py`
@@ -462,6 +471,17 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 ### Verification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean again after Memory/Automation follow-up edits.
+
+## Pass 4d: Admin bot catalog/editor sweep (2026-04-25)
+
+- [x] `/admin/bots` now uses the dense admin catalog pattern instead of the old card grid, fixing mobile horizontal overflow and surfacing model, owner, usage, source, workspace, API-scope, and file-backed prompt/persona signals in-row.
+- [x] `/admin/bots/:botId` now uses grouped workflow navigation: Overview, Identity & Model, Prompt & Persona, Tools & Skills, Memory & Learning, Workspace & Files, Access & Automation, and Advanced. Legacy hashes map into the new groups.
+- [x] Added an operational bot overview with 30-day calls/tokens/cost and recent trace drilldowns via the shared `TraceActionButton`.
+- [x] Bot prompt/persona editing now uses the shared prompt editor/read-only source viewer instead of the local giant textarea.
+- [x] `docs/guides/ui-components.md` now canonizes dense admin entity catalogs and grouped detail editors.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
 
 ## Small copy fixes (2026-04-24)
 

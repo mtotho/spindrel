@@ -1177,7 +1177,7 @@ Two new dataclasses (`WatermarkPlan`, `SectionPersistOutcome`) carry helper outp
 
 **Wrappers post-refactor:**
 
-`run_compaction_stream` (177 LOC) reads as: pre-flight session/channel load → enabled check → eligibility count → emit `compaction_start` → reload session for client_id/summary/prev_watermark → trace start → memory flush → (try) compute watermark + summary window → guard → branch on history_mode (section helper or `_generate_summary`) → persist session state → record completion → yield `compaction_done` (or `compaction_failed`).
+`run_compaction_stream` reads as: pre-flight session/channel load → enabled check → eligibility count → reload session for client_id/summary/prev_watermark → compute watermark + summary window → guard → emit `compaction_start` → trace start → memory flush → branch on history_mode (section helper or `_generate_summary`) → persist session state → record completion → yield `compaction_done` (or `compaction_failed`). The pre-start window guard is intentional so auto budget-triggered no-ops do not create visible chat cards.
 
 `run_compaction_forced` (106 LOC) reads as: load session/channel → trace start → load all messages → memory flush → compute watermark (with two-case ValueError disambiguation) → branch on history_mode → persist session state → record completion → return tuple.
 

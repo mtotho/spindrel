@@ -14,6 +14,8 @@ import { useSystemStatus } from "../../api/hooks/useSystemStatus";
 import { usePresenceHeartbeat } from "../../hooks/usePresenceHeartbeat";
 import { CommandPalette, useCommandPaletteShortcut } from "./CommandPalette";
 import { KIOSK_PARAM } from "../../hooks/useKioskMode";
+import { useSpatialOverlayShortcut } from "../../hooks/useSpatialOverlayShortcut";
+import { SpatialCanvasOverlay } from "../spatial-canvas/SpatialCanvasOverlay";
 import { buildRecentHref } from "../../lib/recentPages";
 
 export function AppShell() {
@@ -28,6 +30,7 @@ export function AppShell() {
   const [searchParams] = useSearchParams();
   const kiosk = searchParams.get(KIOSK_PARAM) === "1";
   useCommandPaletteShortcut();
+  useSpatialOverlayShortcut();
   usePresenceHeartbeat();
   const { data: status } = useSystemStatus();
   const anyStreaming = useChatStore(
@@ -60,9 +63,13 @@ export function AppShell() {
             Suppressed in kiosk so the dashboard fills the viewport. */}
         {!kiosk && columns !== "single" && <Sidebar />}
 
-        {/* Center content — always visible */}
-        <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {/* Center content — always visible. The Outlet stays mounted at all
+            times; the Spatial Canvas overlay (when open) layers above it
+            without unmounting, so active SSE streams in `useChannelChat`
+            and any transient route state survive open/close. */}
+        <div className="relative flex-1 min-w-0 flex flex-col min-h-0">
           <Outlet />
+          {!kiosk && <SpatialCanvasOverlay />}
         </div>
 
         {/* Detail panel — only on triple column when active */}

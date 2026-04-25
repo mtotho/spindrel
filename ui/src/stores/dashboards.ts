@@ -7,6 +7,12 @@ import { apiFetch } from "../api/client";
  *  drift between string comparisons across the frontend. */
 export const CHANNEL_SLUG_PREFIX = "channel:";
 
+/** Reserved singleton slug for the workspace-scope Spatial Canvas.
+ *  Hosts world-pinned widgets so the canvas reuses existing pin host
+ *  plumbing. Mirror of ``WORKSPACE_SPATIAL_DASHBOARD_KEY`` on the backend.
+ *  Never visible in any dashboard-listing surface. */
+export const WORKSPACE_SPATIAL_DASHBOARD_KEY = "workspace:spatial";
+
 /** Build the dashboard slug for a given channel UUID. */
 export function channelSlug(channelId: string): string {
   return `${CHANNEL_SLUG_PREFIX}${channelId}`;
@@ -15,6 +21,17 @@ export function channelSlug(channelId: string): string {
 /** True when a slug names an implicit channel dashboard. */
 export function isChannelSlug(slug: string | undefined | null): boolean {
   return typeof slug === "string" && slug.startsWith(CHANNEL_SLUG_PREFIX);
+}
+
+/** True when a slug names the reserved Spatial Canvas dashboard. */
+export function isWorkspaceSpatialSlug(slug: string | undefined | null): boolean {
+  return slug === WORKSPACE_SPATIAL_DASHBOARD_KEY;
+}
+
+/** True when a slug should be hidden from any user-facing dashboard
+ *  listing surface — tabs, picker, recents, sidebar, redirects. */
+export function isReservedListingSlug(slug: string | undefined | null): boolean {
+  return isChannelSlug(slug) || isWorkspaceSpatialSlug(slug);
 }
 
 /** Extract the channel id from a channel dashboard slug, or null. */
@@ -194,7 +211,10 @@ export function useDashboards() {
     if (!hasHydrated) void hydrate();
   }, [hasHydrated, hydrate]);
 
-  const userList = useMemo(() => list.filter((d) => !isChannelSlug(d.slug)), [list]);
+  const userList = useMemo(
+    () => list.filter((d) => !isReservedListingSlug(d.slug)),
+    [list],
+  );
 
   return {
     list: userList,

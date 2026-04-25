@@ -17,6 +17,7 @@ import {
   useDashboards,
   channelIdFromSlug,
   isChannelSlug,
+  isReservedListingSlug,
 } from "@/src/stores/dashboards";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 
@@ -87,7 +88,7 @@ export function DashboardTargetPicker() {
     return map;
   }, [channels, allDashboards]);
 
-  const userDashboards = allDashboards.filter((d) => !isChannelSlug(d.slug));
+  const userDashboards = allDashboards.filter((d) => !isReservedListingSlug(d.slug));
   const channelDashboards = allDashboards.filter((d) => isChannelSlug(d.slug));
 
   const active = allDashboards.find((d) => d.slug === currentSlug);

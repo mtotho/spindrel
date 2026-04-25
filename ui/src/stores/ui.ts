@@ -118,6 +118,10 @@ interface UIState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   paletteOpen: boolean;
+  /** Spatial Canvas overlay (P1.0 spike). Transient — not persisted. The
+   *  canvas mounts above the route Outlet without unmounting it, so any
+   *  active SSE streams / channel state survive open/close. */
+  spatialOverlayOpen: boolean;
   detailPanel: DetailPanelState;
   hiddenSidebarSections: string[];
   fileExplorerOpen: boolean;
@@ -144,6 +148,9 @@ interface UIState {
   setSidebarWidth: (width: number) => void;
   openPalette: () => void;
   closePalette: () => void;
+  openSpatialOverlay: () => void;
+  closeSpatialOverlay: () => void;
+  toggleSpatialOverlay: () => void;
   // Legacy aliases — palette replaces the mobile drawer, so these now drive
   // the palette. Kept so existing callers (channel list, footer profile link,
   // page header) keep auto-closing the palette on navigation.
@@ -187,6 +194,7 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       paletteOpen: false,
+      spatialOverlayOpen: false,
       detailPanel: { type: null, id: null },
       hiddenSidebarSections: [],
       fileExplorerOpen: false,
@@ -204,6 +212,10 @@ export const useUIStore = create<UIState>()(
         }),
       openPalette: () => set({ paletteOpen: true }),
       closePalette: () => set({ paletteOpen: false }),
+      openSpatialOverlay: () => set({ spatialOverlayOpen: true }),
+      closeSpatialOverlay: () => set({ spatialOverlayOpen: false }),
+      toggleSpatialOverlay: () =>
+        set((s) => ({ spatialOverlayOpen: !s.spatialOverlayOpen })),
       openMobileSidebar: () => set({ paletteOpen: true }),
       closeMobileSidebar: () => set({ paletteOpen: false }),
       openDetail: (type, id, data) =>

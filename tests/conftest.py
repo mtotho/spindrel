@@ -213,6 +213,14 @@ async def engine():
             "('default', 'Default', 'LayoutDashboard', "
             "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
         ))
+        # Reserved Spatial Canvas dashboard (production gets this from
+        # migration 247). Hosts world widget pins; never user-visible.
+        await conn.execute(sa_text(
+            "INSERT INTO widget_dashboards (slug, name, icon, "
+            "created_at, updated_at) VALUES "
+            "('workspace:spatial', 'Spatial Canvas', 'Map', "
+            "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+        ))
 
     from sqlalchemy import inspect as sa_inspect
     from sqlalchemy.orm import Session as _SA_Session
