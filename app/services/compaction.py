@@ -1532,13 +1532,6 @@ async def run_compaction_stream(
             trigger_reason or "budget",
         )
 
-    logger.info("Starting compaction for session %s", session_id)
-    yield {
-        "type": "compaction_start",
-        "trigger_reason": trigger_reason,
-        "budget_triggered": budget_triggered,
-    }
-
     # Reload session for client_id / existing summary / prev watermark.
     client_id: str
     existing_summary: str | None
@@ -1550,6 +1543,43 @@ async def run_compaction_stream(
         client_id = session.client_id
         existing_summary = session.summary
         prev_watermark_id = session.summary_message_id
+
+    keep_turns = _get_compaction_keep_turns(bot, channel)
+    model = _get_compaction_model(bot, channel)
+    history_mode = _get_history_mode(bot, channel)
+
+    # Compute watermark + load summary window before emitting compaction_start
+    # so no-op budget triggers do not render transient compaction cards.
+    async with async_session() as db:
+        watermark = await _compute_compaction_watermark(
+            db=db, session_id=session_id, keep_turns=keep_turns,
+            prev_watermark_id=prev_watermark_id,
+        )
+        if watermark is None:
+            logger.debug("Nothing to compact for %s", session_id)
+            return
+        summary_stmt = (
+            select(Message)
+            .where(Message.session_id == session_id)
+            .where(Message.created_at < watermark.oldest_kept_dt)
+            .order_by(Message.created_at)
+        )
+        if watermark.prev_watermark_dt is not None:
+            summary_stmt = summary_stmt.where(Message.created_at > watermark.prev_watermark_dt)
+        summary_result = await db.execute(summary_stmt)
+        summary_window = [_msg_to_dict(m) for m in summary_result.scalars().all()]
+
+    to_summarize = _messages_for_summary(summary_window)
+    if not to_summarize:
+        logger.debug("No turns to summarize for %s", session_id)
+        return
+
+    logger.info("Starting compaction for session %s", session_id)
+    yield {
+        "type": "compaction_start",
+        "trigger_reason": trigger_reason,
+        "budget_triggered": budget_triggered,
+    }
 
     asyncio.create_task(_record_trace_event(
         correlation_id=correlation_id,
@@ -1564,7 +1594,6 @@ async def run_compaction_stream(
         },
     ))
 
-    keep_turns = _get_compaction_keep_turns(bot, channel)
     memory_flush_ran, flush_result = await _run_memory_flush_phase(
         channel=channel, bot=bot, session_id=session_id,
         messages=messages, correlation_id=correlation_id,
@@ -1572,34 +1601,6 @@ async def run_compaction_stream(
 
     _t0 = _time.monotonic()
     try:
-        model = _get_compaction_model(bot, channel)
-        history_mode = _get_history_mode(bot, channel)
-
-        # Compute watermark + load summary window in a single read-only session.
-        async with async_session() as db:
-            watermark = await _compute_compaction_watermark(
-                db=db, session_id=session_id, keep_turns=keep_turns,
-                prev_watermark_id=prev_watermark_id,
-            )
-            if watermark is None:
-                logger.debug("Nothing to compact for %s", session_id)
-                return
-            summary_stmt = (
-                select(Message)
-                .where(Message.session_id == session_id)
-                .where(Message.created_at < watermark.oldest_kept_dt)
-                .order_by(Message.created_at)
-            )
-            if watermark.prev_watermark_dt is not None:
-                summary_stmt = summary_stmt.where(Message.created_at > watermark.prev_watermark_dt)
-            summary_result = await db.execute(summary_stmt)
-            summary_window = [_msg_to_dict(m) for m in summary_result.scalars().all()]
-
-        to_summarize = _messages_for_summary(summary_window)
-        if not to_summarize:
-            logger.debug("No turns to summarize for %s", session_id)
-            return
-
         section_id: uuid.UUID | None = None
         if history_mode in ("structured", "file"):
             async with async_session() as db:

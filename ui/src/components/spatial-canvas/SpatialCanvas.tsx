@@ -89,8 +89,42 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   cameraRef.current = camera;
   const [diving, setDiving] = useState(false);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
+  // One activated widget tile at a time. Activation makes a widget tile
+  // hand pointer events to its iframe; Esc / click on the canvas background
+  // / dragging the tile / activating another tile deactivates.
+  const [activatedTileId, setActivatedTileId] = useState<string | null>(null);
+  // Viewport size in screen pixels — used together with `camera` to compute
+  // each tile's `inViewport` flag for iframe culling. ResizeObserver keeps it
+  // current across overlay open/close, sidebar toggles, and window resizes.
+  const [viewportSize, setViewportSize] = useState<{ w: number; h: number }>({
+    w: 0,
+    h: 0,
+  });
 
   const viewportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setViewportSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Esc deactivates the active widget tile.
+  useEffect(() => {
+    if (!activatedTileId) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActivatedTileId(null);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activatedTileId]);
   const panState = useRef<{
     pointerId: number;
     startX: number;
@@ -110,6 +144,8 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       // handler stays out of its way.
       const target = e.target as HTMLElement;
       if (target.closest("[data-tile-kind]")) return;
+      // Background click — release any activated widget tile.
+      if (activatedTileId) setActivatedTileId(null);
       panState.current = {
         pointerId: e.pointerId,
         startX: e.clientX,
@@ -119,7 +155,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [camera.x, camera.y, diving],
+    [camera.x, camera.y, diving, activatedTileId],
   );
 
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -200,6 +236,9 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
     setDraggingNodeId(String(e.active.id));
+    // Reposition cancels iframe activation: dragging is a "manage the tile"
+    // gesture, not "interact with its contents."
+    setActivatedTileId(null);
   }, []);
 
   const handleDragEnd = useCallback(
@@ -219,6 +258,42 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     },
     [nodes, updateNode],
   );
+
+  // Viewport bounds in WORLD coordinates, expanded by a 1-viewport margin on
+  // each side. Tiles whose `world_*` rectangle intersects this box are
+  // considered "in viewport" and get a live iframe; others render the static
+  // body. Margin lets the user pan a viewport away without remounting.
+  const viewportWorldBounds = useMemo(() => {
+    if (viewportSize.w === 0 || viewportSize.h === 0) return null;
+    const visW = viewportSize.w / camera.scale;
+    const visH = viewportSize.h / camera.scale;
+    const visX = -camera.x / camera.scale;
+    const visY = -camera.y / camera.scale;
+    return {
+      x: visX - visW,
+      y: visY - visH,
+      w: visW * 3,
+      h: visH * 3,
+    };
+  }, [camera.x, camera.y, camera.scale, viewportSize.w, viewportSize.h]);
+
+  const isInViewport = useCallback(
+    (n: SpatialNode) => {
+      if (!viewportWorldBounds) return false;
+      const v = viewportWorldBounds;
+      return (
+        n.world_x + n.world_w > v.x &&
+        n.world_x < v.x + v.w &&
+        n.world_y + n.world_h > v.y &&
+        n.world_y < v.y + v.h
+      );
+    },
+    [viewportWorldBounds],
+  );
+
+  const handleActivate = useCallback((nodeId: string) => {
+    setActivatedTileId(nodeId);
+  }, []);
 
   const worldStyle: CSSProperties = {
     transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
@@ -288,7 +363,14 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 isDragging={draggingNodeId === node.id}
                 diving={diving}
               >
-                <WidgetTile pin={node.pin} zoom={camera.scale} />
+                <WidgetTile
+                  pin={node.pin}
+                  zoom={camera.scale}
+                  inViewport={isInViewport(node)}
+                  activated={activatedTileId === node.id}
+                  nodeId={node.id}
+                  onActivate={handleActivate}
+                />
               </DraggableNode>
             );
           })}

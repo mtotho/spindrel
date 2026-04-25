@@ -45,17 +45,6 @@ export interface SessionSummaryResponse {
   session_scope: string;
 }
 
-interface LegacySessionDetailResponse {
-  session: {
-    id: string;
-    client_id: string;
-    bot_id: string;
-    title?: string | null;
-    created_at: string;
-    last_active: string;
-  };
-}
-
 function scratchCurrentKey(parentChannelId: string, botId: string) {
   return ["scratch-current", parentChannelId, botId] as const;
 }
@@ -178,24 +167,7 @@ export function useSessionSummary(
 ) {
   return useQuery({
     queryKey: sessionId ? ["session-summary", sessionId] : ["session-summary", "disabled"],
-    queryFn: async (): Promise<SessionSummaryResponse> => {
-      const data = await apiFetch<LegacySessionDetailResponse>(`/sessions/${sessionId}`);
-      return {
-        session_id: data.session.id,
-        bot_id: data.session.bot_id,
-        channel_id: null,
-        parent_channel_id: null,
-        session_type: "channel",
-        title: data.session.title ?? null,
-        summary: null,
-        created_at: data.session.created_at,
-        last_active: data.session.last_active,
-        message_count: 0,
-        section_count: 0,
-        is_current: false,
-        session_scope: "session",
-      };
-    },
+    queryFn: () => apiFetch<SessionSummaryResponse>(`/api/v1/sessions/${sessionId}/summary`),
     enabled: !!sessionId && enabled,
     staleTime: 60_000,
   });

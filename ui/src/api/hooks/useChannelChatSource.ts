@@ -25,7 +25,7 @@ export interface UseChannelChatSourceReturn {
   isLoading: boolean;
   isFetchingNextPage: boolean;
   hasNextPage: boolean | undefined;
-  fetchNextPage: () => void;
+  fetchNextPage: () => Promise<unknown> | void;
   handleSend: (text: string) => void;
   handleCancel: () => void;
   syncCancelledState: () => void;
@@ -219,7 +219,8 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   );
 
   const fetchNextPageCb = useCallback(() => {
-    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+    if (hasNextPage && !isFetchingNextPage) return fetchNextPage();
+    return undefined;
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return {

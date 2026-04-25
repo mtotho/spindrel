@@ -9,6 +9,7 @@ import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { useToolResultCompact } from "@/src/stores/toolResultPref";
+import { useSessionResumePrefs } from "@/src/stores/sessionResumePref";
 import {
   Section,
   FormRow,
@@ -517,6 +518,7 @@ export function PresentationSection({
 }) {
   const isMobile = useIsMobile();
   const [compactToolResults, setCompactToolResults] = useToolResultCompact(channelId);
+  const sessionResumePrefs = useSessionResumePrefs(channelId, null, null);
   const { data: widgetThemes } = useWidgetThemes();
 
   return (
@@ -561,6 +563,18 @@ export function PresentationSection({
             ]}
           />
         </FormRow>
+        <Toggle
+          value={sessionResumePrefs.globalEnabled}
+          onChange={sessionResumePrefs.setGlobalEnabled}
+          label="Session resume cards"
+          description="Local browser preference. Show a compact session info card above the composer when a chat has been idle for two hours."
+        />
+        <Toggle
+          value={sessionResumePrefs.channelEnabled}
+          onChange={sessionResumePrefs.setChannelEnabled}
+          label="Resume cards in this channel"
+          description="Local channel override for the idle resume card. Re-enable it here if it was hidden from a card menu."
+        />
       </Section>
 
       <Section title="Dashboard Presentation">

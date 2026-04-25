@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Attachment, Attachment as AttachmentModel, Channel, Message, Session, Task, ToolCall
+from app.db.models import Attachment, Attachment as AttachmentModel, Channel, ConversationSection, Message, Session, Task, ToolCall
 from app.domain.errors import DomainError
 from app.dependencies import ApiKeyAuth, get_db, require_scopes, verify_auth_or_user
 from app.services.api_keys import has_scope
@@ -218,6 +218,22 @@ class SessionOutDetail(BaseModel):
     summary: Optional[str] = None
 
 
+class SessionSummaryOut(BaseModel):
+    session_id: uuid.UUID
+    bot_id: str
+    channel_id: Optional[uuid.UUID] = None
+    parent_channel_id: Optional[uuid.UUID] = None
+    session_type: str
+    title: Optional[str] = None
+    summary: Optional[str] = None
+    created_at: datetime
+    last_active: datetime
+    message_count: int = 0
+    section_count: int = 0
+    is_current: bool = False
+    session_scope: str = "session"
+
+
 class PromoteScratchSessionResponse(BaseModel):
     channel_id: uuid.UUID
     primary_session_id: uuid.UUID
@@ -247,6 +263,34 @@ def _selector_title(session: Session, preview: str | None) -> str | None:
         return title
     preview = (preview or "").strip()
     return preview or None
+
+
+async def _authorize_session_read(
+    db: AsyncSession,
+    session: Session,
+    auth,
+) -> tuple[Channel | None, uuid.UUID | None]:
+    """Authorize metadata reads with the same channel/scratch boundaries as mutation routes."""
+    from app.db.models import User
+
+    channel_id = session.channel_id or session.parent_channel_id
+    channel = await db.get(Channel, channel_id) if channel_id else None
+
+    if session.session_type == "ephemeral" and session.owner_user_id is not None:
+        auth_user = auth if isinstance(auth, User) else None
+        if auth_user is None or session.owner_user_id != auth_user.id:
+            raise HTTPException(status_code=404, detail="Session not found")
+        if not (_auth_has_scope(auth, "chat") or _auth_has_scope(auth, "sessions:read")):
+            raise HTTPException(status_code=403, detail="sessions:read required")
+    elif channel is not None:
+        if not (_auth_has_scope(auth, "channels.messages:read") or _auth_has_scope(auth, "sessions:read")):
+            raise HTTPException(status_code=403, detail="sessions:read required")
+        from app.routers.api_v1_channels import _check_protected
+        _check_protected(channel, auth)
+    elif not _auth_has_scope(auth, "sessions:read"):
+        raise HTTPException(status_code=403, detail="sessions:read required")
+
+    return channel, channel_id
 
 
 async def _session_stats(
@@ -662,6 +706,64 @@ async def update_session(
     session.title = title
     await db.commit()
     return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
+
+
+@router.get("/{session_id}/summary", response_model=SessionSummaryOut)
+async def get_session_summary(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(verify_auth_or_user),
+):
+    """Return lightweight session metadata for UI resume cards.
+
+    This avoids loading transcript rows. It returns counts, timestamps,
+    title/summary, and channel/scratch scope for chat surface labeling.
+    """
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    channel, _ = await _authorize_session_read(db, session, auth)
+    message_count = (await db.execute(
+        select(func.count(Message.id)).where(
+            Message.session_id == session_id,
+            Message.role.in_(("user", "assistant")),
+        )
+    )).scalar_one()
+    section_count = (await db.execute(
+        select(func.count(ConversationSection.id)).where(
+            ConversationSection.session_id == session_id,
+        )
+    )).scalar_one()
+
+    preview = None
+    if not (session.title or "").strip():
+        preview = (await db.execute(
+            select(Message.content)
+            .where(
+                Message.session_id == session_id,
+                Message.role == "user",
+                Message.content.is_not(None),
+            )
+            .order_by(Message.created_at.asc())
+            .limit(1)
+        )).scalar_one_or_none()
+
+    return SessionSummaryOut(
+        session_id=session.id,
+        bot_id=session.bot_id,
+        channel_id=session.channel_id,
+        parent_channel_id=session.parent_channel_id,
+        session_type=session.session_type,
+        title=_selector_title(session, preview),
+        summary=session.summary,
+        created_at=session.created_at,
+        last_active=session.last_active,
+        message_count=int(message_count or 0),
+        section_count=int(section_count or 0),
+        is_current=bool(session.is_current),
+        session_scope=_derive_session_scope(session, channel),
+    )
 
 
 @router.post("/{session_id}/promote-to-primary", response_model=PromoteScratchSessionResponse)

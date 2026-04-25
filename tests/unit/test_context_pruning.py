@@ -9,6 +9,7 @@ from app.agent.context_pruning import (
     STICKY_TOOL_NAMES,
     prune_in_loop_tool_results,
     prune_tool_results,
+    should_prune_in_loop,
 )
 
 
@@ -755,3 +756,44 @@ class TestInLoopPruning:
         assert "older iteration" in messages[2]["content"]
         assert "older iteration" in messages[3]["content"]
         assert messages[5]["content"] == _long_content(500)
+
+
+class TestInLoopPressureGate:
+    def test_skipped_below_threshold(self):
+        messages = [_make_user_msg("hi"), _make_assistant_msg("hello")]
+        should_prune, utilization = should_prune_in_loop(
+            messages,
+            available_budget_tokens=200_000,
+            pressure_threshold=0.6,
+        )
+        assert should_prune is False
+        assert utilization < 0.6
+
+    def test_fires_above_threshold(self):
+        messages = [
+            _make_user_msg("q"),
+            _make_assistant_msg("", [_make_tool_call("tc1", "search")]),
+            _make_tool_result("tc1", _long_content(40_000)),
+        ]
+        should_prune, utilization = should_prune_in_loop(
+            messages,
+            available_budget_tokens=1_000,
+            pressure_threshold=0.6,
+        )
+        assert should_prune is True
+        assert utilization >= 0.6
+
+    def test_zero_budget_falls_back_to_legacy_behavior(self):
+        messages = [_make_user_msg("q")]
+        should_prune, utilization = should_prune_in_loop(
+            messages,
+            available_budget_tokens=0,
+            pressure_threshold=0.6,
+        )
+        assert should_prune is True
+        assert utilization == 0.0
+
+    def test_default_pressure_settings(self):
+        from app.config import settings
+        assert settings.IN_LOOP_PRUNING_KEEP_ITERATIONS == 8
+        assert settings.IN_LOOP_PRUNING_PRESSURE_THRESHOLD == pytest.approx(0.6)

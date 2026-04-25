@@ -36,6 +36,10 @@ import { TriggerCard, SUPPORTED_TRIGGERS } from "@/src/components/chat/TriggerCa
 import { TaskRunEnvelope } from "@/src/components/chat/TaskRunEnvelope";
 import { shouldGroup, formatDateSeparator, isDifferentDay, getTurnMessages, getTurnText } from "./chatUtils";
 import { ChatMessageArea, DateSeparator } from "@/src/components/chat/ChatMessageArea";
+import {
+  requestScrollToMessage,
+  type ScrollToMessageDetail,
+} from "@/src/components/chat/renderers/FindResultsRenderer";
 import { ChannelPendingApprovals } from "./ChannelPendingApprovals";
 import { ChannelHeader } from "./ChannelHeader";
 import { ChannelHeaderChip } from "./ChannelHeaderChip";
@@ -61,6 +65,7 @@ import type { Message } from "@/src/types/api";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { SessionPickerOverlay } from "@/src/components/chat/SessionPickerOverlay";
 import { SessionChatView } from "@/src/components/chat/SessionChatView";
+import { useSessionResumeCard } from "@/src/components/chat/useSessionResumeCard";
 import { buildThreadParentPreviewRow } from "@/src/components/chat/threadPreview";
 import { useSubmitChat } from "@/src/api/hooks/useChat";
 import { apiFetch } from "@/src/api/client";
@@ -903,6 +908,29 @@ export default function ChatScreen() {
     }));
     navigate(`/channels/${channelId}`);
   }, [channelId, leaveScratchSurface, navigate, panelPrefs.chatPaneLayout, patchChannelPanelPrefs, routeSessionSurface]);
+  const [pendingFindJump, setPendingFindJump] = useState<ScrollToMessageDetail | null>(null);
+  const handleOpenFindResultSession = useCallback((detail: ScrollToMessageDetail) => {
+    if (!channelId || !detail.sessionId) return;
+    setPendingFindJump(detail);
+    if (isMobile) {
+      navigate(buildChannelSessionRoute(channelId, { kind: "channel", sessionId: detail.sessionId }));
+      return;
+    }
+    activateChannelSessionSurface({ kind: "channel", sessionId: detail.sessionId }, "split");
+  }, [activateChannelSessionSurface, channelId, isMobile, navigate]);
+  useEffect(() => {
+    if (!pendingFindJump?.sessionId) return;
+    const routeReady = routeSessionId === pendingFindJump.sessionId;
+    const paneReady = panelPrefs.chatPaneLayout.panes.some(
+      (pane) => pane.surface.kind !== "primary" && pane.surface.sessionId === pendingFindJump.sessionId,
+    );
+    if (!routeReady && !paneReady) return;
+    const timeout = window.setTimeout(() => {
+      requestScrollToMessage(pendingFindJump);
+      setPendingFindJump(null);
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [panelPrefs.chatPaneLayout.panes, pendingFindJump, routeSessionId]);
   const replacePaneWithPendingSplit = useCallback((paneId: string) => {
     if (!channelId || !pendingSplitSurface) return;
     patchChannelPanelPrefs(channelId, (current) => {
@@ -1490,7 +1518,22 @@ export default function ChatScreen() {
     isProcessing: chatState.isProcessing,
     t,
     chatMode,
+    sessionId: channel?.active_session_id,
+    onOpenMessageSession: handleOpenFindResultSession,
   };
+  const primarySessionResumeSlot = useSessionResumeCard({
+    sessionId: channel?.active_session_id,
+    channelId,
+    messages: invertedData,
+    isActive: Object.keys(chatState.turns).length > 0 || !!chatState.isProcessing,
+    chatMode,
+    seed: {
+      surfaceKind: "primary",
+      title: "Primary session",
+      botName: bot?.name,
+      botModel: bot?.model,
+    },
+  });
   const terminalBottomSlot = chatMode === "terminal" ? (
     <>
       {chatState.error && (
@@ -1614,6 +1657,7 @@ export default function ChatScreen() {
       <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
         <ChatMessageArea
           {...messageAreaProps}
+          sessionResumeSlot={primarySessionResumeSlot}
           bottomSlot={terminalBottomSlot}
           scrollPaddingTop={0}
           scrollPaddingBottom={chatMode === "terminal" ? 20 : inputOverlayHeight + (isMobile ? 32 : 48)}

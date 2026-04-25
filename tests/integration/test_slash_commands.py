@@ -209,8 +209,16 @@ class TestSlashCommandHelp:
 
 
 class TestSlashCommandFind:
-    async def test_find_returns_matching_messages(self, client, db_session):
+    async def test_find_returns_matching_messages_from_active_session(self, client, db_session):
         channel_id, session_id = await _create_channel_with_session(db_session)
+        old_session_id = uuid.uuid4()
+        db_session.add(Session(
+            id=old_session_id,
+            bot_id="test-bot",
+            client_id=f"slash-old-{old_session_id.hex[:8]}",
+            channel_id=uuid.UUID(channel_id),
+        ))
+        await db_session.commit()
         await _seed_messages(
             db_session,
             session_id,
@@ -218,6 +226,11 @@ class TestSlashCommandFind:
             ("assistant", "Sure, I can help with the mortgage."),
             ("user", "unrelated content about the weather"),
             ("assistant", "The weather is fine today."),
+        )
+        await _seed_messages(
+            db_session,
+            str(old_session_id),
+            ("user", "mortgage from a previous session should not be in default find"),
         )
         resp = await client.post(
             "/api/v1/slash-commands/execute",
@@ -230,9 +243,61 @@ class TestSlashCommandFind:
         assert body["result_type"] == "find_results"
         matches = body["payload"]["matches"]
         assert len(matches) == 2
+        assert {m["session_id"] for m in matches} == {session_id}
         assert all("mortgage" in m["preview"].lower() for m in matches)
+        assert body["payload"]["scope_kind"] == "session"
+        assert body["payload"]["scope_id"] == session_id
         assert body["payload"]["query"] == "mortgage"
         assert "2 matches for 'mortgage'" in body["fallback_text"]
+
+    async def test_find_all_returns_visible_previous_session_matches(self, client, db_session):
+        channel_id, active_session_id = await _create_channel_with_session(db_session)
+        previous_session_id = uuid.uuid4()
+        db_session.add(Session(
+            id=previous_session_id,
+            bot_id="test-bot",
+            client_id=f"slash-prev-{previous_session_id.hex[:8]}",
+            channel_id=uuid.UUID(channel_id),
+        ))
+        await db_session.commit()
+        await _seed_messages(db_session, active_session_id, ("user", "active mortgage note"))
+        await _seed_messages(db_session, str(previous_session_id), ("assistant", "previous mortgage note"))
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={"command_id": "find", "channel_id": channel_id, "args": ["--all", "mortgage"]},
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        matches = body["payload"]["matches"]
+        assert {m["session_id"] for m in matches} == {active_session_id, str(previous_session_id)}
+        assert body["payload"]["scope_kind"] == "channel"
+        assert body["payload"]["scope_id"] == channel_id
+        assert body["payload"]["query"] == "mortgage"
+
+    async def test_find_all_excludes_hidden_sub_sessions(self, client, db_session):
+        channel_id, active_session_id = await _create_channel_with_session(db_session)
+        hidden_session_id = uuid.uuid4()
+        db_session.add(Session(
+            id=hidden_session_id,
+            bot_id="test-bot",
+            client_id=f"slash-hidden-{hidden_session_id.hex[:8]}",
+            channel_id=uuid.UUID(channel_id),
+            parent_session_id=uuid.UUID(active_session_id),
+        ))
+        await db_session.commit()
+        await _seed_messages(db_session, str(hidden_session_id), ("user", "hidden mortgage note"))
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={"command_id": "find", "channel_id": channel_id, "args": ["--all", "mortgage"]},
+            headers=AUTH_HEADERS,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["payload"]["matches"] == []
 
     async def test_find_empty_result_is_zero_matches(self, client, db_session):
         channel_id, session_id = await _create_channel_with_session(db_session)

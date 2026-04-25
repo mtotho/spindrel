@@ -180,6 +180,10 @@ function buildTypedLabel(pageType: string, title: string | null, fallback: strin
   return `${pageType} · ${title?.trim() || fallback}`;
 }
 
+function buildChannelChatLabel(channelLabel: string): string {
+  return channelLabel;
+}
+
 function resolveStaticRoute(canonicalHref: string): PaletteRoute | null {
   const { pathname } = splitHref(canonicalHref);
   const meta = STATIC_ROUTES.get(pathname);
@@ -207,7 +211,7 @@ function resolveChannelRoute(canonicalHref: string, options?: PaletteRouteOption
       pageType: "Chat",
       category: "Channels",
       icon: Hash,
-      label: buildTypedLabel("Chat", null, channelLabel),
+      label: buildChannelChatLabel(channelLabel),
       hint: options?.itemHint?.trim() || "Channels",
       recordable: true,
     };

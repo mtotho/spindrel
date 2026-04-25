@@ -842,10 +842,15 @@ Focus on what would be LOST if you couldn't see these messages anymore. Don't sa
     # In-loop pruning (trim old tool results between iterations within a single turn).
     # Prevents one long-running agent run from accumulating 16+ tool results in
     # context. Only the most recent ``KEEP_ITERATIONS`` rounds stay verbatim.
-    # 2 is a balance: short "fetch then act" patterns still see the data they
-    # just fetched, while long exploratory runs still get most of the savings.
+    # 8 is generous enough that typical fan-out chat investigations do not
+    # have to re-fetch pruned results. The pressure gate below means this
+    # depth only matters when pruning actually fires.
     IN_LOOP_PRUNING_ENABLED: bool = True
-    IN_LOOP_PRUNING_KEEP_ITERATIONS: int = 2
+    IN_LOOP_PRUNING_KEEP_ITERATIONS: int = 8
+    # Live-history utilization threshold below which in-loop pruning is skipped
+    # entirely. With plenty of headroom there is no point evicting tool results
+    # the model may still need, and every prune invalidates prompt-cache hits.
+    IN_LOOP_PRUNING_PRESSURE_THRESHOLD: float = 0.6
 
     # Context budgeting (prevent exceeding model context window)
     CONTEXT_BUDGET_ENABLED: bool = True

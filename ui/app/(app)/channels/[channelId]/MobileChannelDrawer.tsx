@@ -178,7 +178,10 @@ export function MobileChannelDrawer({
 
   if (!open || typeof document === "undefined") return null;
 
-  const activeTab = hasWorkspace ? tab : tab === "files" ? "jump" : tab;
+  const activeTabWithoutWorkspace = hasWorkspace ? tab : tab === "files" ? "jump" : tab;
+  const activeTab = activeTabWithoutWorkspace === "widgets" && totalWidgets === 0
+    ? "jump"
+    : activeTabWithoutWorkspace;
 
   return ReactDOM.createPortal(
     <div

@@ -411,6 +411,21 @@ def prune_in_loop_tool_results(
     }
 
 
+def should_prune_in_loop(
+    messages: list[dict],
+    *,
+    available_budget_tokens: int,
+    pressure_threshold: float,
+) -> tuple[bool, float]:
+    """Decide whether in-loop tool-result pruning should run this iteration."""
+    if available_budget_tokens <= 0:
+        return (True, 0.0)
+    from app.agent.prompt_sizing import messages_prompt_tokens
+    live_tokens = messages_prompt_tokens(messages)
+    utilization = live_tokens / available_budget_tokens
+    return (utilization >= pressure_threshold, utilization)
+
+
 def _find_conversation_region(messages: list[dict]) -> tuple[int | None, int]:
     """Return (start, end) indices of the conversation region.
 

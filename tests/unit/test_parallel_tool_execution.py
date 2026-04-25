@@ -112,6 +112,7 @@ def _default_mock_settings(**overrides):
         PARALLEL_TOOL_MAX_CONCURRENT=10,
         IN_LOOP_PRUNING_ENABLED=False,
         IN_LOOP_PRUNING_KEEP_ITERATIONS=1,
+        IN_LOOP_PRUNING_PRESSURE_THRESHOLD=0.0,
         CONTEXT_PRUNING_MIN_LENGTH=200,
     )
     defaults.update(overrides)

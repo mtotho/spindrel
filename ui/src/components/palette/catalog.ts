@@ -119,12 +119,13 @@ export function buildPaletteItems(input: PaletteCatalogInput): PaletteItem[] {
     const hint = [channel.integration, botName].filter(Boolean).join(" · ") || "Channels";
     pushUnique(items, {
       id: `channel-chat-${channel.id}`,
-      label: `Chat · ${channelLabel}`,
+      label: channelLabel,
       hint,
       href: `/channels/${channel.id}`,
       icon: Hash,
       category: "Channels",
       lastMessageAt: channel.last_message_at ?? null,
+      searchText: `chat ${channelLabel} ${channel.name}`,
     });
     pushUnique(items, {
       id: `channel-settings-${channel.id}`,

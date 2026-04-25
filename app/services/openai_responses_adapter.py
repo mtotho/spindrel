@@ -540,6 +540,74 @@ def _response_to_completion(resp_obj: dict) -> _ChatCompletion:
     )
 
 
+async def _stream_to_completion(stream: AsyncIterator[_ChatCompletionChunk], model: str) -> _ChatCompletion:
+    """Drain a Responses SSE stream into the non-streaming chat completion shape."""
+    content_parts: list[str] = []
+    reasoning_parts: list[str] = []
+    tool_calls_by_index: dict[int, _ToolCall] = {}
+    finish_reason: str | None = None
+    usage: _Usage | None = None
+    response_id = ""
+    created = int(time.time())
+
+    async for chunk in stream:
+        if chunk.id:
+            response_id = chunk.id
+        if chunk.created:
+            created = chunk.created
+        if chunk.model:
+            model = chunk.model
+        if chunk.usage is not None:
+            usage = chunk.usage
+
+        for choice in chunk.choices or []:
+            if choice.finish_reason:
+                finish_reason = choice.finish_reason
+            delta = choice.delta
+            if delta.content:
+                content_parts.append(delta.content)
+            if delta.reasoning_content:
+                reasoning_parts.append(delta.reasoning_content)
+            for tool_call in delta.tool_calls or []:
+                idx = tool_call.index
+                existing = tool_calls_by_index.get(idx)
+                if existing is None:
+                    existing = _ToolCall(
+                        id=tool_call.id,
+                        type=tool_call.type or "function",
+                        function=_Function(name="", arguments=""),
+                        index=idx,
+                    )
+                    tool_calls_by_index[idx] = existing
+                if tool_call.id:
+                    existing.id = tool_call.id
+                if tool_call.type:
+                    existing.type = tool_call.type
+                if tool_call.function.name:
+                    existing.function.name = tool_call.function.name
+                if tool_call.function.arguments:
+                    existing.function.arguments += tool_call.function.arguments
+
+    tool_calls = [tool_calls_by_index[idx] for idx in sorted(tool_calls_by_index)]
+    message = _Message(
+        role="assistant",
+        content="".join(content_parts) if content_parts else None,
+        tool_calls=tool_calls or None,
+        reasoning_content="".join(reasoning_parts) if reasoning_parts else None,
+    )
+    return _ChatCompletion(
+        id=response_id,
+        model=model,
+        created=created,
+        choices=[_Choice(
+            index=0,
+            message=message,
+            finish_reason=finish_reason or ("tool_calls" if tool_calls else "stop"),
+        )],
+        usage=usage,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Streaming translation
 # ---------------------------------------------------------------------------
@@ -822,7 +890,7 @@ class _Completions:
         messages = kwargs.pop("messages", [])
         tools = kwargs.pop("tools", None)
         tool_choice = kwargs.pop("tool_choice", None)
-        stream = kwargs.pop("stream", False)
+        caller_wants_stream = kwargs.pop("stream", False)
         # stream_options is a Chat Completions concept; Responses always
         # includes usage in the `response.completed` event when streaming.
         kwargs.pop("stream_options", None)
@@ -833,7 +901,7 @@ class _Completions:
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            stream=stream,
+            stream=True,
             extra=kwargs,
         )
 
@@ -843,31 +911,10 @@ class _Completions:
 
         client = self._adapter._http_client
 
-        if stream:
-            return await _ResponsesStreamAdapter.create(client, url, headers, body, model)
-
-        try:
-            resp = await client.post(url, headers=headers, json=body)
-        except httpx.TimeoutException as exc:
-            raise openai.APITimeoutError(request=getattr(exc, "request", None)) from exc  # type: ignore[arg-type]
-        except httpx.RequestError as exc:
-            raise openai.APIConnectionError(message=str(exc), request=getattr(exc, "request", None)) from exc  # type: ignore[arg-type]
-
-        if not resp.is_success:
-            try:
-                err_body = resp.json()
-            except (json.JSONDecodeError, ValueError):
-                err_body = resp.text
-            _log_error_body(body, resp.status_code, err_body)
-        _raise_for_httpx(resp)
-        try:
-            data = resp.json()
-        except (json.JSONDecodeError, ValueError) as exc:
-            raise openai.APIStatusError(
-                message=f"Non-JSON response from Responses API: {resp.text[:500]}",
-                response=resp, body=resp.text,
-            ) from exc
-        return _response_to_completion(data)
+        stream_adapter = await _ResponsesStreamAdapter.create(client, url, headers, body, model)
+        if caller_wants_stream:
+            return stream_adapter
+        return await _stream_to_completion(stream_adapter, model)
 
 
 class _Chat:

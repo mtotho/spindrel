@@ -694,8 +694,9 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
 
   const handleLoadMore = useCallback(() => {
     if (hasNextPage && !isFetchingNextPage) {
-      fetchNextPage();
+      return fetchNextPage();
     }
+    return undefined;
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Auto-load older pages when content doesn't fill the viewport

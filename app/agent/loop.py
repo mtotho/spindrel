@@ -13,7 +13,7 @@ from app.agent.bots import BotConfig
 from app.agent.context import set_agent_context
 from app.services import session_locks
 from app.agent.context_assembly import AssemblyResult, assemble_context
-from app.agent.context_pruning import prune_in_loop_tool_results
+from app.agent.context_pruning import prune_in_loop_tool_results, should_prune_in_loop
 from app.agent.loop_dispatch import (
     LoopDispatchState,
     SummarizeSettings,
@@ -187,49 +187,72 @@ async def run_agent_tool_loop(
             logger.debug("Calling LLM (%s) with %d messages", model, len(messages))
 
             # In-loop pruning: trim tool results from older iterations within
-            # this turn. Runs from iteration 2 onwards (needs at least one
-            # complete prior iteration to have something to prune).
+            # this turn. Runs only when live-history utilization crosses the
+            # pressure threshold; below threshold, pruning is pure loss.
             if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
-                _in_loop_stats = prune_in_loop_tool_results(
+                _available_budget_tokens = 0
+                try:
+                    from app.agent.context_budget import get_model_context_window
+                    _window = get_model_context_window(model, effective_provider_id)
+                    if _window > 0:
+                        _available_budget_tokens = max(
+                            0,
+                            _window - int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO),
+                        )
+                except Exception:
+                    _available_budget_tokens = 0
+
+                _should_prune, _utilization = should_prune_in_loop(
                     messages,
-                    keep_iterations=_in_loop_keep_iterations,
-                    min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
+                    available_budget_tokens=_available_budget_tokens,
+                    pressure_threshold=settings.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
                 )
-                if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
-                    logger.info(
-                        "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d",
-                        _in_loop_stats["pruned_count"],
-                        _in_loop_stats["chars_saved"],
-                        iteration + 1,
+                if _should_prune:
+                    _in_loop_stats = prune_in_loop_tool_results(
+                        messages,
+                        keep_iterations=_in_loop_keep_iterations,
+                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
                     )
-                    yield _event_with_compaction_tag({
-                        "type": "context_pruning",
-                        "pruned_count": _in_loop_stats["pruned_count"],
-                        "chars_saved": _in_loop_stats["chars_saved"],
-                        "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                        "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                        "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                        "scope": "in_loop",
-                        "keep_iterations": _in_loop_keep_iterations,
-                    }, compaction)
-                    if correlation_id is not None:
-                        safe_create_task(_record_trace_event(
-                            correlation_id=correlation_id,
-                            session_id=session_id,
-                            bot_id=bot.id,
-                            client_id=client_id,
-                            event_type="context_pruning",
-                            count=_in_loop_stats["pruned_count"],
-                            data={
-                                "scope": "in_loop",
-                                "chars_saved": _in_loop_stats["chars_saved"],
-                                "iterations_pruned": _in_loop_stats["iterations_pruned"],
-                                "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
-                                "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
-                                "iteration": iteration + 1,
-                                "keep_iterations": _in_loop_keep_iterations,
-                            },
-                        ))
+                    if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
+                        logger.info(
+                            "In-loop pruning: %d tool results pruned (saved %d chars) at iter %d (utilization=%.2f)",
+                            _in_loop_stats["pruned_count"],
+                            _in_loop_stats["chars_saved"],
+                            iteration + 1,
+                            _utilization,
+                        )
+                        yield _event_with_compaction_tag({
+                            "type": "context_pruning",
+                            "pruned_count": _in_loop_stats["pruned_count"],
+                            "chars_saved": _in_loop_stats["chars_saved"],
+                            "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                            "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                            "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
+                            "scope": "in_loop",
+                            "keep_iterations": _in_loop_keep_iterations,
+                            "live_history_utilization": _utilization,
+                            "triggered_by": "pressure",
+                        }, compaction)
+                        if correlation_id is not None:
+                            safe_create_task(_record_trace_event(
+                                correlation_id=correlation_id,
+                                session_id=session_id,
+                                bot_id=bot.id,
+                                client_id=client_id,
+                                event_type="context_pruning",
+                                count=_in_loop_stats["pruned_count"],
+                                data={
+                                    "scope": "in_loop",
+                                    "chars_saved": _in_loop_stats["chars_saved"],
+                                    "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                                    "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                                    "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
+                                    "iteration": iteration + 1,
+                                    "keep_iterations": _in_loop_keep_iterations,
+                                    "live_history_utilization": _utilization,
+                                    "triggered_by": "pressure",
+                                },
+                            ))
 
             # Context breakdown trace (first iteration only — avoids O(n) scan every iteration)
             if correlation_id is not None and iteration == 0:

@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal
 
 from pydantic import BaseModel
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -32,6 +32,7 @@ from app.services.session_plan_mode import (
     load_session_plan,
     resume_session_plan_mode,
 )
+from app.services.sub_sessions import SESSION_TYPE_CHANNEL
 
 
 # ============================================================================
@@ -794,20 +795,44 @@ async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     Returns a `find_results` payload the frontend renders as a clickable
     list; clicking a row scrolls the chat feed to that message.
     """
-    from app.tools.local.search_history import _build_query, _serialize_messages
+    from app.tools.local.search_history import _build_session_query, _serialize_messages
 
     if ctx.surface != "channel":
         raise ValueError("/find is only available in channel scope")
     assert ctx.channel is not None and ctx.channel_id is not None
 
-    query = " ".join(ctx.args).strip()
+    args = list(ctx.args)
+    search_all = bool(args and args[0].strip().lower() in {"--all", "-a"})
+    if search_all:
+        args = args[1:]
+    query = " ".join(args).strip()
     if not query:
         raise ValueError("/find requires a search query")
 
-    stmt = _build_query(
-        channel_id=ctx.channel_id,
-        bot_id=ctx.channel.bot_id,
+    session_ids: list[uuid.UUID]
+    if search_all:
+        session_ids = list((await ctx.db.execute(
+            select(Session.id)
+            .where(
+                Session.channel_id == ctx.channel_id,
+                Session.bot_id == ctx.channel.bot_id,
+                Session.session_type == SESSION_TYPE_CHANNEL,
+                Session.source_task_id.is_(None),
+                Session.parent_session_id.is_(None),
+                Session.parent_message_id.is_(None),
+            )
+            .order_by(Session.last_active.desc())
+            .limit(200)
+        )).scalars().all())
+    elif ctx.channel.active_session_id:
+        session_ids = [ctx.channel.active_session_id]
+    else:
+        session_ids = []
+
+    stmt = _build_session_query(
+        session_ids,
         query=query,
+        role="all",
         limit=FIND_LIMIT,
     )
     rows = (await ctx.db.execute(stmt)).scalars().all()
@@ -823,8 +848,8 @@ async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         for r in serialized
     ]
     payload = FindResultsPayload(
-        scope_kind="channel",
-        scope_id=str(ctx.channel_id),
+        scope_kind="channel" if search_all else "session",
+        scope_id=str(ctx.channel_id if search_all else (ctx.channel.active_session_id or ctx.channel_id)),
         query=query,
         matches=matches,
         truncated=len(matches) >= FIND_LIMIT,
@@ -936,7 +961,7 @@ _register(SlashCommandSpec(
 _register(SlashCommandSpec(
     id="find",
     label="/find",
-    description="Search recent messages in this channel",
+    description="Search the current session; use --all to search visible channel sessions",
     surfaces=("channel",),
     handler=_find_handler,
     args=(SlashCommandArgSpec(name="query", source="free_text", required=True),),

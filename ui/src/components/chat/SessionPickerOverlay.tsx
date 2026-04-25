@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { Check, Columns2, CornerDownLeft, MessageSquare, Plus, Search, Star, X } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   buildChannelSessionPickerGroups,
   buildChannelSessionPickerEntries,
@@ -10,9 +11,12 @@ import {
   type ChannelSessionPickerEntry,
   type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
+import { apiFetch } from "@/src/api/client";
 import {
+  channelSessionCatalogKey,
   useChannelSessionCatalog,
   useChannelSessionSearch,
+  usePromoteScratchSession,
   useRenameSession,
   useResetScratchSession,
   useScratchHistory,
@@ -46,9 +50,25 @@ export function SessionPickerOverlay({
   openSurfaces = [],
 }: SessionPickerOverlayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const queryClient = useQueryClient();
   const { data: history, isLoading, error } = useScratchHistory(open ? channelId : null);
   const { data: channelSessions, isLoading: catalogLoading, error: catalogError } = useChannelSessionCatalog(open ? channelId : null);
   const resetScratch = useResetScratchSession();
+  const promoteScratch = usePromoteScratchSession();
+  const promoteChannelSession = useMutation({
+    mutationFn: (sessionId: string) =>
+      apiFetch(`/api/v1/channels/${channelId}/switch-session`, {
+        method: "POST",
+        body: JSON.stringify({ session_id: sessionId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: channelSessionCatalogKey(channelId) });
+      queryClient.invalidateQueries({ queryKey: ["channels", channelId] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
+      onClose();
+      onActivateSurface({ kind: "primary" }, "switch");
+    },
+  });
   const renameSession = useRenameSession();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -159,6 +179,27 @@ export function SessionPickerOverlay({
         },
       },
     );
+  };
+
+  const setAsChannelPrimary = (entry: Extract<ChannelSessionPickerEntry, { kind: "channel" | "scratch" }>) => {
+    if (entry.kind === "scratch") {
+      promoteScratch.mutate(
+        {
+          session_id: entry.id,
+          parent_channel_id: channelId,
+          bot_id: "bot_id" in entry.row ? entry.row.bot_id : botId ?? undefined,
+        },
+        {
+          onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["channels"] });
+            onClose();
+            onActivateSurface({ kind: "primary" }, "switch");
+          },
+        },
+      );
+      return;
+    }
+    promoteChannelSession.mutate(entry.id);
   };
 
   return ReactDOM.createPortal(
@@ -274,6 +315,7 @@ export function SessionPickerOverlay({
               && pickerMode === "switch"
               && !entry.selected
               && (entry.kind === "scratch" || entry.kind === "channel");
+            const primaryEligible = entry.kind === "scratch" || (entry.kind === "channel" && !entry.row.is_active);
             const editing = scratch && editingId === scratch.id;
             return (
               <div
@@ -363,18 +405,31 @@ export function SessionPickerOverlay({
                       </div>
                     </div>
                   )}
-                  {scratch && !editing && (
+                  {primaryEligible && !editing && (
                     <div className="mt-1 flex items-center gap-3 text-[11px]">
+                      {scratch && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingId(scratch.id);
+                            setEditingTitle(scratch.label === "Untitled session" ? "" : scratch.label);
+                          }}
+                          className="text-text-dim hover:text-text"
+                        >
+                          Rename
+                        </button>
+                      )}
                       <button
                         type="button"
+                        disabled={promoteScratch.isPending || promoteChannelSession.isPending}
                         onClick={(event) => {
                           event.stopPropagation();
-                          setEditingId(scratch.id);
-                          setEditingTitle(scratch.label === "Untitled session" ? "" : scratch.label);
+                          setAsChannelPrimary(entry);
                         }}
-                        className="text-text-dim hover:text-text"
+                        className="text-text-dim hover:text-text disabled:opacity-50"
                       >
-                        Rename
+                        Set as channel primary
                       </button>
                     </div>
                   )}

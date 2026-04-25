@@ -30,6 +30,7 @@ const COLLAPSIBLE_BROWSE_LABELS: Record<CollapsiblePaletteBrowseSection, string>
   policies: "Policies",
   traces: "Traces",
 };
+const THIS_CHANNEL_BROWSE_LIMIT = 4;
 
 export function useCommandPaletteShortcut() {
   const openPalette = useUIStore((s) => s.openPalette);
@@ -80,6 +81,7 @@ export function CommandPaletteContent({
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentsExpanded, setRecentsExpanded] = useState(false);
+  const [thisChannelExpanded, setThisChannelExpanded] = useState(false);
   const [expandedBrowseSections, setExpandedBrowseSections] = useState<Set<CollapsiblePaletteBrowseSection>>(
     () => new Set(),
   );
@@ -148,17 +150,26 @@ export function CommandPaletteContent({
     const flat: Array<
       | { kind: "item"; scored: ScoredItem }
       | { kind: "recents-toggle" }
+      | { kind: "this-channel-toggle" }
       | { kind: "collapsed-section"; section: CollapsiblePaletteBrowseSection }
     > = [];
     const indexedGroups = groups.map((group) => {
       const sectionCounts = new Map<CollapsiblePaletteBrowseSection, number>();
       const entries: Array<{ scored: ScoredItem; flatIndex: number }> = [];
       const collapsedToggles: Array<{ section: CollapsiblePaletteBrowseSection; count: number; flatIndex: number }> = [];
+      const collapseThisChannel =
+        isBrowseMode
+        && group.category === "This Channel"
+        && !thisChannelExpanded
+        && group.items.length > THIS_CHANNEL_BROWSE_LIMIT;
 
-      for (const scoredItem of group.items) {
+      for (const [index, scoredItem] of group.items.entries()) {
         const section = isBrowseMode ? getCollapsiblePaletteBrowseSection(scoredItem.item) : null;
         if (section) sectionCounts.set(section, (sectionCounts.get(section) ?? 0) + 1);
         if (section && !expandedBrowseSections.has(section)) {
+          continue;
+        }
+        if (collapseThisChannel && index >= THIS_CHANNEL_BROWSE_LIMIT) {
           continue;
         }
         const entry = { scored: scoredItem, flatIndex };
@@ -179,11 +190,18 @@ export function CommandPaletteContent({
         flat.push({ kind: "recents-toggle" });
         flatIndex += 1;
       }
-      return { category: group.category, items: entries, collapsedToggles };
+      const thisChannelToggle = isBrowseMode && group.category === "This Channel" && group.items.length > THIS_CHANNEL_BROWSE_LIMIT
+        ? {
+            count: group.items.length - THIS_CHANNEL_BROWSE_LIMIT,
+            flatIndex: flatIndex++,
+          }
+        : null;
+      if (thisChannelToggle) flat.push({ kind: "this-channel-toggle" });
+      return { category: group.category, items: entries, collapsedToggles, thisChannelToggle };
     });
 
     return { groups: indexedGroups, totalCount: flatIndex, flat, showMoreToggleIndex };
-  }, [expandedBrowseSections, groups, isBrowseMode, showRecentsToggle]);
+  }, [expandedBrowseSections, groups, isBrowseMode, showRecentsToggle, thisChannelExpanded]);
 
   const toggleBrowseSection = useCallback((section: CollapsiblePaletteBrowseSection) => {
     setExpandedBrowseSections((current) => {
@@ -196,6 +214,10 @@ export function CommandPaletteContent({
 
   useEffect(() => {
     if (query.trim()) setRecentsExpanded(false);
+  }, [query]);
+
+  useEffect(() => {
+    if (query.trim()) setThisChannelExpanded(false);
   }, [query]);
 
   useEffect(() => {
@@ -269,6 +291,10 @@ export function CommandPaletteContent({
         }
         const entry = groupedResults.flat[selectedIndex];
         if (!entry) return;
+        if (entry.kind === "this-channel-toggle") {
+          setThisChannelExpanded((value) => !value);
+          return;
+        }
         if (entry.kind === "collapsed-section") {
           toggleBrowseSection(entry.section);
           return;
@@ -513,6 +539,41 @@ export function CommandPaletteContent({
                   }}
                 >
                   {recentsExpanded ? "Show less" : `Show more (${totalRecents - 5})`}
+                </span>
+              </div>
+            )}
+            {group.thisChannelToggle && (
+              <div
+                data-idx={group.thisChannelToggle.flatIndex}
+                onClick={() => setThisChannelExpanded((value) => !value)}
+                onMouseMove={() => {
+                  isKeyboardNav.current = false;
+                  setSelectedIndex(group.thisChannelToggle!.flatIndex);
+                }}
+                style={{
+                  display: "flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "7px 14px",
+                  margin: "0 6px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  backgroundColor: group.thisChannelToggle.flatIndex === selectedIndex ? t.accentSubtle : "transparent",
+                  transition: "background-color 80ms ease",
+                }}
+              >
+                <span style={{ flexShrink: 0, display: "flex", flexDirection: "row" }}>
+                  {thisChannelExpanded ? <ChevronUp size={14} color={t.textDim} /> : <ChevronDown size={14} color={t.textDim} />}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 13,
+                    color: t.textDim,
+                  }}
+                >
+                  {thisChannelExpanded ? "Show less" : `Show more (${group.thisChannelToggle.count})`}
                 </span>
               </div>
             )}

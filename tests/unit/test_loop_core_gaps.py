@@ -68,6 +68,7 @@ def _base_loop_settings(ms, *, pruning_enabled: bool = False) -> None:
     ms.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS = []
     ms.IN_LOOP_PRUNING_ENABLED = pruning_enabled
     ms.IN_LOOP_PRUNING_KEEP_ITERATIONS = 1
+    ms.IN_LOOP_PRUNING_PRESSURE_THRESHOLD = 0.0
     ms.CONTEXT_PRUNING_MIN_LENGTH = 200
     ms.SKILL_CORRECTION_NUDGE_ENABLED = False
     ms.SKILL_REPEATED_LOOKUP_NUDGE_ENABLED = False

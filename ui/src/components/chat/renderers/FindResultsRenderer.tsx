@@ -8,6 +8,7 @@ export const SCROLL_TO_MESSAGE_EVENT = "chat:scroll-to-message";
 export interface ScrollToMessageDetail {
   messageId: string;
   sessionId?: string;
+  channelId?: string;
 }
 
 export function requestScrollToMessage(detail: ScrollToMessageDetail): void {
@@ -27,7 +28,11 @@ export function FindResultsRenderer({ payload, chatMode = "default" }: Props) {
     // Attempt scroll. If the DOM node isn't mounted (older scroll-back), the
     // listener in ChatMessageArea falls back to a toast — surfaced there so
     // we don't double-toast for mounted rows.
-    requestScrollToMessage({ messageId, sessionId });
+    requestScrollToMessage({
+      messageId,
+      sessionId,
+      channelId: payload.scope_kind === "channel" ? payload.scope_id : undefined,
+    });
   };
 
   const meta =
@@ -106,6 +111,6 @@ function formatRelativeDate(iso: string): string {
 export function notifyScrollMiss() {
   toast({
     kind: "info",
-    message: "Scroll up to load older messages — target isn't in view yet.",
+    message: "Could not find that message in the loaded session history.",
   });
 }

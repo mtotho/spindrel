@@ -214,7 +214,7 @@ format works:
 You can configure multiple LLM providers simultaneously via **Admin UI > Providers**.
 Each provider has its own API key, base URL, and rate limits.
 
-![Providers screen](images/providers-screen-v1.png)
+![Providers screen](images/providers-settings.png)
 *Admin > Providers — manage multiple LLM providers with connection testing.*
 
 Supported provider types:

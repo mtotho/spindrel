@@ -22,6 +22,8 @@ import {
 } from "./threadPreview";
 import { ThreadParentAnchor } from "./ThreadParentAnchor";
 import { mergePersistedAndSyntheticMessages } from "./sessionMessageSync";
+import { useSessionResumeCard } from "./useSessionResumeCard";
+import type { SessionResumeMetadata } from "@/src/lib/sessionResume";
 
 export interface SessionChatViewProps {
   /** The session whose Messages we render (the pipeline run's sub-session). */
@@ -43,6 +45,8 @@ export interface SessionChatViewProps {
   syntheticMessages?: Message[];
   chatMode?: "default" | "terminal";
   bottomSlot?: React.ReactNode;
+  showSessionResumeCard?: boolean;
+  sessionResumeSeed?: Partial<SessionResumeMetadata>;
 }
 
 /**
@@ -66,6 +70,8 @@ export function SessionChatView({
   syntheticMessages = [],
   chatMode = "default",
   bottomSlot,
+  showSessionResumeCard = false,
+  sessionResumeSeed,
 }: SessionChatViewProps) {
   const t = useThemeTokens();
   const chatState = useChatStore((s) => s.getChannel(sessionId));
@@ -228,8 +234,17 @@ export function SessionChatView({
   };
 
   const handleLoadMore = () => {
-    if (hasNextPage && !isFetchingNextPage) fetchNextPage();
+    if (hasNextPage && !isFetchingNextPage) return fetchNextPage();
+    return undefined;
   };
+  const sessionResumeSlot = useSessionResumeCard({
+    sessionId: showSessionResumeCard ? sessionId : null,
+    channelId: parentChannelId,
+    messages: renderedData,
+    isActive: turnsCount > 0 || !!chatState.isProcessing,
+    chatMode,
+    seed: sessionResumeSeed,
+  });
 
   return (
     <ChatMessageArea
@@ -248,7 +263,9 @@ export function SessionChatView({
       emptyStateComponent={emptyStateComponent}
       scrollPaddingBottom={scrollPaddingBottom}
       chatMode={chatMode}
+      sessionResumeSlot={sessionResumeSlot}
       bottomSlot={bottomSlot}
+      sessionId={sessionId}
     />
   );
 }

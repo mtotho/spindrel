@@ -28,6 +28,7 @@ import { BotPicker } from "@/src/components/shared/BotPicker";
 import { ChatSessionModal } from "./ChatSessionModal";
 import { ChatSessionDock } from "./ChatSessionDock";
 import { SessionChatView } from "./SessionChatView";
+import { useSessionResumeCard } from "./useSessionResumeCard";
 import { ChatComposerShell } from "./ChatComposerShell";
 import { MessageInput, type PendingFile } from "./MessageInput";
 import { ChatMessageArea, DateSeparator } from "./ChatMessageArea";
@@ -293,6 +294,19 @@ function ChannelChatSession({
   const { data: overheadData } = useChannelConfigOverhead(source.channelId);
   const overheadPct = overheadData?.overhead_pct ?? null;
   const { sessionPlan, planBusy, handleTogglePlanMode } = useChatSessionPlan(src.sessionId);
+  const sessionResumeSlot = useSessionResumeCard({
+    sessionId: src.sessionId,
+    channelId: source.channelId,
+    messages: src.invertedData,
+    isActive: Object.keys(src.chatState.turns).length > 0 || !!src.chatState.isProcessing,
+    chatMode,
+    seed: {
+      surfaceKind: "primary",
+      title: "Primary session",
+      botName: bot?.name,
+      botModel: bot?.model,
+    },
+  });
 
   // Dock expansion (FAB vs panel); controller owns so header X collapses.
   // Respect the caller's `initiallyExpanded` on mount only — subsequent toggles
@@ -581,6 +595,8 @@ function ChannelChatSession({
             emptyStateComponent={emptyState}
             scrollPaddingBottom={20}
             chatMode={chatMode}
+            sessionResumeSlot={sessionResumeSlot}
+            sessionId={src.sessionId}
             bottomSlot={
               <>
                 {src.sendError && (
@@ -633,6 +649,8 @@ function ChannelChatSession({
           emptyStateComponent={emptyState}
           scrollPaddingBottom={inputOverlayHeight + 16}
           chatMode={chatMode}
+          sessionResumeSlot={sessionResumeSlot}
+          sessionId={src.sessionId}
         />
         )}
         {/* Composer overlay — messages scroll behind the frosted card
@@ -970,6 +988,13 @@ function FixedSessionChatSession({
           scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
           chatMode={chatMode}
           syntheticMessages={slashSyntheticMessages}
+          showSessionResumeCard
+          sessionResumeSeed={{
+            surfaceKind: source.externalDelivery === "none" ? "channel" : "session",
+            title,
+            botName: bots?.find((b) => b.id === botId)?.name,
+            botModel: bots?.find((b) => b.id === botId)?.model,
+          }}
           bottomSlot={composerInTranscriptFlow ? composer : undefined}
         />
         {!composerInTranscriptFlow && (
@@ -1546,6 +1571,17 @@ function EphemeralChatSession({
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
             syntheticMessages={slashSyntheticMessages}
+            showSessionResumeCard
+            sessionResumeSeed={{
+              surfaceKind: scratchBoundChannelId ? "scratch" : "session",
+              title: scratchQuery.data?.title ?? title,
+              summary: scratchQuery.data?.summary ?? undefined,
+              createdAt: scratchQuery.data?.created_at,
+              messageCount: scratchQuery.data?.message_count,
+              sectionCount: scratchQuery.data?.section_count,
+              botName: bots?.find((b) => b.id === botId)?.name,
+              botModel: bots?.find((b) => b.id === botId)?.model,
+            }}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
@@ -1601,6 +1637,7 @@ function EphemeralChatSession({
             }
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
+            sessionId={sessionId}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
@@ -2037,6 +2074,13 @@ function ThreadChatSession({
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             syntheticMessages={[...syntheticMessages, ...slashSyntheticMessages]}
             chatMode={chatMode}
+            showSessionResumeCard
+            sessionResumeSeed={{
+              surfaceKind: "thread",
+              title: displayTitle,
+              botName: bot?.name,
+              botModel: bot?.model,
+            }}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (
@@ -2092,6 +2136,7 @@ function ThreadChatSession({
             t={t}
             scrollPaddingBottom={composerInTranscriptFlow ? 20 : inputOverlayHeight + 16}
             chatMode={chatMode}
+            sessionId={effectiveSessionId}
             bottomSlot={composerInTranscriptFlow ? (
               <>
                 {sendError && (

@@ -10,6 +10,7 @@ import {
   notifyScrollMiss,
   type ScrollToMessageDetail,
 } from "./renderers/FindResultsRenderer";
+import { loadUntilMessageVisible } from "./findJump";
 
 function cssEscape(s: string): string {
   // Safe wrapper for browsers that support CSS.escape; fallback strips the
@@ -82,7 +83,7 @@ export interface ChatMessageAreaProps {
   isLoading: boolean;
   isFetchingNextPage: boolean;
   hasNextPage?: boolean;
-  handleLoadMore: () => void;
+  handleLoadMore: () => Promise<unknown> | void;
   isProcessing?: boolean;
   t: ReturnType<typeof useThemeTokens>;
   /** Render prop for channel-specific pending approvals section.
@@ -101,7 +102,10 @@ export interface ChatMessageAreaProps {
    *  composer so messages can scroll behind it. Default 12. */
   scrollPaddingBottom?: number;
   chatMode?: "default" | "terminal";
+  sessionResumeSlot?: React.ReactNode;
   bottomSlot?: React.ReactNode;
+  sessionId?: string | null;
+  onOpenMessageSession?: (detail: ScrollToMessageDetail) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,15 +149,27 @@ export function ChatMessageArea({
   scrollPaddingTop = 8,
   scrollPaddingBottom = 12,
   chatMode = "default",
+  sessionResumeSlot,
   bottomSlot,
+  sessionId,
+  onOpenMessageSession,
 }: ChatMessageAreaProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [showFab, setShowFab] = useState(false);
+  const findJumpIdRef = useRef(0);
 
   // Stable ref for load-more callback
   const handleLoadMoreRef = useRef(handleLoadMore);
   handleLoadMoreRef.current = handleLoadMore;
+  const hasNextPageRef = useRef(hasNextPage);
+  const isFetchingNextPageRef = useRef(isFetchingNextPage);
+  const sessionIdRef = useRef(sessionId);
+  const onOpenMessageSessionRef = useRef(onOpenMessageSession);
+  hasNextPageRef.current = hasNextPage;
+  isFetchingNextPageRef.current = isFetchingNextPage;
+  sessionIdRef.current = sessionId;
+  onOpenMessageSessionRef.current = onOpenMessageSession;
 
   // Load older pages when the sentinel at the visual top becomes visible.
   useEffect(() => {
@@ -208,17 +224,36 @@ export function ChatMessageArea({
   }, []);
 
   // Listen for /find clicks requesting a jump to a specific message. If the
-  // target DOM node isn't mounted (virtualized far scrollback or a different
-  // session's message), fall back to the toast so the user knows to scroll up.
+  // target is in this session but older than the mounted page, load older
+  // pages through the existing cursor flow until it appears.
   useEffect(() => {
-    const handler = (event: Event) => {
+    const handler = async (event: Event) => {
       const detail = (event as CustomEvent<ScrollToMessageDetail>).detail;
       if (!detail?.messageId) return;
       const root = scrollRef.current;
       if (!root) return;
+      const currentSessionId = sessionIdRef.current;
+      if (detail.sessionId && currentSessionId && detail.sessionId !== currentSessionId) {
+        onOpenMessageSessionRef.current?.(detail);
+        return;
+      }
+      const jumpId = findJumpIdRef.current + 1;
+      findJumpIdRef.current = jumpId;
       const selector = `[data-message-id="${cssEscape(detail.messageId)}"]`;
-      const node = root.querySelector<HTMLElement>(selector);
-      if (!node) {
+      const findNode = () => root.querySelector<HTMLElement>(selector);
+      const result = await loadUntilMessageVisible({
+        findNode,
+        hasNextPage: () => !!hasNextPageRef.current,
+        isFetchingNextPage: () => !!isFetchingNextPageRef.current,
+        loadMore: () => handleLoadMoreRef.current(),
+        afterLoad: () => new Promise<void>((resolve) => {
+          window.requestAnimationFrame(() => resolve());
+        }),
+      });
+      if (jumpId !== findJumpIdRef.current) return;
+      if (result === "busy") return;
+      const node = findNode();
+      if (result !== "found" || !node) {
         notifyScrollMiss();
         return;
       }
@@ -293,12 +328,14 @@ export function ChatMessageArea({
       {pendingApprovalsSlot?.(liveApprovalIds)}
       {turnIndicators}
       {processingIndicator}
+      {sessionResumeSlot}
       {bottomSlot}
     </>
   );
   const defaultFooterContent = (
     <>
       {errorBanner}
+      {sessionResumeSlot}
       {bottomSlot}
       {pendingApprovalsSlot?.(liveApprovalIds)}
       {turnIndicators}
