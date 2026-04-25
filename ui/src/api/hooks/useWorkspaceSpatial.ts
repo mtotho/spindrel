@@ -44,6 +44,16 @@ export interface SpatialNode {
     expires_at?: string;
     ttl_minutes?: number;
   } | null;
+  /** Bounded log of recent prior positions for the comet-tail trail layer.
+   *  Newest entry is the position right before the latest move; combine with
+   *  current `world_x` / `world_y` to draw the path. Pruned server-side to
+   *  the last 72h / 30 entries. */
+  position_history?: Array<{
+    x: number;
+    y: number;
+    ts: string;
+    actor?: string | null;
+  }>;
   bot?: {
     id: string;
     name?: string;

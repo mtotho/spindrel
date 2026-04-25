@@ -2,11 +2,79 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-25 (Vocabulary cleanup — schedule_task split into schedule_prompt + define_pipeline; /admin/tasks → /admin/automations)
+updated: 2026-04-25 (Pipeline Canvas tab — workflowbuilder.io-style three-pane editor on top of existing pipeline system)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-25 — Pipeline Canvas tab (workflowbuilder.io-style three-pane editor)
+
+Added a third **Canvas** tab to the pipeline editor at `/admin/automations/:taskId`, modeled on workflowbuilder.io. Three panes: Nodes Library (click-to-add palette) | pannable/zoomable Canvas | Config Panel (selected step or edge fields). Same `Task.steps[]` array shape as Visual + JSON tabs; positions persist on a new top-level `Task.layout` JSONB column. The runtime never reads `layout` — it's pure UI state.
+
+### Phase 0 — Step-editor extraction (precondition for Canvas)
+
+`ui/src/components/shared/TaskStepEditor.tsx` was 997 LOC, at the 1000-LOC split threshold. Adding Canvas without splitting would have crossed it and forced duplicate field-editor logic between Visual + Canvas surfaces. Extracted 10 siblings into `ui/src/components/shared/task/step-editor/`:
+
+- `MiniDropdown.tsx`, `toolSchemaHelpers.ts`, `StepConditionEditor.tsx`, `StepResultBadge.tsx`, `ToolArgsEditor.tsx`, `StepTypeSelector.tsx` (incl. `ON_FAILURE_OPTIONS`), `UserPromptFields.tsx`, `ForeachFields.tsx` (incl. `ForeachSubStepCard`), `StepCard.tsx`, `AddStepButton.tsx`.
+
+`TaskStepEditor.tsx` shrank to 147 LOC, re-importing each sibling. Both Visual tab and Canvas Config Panel consume the same components — one source of truth.
+
+### Phase 1 — Backend (`Task.layout`)
+
+- **Migration 251_task_layout.py** (`down_revision = "250_heartbeat_execution_policy"`): adds `Task.layout` JSONB column, default `'{}'::jsonb`, nullable false.
+- `app/db/models.py` — `layout: Mapped[dict] = mapped_column(JSONB, ...)` between `step_states` and `source`.
+- `app/routers/api_v1_admin/tasks.py` — `layout` field in `TaskDetailOut`, `TaskCreateIn`, `TaskUpdateIn`. `_task_dict` surfaces it. `admin_create_task` threads it. `admin_update_task` handles it via `flag_modified` AND adds a system-pipeline guard that rejects (422) PATCH requests touching anything other than `layout` when `task.source == "system"` — matches the "system pipelines are read-only configuration except for layout" semantics.
+- `app/services/task_ops.py::spawn_child_run` copies `parent.layout` to child runs as a deep copy. Child-run views render with the same node positions; later parent edits don't bleed into completed runs.
+- `app/services/task_seeding.py::_SYSTEM_PIPELINE_FIELDS` — **does NOT include `layout`**. YAML never declares layout; per-installation layout is owned by the frontend. Locked by a unit test (`test_seeding_allowlist_excludes_layout`).
+- `app/services/step_executor.py` — **untouched**. Layout invariant pinned by a runtime test that runs a pipeline with a sentinel layout and asserts it's unchanged after completion.
+
+### Phase 2 — Frontend (`PipelineCanvas`)
+
+`ui/src/components/shared/task/PipelineCanvas/`:
+- `index.tsx` — three-pane shell, owns selection state.
+- `Canvas.tsx` — pan/zoom plane + manual pointer-to-world drag pattern copied from `SpatialCanvas.tsx:675-729` (the Bot-tile path that fixed zoom-offset drift; explicitly avoiding the dnd-kit `delta/scale` pattern at line 657 which doesn't survive zoom).
+- `StepNode.tsx` — single draggable node card.
+- `EdgeLayer.tsx` — SVG edge rendering with stroke-dash + arrow markers. `<line>` hit targets are 14px wide for click ergonomics.
+- `NodesLibrary.tsx` — left palette, click-to-add at viewport center (drag-to-add parked).
+- `ConfigPanel.tsx` — right pane; reuses Phase-0 components for step-type-specific fields. Edge mode shows simple condition editor or read-only complex-condition summary with "Edit as JSON" link.
+- `edges.ts` — `classifyWhen` (unconditional / simple / complex), `describeWhen` (label text), `buildEdges` (sequential primary edges + faint secondary edges from `when.step` references to non-immediate predecessors), `staleWhenStepRefs` (forward/missing reference detection after reorder).
+- `layout.ts` — `ensurePositions` (auto-place top-down stack for unpositioned steps + prune stale entries; returns same reference when no change for cheap memoization), `setNodePosition` (immutable update).
+
+Reused `spatialGeometry.ts` (`Camera`, `clampCamera`, `MIN_SCALE`, `MAX_SCALE`) — no fisheye lens warp on the pipeline canvas, just linear pan/zoom.
+
+`useTasks.ts` gained `TaskLayout` type; `TaskDetail`, `TaskCreatePayload`, `TaskUpdatePayload` accept `layout`. `useTaskFormState.ts` adds `layout` state + threads it through `handleSave` for both create and update.
+
+`TaskFormFields.tsx` Visual/JSON toggle becomes a three-tab strip: Visual / JSON / Canvas. Canvas tab hidden on `< 768px` viewports — Visual + JSON remain the mobile authoring surfaces.
+
+### Edge model (matches runtime)
+
+The runtime executes `steps[]` in array order. Primary edges always reflect that — never derived from `when.step`. When `when.step` references a non-immediate predecessor, a faint secondary dotted edge from that step to the current step makes the data dependency visible without misrepresenting execution flow.
+
+Edge classification:
+- `unconditional` — `when` absent/empty: solid line, no badge.
+- `simple` — only `{step, status?, output_contains?, output_not_contains?}`: dashed line + readable label ("if status = done").
+- `complex` — `all` / `any` / `not` / `param` / unrecognized keys: dashed line + neutral "conditional" badge; Config Panel shows JSON dump + "Edit as JSON" link routing to the JSON tab. **Conditions are never re-shaped on save.** Pinned by a parametrized backend round-trip test covering 5 complex `when` shapes.
+
+Reordering does NOT rewrite `when.step` references — preserves user intent. Forward / missing references after reorder surface as a warning chip on the affected node.
+
+### Tests (~25 new across backend + frontend)
+
+Backend: `tests/integration/test_admin_tasks_layout.py` (round-trip, system-pipeline guard); `tests/integration/test_when_round_trip.py` (parametrized over complex condition shapes); `tests/unit/test_system_pipelines.py` gained `test_spawn_child_run_copies_layout`, `test_layout_untouched_by_reseed`, `test_seeding_allowlist_excludes_layout`; `tests/unit/test_step_executor.py::TestRunTaskPipeline::test_layout_is_invariant_through_pipeline_run`.
+
+Frontend (existing `node:assert` convention, no new test runner): `ui/.../PipelineCanvas/edges.test.ts` (classifyWhen, describeWhen, buildEdges sequential primary + secondary, staleWhenStepRefs forward/missing/valid); `ui/.../PipelineCanvas/layout.test.ts` (ensurePositions auto-place + preserve + prune + no-op reference equality, setNodePosition immutability).
+
+Verification: `pytest tests/integration/test_admin_tasks_layout.py tests/integration/test_when_round_trip.py tests/unit/test_system_pipelines.py tests/unit/test_step_executor.py tests/integration/test_admin_task_list.py tests/integration/test_channel_pipelines_api.py -q` → 167 passed (in Docker). `cd ui && npx tsc --noEmit` clean.
+
+Plan: `~/.claude/plans/can-we-plan-something-snoopy-yeti.md` — Phases 0, 1, 2 shipped this session. Phase 3 (workspace spatial canvas integration via new `core/pipeline_summary` native widget pinned through existing `widget_dashboard_pins` + `workspace_spatial_nodes`) is parked as the next session's work — keeps the "no new node type on `workspace_spatial_nodes`" boundary.
+
+### Out of scope / parked
+
+- Drag-to-add from Nodes Library (click-to-add ships first; pointer-up + pointer-to-world drop target is a follow-up).
+- Drill-down `foreach` sub-canvas (sub-steps live in Config Panel).
+- Combinator tree builder for `all`/`any`/`not` — round-trip works; UI exposure deferred until a real pipeline outgrows the simple-condition surface.
+- React-rendering frontend tests for tab-switch preservation, no-PATCH-on-drag, etc. — repo has no React test runner; pure-function behavior is covered above; UI behavior verified via typecheck + manual smoke.
+- Manual e2e smoke on the live instance — not run this session.
 
 ## 2026-04-25 — Vocabulary cleanup (Task overload triage)
 

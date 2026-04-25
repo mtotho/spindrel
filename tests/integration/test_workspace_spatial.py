@@ -524,3 +524,90 @@ class TestPinWidgetToCanvas:
         ).scalars().all()
         assert {row.scope_kind for row in rows} == {"dashboard"}
         assert all(row.scope_ref.startswith("notes_native/") for row in rows)
+
+
+class TestPositionHistory:
+    """Comet-tail trail data — every coordinate-changing mutation appends a
+    pruned history entry; size/z-only updates do not."""
+
+    async def test_drag_appends_history(self, client):
+        await _create_channel(client)
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        node_id = nodes[0]["id"]
+        prev_x = nodes[0]["world_x"]
+        prev_y = nodes[0]["world_y"]
+        r = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node_id}",
+            json={"world_x": prev_x + 100.0, "world_y": prev_y + 50.0},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        history = r.json()["node"]["position_history"]
+        assert len(history) == 1
+        assert history[0]["x"] == prev_x
+        assert history[0]["y"] == prev_y
+        assert history[0]["actor"] is None
+        assert "ts" in history[0]
+
+    async def test_no_op_move_skipped(self, client):
+        await _create_channel(client)
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        node = nodes[0]
+        # Z-index only — no coord change → no history.
+        r = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node['id']}",
+            json={"z_index": 9},
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200
+        assert r.json()["node"]["position_history"] == []
+        # Same coords → still no history.
+        r2 = await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node['id']}",
+            json={"world_x": node["world_x"], "world_y": node["world_y"]},
+            headers=AUTH_HEADERS,
+        )
+        assert r2.status_code == 200
+        assert r2.json()["node"]["position_history"] == []
+
+    async def test_history_caps_length(self, client, db_session):
+        await _create_channel(client)
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        node_id = nodes[0]["id"]
+        # Drive 35 distinct moves; expect cap at MAX_HISTORY_POINTS = 30.
+        for i in range(35):
+            await client.patch(
+                f"/api/v1/workspace/spatial/nodes/{node_id}",
+                json={"world_x": float(i * 11), "world_y": float(i * 7)},
+                headers=AUTH_HEADERS,
+            )
+        from app.services.workspace_spatial import MAX_HISTORY_POINTS
+        row = (await db_session.execute(
+            select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.id == uuid.UUID(node_id))
+        )).scalar_one()
+        assert len(row.position_history) == MAX_HISTORY_POINTS
+        # Newest entry is the position right before the latest write — i.e.
+        # the previous iteration's coords (i=33 wrote (363, 231) and the
+        # history entry from the i=34 write captured that).
+        assert row.position_history[-1]["x"] == 33 * 11
+
+    async def test_history_prunes_old_entries(self, client, db_session):
+        await _create_channel(client)
+        nodes = (await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)).json()["nodes"]
+        node_id = nodes[0]["id"]
+        # Plant a stale (>72h ago) entry directly in the DB.
+        row = (await db_session.execute(
+            select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.id == uuid.UUID(node_id))
+        )).scalar_one()
+        stale_ts = (datetime.now(timezone.utc) - timedelta(hours=80)).isoformat()
+        row.position_history = [{"x": 1.0, "y": 2.0, "ts": stale_ts, "actor": None}]
+        await db_session.commit()
+        # A live move should drop the stale entry and keep only the new one.
+        await client.patch(
+            f"/api/v1/workspace/spatial/nodes/{node_id}",
+            json={"world_x": 500.0, "world_y": 600.0},
+            headers=AUTH_HEADERS,
+        )
+        await db_session.refresh(row)
+        assert len(row.position_history) == 1
+        assert row.position_history[0]["x"] != 1.0  # old entry pruned

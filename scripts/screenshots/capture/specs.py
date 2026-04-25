@@ -837,6 +837,62 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
 ]
 
 
+# ---------------------------------------------------------------------------
+# Integration-chat captures — heroes that show the integration *delivering*,
+# not the admin page. Each spec routes to a channel where the agent loop
+# already ran (see ``stage_integration_chat``) and the persisted assistant
+# message includes the rendered widget.
+# ---------------------------------------------------------------------------
+INTEGRATION_CHAT_SPECS: list[ScreenshotSpec] = [
+    # chat-excalidraw — feeds `docs/guides/excalidraw.md`. seed_turn drives
+    # the bot to call ``mermaid_to_excalidraw`` with a small graph; the
+    # result widget shows the rendered diagram inline. Predicate gates on
+    # the tool badge + at least one `<img>` (the rendered SVG/PNG).
+    ScreenshotSpec(
+        name="chat-excalidraw",
+        route="/channels/{chat_excalidraw}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/MERMAID TO EXCALIDRAW|CREATE EXCALIDRAW/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-excalidraw.png",
+    ),
+    # chat-marp — feeds `docs/guides/marp-slides.md` (or a future slides guide).
+    # The bot calls ``create_marp_slides`` (or legacy ``create_slides``) and
+    # the result is delivered as a widget-backed attachment. Predicate gates
+    # on the tool badge.
+    ScreenshotSpec(
+        name="chat-marp",
+        route="/channels/{chat_marp}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/CREATE MARP SLIDES|CREATE SLIDES/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-marp.png",
+    ),
+    # chat-browser-live — feeds `docs/guides/browser-live.md`. Requires a
+    # paired browser (real extension OR the simulator at
+    # ``scripts/screenshots/stage/browser_live_sim.py``). Predicate gates
+    # on the BROWSER STATUS badge as a minimum and accepts BROWSER GOTO /
+    # BROWSER SCREENSHOT badges that follow.
+    ScreenshotSpec(
+        name="chat-browser-live",
+        route="/channels/{chat_browser_live}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/BROWSER STATUS|BROWSER GOTO|BROWSER SCREENSHOT/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-browser-live.png",
+    ),
+]
+
+
 def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[ScreenshotSpec]:
     """Return new specs with ``route`` placeholders substituted from ``staged``.
 

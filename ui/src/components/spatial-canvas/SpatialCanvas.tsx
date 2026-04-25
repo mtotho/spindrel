@@ -17,12 +17,27 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { LayoutGrid, MessageCircle } from "lucide-react";
+import {
+  LayoutGrid,
+  MessageCircle,
+  Footprints,
+  Plus,
+  Maximize2,
+  Home,
+  ZoomIn,
+  Eye,
+  Link2,
+  Settings,
+  ExternalLink,
+  Trash2,
+  Locate,
+} from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
   useSpatialNodes,
   useUpdateSpatialNode,
+  useDeleteSpatialNode,
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
@@ -32,9 +47,11 @@ import { WidgetTile } from "./WidgetTile";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
+import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
+import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
 import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
@@ -53,6 +70,7 @@ import {
   DENSITY_WINDOW_KEY,
   BOTS_REDUCED_KEY,
   BOTS_VISIBLE_KEY,
+  TRAILS_MODE_KEY,
   LENS_NATIVE_FRACTION,
   LENS_SETTLE_MS,
   MAX_SCALE,
@@ -63,6 +81,7 @@ import {
   WELL_Y_SQUASH,
   type DensityIntensity,
   type DensityWindow,
+  type TrailsMode,
   loadConnectionsEnabled,
   loadDensityAnimate,
   loadDensityCompare,
@@ -70,6 +89,7 @@ import {
   loadDensityWindow,
   loadBotsReduced,
   loadBotsVisible,
+  loadTrailsMode,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -102,15 +122,21 @@ interface SpatialCanvasProps {
   /** Called after the dive animation completes and `router.push` has fired.
    *  Used by the overlay to close itself a tick after the route paints. */
   onAfterDive?: () => void;
+  /** Channel id to center the camera on first paint. Used by the overlay
+   *  to do contextual-camera-on-open: opening Ctrl+Shift+Space from
+   *  `/channels/:id` lands you on that tile rather than the last-saved
+   *  camera. One-shot — fires once per mount, then is ignored. */
+  initialFlyToChannelId?: string | null;
 }
 
-export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
+export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCanvasProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { data: nodes } = useSpatialNodes();
   const { data: channels } = useChannels();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
   const updateNode = useUpdateSpatialNode();
+  const deleteNode = useDeleteSpatialNode();
 
   // Live tick for the Now Well + orbital tile positions. Server data is
   // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii decay
@@ -219,6 +245,16 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const [connectionsEnabled, setConnectionsEnabled] = useState<boolean>(loadConnectionsEnabled);
   const [botsVisible, setBotsVisible] = useState<boolean>(loadBotsVisible);
   const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
+  const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
+  // Right-click context menu — single instance at a time. `worldXY` is set
+  // when the user right-clicks on the empty background so "Add widget here"
+  // can drop the new pin at the click position rather than camera center.
+  const [contextMenu, setContextMenu] = useState<{
+    screenX: number;
+    screenY: number;
+    items: SpatialContextMenuItem[];
+  } | null>(null);
+  const [pinPositionOverride, setPinPositionOverride] = useState<{ x: number; y: number } | null>(null);
 
   // Persist chrome prefs on change. Single effect with all deps — localStorage
   // writes are sub-ms and these toggles fire at most a few times per session.
@@ -231,10 +267,21 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       localStorage.setItem(CONNECTIONS_ENABLED_KEY, connectionsEnabled ? "1" : "0");
       localStorage.setItem(BOTS_VISIBLE_KEY, botsVisible ? "1" : "0");
       localStorage.setItem(BOTS_REDUCED_KEY, botsReduced ? "1" : "0");
+      localStorage.setItem(TRAILS_MODE_KEY, trailsMode);
     } catch {
       /* storage disabled */
     }
-  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced]);
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode]);
+
+  const cycleTrailsMode = useCallback(() => {
+    setTrailsMode((curr) => {
+      // off → hover → all → off. Default lives at "hover" so the next
+      // click from a fresh load goes to the explicit "all" overview.
+      if (curr === "off") return "hover";
+      if (curr === "hover") return "all";
+      return "off";
+    });
+  }, []);
 
   const cycleDensityIntensity = useCallback(() => {
     setDensityIntensity((curr) => {
@@ -436,6 +483,65 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     }
   }, []);
 
+  // Anchor-zoom helper used by the wheel handler, the keyboard `+` / `-`
+  // shortcuts, and any other code path that wants to scale the camera while
+  // pinning a screen point. The point `(cx, cy)` is in viewport-local pixels.
+  const zoomAroundPoint = useCallback(
+    (factor: number, cx: number, cy: number) => {
+      setCamera((c) => {
+        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
+        const k = newScale / c.scale;
+        return clampCamera({
+          scale: newScale,
+          x: cx - (cx - c.x) * k,
+          y: cy - (cy - c.y) * k,
+        });
+      });
+    },
+    [],
+  );
+
+  // Frame all spatial nodes inside the viewport with an 8% margin. Falls
+  // back to `DEFAULT_CAMERA` when there's nothing to fit.
+  const fitAllNodes = useCallback(() => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const list = nodes ?? [];
+    if (list.length === 0) {
+      setCamera(DEFAULT_CAMERA);
+      return;
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of list) {
+      if (n.world_x < minX) minX = n.world_x;
+      if (n.world_y < minY) minY = n.world_y;
+      if (n.world_x + n.world_w > maxX) maxX = n.world_x + n.world_w;
+      if (n.world_y + n.world_h > maxY) maxY = n.world_y + n.world_h;
+    }
+    const bboxW = Math.max(1, maxX - minX);
+    const bboxH = Math.max(1, maxY - minY);
+    const margin = 0.08;
+    const targetScale = Math.max(
+      MIN_SCALE,
+      Math.min(
+        MAX_SCALE,
+        Math.min(
+          rect.width / (bboxW * (1 + margin * 2)),
+          rect.height / (bboxH * (1 + margin * 2)),
+        ),
+      ),
+    );
+    const cx = minX + bboxW / 2;
+    const cy = minY + bboxH / 2;
+    setCamera(
+      clampCamera({
+        scale: targetScale,
+        x: rect.width / 2 - cx * targetScale,
+        y: rect.height / 2 - cy * targetScale,
+      }),
+    );
+  }, [nodes]);
+
   // Manual wheel listener with { passive: false } — React's synthetic onWheel
   // is passive by default, so preventDefault() would be silently ignored and
   // the page would scroll underneath.
@@ -446,22 +552,55 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       if (diving) return;
       e.preventDefault();
       const rect = viewport!.getBoundingClientRect();
-      const cx = e.clientX - rect.left;
-      const cy = e.clientY - rect.top;
-      const factor = Math.exp(-e.deltaY * 0.001);
-      setCamera((c) => {
-        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
-        const k = newScale / c.scale;
-        return clampCamera({
-          scale: newScale,
-          x: cx - (cx - c.x) * k,
-          y: cy - (cy - c.y) * k,
-        });
-      });
+      zoomAroundPoint(
+        Math.exp(-e.deltaY * 0.001),
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+      );
     }
     viewport.addEventListener("wheel", handler, { passive: false });
     return () => viewport.removeEventListener("wheel", handler);
-  }, [diving]);
+  }, [diving, zoomAroundPoint]);
+
+  // Keyboard shortcuts for the canvas chrome: `F` fits all nodes, `+` / `-`
+  // zoom around the viewport center. Same input-focus / dive / drag guards
+  // the lens-engage hook uses; modifier keys (Ctrl/Cmd/Alt) bail so OS
+  // shortcuts like Cmd+= / Cmd+- (browser zoom) keep their native behavior.
+  useEffect(() => {
+    const isInputFocused = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+    };
+    function handler(e: KeyboardEvent) {
+      if (diving || draggingNodeId) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isInputFocused()) return;
+      if (e.key === "f" || e.key === "F") {
+        if (e.repeat || e.shiftKey) return;
+        e.preventDefault();
+        fitAllNodes();
+        return;
+      }
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        const rect = viewportRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        zoomAroundPoint(1.2, rect.width / 2, rect.height / 2);
+        return;
+      }
+      if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        const rect = viewportRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        zoomAroundPoint(0.83, rect.width / 2, rect.height / 2);
+        return;
+      }
+    }
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [diving, draggingNodeId, fitAllNodes, zoomAroundPoint]);
 
   // Two-finger pinch zoom (mobile / trackpad). Captures all touch pointers on
   // the viewport regardless of whether they land on tiles or background, so a
@@ -622,6 +761,24 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       usePaletteOverrides.getState().setChannelPick(null);
     };
   }, [flyToChannel]);
+
+  // Contextual-camera-on-open. When the overlay mounts the canvas with a
+  // target channel id (because the user opened it from /channels/:id), fly
+  // there as soon as the node list arrives instead of restoring the
+  // last-saved camera. One-shot per mount — toggling the overlay closed
+  // and back open re-mounts the canvas, which re-runs this effect against
+  // the new route.
+  const firedInitialFlyRef = useRef(false);
+  useEffect(() => {
+    if (!initialFlyToChannelId) return;
+    if (firedInitialFlyRef.current) return;
+    if (!nodes || nodes.length === 0) return;
+    const found = nodes.find((n) => n.channel_id === initialFlyToChannelId);
+    if (!found) return;
+    if (flyToChannel(initialFlyToChannelId)) {
+      firedInitialFlyRef.current = true;
+    }
+  }, [initialFlyToChannelId, nodes, flyToChannel]);
 
   // Pan + scale the camera so the Now Well fills the viewport with a small
   // padding margin. Uses the same scale-derivation trick as `diveToChannel`
@@ -792,6 +949,187 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     setActivatedTileId(nodeId);
   }, []);
 
+  const handleContextMenu = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) => {
+      if (diving) return;
+      const target = e.target as HTMLElement;
+      const tileEl = target.closest("[data-tile-kind]") as HTMLElement | null;
+      const tileKind = tileEl?.getAttribute("data-tile-kind");
+      const list = nodes ?? [];
+      // Resolve the node by walking up to the tile element and matching its
+      // bounding-rect-equivalent — but our tiles don't carry a stable id
+      // attribute today. Easier: derive node from screen → world → hit-test.
+      const world = pointerToWorld(e.clientX, e.clientY);
+      const hitNode = world
+        ? list.find(
+            (n) =>
+              world.x >= n.world_x &&
+              world.x <= n.world_x + n.world_w &&
+              world.y >= n.world_y &&
+              world.y <= n.world_y + n.world_h,
+          ) ?? null
+        : null;
+      e.preventDefault();
+      const items: SpatialContextMenuItem[] = [];
+      if (tileKind === "channel" && hitNode?.channel_id) {
+        const channelId = hitNode.channel_id;
+        const channel = channelsById.get(channelId) ?? null;
+        const channelName = channel?.name ?? "channel";
+        items.push({
+          label: "Dive into channel",
+          icon: <ZoomIn size={14} />,
+          onClick: () =>
+            diveToChannel(channelId, {
+              x: hitNode.world_x,
+              y: hitNode.world_y,
+              w: hitNode.world_w,
+              h: hitNode.world_h,
+            }),
+        });
+        items.push({
+          label: "Fly camera here",
+          icon: <Locate size={14} />,
+          onClick: () => flyToChannel(channelId),
+        });
+        if (channel) {
+          items.push({
+            label: `Open mini chat — #${channelName}`,
+            icon: <MessageCircle size={14} />,
+            onClick: () =>
+              setOpenBotChat({
+                botId: channel.bot_id,
+                botName: channel.bot_id,
+                channelId: channel.id,
+                channelName: channel.name,
+              }),
+          });
+        }
+        items.push({
+          label: "Unpin from canvas",
+          icon: <Trash2 size={14} />,
+          danger: true,
+          separator: true,
+          onClick: () => deleteNode.mutate(hitNode.id),
+        });
+      } else if (tileKind === "widget" && hitNode?.pin) {
+        const pin = hitNode.pin;
+        items.push({
+          label: "Activate widget",
+          icon: <Eye size={14} />,
+          onClick: () => setActivatedTileId(hitNode.id),
+        });
+        if (pin.source_channel_id) {
+          const sourceId = pin.source_channel_id;
+          items.push({
+            label: "Open source channel",
+            icon: <ExternalLink size={14} />,
+            onClick: () => navigate(`/channels/${sourceId}`),
+          });
+        }
+        items.push({
+          label: "Reset size",
+          icon: <Settings size={14} />,
+          onClick: () =>
+            updateNode.mutate({
+              nodeId: hitNode.id,
+              body: { world_w: 320, world_h: 220 },
+            }),
+        });
+        items.push({
+          label: "Unpin from canvas",
+          icon: <Trash2 size={14} />,
+          danger: true,
+          separator: true,
+          onClick: () => deleteNode.mutate(hitNode.id),
+        });
+      } else if (tileKind === "bot" && hitNode?.bot_id) {
+        const botId = hitNode.bot_id;
+        const botName = hitNode.bot?.display_name || hitNode.bot?.name || botId;
+        const channel = channelForBot(botId);
+        items.push({
+          label: channel ? `Open mini chat — ${botName}` : "Open mini chat (no channel)",
+          icon: <MessageCircle size={14} />,
+          disabled: !channel,
+          onClick: () => {
+            if (!channel) return;
+            setOpenBotChat({
+              botId,
+              botName,
+              channelId: channel.id,
+              channelName: channel.name,
+            });
+          },
+        });
+        items.push({
+          label: "Open bot admin",
+          icon: <ExternalLink size={14} />,
+          onClick: () =>
+            navigate(`/admin/bots/${botId}`, {
+              state: { backTo: `${location.pathname}${location.search}` },
+            }),
+        });
+        items.push({
+          label: "Reset position",
+          icon: <Home size={14} />,
+          separator: true,
+          onClick: () => deleteNode.mutate(hitNode.id),
+        });
+      } else {
+        // Background — no tile under the cursor.
+        const worldX = world?.x ?? 0;
+        const worldY = world?.y ?? 0;
+        items.push({
+          label: "Add widget here",
+          icon: <Plus size={14} />,
+          onClick: () => {
+            setPinPositionOverride({ x: worldX - 160, y: worldY - 110 });
+            setLibraryOpen(true);
+          },
+        });
+        items.push({
+          label: "Recenter",
+          icon: <Home size={14} />,
+          onClick: () => setCamera(DEFAULT_CAMERA),
+        });
+        items.push({
+          label: "Fit all (F)",
+          icon: <Maximize2 size={14} />,
+          onClick: () => fitAllNodes(),
+        });
+        items.push({
+          label: `Trails: ${trailsMode}`,
+          icon: <Footprints size={14} />,
+          separator: true,
+          onClick: () => cycleTrailsMode(),
+        });
+        items.push({
+          label: connectionsEnabled ? "Hide connection lines" : "Show connection lines",
+          icon: <Link2 size={14} />,
+          onClick: () => setConnectionsEnabled((v) => !v),
+        });
+      }
+      setContextMenu({ screenX: e.clientX, screenY: e.clientY, items });
+    },
+    [
+      diving,
+      nodes,
+      pointerToWorld,
+      channelsById,
+      diveToChannel,
+      flyToChannel,
+      deleteNode,
+      navigate,
+      updateNode,
+      location.pathname,
+      location.search,
+      channelForBot,
+      fitAllNodes,
+      trailsMode,
+      cycleTrailsMode,
+      connectionsEnabled,
+    ],
+  );
+
   const worldStyle: CSSProperties = {
     transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
     transformOrigin: "0 0",
@@ -806,6 +1144,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       onPointerMove={onBgPointerMove}
       onPointerUp={onBgPointerUp}
       onPointerCancel={onBgPointerUp}
+      onContextMenu={handleContextMenu}
       data-spatial-canvas="true"
       className="absolute inset-0 overflow-hidden select-none bg-surface"
       style={{
@@ -834,6 +1173,14 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
             <ConnectionLineLayer
               nodes={nodes ?? []}
               hoveredNodeId={hoveredNodeId}
+            />
+          )}
+          {trailsMode !== "off" && (
+            <MovementHistoryLayer
+              nodes={nodes ?? []}
+              mode={trailsMode}
+              hoveredNodeId={hoveredNodeId}
+              scale={camera.scale}
             />
           )}
           <MovementTraceLayer nodes={nodes ?? []} />
@@ -885,6 +1232,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                   diving={diving}
                   lens={lens}
                   lensSettling={lensSettling}
+                  onHoverChange={(hovered) =>
+                    setHoveredNodeId((curr) => {
+                      if (hovered) return node.id;
+                      return curr === node.id ? null : curr;
+                    })
+                  }
                 >
                   <ChannelTile
                     channel={channel}
@@ -923,6 +1276,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
                   onPointerUp={(e) => handleBotPointerUp(node, e)}
+                  onHoverChange={(hovered) =>
+                    setHoveredNodeId((curr) => {
+                      if (hovered) return node.id;
+                      return curr === node.id ? null : curr;
+                    })
+                  }
                   onClick={() => {
                     if (!channel) return;
                     setOpenBotChat({
@@ -1018,14 +1377,20 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       />
       <div className="absolute bottom-4 right-4 z-[2] flex flex-row items-center gap-2">
         <AddWidgetButton onClick={() => setLibraryOpen(true)} />
+        <TrailsButton mode={trailsMode} onCycle={cycleTrailsMode} />
         <NowButton onClick={flyToWell} />
         <RecenterButton onClick={() => setCamera(DEFAULT_CAMERA)} />
       </div>
       <CanvasLibrarySheet
         open={libraryOpen}
-        onClose={() => setLibraryOpen(false)}
+        onClose={() => {
+          setLibraryOpen(false);
+          setPinPositionOverride(null);
+        }}
         worldCenter={
-          viewportSize.w && viewportSize.h
+          pinPositionOverride
+            ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
+            : viewportSize.w && viewportSize.h
             ? {
                 x: (viewportSize.w / 2 - camera.x) / camera.scale,
                 y: (viewportSize.h / 2 - camera.y) / camera.scale,
@@ -1033,6 +1398,14 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
             : null
         }
       />
+      {contextMenu && (
+        <SpatialContextMenu
+          screenX={contextMenu.screenX}
+          screenY={contextMenu.screenY}
+          items={contextMenu.items}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
       {openBotChat && (
         <ChatSession
           source={{ kind: "channel", channelId: openBotChat.channelId }}
@@ -1080,6 +1453,33 @@ function AddWidgetButton({ onClick }: { onClick: () => void }) {
     >
       <LayoutGrid size={13} />
       <span>Add</span>
+    </button>
+  );
+}
+
+function TrailsButton({ mode, onCycle }: { mode: TrailsMode; onCycle: () => void }) {
+  // Three states: off / hover / all. Visual: dim icon when off, normal when
+  // hover-only (the default), accent-colored when always-on. Title text
+  // explains the cycle so the affordance is discoverable.
+  const colorClass =
+    mode === "off"
+      ? "text-text-dim/40"
+      : mode === "all"
+      ? "text-accent"
+      : "text-text-dim hover:text-accent";
+  const labelText =
+    mode === "off" ? "Trails: off" : mode === "all" ? "Trails: all" : "Trails: hover";
+  return (
+    <button
+      type="button"
+      onClick={onCycle}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={`Movement trails — ${mode}. Click to cycle (off → hover → all).`}
+      aria-label={labelText}
+      className={`flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-xs cursor-pointer ${colorClass}`}
+    >
+      <Footprints size={13} />
+      <span>Trails</span>
     </button>
   );
 }
@@ -1461,6 +1861,9 @@ interface ManualBotNodeProps {
    *  Pass null/undefined to disable. */
   onClick?: () => void;
   onDoubleClick: () => void;
+  /** Hover callback — used by the trails layer to reveal this bot's
+   *  comet tail when the user points at it. */
+  onHoverChange?: (hovered: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -1477,6 +1880,7 @@ function ManualBotNode({
   onPointerUp,
   onClick,
   onDoubleClick,
+  onHoverChange,
   children,
 }: ManualBotNodeProps) {
   // Click-vs-double-click disambiguation: delay the single-click action so
@@ -1527,6 +1931,8 @@ function ManualBotNode({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
       onClick={(e) => {
         if (!onClick || diving || isDragging) return;
         // Don't fire when the click came from a child that wants its own

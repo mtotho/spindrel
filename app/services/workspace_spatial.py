@@ -59,6 +59,13 @@ _DEFAULT_BOT_H = 180.0
 _SAT_RING_RADIUS = 220.0
 _SAT_RING_GROWTH = 60.0
 
+# Comet-tail trail retention. Each node keeps a bounded log of recent
+# positions so the canvas can render a fading polyline behind it. Older
+# entries get pruned by TTL; the list is also capped to bound payload size
+# (a chatty bot tugging things at heartbeat shouldn't blow up serialize_node).
+MOVEMENT_HISTORY_TTL_HOURS = 72
+MAX_HISTORY_POINTS = 30
+
 SPATIAL_POLICY_KEY = "spatial_bots"
 DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "enabled": False,
@@ -114,6 +121,7 @@ def serialize_node(
         "pinned_at": node.pinned_at.isoformat() if node.pinned_at else None,
         "updated_at": node.updated_at.isoformat() if node.updated_at else None,
         "last_movement": node.last_movement,
+        "position_history": list(node.position_history or []),
     }
     if node.bot_id:
         try:
@@ -658,6 +666,55 @@ def _center_distance_from(
     return math.hypot(ax - bx, ay - by)
 
 
+def _append_position_history(
+    node: WorkspaceSpatialNode,
+    *,
+    prev_x: float,
+    prev_y: float,
+    new_x: float,
+    new_y: float,
+    actor: str | None = None,
+    ts: datetime | None = None,
+) -> None:
+    """Append a `(prev_x, prev_y)` entry to ``node.position_history`` and
+    prune entries older than ``MOVEMENT_HISTORY_TTL_HOURS`` / beyond
+    ``MAX_HISTORY_POINTS``. No-op moves (same coords) are skipped so we
+    don't pollute the trail with z-index / size-only updates.
+
+    Reassigns the list back to the column so SQLAlchemy's JSON change
+    tracking picks up the mutation (in-place ``.append`` on a JSONB column
+    isn't reliable across dialects).
+    """
+    if prev_x == new_x and prev_y == new_y:
+        return
+    now = ts or datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=MOVEMENT_HISTORY_TTL_HOURS)
+    history: list[dict[str, Any]] = list(node.position_history or [])
+    pruned: list[dict[str, Any]] = []
+    for entry in history:
+        raw_ts = entry.get("ts") if isinstance(entry, dict) else None
+        if not raw_ts:
+            continue
+        try:
+            entry_ts = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if entry_ts.tzinfo is None:
+            entry_ts = entry_ts.replace(tzinfo=timezone.utc)
+        if entry_ts >= cutoff:
+            pruned.append(entry)
+    pruned.append({
+        "x": float(prev_x),
+        "y": float(prev_y),
+        "ts": now.isoformat(),
+        "actor": actor,
+    })
+    if len(pruned) > MAX_HISTORY_POINTS:
+        pruned = pruned[-MAX_HISTORY_POINTS:]
+    node.position_history = pruned
+    flag_modified(node, "position_history")
+
+
 def _movement_payload(
     *,
     actor_bot_id: str,
@@ -752,6 +809,14 @@ async def move_bot_node(
         reason=reason,
         ttl_minutes=policy["movement_trace_ttl_minutes"],
         target_node_id=node.id,
+    )
+    _append_position_history(
+        node,
+        prev_x=from_x,
+        prev_y=from_y,
+        new_x=node.world_x,
+        new_y=node.world_y,
+        actor=None,
     )
     await db.commit()
     await db.refresh(node)
@@ -872,6 +937,14 @@ async def tug_spatial_node(
         target_node_id=target.id,
     )
     target.last_movement = movement
+    _append_position_history(
+        target,
+        prev_x=from_x,
+        prev_y=from_y,
+        new_x=target.world_x,
+        new_y=target.world_y,
+        actor=bot_id,
+    )
     await db.commit()
     await db.refresh(target)
     await _publish_spatial_movement_notice(
@@ -1101,6 +1174,7 @@ async def update_node_position(
     last_movement: dict | None = None,
 ) -> WorkspaceSpatialNode:
     node = await get_node(db, node_id)
+    prev_x, prev_y = node.world_x, node.world_y
     if world_x is not None:
         node.world_x = float(world_x)
     if world_y is not None:
@@ -1117,6 +1191,15 @@ async def update_node_position(
         node.z_index = int(z_index)
     if last_movement is not None:
         node.last_movement = last_movement
+    if world_x is not None or world_y is not None:
+        _append_position_history(
+            node,
+            prev_x=prev_x,
+            prev_y=prev_y,
+            new_x=node.world_x,
+            new_y=node.world_y,
+            actor=None,
+        )
     await db.commit()
     await db.refresh(node)
     return node

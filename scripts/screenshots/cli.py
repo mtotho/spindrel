@@ -24,6 +24,7 @@ from scripts.screenshots.capture.specs import (
     CORE_FEATURE_SPECS,
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
+    INTEGRATION_CHAT_SPECS,
     INTEGRATIONS_SPECS,
     SPATIAL_SPECS,
     resolve_specs,
@@ -43,6 +44,10 @@ from scripts.screenshots.stage.scenarios.integrations import (
     stage_integrations,
     teardown_integrations,
 )
+from scripts.screenshots.stage.scenarios.integration_chat import (
+    stage_integration_chat,
+    teardown_integration_chat,
+)
 from scripts.screenshots.stage.scenarios.spatial import stage_spatial, teardown_spatial
 
 
@@ -56,7 +61,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial", "integration-chat"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -112,6 +117,18 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
             )
         print("staged (core-features): seeded webhook rows + bot knowledge-base chunks")
         return None
+    if only == "integration-chat":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_integration_chat(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+                dry_run=dry_run,
+            )
+        print("staged (integration-chat):")
+        for k, v in asdict(state).items():
+            print(f"  {k}: {v}")
+        return state
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
             state = stage_spatial(
@@ -218,6 +235,16 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
                     # will fail its predicate with a clear "channel missing"
                     # signal in the route.
                     placeholders[key] = "missing"
+        elif only == "integration-chat":
+            spec_list = INTEGRATION_CHAT_SPECS
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            for client_id, key in (
+                ("screenshot:chat-excalidraw",   "chat_excalidraw"),
+                ("screenshot:chat-marp",         "chat_marp"),
+                ("screenshot:chat-browser-live", "chat_browser_live"),
+            ):
+                ch = all_channels.get(client_id)
+                placeholders[key] = str(ch["id"]) if ch else "missing"
         elif only == "a3-docs":
             # Most admin routes are static, but workspace-files needs the
             # default workspace UUID resolved from the API at capture time.
@@ -339,6 +366,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
                 ssh_container=cfg.ssh_container,
             )
         print("teardown (core-features): removed seeded webhook rows + KB chunks")
+        return
+    if only == "integration-chat":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_integration_chat(client)
+        print("teardown (integration-chat): removed seeded integration-demo channels")
         return
     if only == "spatial":
         with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:

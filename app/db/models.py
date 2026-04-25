@@ -2226,6 +2226,17 @@ class WorkspaceSpatialNode(Base):
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )
     last_movement: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Bounded log of recent positions for the comet-tail trail layer. Each
+    # entry is `{x, y, ts, actor}` capturing where the node was *before* the
+    # move that wrote `world_x/y`. Pruned by TTL (72h) and capped to 30
+    # entries by the service helper. `last_movement` keeps its existing role
+    # as the bright "just moved" arrow with its own short TTL.
+    position_history: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::jsonb"),
+    )
 
     __table_args__ = (
         CheckConstraint(

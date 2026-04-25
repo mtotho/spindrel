@@ -26,6 +26,9 @@ export const DENSITY_COMPARE_KEY = "spatial.density.compare";
 export const DENSITY_ANIMATE_KEY = "spatial.density.animate";
 export const BOTS_VISIBLE_KEY = "spatial.bots.visible";
 export const BOTS_REDUCED_KEY = "spatial.bots.reduced";
+export const TRAILS_MODE_KEY = "spatial.trails.mode";
+
+export type TrailsMode = "off" | "hover" | "all";
 
 export function loadDensityIntensity(storage: Storage = localStorage): DensityIntensity {
   try {
@@ -92,6 +95,16 @@ export function loadBotsReduced(storage: Storage = localStorage): boolean {
   } catch {
     return false;
   }
+}
+
+export function loadTrailsMode(storage: Storage = localStorage): TrailsMode {
+  try {
+    const v = storage.getItem(TRAILS_MODE_KEY);
+    if (v === "off" || v === "hover" || v === "all") return v;
+  } catch {
+    /* storage disabled */
+  }
+  return "hover";
 }
 
 export const WELL_X = 0;
