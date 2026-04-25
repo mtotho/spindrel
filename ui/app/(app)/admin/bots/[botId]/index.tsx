@@ -189,6 +189,19 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           <FallbackModelList value={draft.fallback_models ?? []} onChange={(fallback_models) => update({ fallback_models })} />
         </FormRow>
       </SectionFrame>
+      <SectionFrame title="Display" description="How this bot appears in Spindrel surfaces and integrations.">
+        <Row>
+          <Col><FormRow label="Display name"><TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} /></FormRow></Col>
+          <Col><EmojiAvatarPicker value={draft.avatar_emoji || ""} onChange={(avatar_emoji) => update({ avatar_emoji: avatar_emoji || null })} /></Col>
+        </Row>
+        <FormRow label="Slack icon emoji" description="Overrides the integration default in Slack when chat:write.customize is available.">
+          <TextInput value={draft.integration_config?.slack?.icon_emoji || ""} onChangeText={(v) => {
+            const integration_config = { ...(draft.integration_config ?? {}) };
+            integration_config.slack = { ...(integration_config.slack || {}), icon_emoji: v || undefined };
+            update({ integration_config });
+          }} placeholder=":robot_face:" />
+        </FormRow>
+      </SectionFrame>
       {editorData.model_param_definitions?.length > 0 && (
         <SectionFrame title="Model parameters" description="Overrides for model-specific controls when this provider exposes them.">
           <ModelParamsSection definitions={editorData.model_param_definitions} support={editorData.model_param_support} reasoningCapableModels={editorData.reasoning_capable_models} model={draft.model} params={draft.model_params || {}} onChange={(p) => update({ model_params: p })} />
@@ -314,19 +327,6 @@ function AdvancedSection({ draft, isNew, deleteMutation, showDeleteConfirm, setS
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <SectionFrame title="Display" description="Bot presentation in integrations.">
-        <Row>
-          <Col><FormRow label="Display name"><TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} /></FormRow></Col>
-          <Col><EmojiAvatarPicker value={draft.avatar_emoji || ""} onChange={(avatar_emoji) => update({ avatar_emoji: avatar_emoji || null })} /></Col>
-        </Row>
-        <FormRow label="Slack icon emoji" description="Overrides the integration default in Slack when chat:write.customize is available.">
-          <TextInput value={draft.integration_config?.slack?.icon_emoji || ""} onChangeText={(v) => {
-            const integration_config = { ...(draft.integration_config ?? {}) };
-            integration_config.slack = { ...(integration_config.slack || {}), icon_emoji: v || undefined };
-            update({ integration_config });
-          }} placeholder=":robot_face:" />
-        </FormRow>
-      </SectionFrame>
       <SectionFrame title="Runtime defaults" description="Memory scheme, audio input, and history mode.">
         <FormRow label="Workspace-files memory" description="Required for dreaming and workspace-backed memory files."><Toggle value={draft.memory_scheme === "workspace-files"} onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })} /></FormRow>
         <FormRow label="Audio input"><SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })} options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]} /></FormRow>
@@ -436,6 +436,18 @@ export default function BotEditorScreen() {
   const [deleteChannelWarning, setDeleteChannelWarning] = useState<string | null>(null);
   const [loadedBotId, setLoadedBotId] = useState<string | undefined>(undefined);
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
+  const recentPages = useUIStore((s) => s.recentPages);
+
+  const backTarget = useMemo(() => {
+    const stateBack = (location.state as { backTo?: string } | null)?.backTo;
+    if (stateBack) return stateBack;
+    const currentKey = `${location.pathname}${location.search}`;
+    const previous = recentPages.find((page) => {
+      const [pathAndSearch] = page.href.split("#", 1);
+      return pathAndSearch && pathAndSearch !== currentKey;
+    });
+    return previous?.href ?? "/admin/bots";
+  }, [location.pathname, location.search, location.state, recentPages]);
 
   useEffect(() => {
     if (editorData?.bot?.name) enrichRecentPage(buildRecentHref(location.pathname, location.search, location.hash), editorData.bot.name);
@@ -514,13 +526,13 @@ export default function BotEditorScreen() {
     const q = filter.toLowerCase();
     const keywords: Record<BotGroupKey, string[]> = {
       overview: ["overview", "usage", "trace", "status", "summary"],
-      identity: ["identity", "id", "name", "model", "owner", "fallback", "parameter"],
+      identity: ["identity", "id", "name", "display", "avatar", "emoji", "slack", "model", "owner", "fallback", "parameter"],
       prompt: ["prompt", "persona", "instruction", "tone", "workspace file"],
       tools: ["tool", "skill", "mcp", "client", "delegate", "retrieval", "discovery"],
       memory: ["memory", "learning", "hygiene", "knowledge", "dreaming", "review"],
       workspace: ["workspace", "file", "attachment", "sandbox", "docker", "host", "index"],
       access: ["permission", "grant", "api", "policy", "hook", "automation"],
-      advanced: ["display", "avatar", "slack", "audio", "history", "delete", "danger"],
+      advanced: ["audio", "history", "delete", "danger"],
     };
     return new Set<BotGroupKey>(Object.entries(keywords).filter(([, words]) => words.some((word) => word.includes(q) || q.includes(word))).map(([key]) => key as BotGroupKey));
   }, [filter]);
@@ -534,7 +546,7 @@ export default function BotEditorScreen() {
       <PageHeader
         variant="detail"
         parentLabel="Bots"
-        backTo="/admin/bots"
+        backTo={backTarget}
         title={isNew ? "New Bot" : draft.name}
         subtitle={isNew ? "Create a bot profile" : draft.id}
         right={

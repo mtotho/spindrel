@@ -59,6 +59,33 @@ function buildIntervalOptions(current: number | null | undefined) {
   return INTERVAL_OPTIONS;
 }
 
+function RunNowButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={
+        "inline-flex min-h-[38px] shrink-0 items-center justify-center gap-1.5 rounded-md " +
+        "border border-accent/35 bg-accent/[0.08] px-3.5 text-[13px] font-semibold text-accent " +
+        "transition-colors hover:border-accent/55 hover:bg-accent/[0.12] focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 " +
+        "disabled:cursor-default disabled:border-surface-border disabled:bg-transparent disabled:text-text-dim"
+      }
+    >
+      <Play size={13} />
+      {label}
+    </button>
+  );
+}
+
 function HeartbeatTabLoading({
   workflowMode = false,
   workspaceFileLinked = false,
@@ -225,10 +252,12 @@ export function HeartbeatTab({
 }) {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
+  const [hbFirePollStartedAt, setHbFirePollStartedAt] = useState<number | null>(null);
   const { data, isFetching, isLoading } = useQuery({
     queryKey: ["channel-heartbeat", channelId],
     queryFn: () => apiFetch<any>(`/api/v1/admin/channels/${channelId}/heartbeat`),
     refetchOnMount: "always",
+    refetchInterval: hbFirePollStartedAt ? 2000 : false,
   });
   const { data: channels } = useChannels();
   const channel = channels?.find((c: any) => c.id === channelId) as any;
@@ -415,11 +444,29 @@ export function HeartbeatTab({
   const fireMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/fire`, { method: "POST" }),
     onSuccess: () => {
+      const startedAt = Date.now();
+      setHbFirePollStartedAt(startedAt);
       queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
       setHbFired(true);
       setTimeout(() => setHbFired(false), 3000);
     },
   });
+
+  useEffect(() => {
+    if (!hbFirePollStartedAt) return;
+    const recentRuns = (data?.history ?? []) as Array<{ run_at?: string; status?: string }>;
+    const newRun = recentRuns.find((run) => {
+      if (!run.run_at) return false;
+      return new Date(run.run_at).getTime() >= hbFirePollStartedAt - 5000;
+    });
+    if (newRun && (newRun.status === "complete" || newRun.status === "failed")) {
+      setHbFirePollStartedAt(null);
+      return;
+    }
+    if (Date.now() - hbFirePollStartedAt > 120_000) {
+      setHbFirePollStartedAt(null);
+    }
+  }, [data?.history, hbFirePollStartedAt]);
 
   if (isLoading || !initialHeartbeatApplied || !hbForm) {
     return (
@@ -437,6 +484,7 @@ export function HeartbeatTab({
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
     : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt);
+  const runNowLabel = hbFirePollStartedAt ? "Running..." : hbFired ? "Fired" : fireMutation.isPending ? "Firing..." : "Run Now";
 
   return (
     <>
@@ -451,13 +499,20 @@ export function HeartbeatTab({
           ? "Heartbeat schedules background runs for this channel. Configuration saves automatically."
           : "Heartbeat is disabled. You can still configure it here, then enable it when the schedule is ready."}
         action={
-          <ActionButton
-            label={toggleMutation.isPending ? "Updating..." : enabled ? "Disable" : "Enable"}
-            onPress={() => toggleMutation.mutate()}
-            variant="secondary"
-            size="small"
-            disabled={toggleMutation.isPending}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <RunNowButton
+              label={runNowLabel}
+              onClick={() => fireMutation.mutate()}
+              disabled={!hasAction || fireMutation.isPending || !!hbFirePollStartedAt}
+            />
+            <ActionButton
+              label={toggleMutation.isPending ? "Updating..." : enabled ? "Disable" : "Enable"}
+              onPress={() => toggleMutation.mutate()}
+              variant="secondary"
+              size="small"
+              disabled={toggleMutation.isPending}
+            />
+          </div>
         }
       >
         {null}
@@ -477,6 +532,32 @@ export function HeartbeatTab({
               </FormRow>
             </Col>
           </Row>
+        </Section>
+
+        {/* ---- Model Section ---- */}
+        <Section title="Model">
+          <Row stack={isMobile}>
+            <Col minWidth={isMobile ? 0 : 200}>
+              <LlmModelDropdown
+                label="Model"
+                value={hbForm.model ?? ""}
+                selectedProviderId={hbForm.model_provider_id ?? null}
+                onChange={(v, providerId) => updateHbForm((f: any) => ({
+                  ...f,
+                  model: v,
+                  model_provider_id: v ? (providerId ?? null) : null,
+                }))}
+                placeholder={`inherit (${botModel ?? "bot default"})`}
+                allowClear
+              />
+            </Col>
+          </Row>
+          <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
+            <FallbackModelList
+              value={hbForm.fallback_models ?? []}
+              onChange={(v) => updateHbForm((f: any) => ({ ...f, fallback_models: v }))}
+            />
+          </FormRow>
         </Section>
 
         {/* ---- Spatial Section ---- */}
@@ -501,7 +582,6 @@ export function HeartbeatTab({
                       botId={bot.botId}
                       botName={bot.name}
                       label={bot.label}
-                      defaultExpanded={index === 0}
                     />
                   ))}
                 </div>
@@ -686,12 +766,10 @@ export function HeartbeatTab({
 
         {/* Run controls */}
         <div className="mt-1 flex flex-wrap gap-2">
-          <ActionButton
-            label={hbFired ? "Fired!" : fireMutation.isPending ? "Firing..." : "Run Now"}
-            onPress={() => fireMutation.mutate()}
-            variant="primary"
-            disabled={!hasAction}
-            icon={<Play size={12} />}
+          <RunNowButton
+            label={runNowLabel}
+            onClick={() => fireMutation.mutate()}
+            disabled={!hasAction || fireMutation.isPending || !!hbFirePollStartedAt}
           />
           {!hasAction && (
             <span className="self-center text-[11px] text-text-dim">
@@ -733,25 +811,6 @@ export function HeartbeatTab({
                 label="Auto-approve tool calls"
                 description="Skip tool approval policies for heartbeat runs. Tools execute without waiting for manual approval."
               />
-            </Section>
-            <Section title="Model">
-              <Row stack={isMobile}>
-                <Col minWidth={isMobile ? 0 : 200}>
-                  <LlmModelDropdown
-                    label="Model"
-                    value={hbForm.model ?? ""}
-                    onChange={(v) => updateHbForm((f: any) => ({ ...f, model: v }))}
-                    placeholder={`inherit (${botModel ?? "bot default"})`}
-                    allowClear
-                  />
-                </Col>
-              </Row>
-              <FormRow label="Fallback Models" description="Ordered fallback chain for heartbeat runs.">
-                <FallbackModelList
-                  value={hbForm.fallback_models ?? []}
-                  onChange={(v) => updateHbForm((f: any) => ({ ...f, fallback_models: v }))}
-                />
-              </FormRow>
             </Section>
             <Section title="Limits">
               <div className="flex flex-col gap-3">

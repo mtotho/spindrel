@@ -784,6 +784,13 @@ async def build_canvas_neighborhood_block(
         lines.append("You may use inspect_nearby_spatial_object for nearby object details.")
     if policy["allow_spatial_widget_management"]:
         lines.append("You may use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own.")
+    lines.append(
+        f"If memory/file tools are available, keep current spatial memory in bot workspace "
+        f"/workspace/bots/{bot_id}/memory/reference/spatial.md "
+        "(landmarks, layout intent, active widget placement notes, and next spatial follow-ups). "
+        f"Archive stale or historical spatial notes into /workspace/bots/{bot_id}/memory/logs/ "
+        "alongside other memory."
+    )
     lines.append("")
     lines.append("nearby objects:")
     for row in neighborhood["neighbors"][:12]:

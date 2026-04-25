@@ -442,7 +442,168 @@ _STANDING_ORDER_ACTIONS = (
 )
 
 
+def _ecosystem_default_state() -> dict[str, Any]:
+    # Lazy import — `app.services.games.ecosystem` itself imports this module
+    # for the `register_game` registry, so a top-level import would cycle.
+    from app.services.games.ecosystem import default_state
+
+    return default_state()
+
+
+_ECOSYSTEM_REASONING_FIELD = {
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "One short sentence explaining your move. Visible in the turn "
+            "log to other participants — make it interesting."
+        ),
+    },
+}
+
+
+_ECOSYSTEM_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="define_species",
+        description=(
+            "Define your species and claim a starting cell. Setup phase only. "
+            "Pick an emoji avatar, a hex color, and up to 3 traits from: "
+            "aggressive, fast, slow, photosynthetic, parasitic, thorny, burrowing, luminous."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "emoji": {"type": "string"},
+                "color": {"type": "string", "description": "Hex color like #7aa2c8."},
+                "traits": {"type": "array", "items": {"type": "string"}},
+                **_ECOSYSTEM_REASONING_FIELD,
+            },
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="expand",
+        description=(
+            "Spread into an adjacent empty cell. Costs 1 food. Defaults from "
+            "your most recently claimed cell unless you specify `from`."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "direction": {
+                    "type": "string",
+                    "enum": ["north", "south", "east", "west"],
+                },
+                "from": {
+                    "type": "object",
+                    "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+                },
+                **_ECOSYSTEM_REASONING_FIELD,
+            },
+            "required": ["direction"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="evolve_trait",
+        description="Add or remove a trait. Max 3 traits at any time.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "op": {"type": "string", "enum": ["add", "remove"]},
+                "trait": {"type": "string"},
+                **_ECOSYSTEM_REASONING_FIELD,
+            },
+            "required": ["op", "trait"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="eat_neighbor",
+        description=(
+            "Claim an adjacent enemy cell. Requires the 'aggressive' trait. "
+            "Transfers half their food to you."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                **_ECOSYSTEM_REASONING_FIELD,
+            },
+            "required": ["x", "y"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_participants",
+        description="User-only: rewrite the participant bot list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "bot_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["bot_ids"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_phase",
+        description="User-only: transition between setup, playing, and ended.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "phase": {"type": "string", "enum": ["setup", "playing", "ended"]},
+            },
+            "required": ["phase"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_environment",
+        description="User-only: change weather and place food sources.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "weather": {"type": "string", "enum": ["neutral", "drought", "flood", "bloom"]},
+                "food_sources": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "integer"},
+                            "y": {"type": "integer"},
+                            "amount": {"type": "integer"},
+                        },
+                        "required": ["x", "y"],
+                    },
+                },
+            },
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="advance_round",
+        description=(
+            "User-only: bump the round counter and apply weather + food source effects. "
+            "Drought halves food; bloom doubles; food sources grant their owner +amount."
+        ),
+        args_schema={"type": "object", "properties": {}},
+    ),
+)
+
+
 _REGISTRY: dict[str, NativeWidgetSpec] = {
+    "core/game_ecosystem": NativeWidgetSpec(
+        widget_ref="core/game_ecosystem",
+        name="game_ecosystem",
+        display_label="Ecosystem Sim",
+        description=(
+            "Async turn-based ecosystem on a tiny floating asteroid. Each bot "
+            "owns a species; the user plays the environment layer (weather, "
+            "food sources). Bots take turns at heartbeat — expand, evolve, eat."
+        ),
+        icon="bug",
+        supported_scopes=("dashboard",),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 6, "h": 6}, "max_cells": {"w": 12, "h": 12}},
+        default_state=_ecosystem_default_state(),
+        actions=_ECOSYSTEM_ACTIONS,
+        context_export={"enabled": False, "summary_kind": "native_state", "hint_kind": "none"},
+        panel_title="Ecosystem Sim",
+        show_panel_title=True,
+    ),
     "core/notes_native": NativeWidgetSpec(
         widget_ref="core/notes_native",
         name="notes_native",
@@ -1110,6 +1271,7 @@ async def dispatch_native_widget_action(
     instance: WidgetInstance,
     action: str,
     args: dict[str, Any] | None,
+    bot_id: str | None = None,
 ) -> Any:
     spec = get_native_widget_spec(instance.widget_ref)
     if spec is None:
@@ -1120,6 +1282,20 @@ async def dispatch_native_widget_action(
             f"Unknown action {action!r} for native widget {instance.widget_ref!r}",
         )
     _validate_args_against_schema(action_spec.args_schema, args or {})
+
+    # Spatial-canvas games own their own dispatcher and need to know the
+    # caller (bot vs user) to enforce participation and turn order. Route
+    # through the games registry so each game's rules stay self-contained.
+    from app.services.games import ACTOR_USER, get_dispatcher, is_game_widget
+
+    if is_game_widget(instance.widget_ref):
+        dispatcher = get_dispatcher(instance.widget_ref)
+        if dispatcher is None:
+            raise NotFoundError(
+                f"Game widget {instance.widget_ref!r} has no registered dispatcher.",
+            )
+        actor = bot_id or ACTOR_USER
+        return await dispatcher(db, instance, action, args, actor=actor)
 
     if instance.widget_ref == "core/notes_native":
         return await _dispatch_notes_action(db, instance, action, args)

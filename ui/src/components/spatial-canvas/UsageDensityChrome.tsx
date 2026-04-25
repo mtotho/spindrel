@@ -14,6 +14,10 @@ interface UsageDensityChromeProps {
   onAnimateChange: (a: boolean) => void;
   connectionsEnabled: boolean;
   onConnectionsToggle: () => void;
+  botsVisible: boolean;
+  onBotsVisibleChange: (visible: boolean) => void;
+  botsReduced: boolean;
+  onBotsReducedChange: (reduced: boolean) => void;
 }
 
 const WINDOWS: DensityWindow[] = ["24h", "7d", "30d"];
@@ -64,6 +68,10 @@ export function UsageDensityChrome({
   onAnimateChange,
   connectionsEnabled,
   onConnectionsToggle,
+  botsVisible,
+  onBotsVisibleChange,
+  botsReduced,
+  onBotsReducedChange,
 }: UsageDensityChromeProps) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -171,6 +179,28 @@ export function UsageDensityChrome({
                 className="ml-2 accent-accent cursor-pointer"
               />
             </label>
+            <div className="mt-1 border-t border-surface-border/60 pt-2">
+              <div className="mb-1.5 text-[10px] uppercase tracking-wider">Bots</div>
+              <label className="flex flex-row items-center justify-between cursor-pointer gap-2">
+                <span>Show bots</span>
+                <input
+                  type="checkbox"
+                  checked={botsVisible}
+                  onChange={(e) => onBotsVisibleChange(e.target.checked)}
+                  className="ml-2 accent-accent cursor-pointer"
+                />
+              </label>
+              <label className="mt-1.5 flex flex-row items-center justify-between cursor-pointer gap-2">
+                <span>Reduce bots</span>
+                <input
+                  type="checkbox"
+                  checked={botsReduced}
+                  onChange={(e) => onBotsReducedChange(e.target.checked)}
+                  disabled={!botsVisible}
+                  className="ml-2 accent-accent cursor-pointer disabled:opacity-40"
+                />
+              </label>
+            </div>
             <div className="text-[10px] leading-snug pt-1 mt-1 border-t border-surface-border/60 text-text-dim/80">
               Halo size + brightness scale with token volume. Click the
               Activity button to cycle off / subtle / bold.

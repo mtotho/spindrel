@@ -24,6 +24,8 @@ export const CONNECTIONS_ENABLED_KEY = "spatial.connections.enabled";
 export const DENSITY_WINDOW_KEY = "spatial.density.window";
 export const DENSITY_COMPARE_KEY = "spatial.density.compare";
 export const DENSITY_ANIMATE_KEY = "spatial.density.animate";
+export const BOTS_VISIBLE_KEY = "spatial.bots.visible";
+export const BOTS_REDUCED_KEY = "spatial.bots.reduced";
 
 export function loadDensityIntensity(storage: Storage = localStorage): DensityIntensity {
   try {
@@ -71,6 +73,25 @@ export function loadConnectionsEnabled(storage: Storage = localStorage): boolean
     /* storage disabled */
   }
   return true;
+}
+
+export function loadBotsVisible(storage: Storage = localStorage): boolean {
+  try {
+    const v = storage.getItem(BOTS_VISIBLE_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* storage disabled */
+  }
+  return true;
+}
+
+export function loadBotsReduced(storage: Storage = localStorage): boolean {
+  try {
+    return storage.getItem(BOTS_REDUCED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 export const WELL_X = 0;

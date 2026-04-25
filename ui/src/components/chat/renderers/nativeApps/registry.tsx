@@ -1,6 +1,7 @@
 import { ChannelFilesWidget } from "./ChannelFilesWidget";
 import type { ReactNode } from "react";
 import { ContextTrackerWidget } from "./ContextTrackerWidget";
+import { EcosystemSimWidget } from "./EcosystemSimWidget";
 import { MachineControlWidget } from "./MachineControlWidget";
 import { NotesWidget } from "./NotesWidget";
 import { PlanQuestionsWidget } from "./PlanQuestionsWidget";
@@ -17,6 +18,7 @@ const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/channel_files_native": ChannelFilesWidget,
   "core/plan_questions": PlanQuestionsWidget,
   "core/context_tracker": ContextTrackerWidget,
+  "core/game_ecosystem": EcosystemSimWidget,
   "core/machine_control_native": MachineControlWidget,
   "core/notes_native": NotesWidget,
   "core/pinned_files_native": PinnedFilesWidget,

@@ -21,7 +21,8 @@ SPATIAL_HEARTBEAT_PROMPT = """Spatial canvas turn:
 - If inspect is available, inspect only nearby objects that could help organize the space or make the heartbeat useful.
 - If spatial widget management is available, create or arrange widgets that would make this channel's workspace easier to understand at a glance.
 - If movement or tugging is available, make small intentional moves only when they improve organization or visibility.
-- If file tools are available, keep durable spatial notes in data/spatial-canvas.md: useful landmarks, why widgets are placed where they are, and follow-ups for the next spatial turn.
+- If memory/file tools are available, keep current spatial memory in your bot workspace at memory/reference/spatial.md: useful landmarks, why widgets are placed where they are, active layout intent, and follow-ups for the next spatial turn. Keep it current-state focused.
+- When spatial memory becomes historical or stale, archive it into your bot workspace's dated memory logs alongside your other memory notes instead of leaving old map state in memory/reference/spatial.md.
 - Do not post a routine status update unless you changed something or found something worth sharing."""
 
 
@@ -416,6 +417,20 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         if getattr(hb, "append_spatial_prompt", False):
             prompt = "\n\n".join(part for part in [prompt.strip(), SPATIAL_HEARTBEAT_PROMPT] if part)
 
+        try:
+            from app.services.games.heartbeat import build_active_games_block
+
+            games_block = await build_active_games_block(
+                db,
+                channel_id=channel.id,
+                bot_id=channel.bot_id,
+            )
+        except Exception:
+            logger.exception("Heartbeat %s: failed to build active games block", hb.id)
+            games_block = None
+        if games_block:
+            prompt = "\n\n".join(part for part in [prompt.strip(), games_block] if part)
+
         # --- Build heartbeat metadata header ---
         # NOTE: This is injected as a system_preamble right before the user message.
         # It MUST be forceful enough to override conversational mode — small models
@@ -602,6 +617,13 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         channel_id = channel.id
         model_override = hb.model or None
         provider_id_override = hb.model_provider_id or None
+        if model_override and not provider_id_override:
+            try:
+                from app.services.providers import resolve_provider_for_model
+
+                provider_id_override = resolve_provider_for_model(model_override)
+            except Exception:
+                logger.debug("Heartbeat %s: failed to infer provider for model %s", hb.id, model_override, exc_info=True)
         _hb_fallback_models = hb.fallback_models or None
         trigger_rag_loop = hb.trigger_response
 

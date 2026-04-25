@@ -590,6 +590,7 @@ async def _dispatch_native_widget(
             instance=instance,
             action=req.action,
             args=req.args or {},
+            bot_id=req.bot_id,
         )
         await db.commit()
         await db.refresh(instance)

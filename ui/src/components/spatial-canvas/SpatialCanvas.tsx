@@ -7,7 +7,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   DndContext,
   PointerSensor,
@@ -17,7 +17,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { MessageCircle } from "lucide-react";
+import { LayoutGrid, MessageCircle } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
@@ -34,6 +34,7 @@ import { UpcomingTile } from "./UpcomingTile";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
+import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { ChatSession } from "../chat/ChatSession";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
@@ -44,6 +45,8 @@ import {
   DENSITY_COMPARE_KEY,
   DENSITY_INTENSITY_KEY,
   DENSITY_WINDOW_KEY,
+  BOTS_REDUCED_KEY,
+  BOTS_VISIBLE_KEY,
   LENS_NATIVE_FRACTION,
   LENS_SETTLE_MS,
   MAX_SCALE,
@@ -59,6 +62,8 @@ import {
   loadDensityCompare,
   loadDensityIntensity,
   loadDensityWindow,
+  loadBotsReduced,
+  loadBotsVisible,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -94,6 +99,7 @@ interface SpatialCanvasProps {
 
 export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: nodes } = useSpatialNodes();
   const { data: channels } = useChannels();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
@@ -176,6 +182,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   // Hovered tile (for connection-line highlighting). Tracked at the canvas
   // level so layers under the tile map can react.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [openBotChat, setOpenBotChat] = useState<{
     botId: string;
     botName: string;
@@ -193,6 +200,8 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   // Connection-line layer (widget → source channel curves). On by default —
   // the relationship is most of the value of pinning a widget to the canvas.
   const [connectionsEnabled, setConnectionsEnabled] = useState<boolean>(loadConnectionsEnabled);
+  const [botsVisible, setBotsVisible] = useState<boolean>(loadBotsVisible);
+  const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
 
   // Persist chrome prefs on change. Single effect with all deps — localStorage
   // writes are sub-ms and these toggles fire at most a few times per session.
@@ -203,10 +212,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       localStorage.setItem(DENSITY_COMPARE_KEY, densityCompare ? "1" : "0");
       localStorage.setItem(DENSITY_ANIMATE_KEY, densityAnimate ? "1" : "0");
       localStorage.setItem(CONNECTIONS_ENABLED_KEY, connectionsEnabled ? "1" : "0");
+      localStorage.setItem(BOTS_VISIBLE_KEY, botsVisible ? "1" : "0");
+      localStorage.setItem(BOTS_REDUCED_KEY, botsReduced ? "1" : "0");
     } catch {
       /* storage disabled */
     }
-  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled]);
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced]);
 
   const cycleDensityIntensity = useCallback(() => {
     setDensityIntensity((curr) => {
@@ -757,6 +768,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
               );
             }
             if (node.bot_id) {
+              if (!botsVisible) return null;
               const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
               const channel = channelForBot(node.bot_id);
               const dragPosition = manualBotDrag?.nodeId === node.id
@@ -771,15 +783,22 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                   lens={dragPosition ? null : lens}
                   lensSettling={lensSettling}
                   dragPosition={dragPosition}
+                  reduced={botsReduced}
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
                   onPointerUp={(e) => handleBotPointerUp(node, e)}
+                  onDoubleClick={() =>
+                    navigate(`/admin/bots/${node.bot_id}`, {
+                      state: { backTo: `${location.pathname}${location.search}` },
+                    })
+                  }
                 >
                   <BotTile
                     name={botName}
                     botId={node.bot_id}
                     avatarEmoji={node.bot?.avatar_emoji ?? null}
                     zoom={camera.scale}
+                    reduced={botsReduced}
                     onOpenChat={() => {
                       if (!channel) return;
                       setOpenBotChat({
@@ -842,11 +861,28 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
         onAnimateChange={setDensityAnimate}
         connectionsEnabled={connectionsEnabled}
         onConnectionsToggle={() => setConnectionsEnabled((v) => !v)}
+        botsVisible={botsVisible}
+        onBotsVisibleChange={setBotsVisible}
+        botsReduced={botsReduced}
+        onBotsReducedChange={setBotsReduced}
       />
       <div className="absolute bottom-4 right-4 z-[2] flex flex-row items-center gap-2">
+        <AddWidgetButton onClick={() => setLibraryOpen(true)} />
         <NowButton onClick={flyToWell} />
         <RecenterButton onClick={() => setCamera(DEFAULT_CAMERA)} />
       </div>
+      <CanvasLibrarySheet
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        worldCenter={
+          viewportSize.w && viewportSize.h
+            ? {
+                x: (viewportSize.w / 2 - camera.x) / camera.scale,
+                y: (viewportSize.h / 2 - camera.y) / camera.scale,
+              }
+            : null
+        }
+      />
       {openBotChat && (
         <ChatSession
           source={{ kind: "channel", channelId: openBotChat.channelId }}
@@ -861,6 +897,22 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
         />
       )}
     </div>
+  );
+}
+
+function AddWidgetButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onPointerDown={(e) => e.stopPropagation()}
+      title="Add widget to canvas"
+      aria-label="Add widget to canvas"
+      className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-accent text-xs cursor-pointer"
+    >
+      <LayoutGrid size={13} />
+      <span>Add</span>
+    </button>
   );
 }
 
@@ -967,6 +1019,7 @@ function BotTile({
   botId,
   avatarEmoji,
   zoom,
+  reduced,
   onOpenChat,
   chatDisabled,
 }: {
@@ -974,27 +1027,46 @@ function BotTile({
   botId: string;
   avatarEmoji: string | null;
   zoom: number;
+  reduced: boolean;
   onOpenChat: () => void;
   chatDisabled: boolean;
 }) {
   const compact = zoom < 0.55;
   const avatar = avatarEmoji || "🤖";
+  const labelScale = compact ? Math.min(5, Math.max(1, 1 / Math.max(zoom, 0.2))) : 1;
+  const outerSize = reduced ? 84 : 112;
+  const innerSize = reduced ? 58 : 82;
+  const emojiSize = reduced ? 28 : 38;
+  const labelTop = reduced ? 108 : 132;
+  const chatLeft = reduced ? 138 : 154;
+  const chatTop = reduced ? 90 : 104;
   return (
     <div
       className="relative flex h-full w-full items-center justify-center overflow-visible"
       title={`${name} (${botId})`}
     >
-      <div className="absolute left-1/2 top-1/2 h-[112px] w-[112px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]" />
-      <div className="absolute left-1/2 top-1/2 h-[82px] w-[82px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center text-[38px]">
+      <div
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]"
+        style={{ width: outerSize, height: outerSize }}
+      />
+      <div
+        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center"
+        style={{ width: innerSize, height: innerSize, fontSize: emojiSize }}
+      >
         <span aria-hidden>{avatar}</span>
       </div>
-      {!compact && (
-        <div className="absolute left-1/2 top-[132px] max-w-[230px] -translate-x-1/2 text-center">
-          <div className="truncate rounded-md bg-surface-raised/88 px-2.5 py-1 text-[16px] font-semibold leading-tight text-text shadow-sm">
-            {name}
-          </div>
+      <div
+        className="absolute left-1/2 max-w-[230px] text-center"
+        style={{
+          top: labelTop,
+          transform: `translateX(-50%) scale(${labelScale})`,
+          transformOrigin: "top center",
+        }}
+      >
+        <div className={`truncate rounded-md bg-surface-raised/90 px-2.5 py-1 font-semibold leading-tight text-text shadow-sm ${compact ? "text-[14px]" : "text-[16px]"}`}>
+          {name}
         </div>
-      )}
+      </div>
       <button
         type="button"
         disabled={chatDisabled}
@@ -1005,7 +1077,8 @@ function BotTile({
         onPointerDown={(e) => e.stopPropagation()}
         title={chatDisabled ? "No channel available for this bot" : "Open mini chat"}
         aria-label={chatDisabled ? "No channel available" : `Open mini chat with ${name}`}
-        className="absolute left-[154px] top-[104px] flex h-8 w-8 items-center justify-center rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim"
+        className="absolute flex h-8 w-8 items-center justify-center rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim"
+        style={{ left: chatLeft, top: chatTop }}
       >
         <MessageCircle className="w-3.5 h-3.5" aria-hidden />
       </button>
@@ -1106,9 +1179,11 @@ interface ManualBotNodeProps {
   lens: LensTransform | null;
   lensSettling: boolean;
   dragPosition: { x: number; y: number } | null;
+  reduced: boolean;
   onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
   onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
+  onDoubleClick: () => void;
   children: React.ReactNode;
 }
 
@@ -1119,14 +1194,18 @@ function ManualBotNode({
   lens,
   lensSettling,
   dragPosition,
+  reduced,
   onPointerDown,
   onPointerMove,
   onPointerUp,
+  onDoubleClick,
   children,
 }: ManualBotNodeProps) {
   const lensTransform = lens
     ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
     : "";
+  const reduceTransform = reduced ? "scale(0.82)" : "";
+  const transformStack = [lensTransform, reduceTransform].filter(Boolean).join(" ");
   let transition: string;
   if (isDragging) {
     transition = "none";
@@ -1144,11 +1223,12 @@ function ManualBotNode({
     width: node.world_w,
     height: node.world_h,
     zIndex: isDragging ? 10 : node.z_index,
-    transform: lensTransform || undefined,
+    transform: transformStack || undefined,
     transformOrigin: "center center",
     transition,
     touchAction: "none",
     cursor: diving ? "default" : isDragging ? "grabbing" : "grab",
+    opacity: reduced ? 0.68 : 1,
   };
   return (
     <div
@@ -1158,6 +1238,10 @@ function ManualBotNode({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (!diving && !isDragging) onDoubleClick();
+      }}
     >
       {children}
     </div>

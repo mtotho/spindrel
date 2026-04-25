@@ -1270,8 +1270,22 @@ async def admin_channel_heartbeat_update(
         heartbeat.interval_minutes = max(1, updates["interval_minutes"])
     if "model" in updates:
         heartbeat.model = updates["model"].strip() if updates["model"] else ""
+        if not heartbeat.model:
+            heartbeat.model_provider_id = None
     if "model_provider_id" in updates:
         heartbeat.model_provider_id = updates["model_provider_id"].strip() if updates["model_provider_id"] else None
+    if heartbeat.model and not heartbeat.model_provider_id:
+        try:
+            from app.services.providers import resolve_provider_for_model
+
+            heartbeat.model_provider_id = resolve_provider_for_model(heartbeat.model)
+        except Exception:
+            logger.debug(
+                "Failed to infer provider for heartbeat model %s on channel %s",
+                heartbeat.model,
+                channel_id,
+                exc_info=True,
+            )
     if "prompt" in updates:
         heartbeat.prompt = updates["prompt"].strip() if updates["prompt"] else ""
     if "prompt_template_id" in updates:
