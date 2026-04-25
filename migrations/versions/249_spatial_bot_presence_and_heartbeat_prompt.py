@@ -1,6 +1,6 @@
 """spatial bot presence and heartbeat prompt
 
-Revision ID: 249_spatial_bot_presence_and_heartbeat_prompt
+Revision ID: 249_spatial_bot_presence
 Revises: 248
 Create Date: 2026-04-26 06:00:00.000000
 """
@@ -10,7 +10,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "249_spatial_bot_presence_and_heartbeat_prompt"
+revision = "249_spatial_bot_presence"
 down_revision = "248"
 branch_labels = None
 depends_on = None
