@@ -62,6 +62,7 @@ nav:
     - Local Machine Control: guides/local-machine-control.md
     - Widget System: guides/widget-system.md
     - Widget Dashboards: guides/widget-dashboards.md
+    - Spatial Canvas: guides/spatial-canvas.md
     - HTML Widgets: guides/html-widgets.md
     - Widget Templates: widget-templates.md
     - Developer Panel: guides/dev-panel.md

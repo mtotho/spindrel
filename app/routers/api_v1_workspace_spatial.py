@@ -24,9 +24,11 @@ from app.domain.errors import NotFoundError, ValidationError
 from app.services.dashboard_pins import serialize_pin
 from app.services.workspace_spatial import (
     delete_node,
+    get_channel_bot_spatial_policy,
     list_nodes,
     pin_widget_to_canvas,
     serialize_node,
+    update_channel_bot_spatial_policy,
     update_node_position,
 )
 from app.services.upcoming_activity import list_upcoming_activity
@@ -57,6 +59,20 @@ class PinWidgetToCanvasRequest(BaseModel):
     world_y: float | None = None
     world_w: float | None = None
     world_h: float | None = None
+
+
+class SpatialBotPolicyRequest(BaseModel):
+    enabled: bool | None = None
+    allow_movement: bool | None = None
+    step_world_units: int | None = None
+    max_move_steps_per_turn: int | None = None
+    awareness_radius_steps: int | None = None
+    nearest_neighbor_floor: int | None = None
+    allow_moving_spatial_objects: bool | None = None
+    tug_radius_steps: int | None = None
+    max_tug_steps_per_turn: int | None = None
+    allow_nearby_inspect: bool | None = None
+    movement_trace_ttl_minutes: int | None = None
 
 
 @router.get("/nodes")
@@ -95,6 +111,40 @@ async def get_upcoming_activity(
         include_channelless_tasks=False,
     )
     return {"items": items}
+
+
+@router.get("/channels/{channel_id}/bots/{bot_id}/policy")
+async def get_spatial_bot_policy(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    auth=Depends(require_scopes("channels:read")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    return {"bot_id": bot_id, "channel_id": str(channel_id), "policy": policy}
+
+
+@router.patch("/channels/{channel_id}/bots/{bot_id}/policy")
+async def patch_spatial_bot_policy(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    body: SpatialBotPolicyRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        policy = await update_channel_bot_spatial_policy(
+            db,
+            channel_id,
+            bot_id,
+            body.model_dump(exclude_unset=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    return {"bot_id": bot_id, "channel_id": str(channel_id), "policy": policy}
 
 
 @router.patch("/nodes/{node_id}")

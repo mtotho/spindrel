@@ -23,12 +23,14 @@ from __future__ import annotations
 import logging
 import math
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
-from app.db.models import Channel, WidgetDashboardPin, WorkspaceSpatialNode
+from app.db.models import Channel, ChannelBotMember, Message, Session, WidgetDashboardPin, WorkspaceSpatialNode
 from app.domain.errors import NotFoundError, ValidationError
 from app.services.dashboard_pins import create_pin
 from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY
@@ -49,11 +51,28 @@ _DEFAULT_TILE_H = 180.0
 # zoom level. Existing rows keep their stored size; only new pins use these.
 _DEFAULT_WIDGET_W = 360.0
 _DEFAULT_WIDGET_H = 240.0
+_DEFAULT_BOT_W = 72.0
+_DEFAULT_BOT_H = 72.0
 # Satellite ring around a source channel — first widget sits ~_SAT_RING out
 # from the channel's center; subsequent widgets spiral outward by the golden
 # angle so they don't pile up at one bearing.
 _SAT_RING_RADIUS = 220.0
 _SAT_RING_GROWTH = 60.0
+
+SPATIAL_POLICY_KEY = "spatial_bots"
+DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
+    "enabled": False,
+    "allow_movement": False,
+    "step_world_units": 32,
+    "max_move_steps_per_turn": 2,
+    "awareness_radius_steps": 8,
+    "nearest_neighbor_floor": 3,
+    "allow_moving_spatial_objects": False,
+    "tug_radius_steps": 2,
+    "max_tug_steps_per_turn": 1,
+    "allow_nearby_inspect": False,
+    "movement_trace_ttl_minutes": 30,
+}
 
 
 def phyllotaxis_position(seed_index: int) -> tuple[float, float]:
@@ -83,6 +102,7 @@ def serialize_node(
         "id": str(node.id),
         "channel_id": str(node.channel_id) if node.channel_id else None,
         "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
+        "bot_id": node.bot_id,
         "world_x": node.world_x,
         "world_y": node.world_y,
         "world_w": node.world_w,
@@ -91,7 +111,20 @@ def serialize_node(
         "seed_index": node.seed_index,
         "pinned_at": node.pinned_at.isoformat() if node.pinned_at else None,
         "updated_at": node.updated_at.isoformat() if node.updated_at else None,
+        "last_movement": node.last_movement,
     }
+    if node.bot_id:
+        try:
+            from app.agent.bots import get_bot
+            bot = get_bot(node.bot_id)
+            out["bot"] = {
+                "id": bot.id,
+                "name": bot.name,
+                "display_name": bot.display_name,
+                "avatar_url": bot.avatar_url,
+            }
+        except Exception:
+            out["bot"] = {"id": node.bot_id, "name": node.bot_id}
     if pin is not None:
         # Lazy import — keeps the dashboard_pins serializer optional for
         # callers that only need bare-bones channel-node serialization.
@@ -237,6 +270,84 @@ async def _ensure_channel_nodes(db: AsyncSession) -> int:
     return len(missing_ids)
 
 
+async def _resolved_primary_channel_for_bot(
+    db: AsyncSession,
+    bot_id: str,
+) -> Channel | None:
+    primary = (await db.execute(
+        select(Channel)
+        .where(Channel.bot_id == bot_id)
+        .order_by(Channel.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    if primary is not None:
+        return primary
+    return (await db.execute(
+        select(Channel)
+        .join(ChannelBotMember, ChannelBotMember.channel_id == Channel.id)
+        .where(ChannelBotMember.bot_id == bot_id)
+        .order_by(ChannelBotMember.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+
+async def _ensure_bot_node(
+    db: AsyncSession,
+    bot_id: str,
+) -> WorkspaceSpatialNode | None:
+    existing = (await db.execute(
+        select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.bot_id == bot_id)
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    seed = await _next_seed_index(db)
+    world_x, world_y = phyllotaxis_position(seed)
+    channel = await _resolved_primary_channel_for_bot(db, bot_id)
+    if channel is not None:
+        channel_node = await _ensure_channel_node(db, channel.id)
+        if channel_node is not None:
+            cx = channel_node.world_x + channel_node.world_w / 2
+            cy = channel_node.world_y + channel_node.world_h / 2
+            angle = (seed + 1) * _GOLDEN_ANGLE
+            radius = 150.0
+            world_x = cx + math.cos(angle) * radius - _DEFAULT_BOT_W / 2
+            world_y = cy + math.sin(angle) * radius - _DEFAULT_BOT_H / 2
+
+    node = WorkspaceSpatialNode(
+        bot_id=bot_id,
+        world_x=float(world_x),
+        world_y=float(world_y),
+        world_w=_DEFAULT_BOT_W,
+        world_h=_DEFAULT_BOT_H,
+        seed_index=seed,
+    )
+    db.add(node)
+    await db.flush()
+    return node
+
+
+async def _ensure_bot_nodes(db: AsyncSession) -> int:
+    primary_ids = (await db.execute(
+        select(Channel.bot_id).where(Channel.bot_id.is_not(None))
+    )).scalars().all()
+    member_ids = (await db.execute(
+        select(ChannelBotMember.bot_id)
+    )).scalars().all()
+    bot_ids = sorted({bot_id for bot_id in [*primary_ids, *member_ids] if bot_id})
+    count = 0
+    for bot_id in bot_ids:
+        before = (await db.execute(
+            select(WorkspaceSpatialNode.id).where(WorkspaceSpatialNode.bot_id == bot_id)
+        )).scalar_one_or_none()
+        await _ensure_bot_node(db, bot_id)
+        if before is None:
+            count += 1
+    if count:
+        await db.commit()
+    return count
+
+
 async def list_nodes(
     db: AsyncSession,
 ) -> list[tuple[WorkspaceSpatialNode, WidgetDashboardPin | None]]:
@@ -247,6 +358,7 @@ async def list_nodes(
     A single follow-up query loads pins by id for the widget nodes, so the
     response shape stays one-roundtrip from the client perspective."""
     await _ensure_channel_nodes(db)
+    await _ensure_bot_nodes(db)
     rows = (await db.execute(
         select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
     )).scalars().all()
@@ -270,6 +382,462 @@ async def get_node(db: AsyncSession, node_id: uuid.UUID) -> WorkspaceSpatialNode
     return row
 
 
+def _coerce_positive_int(value: Any, default: int, *, minimum: int = 0, maximum: int = 1000) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def normalize_spatial_policy(raw: dict | None) -> dict[str, Any]:
+    policy = dict(DEFAULT_SPATIAL_POLICY)
+    if isinstance(raw, dict):
+        policy.update(raw)
+    for key in (
+        "enabled",
+        "allow_movement",
+        "allow_moving_spatial_objects",
+        "allow_nearby_inspect",
+    ):
+        policy[key] = bool(policy.get(key))
+    policy["step_world_units"] = _coerce_positive_int(policy.get("step_world_units"), 32, minimum=1, maximum=1000)
+    policy["max_move_steps_per_turn"] = _coerce_positive_int(policy.get("max_move_steps_per_turn"), 2, minimum=0, maximum=100)
+    policy["awareness_radius_steps"] = _coerce_positive_int(policy.get("awareness_radius_steps"), 8, minimum=0, maximum=1000)
+    policy["nearest_neighbor_floor"] = _coerce_positive_int(policy.get("nearest_neighbor_floor"), 3, minimum=0, maximum=50)
+    policy["tug_radius_steps"] = _coerce_positive_int(policy.get("tug_radius_steps"), 2, minimum=0, maximum=100)
+    policy["max_tug_steps_per_turn"] = _coerce_positive_int(policy.get("max_tug_steps_per_turn"), 1, minimum=0, maximum=100)
+    policy["movement_trace_ttl_minutes"] = _coerce_positive_int(policy.get("movement_trace_ttl_minutes"), 30, minimum=1, maximum=24 * 60)
+    return policy
+
+
+def _spatial_policies_from_channel(channel: Channel) -> dict[str, Any]:
+    cfg = channel.config or {}
+    raw = cfg.get(SPATIAL_POLICY_KEY)
+    return raw if isinstance(raw, dict) else {}
+
+
+async def get_channel_bot_spatial_policy(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    bot_id: str,
+) -> dict[str, Any]:
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        raise NotFoundError(f"Channel not found: {channel_id}")
+    return normalize_spatial_policy(_spatial_policies_from_channel(channel).get(bot_id))
+
+
+async def update_channel_bot_spatial_policy(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    updates: dict[str, Any],
+) -> dict[str, Any]:
+    channel = await db.get(Channel, channel_id)
+    if channel is None:
+        raise NotFoundError(f"Channel not found: {channel_id}")
+    allowed = set(DEFAULT_SPATIAL_POLICY)
+    current = get_channel_bot_spatial_policy_sync(channel, bot_id)
+    for key, value in updates.items():
+        if key in allowed:
+            current[key] = value
+    normalized = normalize_spatial_policy(current)
+    cfg = dict(channel.config or {})
+    policies = dict(cfg.get(SPATIAL_POLICY_KEY) or {})
+    policies[bot_id] = normalized
+    cfg[SPATIAL_POLICY_KEY] = policies
+    channel.config = cfg
+    flag_modified(channel, "config")
+    await db.commit()
+    return normalized
+
+
+def get_channel_bot_spatial_policy_sync(channel: Channel | None, bot_id: str) -> dict[str, Any]:
+    if channel is None:
+        return normalize_spatial_policy(None)
+    return normalize_spatial_policy(_spatial_policies_from_channel(channel).get(bot_id))
+
+
+def _node_center(node: WorkspaceSpatialNode) -> tuple[float, float]:
+    return (node.world_x + node.world_w / 2, node.world_y + node.world_h / 2)
+
+
+def _distance(a: WorkspaceSpatialNode, b: WorkspaceSpatialNode) -> float:
+    ax, ay = _node_center(a)
+    bx, by = _node_center(b)
+    return math.hypot(ax - bx, ay - by)
+
+
+def _movement_payload(
+    *,
+    actor_bot_id: str,
+    channel_id: uuid.UUID,
+    kind: str,
+    from_x: float,
+    from_y: float,
+    to_x: float,
+    to_y: float,
+    reason: str | None,
+    ttl_minutes: int,
+    target_node_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    created_at = datetime.now(timezone.utc)
+    return {
+        "kind": kind,
+        "actor_bot_id": actor_bot_id,
+        "channel_id": str(channel_id),
+        "target_node_id": str(target_node_id) if target_node_id else None,
+        "from": {"x": from_x, "y": from_y},
+        "to": {"x": to_x, "y": to_y},
+        "reason": reason,
+        "created_at": created_at.isoformat(),
+        "expires_at": (created_at + timedelta(minutes=int(ttl_minutes))).isoformat(),
+        "ttl_minutes": int(ttl_minutes),
+    }
+
+
+async def move_bot_node(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    dx_steps: int,
+    dy_steps: int,
+    reason: str | None = None,
+) -> WorkspaceSpatialNode:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy["allow_movement"]:
+        raise ValidationError("Spatial movement is not enabled for this bot in this channel.")
+    step_count = abs(int(dx_steps)) + abs(int(dy_steps))
+    if step_count <= 0:
+        raise ValidationError("Movement requires at least one step.")
+    if step_count > policy["max_move_steps_per_turn"]:
+        raise ValidationError(f"Movement exceeds max_move_steps_per_turn={policy['max_move_steps_per_turn']}.")
+    node = await _ensure_bot_node(db, bot_id)
+    if node is None:
+        raise NotFoundError(f"Bot node not found: {bot_id}")
+    from_x, from_y = node.world_x, node.world_y
+    step = float(policy["step_world_units"])
+    node.world_x = float(node.world_x + int(dx_steps) * step)
+    node.world_y = float(node.world_y + int(dy_steps) * step)
+    node.last_movement = _movement_payload(
+        actor_bot_id=bot_id,
+        channel_id=channel_id,
+        kind="bot_move",
+        from_x=from_x,
+        from_y=from_y,
+        to_x=node.world_x,
+        to_y=node.world_y,
+        reason=reason,
+        ttl_minutes=policy["movement_trace_ttl_minutes"],
+        target_node_id=node.id,
+    )
+    await db.commit()
+    await db.refresh(node)
+    return node
+
+
+def _node_label(node: WorkspaceSpatialNode, pin: WidgetDashboardPin | None = None) -> str:
+    if node.bot_id:
+        try:
+            from app.agent.bots import get_bot
+            return get_bot(node.bot_id).name
+        except Exception:
+            return node.bot_id
+    if node.channel_id:
+        return f"channel {node.channel_id}"
+    if pin is not None:
+        return pin.display_label or pin.tool_name or str(pin.id)
+    return str(node.id)
+
+
+def _direction_phrase(dx_steps: int, dy_steps: int) -> str:
+    parts: list[str] = []
+    if dx_steps:
+        parts.append(f"{abs(dx_steps)} step{'s' if abs(dx_steps) != 1 else ''} {'right' if dx_steps > 0 else 'left'}")
+    if dy_steps:
+        parts.append(f"{abs(dy_steps)} step{'s' if abs(dy_steps) != 1 else ''} {'down' if dy_steps > 0 else 'up'}")
+    return " and ".join(parts) or "nowhere"
+
+
+async def _publish_spatial_movement_notice(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    target_label: str,
+    dx_steps: int,
+    dy_steps: int,
+    movement: dict[str, Any],
+) -> None:
+    channel = await db.get(Channel, channel_id)
+    if channel is None or channel.active_session_id is None:
+        return
+    try:
+        from app.agent.bots import get_bot
+        bot_name = get_bot(bot_id).name
+    except Exception:
+        bot_name = bot_id
+    content = f"{bot_name} moved {target_label} {_direction_phrase(dx_steps, dy_steps)} on the workspace canvas."
+    record = Message(
+        session_id=channel.active_session_id,
+        role="assistant",
+        content=content,
+        metadata_={
+            "kind": "spatial_movement",
+            "spatial_movement": movement,
+            "bot_id": bot_id,
+        },
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(record)
+    await db.execute(
+        update(Session)
+        .where(Session.id == channel.active_session_id)
+        .values(last_active=datetime.now(timezone.utc))
+    )
+    await db.commit()
+    await db.refresh(record)
+    from app.domain.message import Message as DomainMessage
+    from app.services.channel_events import publish_message
+    from app.services.outbox_publish import enqueue_new_message_for_channel
+    domain_msg = DomainMessage.from_orm(record, channel_id=channel_id)
+    await enqueue_new_message_for_channel(channel_id, domain_msg)
+    publish_message(channel_id, record)
+
+
+async def tug_spatial_node(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    target_node_id: uuid.UUID,
+    dx_steps: int,
+    dy_steps: int,
+    reason: str | None = None,
+) -> WorkspaceSpatialNode:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy["allow_moving_spatial_objects"]:
+        raise ValidationError("Spatial object movement is not enabled for this bot in this channel.")
+    step_count = abs(int(dx_steps)) + abs(int(dy_steps))
+    if step_count <= 0:
+        raise ValidationError("Tug requires at least one step.")
+    if step_count > policy["max_tug_steps_per_turn"]:
+        raise ValidationError(f"Tug exceeds max_tug_steps_per_turn={policy['max_tug_steps_per_turn']}.")
+    bot_node = await _ensure_bot_node(db, bot_id)
+    target = await get_node(db, target_node_id)
+    if bot_node is None:
+        raise NotFoundError(f"Bot node not found: {bot_id}")
+    if target.id == bot_node.id:
+        raise ValidationError("Use move_on_canvas to move yourself.")
+    radius = float(policy["tug_radius_steps"] * policy["step_world_units"])
+    if _distance(bot_node, target) > radius:
+        raise ValidationError("Target is outside this bot's tug radius.")
+    pin = await db.get(WidgetDashboardPin, target.widget_pin_id) if target.widget_pin_id else None
+    from_x, from_y = target.world_x, target.world_y
+    step = float(policy["step_world_units"])
+    target.world_x = float(target.world_x + int(dx_steps) * step)
+    target.world_y = float(target.world_y + int(dy_steps) * step)
+    movement = _movement_payload(
+        actor_bot_id=bot_id,
+        channel_id=channel_id,
+        kind="object_tug",
+        from_x=from_x,
+        from_y=from_y,
+        to_x=target.world_x,
+        to_y=target.world_y,
+        reason=reason,
+        ttl_minutes=policy["movement_trace_ttl_minutes"],
+        target_node_id=target.id,
+    )
+    target.last_movement = movement
+    await db.commit()
+    await db.refresh(target)
+    await _publish_spatial_movement_notice(
+        db,
+        channel_id=channel_id,
+        bot_id=bot_id,
+        target_label=_node_label(target, pin),
+        dx_steps=dx_steps,
+        dy_steps=dy_steps,
+        movement=movement,
+    )
+    return target
+
+
+async def _nodes_with_pins(
+    db: AsyncSession,
+) -> tuple[list[WorkspaceSpatialNode], dict[uuid.UUID, WidgetDashboardPin]]:
+    await _ensure_channel_nodes(db)
+    await _ensure_bot_nodes(db)
+    nodes = list((await db.execute(
+        select(WorkspaceSpatialNode).order_by(WorkspaceSpatialNode.pinned_at.asc())
+    )).scalars().all())
+    pin_ids = [n.widget_pin_id for n in nodes if n.widget_pin_id is not None]
+    pin_map: dict[uuid.UUID, WidgetDashboardPin] = {}
+    if pin_ids:
+        pins = (await db.execute(
+            select(WidgetDashboardPin).where(WidgetDashboardPin.id.in_(pin_ids))
+        )).scalars().all()
+        pin_map = {p.id: p for p in pins}
+    return nodes, pin_map
+
+
+def _node_kind(node: WorkspaceSpatialNode) -> str:
+    if node.bot_id:
+        return "bot"
+    if node.channel_id:
+        return "channel"
+    return "widget"
+
+
+async def build_canvas_neighborhood(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+) -> dict[str, Any]:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    bot_node = await _ensure_bot_node(db, bot_id)
+    if bot_node is None:
+        raise NotFoundError(f"Bot node not found: {bot_id}")
+    nodes, pin_map = await _nodes_with_pins(db)
+    radius = float(policy["awareness_radius_steps"] * policy["step_world_units"])
+    floor = int(policy["nearest_neighbor_floor"])
+    rows: list[dict[str, Any]] = []
+    for node in nodes:
+        if node.id == bot_node.id:
+            continue
+        pin = pin_map.get(node.widget_pin_id) if node.widget_pin_id else None
+        dist = _distance(bot_node, node)
+        rows.append({
+            "id": str(node.id),
+            "kind": _node_kind(node),
+            "label": _node_label(node, pin),
+            "distance": round(dist, 1),
+            "within_radius": dist <= radius,
+            "tuggable": (
+                bool(policy["allow_moving_spatial_objects"])
+                and dist <= float(policy["tug_radius_steps"] * policy["step_world_units"])
+            ),
+            "channel_id": str(node.channel_id) if node.channel_id else None,
+            "bot_id": node.bot_id,
+            "widget_pin_id": str(node.widget_pin_id) if node.widget_pin_id else None,
+        })
+    rows.sort(key=lambda r: float(r["distance"]))
+    nearby = [r for r in rows if r["within_radius"]]
+    seen = {r["id"] for r in nearby}
+    for r in rows[:floor]:
+        if r["id"] not in seen:
+            nearby.append({**r, "fallback_nearest": True})
+            seen.add(r["id"])
+    return {
+        "policy": policy,
+        "bot": serialize_node(bot_node),
+        "neighbors": nearby,
+        "hot_alerts": [],
+    }
+
+
+async def build_canvas_neighborhood_block(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+) -> str | None:
+    neighborhood = await build_canvas_neighborhood(db, channel_id=channel_id, bot_id=bot_id)
+    policy = neighborhood["policy"]
+    if not policy["enabled"]:
+        return None
+    bot = neighborhood["bot"]
+    lines = [
+        "[spatial canvas]",
+        f"your canvas node: {bot['id']} at ({bot['world_x']:.0f}, {bot['world_y']:.0f})",
+        (
+            f"movement: step={policy['step_world_units']} world units, "
+            f"move_budget={policy['max_move_steps_per_turn']} step(s), "
+            f"awareness_radius={policy['awareness_radius_steps']} step(s), "
+            f"tug_radius={policy['tug_radius_steps']} step(s)"
+        ),
+    ]
+    if policy["allow_movement"]:
+        lines.append("You may use move_on_canvas to move your bot node within the movement budget.")
+    if policy["allow_moving_spatial_objects"]:
+        lines.append("You may use tug_spatial_object on tuggable nearby objects only.")
+    if policy["allow_nearby_inspect"]:
+        lines.append("You may use inspect_nearby_spatial_object for nearby object details.")
+    lines.append("")
+    lines.append("nearby objects:")
+    for row in neighborhood["neighbors"][:12]:
+        flags: list[str] = []
+        if row.get("fallback_nearest"):
+            flags.append("nearest")
+        if row.get("tuggable"):
+            flags.append("tuggable")
+        flag_text = f" [{' '.join(flags)}]" if flags else ""
+        lines.append(
+            f"  - {row['label']} ({row['kind']}) id={row['id']} dist={row['distance']}{flag_text}"
+        )
+    if not neighborhood["neighbors"]:
+        lines.append("  - none")
+    return "\n".join(lines)
+
+
+async def inspect_nearby_spatial_object(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+    target_node_id: uuid.UUID,
+) -> dict[str, Any]:
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy["allow_nearby_inspect"]:
+        raise ValidationError("Nearby spatial inspection is not enabled for this bot in this channel.")
+    bot_node = await _ensure_bot_node(db, bot_id)
+    target = await get_node(db, target_node_id)
+    if bot_node is None:
+        raise NotFoundError(f"Bot node not found: {bot_id}")
+    radius = float(policy["awareness_radius_steps"] * policy["step_world_units"])
+    dist = _distance(bot_node, target)
+    if dist > radius:
+        raise ValidationError("Target is outside this bot's awareness radius.")
+    payload = serialize_node(target)
+    payload["distance"] = round(dist, 1)
+    if target.channel_id:
+        ch = await db.get(Channel, target.channel_id)
+        payload["summary"] = {
+            "name": ch.name if ch else str(target.channel_id),
+            "bot_id": ch.bot_id if ch else None,
+            "active_session_id": str(ch.active_session_id) if ch and ch.active_session_id else None,
+        }
+    elif target.widget_pin_id:
+        pin = await db.get(WidgetDashboardPin, target.widget_pin_id)
+        if pin is not None:
+            from app.services.dashboard_pins import serialize_pin
+            pin_dict = serialize_pin(pin)
+            try:
+                from app.services.widget_context import enrich_pins_for_context_export
+                enriched = await enrich_pins_for_context_export(
+                    db,
+                    [pin_dict],
+                    bot_id=bot_id,
+                    channel_id=str(pin.source_channel_id) if pin.source_channel_id else None,
+                )
+                pin_dict = enriched[0] if enriched else pin_dict
+            except Exception:
+                logger.debug("Failed to enrich nearby widget pin %s", pin.id, exc_info=True)
+            payload["summary"] = {
+                "label": pin_dict.get("display_label") or pin_dict.get("tool_name"),
+                "tool_name": pin_dict.get("tool_name"),
+                "source_channel_id": pin_dict.get("source_channel_id"),
+                "context_summary": pin_dict.get("context_summary"),
+            }
+    elif target.bot_id:
+        payload["summary"] = {"bot_id": target.bot_id, "label": _node_label(target)}
+    return payload
+
+
 async def update_node_position(
     db: AsyncSession,
     node_id: uuid.UUID,
@@ -279,6 +847,7 @@ async def update_node_position(
     world_w: float | None = None,
     world_h: float | None = None,
     z_index: int | None = None,
+    last_movement: dict | None = None,
 ) -> WorkspaceSpatialNode:
     node = await get_node(db, node_id)
     if world_x is not None:
@@ -295,6 +864,8 @@ async def update_node_position(
         node.world_h = float(world_h)
     if z_index is not None:
         node.z_index = int(z_index)
+    if last_movement is not None:
+        node.last_movement = last_movement
     await db.commit()
     await db.refresh(node)
     return node

@@ -879,6 +879,42 @@ async def _inject_multi_bot_awareness(
         yield {"type": "multi_bot_awareness", "member_count": len(_member_bot_ids)}
 
 
+async def _inject_spatial_awareness(
+    *,
+    messages: list[dict],
+    bot: BotConfig,
+    channel_id: Any,
+    inject_chars: dict,
+    inject_decisions: dict,
+    budget_can_afford,
+    budget_consume,
+) -> AsyncGenerator[dict[str, Any], None]:
+    if not channel_id:
+        return
+    try:
+        from app.db.engine import async_session
+        from app.services.workspace_spatial import build_canvas_neighborhood_block
+        async with async_session() as db:
+            block = await build_canvas_neighborhood_block(
+                db,
+                channel_id=channel_id,
+                bot_id=bot.id,
+            )
+    except Exception:
+        logger.debug("Failed to build spatial awareness block for %s/%s", bot.id, channel_id, exc_info=True)
+        return
+    if not block:
+        return
+    if budget_can_afford(block):
+        messages.append({"role": "system", "content": block})
+        budget_consume("spatial_canvas", block)
+        inject_chars["spatial_canvas"] = len(block)
+        _mark_injection_decision(inject_decisions, "spatial_canvas", "admitted")
+        yield {"type": "spatial_canvas", "chars": len(block)}
+    else:
+        _mark_injection_decision(inject_decisions, "spatial_canvas", "skipped_by_budget")
+
+
 def _inject_delegate_index(
     *,
     messages: list[dict],
@@ -2953,6 +2989,18 @@ async def assemble_context(
         yield _evt
     _member_bot_ids: list[str] = _mb_state.get("member_bot_ids", [])
     _member_configs: dict[str, dict] = _mb_state.get("member_configs", {})
+
+    # --- spatial canvas awareness (opt-in per channel/bot policy) ---
+    async for _evt in _inject_spatial_awareness(
+        messages=messages,
+        bot=bot,
+        channel_id=channel_id,
+        inject_chars=_inject_chars,
+        inject_decisions=_inject_decisions,
+        budget_can_afford=_budget_can_afford,
+        budget_consume=_budget_consume,
+    ):
+        yield _evt
 
     # --- delegate bot index ---
     _delegate_event = _inject_delegate_index(

@@ -17,6 +17,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
+import { Bot as BotIcon, MessageCircle } from "lucide-react";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
@@ -33,6 +34,7 @@ import { UpcomingTile } from "./UpcomingTile";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
+import { ChatSession } from "../chat/ChatSession";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
   CAMERA_STORAGE_KEY,
@@ -113,6 +115,18 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     return m;
   }, [channels]);
 
+  const channelForBot = useCallback(
+    (botId: string): Channel | null => {
+      const all = channels ?? [];
+      return (
+        all.find((c) => c.bot_id === botId) ??
+        all.find((c) => (c.member_bots ?? []).some((m) => m.bot_id === botId)) ??
+        null
+      );
+    },
+    [channels],
+  );
+
   // Channel dashboards carry an `icon` field already used by the sidebar
   // rail; lift it onto the canvas tile too. Map `channelId → icon name`
   // (or null if the user hasn't picked one yet — tile falls back to Hash).
@@ -154,6 +168,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   // Hovered tile (for connection-line highlighting). Tracked at the canvas
   // level so layers under the tile map can react.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [openBotChat, setOpenBotChat] = useState<{
+    botId: string;
+    botName: string;
+    channelId: string;
+    channelName: string;
+  } | null>(null);
 
   // Token-usage density layer state. Defaults: subtle (on), 24h, channel-hued
   // (compare off), breathing on. Persisted to localStorage so the user's
@@ -594,6 +614,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
               hoveredNodeId={hoveredNodeId}
             />
           )}
+          <MovementTraceLayer nodes={nodes ?? []} />
           <NowWell
             tickedNow={tickedNow}
             zoom={camera.scale}
@@ -657,6 +678,37 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 </DraggableNode>
               );
             }
+            if (node.bot_id) {
+              const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
+              const channel = channelForBot(node.bot_id);
+              return (
+                <DraggableNode
+                  key={node.id}
+                  node={node}
+                  scale={camera.scale}
+                  isDragging={draggingNodeId === node.id}
+                  diving={diving}
+                  lens={lens}
+                  lensSettling={lensSettling}
+                >
+                  <BotTile
+                    name={botName}
+                    botId={node.bot_id}
+                    zoom={camera.scale}
+                    onOpenChat={() => {
+                      if (!channel) return;
+                      setOpenBotChat({
+                        botId: node.bot_id!,
+                        botName,
+                        channelId: channel.id,
+                        channelName: channel.name,
+                      });
+                    }}
+                    chatDisabled={!channel}
+                  />
+                </DraggableNode>
+              );
+            }
             // Widget node — render via embedded pin payload (P3a). The
             // live iframe at zoom ≥ 0.6 lands in P3b; for now all zoom
             // levels are static cards. If `pin` is missing the node points
@@ -710,6 +762,19 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
         <NowButton onClick={flyToWell} />
         <RecenterButton onClick={() => setCamera(DEFAULT_CAMERA)} />
       </div>
+      {openBotChat && (
+        <ChatSession
+          source={{ kind: "channel", channelId: openBotChat.channelId }}
+          shape="dock"
+          open={true}
+          onClose={() => setOpenBotChat(null)}
+          title={`${openBotChat.botName} in #${openBotChat.channelName}`}
+          initiallyExpanded
+          dockCollapsedTitle={openBotChat.botName}
+          dockCollapsedSubtitle={`#${openBotChat.channelName}`}
+          dismissMode="close"
+        />
+      )}
     </div>
   );
 }
@@ -727,6 +792,135 @@ function NowButton({ onClick }: { onClick: () => void }) {
       <span className="text-sm leading-none">◎</span>
       <span>Now</span>
     </button>
+  );
+}
+
+function MovementTraceLayer({ nodes }: { nodes: SpatialNode[] }) {
+  const now = Date.now();
+  const traces = nodes
+    .map((node) => {
+      const movement = node.last_movement;
+      if (!movement?.from || !movement?.to || !movement.created_at) return null;
+      const created = Date.parse(movement.created_at);
+      if (!Number.isFinite(created)) return null;
+      const age = now - created;
+      const expiresAt = movement.expires_at ? Date.parse(movement.expires_at) : NaN;
+      const ttlMs = Number.isFinite(expiresAt)
+        ? expiresAt - created
+        : Math.max(1, movement.ttl_minutes ?? 30) * 60_000;
+      if (ttlMs <= 0 || age < 0 || age > ttlMs) return null;
+      const opacity = Math.max(0.18, 1 - age / ttlMs);
+      const fromX = movement.from.x + node.world_w / 2;
+      const fromY = movement.from.y + node.world_h / 2;
+      const toX = movement.to.x + node.world_w / 2;
+      const toY = movement.to.y + node.world_h / 2;
+      return { node, fromX, fromY, toX, toY, opacity };
+    })
+    .filter(Boolean) as Array<{
+      node: SpatialNode;
+      fromX: number;
+      fromY: number;
+      toX: number;
+      toY: number;
+      opacity: number;
+    }>;
+  if (traces.length === 0) return null;
+  const xs = traces.flatMap((t) => [t.fromX, t.toX]);
+  const ys = traces.flatMap((t) => [t.fromY, t.toY]);
+  const minX = Math.min(...xs) - 80;
+  const minY = Math.min(...ys) - 80;
+  const maxX = Math.max(...xs) + 80;
+  const maxY = Math.max(...ys) + 80;
+  return (
+    <svg
+      className="absolute pointer-events-none overflow-visible"
+      style={{ left: minX, top: minY, width: maxX - minX, height: maxY - minY }}
+      aria-hidden
+    >
+      <defs>
+        <marker
+          id="spatial-move-arrow"
+          viewBox="0 0 10 10"
+          refX="8"
+          refY="5"
+          markerWidth="5"
+          markerHeight="5"
+          orient="auto-start-reverse"
+        >
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--color-accent))" />
+        </marker>
+      </defs>
+      {traces.map((t) => (
+        <g key={t.node.id} opacity={t.opacity}>
+          <line
+            x1={t.fromX - minX}
+            y1={t.fromY - minY}
+            x2={t.toX - minX}
+            y2={t.toY - minY}
+            stroke="rgb(var(--color-accent))"
+            strokeWidth={2}
+            strokeDasharray="6 5"
+            markerEnd="url(#spatial-move-arrow)"
+          />
+          <circle
+            cx={t.toX - minX}
+            cy={t.toY - minY}
+            r={Math.max(t.node.world_w, t.node.world_h) * 0.7}
+            fill="none"
+            stroke="rgb(var(--color-accent))"
+            strokeWidth={2}
+            strokeOpacity={0.35}
+          />
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function BotTile({
+  name,
+  botId,
+  zoom,
+  onOpenChat,
+  chatDisabled,
+}: {
+  name: string;
+  botId: string;
+  zoom: number;
+  onOpenChat: () => void;
+  chatDisabled: boolean;
+}) {
+  const compact = zoom < 0.65;
+  const initial = (name || botId).slice(0, 1).toUpperCase();
+  return (
+    <div
+      className="w-full h-full rounded-full border border-accent/45 bg-surface-raised shadow-sm flex items-center justify-center relative overflow-hidden"
+      title={`${name} (${botId})`}
+    >
+      <div className="absolute inset-1 rounded-full border border-surface-border/70" />
+      <div className="flex flex-col items-center justify-center gap-0.5 text-center px-2">
+        <BotIcon className="w-5 h-5 text-accent" aria-hidden />
+        {compact ? (
+          <span className="text-[11px] font-semibold text-text leading-none">{initial}</span>
+        ) : (
+          <span className="max-w-[58px] truncate text-[10px] font-medium text-text leading-tight">{name}</span>
+        )}
+      </div>
+      <button
+        type="button"
+        disabled={chatDisabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenChat();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title={chatDisabled ? "No channel available for this bot" : "Open mini chat"}
+        aria-label={chatDisabled ? "No channel available" : `Open mini chat with ${name}`}
+        className="absolute -right-0.5 -bottom-0.5 w-7 h-7 rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim flex items-center justify-center"
+      >
+        <MessageCircle className="w-3.5 h-3.5" aria-hidden />
+      </button>
+    </div>
   );
 }
 

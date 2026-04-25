@@ -42,7 +42,7 @@ Bots need only `model` + `system_prompt` — everything else is surfaced through
 
 ### Widget Dashboards + Interactive HTML Widgets
 
-Tool results become **live, interactive control surfaces**. Pin them to a **channel dashboard** (lazy-created per channel and mapped onto the channel layout zones: left rail, center dashboard, right rail, and top-center chips) or to a **user dashboard** (Home Assistant-style grid, drag + resize). Bots can author their own HTML widgets via `emit_html_widget` — full-iframe dashboards with `window.spindrel.*` helpers for tool dispatch, workspace file read/write, and deep-merge RMW over JSON state. Widgets authenticate as the emitting bot via short-lived JWTs, not the viewer.
+Tool results become **live, interactive control surfaces**. Pin them to a **channel dashboard** (lazy-created per channel and mapped onto the channel layout zones: left rail, center dashboard, right rail, and top-center chips), to a **user dashboard** (Home Assistant-style grid, drag + resize), or onto the **[spatial canvas](guides/spatial-canvas.md)** — a workspace-scope infinite plane that replaces the desktop home with draggable channel + widget tiles, semantic zoom (dot → preview → live iframe), a fisheye lens, and a Now Well with scheduled work in orbit. Bots can author their own HTML widgets via `emit_html_widget` — full-iframe dashboards with `window.spindrel.*` helpers for tool dispatch, workspace file read/write, and deep-merge RMW over JSON state. Widgets authenticate as the emitting bot via short-lived JWTs, not the viewer.
 
 ### Task Pipelines + Sub-Sessions
 
@@ -136,6 +136,7 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
 | [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, and load external tools and skills. |
 | [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards plus channel-dashboard zones: left rail, center dashboard, right rail, and top-center chips. |
+| [Spatial Canvas](guides/spatial-canvas.md) | Workspace-scope infinite plane on the desktop home: channel + widget tiles, fisheye lens, Now Well, density halos, connection lines. |
 | [HTML Widgets](guides/html-widgets.md) | Bot-authored live dashboards. How the bot-scoped iframe auth works and how to provision bots that can build them. |
 | [Widget Templates](widget-templates.md) | YAML widget templates that render tool results as live, interactive UI. Component templates, HTML templates, and the `state_poll` field. |
 | [Developer Panel](guides/dev-panel.md) | `/widgets/dev` — browse the catalog, author templates with live preview, call tools in a sandbox, inspect recent results. |

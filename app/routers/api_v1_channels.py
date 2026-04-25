@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.domain.errors import DomainError
+from app.domain.errors import DomainError, NotFoundError
 from app.db.models import (
     Attachment, Channel, ChannelBotMember, ChannelHeartbeat, ChannelIntegration,
     Message, Session, Skill, Task, ToolApproval, ToolCall, TraceEvent,
@@ -2281,6 +2281,20 @@ class UpdateBotMemberConfigRequest(BaseModel):
     priority: Optional[int] = None
 
 
+class SpatialBotPolicyRequest(BaseModel):
+    enabled: Optional[bool] = None
+    allow_movement: Optional[bool] = None
+    step_world_units: Optional[int] = None
+    max_move_steps_per_turn: Optional[int] = None
+    awareness_radius_steps: Optional[int] = None
+    nearest_neighbor_floor: Optional[int] = None
+    allow_moving_spatial_objects: Optional[bool] = None
+    tug_radius_steps: Optional[int] = None
+    max_tug_steps_per_turn: Optional[int] = None
+    allow_nearby_inspect: Optional[bool] = None
+    movement_trace_ttl_minutes: Optional[int] = None
+
+
 @router.get("/{channel_id}/bot-members", response_model=list[ChannelBotMemberOut])
 async def list_bot_members(
     channel_id: uuid.UUID,
@@ -2304,6 +2318,42 @@ async def list_bot_members(
             item.bot_name = bm.bot_id
         out.append(item)
     return out
+
+
+@router.get("/{channel_id}/spatial-bots/{bot_id}")
+async def get_channel_spatial_bot_policy(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:read")),
+):
+    from app.services.workspace_spatial import get_channel_bot_spatial_policy
+    try:
+        policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"channel_id": str(channel_id), "bot_id": bot_id, "policy": policy}
+
+
+@router.patch("/{channel_id}/spatial-bots/{bot_id}")
+async def patch_channel_spatial_bot_policy(
+    channel_id: uuid.UUID,
+    bot_id: str,
+    body: SpatialBotPolicyRequest,
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("channels:write")),
+):
+    from app.services.workspace_spatial import update_channel_bot_spatial_policy
+    try:
+        policy = await update_channel_bot_spatial_policy(
+            db,
+            channel_id,
+            bot_id,
+            body.model_dump(exclude_unset=True),
+        )
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return {"channel_id": str(channel_id), "bot_id": bot_id, "policy": policy}
 
 
 @router.post("/{channel_id}/bot-members", response_model=ChannelBotMemberOut, status_code=201)

@@ -129,6 +129,13 @@ current_invoked_member_bots: ContextVar[set | None] = ContextVar(
     "current_invoked_member_bots", default=None
 )
 
+current_spatial_move_steps_used: ContextVar[int] = ContextVar(
+    "current_spatial_move_steps_used", default=0
+)
+current_spatial_tug_steps_used: ContextVar[int] = ContextVar(
+    "current_spatial_tug_steps_used", default=0
+)
+
 
 def set_agent_context(
     session_id: uuid.UUID | None = None,
@@ -166,6 +173,8 @@ def set_agent_context(
     current_dispatch_type.set(dispatch_type)
     current_dispatch_config.set(dispatch_config)
     current_channel_model_tier_overrides.set(None)
+    current_spatial_move_steps_used.set(0)
+    current_spatial_tug_steps_used.set(0)
     if session_depth is not None:
         current_session_depth.set(session_depth)
     if root_session_id is not None:

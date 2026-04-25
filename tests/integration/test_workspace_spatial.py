@@ -26,6 +26,11 @@ from app.services.dashboards import (
     WORKSPACE_SPATIAL_DASHBOARD_KEY,
     list_dashboards,
 )
+from app.services.workspace_spatial import (
+    build_canvas_neighborhood,
+    move_bot_node,
+    update_channel_bot_spatial_policy,
+)
 from tests.integration.conftest import AUTH_HEADERS
 
 
@@ -116,6 +121,71 @@ class TestSpatialNodesAutoSeed:
         ids_1 = {n["id"] for n in r1.json()["nodes"]}
         ids_2 = {n["id"] for n in r2.json()["nodes"]}
         assert ids_1 == ids_2, "second GET must not create duplicate rows"
+
+    async def test_get_nodes_creates_bot_rows(self, client):
+        await _create_channel(client)
+        r = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        nodes = r.json()["nodes"]
+        bot_nodes = [n for n in nodes if n["bot_id"] == "test-bot"]
+        assert len(bot_nodes) == 1
+        assert bot_nodes[0]["channel_id"] is None
+        assert bot_nodes[0]["widget_pin_id"] is None
+        assert bot_nodes[0]["bot"]["id"] == "test-bot"
+
+    async def test_channel_spatial_bot_policy_roundtrip(self, client):
+        ch = await _create_channel(client)
+        r = await client.patch(
+            f"/api/v1/channels/{ch['id']}/spatial-bots/test-bot",
+            json={
+                "enabled": True,
+                "allow_movement": True,
+                "allow_moving_spatial_objects": True,
+                "step_world_units": 32,
+                "max_move_steps_per_turn": 2,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert r.status_code == 200, r.text
+        policy = r.json()["policy"]
+        assert policy["enabled"] is True
+        assert policy["allow_movement"] is True
+        assert policy["step_world_units"] == 32
+
+        r2 = await client.get(
+            f"/api/v1/channels/{ch['id']}/spatial-bots/test-bot",
+            headers=AUTH_HEADERS,
+        )
+        assert r2.status_code == 200, r2.text
+        assert r2.json()["policy"]["allow_moving_spatial_objects"] is True
+
+    async def test_move_bot_node_respects_channel_policy(self, client, db_session):
+        ch = await _create_channel(client)
+        channel_id = uuid.UUID(ch["id"])
+        await update_channel_bot_spatial_policy(
+            db_session,
+            channel_id,
+            "test-bot",
+            {"enabled": True, "allow_movement": True, "step_world_units": 32, "max_move_steps_per_turn": 2},
+        )
+        node = await move_bot_node(
+            db_session,
+            channel_id=channel_id,
+            bot_id="test-bot",
+            dx_steps=2,
+            dy_steps=0,
+            reason="test",
+        )
+        assert node.bot_id == "test-bot"
+        assert node.last_movement["kind"] == "bot_move"
+        assert node.last_movement["to"]["x"] - node.last_movement["from"]["x"] == 64
+
+        neighborhood = await build_canvas_neighborhood(
+            db_session,
+            channel_id=channel_id,
+            bot_id="test-bot",
+        )
+        assert neighborhood["bot"]["bot_id"] == "test-bot"
 
 
 class TestSpatialUpcomingActivity:

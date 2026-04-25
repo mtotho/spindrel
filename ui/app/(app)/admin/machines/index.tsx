@@ -436,7 +436,7 @@ function ProviderSection({ provider }: { provider: MachineProviderState }) {
                               icon={<Copy size={12} />}
                             />
                             <ActionButton
-                              label={copiedKey === `${target.target_id}:service` ? "Copied" : "Install service"}
+                              label={copiedKey === `${target.target_id}:service` ? "Copied" : "Copy service install"}
                               onPress={() => void handleCopyTargetSetup(target, "service")}
                               variant="secondary"
                               size="small"

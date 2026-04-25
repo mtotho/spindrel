@@ -22,6 +22,7 @@ export interface SpatialNode {
   id: string;
   channel_id: string | null;
   widget_pin_id: string | null;
+  bot_id: string | null;
   world_x: number;
   world_y: number;
   world_w: number;
@@ -30,8 +31,40 @@ export interface SpatialNode {
   seed_index: number | null;
   pinned_at: string | null;
   updated_at: string | null;
+  last_movement?: {
+    kind?: string;
+    actor_bot_id?: string;
+    channel_id?: string;
+    target_node_id?: string | null;
+    from?: { x: number; y: number };
+    to?: { x: number; y: number };
+    reason?: string | null;
+    created_at?: string;
+    expires_at?: string;
+    ttl_minutes?: number;
+  } | null;
+  bot?: {
+    id: string;
+    name?: string;
+    display_name?: string | null;
+    avatar_url?: string | null;
+  };
   /** Present only when `widget_pin_id` is set. */
   pin?: SpatialNodePin;
+}
+
+export interface SpatialBotPolicy {
+  enabled: boolean;
+  allow_movement: boolean;
+  step_world_units: number;
+  max_move_steps_per_turn: number;
+  awareness_radius_steps: number;
+  nearest_neighbor_floor: number;
+  allow_moving_spatial_objects: boolean;
+  tug_radius_steps: number;
+  max_tug_steps_per_turn: number;
+  allow_nearby_inspect: boolean;
+  movement_trace_ttl_minutes: number;
 }
 
 interface NodesResponse {
@@ -158,6 +191,35 @@ export function usePinWidgetToCanvas() {
       // Pin lists for the workspace:spatial slug are intentionally hidden
       // from user dashboard listings. If a future surface lists them
       // explicitly, invalidate that key here.
+    },
+  });
+}
+
+export function useSpatialBotPolicy(channelId: string | undefined, botId: string | undefined) {
+  return useQuery({
+    queryKey: ["channel-spatial-bot-policy", channelId, botId],
+    queryFn: async () => {
+      const res = await apiFetch<{ policy: SpatialBotPolicy }>(
+        `/api/v1/channels/${channelId}/spatial-bots/${encodeURIComponent(botId!)}`,
+      );
+      return res.policy;
+    },
+    enabled: !!channelId && !!botId,
+  });
+}
+
+export function useUpdateSpatialBotPolicy(channelId: string | undefined, botId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: Partial<SpatialBotPolicy>) => {
+      const res = await apiFetch<{ policy: SpatialBotPolicy }>(
+        `/api/v1/channels/${channelId}/spatial-bots/${encodeURIComponent(botId!)}`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      );
+      return res.policy;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["channel-spatial-bot-policy", channelId, botId] });
     },
   });
 }

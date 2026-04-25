@@ -17,6 +17,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
+- **Spatial canvas** — Workspace-scope infinite plane on the desktop home. Channels auto-populate as draggable tiles; widgets are opt-in. Semantic zoom (dot → preview → live iframe), fisheye lens, and a `Now Well` with scheduled work in orbit. `Ctrl+Shift+Space` toggles it as an overlay from anywhere.
 - **Programmatic tool calling** — `run_script` lets bots orchestrate many tool calls in one turn when plain chat loops would be too noisy or expensive.
 - **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace, Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
@@ -51,6 +52,8 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Chat session with widgets, sub-sessions, and the current sidebar/OmniPanel UI | Provider configuration with built-in fallback and per-bot routing |
 | ![Channel dashboard](docs/images/channel-widget-dashboard-edit-layout-1.png) | ![Channel side panels](docs/images/channel-chat-screen-side-panels-1.png) |
 | Channel dashboard edit mode with widget layout controls | Channel chat with current side-panel / OmniPanel layout |
+| ![Spatial canvas](docs/images/spatial-overview-1.png) | ![Spatial canvas — widget zoom](docs/images/spatial-zoom-widgets.png) |
+| Workspace-scope spatial canvas — every channel as a draggable tile, Now Well below | Zoomed-in view: live widget tiles around the channel they belong to |
 | ![Home Assistant widget](docs/images/channel-widget-home-assistant-chat-1.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
 | Home Assistant widget rendered inline in chat | Token usage, daily spend, and budget forecast |
 
@@ -104,6 +107,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Pipelines](docs/guides/pipelines.md) | Multi-step task automation with conditions and approval gates |
 | [Task Sub-Sessions](docs/guides/task-sub-sessions.md) | Pipeline-run-as-chat transcript model |
 | [Widget Dashboards](docs/guides/widget-dashboards.md) | Channel dashboards, named dashboards, OmniPanel rail |
+| [Spatial Canvas](docs/guides/spatial-canvas.md) | Workspace-scope infinite plane: channel + widget tiles, fisheye lens, Now Well |
 | [HTML Widgets](docs/guides/html-widgets.md) | Bot-authored interactive HTML widgets |
 | [Developer Panel](docs/guides/dev-panel.md) | `/widgets/dev` tool sandbox and widget authoring workbench |
 | [Secrets & Redaction](docs/guides/secrets.md) | Secret vault and automatic redaction |

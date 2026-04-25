@@ -57,6 +57,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [PWA & Push](pwa-push.md) | PWA installation + Web Push |
 | [Secrets & Redaction](secrets.md) | Secret stores + redaction rules |
 | [Slack](slack.md) | Slack integration specifics |
+| [Spatial Canvas](spatial-canvas.md) | Workspace-scope infinite plane that replaces the desktop home — channel + widget tiles, fisheye lens, Now Well |
 | [Sub-Agents](subagents.md) | Readonly sidecar sub-agents |
 | [Task Sub-Sessions](task-sub-sessions.md) | Pipeline-as-chat + threads + scratch chat |
 | [Templates and Activation](templates-and-activation.md) | Workspace templates + activation manifests |

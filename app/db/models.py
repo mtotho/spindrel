@@ -2168,10 +2168,10 @@ class PushSubscription(Base):
 class WorkspaceSpatialNode(Base):
     """A tile placement on the workspace-scope Spatial Canvas.
 
-    One row per *thing* on the canvas. The "thing" is either a channel (the
-    canvas auto-populates one node per channel on first read) or a widget pin
-    that lives on the reserved ``workspace:spatial`` dashboard. The two
-    target columns are mutually exclusive — exactly one is non-null,
+    One row per *thing* on the canvas. The "thing" is a channel (the
+    canvas auto-populates one node per channel on first read), a widget pin
+    that lives on the reserved ``workspace:spatial`` dashboard, or a bot.
+    The target columns are mutually exclusive — exactly one is non-null,
     enforced by a CHECK constraint and a pair of unique partial indexes so
     a given target can only have one canvas position.
 
@@ -2201,6 +2201,7 @@ class WorkspaceSpatialNode(Base):
         ForeignKey("widget_dashboard_pins.id", ondelete="CASCADE"),
         nullable=True,
     )
+    bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     world_x: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     world_y: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     world_w: Mapped[float] = mapped_column(Float, nullable=False, default=220.0)
@@ -2215,12 +2216,13 @@ class WorkspaceSpatialNode(Base):
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=text("now()"),
     )
+    last_movement: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
-        # Exactly one target FK is set. ``IS NULL`` arithmetic works on both
-        # Postgres and SQLite — `(a IS NULL) + (b IS NULL)` is 0/1/2.
         CheckConstraint(
-            "(channel_id IS NULL) <> (widget_pin_id IS NULL)",
+            "((CASE WHEN channel_id IS NOT NULL THEN 1 ELSE 0 END) + "
+            "(CASE WHEN widget_pin_id IS NOT NULL THEN 1 ELSE 0 END) + "
+            "(CASE WHEN bot_id IS NOT NULL THEN 1 ELSE 0 END)) = 1",
             name="ck_workspace_spatial_nodes_target_exactly_one",
         ),
         # One spatial node per target. Partial unique indexes are honored on
@@ -2238,6 +2240,13 @@ class WorkspaceSpatialNode(Base):
             unique=True,
             postgresql_where=text("widget_pin_id IS NOT NULL"),
             sqlite_where=text("widget_pin_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_workspace_spatial_nodes_bot",
+            "bot_id",
+            unique=True,
+            postgresql_where=text("bot_id IS NOT NULL"),
+            sqlite_where=text("bot_id IS NOT NULL"),
         ),
         Index("ix_workspace_spatial_nodes_seed_index", "seed_index"),
     )
