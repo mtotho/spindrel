@@ -27,7 +27,7 @@ test("upcoming presentation helpers centralize labels and hrefs", () => {
   assert.equal(upcomingTypeLabel({ ...base, type: "memory_hygiene", channel_id: null }), "dreaming");
   assert.equal(
     upcomingHref({ ...base, type: "task", task_id: "task-a" }),
-    "/admin/tasks/task-a",
+    "/admin/automations/task-a",
   );
 });
 

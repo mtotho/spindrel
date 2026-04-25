@@ -466,7 +466,7 @@ A3_DOCS_SPECS: list[ScreenshotSpec] = [
     # registered task definition including pipeline-shaped ones.
     ScreenshotSpec(
         name="pipeline-library",
-        route="/admin/tasks?view=definitions",
+        route="/admin/automations?view=definitions",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         # The Definitions tab label sits in the page chrome and matches even

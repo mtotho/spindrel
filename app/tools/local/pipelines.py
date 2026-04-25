@@ -1,14 +1,16 @@
-"""Agent tools for discovering and running pipelines.
+"""Agent tools for discovering, defining, and running Pipelines.
 
 Pipelines are stored in the shared ``tasks`` table (``task_type='pipeline'``),
-but this is a noisy surface when the caller only wants multi-step definitions.
-These tools give the LLM a clean view:
+but the noisy ``tasks``-shaped surface is unfriendly when the caller wants
+multi-step Automations specifically. These tools give the LLM a clean view:
 
-* ``list_pipelines`` — definitions only, no concrete runs, slug-addressable.
-* ``run_pipeline`` — spawn a child run with ``params`` + ``channel_id``.
+* ``list_pipelines`` — Pipeline definitions only, no concrete Runs, slug-addressable.
+* ``define_pipeline`` — create a NEW multi-step Pipeline definition.
+* ``run_pipeline`` — spawn a Run with ``params`` + ``channel_id``.
 
 The underlying storage is unchanged; this is a vocabulary split, not a model
-split. ``run_task`` still works for non-pipeline definitions.
+split. ``schedule_prompt`` covers the single-prompt Automation case;
+``run_task`` still works for any Automation definition by id.
 """
 import json
 import uuid
@@ -19,6 +21,7 @@ from app.agent.context import current_channel_id
 from app.db.engine import async_session
 from app.db.models import Task
 from app.services.task_seeding import pipeline_uuid
+from app.tools.local.tasks import _create_task_row
 from app.tools.registry import register
 
 
@@ -64,14 +67,14 @@ async def _resolve_pipeline_id(raw: str, db) -> uuid.UUID | None:
     "function": {
         "name": "list_pipelines",
         "description": (
-            "List multi-step pipeline definitions — system audit pipelines "
+            "List multi-step Pipeline definitions — system audit pipelines "
             "(analyze_discovery, analyze_skill_quality, analyze_memory_quality, "
             "analyze_tool_usage, analyze_costs, full_scan, deep_dive_bot) plus "
-            "any user-created pipelines. Returns each pipeline's slug, title, "
+            "any user-created Pipelines. Returns each Pipeline's slug, title, "
             "description, required params, and whether it needs a channel/bot "
             "at launch. To run one, pass its slug to `run_pipeline`. This is "
-            "the pipeline-focused view of `list_tasks`; use `list_tasks` only "
-            "when you need one-shot or recurring prompts instead."
+            "the Pipeline-focused view of `list_tasks`; use `list_tasks` when "
+            "you also want Scheduled prompts or other Automations."
         ),
         "parameters": {
             "type": "object",
@@ -158,6 +161,147 @@ async def list_pipelines(source: str | None = None) -> str:
         out.append(entry)
 
     return json.dumps({"pipelines": out, "count": len(out)}, ensure_ascii=False)
+
+
+_DEFINE_PIPELINE_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "define_pipeline",
+        "description": (
+            "CREATE a NEW multi-step Pipeline definition. Use this for declarative "
+            "Automations that chain multiple steps (exec / tool / agent / user_prompt / "
+            "foreach). For single-prompt Automations, call `schedule_prompt` instead. "
+            "To RE-RUN an existing Pipeline, call `run_pipeline` with its slug or id — "
+            "do NOT redefine it here. Call `list_pipelines` first to check whether a "
+            "matching definition already exists. "
+            "Defaults to the current bot in the current channel. The Run lands in the "
+            "target channel (or the bot's primary channel when bot_id is set)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Short human-readable title for the Pipeline (shown in UI). Keep under ~60 chars.",
+                },
+                "steps": {
+                    "type": "string",
+                    "description": (
+                        "JSON array of step definitions. Each step needs at minimum "
+                        "id and type ('exec', 'tool', 'agent', 'user_prompt', or 'foreach'). "
+                        "'user_prompt' pauses the Pipeline for human approval (response shapes: "
+                        "'binary' or 'multi_item'; resolved via POST /tasks/{id}/steps/{i}/resolve). "
+                        "'foreach' iterates a list from a prior step ('over: {{steps.X.result.items}}') "
+                        "running 'do' sub-steps per item — sub-step type 'tool' only in v1. "
+                        "Example: '[{\"id\":\"search\",\"type\":\"tool\",\"tool_name\":\"web_search\","
+                        "\"tool_args\":{\"query\":\"latest news\"}},{\"id\":\"analyze\",\"type\":\"agent\","
+                        "\"prompt\":\"Summarize the search results.\"}]'"
+                    ),
+                },
+                "execution_config": {
+                    "type": "string",
+                    "description": (
+                        "JSON object with execution overrides. Valid keys: "
+                        "model_override (string), tools (list of tool names), "
+                        "skills (list of skill IDs). Applied to agent steps."
+                    ),
+                },
+                "bot_id": {
+                    "type": "string",
+                    "description": (
+                        "Bot to run this Pipeline. Defaults to the current bot. "
+                        "When targeting a different bot, the Run lands in that bot's "
+                        "primary channel with its dispatch config."
+                    ),
+                },
+                "scheduled_at": {
+                    "type": "string",
+                    "description": (
+                        "When the Pipeline should run. ISO 8601 datetime or relative offset "
+                        "(+30m, +2h, +1d). Omit or null to make the definition idle "
+                        "(run only when invoked via `run_pipeline`)."
+                    ),
+                },
+                "recurrence": {
+                    "type": "string",
+                    "description": (
+                        "Repeat interval: +30m, +1h, +1d, +1w. After each successful Run, "
+                        "the next occurrence is automatically scheduled. Omit for one-shot."
+                    ),
+                },
+                "trigger_config": {
+                    "type": "string",
+                    "description": (
+                        "JSON object configuring event-based triggers. "
+                        "Example: '{\"type\":\"event\",\"event_source\":\"github\",\"event_type\":\"push\"}'. "
+                        "Status will be set to 'active' when trigger_config is provided."
+                    ),
+                },
+                "max_run_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Maximum time in seconds a single Run is allowed before being "
+                        "terminated. Overrides channel and global defaults."
+                    ),
+                },
+            },
+            "required": ["steps"],
+        },
+    },
+}
+
+
+@register(
+    _DEFINE_PIPELINE_SCHEMA,
+    safety_tier="control_plane",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
+async def define_pipeline(
+    steps: str,
+    title: str | None = None,
+    execution_config: str | None = None,
+    bot_id: str | None = None,
+    scheduled_at: str | None = None,
+    recurrence: str | None = None,
+    trigger_config: str | None = None,
+    max_run_seconds: int | None = None,
+) -> str:
+    try:
+        parsed_steps = json.loads(steps)
+    except json.JSONDecodeError:
+        return json.dumps({"error": "Invalid JSON in steps parameter."}, ensure_ascii=False)
+    if not isinstance(parsed_steps, list) or not parsed_steps:
+        return json.dumps({"error": "steps must be a non-empty JSON array."}, ensure_ascii=False)
+
+    parsed_ec = None
+    if execution_config:
+        try:
+            parsed_ec = json.loads(execution_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in execution_config parameter."}, ensure_ascii=False)
+
+    parsed_tc = None
+    if trigger_config:
+        try:
+            parsed_tc = json.loads(trigger_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in trigger_config parameter."}, ensure_ascii=False)
+
+    return await _create_task_row(
+        prompt="",
+        title=title,
+        parsed_steps=parsed_steps,
+        parsed_ec=parsed_ec,
+        parsed_tc=parsed_tc,
+        workspace_file_path=None,
+        scheduled_at=scheduled_at,
+        bot_id=bot_id,
+        reply_in_thread=False,
+        recurrence=recurrence,
+        trigger_rag_loop=False,
+        max_run_seconds=max_run_seconds,
+    )
 
 
 @register({

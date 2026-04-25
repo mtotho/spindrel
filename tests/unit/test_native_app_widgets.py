@@ -178,6 +178,12 @@ def test_native_catalog_entries_expose_contract():
         "max_cells": {"w": 12, "h": 8},
     }
     assert todo["widget_contract"]["layout_hints"] == todo["layout_hints"]
+
+    agent_smell = next(entry for entry in entries if entry["name"] == "agent_smell_native")
+    assert agent_smell["display_label"] == "Agent Smell"
+    assert agent_smell["supported_scopes"] == ["dashboard"]
+    assert agent_smell["widget_contract"]["definition_kind"] == "native_widget"
+    assert agent_smell["widget_presentation"]["panel_title"] == "Agent Smell"
     assert todo["widget_contract"]["context_export"] == {
         "enabled": True,
         "summary_kind": "native_state",

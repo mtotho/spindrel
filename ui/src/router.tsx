@@ -19,6 +19,12 @@ function ChannelDashboardSettingsRedirect() {
   return <Navigate to={`/channels/${channelId}/settings?from=dashboard#dashboard`} replace />;
 }
 
+function RedirectToAutomation() {
+  const { taskId } = useParams<{ taskId: string }>();
+  if (!taskId) return <Navigate to="/admin/automations" replace />;
+  return <Navigate to={`/admin/automations/${taskId}`} replace />;
+}
+
 function SettingsIndexRedirect() {
   const isAdmin = useIsAdmin();
   const { hash } = useLocation();
@@ -229,8 +235,10 @@ export const router = createBrowserRouter([
               { path: "sessions", element: <AdminSessions /> },
               { path: "skills", element: <AdminSkillsIndex /> },
               { path: "skills/*", element: <AdminSkillDetail /> },
-              { path: "tasks", element: <AdminTasksIndex /> },
-              { path: "tasks/:taskId", element: <AdminTaskDetail /> },
+              { path: "automations", element: <AdminTasksIndex /> },
+              { path: "automations/:taskId", element: <AdminTaskDetail /> },
+              { path: "tasks", element: <Navigate to="/admin/automations" replace /> },
+              { path: "tasks/:taskId", element: <RedirectToAutomation /> },
               { path: "tool-calls", element: <AdminToolCalls /> },
               { path: "tool-policies", element: <AdminToolPolicies /> },
               { path: "tool-policies/:ruleId", element: <AdminToolPolicyDetail /> },
@@ -238,7 +246,7 @@ export const router = createBrowserRouter([
               { path: "tools/:toolId", element: <AdminToolDetail /> },
               { path: "widget-packages/:packageId", element: <AdminWidgetPackageRedirect /> },
               { path: "widget-packages", element: <Navigate to="/widgets/dev#library" replace /> },
-              { path: "upcoming", element: <Navigate to="/admin/tasks?view=list" replace /> },
+              { path: "upcoming", element: <Navigate to="/admin/automations?view=list" replace /> },
               { path: "usage", element: <AdminUsage /> },
               { path: "users", element: <AdminUsers /> },
               { path: "webhooks", element: <AdminWebhooksIndex /> },

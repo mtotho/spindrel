@@ -87,10 +87,10 @@ export const TriggerCard = memo(function TriggerCard({ message }: Props) {
         )}
         {taskId && (
           <button
-            onClick={() => navigate(`/admin/tasks/${taskId}`)}
+            onClick={() => navigate(`/admin/automations/${taskId}`)}
             className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent-hover px-1.5 py-0.5 rounded transition-colors hover:bg-accent/5 cursor-pointer border-none bg-transparent opacity-85 hover:opacity-100"
           >
-            <span>View task</span>
+            <span>View Automation</span>
             <ExternalLink size={10} />
           </button>
         )}

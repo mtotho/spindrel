@@ -12,7 +12,7 @@ Workflows and tasks ran on two parallel code paths. Pipelines merge them:
 | Workflows (old) | Pipelines (new) |
 |---|---|
 | Separate `Workflow` model + `manage_workflow` tool + visual editor | One `Task` model with a `steps:` array |
-| Triggered via `manage_workflow run`, heartbeat `workflow_id`, or API | Triggered via `/admin/tasks/<id>/launchpad`, `run_pipeline` tool, heartbeat `pipeline_id`, or `channel_pipeline_subscriptions` cron |
+| Triggered via `manage_workflow run`, heartbeat `workflow_id`, or API | Triggered via `/admin/automations/<id>/launchpad`, `run_pipeline` tool, heartbeat `pipeline_id`, or `channel_pipeline_subscriptions` cron |
 | Workflow runs posted plain lifecycle messages to chat | Pipeline runs render as a chat-native **sub-session** — a modal or docked transcript showing every step's LLM thinking, tool widgets, and output |
 | No per-channel subscriptions — workflows were global | `channel_pipeline_subscriptions` binds a pipeline to a channel with its own cron schedule |
 | `on_error` branching on the whole run | Step-level `fail_if` + tool-error signaling |

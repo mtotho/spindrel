@@ -20,7 +20,9 @@ _TOOL_DISPLAY_NAMES = {
     "get_skill": "Loading skill",
     "manage_capability": "Managing capability",
     "manage_workflow": "Managing workflow",
-    "schedule_task": "Scheduling task",
+    "schedule_prompt": "Scheduling prompt",
+    "define_pipeline": "Defining pipeline",
+    "run_pipeline": "Running pipeline",
     "client_action": None,
     "shell_exec": None,
 }

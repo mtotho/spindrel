@@ -120,7 +120,7 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
                 );
               }
               return (
-                <Link key={task.id} to={`/admin/tasks/${task.id}`}>
+                <Link key={task.id} to={`/admin/automations/${task.id}`}>
                   {row}
                 </Link>
               );

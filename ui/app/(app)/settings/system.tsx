@@ -228,7 +228,7 @@ const DOMAIN_SURFACES: Record<Exclude<SystemTab, "Overview" | "Advanced">, Array
   ],
   "Memory & Context": [
     { label: "Memory & Knowledge", href: "/admin/learning" },
-    { label: "Tasks", href: "/admin/tasks" },
+    { label: "Automations", href: "/admin/automations" },
   ],
   Retrieval: [
     { label: "Memory & Knowledge", href: "/admin/learning#Knowledge" },

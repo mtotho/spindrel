@@ -97,7 +97,7 @@ export function SidebarRail() {
       return a.name.localeCompare(b.name);
     });
 
-  const isTasksActive = pathname.startsWith("/admin/tasks");
+  const isTasksActive = pathname.startsWith("/admin/automations");
   // "Widgets" rail entry lights up for /widgets (redirect) or /widgets/default;
   // pinned-dashboard entries light up for their own exact slug.
   const isWidgetsActive =
@@ -151,9 +151,9 @@ export function SidebarRail() {
 
         {isAdmin && (
           <RailLink
-            href="/admin/tasks?view=list"
+            href="/admin/automations?view=list"
             active={isTasksActive}
-            title="Tasks"
+            title="Automations"
             badge={
               upcomingCount > 0 && !isTasksActive ? (
                 <span className="absolute top-0.5 right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-accent text-[9px] font-bold text-white flex flex-row items-center justify-center tabular-nums">

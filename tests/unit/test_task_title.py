@@ -14,7 +14,7 @@ class TestCreateTaskTitle:
     @pytest.mark.asyncio
     @patch("app.tools.local.tasks.async_session")
     async def test_create_task_with_title(self, mock_session):
-        from app.tools.local.tasks import schedule_task as create_task
+        from app.tools.local.tasks import schedule_prompt as create_task
 
         captured_task = {}
 
@@ -50,12 +50,14 @@ class TestCreateTaskTitle:
 
         assert captured_task["title"] == "My Task"
         assert captured_task["prompt"] == "Do something"
-        assert "queued" in result
+        parsed = json.loads(result)
+        assert parsed["status"] == "pending"
+        assert parsed["title"] == "My Task"
 
     @pytest.mark.asyncio
     @patch("app.tools.local.tasks.async_session")
     async def test_create_task_without_title(self, mock_session):
-        from app.tools.local.tasks import schedule_task as create_task
+        from app.tools.local.tasks import schedule_prompt as create_task
 
         captured_task = {}
 

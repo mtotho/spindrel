@@ -1,7 +1,7 @@
 """Tests for manage_workflow tool — SKIPPED: tool removed in workflow→pipeline migration."""
 import pytest
 
-pytestmark = pytest.mark.skip(reason="manage_workflow tool removed — replaced by schedule_task with steps")
+pytestmark = pytest.mark.skip(reason="manage_workflow tool removed — replaced by define_pipeline")
 
 
 # ---------------------------------------------------------------------------

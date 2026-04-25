@@ -168,7 +168,7 @@ function PipelineTile({
           </button>
         ) : activeChild ? (
           <Link
-            to={`/admin/tasks/${activeChild.id}`}
+            to={`/admin/automations/${activeChild.id}`}
             className="inline-flex items-center gap-1 text-[11px] text-accent/80 hover:text-accent
                        font-medium self-start mt-0.5"
             onClick={(e) => e.stopPropagation()}
@@ -566,7 +566,7 @@ export function OrchestratorLaunchpad({
                   const isSpinning = status === "running" || status === "pending";
                   return (
                     <Link
-                      to={`/admin/tasks/${run.id}`}
+                      to={`/admin/automations/${run.id}`}
                       key={run.id}
                       className="flex flex-row items-center justify-between gap-3 px-3.5 py-2
                                  text-xs hover:bg-surface-overlay/40 transition-colors"

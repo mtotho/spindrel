@@ -853,6 +853,23 @@ _REGISTRY: dict[str, NativeWidgetSpec] = {
         panel_title="Usage forecast",
         show_panel_title=True,
     ),
+    "core/agent_smell_native": NativeWidgetSpec(
+        widget_ref="core/agent_smell_native",
+        name="agent_smell_native",
+        display_label="Agent Smell",
+        description="First-party native ranking of bots with suspicious trace and tool behavior.",
+        icon="activity",
+        supported_scopes=("dashboard",),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 4, "h": 3}, "max_cells": {"w": 12, "h": 8}},
+        default_state={
+            "created_at": "",
+            "updated_at": "",
+        },
+        actions=(),
+        context_export={"enabled": True, "summary_kind": "server_provider", "hint_kind": "none"},
+        panel_title="Agent Smell",
+        show_panel_title=True,
+    ),
     "core/channel_files_native": NativeWidgetSpec(
         widget_ref="core/channel_files_native",
         name="channel_files_native",

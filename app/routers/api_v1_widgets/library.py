@@ -336,9 +336,10 @@ async def list_library_widgets(
     ``/html-widget-content/*`` endpoint.
 
     **Tool-renderer `template.yaml` bundles are intentionally excluded.**
-    Entries like ``get_task_result``, ``manage_bot_skill``, ``schedule_task``
-    need tool arguments to render and are surfaced through the dev panel's
-    Tools / Recent-calls tabs instead — they can't be pinned standalone.
+    Entries like ``get_task_result``, ``manage_bot_skill``, ``schedule_prompt``,
+    ``define_pipeline`` need tool arguments to render and are surfaced through
+    the dev panel's Tools / Recent-calls tabs instead — they can't be pinned
+    standalone.
     """
     from sqlalchemy import select
 

@@ -1,16 +1,16 @@
 ---
 name: Pipeline Creation
 description: >
-  Decision guide for creating task pipelines. When to use a pipeline vs work
-  inline, how to use schedule_task with steps, step type selection across all
+  Decision guide for creating Pipelines. When to use a Pipeline vs work
+  inline, how to use define_pipeline, step type selection across all
   five types (exec / tool / agent / user_prompt / foreach), params, optimization
-  tips, and worked examples. Load when building multi-step automations or
-  deciding whether a task needs a pipeline.
+  tips, and worked examples. Load when building multi-step Automations or
+  deciding whether work needs a Pipeline.
 use_when: >
-  Deciding if work belongs in a pipeline at all, choosing between the five
-  step types, wiring up params for a reusable pipeline, or picking
+  Deciding if work belongs in a Pipeline at all, choosing between the five
+  step types, wiring up params for a reusable Pipeline, or picking
   user_prompt vs agent-asks-a-question for an approval gate.
-triggers: create pipeline, pipeline task, multi-step task, schedule pipeline, automate steps, when to pipeline, build automation, approval gate, batch operation, iterate list
+triggers: create pipeline, define pipeline, multi-step automation, schedule pipeline, automate steps, when to pipeline, build automation, approval gate, batch operation, iterate list
 category: pipelines
 ---
 
@@ -20,21 +20,21 @@ category: pipelines
 
 | Situation | Use | Why |
 |---|---|---|
-| One-off reasoning or analysis | Single-prompt `schedule_task` | No orchestration needed |
-| Multi-step with conditions/branching | **Pipeline** (steps param) | Deterministic control flow |
-| Mix shell ops + tool calls + LLM reasoning | **Pipeline** | Each step uses the right engine |
+| One-off reasoning or analysis | `schedule_prompt` (single-prompt Automation) | No orchestration needed |
+| Multi-step with conditions/branching | **`define_pipeline`** | Deterministic control flow |
+| Mix shell ops + tool calls + LLM reasoning | **`define_pipeline`** | Each step uses the right engine |
 | Fan-out to multiple bots simultaneously | `delegate_to_agent` (parallel) | Pipelines are sequential |
-| Recurring multi-step checks | **Pipeline** + `recurrence` | Steps re-execute on schedule |
-| Purely deterministic (no LLM needed) | **Pipeline** with exec/tool only | Zero LLM cost |
+| Recurring multi-step checks | **`define_pipeline`** + `recurrence` | Steps re-execute on schedule |
+| Purely deterministic (no LLM needed) | **`define_pipeline`** with exec/tool only | Zero LLM cost |
 
-**Rule of thumb:** if you'd chain 3+ actions in sequence, or need to branch on a prior result, use a pipeline.
+**Rule of thumb:** if you'd chain 3+ actions in sequence, or need to branch on a prior result, use a Pipeline.
 
-## Creating a Pipeline Task
+## Creating a Pipeline
 
-Use `schedule_task` with the `steps` parameter (JSON array):
+Use `define_pipeline` — `steps` is required:
 
 ```
-schedule_task(
+define_pipeline(
   title="Health check",
   steps='[
     {"id": "check", "type": "exec", "prompt": "df -h / && free -h"},
@@ -43,12 +43,12 @@ schedule_task(
 )
 ```
 
-When `steps` is provided, `prompt` is optional — a placeholder is auto-generated. You can still pass `scheduled_at`, `recurrence`, `bot_id`, and all other `schedule_task` parameters.
+`define_pipeline` also accepts `scheduled_at`, `recurrence`, `bot_id`, `trigger_config`, `execution_config`, and `max_run_seconds`.
 
 For advanced overrides (model, tools, skills), pass `execution_config`:
 
 ```
-schedule_task(
+define_pipeline(
   title="Research pipeline",
   steps='[...]',
   execution_config='{"model_override": "gpt-4o-mini", "tools": ["web_search"]}'
@@ -217,17 +217,19 @@ get_task_result(task_id="<run-uuid>")
 
 Returns `step_states` with per-step status, output, and timing.
 
-### Event-Triggered Tasks
+### Event-Triggered Pipelines
 
-Use `trigger_config` on `schedule_task` to create tasks that fire on events:
+Use `trigger_config` on `define_pipeline` to create Pipelines that fire on events:
 
 ```
-schedule_task(
+define_pipeline(
   title="Deploy on push",
   steps='[...]',
   trigger_config='{"type": "event", "event_source": "github", "event_type": "push"}'
 )
 ```
+
+For single-prompt event-triggered Automations (no steps), use `schedule_prompt` with the same `trigger_config` argument.
 
 ## Cross-Reference
 

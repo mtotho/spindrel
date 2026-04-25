@@ -218,14 +218,14 @@ class TestTaskCreationRateLimit:
         assert task_creation_count.get(0) == 0
 
     @pytest.mark.asyncio
-    async def test_schedule_task_rate_limit(self):
+    async def test_schedule_prompt_rate_limit(self):
         from app.agent.context import task_creation_count
-        from app.tools.local.tasks import schedule_task, _MAX_TASK_CREATIONS_PER_REQUEST
+        from app.tools.local.tasks import schedule_prompt, _MAX_TASK_CREATIONS_PER_REQUEST
 
         # Set counter to max
         token = task_creation_count.set(_MAX_TASK_CREATIONS_PER_REQUEST)
         try:
-            result = await schedule_task(prompt="test prompt")
+            result = await schedule_prompt(prompt="test prompt")
             parsed = json.loads(result)
             assert "error" in parsed
             assert "limit reached" in parsed["error"]

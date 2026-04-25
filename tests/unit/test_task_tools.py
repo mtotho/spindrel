@@ -21,7 +21,7 @@ from app.db.models import PromptTemplate, Task
 from app.tools.local.tasks import (
     _resolve_template,
     list_tasks,
-    schedule_task,
+    schedule_prompt as schedule_task,
     update_task,
 )
 from tests.factories import build_prompt_template, build_task

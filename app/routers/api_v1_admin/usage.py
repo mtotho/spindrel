@@ -8,6 +8,10 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+import hashlib
+import json
+import math
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -19,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
     Bot, Channel, ChannelHeartbeat, HeartbeatRun,
-    ProviderConfig, ProviderModel, Session, Task, TraceEvent,
+    ProviderConfig, ProviderModel, Session, Task, ToolCall, TraceEvent,
 )
 from app.config import settings
 from app.dependencies import get_db, require_scopes
@@ -441,6 +445,69 @@ class UsageAnomaliesOut(BaseModel):
     contributors: list[UsageAnomalySignal] = Field(default_factory=list)
 
 
+class AgentSmellReason(BaseModel):
+    key: str
+    label: str
+    detail: str
+    severity: str = "watch"
+    points: int = 0
+
+
+class AgentSmellMetrics(BaseModel):
+    traces: int = 0
+    calls: int = 0
+    total_tokens: int = 0
+    baseline_tokens: int = 0
+    token_ratio: float | None = None
+    max_trace_tokens: int = 0
+    tool_calls: int = 0
+    repeated_tool_calls: int = 0
+    max_repeated_tool_signature: int = 0
+    max_tool_calls_per_trace: int = 0
+    max_iterations: int = 0
+    tool_error_count: int = 0
+    tool_denied_count: int = 0
+    tool_expired_count: int = 0
+    error_events: int = 0
+    slow_trace_count: int = 0
+    max_trace_duration_ms: int = 0
+
+
+class AgentSmellTraceEvidence(BaseModel):
+    correlation_id: str | None = None
+    created_at: str | None = None
+    reason: str
+    tokens: int = 0
+    tool_calls: int = 0
+    repeated_tool_calls: int = 0
+    errors: int = 0
+    duration_ms: int = 0
+
+
+class AgentSmellBot(BaseModel):
+    rank: int = 0
+    bot_id: str
+    name: str
+    display_name: str | None = None
+    model: str | None = None
+    avatar_url: str | None = None
+    avatar_emoji: str | None = None
+    score: int = 0
+    severity: str = "clean"
+    reasons: list[AgentSmellReason] = Field(default_factory=list)
+    metrics: AgentSmellMetrics = Field(default_factory=AgentSmellMetrics)
+    traces: list[AgentSmellTraceEvidence] = Field(default_factory=list)
+
+
+class AgentSmellOut(BaseModel):
+    window_start: str
+    window_end: str
+    baseline_start: str
+    baseline_end: str
+    source_type: str | None = None
+    bots: list[AgentSmellBot] = Field(default_factory=list)
+
+
 def _metric_from_events(
     events: list[TraceEvent],
     pricing: dict,
@@ -640,6 +707,378 @@ def _representative_correlation_id(events: list[TraceEvent]) -> str | None:
 
     trace_id, _trace_events = max(by_trace.items(), key=lambda item: trace_tokens(item[1]))
     return trace_id
+
+
+def _token_count(ev: TraceEvent) -> int:
+    d = ev.data or {}
+    return int(d.get("total_tokens") or ((d.get("prompt_tokens") or 0) + (d.get("completion_tokens") or 0)))
+
+
+def _trace_key(value: uuid.UUID | None, fallback: uuid.UUID) -> str:
+    return str(value) if value else str(fallback)
+
+
+def _tool_signature(call: ToolCall) -> str:
+    args = call.arguments or {}
+    try:
+        normalized = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+    except TypeError:
+        normalized = str(args)
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    return f"{call.tool_type}:{call.server_name or ''}:{call.tool_name}:{digest}"
+
+
+async def _fetch_tool_calls(
+    db: AsyncSession,
+    *,
+    after: datetime,
+    before: datetime,
+    bot_id: str | None = None,
+) -> list[ToolCall]:
+    q = select(ToolCall).where(
+        ToolCall.created_at >= after,
+        ToolCall.created_at <= before,
+    )
+    if bot_id:
+        q = q.where(ToolCall.bot_id == bot_id)
+    q = q.order_by(ToolCall.created_at.desc())
+    return list((await db.execute(q)).scalars().all())
+
+
+async def _fetch_error_events(
+    db: AsyncSession,
+    *,
+    after: datetime,
+    before: datetime,
+    bot_id: str | None = None,
+) -> list[TraceEvent]:
+    q = select(TraceEvent).where(
+        TraceEvent.event_type.in_(("error", "llm_error")),
+        TraceEvent.created_at >= after,
+        TraceEvent.created_at <= before,
+    )
+    if bot_id:
+        q = q.where(TraceEvent.bot_id == bot_id)
+    q = q.order_by(TraceEvent.created_at.desc())
+    return list((await db.execute(q)).scalars().all())
+
+
+async def _load_bot_map(db: AsyncSession, bot_ids: set[str]) -> dict[str, Bot]:
+    if not bot_ids:
+        return {}
+    rows = (await db.execute(select(Bot).where(Bot.id.in_(bot_ids)))).scalars().all()
+    return {row.id: row for row in rows}
+
+
+async def _extend_task_map_for_tool_calls(
+    db: AsyncSession,
+    task_by_corr: dict[str, Task],
+    tool_calls: list[ToolCall],
+) -> None:
+    missing = [
+        call.correlation_id
+        for call in tool_calls
+        if call.correlation_id and str(call.correlation_id) not in task_by_corr
+    ]
+    if not missing:
+        return
+    rows = (await db.execute(select(Task).where(Task.correlation_id.in_(missing)))).scalars().all()
+    for task in rows:
+        if task.correlation_id:
+            task_by_corr[str(task.correlation_id)] = task
+
+
+def _smell_severity(score: int) -> str:
+    if score >= 75:
+        return "critical"
+    if score >= 50:
+        return "smelly"
+    if score >= 25:
+        return "watch"
+    return "clean"
+
+
+def _reason_severity(points: int) -> str:
+    if points >= 20:
+        return "critical"
+    if points >= 12:
+        return "smelly"
+    return "watch"
+
+
+def _agent_smell_score(
+    *,
+    metrics: AgentSmellMetrics,
+) -> tuple[int, list[AgentSmellReason]]:
+    loop_points = min(
+        40,
+        metrics.repeated_tool_calls * 8
+        + max(0, metrics.max_tool_calls_per_trace - 8) * 3
+        + max(0, metrics.max_iterations - 4) * 5,
+    )
+    failure_points = min(
+        25,
+        metrics.tool_error_count * 8
+        + (metrics.tool_denied_count + metrics.tool_expired_count) * 6
+        + metrics.error_events * 10,
+    )
+    ratio_points = 0
+    if metrics.token_ratio is not None:
+        if metrics.token_ratio >= 5:
+            ratio_points = 12
+        elif metrics.token_ratio >= 2:
+            ratio_points = 8
+        elif metrics.token_ratio >= 1.5:
+            ratio_points = 4
+    volume_points = 0
+    if metrics.total_tokens >= 100_000:
+        volume_points = 8
+    elif metrics.total_tokens >= 25_000:
+        volume_points = 5
+    elif metrics.total_tokens >= 10_000:
+        volume_points = 2
+    trace_points = 4 if metrics.max_trace_tokens >= 25_000 else 0
+    token_points = min(20, ratio_points + volume_points + trace_points)
+    slow_points = min(
+        15,
+        metrics.slow_trace_count * 5
+        + (8 if metrics.max_trace_duration_ms >= 30 * 60 * 1000 else 4 if metrics.max_trace_duration_ms >= 10 * 60 * 1000 else 0),
+    )
+
+    reasons: list[AgentSmellReason] = []
+    if loop_points:
+        parts = []
+        if metrics.repeated_tool_calls:
+            parts.append(f"{metrics.repeated_tool_calls} repeated tool calls")
+        if metrics.max_tool_calls_per_trace > 8:
+            parts.append(f"{metrics.max_tool_calls_per_trace} tools in one trace")
+        if metrics.max_iterations > 4:
+            parts.append(f"{metrics.max_iterations} iterations")
+        reasons.append(AgentSmellReason(
+            key="loop_friction",
+            label="Loop/friction",
+            detail=", ".join(parts) or "Repeated execution pattern",
+            severity=_reason_severity(loop_points),
+            points=loop_points,
+        ))
+    if failure_points:
+        parts = []
+        if metrics.tool_error_count:
+            parts.append(f"{metrics.tool_error_count} tool errors")
+        if metrics.tool_denied_count:
+            parts.append(f"{metrics.tool_denied_count} denied approvals")
+        if metrics.tool_expired_count:
+            parts.append(f"{metrics.tool_expired_count} expired approvals")
+        if metrics.error_events:
+            parts.append(f"{metrics.error_events} trace errors")
+        reasons.append(AgentSmellReason(
+            key="failures",
+            label="Failures",
+            detail=", ".join(parts) or "Execution failures",
+            severity=_reason_severity(failure_points),
+            points=failure_points,
+        ))
+    if token_points:
+        if metrics.token_ratio is not None and metrics.token_ratio >= 1.5:
+            detail = f"{metrics.token_ratio}x baseline, {metrics.total_tokens:,} tokens"
+        else:
+            detail = f"{metrics.total_tokens:,} tokens"
+        reasons.append(AgentSmellReason(
+            key="token_pressure",
+            label="Token pressure",
+            detail=detail,
+            severity=_reason_severity(token_points),
+            points=token_points,
+        ))
+    if slow_points:
+        reasons.append(AgentSmellReason(
+            key="long_running",
+            label="Long-running traces",
+            detail=f"{metrics.slow_trace_count} slow traces, max {round(metrics.max_trace_duration_ms / 1000)}s",
+            severity=_reason_severity(slow_points),
+            points=slow_points,
+        ))
+
+    score = min(100, int(loop_points + failure_points + token_points + slow_points))
+    reasons.sort(key=lambda reason: reason.points, reverse=True)
+    return score, reasons[:3]
+
+
+def _build_agent_smell_rows(
+    *,
+    events: list[TraceEvent],
+    baseline_events: list[TraceEvent],
+    tool_calls: list[ToolCall],
+    error_events: list[TraceEvent],
+    bot_map: dict[str, Bot],
+    limit: int,
+    window: timedelta,
+    baseline: timedelta,
+) -> list[AgentSmellBot]:
+    bot_ids = {
+        row.bot_id
+        for row in [*events, *tool_calls, *error_events]
+        if row.bot_id
+    }
+    events_by_bot: dict[str, list[TraceEvent]] = {bot_id: [] for bot_id in bot_ids}
+    baseline_by_bot: dict[str, list[TraceEvent]] = {bot_id: [] for bot_id in bot_ids}
+    tools_by_bot: dict[str, list[ToolCall]] = {bot_id: [] for bot_id in bot_ids}
+    errors_by_bot: dict[str, list[TraceEvent]] = {bot_id: [] for bot_id in bot_ids}
+    for ev in events:
+        if ev.bot_id:
+            events_by_bot.setdefault(ev.bot_id, []).append(ev)
+    for ev in baseline_events:
+        if ev.bot_id:
+            baseline_by_bot.setdefault(ev.bot_id, []).append(ev)
+    for call in tool_calls:
+        if call.bot_id:
+            tools_by_bot.setdefault(call.bot_id, []).append(call)
+    for ev in error_events:
+        if ev.bot_id:
+            errors_by_bot.setdefault(ev.bot_id, []).append(ev)
+
+    window_seconds = max(1, int(window.total_seconds()))
+    baseline_seconds = max(1, int(baseline.total_seconds()))
+    rows: list[AgentSmellBot] = []
+    for bot_id in bot_ids:
+        bot_events = events_by_bot.get(bot_id, [])
+        bot_baseline = baseline_by_bot.get(bot_id, [])
+        bot_tools = tools_by_bot.get(bot_id, [])
+        bot_errors = errors_by_bot.get(bot_id, [])
+
+        trace_tokens: Counter[str] = Counter()
+        trace_times: dict[str, list[datetime]] = {}
+        trace_iterations: Counter[str] = Counter()
+        for ev in bot_events:
+            key = _trace_key(ev.correlation_id, ev.id)
+            trace_tokens[key] += _token_count(ev)
+            trace_times.setdefault(key, []).append(ev.created_at)
+            iteration = int((ev.data or {}).get("iteration") or 0)
+            trace_iterations[key] = max(trace_iterations[key], iteration)
+        trace_tools: dict[str, list[ToolCall]] = {}
+        for call in bot_tools:
+            key = _trace_key(call.correlation_id, call.id)
+            trace_tools.setdefault(key, []).append(call)
+            trace_times.setdefault(key, []).append(call.created_at)
+            if call.completed_at:
+                trace_times.setdefault(key, []).append(call.completed_at)
+            if call.iteration is not None:
+                trace_iterations[key] = max(trace_iterations[key], int(call.iteration or 0))
+        trace_errors: Counter[str] = Counter()
+        for ev in bot_errors:
+            key = _trace_key(ev.correlation_id, ev.id)
+            trace_errors[key] += 1
+            trace_times.setdefault(key, []).append(ev.created_at)
+
+        repeated_tool_calls = 0
+        max_repeated = 0
+        trace_repeats: Counter[str] = Counter()
+        for trace_id, calls in trace_tools.items():
+            signatures = Counter(_tool_signature(call) for call in calls)
+            for count in signatures.values():
+                if count > 1:
+                    repeated_tool_calls += count - 1
+                    trace_repeats[trace_id] += count - 1
+                    max_repeated = max(max_repeated, count)
+
+        durations: dict[str, int] = {}
+        for trace_id, times in trace_times.items():
+            if len(times) < 2:
+                durations[trace_id] = 0
+                continue
+            durations[trace_id] = int((max(times) - min(times)).total_seconds() * 1000)
+
+        total_tokens = sum(_token_count(ev) for ev in bot_events)
+        baseline_tokens_raw = sum(_token_count(ev) for ev in bot_baseline)
+        baseline_tokens = int(baseline_tokens_raw * (window_seconds / baseline_seconds))
+        token_ratio = round(total_tokens / baseline_tokens, 2) if baseline_tokens > 0 else None
+        max_trace_tokens = max(trace_tokens.values(), default=0)
+        tool_statuses = Counter((call.status or "").lower() for call in bot_tools)
+        tool_errors = sum(1 for call in bot_tools if (call.status or "").lower() == "error" or call.error)
+        max_duration = max(durations.values(), default=0)
+        metrics = AgentSmellMetrics(
+            traces=len(set(trace_times.keys()) | set(trace_tokens.keys())),
+            calls=len(bot_events),
+            total_tokens=total_tokens,
+            baseline_tokens=baseline_tokens,
+            token_ratio=token_ratio,
+            max_trace_tokens=max_trace_tokens,
+            tool_calls=len(bot_tools),
+            repeated_tool_calls=repeated_tool_calls,
+            max_repeated_tool_signature=max_repeated,
+            max_tool_calls_per_trace=max((len(calls) for calls in trace_tools.values()), default=0),
+            max_iterations=max(trace_iterations.values(), default=0),
+            tool_error_count=tool_errors,
+            tool_denied_count=tool_statuses.get("denied", 0),
+            tool_expired_count=tool_statuses.get("expired", 0),
+            error_events=len(bot_errors),
+            slow_trace_count=sum(1 for ms in durations.values() if ms >= 10 * 60 * 1000),
+            max_trace_duration_ms=max_duration,
+        )
+        score, reasons = _agent_smell_score(metrics=metrics)
+
+        trace_rows: list[AgentSmellTraceEvidence] = []
+        for trace_id in set(trace_times.keys()) | set(trace_tokens.keys()):
+            if not trace_id:
+                continue
+            trace_tool_calls = trace_tools.get(trace_id, [])
+            evidence_score = (
+                trace_repeats.get(trace_id, 0) * 8
+                + trace_errors.get(trace_id, 0) * 10
+                + min(20, math.ceil(trace_tokens.get(trace_id, 0) / 5000))
+                + (5 if durations.get(trace_id, 0) >= 10 * 60 * 1000 else 0)
+            )
+            if evidence_score <= 0:
+                continue
+            reason_parts = []
+            if trace_repeats.get(trace_id, 0):
+                reason_parts.append(f"{trace_repeats[trace_id]} repeats")
+            if trace_errors.get(trace_id, 0):
+                reason_parts.append(f"{trace_errors[trace_id]} errors")
+            if trace_tokens.get(trace_id, 0) >= 10_000:
+                reason_parts.append(f"{trace_tokens[trace_id]:,} tokens")
+            if durations.get(trace_id, 0) >= 10 * 60 * 1000:
+                reason_parts.append("long-running")
+            created = min(trace_times.get(trace_id, []), default=None)
+            trace_rows.append(AgentSmellTraceEvidence(
+                correlation_id=trace_id if trace_id in {str(ev.correlation_id) for ev in bot_events if ev.correlation_id} else None,
+                created_at=created.isoformat() if created else None,
+                reason=", ".join(reason_parts) or "Smell evidence",
+                tokens=trace_tokens.get(trace_id, 0),
+                tool_calls=len(trace_tool_calls),
+                repeated_tool_calls=trace_repeats.get(trace_id, 0),
+                errors=trace_errors.get(trace_id, 0) + sum(1 for call in trace_tool_calls if (call.status or "").lower() == "error" or call.error),
+                duration_ms=durations.get(trace_id, 0),
+            ))
+        trace_rows.sort(
+            key=lambda trace: (
+                trace.repeated_tool_calls * 8
+                + trace.errors * 10
+                + min(20, math.ceil(trace.tokens / 5000))
+                + (5 if trace.duration_ms >= 10 * 60 * 1000 else 0)
+            ),
+            reverse=True,
+        )
+
+        bot = bot_map.get(bot_id)
+        rows.append(AgentSmellBot(
+            bot_id=bot_id,
+            name=bot.name if bot else bot_id,
+            display_name=bot.display_name if bot else None,
+            model=bot.model if bot else None,
+            avatar_url=bot.avatar_url if bot else None,
+            avatar_emoji=bot.avatar_emoji if bot else None,
+            score=score,
+            severity=_smell_severity(score),
+            reasons=reasons,
+            metrics=metrics,
+            traces=trace_rows[:3],
+        ))
+    rows.sort(key=lambda row: (row.score, row.metrics.total_tokens, row.metrics.tool_calls), reverse=True)
+    ranked = rows[:limit]
+    for idx, row in enumerate(ranked, start=1):
+        row.rank = idx
+    return ranked
 
 
 # ---------------------------------------------------------------------------
@@ -859,6 +1298,99 @@ async def usage_anomalies(
         time_spikes=time_spikes[:8],
         trace_bursts=trace_bursts[:10],
         contributors=contributors[:12],
+    )
+
+
+@router.get("/agent-smell", response_model=AgentSmellOut)
+async def agent_smell(
+    hours: int = Query(24, ge=1, le=168),
+    baseline_days: int = Query(7, ge=1, le=30),
+    bot_id: Optional[str] = Query(None),
+    source_type: Optional[str] = Query(None, pattern="^(agent|task|heartbeat|maintenance)$"),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _auth=Depends(require_scopes("usage:read")),
+):
+    """Rank bots by suspicious trace/tool behavior in a live time window."""
+    now = datetime.now(timezone.utc)
+    window = timedelta(hours=hours)
+    baseline = timedelta(days=baseline_days)
+    after_dt = now - window
+    baseline_start = after_dt - baseline
+    baseline_end = after_dt
+
+    events, _ = await _fetch_token_usage_events(
+        db,
+        after=after_dt,
+        before=now,
+        bot_id=bot_id,
+    )
+    baseline_events, _ = await _fetch_token_usage_events(
+        db,
+        after=baseline_start,
+        before=baseline_end,
+        bot_id=bot_id,
+    )
+    tool_calls = await _fetch_tool_calls(
+        db,
+        after=after_dt,
+        before=now,
+        bot_id=bot_id,
+    )
+    error_events = await _fetch_error_events(
+        db,
+        after=after_dt,
+        before=now,
+        bot_id=bot_id,
+    )
+
+    task_by_corr, _channel_names, _provider_names = await _usage_source_maps(
+        db,
+        events + baseline_events + error_events,
+    )
+    await _extend_task_map_for_tool_calls(db, task_by_corr, tool_calls)
+
+    if source_type:
+        events = [
+            ev for ev in events
+            if _source_type_for_trace(ev.correlation_id, task_by_corr) == source_type
+        ]
+        baseline_events = [
+            ev for ev in baseline_events
+            if _source_type_for_trace(ev.correlation_id, task_by_corr) == source_type
+        ]
+        error_events = [
+            ev for ev in error_events
+            if _source_type_for_trace(ev.correlation_id, task_by_corr) == source_type
+        ]
+        tool_calls = [
+            call for call in tool_calls
+            if _source_type_for_trace(call.correlation_id, task_by_corr) == source_type
+        ]
+
+    bot_ids = {
+        row.bot_id
+        for row in [*events, *baseline_events, *tool_calls, *error_events]
+        if row.bot_id
+    }
+    bot_map = await _load_bot_map(db, bot_ids)
+    rows = _build_agent_smell_rows(
+        events=events,
+        baseline_events=baseline_events,
+        tool_calls=tool_calls,
+        error_events=error_events,
+        bot_map=bot_map,
+        limit=limit,
+        window=window,
+        baseline=baseline,
+    )
+    return AgentSmellOut(
+        window_start=after_dt.isoformat(),
+        window_end=now.isoformat(),
+        baseline_start=baseline_start.isoformat(),
+        baseline_end=baseline_end.isoformat(),
+        source_type=source_type,
+        bots=rows,
     )
 
 

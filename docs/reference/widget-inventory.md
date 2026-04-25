@@ -86,7 +86,8 @@ These are core tool result surfaces shipped with local tools. Most are YAML-defi
 | `machine_status` | `core.machine_target_status` | `app/tools/local/machine_control.py` | Current | Core semantic machine-status renderer with refresh metadata; provider-agnostic, not integration-owned. |
 | `machine_inspect_command` | `core.command_result` | `app/tools/local/machine_control.py` | Current | Core semantic command-result renderer for readonly machine shell output. |
 | `machine_exec_command` | `core.command_result` | `app/tools/local/machine_control.py` | Current | Core semantic command-result renderer for exec-capable machine shell output. |
-| `schedule_task` | `template` | `app/tools/local/widgets/schedule_task/template.yaml` | Current | Component tool widget with sample payload and `state_poll`. |
+| `schedule_prompt` | `template` | `app/tools/local/widgets/schedule_prompt/template.yaml` | Current | Component tool widget for single-prompt Automations, with sample payload and `state_poll`. |
+| `define_pipeline` | `template` | `app/tools/local/widgets/define_pipeline/template.yaml` | Current | Component tool widget for multi-step Pipeline definitions, with sample payload and `state_poll`. |
 
 ## Core/Local Standalone HTML Widgets
 

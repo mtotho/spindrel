@@ -221,7 +221,7 @@ async def test_orphan_transfers_is_active_to_replacement(
 
     Observed 2026-04-20 on Postgres: `UniqueViolationError: duplicate key value
     violates constraint "uq_widget_template_packages_active"` on the
-    schedule_task / list_tasks / manage_bot_skill orphan sweep.
+    schedule_prompt / list_tasks / manage_bot_skill orphan sweep.
     """
     # Seed with TWO sources for the same tool_name — first becomes active,
     # second becomes inactive (normal insert contract).

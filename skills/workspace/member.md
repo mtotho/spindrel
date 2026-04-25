@@ -105,4 +105,4 @@ During work:
 
 - [ ] Write output where the orchestrator expects it (your dir, or as instructed)
 - [ ] Reach the server via `call_api` rather than shelling out
-- [ ] For long-running work, prefer `schedule_task` and poll with `get_task_result` (5s+ intervals)
+- [ ] For long-running work, prefer `schedule_prompt` (single prompt) or `define_pipeline` (multi-step) and poll with `get_task_result` (5s+ intervals)

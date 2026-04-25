@@ -10,6 +10,21 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### `schedule_task` split into `schedule_prompt` + `define_pipeline`; `/admin/tasks` → `/admin/automations`
+**Decided 2026-04-25.** "Task" was overloaded across six execution models in the codebase. The single dual-purpose `schedule_task(prompt=..., steps=...)` tool was the worst LLM-confusion failure mode — the model had to know that omitting `steps` produced a Scheduled prompt and including `steps` produced a Pipeline definition, with no schema-level signal of the discriminator.
+
+**What changed.**
+- The `tasks` SQLAlchemy model is unchanged; this is a vocabulary + tool-surface split, not a model split. `task_type` already discriminated the two shapes.
+- Bot-facing tool surface: `schedule_task` removed; replaced with `schedule_prompt` (no `steps`) and `define_pipeline` (requires `steps`). Both write through a private `_create_task_row` helper. `define_pipeline` lives in `app/tools/local/pipelines.py` next to `list_pipelines` and `run_pipeline`.
+- Surrounding tool descriptions (`list_tasks` / `cancel_task` / `update_task` / `get_task_result` / `run_task`) updated to use the canonical Automation / Scheduled prompt / Pipeline / Run vocabulary from the glossary.
+- `docs/guides/ubiquitous-language.md` gained an "Automations and scheduled work" section and a flagged ambiguity entry "Task is overloaded — use a precise term."
+- Admin UI route `/admin/tasks` renamed to `/admin/automations`; old route returns a permanent redirect via the new `RedirectToAutomation` helper. Page label "Tasks" → "Automations" in palette, sidebar rail, settings index, spatial NowWell tooltip, and chat-card "View task" copy. Internal directory paths (e.g. `ui/app/(app)/admin/tasks/`) intentionally kept for minimal churn.
+- Widget templates renamed: `app/tools/local/widgets/schedule_task/` → `widgets/schedule_prompt/`; new sibling `widgets/define_pipeline/` with the same shape but Pipeline-specific link copy.
+
+**Out of scope (deferred).** Renaming `spawn_subagents` was considered. The readonly boundary it enforces is a code-level invariant in `app/agent/subagents.py`; the rename is not load-bearing and was deferred. Internal `Task` SQLAlchemy class name kept (internal vocabulary).
+
+**Why.** User-driven review of the bot tool surface called out repeated LLM confusion between scheduled work and pipeline definitions. Per `feedback_one_commit_no_legacy` this ships without compat aliases or deprecated `schedule_task` shim — the URL redirect is operational continuity for bookmarks, not a code-shim deprecation pattern.
+
 ### Spatial bot autonomy uses global bot nodes with channel-scoped policy
 **Decided 2026-04-26. Updated 2026-04-26.** Bots are first-class spatial canvas objects, but their authority to perceive or modify the canvas is granted per channel and surfaced primarily through heartbeat settings.
 

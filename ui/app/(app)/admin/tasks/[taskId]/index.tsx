@@ -104,7 +104,7 @@ export default function TaskDetailScreen() {
     });
     if (!ok) return;
     await form.handleDelete();
-    navigate("/admin/tasks");
+    navigate("/admin/automations");
   }, [taskId, form, navigate, confirm]);
 
   const handleRunNow = useCallback(() => {
@@ -134,7 +134,7 @@ export default function TaskDetailScreen() {
       {/* Header */}
       <PageHeader variant="detail"
         parentLabel="Tasks"
-        onBack={() => window.history.length > 1 ? navigate(-1) : navigate("/admin/tasks")}
+        onBack={() => window.history.length > 1 ? navigate(-1) : navigate("/admin/automations")}
         title={task.title || task.prompt?.substring(0, 50) || "Task"}
         subtitle={`${task.bot_id} \u00b7 ${task.task_type || "task"}`}
         right={
@@ -216,7 +216,7 @@ export default function TaskDetailScreen() {
       {/* Parent definition banner — shown when viewing a task run (child) */}
       {task.parent_task_id && (
         <button
-          onClick={() => navigate(`/admin/tasks/${task.parent_task_id}`)}
+          onClick={() => navigate(`/admin/automations/${task.parent_task_id}`)}
           className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left shrink-0"
         >
           <ArrowUpRight size={13} className="shrink-0" />
@@ -467,7 +467,7 @@ function PipelineStepRow({
         )}
         {childTaskId && (
           <button
-            onClick={(e) => { e.stopPropagation(); navigate(`/admin/tasks/${childTaskId}`); }}
+            onClick={(e) => { e.stopPropagation(); navigate(`/admin/automations/${childTaskId}`); }}
             title="Open the child run detail"
             className="flex items-center gap-1 text-[10px] text-text-dim hover:text-text-muted
                        px-1.5 py-0.5 rounded hover:bg-surface-overlay/50 transition-colors"

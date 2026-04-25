@@ -58,7 +58,7 @@ Each `@on_action` handler runs under `asyncio.wait_for(..., timeout=30)` by defa
 async def slow_handler(args): ...
 ```
 
-Long-running work should schedule a task via `ctx.tool("schedule_task", ...)` instead of blocking.
+Long-running work should schedule an Automation via `ctx.tool("schedule_prompt", ...)` (or `ctx.tool("define_pipeline", ...)` for multi-step) instead of blocking.
 
 ## Hot reload
 

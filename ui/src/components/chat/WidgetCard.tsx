@@ -87,7 +87,7 @@ export function WidgetCard({
   });
 
   // Pass display_label so post-action polling can refetch state-bearing tools
-  // (e.g. schedule_task) using whatever identifier the template stored.
+  // (e.g. schedule_prompt, define_pipeline) using whatever identifier the template stored.
   const rawDispatch = useWidgetAction(
     channelId,
     botId ?? "default",

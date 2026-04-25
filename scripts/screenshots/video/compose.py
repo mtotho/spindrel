@@ -12,6 +12,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
+from PIL import Image as _PILImage
+
+if not hasattr(_PILImage, "ANTIALIAS"):
+    _PILImage.ANTIALIAS = _PILImage.Resampling.LANCZOS
+
 from moviepy.editor import (
     ColorClip,
     CompositeVideoClip,

@@ -107,7 +107,7 @@ async def patched_async_sessions(engine):
 # ContextVar harness
 # ---------------------------------------------------------------------------
 #
-# Tests that call bot-tool entry points (``schedule_task``, ``manage_bot_skill``,
+# Tests that call bot-tool entry points (``schedule_prompt``, ``manage_bot_skill``,
 # etc.) need the per-turn ContextVars set. Setting them inline with no teardown
 # leaks state across tests (B.28 hazard). This fixture hands the test a setter
 # that records every token and resets them in teardown.

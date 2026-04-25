@@ -139,6 +139,69 @@ export interface UsageAnomaliesResponse {
   contributors: UsageAnomalySignal[];
 }
 
+export interface AgentSmellReason {
+  key: string;
+  label: string;
+  detail: string;
+  severity: "watch" | "smelly" | "critical" | string;
+  points: number;
+}
+
+export interface AgentSmellMetrics {
+  traces: number;
+  calls: number;
+  total_tokens: number;
+  baseline_tokens: number;
+  token_ratio: number | null;
+  max_trace_tokens: number;
+  tool_calls: number;
+  repeated_tool_calls: number;
+  max_repeated_tool_signature: number;
+  max_tool_calls_per_trace: number;
+  max_iterations: number;
+  tool_error_count: number;
+  tool_denied_count: number;
+  tool_expired_count: number;
+  error_events: number;
+  slow_trace_count: number;
+  max_trace_duration_ms: number;
+}
+
+export interface AgentSmellTraceEvidence {
+  correlation_id: string | null;
+  created_at: string | null;
+  reason: string;
+  tokens: number;
+  tool_calls: number;
+  repeated_tool_calls: number;
+  errors: number;
+  duration_ms: number;
+}
+
+export interface AgentSmellBot {
+  rank: number;
+  bot_id: string;
+  name: string;
+  display_name?: string | null;
+  model?: string | null;
+  avatar_url?: string | null;
+  avatar_emoji?: string | null;
+  score: number;
+  severity: "clean" | "watch" | "smelly" | "critical" | string;
+  reasons: AgentSmellReason[];
+  metrics: AgentSmellMetrics;
+  traces: AgentSmellTraceEvidence[];
+}
+
+export interface AgentSmellResponse {
+  window_start: string;
+  window_end: string;
+  baseline_start: string;
+  baseline_end: string;
+  source_type?: string | null;
+  bots: AgentSmellBot[];
+}
+
 function buildQS(params: Record<string, string | number | undefined>): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -185,5 +248,19 @@ export function useUsageAnomalies(params: UsageParams & { source_type?: string }
     queryKey: ["usage-anomalies", params],
     queryFn: () =>
       apiFetch<UsageAnomaliesResponse>(`/api/v1/admin/usage/anomalies${buildQS(params)}`),
+  });
+}
+
+export function useAgentSmell(params: {
+  hours?: number;
+  baseline_days?: number;
+  bot_id?: string;
+  source_type?: string;
+  limit?: number;
+}) {
+  return useQuery({
+    queryKey: ["agent-smell", params],
+    queryFn: () =>
+      apiFetch<AgentSmellResponse>(`/api/v1/admin/usage/agent-smell${buildQS(params)}`),
   });
 }

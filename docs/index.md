@@ -52,9 +52,9 @@ Reusable multi-step automations defined as `Task` rows: `exec`, `tool`, `agent`,
 
 Bots maintain `MEMORY.md`, daily logs, and reference docs — all on disk, all indexed for RAG. Conversations are automatically archived into searchable sections that persist across fresh starts. **Chat state rehydrates** on reconnect via a snapshot endpoint, so in-flight approvals and streaming turns survive page reloads, mobile tab wakes, and network drops. Per-channel file stores with schema templates keep project context structured.
 
-### Heartbeats + Task Scheduling
+### Heartbeats + Automations
 
-Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks with cron-like flexibility. Bots can self-schedule via `schedule_task` or trigger pipelines from a heartbeat. Results dispatch to Slack, webhooks, push notifications, or the UI.
+Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring Automations with cron-like flexibility. Bots self-schedule via `schedule_prompt` (single prompt) or `define_pipeline` (multi-step), or trigger Pipelines from a heartbeat. Results dispatch to Slack, webhooks, push notifications, or the UI.
 
 ### Programmatic Tool Calling
 

@@ -542,7 +542,7 @@ function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?
           {content}
         </button>
       ) : (
-        <Link to={`/admin/tasks/${taskId}`}>{content}</Link>
+        <Link to={`/admin/automations/${taskId}`}>{content}</Link>
       )}
       <button type="button" onClick={handleCopy as any} style={{ padding: 2 }}>
         <Copy size={9} color={copied ? t.success : t.textMuted} />

@@ -38,7 +38,6 @@ Scope is the domain model — actors, rooms, conversations, discovery, integrati
 | **Turn** | One user message + the resulting agent response cycle. The unit `compaction_keep_turns` and context profiles count in. | round |
 | **Iteration** | One LLM call inside a Turn. A single Turn may produce many Iterations when the model calls tools. | step, cycle |
 | **Message** | A persisted row in the Channel transcript. May carry attachments, tool envelopes, and `metadata.hidden`/`metadata.pipeline_step`/`metadata.kind` markers that exclude it from replay. | entry, row |
-| **Heartbeat run** | A narrow-profile agent run (no live chat replay, no ambient injections) that fires without a human turn. | cron run, tick |
 
 ---
 
@@ -167,8 +166,24 @@ Widget vocabulary separates three orthogonal axes. A confusion between them is t
 | **plan_adherence** | Metadata capsule holding recent execution evidence and explicit progress outcomes. | progress |
 | **Terminal chat mode** | A per-Channel setting that renders the feed and composer in a command-first Codex/Claude-style surface. Does not change approvals or tool plumbing. | CLI mode |
 | **Default chat mode** | The conversational feed layout. Contrast with Terminal chat mode. | chat mode (ambiguous) |
-| **Task pipeline** | A declarative, schedulable automation (cron / per-Channel / manual). Runs as a Sub-session. | automation (surface synonym), flow |
-| **Automation** | User-facing term for Task pipeline. | workflow |
+
+---
+
+## Automations and scheduled work
+
+Five distinct execution models live here. They share the `tasks` table but are not interchangeable. Pick the precise term; bare "Task" is internal vocabulary only.
+
+| Term | Definition | Aliases to avoid |
+|---|---|---|
+| **Automation** | The user-facing umbrella for any work the system performs without a human typing each turn. Covers Scheduled prompts and Pipelines. The admin nav category and the route `/admin/automations/` use this word. | task (internal-only), workflow (deprecated) |
+| **Scheduled prompt** | A single-prompt agent run with optional `scheduled_at` / `recurrence` / `trigger_config`. Internally a `Task` row with `task_type='scheduled'`. Created by the `schedule_prompt` tool. | one-shot task, scheduled task |
+| **Pipeline** | A declarative multi-step automation: each step is `exec` / `tool` / `agent` / `user_prompt` / `foreach`. Slug-addressable, reusable, runs as a Sub-session. Internally a `Task` row with `task_type='pipeline'`. Created by `define_pipeline`; invoked by `run_pipeline`. | task pipeline (internal alias), workflow, flow |
+| **Run** | One concrete execution of an Automation. For Pipelines, a Run renders as a chat-native Sub-session; for Scheduled prompts, a Run is a single Turn dispatched to the target Channel. | invocation, instance |
+| **Delegation** | A parent Bot handing async work to a different child Bot via the `delegate_to_agent` tool. Materializes as a `Task` row with delegation source/metadata; result auto-posts to the originating Channel when complete. | hand-off, sub-task |
+| **Sub-agent** | A bounded, parallel, **readonly** sidecar spawned inline via `spawn_subagents`. Returns its result to the parent Turn; never posts to a Channel; cannot mutate, exec, or recurse. Distinct from Delegation. | mini-agent, worker |
+| **Heartbeat run** | A narrow-profile agent run (no live chat replay, no ambient injections) that fires without a human turn. Distinct from a Scheduled prompt — heartbeats live on `channel_heartbeats`, not on `tasks`. | cron run, tick |
+| **Standing order** | A first-party native widget that ticks on a schedule (poll / timer) without an LLM call per tick, then pings the Channel when a completion strategy fires. Lives on `widget_instances`, not on `tasks`. Created by `spawn_standing_order`. | standing task, watcher |
+| **Background worker** | A long-lived asyncio task spawned at server startup (`safe_create_task(...)`): outbox drainer, catalog refresh, heartbeat loop. Invisible to Bots. Not user-facing. | background task, daemon |
 
 ---
 
@@ -190,7 +205,9 @@ These are terms that have bitten Spindrel work before. Call them out explicitly 
 - **"Capabilities" (UI copy)** is accepted debt for the removed carapace concept. Do not reintroduce it in new surfaces. The code concept it named no longer exists.
 - **"Provider" is disambiguated by context.** LLM provider (OpenAI, Anthropic, Ollama, …) and Machine-control provider (`local_companion`, SSH, …) are unrelated. Always qualify in docs: "LLM provider" or "machine-control provider." `ProviderModel` is the LLM one.
 - **"Memory" is not the `memories` table.** The `memories` and `bot_knowledge` DB tables are deprecated. `memory_scheme: "workspace-files"` is the only active option — durable memory is `MEMORY.md` plus other workspace files. "Memory" as a concept means the workspace-files layer.
-- **"Pipeline"** = Task pipeline = Automation. Workflow is a deprecated alias for the same thing (UI hidden, backend dormant). Do not use "workflow" in new code or docs.
+- **"Task" is overloaded — use a precise term.** The bare word "Task" is internal vocabulary for a row in the `tasks` table, which carries multiple shapes via `task_type`. In user-facing copy, prompts, skill docs, and tool names, write the precise term instead: **Automation** (the umbrella), **Scheduled prompt** (`task_type='scheduled'`), **Pipeline** (`task_type='pipeline'`), **Delegation** (`delegate_to_agent`), **Standing order** (widget-backed; not on `tasks`), **Heartbeat run** (`channel_heartbeats`; not on `tasks`), **Background worker** (asyncio startup task; invisible). The `Task` SQLAlchemy class name stays — it is internal.
+- **"Pipeline" is the user-facing word for a multi-step automation definition.** "Task pipeline" is an internal synonym; "Workflow" is deprecated (UI hidden, backend dormant). Do not use "workflow" in new code or docs.
+- **Sub-agent ≠ Delegation.** A Sub-agent is a bounded readonly inline sidecar (`spawn_subagents`) that returns a value to the parent Turn. A Delegation is an async hand-off to a different Bot (`delegate_to_agent`) that posts back to the originating Channel. They are not interchangeable; the readonly boundary on Sub-agents is enforced in code at `app/agent/subagents.py`.
 - **"Tool widget" is canonical.** "Tool renderer" and "tool result template" are stale. A YAML widget using `html_template:` is still a Tool widget; it is not an HTML widget. `widget_config` is canonical; bare `config` is a legacy alias.
 - **"Workspace" is the container environment, not a property of a Bot.** Every Bot is a permanent member of the default Workspace via `ensure_all_bots_enrolled`. There is no such thing as a "non-workspace bot." The `POST` / `DELETE` workspace-bot endpoints are 410'd; membership is owned by bootstrap.
 - **"Session" vs "Sub-session" vs "Thread"** all ride the same `ChatSession` primitive. A Thread is a Sub-session that is mirrored to an external platform via `integration_thread_refs`. A Scratch session is a Sub-session opened from the FAB.

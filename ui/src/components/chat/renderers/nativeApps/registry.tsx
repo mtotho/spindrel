@@ -1,3 +1,4 @@
+import { AgentSmellWidget } from "./AgentSmellWidget";
 import { BlockyardWidget } from "./BlockyardWidget";
 import { ChannelFilesWidget } from "./ChannelFilesWidget";
 import type { ReactNode } from "react";
@@ -16,6 +17,7 @@ import { UsageForecastWidget } from "./UsageForecastWidget";
 type NativeWidgetComponent = (props: NativeAppRendererProps) => ReactNode;
 
 const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
+  "core/agent_smell_native": AgentSmellWidget,
   "core/channel_files_native": ChannelFilesWidget,
   "core/plan_questions": PlanQuestionsWidget,
   "core/context_tracker": ContextTrackerWidget,

@@ -21,11 +21,11 @@ Any widget may be placed in any dashboard zone, but not every widget is authored
 
 | Kind | Authored by | How it renders | Example |
 |---|---|---|---|
-| **Tool widget** | A tool's YAML definition (for example `tool_widgets:`) | Either structured JSON via the built-in renderer or a tool-bound `html_template` renderer | Home Assistant status/control cards; weather cards; `schedule_task` status |
+| **Tool widget** | A tool's YAML definition (for example `tool_widgets:`) | Either structured JSON via the built-in renderer or a tool-bound `html_template` renderer | Home Assistant status/control cards; weather cards; `schedule_prompt` / `define_pipeline` status |
 | **HTML widget** | A bot or user-authored standalone bundle | Sandboxed iframe with custom HTML + JS + CSS. Runs fetches against `/api/v1/...` via `window.spindrel.api()` | A recent-messages panel; a custom Chart.js bar chart; a per-project mini-control-surface |
 | **Native widget** | Core app only | Host-rendered first-party widget with instance-backed state | Notes; Todo |
 
-Mix freely. A typical channel dashboard might have a Home Assistant tool widget, a bot-authored HTML chart, a native Notes card, and a pinned `schedule_task` status on the same grid.
+Mix freely. A typical channel dashboard might have a Home Assistant tool widget, a bot-authored HTML chart, a native Notes card, and a pinned Automation status on the same grid.
 
 For the authoring deep-dive on each kind, see [Widget Templates](../widget-templates.md) (component widgets) and [HTML Widgets](html-widgets.md).
 

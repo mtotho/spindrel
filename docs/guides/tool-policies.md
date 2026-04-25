@@ -29,7 +29,7 @@ Set `skip_tool_approval` in the task's `execution_config`:
 }
 ```
 
-This can be set when creating tasks via API or the `schedule_task` tool.
+This can be set when creating Automations via API or via the `schedule_prompt` / `define_pipeline` tools.
 
 ### Approval visibility
 

@@ -463,6 +463,99 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     return () => viewport.removeEventListener("wheel", handler);
   }, [diving]);
 
+  // Two-finger pinch zoom (mobile / trackpad). Captures all touch pointers on
+  // the viewport regardless of whether they land on tiles or background, so a
+  // second finger always escalates to pinch even mid tile-drag. While pinching
+  // we suppress the single-finger pan and the dnd-kit tile drag (the latter
+  // by sending preventDefault on the move). Anchor logic mirrors the wheel
+  // handler: zoom around the initial midpoint, plus midpoint translation for
+  // two-finger pan.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinch:
+      | { distance: number; midpoint: { x: number; y: number }; camera: Camera }
+      | null = null;
+
+    function midpointAndDistance() {
+      const pts = Array.from(pointers.values()).slice(0, 2);
+      const [p1, p2] = pts;
+      return {
+        distance: Math.hypot(p1.x - p2.x, p1.y - p2.y),
+        midpointClient: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
+      };
+    }
+
+    function onDown(e: PointerEvent) {
+      if (e.pointerType !== "touch") return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pointers.size >= 2 && !pinch) {
+        const rect = viewport!.getBoundingClientRect();
+        const { distance, midpointClient } = midpointAndDistance();
+        pinch = {
+          distance,
+          midpoint: {
+            x: midpointClient.x - rect.left,
+            y: midpointClient.y - rect.top,
+          },
+          camera: cameraRef.current,
+        };
+        // Pinch overrides pan AND any in-flight tile drag.
+        panState.current = null;
+        if (lensEngaged) {
+          setLensEngaged(false);
+          triggerLensSettle();
+        }
+      }
+    }
+
+    function onMove(e: PointerEvent) {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!pinch || pointers.size < 2) return;
+      e.preventDefault();
+      const rect = viewport!.getBoundingClientRect();
+      const { distance, midpointClient } = midpointAndDistance();
+      const newMid = {
+        x: midpointClient.x - rect.left,
+        y: midpointClient.y - rect.top,
+      };
+      const factor = distance / pinch.distance;
+      const c = pinch.camera;
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
+      const k = newScale / c.scale;
+      const mx = pinch.midpoint.x;
+      const my = pinch.midpoint.y;
+      const dx = newMid.x - mx;
+      const dy = newMid.y - my;
+      setCamera(
+        clampCamera({
+          scale: newScale,
+          x: mx - (mx - c.x) * k + dx,
+          y: my - (my - c.y) * k + dy,
+        }),
+      );
+    }
+
+    function onUp(e: PointerEvent) {
+      if (!pointers.has(e.pointerId)) return;
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = null;
+    }
+
+    viewport.addEventListener("pointerdown", onDown, { capture: true });
+    viewport.addEventListener("pointermove", onMove, { capture: true, passive: false });
+    viewport.addEventListener("pointerup", onUp, { capture: true });
+    viewport.addEventListener("pointercancel", onUp, { capture: true });
+    return () => {
+      viewport.removeEventListener("pointerdown", onDown, { capture: true });
+      viewport.removeEventListener("pointermove", onMove, { capture: true });
+      viewport.removeEventListener("pointerup", onUp, { capture: true });
+      viewport.removeEventListener("pointercancel", onUp, { capture: true });
+    };
+  }, [lensEngaged, triggerLensSettle]);
+
   const diveToChannel = useCallback(
     (channelId: string, world: { x: number; y: number; w: number; h: number }) => {
       const rect = viewportRef.current?.getBoundingClientRect();

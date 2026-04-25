@@ -307,7 +307,7 @@ export default function TasksScreen() {
     setEditorState({ mode: "closed" });
     qc.invalidateQueries({ queryKey: ["admin-tasks-timeline"] });
     if (createdTaskId) {
-      navigate(`/admin/tasks/${createdTaskId}`);
+      navigate(`/admin/automations/${createdTaskId}`);
     }
   };
 
@@ -323,7 +323,7 @@ export default function TasksScreen() {
       return;
     }
     const taskId = task.is_virtual && task._schedule_id ? task._schedule_id : task.id;
-    navigate(`/admin/tasks/${taskId}`);
+    navigate(`/admin/automations/${taskId}`);
   };
 
   const handleRunNow = (taskId: string) => {
@@ -514,7 +514,7 @@ export default function TasksScreen() {
             {invalidSchedules.map((s) => (
               <span
                 key={s.id}
-                onClick={() => navigate(`/admin/tasks/${s.id}`)}
+                onClick={() => navigate(`/admin/automations/${s.id}`)}
                 className="inline-flex flex-row items-center gap-1 text-[11px] text-danger cursor-pointer mr-3 underline decoration-danger/30"
               >
                 {s.title || s.prompt?.substring(0, 40) || s.id.slice(0, 8)} ({s.recurrence})

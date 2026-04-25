@@ -192,10 +192,10 @@ export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
       </svg>
       <button
         type="button"
-        onClick={() => navigate("/admin/tasks")}
+        onClick={() => navigate("/admin/automations")}
         onPointerDown={(e) => e.stopPropagation()}
-        title="Open task list"
-        aria-label="Open task list"
+        title="Open Automations"
+        aria-label="Open Automations"
         className="absolute rounded-full pointer-events-auto cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
         style={{
           left: cx - innerR,

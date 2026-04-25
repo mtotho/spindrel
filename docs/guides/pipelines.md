@@ -13,7 +13,7 @@ Design principle: use `exec` and `tool` steps for deterministic work (they don't
 ### From a Bot
 
 ```text
-schedule_task(
+define_pipeline(
   title="Health check",
   steps='[
     {"id": "check", "type": "exec", "prompt": "df -h / && free -h"},
@@ -22,9 +22,9 @@ schedule_task(
 )
 ```
 
-When `steps` is provided, `prompt` is optional. `recurrence`, `bot_id`, `trigger_config`, and friends work as usual. For advanced overrides pass `execution_config='{"model_override": "gpt-4o-mini"}'`.
+`define_pipeline` requires `steps`. `recurrence`, `bot_id`, `trigger_config`, `scheduled_at`, `max_run_seconds`, and `execution_config` work as documented in the tool schema. For single-prompt Automations (no steps), call `schedule_prompt` instead.
 
-Use `run_task(task_id=...)` to run a definition immediately. Pass `params='{"key": "value"}'` to bind runtime inputs into `{{params.*}}` substitutions.
+Use `run_pipeline(pipeline_id=...)` to spawn a Run from a Pipeline definition (accepts a slug or UUID). Pass `params={"key": "value"}` to bind runtime inputs into `{{params.*}}` substitutions. `run_task(task_id=...)` works for any Automation Run by id.
 
 ### From YAML (System Pipelines)
 
@@ -235,10 +235,10 @@ If *any* step failed, the pipeline's final status is `failed` — even with `con
 
 ## Triggering
 
-- **Admin UI** — Admin → Tasks → select definition → Run
-- **Schedule** — `recurrence: "0 9 * * *"` on the task
+- **Admin UI** — Admin → Automations → select definition → Run
+- **Schedule** — `recurrence: "0 9 * * *"` on the definition
 - **Event** — `trigger_config: {type: event, event_source: github, event_type: push}`
-- **Bot** — `run_task(task_id=...)` / `schedule_task(steps=...)`
+- **Bot** — `run_pipeline(pipeline_id=...)` / `define_pipeline(steps=...)`
 - **API** — `POST /api/v1/admin/tasks/{id}/run` with `{params: {...}}`
 - **Resolve a gate** — `POST /api/v1/admin/tasks/{id}/steps/{i}/resolve`
 
@@ -349,7 +349,7 @@ Inspect a live run with `get_task_result(task_id=...)` or `list_tasks(parent_tas
 Pipelines have a `source` column (migration 202):
 
 - `source: system` — seeded from YAML in `app/data/system_pipelines/`. Re-synced on every boot. Deterministic UUIDs (via `uuid5`). **Do not edit in the UI** — edits detach from YAML.
-- `source: user` (default) — created via UI or `schedule_task`. Never touched by the system seeder.
+- `source: user` (default) — created via UI or `define_pipeline`. Never touched by the system seeder.
 
 System pipelines collide gracefully: the seeder refuses to clobber a user-owned row and logs a warning.
 
@@ -359,7 +359,7 @@ System pipelines collide gracefully: the seeder refuses to clobber a user-owned 
 
 | Situation | Use instead |
 |---|---|
-| One-off reasoning | Single-prompt `schedule_task` |
+| One-off reasoning | Single-prompt `schedule_prompt` |
 | Parallel fan-out to multiple bots | `delegate_to_agent` |
 | Conversational back-and-forth | A regular channel turn, not a pipeline |
 | User asks "help me decide" | Let the agent answer — don't wrap a chat in steps |

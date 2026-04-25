@@ -49,7 +49,7 @@ export const ADMIN_ITEMS: PaletteItem[] = [
   { id: "nav-learning-history", label: "Memory & Knowledge: History", hint: "Memory & Knowledge", href: "/admin/learning#History", icon: Brain, category: "Automate" },
   { id: "nav-learning-dreaming", label: "Memory & Knowledge: Dreaming", hint: "Memory & Knowledge", href: "/admin/learning#Dreaming", icon: Brain, category: "Automate" },
   { id: "nav-learning-skills", label: "Memory & Knowledge: Skills", hint: "Memory & Knowledge", href: "/admin/learning#Skills", icon: Brain, category: "Automate" },
-  { id: "nav-tasks", label: "Tasks", href: "/admin/tasks", icon: ClipboardList, category: "Automate" },
+  { id: "nav-tasks", label: "Automations", href: "/admin/automations", icon: ClipboardList, category: "Automate" },
   { id: "nav-workflows", label: "Workflows", href: "/admin/workflows", icon: Zap, category: "Automate" },
   // -- Security --
   { id: "nav-secrets", label: "Secrets", href: "/admin/secret-values", icon: Lock, category: "Security" },

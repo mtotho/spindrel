@@ -300,9 +300,9 @@ class TestLibraryWidgetsEndpoint:
     @pytest.mark.asyncio
     async def test_core_excludes_template_renderer_entries(self, client):
         """Tool-renderer ``template.yaml`` bundles (get_task_result,
-        manage_bot_skill, schedule_task, list_tasks, get_system_status,
-        etc.) are NOT pinnable — they need tool args. Confirm they're
-        filtered out of the catalog."""
+        manage_bot_skill, schedule_prompt, define_pipeline, list_tasks,
+        get_system_status, etc.) are NOT pinnable — they need tool args.
+        Confirm they're filtered out of the catalog."""
         r = await client.get(
             "/api/v1/widgets/library-widgets", headers=AUTH_HEADERS,
         )
@@ -312,7 +312,8 @@ class TestLibraryWidgetsEndpoint:
         for junk in (
             "get_task_result",
             "manage_bot_skill",
-            "schedule_task",
+            "schedule_prompt",
+            "define_pipeline",
             "list_tasks",
             "get_system_status",
         ):

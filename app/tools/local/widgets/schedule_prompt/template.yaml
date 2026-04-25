@@ -1,4 +1,4 @@
-# schedule_task returns {id, status, task_type, bot_id, ...}.
+# schedule_prompt returns {id, status, task_type='scheduled', bot_id, ...}.
 # We render a rich live card and re-poll via list_tasks so the status,
 # run_at/completed_at, and run_count stay current. display_label carries
 # the task id forward so state_poll args can look it up.
@@ -33,8 +33,8 @@ fragments:
   edit_task_links:
     type: links
     items:
-      - url: "/admin/tasks/{{id}}"
-        title: Edit task
+      - url: "/admin/automations/{{id}}"
+        title: Edit Scheduled prompt
         icon: link
 template:
   v: 1

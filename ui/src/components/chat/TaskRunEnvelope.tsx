@@ -746,7 +746,7 @@ const InlineTaskRunEnvelope = memo(function InlineTaskRunEnvelope({ message, col
                     </span>
                     {taskId && (
                       <button
-                        onClick={() => navigate(`/admin/tasks/${taskId}`)}
+                        onClick={() => navigate(`/admin/automations/${taskId}`)}
                         className="text-[11px] text-accent hover:underline"
                       >
                         Open in admin
@@ -792,7 +792,7 @@ const InlineTaskRunEnvelope = memo(function InlineTaskRunEnvelope({ message, col
                 users pivot to admin history from inside that screen if needed. */}
             {meta.parent_task_id && (
               <button
-                onClick={() => navigate(`/admin/tasks/${meta.parent_task_id}?tab=runs`)}
+                onClick={() => navigate(`/admin/automations/${meta.parent_task_id}?tab=runs`)}
                 className="hidden sm:inline-flex text-[10.5px] text-accent/80 hover:text-accent bg-transparent border-none cursor-pointer items-center gap-1 px-1 py-0.5 rounded hover:bg-accent/5 transition-colors"
               >
                 View runs
@@ -801,7 +801,7 @@ const InlineTaskRunEnvelope = memo(function InlineTaskRunEnvelope({ message, col
             )}
             {taskId && (
               <button
-                onClick={() => navigate(`/admin/tasks/${taskId}`)}
+                onClick={() => navigate(`/admin/automations/${taskId}`)}
                 className="text-[10.5px] text-accent/80 hover:text-accent bg-transparent border-none cursor-pointer inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-accent/5 transition-colors"
               >
                 This run

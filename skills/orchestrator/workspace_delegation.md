@@ -75,7 +75,7 @@ Use a workflow when the same sequence will repeat.
 | Need | Best fit |
 |---|---|
 | Open-ended domain work | `delegate_to_agent` |
-| Deterministic repeated sequence | workflow / `schedule_task` |
+| Deterministic repeated sequence | `define_pipeline` (multi-step) or `schedule_prompt` (single-prompt) |
 | Code editing and repo manipulation | `run_claude_code` |
 | Simple local coordination | direct tool use |
 

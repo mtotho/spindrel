@@ -2,11 +2,27 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-20 (5 audit pipelines demoted to Library; configurator skill path shipped)
+updated: 2026-04-25 (Vocabulary cleanup — schedule_task split into schedule_prompt + define_pipeline; /admin/tasks → /admin/automations)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-25 — Vocabulary cleanup (Task overload triage)
+
+The bare word "Task" was overloaded across six execution models (Scheduled prompt, Pipeline definition, Sub-session, Delegation, Standing order, Heartbeat run, Background worker). The bot tool surface conflated single-prompt scheduled work with multi-step Pipeline definitions in one tool — `schedule_task(prompt=..., steps=...)` — which the LLM struggled to disambiguate. Three-part cleanup landed in one pass:
+
+- **`docs/guides/ubiquitous-language.md`** — added a new "Automations and scheduled work" section with seven precise terms (Automation umbrella, Scheduled prompt, Pipeline, Run, Delegation, Sub-agent, Heartbeat run, Standing order, Background worker) and a new flagged ambiguity entry "Task is overloaded — use a precise term." Heartbeat run moved out of the Sessions table into Automations.
+- **Bot tool surface** — `schedule_task` removed; replaced with two tools: `schedule_prompt` (single-prompt, no `steps` arg, in `app/tools/local/tasks.py`) and `define_pipeline` (multi-step, requires `steps`, in `app/tools/local/pipelines.py`). Both share a private `_create_task_row` helper. `list_tasks` / `cancel_task` / `update_task` / `get_task_result` / `run_task` descriptions tightened to use the new vocabulary. Widget templates renamed (`widgets/schedule_task/` → `widgets/schedule_prompt/`; new `widgets/define_pipeline/`).
+- **Admin UI** — `/admin/tasks` route renamed to `/admin/automations`. Old route returns a permanent redirect via `<Navigate>` and the new `RedirectToAutomation` helper; existing detail pages still work. Page label "Tasks" → "Automations" everywhere it surfaces (palette, sidebar rail, settings index, spatial canvas NowWell tooltip, all "View task" button copy in TaskRunEnvelope / TriggerCard / TaskEditor).
+
+`spawn_subagents` was considered for renaming but explicitly **deferred** — the readonly boundary is enforced in `app/agent/subagents.py:48` regardless of verb. Revisit only if a future session shows the LLM still confusing it with `delegate_to_agent`.
+
+Skills updated: `skills/pipelines/{index,creation}.md`, `skills/orchestrator/{index,workspace_delegation}.md`, `skills/workspace/member.md`, `skills/widgets/handlers.md`. Docs updated: `docs/index.md`, `docs/guides/{pipelines,widget-dashboards,tool-policies,workflows}.md`, `docs/reference/widget-inventory.md`. Tests updated: 8 unit + integration files (mostly `from app.tools.local.tasks import schedule_prompt as schedule_task` aliases to keep the existing test bodies). One pre-existing broken assertion in `test_task_title.py` (asserted `"queued" in result` against a JSON string) tightened to parse JSON. Two other pre-existing `TestListTasksTitle` failures are unrelated (MagicMock JSON-serializability) and predate this work.
+
+Verification: `pytest tests/unit/test_task_tools.py tests/unit/test_task_title.py tests/unit/test_phase0_smoke.py tests/unit/test_security_hardening.py::TestTaskCreationRateLimit tests/integration/test_widget_catalog_api.py tests/unit/test_widget_packages_seeder.py tests/unit/test_canonical_docs_drift.py` → 78 passed, 2 pre-existing fails unrelated to vocabulary work. UI `npx tsc --noEmit` clean.
+
+Plan: `~/.claude/plans/cna-we-please-do-expressive-koala.md`.
 
 ## 2026-04-20 — Audit pipelines demoted; configurator skill replaces ambient surface
 

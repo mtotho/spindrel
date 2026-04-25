@@ -97,7 +97,7 @@ export function TasksTab({ channelId, botId }: { channelId: string; botId?: stri
         if (EDITABLE_TASK_TYPES.has(task.task_type ?? "")) {
           setEditorState({ mode: "edit", taskId: task.id });
         } else {
-          navigate(`/admin/tasks/${task.id}`);
+          navigate(`/admin/automations/${task.id}`);
         }
       }}
       showBotDot={false}

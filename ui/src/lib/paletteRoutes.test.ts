@@ -15,7 +15,7 @@ test("canonicalizePaletteHref normalizes route aliases to their durable targets"
   );
   assert.equal(
     canonicalizePaletteHref("/admin/upcoming"),
-    "/admin/tasks?view=list",
+    "/admin/automations?view=list",
   );
 });
 

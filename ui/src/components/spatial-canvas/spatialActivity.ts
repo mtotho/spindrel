@@ -32,7 +32,7 @@ export function upcomingTypeLabel(item: UpcomingItem): string {
 }
 
 export function upcomingHref(item: UpcomingItem): string | null {
-  if (item.type === "task" && item.task_id) return `/admin/tasks/${item.task_id}`;
+  if (item.type === "task" && item.task_id) return `/admin/automations/${item.task_id}`;
   if (item.type === "heartbeat" && item.channel_id) return `/channels/${item.channel_id}`;
   if (item.type === "memory_hygiene") return "/admin/learning";
   return item.channel_id ? `/channels/${item.channel_id}` : null;

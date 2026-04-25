@@ -139,7 +139,7 @@ export function PipelineRunLive({
           <button
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/admin/tasks/${taskId}`);
+              navigate(`/admin/automations/${taskId}`);
             }}
             className="hidden sm:inline-flex items-center gap-1 text-[11px] text-accent/80 hover:text-accent
                        px-2 py-1 rounded hover:bg-accent/5 transition-colors"

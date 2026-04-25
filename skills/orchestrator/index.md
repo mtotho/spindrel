@@ -56,7 +56,7 @@ results. Execute directly only for coordination, workspace setup, and final inte
 | Scenario | Preferred path |
 |---|---|
 | One-off specialized work | `delegate_to_agent` |
-| Multi-step deterministic flow | `schedule_task` with `steps` |
+| Multi-step deterministic flow | `define_pipeline` |
 | Focused code change or repo surgery | `run_claude_code` |
 | Workspace coordination, file placement, synthesis | direct file or exec tools |
 | Review prior work by another bot | `search_bot_memory` |

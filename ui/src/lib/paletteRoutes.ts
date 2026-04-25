@@ -93,7 +93,7 @@ const STATIC_ROUTES = new Map<string, StaticRouteMeta>([
   ["/admin/secret-values", { pageType: "Secrets", category: "Security", icon: Lock, label: "Secrets", hint: "Security" }],
   ["/admin/sessions", { pageType: "Sessions", category: "Monitor", icon: MessageCircle, label: "Sessions", hint: "Monitor" }],
   ["/admin/skills", { pageType: "Skills", category: "Configure", icon: BookOpen, label: "Skills", hint: "Configure" }],
-  ["/admin/tasks", { pageType: "Tasks", category: "Automate", icon: ClipboardList, label: "Tasks", hint: "Automate" }],
+  ["/admin/automations", { pageType: "Automations", category: "Automate", icon: ClipboardList, label: "Automations", hint: "Automate" }],
   ["/admin/tool-calls", { pageType: "Tool Calls", category: "Monitor", icon: Activity, label: "Tool Calls", hint: "Monitor" }],
   ["/admin/tool-policies", { pageType: "Policies", category: "Security", icon: Shield, label: "Policies", hint: "Security" }],
   ["/admin/tools", { pageType: "Tools", category: "Configure", icon: Wrench, label: "Tools", hint: "Configure" }],
@@ -114,7 +114,7 @@ const ADMIN_DETAIL_ROUTES = [
   { prefix: "/admin/prompt-templates/", routeKind: "admin-prompt-template", pageType: "Template", category: "Configure", icon: FileText },
   { prefix: "/admin/providers/", routeKind: "admin-provider", pageType: "Provider", category: "Configure", icon: Server },
   { prefix: "/admin/skills/", routeKind: "admin-skill", pageType: "Skill", category: "Configure", icon: BookOpen },
-  { prefix: "/admin/tasks/", routeKind: "admin-task", pageType: "Task", category: "Automate", icon: ClipboardList },
+  { prefix: "/admin/automations/", routeKind: "admin-task", pageType: "Automation", category: "Automate", icon: ClipboardList },
   { prefix: "/admin/tool-policies/", routeKind: "admin-tool-policy", pageType: "Policy", category: "Security", icon: Shield },
   { prefix: "/admin/tools/", routeKind: "admin-tool", pageType: "Tool", category: "Configure", icon: Wrench },
   { prefix: "/admin/webhooks/", routeKind: "admin-webhook", pageType: "Webhook", category: "Developer", icon: Webhook },
@@ -399,7 +399,7 @@ export function canonicalizePaletteHref(href: string): string {
     if (!packageId) return "/widgets/dev#library";
     return `/widgets/dev?id=${encodeURIComponent(packageId)}#templates`;
   }
-  if (pathname === "/admin/upcoming") return "/admin/tasks?view=list";
+  if (pathname === "/admin/upcoming") return "/admin/automations?view=list";
 
   return composeHref(pathname, search, hash);
 }

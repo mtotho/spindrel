@@ -172,7 +172,7 @@ export function TaskEditor({
         <button
           onClick={() => {
             onClose();
-            navigate(`/admin/tasks/${form.existingTask!.parent_task_id}`);
+            navigate(`/admin/automations/${form.existingTask!.parent_task_id}`);
           }}
           className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left"
         >

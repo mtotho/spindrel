@@ -74,7 +74,7 @@ async def test_when_patched_async_sessions_then_tasks_module_uses_test_engine(
 ):
     """End-to-end: a service that opens its own ``async_session()`` persists
     against the test DB, and rows are visible via ``db_session``."""
-    from app.tools.local.tasks import schedule_task
+    from app.tools.local.tasks import schedule_prompt as schedule_task
 
     agent_context(
         bot_id="smoke-bot",

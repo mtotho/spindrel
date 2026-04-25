@@ -2,6 +2,8 @@
 
 Bridge iMessage conversations to Spindrel. The BlueBubbles integration enables both **inbound** (receiving iMessages and triggering the bot) and **outbound** (sending bot responses as iMessages).
 
+![BlueBubbles channel HUD with iMessage thread](../images/channel-bluebubbles-hud.png)
+
 ## Prerequisites
 
 - A Mac running [BlueBubbles Server](https://bluebubbles.app/) with iMessage configured

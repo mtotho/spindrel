@@ -16,6 +16,7 @@ import os
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -89,7 +90,7 @@ def mkdocs_serve(
         raise FileNotFoundError(f"mkdocs.yml not found at {cfg}")
 
     cmd = [
-        "mkdocs", "serve",
+        sys.executable, "-m", "mkdocs", "serve",
         "--dev-addr", f"{host}:{port}",
         "--no-livereload",
         "--config-file", str(cfg),

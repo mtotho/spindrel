@@ -73,50 +73,33 @@ async def _resolve_template(name: str, prompt: str | None, db) -> PromptTemplate
     raise ValueError(f"Template '{name}' not found. Provide a prompt to auto-create it.")
 
 
-_SCHEDULE_TASK_SCHEMA = {
+_SCHEDULE_PROMPT_SCHEMA = {
     "type": "function",
     "function": {
-        "name": "schedule_task",
+        "name": "schedule_prompt",
         "description": (
-            "CREATE a NEW task or pipeline definition. Use this ONLY for work that does not already exist. "
-            "To RE-RUN an existing task or pipeline, call `run_task` with its task_id instead — "
-            "do NOT create a duplicate here. Call `list_tasks` first to check whether a matching "
-            "definition already exists. "
+            "CREATE a NEW Scheduled prompt (single-prompt Automation, optional cron). "
+            "Use this for one-shot or recurring single-prompt work. "
+            "For multi-step Automations, call `define_pipeline` instead. "
+            "To RE-RUN an existing Scheduled prompt or Pipeline, call `run_task` with its id — "
+            "do NOT create a duplicate here. Call `list_tasks` first to check whether a "
+            "matching definition already exists. "
             "Defaults to the current bot in the current channel. To schedule work for a DIFFERENT bot, "
-            "pass bot_id — the task will run in that bot's primary channel automatically. "
-            "The result is dispatched back to the target channel/thread. "
-            "For multi-step pipelines, pass steps instead of prompt — each step can be exec (shell), "
-            "tool (direct call), or agent (LLM). See the Pipeline Authoring skill for the full step schema."
+            "pass bot_id — the run will land in that bot's primary channel automatically. "
+            "The result is dispatched back to the target channel/thread."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Short human-readable title for the task (shown in UI). Keep under ~60 chars.",
+                    "description": "Short human-readable title for the Scheduled prompt (shown in UI). Keep under ~60 chars.",
                 },
                 "prompt": {
                     "type": "string",
                     "description": (
-                        "The full prompt/instruction to run when the task executes. "
-                        "Required for single-prompt tasks. For pipeline tasks (when steps "
-                        "is provided), this is optional — a placeholder is auto-generated."
-                    ),
-                },
-                "steps": {
-                    "type": "string",
-                    "description": (
-                        "JSON array of pipeline step definitions. Each step needs at minimum "
-                        "id and type ('exec', 'tool', 'agent', 'user_prompt', or 'foreach'). "
-                        "'user_prompt' pauses the pipeline for human approval (response shapes: "
-                        "'binary' or 'multi_item'; resolved via POST /tasks/{id}/steps/{i}/resolve). "
-                        "'foreach' iterates a list from a prior step ('over: {{steps.X.result.items}}') "
-                        "running 'do' sub-steps per item — sub-step type 'tool' only in v1. "
-                        "Providing steps creates "
-                        "a pipeline task that executes steps sequentially. "
-                        "Example: '[{\"id\":\"search\",\"type\":\"tool\",\"tool_name\":\"web_search\","
-                        "\"tool_args\":{\"query\":\"latest news\"}},{\"id\":\"analyze\",\"type\":\"agent\","
-                        "\"prompt\":\"Summarize the search results.\"}]'"
+                        "The full prompt/instruction to run when the Scheduled prompt fires. "
+                        "Required unless workspace_file_path is set."
                     ),
                 },
                 "execution_config": {
@@ -213,57 +196,31 @@ async def _resolve_bot_channel(bot_id: str, db) -> tuple[uuid.UUID | None, str |
     return channel.id, channel.client_id, channel.active_session_id, dispatch_type, dispatch_config
 
 
-@register(
-    _SCHEDULE_TASK_SCHEMA,
-    safety_tier="control_plane",
-    requires_bot_context=True,
-    requires_channel_context=True,
-)
-async def schedule_task(
-    prompt: str = "",
-    title: str | None = None,
-    steps: str | None = None,
-    execution_config: str | None = None,
-    workspace_file_path: str | None = None,
-    scheduled_at: str | None = None,
-    bot_id: str | None = None,
-    reply_in_thread: bool = False,
-    recurrence: str | None = None,
-    trigger_rag_loop: bool = False,
-    max_run_seconds: int | None = None,
-    trigger_config: str | None = None,
+async def _create_task_row(
+    *,
+    prompt: str,
+    title: str | None,
+    parsed_steps: list | None,
+    parsed_ec: dict | None,
+    parsed_tc: dict | None,
+    workspace_file_path: str | None,
+    scheduled_at: str | None,
+    bot_id: str | None,
+    reply_in_thread: bool,
+    recurrence: str | None,
+    trigger_rag_loop: bool,
+    max_run_seconds: int | None,
 ) -> str:
+    """Shared write path for `schedule_prompt` (no steps) and `define_pipeline` (steps required).
+
+    All inputs must be pre-parsed (JSON args already decoded). Returns a JSON
+    string suitable for direct return from a tool function.
+    """
     # Rate limit: cap task creation per agent loop iteration
     count = task_creation_count.get(0)
     if count >= _MAX_TASK_CREATIONS_PER_REQUEST:
-        return json.dumps({"error": f"Task creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."}, ensure_ascii=False)
+        return json.dumps({"error": f"Automation creation limit reached for this request (max {_MAX_TASK_CREATIONS_PER_REQUEST})."}, ensure_ascii=False)
     task_creation_count.set(count + 1)
-
-    # Parse pipeline steps
-    parsed_steps = None
-    if steps:
-        try:
-            parsed_steps = json.loads(steps)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in steps parameter."}, ensure_ascii=False)
-        if not isinstance(parsed_steps, list) or not parsed_steps:
-            return json.dumps({"error": "steps must be a non-empty JSON array."}, ensure_ascii=False)
-
-    # Parse execution config
-    parsed_ec = None
-    if execution_config:
-        try:
-            parsed_ec = json.loads(execution_config)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in execution_config parameter."}, ensure_ascii=False)
-
-    # Parse trigger config
-    parsed_tc = None
-    if trigger_config:
-        try:
-            parsed_tc = json.loads(trigger_config)
-        except json.JSONDecodeError:
-            return json.dumps({"error": "Invalid JSON in trigger_config parameter."}, ensure_ascii=False)
 
     # Must have at least one of prompt, steps, or workspace_file_path
     if not prompt and not parsed_steps and not workspace_file_path:
@@ -387,15 +344,65 @@ async def schedule_task(
     return json.dumps(result_data, ensure_ascii=False)
 
 
+@register(
+    _SCHEDULE_PROMPT_SCHEMA,
+    safety_tier="control_plane",
+    requires_bot_context=True,
+    requires_channel_context=True,
+)
+async def schedule_prompt(
+    prompt: str = "",
+    title: str | None = None,
+    execution_config: str | None = None,
+    workspace_file_path: str | None = None,
+    scheduled_at: str | None = None,
+    bot_id: str | None = None,
+    reply_in_thread: bool = False,
+    recurrence: str | None = None,
+    trigger_rag_loop: bool = False,
+    max_run_seconds: int | None = None,
+    trigger_config: str | None = None,
+) -> str:
+    parsed_ec = None
+    if execution_config:
+        try:
+            parsed_ec = json.loads(execution_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in execution_config parameter."}, ensure_ascii=False)
+
+    parsed_tc = None
+    if trigger_config:
+        try:
+            parsed_tc = json.loads(trigger_config)
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON in trigger_config parameter."}, ensure_ascii=False)
+
+    return await _create_task_row(
+        prompt=prompt,
+        title=title,
+        parsed_steps=None,
+        parsed_ec=parsed_ec,
+        parsed_tc=parsed_tc,
+        workspace_file_path=workspace_file_path,
+        scheduled_at=scheduled_at,
+        bot_id=bot_id,
+        reply_in_thread=reply_in_thread,
+        recurrence=recurrence,
+        trigger_rag_loop=trigger_rag_loop,
+        max_run_seconds=max_run_seconds,
+    )
+
+
 @register({
     "type": "function",
     "function": {
         "name": "list_tasks",
         "description": (
-            "List task definitions, get detailed info on a specific task, "
-            "or view run history of a task definition. "
-            "Shows all bots' tasks by default. Pass bot_id to filter by a specific bot. "
-            "Only shows pending/running/active tasks unless include_completed is set."
+            "List Automations (Scheduled prompts + Pipelines), get detailed info on one by id, "
+            "or view a definition's Run history. "
+            "Shows all bots' Automations by default. Pass bot_id to filter by a specific bot. "
+            "Only shows pending/running/active rows unless include_completed is set. "
+            "Use `list_pipelines` instead when you only want multi-step Pipeline definitions."
         ),
         "parameters": {
             "type": "object",
@@ -678,9 +685,9 @@ async def list_tasks(task_id: str | None = None, bot_id: str | None = None, incl
     "function": {
         "name": "cancel_task",
         "description": (
-            "Cancel a pending task or active recurring schedule so it will not run. "
-            "Works on tasks with status=pending or status=active (recurring schedules). "
-            "Use list_tasks to find the task ID first."
+            "Cancel a pending Automation or active recurring schedule so it will not run. "
+            "Works on rows with status=pending or status=active. "
+            "Use `list_tasks` to find the id first. Applies to both Scheduled prompts and Pipelines."
         ),
         "parameters": {
             "type": "object",
@@ -720,9 +727,10 @@ async def cancel_task(task_id: str) -> str:
     "function": {
         "name": "update_task",
         "description": (
-            "Update a pending or active task definition: schedule, prompt, pipeline steps, "
+            "Update a pending or active Automation definition: schedule, prompt, Pipeline steps, "
             "execution config, event triggers, recurrence, or bot. "
-            "Omit any field to leave it unchanged."
+            "Omit any field to leave it unchanged. Setting `steps` flips a Scheduled prompt to "
+            "a Pipeline; clearing `steps` flips it back."
         ),
         "parameters": {
             "type": "object",
@@ -976,9 +984,9 @@ async def update_task(
     "function": {
         "name": "get_task_result",
         "description": (
-            "Retrieve the result or current status of a task by ID. "
-            "Useful for checking the output of delegation or exec tasks "
-            "after they complete."
+            "Retrieve the result or current status of an Automation Run by ID. "
+            "Useful for checking the output of a Delegation, Pipeline run, or Scheduled prompt "
+            "after it completes."
         ),
         "parameters": {
             "type": "object",
@@ -1059,13 +1067,14 @@ async def get_task_result(task_id: str) -> str:
     "function": {
         "name": "run_task",
         "description": (
-            "RE-RUN or trigger an existing task / pipeline / schedule by its id. "
-            "Use this when the user says 'run that pipeline again', 'trigger the job', "
-            "'re-run yesterday's task', or similar. Spawns a concrete child run from the "
+            "RE-RUN or trigger an existing Automation by its id. "
+            "Use this when the user says 'run that Pipeline again', 'trigger the job', "
+            "'re-run yesterday's Scheduled prompt', or similar. Spawns a concrete Run from the "
             "definition and schedules it immediately; does NOT duplicate the definition. "
-            "Works on active schedule templates, pipeline definitions, and event-triggered tasks. "
-            "If you don't know the task_id, call `list_tasks` first to find it. "
-            "Returns the new run's id and status. Use `list_tasks` with parent_task_id to view run history."
+            "Works on active Scheduled prompts, Pipeline definitions, and event-triggered Automations. "
+            "If you don't know the id, call `list_tasks` first to find it. "
+            "Returns the new Run's id and status. Use `list_tasks` with parent_task_id to view Run history. "
+            "For Pipelines specifically, `run_pipeline` accepts a slug or UUID and is the friendlier surface."
         ),
         "parameters": {
             "type": "object",

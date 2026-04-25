@@ -227,7 +227,7 @@ function SubscriptionRow({
 
       {/* Overflow actions */}
       <Link
-        to={`/admin/tasks/${sub.task_id}`}
+        to={`/admin/automations/${sub.task_id}`}
         title="View pipeline definition"
         className="inline-flex items-center p-1 text-text-dim transition-colors hover:text-accent"
       >

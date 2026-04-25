@@ -1,0 +1,121 @@
+# define_pipeline returns {id, status, task_type='pipeline', bot_id, ...}.
+# We render a rich live card and re-poll via list_tasks so the status,
+# run_at/completed_at, and run_count stay current. display_label carries
+# the task id forward so state_poll args can look it up.
+#
+# Fragments (P1-1) factor out the footer controls so the initial and
+# polled views share one definition.
+
+content_type: application/vnd.spindrel.components+json
+display: inline
+display_label: "{{id}}"
+sample_payload:
+  id: task_01HZY3
+  title: Daily standup digest
+  status: pending
+  task_type: recurring
+  bot_id: kai
+  scheduled_at: "2026-04-19T09:00:00Z"
+  recurrence: "0 9 * * *"
+  step_count: 3
+  workspace_file_path: null
+fragments:
+  cancel_task_button:
+    type: button
+    label: Cancel
+    variant: danger
+    when: "{{status | in: pending,active,running}}"
+    action:
+      dispatch: tool
+      tool: cancel_task
+      args:
+        task_id: "{{id}}"
+  edit_task_links:
+    type: links
+    items:
+      - url: "/admin/automations/{{id}}"
+        title: Edit Pipeline
+        icon: link
+template:
+  v: 1
+  components:
+    - type: heading
+      text: "{{title | default: Task Created}}"
+      level: 3
+    - type: status
+      text: "{{status}}"
+      color: "{{status | status_color}}"
+    - type: properties
+      layout: inline
+      items:
+        - label: Type
+          value: "{{task_type}}"
+        - label: Bot
+          value: "{{bot_id}}"
+        - label: Scheduled
+          value: "{{scheduled_at}}"
+          when: "{{scheduled_at | not_empty}}"
+        - label: Recurrence
+          value: "{{recurrence}}"
+          when: "{{recurrence | not_empty}}"
+        - label: Steps
+          value: "{{step_count}}"
+          when: "{{step_count | not_empty}}"
+        - label: File
+          value: "{{workspace_file_path}}"
+          when: "{{workspace_file_path | not_empty}}"
+    - {type: fragment, ref: cancel_task_button}
+    - {type: fragment, ref: edit_task_links}
+state_poll:
+  tool: list_tasks
+  args:
+    task_id: "{{display_label}}"
+  transform: "app.tools.local.task_widget_transforms:task_detail"
+  refresh_interval_seconds: 10
+  template:
+    v: 1
+    components:
+      - type: heading
+        text: "{{title | default: Task}}"
+        level: 3
+      - type: status
+        text: "{{status}}"
+        color: "{{status | status_color}}"
+      - type: properties
+        layout: inline
+        items:
+          - label: Type
+            value: "{{task_type}}"
+          - label: Bot
+            value: "{{bot_id}}"
+          - label: Recurrence
+            value: "{{recurrence}}"
+            when: "{{recurrence | not_empty}}"
+          - label: Next run
+            value: "{{scheduled_at}}"
+            when: "{{scheduled_at | not_empty}}"
+          - label: Last run
+            value: "{{run_at}}"
+            when: "{{run_at | not_empty}}"
+          - label: Run count
+            value: "{{run_count}}"
+            when: "{{run_count | not_empty}}"
+          - label: Completed
+            value: "{{completed_at}}"
+            when: "{{completed_at | not_empty}}"
+          - label: Steps
+            value: "{{step_count}}"
+            when: "{{step_count | not_empty}}"
+          - label: File
+            value: "{{workspace_file_path}}"
+            when: "{{workspace_file_path | not_empty}}"
+      - type: section
+        label: Error
+        collapsible: true
+        defaultOpen: true
+        when: "{{error | not_empty}}"
+        children:
+          - type: code
+            content: "{{error}}"
+      - {type: fragment, ref: cancel_task_button}
+      - {type: fragment, ref: edit_task_links}
