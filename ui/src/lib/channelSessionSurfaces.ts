@@ -374,6 +374,26 @@ export function restoreMiniChannelChatPane(layout: ChannelChatPaneLayout): Chann
   };
 }
 
+export function channelChatPaneForSurface(surface: ChannelSessionSurface): ChannelChatPane {
+  return { id: paneIdForSurface(surface), surface };
+}
+
+export function splitChannelChatPaneLayout(
+  currentSurface: ChannelSessionSurface,
+  nextSurface: ChannelSessionSurface,
+): ChannelChatPaneLayout {
+  const current = channelChatPaneForSurface(currentSurface);
+  const next = channelChatPaneForSurface(nextSurface);
+  const panes = current.id === next.id ? [current] : [current, next];
+  return {
+    panes,
+    focusedPaneId: next.id,
+    widths: normalizeWidths(panes, {}),
+    maximizedPaneId: null,
+    miniPane: null,
+  };
+}
+
 export function resizeChannelChatPanes(
   layout: ChannelChatPaneLayout,
   leftPaneId: string,
@@ -398,7 +418,7 @@ export function resizeChannelChatPanes(
 
 export function buildChannelSessionRoute(channelId: string, surface: ChannelSessionSurface): string {
   if (surface.kind === "primary") return `/channels/${channelId}`;
-  if (surface.kind === "channel") return `/channels/${channelId}`;
+  if (surface.kind === "channel") return `/channels/${channelId}/session/${surface.sessionId}?surface=channel`;
   return `/channels/${channelId}/session/${surface.sessionId}?scratch=true`;
 }
 
@@ -551,7 +571,7 @@ export function buildChannelSessionPickerEntries({
           row,
           label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
           meta: getChannelSessionMeta(row),
-          selected: false,
+          selected: selectedSessionId === row.session_id,
           matches: row.matches ?? [],
         });
       }
@@ -574,7 +594,7 @@ export function buildChannelSessionPickerEntries({
         row,
         label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
         meta: getChannelSessionMeta(row),
-        selected: false,
+        selected: selectedSessionId === row.session_id,
         matches: row.matches ?? [],
       });
     }

@@ -1,7 +1,7 @@
-import { useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { SECTIONS, type SectionKey } from "./constants";
+import { SelectInput } from "@/src/components/shared/FormControls";
+import { SettingsControlRow } from "@/src/components/shared/SettingsControls";
+import { BOT_GROUPS, type BotGroupKey } from "./constants";
 
 export function SectionNav({
   active,
@@ -10,86 +10,43 @@ export function SectionNav({
   matchingSections,
   isMobile,
 }: {
-  active: SectionKey;
-  onSelect: (k: SectionKey) => void;
+  active: BotGroupKey;
+  onSelect: (k: BotGroupKey) => void;
   filter: string;
-  matchingSections: Set<SectionKey>;
+  matchingSections: Set<BotGroupKey>;
   isMobile: boolean;
 }) {
-  const t = useThemeTokens();
-  const [mobileOpen, setMobileOpen] = useState(false);
-
   if (isMobile) {
-    const activeLabel = SECTIONS.find((s) => s.key === active)?.label ?? active;
     return (
-      <div style={{ position: "relative", borderBottom: `1px solid ${t.surfaceRaised}` }}>
-        <button
-          onClick={() => setMobileOpen(!mobileOpen)}
-          style={{
-            display: "flex", flexDirection: "row", alignItems: "center", gap: 8, width: "100%",
-            padding: "12px 16px", background: t.surface, border: "none",
-            color: t.text, fontSize: 15, fontWeight: 600, cursor: "pointer",
-            minHeight: 48,
-          }}
-        >
-          <span style={{ flex: 1, textAlign: "left" }}>{activeLabel}</span>
-          <ChevronDown size={16} color={t.textDim} style={{ transform: mobileOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" } as any} />
-        </button>
-        {mobileOpen && (
-          <div style={{
-            position: "absolute", top: "100%", left: 0, right: 0, zIndex: 20,
-            background: t.surface, border: `1px solid ${t.surfaceRaised}`, borderTop: "none",
-            maxHeight: 400, overflowY: "auto",
-          }}>
-            {SECTIONS.map((s) => {
-              const dimmed = filter && !matchingSections.has(s.key);
-              return (
-                <button
-                  key={s.key}
-                  onClick={() => { onSelect(s.key); setMobileOpen(false); }}
-                  style={{
-                    display: "block", width: "100%", padding: "12px 16px", border: "none",
-                    background: active === s.key ? t.surfaceRaised : "transparent",
-                    color: dimmed ? t.surfaceBorder : active === s.key ? t.accent : t.textMuted,
-                    fontSize: 14, fontWeight: active === s.key ? 600 : 400,
-                    cursor: "pointer", textAlign: "left",
-                    minHeight: 44,
-                  }}
-                >
-                  {s.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+      <div className="border-b border-surface-raised/60 bg-surface px-4 py-2">
+        <SelectInput
+          value={active}
+          onChange={(value) => onSelect(value as BotGroupKey)}
+          options={BOT_GROUPS.map((group) => ({ label: group.label, value: group.key }))}
+        />
       </div>
     );
   }
 
   return (
-    <div style={{
-      width: 150, flexShrink: 0, borderRight: `1px solid ${t.surfaceRaised}`,
-      paddingTop: 8, overflowY: "auto",
-    }}>
-      {SECTIONS.map((s) => {
-        const dimmed = filter && !matchingSections.has(s.key);
-        return (
-          <button
-            key={s.key}
-            onClick={() => onSelect(s.key)}
-            style={{
-              display: "block", width: "100%", padding: "7px 12px", border: "none",
-              background: active === s.key ? t.surfaceRaised : "transparent",
-              borderLeft: active === s.key ? `2px solid ${t.accent}` : "2px solid transparent",
-              color: dimmed ? t.surfaceBorder : active === s.key ? t.text : t.textMuted,
-              fontSize: 12, fontWeight: active === s.key ? 600 : 400,
-              cursor: "pointer", textAlign: "left", transition: "all 0.1s",
-            }}
-          >
-            {s.label}
-          </button>
-        );
-      })}
-    </div>
+    <aside className="w-[190px] shrink-0 overflow-y-auto px-3 py-4">
+      <div className="flex flex-col gap-1">
+        {BOT_GROUPS.map((group) => {
+          const dimmed = !!filter && !matchingSections.has(group.key);
+          return (
+            <SettingsControlRow
+              key={group.key}
+              title={group.label}
+              active={active === group.key}
+              disabled={dimmed}
+              compact
+              onClick={() => onSelect(group.key)}
+              action={active === group.key ? <ChevronDown size={12} className="text-accent" /> : undefined}
+              className="bg-transparent"
+            />
+          );
+        })}
+      </div>
+    </aside>
   );
 }

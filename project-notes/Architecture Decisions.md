@@ -10,19 +10,21 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
-### Channel chat panes are a canvas layout, while primary remains the integration delivery session
-**Decided 2026-04-24.** Channel session switching now separates three concerns: browsing sessions, arranging visible chat panes, and choosing which session is primary for integrations.
+### Single visible sessions are route-level pages; chat panes are split/canvas layout only
+**Decided 2026-04-24. Updated 2026-04-25.** Channel session switching now separates four concerns: browsing sessions, navigating to one visible session, arranging multiple visible chat panes, and choosing which session is primary for integrations.
 
 **What changed.**
-- `/sessions` is the browse/switch surface. Empty state groups Primary, previous channel sessions, and scratch sessions; search stays session-oriented and can show message/section snippets under the matching session row.
-- `/split` is the add-pane surface. It opens the same picker in split mode, hides already visible sessions, and appends a chat pane on desktop.
-- The visible chat area is a persisted pane layout with up to three panes, focused-pane replacement, equal/resizable widths, pane headers, and close/rename/make-primary actions.
+- `/sessions` is the browse/switch surface. Empty state groups Primary, previous channel sessions, and scratch sessions; search stays session-oriented and can show message/section snippets under the matching session row. Selecting a row navigates to that session as the single page.
+- `/split` is the add-pane surface. It opens the same picker in split mode, hides already visible sessions, and starts from the current route-level session before adding the selected session beside it.
+- One visible session is always a route-level chat view. It must not render as a single pane underneath another session/channel header.
+- The visible chat area becomes a persisted pane layout only when two or more sessions are open, with up to three panes, resizable widths, pane headers, and close/rename/make-primary actions.
 - `/focus` and the This Channel palette action collapse side panels plus the floating top chip rail into a focused chat layout, then restore the prior chrome state.
 
 **Load-bearing invariants.**
-- Primary is not "the left pane"; it is the channel's integration/default delivery session. A primary pane can be hidden, and secondary panes are web-only unless promoted.
-- Switching from `/sessions` replaces the focused pane. Splitting from `/split` adds a pane; if already at three panes the user chooses which pane to replace.
-- Pane layout state is the source of truth. Legacy `sessionPanels` exists only as migration input and should not regain behavior ownership.
+- Primary is not "the left pane"; it is the channel's integration/default delivery session. A primary pane can be hidden, and integration mirroring still follows only the channel primary unless another session is explicitly promoted.
+- Switching from `/sessions` exits canvas and changes the route. It never replaces a focused pane as a side effect.
+- Closing or minimizing panes must not leave a one-pane canvas. If one pane remains, collapse to that session's route-level page and keep any minimized session in the mini-chat slot.
+- Pane layout state is the source of truth only for real split/canvas mode. Legacy `sessionPanels` exists only as migration input and should not regain behavior ownership.
 - Session-picker grouping/search and pane normalization live in `channelSessionSurfaces`, not scattered across route components.
 
 ### Rich tool-result rendering is an advisory integration capability with an SDK presentation boundary

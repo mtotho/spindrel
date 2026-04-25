@@ -1,107 +1,441 @@
-import { useMemo, useCallback, useRef, useEffect, useState } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useWindowSize } from "@/src/hooks/useWindowSize";
-import { AlertTriangle, Save, Search, Trash2, X } from "lucide-react";
-import { useBotEditorData, useUpdateBot, useCreateBot, useDeleteBot } from "@/src/api/hooks/useBots";
-import { useSettings } from "@/src/api/hooks/useSettings";
-import { PageHeader } from "@/src/components/layout/PageHeader";
-import { useHashTab } from "@/src/hooks/useHashTab";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
-import { LlmPrompt, GenerateButton } from "@/src/components/shared/LlmPrompt";
-import { PromptTemplateSelector } from "@/src/components/shared/PromptTemplateSelector";
-import { WorkspaceFilePrompt } from "@/src/components/shared/WorkspaceFilePrompt";
-import {
-  TextInput, SelectInput, Toggle, FormRow, Row, Col,
-} from "@/src/components/shared/FormControls";
-import { UserSelect } from "@/src/components/shared/UserSelect";
-import type { BotConfig, BotEditorData } from "@/src/types/api";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { useUIStore } from "@/src/stores/ui";
-import { buildRecentHref } from "@/src/lib/recentPages";
-import { buildBotSavePayload } from "@/src/lib/botEditorPayload";
-import { ApiError } from "@/src/api/client";
-import { MemorySection } from "./MemoryKnowledgeSections";
-import { SECTIONS, SECTION_KEYS, MOBILE_NAV_BREAKPOINT, type SectionKey } from "./constants";
-import { BigTextarea } from "./BigTextarea";
-import { SectionNav } from "./SectionNav";
-import { ModelParamsSection } from "./ModelParamsSection";
-import { ToolsSection } from "./ToolsSection";
-import { SkillsSection } from "./SkillsSection";
-import { LearningSection } from "./LearningSection";
-import { WorkspaceSection } from "./WorkspaceSection";
-import { BotPermissionsSection } from "./BotPermissionsSection";
-import { GrantsSection } from "./GrantsSection";
-import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
-import { BotHooksSection } from "./BotHooksSection";
-import { HistoryModeSection } from "./HistoryModeSection";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { AlertTriangle, Bot, Brain, FileText, MessageSquare, Save, Shield, Trash2, Wrench, Zap } from "lucide-react";
 
-// ---------------------------------------------------------------------------
-// Main Bot Editor
-// ---------------------------------------------------------------------------
+import { ApiError } from "@/src/api/client";
+import { useBotEditorData, useCreateBot, useDeleteBot, useUpdateBot } from "@/src/api/hooks/useBots";
+import { useSettings } from "@/src/api/hooks/useSettings";
+import { useUsageLogs, useUsageSummary } from "@/src/api/hooks/useUsage";
+import { PageHeader } from "@/src/components/layout/PageHeader";
+import { Col, FormRow, Row, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { FallbackModelList } from "@/src/components/shared/FallbackModelList";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { GenerateButton, LlmPrompt } from "@/src/components/shared/LlmPrompt";
+import {
+  ActionButton,
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SaveStatusPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsSearchBox,
+  SettingsStatGrid,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { SourceTextEditor } from "@/src/components/shared/SourceTextEditor";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
+import { UserSelect } from "@/src/components/shared/UserSelect";
+import { useWindowSize } from "@/src/hooks/useWindowSize";
+import { buildBotSavePayload } from "@/src/lib/botEditorPayload";
+import { buildRecentHref } from "@/src/lib/recentPages";
+import { useUIStore } from "@/src/stores/ui";
+import type { BotConfig, BotEditorData } from "@/src/types/api";
+
+import { BotHooksSection } from "./BotHooksSection";
+import { BotPermissionsSection } from "./BotPermissionsSection";
+import { BotToolPoliciesSection } from "./BotToolPoliciesSection";
+import { GrantsSection } from "./GrantsSection";
+import { HistoryModeSection } from "./HistoryModeSection";
+import { LearningSection } from "./LearningSection";
+import { MemorySection } from "./MemoryKnowledgeSections";
+import { ModelParamsSection } from "./ModelParamsSection";
+import { SectionNav } from "./SectionNav";
+import { SkillsSection } from "./SkillsSection";
+import { ToolsSection } from "./ToolsSection";
+import { WorkspaceSection } from "./WorkspaceSection";
+import { BOT_GROUPS, LEGACY_SECTION_TO_GROUP, MOBILE_NAV_BREAKPOINT, type BotGroupKey } from "./constants";
+
+function fmtTokens(n: number | undefined | null): string {
+  if (!n) return "--";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function fmtCost(v: number | null | undefined): string {
+  if (v == null) return "--";
+  if (v === 0) return "$0";
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(2)}`;
+}
+
+function activeFromHash(hash: string): BotGroupKey {
+  const key = decodeURIComponent(hash.replace(/^#/, "") || "overview");
+  return LEGACY_SECTION_TO_GROUP[key] ?? "overview";
+}
+
+function SectionFrame({ title, description, children, action }: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[14px] font-semibold text-text">{title}</h2>
+          {description && <p className="mt-1 max-w-[70ch] text-[12px] leading-relaxed text-text-dim">{description}</p>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function BotSourceBadges({ bot }: { bot: BotConfig }) {
+  const workspace = bot.workspace ?? {};
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      {bot.source_type && <QuietPill label={bot.source_type} />}
+      {bot.system_prompt_workspace_file && <StatusBadge label="prompt file" variant="info" />}
+      {bot.persona_from_workspace && <StatusBadge label="persona file" variant="info" />}
+      {workspace.cross_workspace_access && <StatusBadge label="cross workspace" variant="warning" />}
+      {!!bot.api_permissions?.length && <StatusBadge label={`${bot.api_permissions.length} api scopes`} variant="warning" />}
+    </div>
+  );
+}
+
+function OverviewSection({ draft, usage, logs, setGroup }: {
+  draft: BotConfig;
+  usage: ReturnType<typeof useUsageSummary>["data"];
+  logs: ReturnType<typeof useUsageLogs>["data"];
+  setGroup: (group: BotGroupKey) => void;
+}) {
+  const toolCount = (draft.local_tools?.length ?? 0) + (draft.client_tools?.length ?? 0) + (draft.pinned_tools?.length ?? 0);
+  const delegateCount = (draft.delegation_config?.delegate_bots as string[] | undefined)?.length ?? draft.delegate_bots?.length ?? 0;
+  const recent = logs?.entries ?? [];
+
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="Operational snapshot" description="The fast read on what this bot is, how it is sourced, and what it has been doing recently.">
+        <SettingsStatGrid
+          items={[
+            { label: "30d calls", value: usage?.total_calls?.toLocaleString() ?? "--" },
+            { label: "30d tokens", value: fmtTokens(usage?.total_tokens) },
+            { label: "30d cost", value: fmtCost(usage?.total_cost), tone: usage?.total_cost ? "accent" : "default" },
+            { label: "Recent traces", value: recent.filter((entry) => entry.correlation_id).length },
+          ]}
+        />
+        <div className="grid gap-2 md:grid-cols-2">
+          <SettingsControlRow leading={<Bot size={15} />} title={draft.name || "Unnamed bot"} description={draft.id} meta={<BotSourceBadges bot={draft} />} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("identity")} />} />
+          <SettingsControlRow leading={<Zap size={15} />} title={draft.model || "No model selected"} description={`${draft.fallback_models?.length ?? 0} fallback model${(draft.fallback_models?.length ?? 0) === 1 ? "" : "s"}`} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("identity")} />} />
+          <SettingsControlRow leading={<Wrench size={15} />} title={`${toolCount} tools, ${draft.skills?.length ?? 0} skills`} description={`${draft.mcp_servers?.length ?? 0} MCP servers · ${delegateCount} delegates`} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("tools")} />} />
+          <SettingsControlRow leading={<Brain size={15} />} title={draft.memory_scheme === "workspace-files" ? "Workspace-files memory" : draft.memory?.enabled ? "Memory enabled" : "Memory not enabled"} description={draft.shared_workspace_id ? `Workspace ${draft.shared_workspace_id}` : "No shared workspace linked"} action={<ActionButton label="Edit" variant="secondary" size="small" onPress={() => setGroup("memory")} />} />
+        </div>
+      </SectionFrame>
+
+      {(draft.workspace?.cross_workspace_access || draft.api_permissions?.length || draft.system_prompt_workspace_file || draft.persona_from_workspace) && (
+        <InfoBanner variant="warning" icon={<Shield size={14} />}>
+          This bot has elevated or file-backed configuration. Review workspace access, prompt/persona source files, and API scopes before sharing it broadly.
+        </InfoBanner>
+      )}
+
+      <SectionFrame title="Recent calls" description="Open traces directly from this bot surface when a correlation id exists." action={<Link to={`/admin/usage?bot_id=${encodeURIComponent(draft.id)}`} className="text-[12px] font-semibold text-accent">Open usage</Link>}>
+        {recent.length === 0 ? (
+          <EmptyState message="No recent usage is available for this bot in the selected 30-day window." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {recent.slice(0, 6).map((entry) => (
+              <SettingsControlRow
+                key={entry.id}
+                leading={<MessageSquare size={14} />}
+                title={entry.channel_name || entry.channel_id || "Direct call"}
+                description={`${new Date(entry.created_at).toLocaleString()} · ${entry.model || "unknown model"} · ${fmtTokens(entry.prompt_tokens + entry.completion_tokens)} tokens · ${fmtCost(entry.cost)}`}
+                meta={entry.has_cost_data ? undefined : <QuietPill label="plan" />}
+                action={entry.correlation_id ? <TraceActionButton correlationId={entry.correlation_id} size="small" /> : <QuietPill label="no trace" />}
+              />
+            ))}
+          </div>
+        )}
+      </SectionFrame>
+    </div>
+  );
+}
+
+function IdentitySection({ draft, editorData, isNew, update }: {
+  draft: BotConfig;
+  editorData: BotEditorData;
+  isNew: boolean;
+  update: (patch: Partial<BotConfig>) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="Identity" description="Name, ownership, and the model chain used for this bot.">
+        <Row>
+          <Col>
+            <FormRow label="Bot ID" description={isNew ? "Stable route and config id." : "Bot IDs are immutable after creation."}>
+              <TextInput value={draft.id || ""} onChangeText={(v) => update({ id: v })} disabled={!isNew} placeholder="qa-bot" />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Name"><TextInput value={draft.name || ""} onChangeText={(v) => update({ name: v })} placeholder="QA Bot" /></FormRow>
+          </Col>
+        </Row>
+        <Row>
+          <Col>
+            <FormRow label="Primary model">
+              <LlmModelDropdown value={draft.model || ""} selectedProviderId={draft.model_provider_id ?? undefined} onChange={(model, providerId) => update({ model, model_provider_id: providerId ?? null })} />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Owner"><UserSelect value={draft.user_id ?? null} onChange={(v) => update({ user_id: v })} /></FormRow>
+          </Col>
+        </Row>
+        <FormRow label="Fallback models">
+          <FallbackModelList value={draft.fallback_models ?? []} onChange={(fallback_models) => update({ fallback_models })} />
+        </FormRow>
+      </SectionFrame>
+      {editorData.model_param_definitions?.length > 0 && (
+        <SectionFrame title="Model parameters" description="Overrides for model-specific controls when this provider exposes them.">
+          <ModelParamsSection definitions={editorData.model_param_definitions} support={editorData.model_param_support} reasoningCapableModels={editorData.reasoning_capable_models} model={draft.model} params={draft.model_params || {}} onChange={(p) => update({ model_params: p })} />
+        </SectionFrame>
+      )}
+    </div>
+  );
+}
+
+function PromptPersonaSection({ draft, editorData, botId, update }: {
+  draft: BotConfig;
+  editorData: BotEditorData;
+  botId: string | undefined;
+  update: (patch: Partial<BotConfig>) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="System prompt" description="Primary instructions injected into every agent turn." action={!draft.system_prompt_workspace_file ? <GenerateButton fieldType="system_prompt" botId={botId} value={draft.system_prompt || ""} onChange={(v) => update({ system_prompt: v })} /> : undefined}>
+        {draft.shared_workspace_id && (
+          <Toggle value={draft.system_prompt_workspace_file ?? false} onChange={(v) => update({ system_prompt_workspace_file: v, system_prompt_write_protected: v ? draft.system_prompt_write_protected : false })} label="Use workspace file" description={`Source from bots/${draft.id || "bot-id"}/system_prompt.md in the shared workspace.`} />
+        )}
+        {draft.system_prompt_workspace_file && draft.shared_workspace_id ? (
+          <div className="flex flex-col gap-2">
+            <SettingsControlRow leading={<FileText size={14} />} title={`bots/${draft.id}/system_prompt.md`} description="The prompt is sourced from this workspace file." meta={<StatusBadge label="workspace file" variant="info" />} action={<Link to={`/admin/workspaces/${draft.shared_workspace_id}`} className="text-[12px] font-semibold text-accent">Open workspace</Link>} />
+            <Toggle value={draft.system_prompt_write_protected ?? false} onChange={(v) => update({ system_prompt_write_protected: v })} label="Write-protect this file" description="Prevents this bot from modifying its own prompt file via command tools." />
+          </div>
+        ) : (
+          <LlmPrompt value={draft.system_prompt || ""} onChange={(v) => update({ system_prompt: v })} placeholder="Enter system prompt..." rows={22} fieldType="system_prompt" botId={botId} />
+        )}
+      </SectionFrame>
+      <SectionFrame title="Persona" description="Optional persistent tone and personality, separate from the system prompt.">
+        {editorData.bot.persona_from_workspace ? (
+          <div className="flex flex-col gap-2">
+            <SettingsControlRow leading={<FileText size={14} />} title={`bots/${editorData.bot.id}/persona.md`} description="Persona is sourced from the workspace and shown read-only here." meta={<StatusBadge label="workspace file" variant="info" />} action={editorData.bot.shared_workspace_id ? <Link to={`/admin/workspaces/${editorData.bot.shared_workspace_id}`} className="text-[12px] font-semibold text-accent">Open workspace</Link> : undefined} />
+            <SourceTextEditor value={editorData.bot.workspace_persona_content || ""} readOnly language="markdown" minHeight={260} />
+          </div>
+        ) : (
+          <>
+            <Toggle value={draft.persona ?? false} onChange={(v) => update({ persona: v })} label="Enable persona" />
+            {draft.persona && <LlmPrompt value={draft.persona_content || ""} onChange={(v) => update({ persona_content: v })} placeholder="Describe the bot's personality, tone, and style..." rows={16} fieldType="persona" botId={botId} />}
+            {draft.shared_workspace_id && <div className="text-[12px] leading-relaxed text-text-dim">Create <code className="text-warning-muted">bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.</div>}
+          </>
+        )}
+      </SectionFrame>
+    </div>
+  );
+}
+
+function ToolsSkillsSection({ editorData, draft, update, setGroup }: {
+  editorData: BotEditorData;
+  draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+  setGroup: (group: BotGroupKey) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="Tools" description="Pinned tools, retrieval, MCP, client tools, and result behavior.">
+        <ToolsSection editorData={editorData} draft={draft} update={update} />
+      </SectionFrame>
+      <SectionFrame title="Skills" description="Structured skill enrollments for this bot.">
+        <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setGroup("memory")} />
+        {!!draft.api_permissions?.length && <InfoBanner variant="info">API access tools are available from this bot's {draft.api_permissions.length} API scope{draft.api_permissions.length === 1 ? "" : "s"}.</InfoBanner>}
+      </SectionFrame>
+      <SectionFrame title="Delegation" description="Allow this bot to delegate work to selected bots.">
+        {editorData.all_bots.length === 0 ? (
+          <EmptyState message="No other bots are configured." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            <SettingsGroupLabel label="Delegate-to bots" count={editorData.all_bots.length} />
+            {editorData.all_bots.map((bot) => {
+              const current = (draft.delegation_config?.delegate_bots || draft.delegate_bots || []) as string[];
+              const enabled = current.includes(bot.id);
+              return (
+                <SettingsControlRow key={bot.id} active={enabled} leading={<Bot size={14} />} title={bot.name} description={bot.id} action={<Toggle value={enabled} onChange={() => {
+                  const delegation_config = { ...(draft.delegation_config ?? {}) };
+                  delegation_config.delegate_bots = enabled ? current.filter((id) => id !== bot.id) : [...current, bot.id];
+                  update({ delegation_config });
+                }} />} />
+              );
+            })}
+          </div>
+        )}
+      </SectionFrame>
+    </div>
+  );
+}
+
+function WorkspaceFilesSection({ draft, editorData, globalAttach, update }: {
+  draft: BotConfig;
+  editorData: BotEditorData;
+  globalAttach: { enabled: boolean; model: string; maxChars: string; concurrency: string };
+  update: (patch: Partial<BotConfig>) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="Workspace" description="Shared workspace, sandbox, filesystem index, and bot knowledge files.">
+        <WorkspaceSection editorData={editorData} draft={draft} update={update} />
+      </SectionFrame>
+      <SectionFrame title="Attachment summarization" description="Bot-level overrides for incoming attachment preprocessing.">
+        <SelectInput value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""} onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })} options={[{ label: `Inherit (${globalAttach.enabled ? "Enabled" : "Disabled"})`, value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]} style={{ maxWidth: 300 }} />
+        <Row>
+          <Col><FormRow label="Summary model"><LlmModelDropdown value={draft.attachment_summary_model ?? ""} selectedProviderId={draft.attachment_summary_model_provider_id ?? undefined} onChange={(v, pid) => update({ attachment_summary_model: v || undefined, attachment_summary_model_provider_id: pid ?? undefined })} placeholder={globalAttach.model ? `inherit (${globalAttach.model.split("/").pop()})` : "inherit"} allowClear /></FormRow></Col>
+          <Col><FormRow label="Text max chars"><TextInput value={String(draft.attachment_text_max_chars ?? "")} onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v, 10) : null })} placeholder={globalAttach.maxChars} type="number" /></FormRow></Col>
+        </Row>
+        <FormRow label="Summary concurrency"><TextInput value={String(draft.attachment_vision_concurrency ?? "")} onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v, 10) : null })} placeholder={globalAttach.concurrency} type="number" /></FormRow>
+      </SectionFrame>
+    </div>
+  );
+}
+
+function AdvancedSection({ draft, isNew, deleteMutation, showDeleteConfirm, setShowDeleteConfirm, deleteConfirmText, setDeleteConfirmText, deleteChannelWarning, setDeleteChannelWarning, update, onDeleted }: {
+  draft: BotConfig;
+  isNew: boolean;
+  deleteMutation: ReturnType<typeof useDeleteBot>;
+  showDeleteConfirm: boolean;
+  setShowDeleteConfirm: (value: boolean) => void;
+  deleteConfirmText: string;
+  setDeleteConfirmText: (value: string) => void;
+  deleteChannelWarning: string | null;
+  setDeleteChannelWarning: (value: string | null) => void;
+  update: (patch: Partial<BotConfig>) => void;
+  onDeleted: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <SectionFrame title="Display" description="Bot presentation in integrations.">
+        <Row>
+          <Col><FormRow label="Display name"><TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} /></FormRow></Col>
+          <Col><FormRow label="Avatar URL"><TextInput value={draft.avatar_url || ""} onChangeText={(v) => update({ avatar_url: v || undefined })} placeholder="https://..." /></FormRow></Col>
+        </Row>
+        <FormRow label="Slack icon emoji" description="Overrides Avatar URL in Slack when chat:write.customize is available.">
+          <TextInput value={draft.integration_config?.slack?.icon_emoji || ""} onChangeText={(v) => {
+            const integration_config = { ...(draft.integration_config ?? {}) };
+            integration_config.slack = { ...(integration_config.slack || {}), icon_emoji: v || undefined };
+            update({ integration_config });
+          }} placeholder=":robot_face:" />
+        </FormRow>
+      </SectionFrame>
+      <SectionFrame title="Runtime defaults" description="Memory scheme, audio input, and history mode.">
+        <FormRow label="Workspace-files memory" description="Required for dreaming and workspace-backed memory files."><Toggle value={draft.memory_scheme === "workspace-files"} onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })} /></FormRow>
+        <FormRow label="Audio input"><SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })} options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]} /></FormRow>
+        <HistoryModeSection draft={draft} update={update} />
+      </SectionFrame>
+      {!isNew && draft.source_type !== "system" && (
+        <SectionFrame title="Danger zone" description="Permanent destructive actions for this bot.">
+          {!showDeleteConfirm ? (
+            <SettingsControlRow leading={<Trash2 size={14} />} title="Delete this bot" description="Permanently removes the bot and associated data. Active channels may require force delete confirmation." action={<ActionButton label="Delete bot" variant="danger" size="small" onPress={() => setShowDeleteConfirm(true)} />} />
+          ) : (
+            <div className="flex flex-col gap-3 rounded-md bg-danger/10 p-4">
+              <InfoBanner variant="danger" icon={<AlertTriangle size={14} />}>This action cannot be undone. Type delete to confirm.</InfoBanner>
+              <TextInput value={deleteConfirmText} onChangeText={setDeleteConfirmText} placeholder="delete" />
+              <div className="flex flex-wrap gap-2">
+                <ActionButton label={deleteMutation.isPending ? "Deleting..." : deleteChannelWarning ? "Force delete" : "Permanently delete"} variant="danger" disabled={deleteConfirmText !== "delete" || deleteMutation.isPending} onPress={async () => {
+                  try {
+                    if (!deleteChannelWarning) {
+                      try {
+                        await deleteMutation.mutateAsync({ botId: draft.id });
+                        onDeleted();
+                        return;
+                      } catch (err: any) {
+                        if (err?.status === 409 || err?.message?.includes("active channel")) {
+                          let detail = "Bot has active channels.";
+                          try { detail = JSON.parse(err?.body)?.detail || detail; } catch {}
+                          setDeleteChannelWarning(detail);
+                          return;
+                        }
+                        throw err;
+                      }
+                    }
+                    await deleteMutation.mutateAsync({ botId: draft.id, force: true });
+                    onDeleted();
+                  } catch (_) {}
+                }} />
+                <ActionButton label="Cancel" variant="secondary" onPress={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); setDeleteChannelWarning(null); }} />
+              </div>
+              {deleteChannelWarning && <InfoBanner variant="danger">{deleteChannelWarning}</InfoBanner>}
+              {deleteMutation.isError && !deleteChannelWarning && <div className="text-[12px] text-danger">{deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete bot"}</div>}
+            </div>
+          )}
+        </SectionFrame>
+      )}
+      {!isNew && draft.source_type === "system" && <InfoBanner>System bots cannot be deleted.</InfoBanner>}
+    </div>
+  );
+}
+
 export default function BotEditorScreen() {
-  const t = useThemeTokens();
   const { botId } = useParams<{ botId: string }>();
   const isNew = botId === "new";
   const navigate = useNavigate();
+  const location = useLocation();
+  const { width: windowWidth } = useWindowSize();
+  const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
   const { data: editorData, isLoading } = useBotEditorData(botId);
   const updateMutation = useUpdateBot(isNew ? undefined : botId);
   const createMutation = useCreateBot();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const systemPromptRef = useRef<HTMLTextAreaElement>(null);
-
-  const { width: windowWidth } = useWindowSize();
-  const isMobile = windowWidth < MOBILE_NAV_BREAKPOINT;
-
-  const [activeSection, setActiveSection] = useHashTab<SectionKey>("identity", SECTION_KEYS);
+  const deleteMutation = useDeleteBot();
+  const saveMutation = isNew ? createMutation : updateMutation;
+  const { data: usageSummary } = useUsageSummary({ after: "30d", bot_id: isNew ? undefined : botId });
+  const { data: usageLogs } = useUsageLogs({ after: "30d", bot_id: isNew ? undefined : botId, page_size: 6 });
+  const { data: settingsData } = useSettings();
+  const [activeGroup, setActiveGroupState] = useState<BotGroupKey>(() => activeFromHash(location.hash));
   const [filter, setFilter] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [draft, setDraft] = useState<BotConfig | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteChannelWarning, setDeleteChannelWarning] = useState<string | null>(null);
-  const deleteMutation = useDeleteBot();
-
-  // Enrich command palette recent with bot name
+  const [loadedBotId, setLoadedBotId] = useState<string | undefined>(undefined);
   const enrichRecentPage = useUIStore((s) => s.enrichRecentPage);
-  const loc = useLocation();
-  useEffect(() => {
-    if (editorData?.bot?.name) enrichRecentPage(buildRecentHref(loc.pathname, loc.search, loc.hash), editorData.bot.name);
-  }, [editorData?.bot?.name, loc.pathname, loc.search, loc.hash, enrichRecentPage]);
 
-  // Global settings — used to show inherited values in attachment fields
-  const { data: settingsData } = useSettings();
+  useEffect(() => {
+    if (editorData?.bot?.name) enrichRecentPage(buildRecentHref(location.pathname, location.search, location.hash), editorData.bot.name);
+  }, [editorData?.bot?.name, location.pathname, location.search, location.hash, enrichRecentPage]);
+
+  useEffect(() => setActiveGroupState(activeFromHash(location.hash)), [location.hash]);
+
+  const setActiveGroup = useCallback((group: BotGroupKey) => {
+    setActiveGroupState(group);
+    navigate({ hash: group }, { replace: true });
+  }, [navigate]);
+
+  useEffect(() => {
+    if (editorData?.bot && loadedBotId !== botId) {
+      setDraft({ ...editorData.bot });
+      setDirty(isNew);
+      setSaved(false);
+      setFilter("");
+      setShowDeleteConfirm(false);
+      setDeleteConfirmText("");
+      setDeleteChannelWarning(null);
+      setLoadedBotId(botId);
+    }
+  }, [botId, editorData, isNew, loadedBotId]);
+
   const globalAttach = useMemo(() => {
     if (!settingsData) return { enabled: true, model: "", maxChars: "40000", concurrency: "3" };
     const all = settingsData.groups.flatMap((g) => g.settings);
     const get = (key: string) => all.find((s) => s.key === key);
     return {
-      enabled: get("ATTACHMENT_SUMMARY_ENABLED")?.value ?? true,
+      enabled: Boolean(get("ATTACHMENT_SUMMARY_ENABLED")?.value ?? true),
       model: String(get("ATTACHMENT_SUMMARY_MODEL")?.value ?? ""),
       maxChars: String(get("ATTACHMENT_TEXT_MAX_CHARS")?.value ?? "40000"),
       concurrency: String(get("ATTACHMENT_VISION_CONCURRENCY")?.value ?? "3"),
     };
   }, [settingsData]);
-
-  // Load draft when editorData arrives, AND reload when botId changes
-  // (same-route navigation, e.g. Ctrl+K → different bot, reuses this component).
-  const loadedBotIdRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (editorData?.bot && loadedBotIdRef.current !== botId) {
-      setDraft({ ...editorData.bot });
-      setDirty(isNew);
-      setSaved(false);
-      setFilter("");
-      setSearchOpen(false);
-      setShowDeleteConfirm(false);
-      setDeleteConfirmText("");
-      setDeleteChannelWarning(null);
-      loadedBotIdRef.current = botId;
-    }
-  }, [editorData, botId, isNew]);
 
   const update = useCallback((patch: Partial<BotConfig>) => {
     setDraft((prev) => (prev ? { ...prev, ...patch } : prev));
@@ -109,24 +443,16 @@ export default function BotEditorScreen() {
     setSaved(false);
   }, []);
 
-  const saveMutation = isNew ? createMutation : updateMutation;
-
   const handleSave = useCallback(async () => {
     if (!draft || !editorData) return;
-    const payload = buildBotSavePayload({
-      draft,
-      original: editorData.bot,
-      isNew,
-    });
+    const payload = buildBotSavePayload({ draft, original: editorData.bot, isNew });
     try {
       if (isNew) {
         const id = typeof payload.id === "string" ? payload.id : "";
         const name = typeof payload.name === "string" ? payload.name : "";
         const model = typeof payload.model === "string" ? payload.model : "";
         if (!id || !name || !model) return;
-        await createMutation.mutateAsync(
-          { ...payload, id, name, model } as Partial<BotConfig> & { id: string; name: string; model: string },
-        );
+        await createMutation.mutateAsync({ ...payload, id, name, model } as Partial<BotConfig> & { id: string; name: string; model: string });
         navigate(`/admin/bots/${id}`);
       } else {
         await updateMutation.mutateAsync(payload as Partial<BotConfig>);
@@ -134,8 +460,8 @@ export default function BotEditorScreen() {
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
-    } catch (_) { /* handled by mutation state */ }
-  }, [draft, editorData, isNew, createMutation, updateMutation, navigate]);
+    } catch (_) {}
+  }, [createMutation, draft, editorData, isNew, navigate, updateMutation]);
 
   const saveErrorMessage = useMemo(() => {
     const err = saveMutation.error;
@@ -144,712 +470,78 @@ export default function BotEditorScreen() {
     return (err as Error)?.message || "Failed to save";
   }, [saveMutation.error]);
 
-  const matchingSections = useMemo(() => {
-    if (!filter) return new Set<SectionKey>(SECTIONS.map((s) => s.key));
+  const saveTone = saveMutation.isPending ? "pending" : saveMutation.isError ? "error" : saved ? "saved" : dirty ? "dirty" : "idle";
+  const saveLabel = saveMutation.isPending ? "Saving" : saveMutation.isError ? "Save failed" : saved ? "Saved" : dirty ? "Unsaved" : "";
+
+  const matchingGroups = useMemo(() => {
+    if (!filter.trim()) return new Set<BotGroupKey>(BOT_GROUPS.map((g) => g.key));
     const q = filter.toLowerCase();
-    const match = new Set<SectionKey>();
-    const keywords: Record<SectionKey, string[]> = {
-      identity: ["id", "name", "model", "provider", "temperature", "params", "creativity"],
-      prompt: ["system", "prompt"],
-      persona: ["persona", "personality", "tone"],
-      tools: ["tool", "mcp", "client", "pin", "rag", "retrieval", "discovery", "summarization"],
-      skills: ["skill"],
-      learning: ["learning", "authored", "surfac", "knowledge"],
-      memory: ["memory", "cross", "channel"],
-      attachments: ["attachment", "summarization", "vision"],
-      workspace: ["workspace", "docker", "host", "exec", "sandbox", "index", "command", "port", "mount"],
-      delegation: ["delegat", "bot"],
-      permissions: ["permission", "scope", "api", "key", "access"],
-      grants: ["grant", "user", "access", "share", "allow", "viewer"],
-      tool_policies: ["tool", "policy", "policies", "allow", "deny", "approval"],
-      hooks: ["hook", "trigger", "before", "after", "path", "cooldown"],
-      display: ["display", "avatar", "icon", "slack", "emoji"],
-      advanced: ["audio", "compaction", "interval", "keep_turns"],
+    const keywords: Record<BotGroupKey, string[]> = {
+      overview: ["overview", "usage", "trace", "status", "summary"],
+      identity: ["identity", "id", "name", "model", "owner", "fallback", "parameter"],
+      prompt: ["prompt", "persona", "instruction", "tone", "workspace file"],
+      tools: ["tool", "skill", "mcp", "client", "delegate", "retrieval", "discovery"],
+      memory: ["memory", "learning", "hygiene", "knowledge", "dreaming", "review"],
+      workspace: ["workspace", "file", "attachment", "sandbox", "docker", "host", "index"],
+      access: ["permission", "grant", "api", "policy", "hook", "automation"],
+      advanced: ["display", "avatar", "slack", "audio", "history", "delete", "danger"],
     };
-    for (const [key, kws] of Object.entries(keywords)) {
-      if (kws.some((kw) => kw.includes(q) || q.includes(kw))) match.add(key as SectionKey);
-    }
-    for (const s of SECTIONS) { if (s.label.toLowerCase().includes(q)) match.add(s.key); }
-    return match;
+    return new Set<BotGroupKey>(Object.entries(keywords).filter(([, words]) => words.some((word) => word.includes(q) || q.includes(word))).map(([key]) => key as BotGroupKey));
   }, [filter]);
 
   if (isLoading || !editorData || !draft) {
-    return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
-        <Spinner color={t.accent} />
-      </div>
-    );
+    return <div className="flex flex-1 items-center justify-center bg-surface"><Spinner size={18} /></div>;
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      {/* Header */}
-      <PageHeader variant="detail"
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="detail"
         parentLabel="Bots"
         backTo="/admin/bots"
         title={isNew ? "New Bot" : draft.name}
-        subtitle={isNew ? undefined : draft.id}
-        hideTitle={isMobile && searchOpen}
-        right={<>
-          {isMobile ? (
-            searchOpen ? (
-              <div style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 6, flex: 1,
-                background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", minHeight: 36,
-              }}>
-                <Search size={14} color={t.textDim} />
-                <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
-                  autoFocus
-                  style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 16 }} />
-                <button onClick={() => { setFilter(""); setSearchOpen(false); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, minWidth: 24, minHeight: 24, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                  <X size={14} color={t.textDim} />
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => setSearchOpen(true)} style={{ background: "none", border: "none", cursor: "pointer", padding: 8, minWidth: 44, minHeight: 44, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "center" }}>
-                <Search size={16} color={t.textMuted} />
-              </button>
-            )
-          ) : (
-            <div style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-              background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6, padding: "4px 10px", width: 180,
-            }}>
-              <Search size={12} color={t.textDim} />
-              <input type="text" value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find setting..."
-                style={{ flex: 1, background: "transparent", border: "none", outline: "none", color: t.text, fontSize: 14 }} />
-              {filter && (
-                <button onClick={() => setFilter("")} style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                  <X size={10} color={t.textDim} />
-                </button>
-              )}
-            </div>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!dirty || saveMutation.isPending}
-            style={{
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-              padding: isMobile ? "6px 12px" : "6px 16px", borderRadius: 6, border: "none",
-              background: dirty ? t.accent : t.surfaceRaised,
-              color: dirty ? "#fff" : t.textDim,
-              fontSize: 12, fontWeight: 600, cursor: dirty ? "pointer" : "default",
-              opacity: saveMutation.isPending ? 0.6 : 1,
-              minHeight: 36,
-            }}
-          >
-            <Save size={13} />
-            {saveMutation.isPending ? "..." : saved ? "Saved!" : isNew ? "Create" : "Save"}
-          </button>
-        </>}
+        subtitle={isNew ? "Create a bot profile" : draft.id}
+        right={
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            {!isMobile && <SettingsSearchBox value={filter} onChange={setFilter} placeholder="Find setting..." className="w-48" />}
+            <SaveStatusPill tone={saveTone} label={saveLabel} />
+            <ActionButton label={saveMutation.isPending ? "Saving" : isNew ? "Create" : "Save"} icon={<Save size={13} />} disabled={!dirty || saveMutation.isPending} onPress={handleSave} />
+          </div>
+        }
       />
-
-      {saveMutation.isError && (
-        <div style={{ padding: "8px 16px", background: t.dangerSubtle, color: t.danger, fontSize: 12 }}>
-          {saveErrorMessage}
-        </div>
-      )}
-
-      {/* Section nav: dropdown on mobile, sidebar on desktop */}
-      {isMobile && (
-        <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile />
-      )}
-
-      {/* Body */}
-      <div style={{ display: "flex", flexDirection: "row", flex: 1, overflow: "hidden" }}>
-        {!isMobile && (
-          <SectionNav active={activeSection} onSelect={setActiveSection} filter={filter} matchingSections={matchingSections} isMobile={false} />
-        )}
-
-        <div ref={scrollRef} className="flex-1" style={{ overflow: "auto", padding: isMobile ? 12 : 20, maxWidth: 800, width: "100%" }}>
-
-          {activeSection === "identity" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 4 }}>Identity</div>
-              <Row>
-                <Col>
-                  <FormRow label="Bot ID">
-                    <TextInput
-                      value={draft.id}
-                      onChangeText={isNew ? (v) => update({ id: v.toLowerCase().replace(/[^a-z0-9_-]/g, "") }) : () => {}}
-                      style={isNew ? {} : { opacity: 0.5, cursor: "not-allowed" }}
-                      placeholder="my-bot-id"
-                    />
-                  </FormRow>
-                </Col>
-                <Col>
-                  <FormRow label="Display Name">
-                    <TextInput value={draft.name} onChangeText={(v) => update({ name: v })} />
-                  </FormRow>
-                </Col>
-              </Row>
-              <FormRow label="Model">
-                <LlmModelDropdown
-                  value={draft.model}
-                  selectedProviderId={draft.model_provider_id}
-                  onChange={(v, pid) => update({ model: v, model_provider_id: pid ?? null })}
-                />
-              </FormRow>
-              <FormRow label="Fallback Models" description="Ordered list of models tried when the primary fails. Global list is appended as catch-all.">
-                <FallbackModelList
-                  value={draft.fallback_models ?? []}
-                  onChange={(v) => update({ fallback_models: v })}
-                />
-              </FormRow>
-              <FormRow label="Owner" description="User who owns this bot. Admins can reassign.">
-                <UserSelect
-                  value={draft.user_id ?? null}
-                  onChange={(v) => update({ user_id: v })}
-                />
-              </FormRow>
-              {editorData.model_param_definitions?.length > 0 && (
-                <ModelParamsSection
-                  definitions={editorData.model_param_definitions}
-                  support={editorData.model_param_support}
-                  reasoningCapableModels={editorData.reasoning_capable_models}
-                  model={draft.model}
-                  params={draft.model_params || {}}
-                  onChange={(p) => update({ model_params: p })}
-                />
-              )}
-            </div>
-          )}
-
-          {activeSection === "prompt" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>System Prompt</div>
-                <GenerateButton
-                  fieldType="system_prompt"
-                  botId={botId}
-                  value={draft.system_prompt || ""}
-                  onChange={(v) => update({ system_prompt: v })}
-                />
-                {!draft.system_prompt_workspace_file && (
-                  <PromptTemplateSelector
-                    textareaRef={systemPromptRef}
-                    value={draft.system_prompt || ""}
-                    onChange={(v) => update({ system_prompt: v })}
-                    workspaceId={draft.shared_workspace_id ?? undefined}
-                  />
+      {isMobile && <div className="border-b border-surface-raised/60 px-4 py-2"><SettingsSearchBox value={filter} onChange={setFilter} placeholder="Find setting..." /></div>}
+      {saveMutation.isError && <div className="bg-danger/10 px-4 py-2 text-[12px] text-danger">{saveErrorMessage}</div>}
+      {isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile />}
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {!isMobile && <SectionNav active={activeGroup} onSelect={setActiveGroup} filter={filter} matchingSections={matchingGroups} isMobile={false} />}
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 px-4 py-5 md:px-6">
+            {activeGroup === "overview" && <OverviewSection draft={draft} usage={usageSummary} logs={usageLogs} setGroup={setActiveGroup} />}
+            {activeGroup === "identity" && <IdentitySection draft={draft} editorData={editorData} isNew={isNew} update={update} />}
+            {activeGroup === "prompt" && <PromptPersonaSection draft={draft} editorData={editorData} botId={botId} update={update} />}
+            {activeGroup === "tools" && <ToolsSkillsSection editorData={editorData} draft={draft} update={update} setGroup={setActiveGroup} />}
+            {activeGroup === "memory" && (
+              <div className="flex flex-col gap-6">
+                <SectionFrame title="Memory" description="Memory configuration and maintenance jobs for this bot."><MemorySection draft={draft} update={update} botId={botId} /></SectionFrame>
+                {draft.id && <SectionFrame title="Learning" description="Bot-authored skills and knowledge review."><LearningSection botId={draft.id} /></SectionFrame>}
+              </div>
+            )}
+            {activeGroup === "workspace" && <WorkspaceFilesSection draft={draft} editorData={editorData} globalAttach={globalAttach} update={update} />}
+            {activeGroup === "access" && (
+              <div className="flex flex-col gap-6">
+                <SectionFrame title="API permissions" description="Direct API scopes available to this bot."><BotPermissionsSection permissions={draft.api_permissions || []} onChange={(p) => update({ api_permissions: p })} /></SectionFrame>
+                <SectionFrame title="Grants" description="User and access grants for this bot."><GrantsSection botId={isNew ? undefined : draft.id} ownerUserId={draft.user_id} /></SectionFrame>
+                {draft.id && (
+                  <>
+                    <SectionFrame title="Tool policies" description="Approval and policy rules scoped to this bot."><BotToolPoliciesSection botId={draft.id} /></SectionFrame>
+                    <SectionFrame title="Hooks" description="Automation hooks scoped to this bot."><BotHooksSection botId={draft.id} /></SectionFrame>
+                  </>
                 )}
               </div>
-              {draft.shared_workspace_id && (
-                <Toggle
-                  value={draft.system_prompt_workspace_file ?? false}
-                  onChange={(v) => {
-                    update({ system_prompt_workspace_file: v });
-                    if (!v) update({ system_prompt_write_protected: false });
-                  }}
-                  label="Use workspace file"
-                  description={`Source system prompt from bots/${draft.id || "bot-id"}/system_prompt.md in the workspace`}
-                />
-              )}
-              {draft.system_prompt_workspace_file && draft.shared_workspace_id ? (
-                <>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
-                      workspace file
-                    </span>
-                    <span style={{ fontSize: 11 }}>
-                      <code style={{ color: t.warningMuted }}>bots/{draft.id}/system_prompt.md</code>
-                    </span>
-                  </div>
-                  <a
-                    href={`/admin/workspaces/${draft.shared_workspace_id}`}
-                    style={{
-                      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                      fontSize: 11, fontWeight: 600, color: t.accent,
-                      textDecoration: "none", alignSelf: "flex-start",
-                    }}
-                  >
-                    Open Workspace &rarr;
-                  </a>
-                  <Toggle
-                    value={draft.system_prompt_write_protected ?? false}
-                    onChange={(v) => update({ system_prompt_write_protected: v })}
-                    label="Write-protect this file"
-                    description="Prevents the bot from modifying this file via exec_command"
-                  />
-                </>
-              ) : (
-                <BigTextarea
-                  ref={systemPromptRef}
-                  value={draft.system_prompt || ""}
-                  onChange={(v) => update({ system_prompt: v })}
-                  placeholder="Enter system prompt..."
-                  minRows={28}
-                />
-              )}
-            </div>
-          )}
-
-          {activeSection === "persona" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Persona</div>
-              <div style={{ fontSize: 11, color: t.textDim }}>Injects a persistent personality/tone as a separate system message (distinct from the system prompt).</div>
-              {editorData.bot.persona_from_workspace ? (
-                <>
-                  <div style={{ opacity: 0.6, pointerEvents: "none" }}>
-                    <Toggle value={true} onChange={() => {}} label="Enable Persona" />
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
-                      workspace file
-                    </span>
-                    <span style={{ fontSize: 11, color: t.accent }}>
-                      <code style={{ color: t.warningMuted }}>bots/{editorData.bot.id}/persona.md</code>
-                    </span>
-                  </div>
-                  {editorData.bot.shared_workspace_id && (
-                    <a
-                      href={`/admin/workspaces/${editorData.bot.shared_workspace_id}`}
-                      style={{
-                        display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-                        fontSize: 11, fontWeight: 600, color: t.accent,
-                        textDecoration: "none", alignSelf: "flex-start",
-                      }}
-                    >
-                      Open Workspace &rarr;
-                    </a>
-                  )}
-                  <div style={{ opacity: 0.6 }}>
-                    <BigTextarea
-                      value={editorData.bot.workspace_persona_content || ""}
-                      onChange={() => {}}
-                      placeholder=""
-                      minRows={20}
-                      readOnly
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <Toggle value={draft.persona ?? false} onChange={(v) => update({ persona: v })} label="Enable Persona" />
-                  {draft.persona && (
-                    <BigTextarea
-                      value={draft.persona_content || ""}
-                      onChange={(v) => update({ persona_content: v })}
-                      placeholder="Describe the bot's personality, tone, and style..."
-                      minRows={20}
-                    />
-                  )}
-                  {draft.shared_workspace_id && (
-                    <div style={{ padding: "8px 0", fontSize: 11, color: t.textDim, lineHeight: 1.6 }}>
-                      Tip: Create <code style={{ color: t.warningMuted }}>bots/{draft.id || "bot-id"}/persona.md</code> in the workspace to manage persona as a file.
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {activeSection === "tools" && (
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Tools</div>
-              <ToolsSection editorData={editorData} draft={draft} update={update} />
-            </div>
-          )}
-
-          {activeSection === "skills" && (
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Skills</div>
-              <SkillsSection editorData={editorData} draft={draft} update={update} onNavigateToLearning={() => setActiveSection("learning")} />
-              {draft.api_permissions && draft.api_permissions.length > 0 && (
-                <div style={{ marginTop: 20 }}>
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: t.accent }}>API Access Tools</span>
-                    <span style={{ fontSize: 10, color: t.textDim, background: t.accentSubtle, padding: "2px 8px", borderRadius: 4 }}>
-                      from permissions
-                    </span>
-                  </div>
-                  <div style={{
-                    padding: 8, borderRadius: 6,
-                    background: t.accentSubtle,
-                    border: `1px solid ${t.accentBorder}`,
-                  }}>
-                    <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: t.accent }}>list_api_endpoints + call_api</span>
-                      <span style={{
-                        fontSize: 9, padding: "1px 6px", borderRadius: 3,
-                        background: t.accentSubtle, color: t.accent,
-                      }}>pinned</span>
-                    </div>
-                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 2 }}>
-                      Direct API access filtered to this bot's {draft.api_permissions.length} scope{draft.api_permissions.length !== 1 ? "s" : ""}.
-                      No sandbox or CLI needed.
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeSection === "learning" && draft.id && (
-            <LearningSection botId={draft.id} />
-          )}
-
-          {activeSection === "memory" && (
-            <MemorySection draft={draft} update={update} botId={botId} />
-          )}
-
-
-          {activeSection === "attachments" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Attachment Summarization</div>
-              <div style={{ fontSize: 12, color: t.textMuted, lineHeight: 1.6 }}>
-                Pre-processes incoming attachments before the agent loop begins.
-                Override the global defaults here, or{" "}
-                <a href="/settings/system#Media%20%26%20Voice" style={{ color: t.accent, textDecoration: "none" }}>
-                  edit global attachment settings &rarr;
-                </a>
-              </div>
-
-              <div style={{
-                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>How It Works</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-                  <strong style={{ color: t.text }}>Images</strong> are sent to the summary model below to generate a short
-                  text description, which is stored with the attachment. <strong style={{ color: t.text }}>Text files</strong>{" "}
-                  (code, markdown, PDF text, etc.) are extracted and truncated to the max-chars limit. Multiple
-                  vision requests run concurrently up to the concurrency cap. All summarization happens before
-                  the first LLM call.
-                </div>
-              </div>
-
-              <div style={{
-                background: `rgb(var(--color-accent) / 0.06)`, border: `1px solid rgb(var(--color-accent) / 0.15)`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Interaction with Agent Vision</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-                  This is <strong style={{ color: t.text }}>separate from the bot&apos;s own vision capability</strong>.
-                  If the bot&apos;s model supports vision, the raw image is sent directly to the model as a native
-                  image input — the model sees the actual pixels. The pre-generated summary is included alongside
-                  it as additional context. If the model does <em>not</em> support vision, the summary is the only
-                  way the model can understand the image.
-                </div>
-              </div>
-
-              <div style={{
-                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Supported Types</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.7, fontFamily: "monospace" }}>
-                  <div><span style={{ color: "#6b9" }}>Images</span> — JPEG, PNG, GIF, WebP (summarized + sent natively if model has vision)</div>
-                  <div><span style={{ color: "#6b9" }}>Text</span> — .txt, .md, .csv, .json, .py, .js, .ts, etc. (extracted &amp; truncated)</div>
-                  <div><span style={{ color: "#6b9" }}>PDF</span> — text extracted, then truncated to max-chars</div>
-                  <div><span style={{ color: "#e66" }}>Audio/Video</span> — not supported (ignored)</div>
-                </div>
-              </div>
-
-              <div style={{
-                background: t.surfaceRaised, border: `1px solid ${t.surfaceOverlay}`, borderRadius: 6, padding: 14,
-                display: "flex", flexDirection: "column", gap: 6,
-              }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: t.text }}>Config Resolution</div>
-                <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.6 }}>
-                  Settings resolve with priority: <strong style={{ color: t.text }}>Bot</strong> &gt;{" "}
-                  <strong style={{ color: t.text }}>Global (.env / Settings)</strong>. There is no channel-level override
-                  for attachment settings. Set to "Inherit" to use the global value.
-                </div>
-              </div>
-
-              <SelectInput
-                value={draft.attachment_summarization_enabled === true ? "true" : draft.attachment_summarization_enabled === false ? "false" : ""}
-                onChange={(v) => update({ attachment_summarization_enabled: v === "true" ? true : v === "false" ? false : null })}
-                options={[{ label: `Inherit (${globalAttach.enabled ? "Enabled" : "Disabled"})`, value: "" }, { label: "Enabled", value: "true" }, { label: "Disabled", value: "false" }]}
-                style={{ maxWidth: 300 }}
-              />
-              <Row>
-                <Col>
-                  <FormRow label="Summary Model">
-                    <LlmModelDropdown
-                      value={draft.attachment_summary_model ?? ""}
-                      selectedProviderId={draft.attachment_summary_model_provider_id ?? undefined}
-                      onChange={(v, pid) => update({ attachment_summary_model: v || undefined, attachment_summary_model_provider_id: pid ?? undefined })}
-                      placeholder={globalAttach.model ? `inherit (${globalAttach.model.split("/").pop()})` : "inherit"}
-                      allowClear
-                    />
-                  </FormRow>
-                </Col>
-                <Col>
-                  <FormRow label="Text Max Chars">
-                    <TextInput value={String(draft.attachment_text_max_chars ?? "")}
-                      onChangeText={(v) => update({ attachment_text_max_chars: v ? parseInt(v) : null })} placeholder={globalAttach.maxChars} type="number" />
-                  </FormRow>
-                </Col>
-              </Row>
-              <div style={{ maxWidth: 300 }}>
-                <FormRow label="Summary Concurrency">
-                  <TextInput value={String(draft.attachment_vision_concurrency ?? "")}
-                    onChangeText={(v) => update({ attachment_vision_concurrency: v ? parseInt(v) : null })} placeholder={globalAttach.concurrency} type="number" />
-                </FormRow>
-              </div>
-            </div>
-          )}
-
-          {activeSection === "workspace" && (
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text, marginBottom: 12 }}>Workspace</div>
-              <WorkspaceSection editorData={editorData} draft={draft} update={update} />
-            </div>
-          )}
-
-          {activeSection === "delegation" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Delegation</div>
-              <div style={{ fontSize: 11, color: t.textDim }}>Allow this bot to delegate work to other bots.</div>
-              {editorData.all_bots.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, marginBottom: 4, textTransform: "uppercase" }}>Delegate-to Bots</div>
-                  <div style={{ fontSize: 10, color: t.textDim, marginBottom: 6 }}>@-tagged bots in messages bypass this list.</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2 }}>
-                    {editorData.all_bots.map((b) => {
-                      const on = (draft.delegation_config?.delegate_bots || draft.delegate_bots || []).includes(b.id);
-                      return (
-                        <label key={b.id} style={{
-                          display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px",
-                          borderRadius: 4, cursor: "pointer", fontSize: 11,
-                          background: on ? t.purpleSubtle : "transparent",
-                        }}>
-                          <input type="checkbox" checked={on} style={{ accentColor: t.purple }}
-                            onChange={() => {
-                              const dc = { ...draft.delegation_config };
-                              const cur: string[] = dc.delegate_bots || draft.delegate_bots || [];
-                              dc.delegate_bots = on ? cur.filter((x: string) => x !== b.id) : [...cur, b.id];
-                              update({ delegation_config: dc });
-                            }} />
-                          <span style={{ color: on ? t.purple : t.textDim }}>{b.name}</span>
-                          <span style={{ color: t.textDim, fontFamily: "monospace", fontSize: 10 }}>{b.id}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-              {editorData.all_bots.length === 0 && (
-                <div style={{ color: t.textDim, fontSize: 12 }}>No other bots configured.</div>
-              )}
-            </div>
-          )}
-
-          {activeSection === "permissions" && (
-            <BotPermissionsSection
-              permissions={draft.api_permissions || []}
-              onChange={(p) => update({ api_permissions: p })}
-            />
-          )}
-
-          {activeSection === "grants" && (
-            <GrantsSection botId={isNew ? undefined : draft.id} ownerUserId={draft.user_id} />
-          )}
-
-          {activeSection === "tool_policies" && draft.id && (
-            <BotToolPoliciesSection botId={draft.id} />
-          )}
-
-          {activeSection === "hooks" && draft.id && (
-            <BotHooksSection botId={draft.id} />
-          )}
-
-          {activeSection === "display" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Display</div>
-              <Row>
-                <Col>
-                  <FormRow label="Display Name">
-                    <TextInput value={draft.display_name || ""} onChangeText={(v) => update({ display_name: v || undefined })} placeholder={draft.name} />
-                  </FormRow>
-                </Col>
-                <Col>
-                  <FormRow label="Avatar URL">
-                    <TextInput value={draft.avatar_url || ""} onChangeText={(v) => update({ avatar_url: v || undefined })} placeholder="https://..." />
-                  </FormRow>
-                </Col>
-              </Row>
-              <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 8 }}>Slack</div>
-                <div>
-                  <FormRow label="Icon Emoji" description="Overrides Avatar URL in Slack. Requires chat:write.customize.">
-                    <TextInput value={draft.integration_config?.slack?.icon_emoji || ""}
-                      onChangeText={(v) => {
-                        const ic = { ...draft.integration_config };
-                        ic.slack = { ...(ic.slack || {}), icon_emoji: v || undefined };
-                        update({ integration_config: ic });
-                      }} placeholder=":robot_face:" />
-                  </FormRow>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeSection === "advanced" && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: t.text }}>Advanced</div>
-              <FormRow label="Workspace-Files Memory" description="Enable workspace-files memory scheme (MEMORY.md, logs, reference). Required for dreaming.">
-                <Toggle
-                  value={draft.memory_scheme === "workspace-files"}
-                  onChange={(v) => update({ memory_scheme: v ? "workspace-files" : null })}
-                />
-              </FormRow>
-              <FormRow label="Audio Input">
-                <SelectInput value={draft.audio_input || "transcribe"} onChange={(v) => update({ audio_input: v })}
-                  options={[{ label: "transcribe (Whisper STT)", value: "transcribe" }, { label: "native (multimodal)", value: "native" }]}
-                />
-              </FormRow>
-              <HistoryModeSection draft={draft} update={update} />
-            </div>
-          )}
-
-          {/* Danger Zone — only for existing non-system bots */}
-          {!isNew && draft.source_type !== "system" && (
-            <div style={{
-              marginTop: 32,
-              border: `1px solid ${t.dangerBorder}`,
-              borderRadius: 8,
-              overflow: "hidden",
-            }}>
-              <div style={{
-                padding: "10px 14px",
-                background: t.dangerSubtle,
-                borderBottom: `1px solid ${t.dangerBorder}`,
-              }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: t.danger }}>Danger Zone</div>
-              </div>
-              <div style={{ padding: 16 }}>
-                {!showDeleteConfirm ? (
-                  <div style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 180 }}>
-                      <div style={{ fontSize: 13, color: t.text, fontWeight: 600 }}>Delete this bot</div>
-                      <div style={{ fontSize: 11, color: t.textMuted, marginTop: 2 }}>
-                        Permanently removes the bot and its associated data (persona, tasks, tool policies, filesystem index).
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setShowDeleteConfirm(true)}
-                      style={{
-                        display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                        padding: "8px 16px", fontSize: 12, fontWeight: 600,
-                        border: `1px solid ${t.dangerBorder}`, borderRadius: 6,
-                        background: "transparent", color: t.danger, cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      <Trash2 size={13} color={t.danger} />
-                      Delete Bot
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div style={{
-                      display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                      padding: "10px 14px", background: t.dangerSubtle, borderRadius: 6,
-                    }}>
-                      <AlertTriangle size={16} color={t.danger} />
-                      <div style={{ fontSize: 12, color: t.danger, fontWeight: 600 }}>
-                        This action cannot be undone.
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 12, color: t.textMuted }}>
-                      Type <span style={{ fontFamily: "monospace", color: t.danger, fontWeight: 600 }}>delete</span> to confirm:
-                    </div>
-                    <input
-                      type="text"
-                      value={deleteConfirmText}
-                      onChange={(e: any) => setDeleteConfirmText(e.target.value)}
-                      placeholder="delete"
-                      style={{
-                        padding: "8px 12px", fontSize: 13,
-                        background: t.inputBg, border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-                        color: t.text, outline: "none",
-                      }}
-                    />
-                    <div style={{ display: "flex", flexDirection: "row", gap: 8 }}>
-                      <button
-                        onClick={async () => {
-                          try {
-                            // Try without force first; if 409, show channel warning and retry with force
-                            if (!deleteChannelWarning) {
-                              try {
-                                await deleteMutation.mutateAsync({ botId: botId! });
-                                navigate("/admin/bots", { replace: true });
-                                return;
-                              } catch (err: any) {
-                                if (err?.status === 409 || err?.message?.includes("active channel")) {
-                                  let detail = "Bot has active channels.";
-                                  try { detail = JSON.parse(err?.body)?.detail || detail; } catch {}
-                                  setDeleteChannelWarning(detail);
-                                  return;
-                                }
-                                throw err;
-                              }
-                            }
-                            await deleteMutation.mutateAsync({ botId: botId!, force: true });
-                            navigate("/admin/bots", { replace: true });
-                          } catch (_) { /* handled by mutation state */ }
-                        }}
-                        disabled={deleteConfirmText !== "delete" || deleteMutation.isPending}
-                        style={{
-                          display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                          padding: "8px 20px", fontSize: 12, fontWeight: 700,
-                          border: "none", borderRadius: 6, cursor: "pointer",
-                          background: deleteConfirmText === "delete" ? t.danger : t.surfaceBorder,
-                          color: deleteConfirmText === "delete" ? "#fff" : t.textDim,
-                          opacity: deleteMutation.isPending ? 0.6 : 1,
-                        }}
-                      >
-                        <Trash2 size={13} />
-                        {deleteMutation.isPending ? "Deleting..." : deleteChannelWarning ? "Force Delete (including channels)" : "Permanently Delete"}
-                      </button>
-                      <button
-                        onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(""); setDeleteChannelWarning(null); }}
-                        style={{
-                          padding: "8px 16px", fontSize: 12, fontWeight: 500,
-                          border: `1px solid ${t.surfaceBorder}`, borderRadius: 6,
-                          background: "transparent", color: t.textMuted, cursor: "pointer",
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    {deleteChannelWarning && (
-                      <div style={{
-                        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-                        padding: "8px 12px", background: t.dangerSubtle, borderRadius: 6,
-                      }}>
-                        <AlertTriangle size={14} color={t.danger} />
-                        <div style={{ fontSize: 11, color: t.danger }}>
-                          {deleteChannelWarning} Click "Force Delete" to proceed anyway.
-                        </div>
-                      </div>
-                    )}
-                    {deleteMutation.isError && !deleteChannelWarning && (
-                      <div style={{ fontSize: 11, color: t.danger }}>
-                        {deleteMutation.error instanceof Error ? deleteMutation.error.message : "Failed to delete bot"}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          {!isNew && draft.source_type === "system" && (
-            <div style={{
-              marginTop: 32, padding: "10px 14px",
-              background: t.surfaceOverlay, borderRadius: 8,
-              display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-            }}>
-              <div style={{ fontSize: 11, color: t.textDim, fontWeight: 600 }}>
-                System bot — cannot be deleted
-              </div>
-            </div>
-          )}
-
-        </div>
+            )}
+            {activeGroup === "advanced" && <AdvancedSection draft={draft} isNew={isNew} deleteMutation={deleteMutation} showDeleteConfirm={showDeleteConfirm} setShowDeleteConfirm={setShowDeleteConfirm} deleteConfirmText={deleteConfirmText} setDeleteConfirmText={setDeleteConfirmText} deleteChannelWarning={deleteChannelWarning} setDeleteChannelWarning={setDeleteChannelWarning} update={update} onDeleted={() => navigate("/admin/bots", { replace: true })} />}
+          </div>
+        </main>
       </div>
     </div>
   );

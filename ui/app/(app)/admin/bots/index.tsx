@@ -1,61 +1,28 @@
-import { useState, useMemo } from "react";
-import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
-import { usePageRefresh } from "@/src/hooks/usePageRefresh";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Spinner } from "@/src/components/shared/Spinner";
-import { useWindowSize } from "@/src/hooks/useWindowSize";
-import {
-  Plus,
-  Search,
-  ArrowUpDown,
-  ChevronUp,
-  ChevronDown,
-  MessageSquare,
-  Zap,
-} from "lucide-react";
+import { Bot, Brain, FileText, KeyRound, MessageSquare, Plus, ShieldAlert, Sparkles, Wrench } from "lucide-react";
+
 import { useAdminBots } from "@/src/api/hooks/useBots";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useUsageSummary, type CostByDimension } from "@/src/api/hooks/useUsage";
 import { PageHeader } from "@/src/components/layout/PageHeader";
-import { useThemeTokens } from "@/src/theme/tokens";
+import { SelectInput } from "@/src/components/shared/FormControls";
+import { RefreshableScrollView } from "@/src/components/shared/RefreshableScrollView";
+import {
+  ActionButton,
+  EmptyState,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsSearchBox,
+  SettingsStatGrid,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { Spinner } from "@/src/components/shared/Spinner";
+import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import type { BotConfig } from "@/src/types/api";
 
-// ---------------------------------------------------------------------------
-// Styling
-// ---------------------------------------------------------------------------
-const MODEL_COLORS: Array<{ test: (m: string) => boolean; bg: string; fg: string }> = [
-  { test: (m) => m.startsWith("gemini/") || m.startsWith("gemini-"), bg: "rgba(34,197,94,0.15)", fg: "#16a34a" },
-  { test: (m) => m.startsWith("anthropic/") || m.includes("claude"), bg: "rgba(249,115,22,0.15)", fg: "#ea580c" },
-  { test: (m) => m.startsWith("openai/") || m.includes("gpt"), bg: "rgba(16,185,129,0.15)", fg: "#6ee7b7" },
-  { test: (m) => m.includes("deepseek"), bg: "rgba(59,130,246,0.15)", fg: "#2563eb" },
-];
-const FALLBACK_COLOR = { bg: "rgba(100,100,100,0.15)", fg: "#999" };
-
-function getModelColor(model: string) {
-  const m = model.toLowerCase();
-  return MODEL_COLORS.find((c) => c.test(m)) ?? FALLBACK_COLOR;
-}
-
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
-function fmtTokens(n: number | undefined | null): string {
-  if (n == null || n === 0) return "--";
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function fmtCost(v: number | null | undefined): string {
-  if (v == null || v === 0) return "--";
-  if (v < 0.01) return `$${v.toFixed(4)}`;
-  return `$${v.toFixed(2)}`;
-}
-
-// ---------------------------------------------------------------------------
-// Sort logic
-// ---------------------------------------------------------------------------
-type SortKey = "name" | "model" | "tokens" | "cost" | "calls";
+type SortKey = "name" | "model" | "calls" | "tokens" | "cost";
 type SortDir = "asc" | "desc";
 
 interface BotWithUsage {
@@ -63,526 +30,233 @@ interface BotWithUsage {
   usage: CostByDimension | null;
 }
 
+const SORT_OPTIONS: Array<{ label: string; value: SortKey }> = [
+  { label: "Name", value: "name" },
+  { label: "Model", value: "model" },
+  { label: "Calls", value: "calls" },
+  { label: "Tokens", value: "tokens" },
+  { label: "Cost", value: "cost" },
+];
+
+function fmtTokens(n: number | undefined | null): string {
+  if (!n) return "--";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function fmtCost(v: number | null | undefined): string {
+  if (v == null) return "--";
+  if (v === 0) return "$0";
+  if (v < 0.01) return `$${v.toFixed(4)}`;
+  return `$${v.toFixed(2)}`;
+}
+
 function sortBots(items: BotWithUsage[], key: SortKey, dir: SortDir): BotWithUsage[] {
-  const sorted = [...items].sort((a, b) => {
+  return [...items].sort((a, b) => {
     let cmp = 0;
-    switch (key) {
-      case "name":
-        cmp = a.bot.name.localeCompare(b.bot.name);
-        break;
-      case "model":
-        cmp = a.bot.model.localeCompare(b.bot.model);
-        break;
-      case "tokens":
-        cmp = (a.usage?.total_tokens ?? 0) - (b.usage?.total_tokens ?? 0);
-        break;
-      case "cost":
-        cmp = (a.usage?.cost ?? 0) - (b.usage?.cost ?? 0);
-        break;
-      case "calls":
-        cmp = (a.usage?.calls ?? 0) - (b.usage?.calls ?? 0);
-        break;
-    }
+    if (key === "name") cmp = a.bot.name.localeCompare(b.bot.name);
+    if (key === "model") cmp = a.bot.model.localeCompare(b.bot.model);
+    if (key === "calls") cmp = (a.usage?.calls ?? 0) - (b.usage?.calls ?? 0);
+    if (key === "tokens") cmp = (a.usage?.total_tokens ?? 0) - (b.usage?.total_tokens ?? 0);
+    if (key === "cost") cmp = (a.usage?.cost ?? 0) - (b.usage?.cost ?? 0);
     return dir === "asc" ? cmp : -cmp;
   });
-  return sorted;
 }
 
-// ---------------------------------------------------------------------------
-// Capabilities summary
-// ---------------------------------------------------------------------------
-function capSummary(bot: BotConfig): string {
-  const parts: string[] = [];
-  const toolCount = (bot.local_tools?.length ?? 0) + (bot.client_tools?.length ?? 0);
-  if (toolCount > 0) parts.push(`${toolCount} tools`);
-  const mcpCount = bot.mcp_servers?.length ?? 0;
-  if (mcpCount > 0) parts.push(`${mcpCount} MCP`);
-  const delegateCount = bot.delegate_bots?.length ?? 0;
-  if (delegateCount > 0) parts.push(`${delegateCount} delegates`);
-  return parts.join(" · ") || "No tools";
+function enabledSurfaces(bot: BotConfig): string[] {
+  const labels: string[] = [];
+  const toolCount = (bot.local_tools?.length ?? 0) + (bot.client_tools?.length ?? 0) + (bot.pinned_tools?.length ?? 0);
+  const skillCount = bot.skills?.length ?? 0;
+  const delegateCount = (bot.delegation_config?.delegate_bots as string[] | undefined)?.length ?? bot.delegate_bots?.length ?? 0;
+  if (toolCount) labels.push(`${toolCount} tools`);
+  if (skillCount) labels.push(`${skillCount} skills`);
+  if (bot.mcp_servers?.length) labels.push(`${bot.mcp_servers.length} MCP`);
+  if (delegateCount) labels.push(`${delegateCount} delegates`);
+  if (bot.memory?.enabled || bot.memory_scheme === "workspace-files") labels.push("Memory");
+  if (bot.workspace?.enabled || bot.shared_workspace_id) labels.push("Workspace");
+  return labels;
 }
 
-// Feature badges — plain labels, styled uniformly to avoid visual noise
-function featureBadges(bot: BotConfig): string[] {
-  const badges: string[] = [];
-  if (bot.memory?.enabled) badges.push("Memory");
-  if (bot.context_compaction) badges.push("Compaction");
-  if (bot.persona) badges.push("Persona");
-  if ((bot.delegate_bots?.length ?? 0) > 0) badges.push("Delegation");
-  if (bot.workspace?.enabled) badges.push("Workspace");
+function warningBadges(bot: BotConfig): React.ReactNode[] {
+  const badges: React.ReactNode[] = [];
+  const workspace = bot.workspace ?? {};
+  if (workspace.cross_workspace_access) badges.push(<StatusBadge key="cross-workspace" label="cross workspace" variant="warning" />);
+  if (bot.api_permissions?.length) badges.push(<StatusBadge key="api" label={`${bot.api_permissions.length} api scopes`} variant="info" />);
+  if (bot.system_prompt_workspace_file) badges.push(<QuietPill key="prompt-file" label="prompt file" />);
+  if (bot.persona_from_workspace) badges.push(<QuietPill key="persona-file" label="persona file" />);
   return badges;
 }
 
-// ---------------------------------------------------------------------------
-// Sort header button
-// ---------------------------------------------------------------------------
-function SortHeader({
-  label,
-  sortKey,
-  currentKey,
-  currentDir,
-  onSort,
-  align,
-  width,
-}: {
-  label: string;
-  sortKey: SortKey;
-  currentKey: SortKey;
-  currentDir: SortDir;
-  onSort: (key: SortKey) => void;
-  align?: "left" | "right";
-  width?: number | string;
-}) {
-  const t = useThemeTokens();
-  const isActive = currentKey === sortKey;
+function BotIcon({ bot }: { bot: BotConfig }) {
+  if (bot.avatar_url) return <img src={bot.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />;
   return (
-    <button
-      onClick={() => onSort(sortKey)}
-      style={{
-        display: "flex", flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-        background: "none",
-        border: "none",
-        cursor: "pointer",
-        fontSize: 10,
-        fontWeight: 600,
-        color: isActive ? t.text : t.textDim,
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        padding: "0 2px",
-        justifyContent: align === "right" ? "flex-end" : "flex-start",
-        width: width ?? "auto",
-        flexShrink: 0,
-      }}
-    >
-      {label}
-      {isActive ? (
-        currentDir === "asc" ? <ChevronUp size={11} /> : <ChevronDown size={11} />
-      ) : (
-        <ArrowUpDown size={10} style={{ opacity: 0.3 }} />
-      )}
-    </button>
+    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent/10 text-accent">
+      <Bot size={16} />
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Bot card (grid tile)
-// ---------------------------------------------------------------------------
-function BotCard({
-  bot,
-  usage,
-  ownerName,
-  onPress,
-}: {
-  bot: BotConfig;
-  usage: CostByDimension | null;
-  ownerName: string | null;
-  onPress: () => void;
-}) {
-  const t = useThemeTokens();
-  const mc = getModelColor(bot.model);
-  const badges = featureBadges(bot);
-  const caps = capSummary(bot);
+function BotRow({ item, ownerName, onOpen }: { item: BotWithUsage; ownerName: string | null; onOpen: () => void }) {
+  const { bot, usage } = item;
+  const surfaces = enabledSurfaces(bot);
+  const warnings = warningBadges(bot);
+  const promptPreview = bot.system_prompt?.replace(/\s+/g, " ").trim();
 
   return (
-    <button
-      onClick={onPress}
-      data-testid="bot-row"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        padding: "18px 20px",
-        background: t.surfaceRaised,
-        borderRadius: 12,
-        border: `1px solid ${t.surfaceBorder}`,
-        cursor: "pointer",
-        textAlign: "left",
-        width: "100%",
-        transition: "border-color 0.15s, box-shadow 0.15s",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = t.textDim;
-        e.currentTarget.style.boxShadow = `0 2px 12px ${t.overlayLight}`;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = t.surfaceBorder;
-        e.currentTarget.style.boxShadow = "none";
-      }}
-    >
-      {/* Row 1: Name + model badge */}
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 10 }}>
-        <span
-          style={{
-            fontSize: 15,
-            fontWeight: 700,
-            color: t.text,
-            flex: 1,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {bot.name}
-        </span>
-        <span
-          style={{
-            padding: "3px 10px",
-            borderRadius: 6,
-            fontSize: 10,
-            fontWeight: 600,
-            background: mc.bg,
-            color: mc.fg,
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-          }}
-        >
-          {bot.model}
-        </span>
-      </div>
-
-      {/* Row 2: System prompt preview */}
-      {bot.system_prompt && (
-        <div
-          style={{
-            fontSize: 12,
-            color: t.textDim,
-            lineHeight: 1.45,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          {bot.system_prompt.length > 140 ? bot.system_prompt.slice(0, 140) + "..." : bot.system_prompt}
-        </div>
-      )}
-
-      {/* Owner (admin view) */}
-      {ownerName && (
-        <div style={{ fontSize: 11, color: t.textDim }}>
-          Owned by {ownerName}
-        </div>
-      )}
-
-      {/* Row 3: Feature badges — subtle, uniform */}
-      {badges.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-          {badges.map((label) => (
-            <span
-              key={label}
-              style={{
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontSize: 10,
-                fontWeight: 500,
-                background: t.overlayLight,
-                color: t.textMuted,
-              }}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Row 4: Stats bar — capabilities + usage */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          borderTop: `1px solid ${t.overlayBorder}`,
-          paddingTop: 10,
-          marginTop: 2,
-        }}
-      >
-        <span style={{ fontSize: 11, color: t.textDim }}>{caps}</span>
-
-        {/* Usage stats */}
-        <div style={{ display: "flex", flexDirection: "row", gap: 12, alignItems: "center" }}>
-          {usage && usage.calls > 0 && (
-            <>
-              <span
-                style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
-                title="Total calls"
-              >
-                <MessageSquare size={10} color={t.textDim} />
-                {usage.calls.toLocaleString()}
+    <SettingsControlRow onClick={onOpen} className="overflow-hidden">
+      <div className="flex min-w-0 flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <BotIcon bot={bot} />
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="min-w-0 truncate text-[13px] font-semibold text-text">{bot.name}</span>
+              {bot.display_name && bot.display_name !== bot.name && <QuietPill label={bot.display_name} maxWidthClass="max-w-[180px]" />}
+              <QuietPill label={bot.id} maxWidthClass="max-w-[180px]" />
+              {bot.source_type === "system" && <StatusBadge label="system" variant="neutral" />}
+              {warnings}
+            </div>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-dim">
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Sparkles size={12} className="shrink-0" />
+                <span className="truncate">{bot.model || "No model"}</span>
               </span>
-              <span
-                style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3, fontSize: 11, color: t.textDim }}
-                title="Total tokens"
-              >
-                <Zap size={10} color={t.textDim} />
-                {fmtTokens(usage.total_tokens)}
-              </span>
-              {usage.cost != null && usage.cost > 0 && (
-                <span
-                  data-testid="cost-badge"
-                  style={{
-                    display: "flex", flexDirection: "row",
-                    alignItems: "center",
-                    gap: 2,
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: t.textMuted,
-                    fontFamily: "monospace",
-                  }}
-                  title="Estimated cost"
-                >
-                  $
-                  {usage.cost < 0.01 ? usage.cost.toFixed(4) : usage.cost.toFixed(2)}
+              {ownerName && (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <KeyRound size={12} className="shrink-0" />
+                  <span className="truncate">{ownerName}</span>
                 </span>
               )}
-            </>
-          )}
-          {(!usage || usage.calls === 0) && (
-            <span style={{ fontSize: 11, color: t.textDim }}>No usage data</span>
-          )}
+              {surfaces.length > 0 && (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <Wrench size={12} className="shrink-0" />
+                  <span className="truncate">{surfaces.join(" · ")}</span>
+                </span>
+              )}
+            </div>
+            {promptPreview && <div className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-text-dim">{promptPreview}</div>}
+          </div>
+        </div>
+
+        <div className="grid min-w-0 grid-cols-3 gap-2 md:w-[280px] md:shrink-0">
+          <div className="rounded-md bg-surface-overlay/25 px-2 py-1.5">
+            <div className="font-mono text-[12px] font-semibold text-text">{usage?.calls?.toLocaleString() ?? "--"}</div>
+            <div className="mt-0.5 text-[9px] uppercase tracking-[0.08em] text-text-dim">calls</div>
+          </div>
+          <div className="rounded-md bg-surface-overlay/25 px-2 py-1.5">
+            <div className="font-mono text-[12px] font-semibold text-text">{fmtTokens(usage?.total_tokens)}</div>
+            <div className="mt-0.5 text-[9px] uppercase tracking-[0.08em] text-text-dim">tokens</div>
+          </div>
+          <div className="rounded-md bg-surface-overlay/25 px-2 py-1.5">
+            <div className="font-mono text-[12px] font-semibold text-text">{fmtCost(usage?.cost)}</div>
+            <div className="mt-0.5 text-[9px] uppercase tracking-[0.08em] text-text-dim">cost</div>
+          </div>
         </div>
       </div>
-    </button>
+    </SettingsControlRow>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-export default function BotsScreen() {
-  const t = useThemeTokens();
+export default function AdminBotsPage() {
   const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const { data: bots, isLoading } = useAdminBots();
-  const { refreshing, onRefresh } = usePageRefresh();
-  const { width } = useWindowSize();
-  const isWide = width >= 768;
-
-  // Usage data for the past 30 days
-  const { data: usageData } = useUsageSummary({ after: "30d" });
   const { data: users } = useAdminUsers();
+  const { data: usageData } = useUsageSummary({ after: "30d" });
+  const { refreshing, onRefresh } = usePageRefresh([["admin-bots"], ["usage-summary"]]);
+
   const userNameById = useMemo(() => {
     const m = new Map<string, string>();
-    (users ?? []).forEach((u) => m.set(u.id, u.display_name));
+    for (const u of users ?? []) m.set(u.id, u.display_name || u.email || u.id);
     return m;
   }, [users]);
 
-  const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
-
-  // Build usage lookup
   const usageByBot = useMemo(() => {
-    const map = new Map<string, CostByDimension>();
-    usageData?.cost_by_bot?.forEach((b) => map.set(b.label, b));
-    return map;
+    const m = new Map<string, CostByDimension>();
+    for (const row of usageData?.cost_by_bot ?? []) m.set(row.label, row);
+    return m;
   }, [usageData]);
 
-  // Merge, filter, sort
-  const displayBots = useMemo(() => {
-    if (!bots) return [];
-    let items: BotWithUsage[] = bots.map((bot) => ({
-      bot,
-      usage: usageByBot.get(bot.id) ?? null,
-    }));
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const withUsage = (bots ?? []).map((bot) => ({ bot, usage: usageByBot.get(bot.id) ?? usageByBot.get(bot.name) ?? null }));
+    const filtered = q
+      ? withUsage.filter(({ bot }) =>
+          [bot.id, bot.name, bot.display_name, bot.model, bot.source_type, bot.user_id ? userNameById.get(bot.user_id) : "", ...enabledSurfaces(bot)]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(q),
+        )
+      : withUsage;
+    return sortBots(filtered, sortKey, sortDir);
+  }, [bots, query, sortDir, sortKey, usageByBot, userNameById]);
 
-    // Search filter
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      items = items.filter(
-        ({ bot }) =>
-          bot.name.toLowerCase().includes(q) ||
-          bot.id.toLowerCase().includes(q) ||
-          bot.model.toLowerCase().includes(q),
-      );
-    }
-
-    return sortBots(items, sortKey, sortDir);
-  }, [bots, usageByBot, search, sortKey, sortDir]);
-
-  const handleSort = (key: SortKey) => {
-    if (key === sortKey) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortKey(key);
-      // Default descending for numeric columns, ascending for text
-      setSortDir(key === "name" || key === "model" ? "asc" : "desc");
-    }
-  };
-
-  // Totals
-  const totalCost = usageData?.total_cost;
-  const totalTokens = usageData?.total_tokens ?? 0;
-  const totalCalls = usageData?.total_calls ?? 0;
-
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 bg-surface items-center justify-center">
-        <Spinner color={t.accent} />
-      </div>
-    );
-  }
+  const totals = useMemo(() => {
+    const all = bots ?? [];
+    return {
+      bots: all.length,
+      workspace: all.filter((bot) => bot.workspace?.enabled || bot.shared_workspace_id).length,
+      api: all.filter((bot) => bot.api_permissions?.length).length,
+      cost: usageData?.total_cost ?? null,
+    };
+  }, [bots, usageData]);
 
   return (
-    <div className="flex-1 flex flex-col bg-surface overflow-hidden">
-      <PageHeader variant="list"
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-surface">
+      <PageHeader
+        variant="list"
         title="Bots"
-        subtitle={`${bots?.length ?? 0} configured`}
-        right={
-          <button
-            onClick={() => navigate("/admin/bots/new")}
-            style={{
-              display: "flex", flexDirection: "row",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 14px",
-              fontSize: 12,
-              fontWeight: 600,
-              border: "none",
-              borderRadius: 6,
-              background: t.accent,
-              color: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            <Plus size={14} />
-            New Bot
-          </button>
-        }
+        subtitle="Configure bot identity, instructions, tools, memory, and access."
+        right={<ActionButton label="New Bot" icon={<Plus size={14} />} onPress={() => navigate("/admin/bots/new")} />}
       />
 
-      {/* Toolbar: search + sort + summary stats */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          gap: 10,
-          padding: isWide ? "10px 20px" : "8px 12px",
-          borderBottom: `1px solid ${t.surfaceRaised}`,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        {/* Search */}
-        <div
-          style={{
-            display: "flex", flexDirection: "row",
-            alignItems: "center",
-            gap: 6,
-            background: t.surfaceRaised,
-            border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 6,
-            padding: "5px 10px",
-            flex: isWide ? "0 1 260px" : "1 1 100%",
-          }}
-        >
-          <Search size={13} color={t.textDim} />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search bots..."
-            style={{
-              background: "none",
-              border: "none",
-              outline: "none",
-              color: t.text,
-              fontSize: 12,
-              flex: 1,
-              width: "100%",
-            }}
-          />
-        </div>
-
-        {/* Sort controls */}
-        <div style={{ display: "flex", flexDirection: "row", gap: 2, alignItems: "center" }}>
-          <SortHeader label="Name" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-          <SortHeader label="Model" sortKey="model" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-          <SortHeader label="Calls" sortKey="calls" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-          <SortHeader label="Tokens" sortKey="tokens" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-          <SortHeader label="Cost" sortKey="cost" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-        </div>
-
-        {/* Spacer */}
-        <div style={{ flex: 1 }} />
-
-        {/* 30d totals */}
-        {totalCalls > 0 && (
-          <div
-            style={{
-              display: "flex", flexDirection: "row",
-              gap: 14,
-              alignItems: "center",
-              fontSize: 11,
-              color: t.textDim,
-            }}
-          >
-            <span title="30-day totals" style={{ color: t.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 10 }}>
-              30d
-            </span>
-            <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
-              <MessageSquare size={11} color={t.textDim} /> {totalCalls.toLocaleString()} calls
-            </span>
-            <span style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
-              <Zap size={11} color={t.textDim} /> {fmtTokens(totalTokens)} tokens
-            </span>
-            {totalCost != null && totalCost > 0 && (
-              <span
-                style={{
-                  display: "flex", flexDirection: "row",
-                  alignItems: "center",
-                  gap: 2,
-                  color: t.textMuted,
-                  fontFamily: "monospace",
-                  fontWeight: 600,
-                }}
-              >
-                {fmtCost(totalCost)}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Grid */}
       <RefreshableScrollView
         refreshing={refreshing}
         onRefresh={onRefresh}
-        style={{ flex: 1 }}
-        contentContainerStyle={{ padding: isWide ? 20 : 12 }}
+        className="flex-1"
+        contentContainerStyle={{ maxWidth: 1152, width: "100%", margin: "0 auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 24 }}
       >
-        {displayBots.length === 0 && bots && bots.length > 0 && (
-          <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
-            No bots match "{search}"
-          </div>
-        )}
+        <SettingsStatGrid
+          items={[
+            { label: "Configured", value: totals.bots },
+            { label: "Workspace linked", value: totals.workspace, tone: totals.workspace ? "accent" : "default" },
+            { label: "API scoped", value: totals.api, tone: totals.api ? "warning" : "default" },
+            { label: "30d cost", value: fmtCost(totals.cost), tone: totals.cost ? "accent" : "default" },
+          ]}
+        />
 
-        {(!bots || bots.length === 0) && (
-          <div style={{ padding: 40, textAlign: "center", fontSize: 13 }}>
-            <div style={{ color: t.textDim, marginBottom: 8 }}>No bots configured yet.</div>
-            <div style={{ color: t.textDim, fontSize: 12 }}>Create a bot to get started.</div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          <SettingsSearchBox value={query} onChange={setQuery} placeholder="Filter bots..." className="min-w-0 flex-1 md:max-w-xl" />
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="w-[170px]">
+              <SelectInput value={sortKey} onChange={(v) => setSortKey(v as SortKey)} options={SORT_OPTIONS} />
+            </div>
+            <ActionButton label={sortDir === "asc" ? "Ascending" : "Descending"} variant="secondary" onPress={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))} />
           </div>
-        )}
+        </div>
 
-        {displayBots.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: isWide
-                ? "repeat(auto-fill, minmax(420px, 1fr))"
-                : "1fr",
-              gap: isWide ? 14 : 10,
-            }}
-          >
-            {displayBots.map(({ bot, usage }) => (
-              <BotCard
-                key={bot.id}
-                bot={bot}
-                usage={usage}
-                ownerName={bot.user_id ? (userNameById.get(bot.user_id) ?? null) : null}
-                onPress={() => navigate(`/admin/bots/${bot.id}`)}
-              />
-            ))}
-          </div>
-        )}
+        <div className="flex flex-col gap-2">
+          <SettingsGroupLabel label="Current bots" count={rows.length} icon={<Bot size={13} className="text-text-dim" />} />
+          {isLoading ? (
+            <div className="py-10"><Spinner size={18} /></div>
+          ) : rows.length === 0 ? (
+            <EmptyState message={query ? "No bots match that filter." : "No bots configured yet."} action={<ActionButton label="Create bot" icon={<Plus size={14} />} onPress={() => navigate("/admin/bots/new")} />} />
+          ) : (
+            rows.map((item) => (
+              <BotRow key={item.bot.id} item={item} ownerName={item.bot.user_id ? (userNameById.get(item.bot.user_id) ?? null) : null} onOpen={() => navigate(`/admin/bots/${item.bot.id}`)} />
+            ))
+          )}
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-4">
+          <SettingsControlRow leading={<FileText size={14} />} title="Prompt source" description="Workspace prompt files are shown as first-class source markers." />
+          <SettingsControlRow leading={<Brain size={14} />} title="Memory" description="Memory and workspace-file schemes are visible before opening the editor." />
+          <SettingsControlRow leading={<ShieldAlert size={14} />} title="Access flags" description="API scopes and cross-workspace access are surfaced on the row." />
+          <SettingsControlRow leading={<MessageSquare size={14} />} title="Usage" description="30-day calls, tokens, and cost stay visible while scanning." />
+        </div>
       </RefreshableScrollView>
     </div>
   );

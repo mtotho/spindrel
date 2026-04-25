@@ -26,6 +26,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 | 10 | Slack transport + streaming deepening | ✅ shipped |
 | 11 | Slack NEW_MESSAGE delivery deepening | ✅ shipped |
 | 12 | Slack approval + ephemeral delivery deepening | ✅ shipped |
+| 13 | Slack renderer dead component-converter cleanup | ✅ shipped |
 
 ## Current Implementation Shape
 
@@ -39,6 +40,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - Slack durable `NEW_MESSAGE` delivery now lives in `SlackMessageDelivery`. The module owns UI-only/internal-role skips, Slack echo prevention, actor attribution, placeholder reuse/cleanup, thread targeting, rich-result block attachment, and final Slack `ts` receipt shaping.
 - Slack ephemeral message delivery now lives in `SlackEphemeralDelivery`, keeping one-shot `chat.postEphemeral` policy out of the renderer.
 - Slack renderer Web API calls now go through a dedicated receipt-shaped transport module; renderer tests patch that boundary directly.
+- Slack renderer no longer carries the legacy component-vocabulary-to-Block-Kit converter; rich-result Block Kit mapping lives in `tool_result_adapter`.
 - Widget/component actions are out of scope for v1. Approvals remain on `approval_buttons`.
 - Integration runtime modules now reach app-owned contracts through `integrations.sdk`; only infrastructure shims (`integrations/__init__.py`, `integrations/sdk.py`, `integrations/utils.py`) may import `app.*` directly.
 
@@ -60,6 +62,7 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 - `PYTHONDONTWRITEBYTECODE=1 python -c "import integrations.slack.renderer; print('slack renderer import ok')"` passed locally.
 - `pytest tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally: 65 passed, 3 warnings.
 - `pytest tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally: 67 passed, 3 warnings.
+- `pytest tests/unit/test_slack_approval_delivery.py tests/unit/test_slack_message_delivery.py tests/unit/test_slack_renderer.py tests/unit/test_slack_tool_output_display.py tests/integration/test_slack_end_to_end.py tests/unit/test_slack_transport.py tests/unit/test_slack_ephemeral.py tests/unit/test_integration_depth_contract.py tests/unit/test_integration_import_boundary.py -q` passed locally after the dead-code cleanup: 67 passed, 3 warnings.
 - Broader websocket/TestClient suites still time out in this Python 3.14 local environment: even a minimal `FastAPI()` + `TestClient` context hangs before app code runs. Treat those as environment verification gaps, not integration boundary regressions.
 
 ## Audit Issues
@@ -123,6 +126,18 @@ Make rich tool-result rendering a declared integration capability with a deep SD
 **Testing Strategy:** `NEW_MESSAGE` behavior tests moved to `test_slack_message_delivery.py`; renderer keeps a small routing smoke test. Tool-output display tests now patch `integrations.slack.message_delivery.resolve_tool_output_display`.
 
 **Implementation Recommendations:** Keep `MESSAGE_UPDATED` and attachment deletion in the renderer until each has a stable policy boundary worth extracting. Leave legacy component-converter cleanup for a separate dead-code pass.
+
+### Slack renderer dead component-converter cleanup
+
+**Problem:** `SlackRenderer` still carried unused legacy component-vocabulary helpers after rich-result rendering moved to `tool_result_adapter`.
+
+**Proposed Interface:** No new interface. Delete unused renderer-local conversion helpers and rely on `tool_result_adapter` for Block Kit rich-result mapping.
+
+**Dependency Strategy:** In-process cleanup. No dependency behavior changed.
+
+**Testing Strategy:** Grep verified no active references remained; the Slack delivery/depth/import suite stayed green.
+
+**Implementation Recommendations:** Keep dead-code cleanup separate from delivery-boundary changes so behavior movement and deletion remain easy to audit.
 
 ### Slack approval + ephemeral delivery deepening
 

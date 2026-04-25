@@ -19,6 +19,7 @@ import {
   restoreMiniChannelChatPane,
   restoreChannelChatPanes,
   resizeChannelChatPanes,
+  splitChannelChatPaneLayout,
 } from "./channelSessionSurfaces.js";
 
 assert.deepEqual(normalizeChannelSessionPanels(null), []);
@@ -59,7 +60,10 @@ assert.deepEqual(removeChannelSessionPanel([
 ]);
 
 assert.equal(buildChannelSessionRoute("chan", { kind: "primary" }), "/channels/chan");
-assert.equal(buildChannelSessionRoute("chan", { kind: "channel", sessionId: "old" }), "/channels/chan");
+assert.equal(
+  buildChannelSessionRoute("chan", { kind: "channel", sessionId: "old" }),
+  "/channels/chan/session/old?surface=channel",
+);
 assert.equal(
   buildChannelSessionRoute("chan", { kind: "scratch", sessionId: "session" }),
   "/channels/chan/session/session?scratch=true",
@@ -171,6 +175,14 @@ assert.equal(migratedLayout.miniPane, null);
 const splitLayout = addChannelChatPane(migratedLayout, { kind: "scratch", sessionId: "scratch-a" });
 assert.deepEqual(splitLayout.panes.map((pane) => pane.id), ["primary", "scratch:scratch-a", "channel:old"]);
 assert.equal(splitLayout.focusedPaneId, "scratch:scratch-a");
+
+const routeStartedSplitLayout = splitChannelChatPaneLayout(
+  { kind: "channel", sessionId: "old" },
+  { kind: "primary" },
+);
+assert.deepEqual(routeStartedSplitLayout.panes.map((pane) => pane.id), ["channel:old", "primary"]);
+assert.equal(routeStartedSplitLayout.focusedPaneId, "primary");
+assert.equal(Math.round(Object.values(routeStartedSplitLayout.widths).reduce((sum, width) => sum + width, 0) * 1000), 1000);
 
 const replacedLayout = replaceFocusedChannelChatPane(splitLayout, { kind: "channel", sessionId: "later" });
 assert.deepEqual(replacedLayout.panes.map((pane) => pane.id), ["primary", "channel:later", "channel:old"]);

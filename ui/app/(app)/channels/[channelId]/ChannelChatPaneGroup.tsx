@@ -163,11 +163,6 @@ function PaneHeader({
             <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-dim">
               {header.kind}
             </span>
-            {!header.primary && pane.surface.kind === "channel" && (
-              <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-text-dim">
-                Web-only
-              </span>
-            )}
             {contextStats && (
               <span className="min-w-0 truncate text-[10px] text-text-dim">
                 {contextStats}

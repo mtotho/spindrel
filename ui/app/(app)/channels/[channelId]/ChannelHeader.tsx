@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Settings, Menu, ArrowLeft, Hash, Lock, LayoutDashboard,
   Cog, PanelRight, StickyNote,
-  Minimize2,
+  X as CloseIcon,
   User as UserIcon, MoreHorizontal,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
@@ -527,22 +527,18 @@ export function ChannelHeader({
         </button>
       )}
 
-      {/* Scratch chat opener. Always visible; stays put when the dock is
-          open (clicking again is a no-op — dock's own X closes). Active
-          styling signals that the dock is currently up. When the URL is
-          on the scratch full-page route, clicking navigates back to the
-          main chat (canonical minimize) and the button shows pressed
-          state so the user can see which context they're in. */}
+      {/* Session route close. A single non-primary session is a page-level
+          view; closing it returns to the channel primary route. */}
       {scratchFullpageMode && onOpenMainChat && (
         <button
           type="button"
           className="header-icon-btn"
           style={{ width: iconSize, height: iconSize }}
           onClick={onOpenMainChat}
-          title="Minimize session back to channel chat"
-          aria-label="Minimize session back to channel chat"
+          title="Close session view"
+          aria-label="Close session view"
         >
-          <Minimize2 size={16} color={t.textDim} />
+          <CloseIcon size={16} color={t.textDim} />
         </button>
       )}
       {!isMobile && channelId && onOpenSessions && (

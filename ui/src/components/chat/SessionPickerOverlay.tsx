@@ -5,6 +5,7 @@ import {
   buildChannelSessionPickerGroups,
   buildChannelSessionPickerEntries,
   isUntouchedDraftSession,
+  surfaceKey,
   type ChannelSessionActivationIntent,
   type ChannelSessionPickerEntry,
   type ChannelSessionSurface,
@@ -12,7 +13,6 @@ import {
 import {
   useChannelSessionCatalog,
   useChannelSessionSearch,
-  usePromoteScratchSession,
   useRenameSession,
   useResetScratchSession,
   useScratchHistory,
@@ -29,6 +29,7 @@ interface SessionPickerOverlayProps {
   allowSplit?: boolean;
   mode?: "switch" | "split";
   hiddenSurfaces?: ChannelSessionSurface[];
+  openSurfaces?: ChannelSessionSurface[];
 }
 
 export function SessionPickerOverlay({
@@ -42,12 +43,12 @@ export function SessionPickerOverlay({
   allowSplit = false,
   mode = "switch",
   hiddenSurfaces = [],
+  openSurfaces = [],
 }: SessionPickerOverlayProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { data: history, isLoading, error } = useScratchHistory(open ? channelId : null);
   const { data: channelSessions, isLoading: catalogLoading, error: catalogError } = useChannelSessionCatalog(open ? channelId : null);
   const resetScratch = useResetScratchSession();
-  const promoteScratch = usePromoteScratchSession();
   const renameSession = useRenameSession();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -91,6 +92,7 @@ export function SessionPickerOverlay({
     if (surface.kind === "primary") return "primary";
     return `${surface.kind}:${surface.sessionId}`;
   })), [hiddenSurfaces]);
+  const openKeys = useMemo(() => new Set(openSurfaces.map(surfaceKey)), [openSurfaces]);
 
   const entries = useMemo(() => {
     const built = buildChannelSessionPickerEntries({
@@ -335,7 +337,12 @@ export function SessionPickerOverlay({
                             Current
                           </span>
                         )}
-                        {splitEligible && active && (
+                        {!entry.selected && openKeys.has(surfaceKey(entry.surface)) && (
+                          <span className="rounded-full bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium text-text-dim">
+                            Open
+                          </span>
+                        )}
+                        {splitEligible && (
                           <button
                             type="button"
                             onClick={(event) => {
@@ -366,26 +373,6 @@ export function SessionPickerOverlay({
                         className="text-text-dim hover:text-text"
                       >
                         Rename
-                      </button>
-                      <button
-                        type="button"
-                        disabled={promoteScratch.isPending}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          promoteScratch.mutate({
-                            session_id: scratch.id,
-                            parent_channel_id: channelId,
-                            bot_id: scratch.row.bot_id,
-                          }, {
-                            onSuccess: () => {
-                              onClose();
-                              onActivateSurface({ kind: "primary" }, "switch");
-                            },
-                          });
-                        }}
-                        className="text-text-dim hover:text-text disabled:opacity-50"
-                      >
-                        Make primary
                       </button>
                     </div>
                   )}

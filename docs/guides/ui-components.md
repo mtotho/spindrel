@@ -68,6 +68,15 @@ Use `FormControls.tsx` and `SettingsControls.tsx`.
 - `QuietPill`: low-emphasis metadata tags inside dense rows. Use this for archived-section tags, compact row labels, and other metadata that should not compete with the row title.
 - Light-mode contrast for these controls is owned by the global surface tokens first. If many shared controls look washed out, tune the shared opacity recipes here once instead of adding page-local backgrounds, borders, or extra accent colors.
 
+## Admin Entity Catalogs
+
+Use dense row catalogs for admin lists that need to scan, filter, and fit on mobile.
+
+- Prefer `SettingsSearchBox`, `SelectInput`, `SettingsStatGrid`, `SettingsGroupLabel`, `SettingsControlRow`, `QuietPill`, and `StatusBadge` before creating a page-local card grid.
+- Rows must be mobile-safe by default: wrap controls, use `min-w-0`, truncate long ids/models/paths, and avoid fixed card minimums that can force horizontal page scroll.
+- Entity rows should expose operational signals that change what an admin does next: source type, file-backed configuration, access warnings, recent usage, readiness, and direct drilldown actions.
+- Detail editors with many settings should group by workflow with a stable section nav and preserve legacy hash links where possible. Avoid one long flat tab list for 10+ sections.
+
 ## Source File Inspection
 
 Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx` when a row, search result, or activity item opens a workspace-backed source file.

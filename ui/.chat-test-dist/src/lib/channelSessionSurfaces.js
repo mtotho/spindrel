@@ -240,6 +240,21 @@ export function restoreMiniChannelChatPane(layout) {
         miniPane: null,
     };
 }
+export function channelChatPaneForSurface(surface) {
+    return { id: paneIdForSurface(surface), surface };
+}
+export function splitChannelChatPaneLayout(currentSurface, nextSurface) {
+    const current = channelChatPaneForSurface(currentSurface);
+    const next = channelChatPaneForSurface(nextSurface);
+    const panes = current.id === next.id ? [current] : [current, next];
+    return {
+        panes,
+        focusedPaneId: next.id,
+        widths: normalizeWidths(panes, {}),
+        maximizedPaneId: null,
+        miniPane: null,
+    };
+}
 export function resizeChannelChatPanes(layout, leftPaneId, rightPaneId, deltaRatio) {
     const existing = normalizeChannelChatPaneLayout(layout);
     const widths = normalizeWidths(existing.panes, existing.widths);
@@ -261,7 +276,7 @@ export function buildChannelSessionRoute(channelId, surface) {
     if (surface.kind === "primary")
         return `/channels/${channelId}`;
     if (surface.kind === "channel")
-        return `/channels/${channelId}`;
+        return `/channels/${channelId}/session/${surface.sessionId}?surface=channel`;
     return `/channels/${channelId}/session/${surface.sessionId}?scratch=true`;
 }
 export function buildScratchChatSource({ channelId, botId, sessionId, }) {
@@ -384,7 +399,7 @@ export function buildChannelSessionPickerEntries({ channelLabel, selectedSession
                     row,
                     label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
                     meta: getChannelSessionMeta(row),
-                    selected: false,
+                    selected: selectedSessionId === row.session_id,
                     matches: row.matches ?? [],
                 });
             }
@@ -408,7 +423,7 @@ export function buildChannelSessionPickerEntries({ channelLabel, selectedSession
                 row,
                 label: row.label?.trim() || row.summary?.trim() || row.preview?.trim() || row.session_id.slice(0, 8),
                 meta: getChannelSessionMeta(row),
-                selected: false,
+                selected: selectedSessionId === row.session_id,
                 matches: row.matches ?? [],
             });
         }
