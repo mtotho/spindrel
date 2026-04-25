@@ -163,6 +163,33 @@ def _resolve_scene(
             "fit": "width",
         }
 
+    if scene.kind == "playwright":
+        from scripts.screenshots.video.recording import playwright_record
+
+        rec_cache = sb.repo_root / "scripts" / "screenshots" / ".cache" / "recordings"
+        base_url = _resolve_base_url(scene)
+        mp4 = playwright_record.record_actions(
+            scene_id=scene.id,
+            actions=scene.actions,
+            base_url=base_url,
+            duration=scene.duration,
+            viewport=sb.meta.resolution,
+            fps=sb.meta.fps,
+            output_dir=rec_cache,
+            auth=_auth_bundle_for_scene(scene),
+            color_scheme=scene.color_scheme,
+        )
+        dest = _stage_asset(mp4, public_dir=public_dir, scene_id=scene.id)
+        return {
+            "id": scene.id,
+            "kind": "video",
+            "duration": scene.duration,
+            "asset_url": dest.name,
+            "caption": scene.caption,
+            "ken_burns": _kb_payload(KenBurns.identity()),
+            "fit": "cover",
+        }
+
     if scene.kind == "doc_callout":
         cache_key = f"callout-{scene.id}-{scene.color_scheme}"
         png, box = _doc_capture.capture_callout(
@@ -197,20 +224,74 @@ def _resolve_scene(
 
 
 def _stage_asset(src: Path, *, public_dir: Path, scene_id: str) -> Path:
-    """Copy the source PNG into Remotion's public/ as `<scene_id>.png`."""
-    dest = public_dir / f"{scene_id}.png"
+    """Copy the source asset into Remotion's public/ keeping the suffix
+    (so .png stays .png and .mp4 stays .mp4)."""
+    suffix = src.suffix.lower() or ".png"
+    dest = public_dir / f"{scene_id}{suffix}"
     shutil.copyfile(src, dest)
     return dest
 
 
 def _clear_public(public_dir: Path) -> None:
-    """Wipe stale PNGs from previous runs so the Remotion bundle stays small.
+    """Wipe stale captures (PNG + MP4) from previous runs.
 
-    Keep any non-PNG (README, .gitkeep) files untouched.
+    Keep any non-asset (README, .gitkeep) files untouched.
     """
     for child in public_dir.iterdir():
-        if child.is_file() and child.suffix.lower() == ".png":
+        if child.is_file() and child.suffix.lower() in {".png", ".mp4", ".webm"}:
             child.unlink()
+
+
+def _resolve_base_url(scene: Scene) -> str:
+    """Pick the base URL for a playwright scene.
+
+    Default is the e2e UI from screenshots config. Authors can override
+    by setting an `actions:` list whose first goto is absolute, or by
+    adding a sentinel action ``{js: "// base=https://example.com"}``.
+    """
+    from scripts.screenshots import config as cfg_mod
+
+    try:
+        return cfg_mod.load().ui_url
+    except Exception:
+        # Fall back to a placeholder that will fail loudly if anyone
+        # actually navigates to it; only relevant when the env isn't set up.
+        return "http://localhost:8080"
+
+
+def _auth_bundle_for_scene(scene: Scene):
+    """Mint an AuthBundle for authenticated scenes.
+
+    The Scene schema doesn't yet carry an explicit `authenticated` flag.
+    We treat any goto starting with `/` (relative path) as needing auth
+    by default, since unauth'd UI redirects to the login screen.
+    """
+    needs_auth = any(
+        ("goto" in a) and isinstance(a["goto"], str) and a["goto"].startswith("/")
+        for a in scene.actions
+    )
+    if not needs_auth:
+        return None
+
+    from scripts.screenshots import config as cfg_mod
+    from scripts.screenshots.stage.client import SpindrelClient
+    from scripts.screenshots.video.recording.playwright_record import AuthBundle
+
+    cfg = cfg_mod.load()
+    if not cfg.login_email or not cfg.login_password:
+        logger.warning(
+            "scene %r looks authed but SPINDREL_LOGIN_* env not set; recording without auth",
+            scene.id,
+        )
+        return None
+    with SpindrelClient(cfg.api_url, cfg.api_key) as client:
+        login = client.login(email=cfg.login_email, password=cfg.login_password)
+    return AuthBundle(
+        api_url=cfg.api_url,
+        access_token=login["access_token"],
+        refresh_token=login["refresh_token"],
+        user=login["user"],
+    )
 
 
 # ---------------------------------------------------------------- payload helpers

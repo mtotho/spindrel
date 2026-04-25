@@ -28,7 +28,7 @@ export type Meta = {
 
 export type ResolvedScene = {
   id: string;
-  kind: "still" | "doc_hero" | "doc_callout" | "title_card";
+  kind: "still" | "doc_hero" | "doc_callout" | "title_card" | "video";
   duration: number;
   asset_url: string | null;
   caption: string | null;

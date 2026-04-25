@@ -127,6 +127,20 @@ interface PinWidgetBody {
   world_h?: number;
 }
 
+/** Find the spatial node for a widget pin matching the given identity key
+ *  (built from `envelopeIdentityKey`). Returns the node or undefined.
+ *  Use to detect "already on canvas" and offer a remove-from-canvas
+ *  affordance instead of creating a duplicate.
+ */
+export function useFindCanvasNodeByIdentity(
+  identityKey: string | null,
+  identityFor: (pin: SpatialNodePin) => string,
+): SpatialNode | undefined {
+  const { data: nodes } = useSpatialNodes();
+  if (!identityKey || !nodes) return undefined;
+  return nodes.find((n) => n.pin && identityFor(n.pin) === identityKey);
+}
+
 /** Atomically pin a widget to the workspace canvas. Server creates the
  *  pin + node in one transaction; orphan pin on partial failure is not
  *  possible. */

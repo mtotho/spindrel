@@ -19,7 +19,11 @@ import { InteractiveHtmlRenderer } from "./renderers/InteractiveHtmlRenderer";
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 import { useDashboardPinsStore } from "../../stores/dashboardPins";
 import { apiFetch } from "../../api/client";
-import { usePinWidgetToCanvas } from "../../api/hooks/useWorkspaceSpatial";
+import {
+  useDeleteSpatialNode,
+  useFindCanvasNodeByIdentity,
+  usePinWidgetToCanvas,
+} from "../../api/hooks/useWorkspaceSpatial";
 
 /** Strip MCP server prefix: "homeassistant-HassTurnOn" → "HassTurnOn" */
 function cleanToolName(name: string): string {
@@ -405,36 +409,59 @@ function PinToCanvasButton({
   t: ThemeTokens;
 }) {
   const pin = usePinWidgetToCanvas();
-  const [done, setDone] = useState(false);
+  const del = useDeleteSpatialNode();
+  const [flash, setFlash] = useState(false);
+
+  const identityKey = envelopeIdentityKey(toolName, envelope);
+  const onCanvasNode = useFindCanvasNodeByIdentity(identityKey, (p) =>
+    envelopeIdentityKey(p.tool_name, p.envelope as unknown as ToolResultEnvelope, p.widget_config ?? null),
+  );
+  const isOnCanvas = !!onCanvasNode;
+
+  const onClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isOnCanvas && onCanvasNode) {
+      del.mutate(onCanvasNode.id);
+      return;
+    }
+    pin.mutate(
+      {
+        source_kind: "channel",
+        tool_name: toolName,
+        envelope: envelope as unknown as Record<string, unknown>,
+        source_channel_id: channelId,
+        source_bot_id: sourceBotId,
+        display_label: envelope.display_label ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          setFlash(true);
+          window.setTimeout(() => setFlash(false), 1500);
+        },
+      },
+    );
+  };
+
+  const label = flash
+    ? "pinned to canvas"
+    : isOnCanvas
+    ? "On canvas — remove"
+    : "Pin to canvas";
+  const colorActive = flash || isOnCanvas;
   return (
     <button
       type="button"
-      disabled={pin.isPending || done}
-      onClick={(e) => {
-        e.stopPropagation();
-        pin.mutate(
-          {
-            source_kind: "channel",
-            tool_name: toolName,
-            envelope: envelope as unknown as Record<string, unknown>,
-            source_channel_id: channelId,
-            source_bot_id: sourceBotId,
-            display_label: envelope.display_label ?? undefined,
-          },
-          {
-            onSuccess: () => {
-              setDone(true);
-              window.setTimeout(() => setDone(false), 1500);
-            },
-          },
-        );
-      }}
-      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-opacity bg-transparent border-0 cursor-pointer opacity-40 hover:opacity-100 disabled:cursor-default"
-      style={{ color: done ? t.accent : t.textDim }}
-      title="Pin to workspace canvas"
+      disabled={pin.isPending || del.isPending}
+      onClick={onClick}
+      className={
+        "inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-opacity bg-transparent border-0 cursor-pointer disabled:cursor-default "
+        + (colorActive ? "opacity-100" : "opacity-40 hover:opacity-100")
+      }
+      style={{ color: colorActive ? t.accent : t.textDim }}
+      title={isOnCanvas ? "Click to remove from canvas" : "Pin to workspace canvas"}
     >
-      <LayoutGrid size={11} />
-      <span>{done ? "pinned to canvas" : "Pin to canvas"}</span>
+      <LayoutGrid size={11} fill={isOnCanvas ? t.accent : "none"} />
+      <span>{label}</span>
     </button>
   );
 }

@@ -24,7 +24,12 @@ import type { PinnedWidget, ToolResultEnvelope, WidgetScope } from "@/src/types/
 import { usePinnedWidgetsStore, envelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
-import { usePinWidgetToCanvas } from "@/src/api/hooks/useWorkspaceSpatial";
+import {
+  useDeleteSpatialNode,
+  useFindCanvasNodeByIdentity,
+  usePinWidgetToCanvas,
+} from "@/src/api/hooks/useWorkspaceSpatial";
+import { envelopeIdentityKey as canvasEnvelopeIdentityKey } from "@/src/stores/pinnedWidgets";
 import { formatRelativeTime } from "@/src/utils/format";
 import {
   buildWidgetSyncSignature,
@@ -1018,41 +1023,67 @@ function PinToCanvasIconButton({
   accentColor: string;
 }) {
   const pin = usePinWidgetToCanvas();
-  const [done, setDone] = useState(false);
+  const del = useDeleteSpatialNode();
+  const [flash, setFlash] = useState(false);
   const sourceBotId =
     widget.bot_id || widget.envelope?.source_bot_id || null;
+
+  const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope);
+  const onCanvasNode = useFindCanvasNodeByIdentity(identityKey, (p) =>
+    canvasEnvelopeIdentityKey(
+      p.tool_name,
+      p.envelope as unknown as ToolResultEnvelope,
+      p.widget_config ?? null,
+    ),
+  );
+  const isOnCanvas = !!onCanvasNode;
+
+  const handle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isOnCanvas && onCanvasNode) {
+      del.mutate(onCanvasNode.id);
+      return;
+    }
+    pin.mutate(
+      {
+        source_kind: "channel",
+        tool_name: widget.tool_name,
+        envelope: widget.envelope as unknown as Record<string, unknown>,
+        source_channel_id: channelId,
+        source_bot_id: sourceBotId,
+        display_label: widget.envelope?.display_label ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          setFlash(true);
+          window.setTimeout(() => setFlash(false), 1500);
+        },
+      },
+    );
+  };
+
+  const colorActive = flash || isOnCanvas;
   return (
     <button
       type="button"
-      disabled={pin.isPending || done}
-      onClick={(e) => {
-        e.stopPropagation();
-        pin.mutate(
-          {
-            source_kind: "channel",
-            tool_name: widget.tool_name,
-            envelope: widget.envelope as unknown as Record<string, unknown>,
-            source_channel_id: channelId,
-            source_bot_id: sourceBotId,
-            display_label: widget.envelope?.display_label ?? undefined,
-          },
-          {
-            onSuccess: () => {
-              setDone(true);
-              window.setTimeout(() => setDone(false), 1500);
-            },
-          },
-        );
-      }}
+      disabled={pin.isPending || del.isPending}
+      onClick={handle}
       className={btnClass}
-      aria-label="Pin to workspace canvas"
-      title={done ? "Pinned to canvas" : "Pin to canvas"}
+      aria-label={isOnCanvas ? "Remove from workspace canvas" : "Pin to workspace canvas"}
+      title={
+        flash
+          ? "Pinned to canvas"
+          : isOnCanvas
+          ? "On canvas — click to remove"
+          : "Pin to canvas"
+      }
     >
       <LayoutGrid
         size={iconSize}
+        fill={isOnCanvas ? accentColor : "none"}
         style={{
-          color: done ? accentColor : iconColor,
-          opacity: done ? 1 : iconOpacity,
+          color: colorActive ? accentColor : iconColor,
+          opacity: colorActive ? 1 : iconOpacity,
         }}
       />
     </button>

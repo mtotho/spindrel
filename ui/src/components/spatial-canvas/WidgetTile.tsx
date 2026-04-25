@@ -1,15 +1,21 @@
-import { useRef } from "react";
-import { Box } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Box, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "../../theme/tokens";
 import { InteractiveHtmlRenderer } from "../chat/renderers/InteractiveHtmlRenderer";
+import { ComponentRenderer, WidgetActionContext } from "../chat/renderers/ComponentRenderer";
+import { renderNativeWidget } from "../chat/renderers/nativeApps/registry";
 import type { ToolResultEnvelope } from "../../types/api";
 import {
   NODES_KEY,
+  useDeleteSpatialNode,
   useUpdateSpatialNode,
   type SpatialNode,
   type SpatialNodePin,
 } from "../../api/hooks/useWorkspaceSpatial";
+import { useWidgetAction } from "../../api/hooks/useWidgetAction";
+import type { WidgetActionResult } from "../../api/hooks/useWidgetAction";
+import { usePinnedWidgetsStore, envelopeIdentityKey } from "../../stores/pinnedWidgets";
 
 /**
  * Widget tile with three semantic-zoom levels (P3b — live).
@@ -166,7 +172,98 @@ function CardView({
   const t = useThemeTokens();
   const title = widgetTitle(pin);
   const tool = bareToolName(pin.tool_name);
-  const liveIframe = inViewport;
+  // Three body shapes the canvas may host — same dispatch as
+  // `RichToolResult` / `WidgetCard`:
+  //   1. `html+interactive` → sandboxed iframe + gesture shield.
+  //   2. `native-app+json`  → registry component (Notes, Todo, etc.) — DOM
+  //      tree with its own state machine + dispatchNativeAction.
+  //   3. `components+json`  → ComponentRenderer wrapped in WidgetActionContext
+  //      so component-level actions (HA toggle, etc.) dispatch through
+  //      `useWidgetAction` against the canvas pin.
+  // Earlier code force-fed every envelope through InteractiveHtmlRenderer,
+  // which printed component/native bodies as raw JSON.
+  const envelope = pin.envelope as unknown as ToolResultEnvelope;
+  const ct = envelope.content_type;
+  const isHtmlWidget = ct === "application/vnd.spindrel.html+interactive";
+  const isNativeWidget = ct === "application/vnd.spindrel.native-app+json";
+  const live = inViewport;
+
+  // Local envelope state — component-widget action results return a fresh
+  // envelope; we track it here and re-render the body. Native widgets manage
+  // their own envelope state internally via `useNativeEnvelopeState`.
+  const [currentEnvelope, setCurrentEnvelope] = useState<ToolResultEnvelope>(envelope);
+  // Reset when the upstream pin payload changes (e.g. another surface
+  // updated this widget and the spatial-nodes query invalidated).
+  useEffect(() => {
+    setCurrentEnvelope(envelope);
+  }, [envelope]);
+
+  const rawBody = currentEnvelope.body;
+  const componentBody =
+    rawBody == null
+      ? ""
+      : typeof rawBody === "string"
+      ? rawBody
+      : JSON.stringify(rawBody);
+
+  // Component-widget action context. Wires through the canvas pin id as
+  // `dashboardPinId` so widget_config dispatch persists onto this exact
+  // canvas pin (decision 4: world pins are independent rows).
+  const channelId = pin.source_channel_id ?? undefined;
+  const broadcastEnvelope = usePinnedWidgetsStore((s) => s.broadcastEnvelope);
+  const rawDispatch = useWidgetAction(
+    channelId,
+    pin.source_bot_id ?? "default",
+    currentEnvelope.display_label ?? null,
+    null,
+    pin.widget_config ?? null,
+    pin.id,
+  );
+  const interceptingDispatch = useCallback(
+    async (
+      action: import("../../types/api").WidgetAction,
+      value: unknown,
+    ): Promise<WidgetActionResult> => {
+      const result = await rawDispatch(action, value);
+      if (
+        result.envelope
+        && result.envelope.content_type === "application/vnd.spindrel.components+json"
+        && result.envelope.body
+      ) {
+        setCurrentEnvelope(result.envelope);
+        if (channelId) {
+          broadcastEnvelope(channelId, pin.tool_name, result.envelope, {
+            kind: "tool_result",
+          });
+        }
+      }
+      return result;
+    },
+    [rawDispatch, channelId, pin.tool_name, broadcastEnvelope],
+  );
+  const actionCtx = useMemo(
+    () => (channelId ? { dispatchAction: interceptingDispatch } : null),
+    [channelId, interceptingDispatch],
+  );
+
+  // Cross-surface envelope sync — same pattern as WidgetCard. When another
+  // surface (chat / dashboard / rail) updates this widget, the shared
+  // store key has the latest envelope; we adopt it.
+  const envelopeKey = channelId
+    ? `${channelId}::${envelopeIdentityKey(pin.tool_name, currentEnvelope, pin.widget_config ?? null)}`
+    : null;
+  const sharedEnvelope = usePinnedWidgetsStore((s) =>
+    envelopeKey ? s.widgetEnvelopes[envelopeKey] : undefined,
+  );
+  const envelopeRef = useRef(currentEnvelope);
+  envelopeRef.current = currentEnvelope;
+  useEffect(() => {
+    if (sharedEnvelope && sharedEnvelope.envelope !== envelopeRef.current) {
+      setCurrentEnvelope(sharedEnvelope.envelope);
+    }
+  }, [sharedEnvelope]);
+
+  const deleteNode = useDeleteSpatialNode();
 
   return (
     <div
@@ -176,8 +273,7 @@ function CardView({
       }`}
     >
       {/* Drag-handle chrome strip — always pannable / dnd-kit drag handle.
-          Stops propagation on activation-state changes so clicking the strip
-          doesn't bubble to the iframe shield below. */}
+          The unpin "X" is hover-reveal so calm tiles stay calm. */}
       <div className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border bg-surface-raised flex-shrink-0">
         <Box size={11} className="text-text-dim" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
@@ -189,11 +285,26 @@ function CardView({
         <span className="text-[10px] text-text-dim font-mono truncate ml-auto">
           {tool}
         </span>
+        <button
+          type="button"
+          aria-label="Remove from canvas"
+          title="Remove from canvas"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            deleteNode.mutate(nodeId);
+          }}
+          className="ml-1 p-0.5 rounded hover:bg-text/[0.06] opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity flex-shrink-0"
+        >
+          <X size={11} className="text-text-dim" />
+        </button>
       </div>
 
-      {/* Iframe body (or static fallback when culled). */}
+      {/* Body — branches on widget content type. */}
       <div className="flex-1 relative bg-surface min-h-0 overflow-hidden">
-        {liveIframe ? (
+        {!live ? (
+          <StaticBody pin={pin} />
+        ) : isHtmlWidget ? (
           <>
             {/* When activated, stop pointerdown from reaching dnd-kit so the
                 user can interact with the iframe (drag inside it, scroll,
@@ -205,8 +316,8 @@ function CardView({
               }
             >
               <InteractiveHtmlRenderer
-                envelope={pin.envelope as unknown as ToolResultEnvelope}
-                channelId={pin.source_channel_id ?? undefined}
+                envelope={currentEnvelope}
+                channelId={channelId}
                 dashboardPinId={pin.id}
                 fillHeight
                 hostSurface="plain"
@@ -232,12 +343,50 @@ function CardView({
               />
             )}
           </>
+        ) : isNativeWidget ? (
+          // Native widgets (Notes, Todo, …) own their dispatch via
+          // useNativeEnvelopeState; we just give them the right host props.
+          <div
+            className="absolute inset-0 overflow-y-auto"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {renderNativeWidget({
+              envelope: currentEnvelope,
+              channelId,
+              dashboardPinId: pin.id,
+              hostSurface: "plain",
+              t,
+            })}
+          </div>
         ) : (
-          <StaticBody pin={pin} />
+          // Component widgets — DOM tree wrapped in WidgetActionContext so
+          // toggles / buttons / sliders dispatch through the canvas pin.
+          <div
+            className="absolute inset-0 overflow-y-auto"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {actionCtx ? (
+              <WidgetActionContext.Provider value={actionCtx}>
+                <ComponentRenderer
+                  body={componentBody}
+                  layout={undefined}
+                  hostSurface="plain"
+                  t={t}
+                />
+              </WidgetActionContext.Provider>
+            ) : (
+              <ComponentRenderer
+                body={componentBody}
+                layout={undefined}
+                hostSurface="plain"
+                t={t}
+              />
+            )}
+          </div>
         )}
       </div>
 
-      {!activated && liveIframe && (
+      {!activated && live && isHtmlWidget && (
         <div className="text-[10px] text-text-dim text-center py-1 border-t border-surface-border flex-shrink-0">
           Click to interact · Esc to release
         </div>

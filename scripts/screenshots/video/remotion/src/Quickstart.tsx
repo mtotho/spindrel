@@ -3,6 +3,7 @@ import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
 import type { StoryboardProps } from "./types";
 import { Still } from "./scenes/Still";
 import { TitleCard } from "./scenes/TitleCard";
+import { Video } from "./scenes/Video";
 import { Watermark } from "./overlays/Watermark";
 
 export const Quickstart: React.FC<StoryboardProps> = ({ meta, scenes }) => {
@@ -32,6 +33,14 @@ export const Quickstart: React.FC<StoryboardProps> = ({ meta, scenes }) => {
           {scene.kind === "title_card" ? (
             <TitleCard
               title={scene.title ?? scene.caption ?? ""}
+              meta={meta}
+              durationInFrames={durationInFrames}
+              transitionFrames={transitionFrames}
+              isFirst={idx === 0}
+            />
+          ) : scene.kind === "video" ? (
+            <Video
+              scene={scene}
               meta={meta}
               durationInFrames={durationInFrames}
               transitionFrames={transitionFrames}

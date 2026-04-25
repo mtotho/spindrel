@@ -1,0 +1,36 @@
+# Throwaway smoke test for kind=playwright.
+# Records a 5-second clip of example.com — no local infra, no auth.
+
+meta:
+  title: "B3 smoke"
+  slug: smoke-playwright
+  output_dir: docs/videos/
+  resolution: [1280, 720]
+  fps: 24
+  transition: cut
+  transition_duration: 0
+  caption_style:
+    position: bottom
+    font_size: 32
+    padding: 40
+    bg_opacity: 0.6
+
+sections:
+  - id: only
+    title: "B3 smoke"
+    title_card: false
+    scenes: [demo]
+
+scenes:
+  - id: demo
+    kind: playwright
+    duration: 5
+    color_scheme: light
+    actions:
+      - {goto: "https://example.com"}
+      - {wait_ms: 800}
+      - {scroll_y: 100}
+      - {wait_ms: 400}
+      - {scroll_y: -100}
+      - {wait_ms: 1200}
+    caption: "example.com — first playwright recording scene"

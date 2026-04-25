@@ -478,10 +478,12 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] `/admin/bots/:botId` now uses grouped workflow navigation: Overview, Identity & Model, Prompt & Persona, Tools & Skills, Memory & Learning, Workspace & Files, Access & Automation, and Advanced. Legacy hashes map into the new groups.
 - [x] Added an operational bot overview with 30-day calls/tokens/cost and recent trace drilldowns via the shared `TraceActionButton`.
 - [x] Bot prompt/persona editing now uses the shared prompt editor/read-only source viewer instead of the local giant textarea.
+- [x] Cleaned up the bot-scoped Memory & Learning and Workspace & Files groups: legacy inline-style panels/tables became shared-control rows, stat strips, quiet filters, segmented sort, low-chrome hygiene job expanders, and `SourceFileInspector` previews for bot knowledge files.
 - [x] `docs/guides/ui-components.md` now canonizes dense admin entity catalogs and grouped detail editors.
 
 ### Verification
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit` — clean.
+- [x] Bot detail touched-file grep for `useThemeTokens`, inline styles, inline hex, and RGBA — 0 matches.
 
 ## Small copy fixes (2026-04-24)
 

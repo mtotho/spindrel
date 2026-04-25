@@ -1,17 +1,24 @@
-import React, { useState } from "react";
-import { Container, Package, RefreshCw } from "lucide-react";
-import { Link } from "react-router-dom";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
-import {
-  TextInput, SelectInput, Toggle, FormRow, Row, Col,
-} from "@/src/components/shared/FormControls";
+import { useMemo, useState } from "react";
+import { Box, Container, ExternalLink, FileText, FolderTree, Package, Plus, RefreshCw, Search, Server, Shield, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+
 import { useBotSandboxStatus, useRecreateBotSandbox } from "@/src/api/hooks/useBots";
-import { Spinner } from "@/src/components/shared/Spinner";
-import {
-  useWorkspaceFiles,
-} from "@/src/api/hooks/useWorkspaces";
+import { useWorkspaceFiles } from "@/src/api/hooks/useWorkspaces";
+import { Col, FormRow, Row, SelectInput, TextInput, Toggle } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { SourceFileInspector } from "@/src/components/shared/SourceFileInspector";
+import {
+  ActionButton,
+  EmptyState,
+  InfoBanner,
+  QuietPill,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsSearchBox,
+  SettingsStatGrid,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
+import { Spinner } from "@/src/components/shared/Spinner";
 import { formatDateTime } from "@/src/utils/time";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 
@@ -19,11 +26,50 @@ function ensureLeadingSlash(path: string): string {
   return path.startsWith("/") ? path : `/${path}`;
 }
 
+function stripLeadingSlash(path: string): string {
+  return path.replace(/^\/+/, "");
+}
+
 function formatBytes(size?: number | null): string {
   if (!size || size <= 0) return "0 B";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function addToArray<T>(items: T[], value: T, isValid: (value: T) => boolean = Boolean as any): T[] {
+  return isValid(value) ? [...items, value] : items;
+}
+
+function ChipList({
+  items,
+  render,
+  onRemove,
+  empty,
+}: {
+  items: any[];
+  render: (item: any, index: number) => React.ReactNode;
+  onRemove: (index: number) => void;
+  empty: string;
+}) {
+  if (!items.length) return <div className="text-[12px] text-text-dim">{empty}</div>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {items.map((item, index) => (
+        <span key={index} className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-surface-overlay/40 px-2 py-1 text-[11px] text-text-muted">
+          <span className="min-w-0 truncate">{render(item, index)}</span>
+          <button
+            type="button"
+            onClick={() => onRemove(index)}
+            className="shrink-0 text-danger/80 transition-colors hover:text-danger"
+            aria-label="Remove item"
+          >
+            <Trash2 size={11} />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function BotKnowledgeBaseSection({
@@ -37,87 +83,45 @@ function BotKnowledgeBaseSection({
   autoRetrieval: boolean;
   onToggle: (value: boolean) => void;
 }) {
-  const t = useThemeTokens();
+  const navigate = useNavigate();
   const rootPath = ensureLeadingSlash(workspaceId ? `bots/${botId}/knowledge-base` : "knowledge-base");
   const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId ?? undefined, rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const entries = [...(data?.entries ?? [])]
-    .sort((a, b) => {
-      if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    })
-    .slice(0, 8);
+  const [filter, setFilter] = useState("");
+  const entries = useMemo(() => {
+    const needle = filter.trim().toLowerCase();
+    return [...(data?.entries ?? [])]
+      .filter((entry) => !needle || `${entry.name} ${entry.display_name ?? ""} ${entry.path}`.toLowerCase().includes(needle))
+      .sort((a, b) => {
+        if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 12);
+  }, [data?.entries, filter]);
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      padding: "12px 14px",
-      background: t.surfaceOverlay,
-      border: `1px solid ${t.surfaceBorder}`,
-      borderRadius: 8,
-    }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 260 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Bot Knowledge Base</span>
-          <span style={{ fontSize: 11, color: t.textDim, lineHeight: 1.5 }}>
-            Curated reference docs that travel with this bot across every channel. Matching excerpts are
-            {autoRetrieval ? " auto-retrieved before broad workspace search and " : " kept search-only and "}
-            always available through <span style={{ fontFamily: "monospace" }}>search_bot_knowledge</span>.
-          </span>
-          <span style={{ fontSize: 11, color: t.textMuted, fontFamily: "monospace" }}>{rootPath.replace(/^\//, "")}/</span>
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <SettingsGroupLabel label="Bot knowledge base" icon={<FolderTree size={12} className="text-text-dim" />} />
+          <p className="mt-1 max-w-[70ch] text-[12px] leading-relaxed text-text-dim">
+            Curated reference docs that travel with this bot across channels. Files stay indexed either way; auto-retrieve controls whether matching excerpts are admitted before broad workspace search.
+          </p>
         </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span style={{
-            padding: "3px 8px",
-            borderRadius: 999,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.04em",
-            textTransform: "uppercase",
-            background: autoRetrieval ? t.accentSubtle : t.surfaceRaised,
-            color: autoRetrieval ? t.accent : t.textMuted,
-          }}>
-            {autoRetrieval ? "Auto Retrieve" : "Search Only"}
-          </span>
-          {workspaceId ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <StatusBadge label={autoRetrieval ? "auto retrieve" : "search only"} variant={autoRetrieval ? "info" : "neutral"} />
+          {workspaceId && (
             <>
-              <button
-                type="button"
-                onClick={() => { void refetch(); }}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 7,
-                  background: t.surfaceRaised,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  color: t.text,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Refresh
-              </button>
-              <Link
-                to={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  padding: "6px 10px",
-                  borderRadius: 7,
-                  background: t.surfaceRaised,
-                  border: `1px solid ${t.surfaceBorder}`,
-                  color: t.text,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  textDecoration: "none",
-                }}
-              >
-                Open In Workspace
-              </Link>
+              <ActionButton label="Refresh" size="small" variant="secondary" icon={<RefreshCw size={12} />} onPress={() => { void refetch(); }} />
+              <ActionButton
+                label="Open location"
+                size="small"
+                variant="secondary"
+                icon={<ExternalLink size={12} />}
+                onPress={() => navigate(`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`)}
+              />
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -125,103 +129,132 @@ function BotKnowledgeBaseSection({
         value={autoRetrieval}
         onChange={onToggle}
         label="Auto-retrieve bot knowledge"
-        description="Turn this off to keep the bot knowledge base search-only. The files stay indexed either way."
+        description="Turn this off to keep the bot knowledge base search-only."
       />
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>What belongs here</span>
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {[
-            "Cross-channel runbooks, glossaries, stable reference docs, and reusable templates.",
-            "Not short behavior notes; those still belong in memory.md.",
-            "Not transient project outputs; keep those in normal workspace files.",
-          ].map((line) => (
-            <span key={line} style={{ fontSize: 11, color: t.textDim, lineHeight: 1.45 }}>{line}</span>
-          ))}
-        </div>
-      </div>
-
-      {workspaceId ? (
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 280px) minmax(0, 1fr)", gap: 12 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Contents</span>
+      {!workspaceId ? (
+        <EmptyState message="This bot is not attached to a shared workspace in this environment, so the inline knowledge-base browser is unavailable." />
+      ) : (
+        <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-2">
+            <SettingsSearchBox value={filter} onChange={setFilter} placeholder="Filter knowledge files..." />
             {isLoading ? (
-              <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
-                <Spinner color={t.accent} />
-              </div>
+              <div className="flex justify-center rounded-md bg-surface-raised/35 p-6"><Spinner size={16} /></div>
             ) : entries.length === 0 ? (
-              <span style={{ fontSize: 11, color: t.textDim }}>
-                No bot knowledge files yet. Drop markdown files into this folder and they will start indexing automatically.
-              </span>
+              <EmptyState message={filter ? "No knowledge files match the filter." : "No bot knowledge files yet. Drop markdown files into this folder to index them."} />
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div className="flex min-w-0 flex-col gap-1.5">
                 {entries.map((entry) => {
                   const fullPath = ensureLeadingSlash(entry.path);
-                  const isSelected = !entry.is_dir && selectedPath === fullPath;
+                  const selected = !entry.is_dir && selectedPath === fullPath;
                   return (
-                    <button
+                    <SettingsControlRow
                       key={fullPath}
-                      type="button"
+                      active={selected}
                       disabled={entry.is_dir}
-                      onClick={() => setSelectedPath(entry.is_dir ? null : fullPath)}
-                      style={{
-                        textAlign: "left",
-                        padding: "8px 10px",
-                        borderRadius: 7,
-                        border: `1px solid ${isSelected ? t.accentBorder : t.surfaceBorder}`,
-                        background: isSelected ? t.accentSubtle : t.surfaceRaised,
-                        color: entry.is_dir ? t.textDim : t.text,
-                        cursor: entry.is_dir ? "default" : "pointer",
-                        opacity: entry.is_dir ? 0.7 : 1,
-                      }}
-                    >
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 500 }}>{entry.display_name || entry.name}</span>
-                        <span style={{ fontSize: 10, color: t.textDim }}>
-                          {entry.is_dir ? "Folder" : formatBytes(entry.size)}
-                        </span>
-                      </div>
-                    </button>
+                      onClick={entry.is_dir ? undefined : () => setSelectedPath(fullPath)}
+                      compact
+                      leading={entry.is_dir ? <FolderTree size={13} /> : <FileText size={13} />}
+                      title={entry.display_name || entry.name}
+                      description={stripLeadingSlash(fullPath)}
+                      meta={<QuietPill label={entry.is_dir ? "folder" : formatBytes(entry.size)} />}
+                    />
                   );
                 })}
               </div>
             )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Preview</span>
+          <div className="min-w-0">
             {!selectedPath ? (
-              <span style={{ fontSize: 11, color: t.textDim }}>Select a knowledge-base file to preview it here.</span>
+              <div className="flex h-[320px] items-center justify-center rounded-md bg-surface-raised/35 px-4 text-center text-[12px] text-text-dim">
+                Select a knowledge file to preview it here.
+              </div>
             ) : (
               <SourceFileInspector
                 variant="panel"
-                className="h-[320px]"
+                className="h-[360px]"
                 target={{
                   kind: "workspace_file",
                   workspace_id: workspaceId,
                   path: selectedPath,
-                  display_path: selectedPath.replace(/^\//, ""),
+                  display_path: stripLeadingSlash(selectedPath),
                   owner_type: "bot",
                   owner_id: botId,
                   owner_name: "Bot knowledge",
                 }}
+                fallbackUrl={`/admin/workspaces/${workspaceId}/files?path=${encodeURIComponent(rootPath)}`}
+                onOpenFallback={(url) => navigate(url)}
                 onClose={() => setSelectedPath(null)}
               />
             )}
           </div>
         </div>
-      ) : (
-        <span style={{ fontSize: 11, color: t.textDim }}>
-          This bot is not currently attached to a shared workspace in this environment, so the inline KB browser is unavailable here.
-        </span>
       )}
     </div>
   );
 }
 
+function ContainerStatusBanner({
+  sandbox,
+  isRecreating,
+  onRecreate,
+}: {
+  sandbox: { exists: boolean; status?: string | null; container_name?: string | null; container_id?: string | null; image_id?: string | null; error_message?: string | null; created_at?: string | null; last_used_at?: string | null };
+  isRecreating: boolean;
+  onRecreate: () => void;
+}) {
+  if (!sandbox.exists) {
+    return (
+      <SettingsControlRow
+        leading={<Container size={14} />}
+        title="No container yet"
+        description="The sandbox will be created on first use."
+        meta={<StatusBadge label="pending" variant="neutral" />}
+      />
+    );
+  }
+
+  const status = sandbox.status || "unknown";
+  const variant = status === "running" ? "success" : status === "dead" ? "danger" : status === "creating" ? "info" : "warning";
+  return (
+    <SettingsControlRow
+      leading={<Container size={14} />}
+      title={sandbox.container_name || "Sandbox container"}
+      description={
+        <span className="break-words">
+          {[
+            sandbox.container_id ? `id ${sandbox.container_id}` : null,
+            sandbox.created_at ? `created ${formatDateTime(sandbox.created_at)}` : null,
+            sandbox.last_used_at ? `last used ${formatDateTime(sandbox.last_used_at)}` : null,
+            sandbox.image_id ? `image ${sandbox.image_id}` : null,
+          ].filter(Boolean).join(" · ")}
+          {sandbox.error_message && <span className="mt-1 block text-danger">{sandbox.error_message}</span>}
+        </span>
+      }
+      meta={<StatusBadge label={status} variant={variant} />}
+      action={
+        <ActionButton
+          label={isRecreating ? "Recreating" : "Recreate"}
+          size="small"
+          variant="secondary"
+          icon={<RefreshCw size={12} className={isRecreating ? "animate-spin" : ""} />}
+          disabled={isRecreating}
+          onPress={onRecreate}
+        />
+      }
+    />
+  );
+}
+
 export function WorkspaceSection({
-  editorData, draft, update,
-}: { editorData: BotEditorData; draft: BotConfig; update: (p: Partial<BotConfig>) => void }) {
-  const t = useThemeTokens();
+  editorData,
+  draft,
+  update,
+}: {
+  editorData: BotEditorData;
+  draft: BotConfig;
+  update: (patch: Partial<BotConfig>) => void;
+}) {
   const ws = draft.workspace || { enabled: false };
   const docker = ws.docker || {};
   const host = ws.host || {};
@@ -232,7 +265,6 @@ export function WorkspaceSection({
   const setHost = (patch: Record<string, any>) => setWs({ host: { ...host, ...patch } });
   const setIndexing = (patch: Record<string, any>) => setWs({ indexing: { ...indexing, ...patch } });
 
-  // Env var add state
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvVal, setNewEnvVal] = useState("");
   const [newHostPort, setNewHostPort] = useState("");
@@ -248,6 +280,13 @@ export function WorkspaceSection({
   const [newSegPrefix, setNewSegPrefix] = useState("");
   const [newSegModel, setNewSegModel] = useState("");
 
+  const inSharedWorkspace = !!draft.shared_workspace_id;
+  const isExisting = !!draft.id;
+  const workspaceEnabled = Boolean(ws.enabled || inSharedWorkspace);
+  const isDocker = !inSharedWorkspace && ws.enabled && (ws.type || "docker") === "docker";
+  const sandbox = useBotSandboxStatus(isExisting && isDocker ? draft.id : undefined, isDocker);
+  const recreate = useRecreateBotSandbox(draft.id);
+
   const envEntries = Object.entries(docker.env || {});
   const ports: any[] = docker.ports || [];
   const mounts: any[] = docker.mounts || [];
@@ -257,279 +296,205 @@ export function WorkspaceSection({
   const patterns: string[] = indexing.patterns || [];
   const segments: any[] = indexing.segments || [];
 
-  const rowStyle: React.CSSProperties = {
-    display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "3px 6px",
-    background: t.inputBg, borderRadius: 4, fontSize: 11,
-  };
-  const removeBtn = (onClick: () => void) => (
-    <button onClick={onClick} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: t.dangerMuted, fontSize: 12 }}>×</button>
-  );
-  const addBtn = (label: string, onClick: () => void) => (
-    <button onClick={onClick} style={{
-      padding: "3px 10px", fontSize: 11, background: t.surfaceRaised, border: `1px solid ${t.surfaceBorder}`,
-      borderRadius: 4, color: t.textMuted, cursor: "pointer",
-    }}>{label}</button>
-  );
-  const miniInput = (value: string, onChange: (v: string) => void, placeholder: string, style?: React.CSSProperties) => (
-    <input type="text" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-      style={{ background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "3px 6px", fontSize: 11, color: t.text, outline: "none", ...style }}
-      onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-    />
-  );
-
-  const inSharedWorkspace = !!draft.shared_workspace_id;
-  const isExisting = !!draft.id;
-  const isDocker = !inSharedWorkspace && ws.enabled && (ws.type || "docker") === "docker";
-  const sandbox = useBotSandboxStatus(isExisting && isDocker ? draft.id : undefined, isDocker);
-  const recreate = useRecreateBotSandbox(draft.id);
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="flex min-w-0 flex-col gap-6">
+      <SettingsStatGrid
+        items={[
+          { label: "Workspace", value: inSharedWorkspace ? "shared" : workspaceEnabled ? "standalone" : "off", tone: workspaceEnabled ? "accent" : "default" },
+          { label: "Role", value: draft.shared_workspace_role || "bot" },
+          { label: "Index dirs", value: segments.length + (!inSharedWorkspace ? patterns.length : 0) },
+          { label: "KB mode", value: ws.bot_knowledge_auto_retrieval === false ? "search" : "auto", tone: ws.bot_knowledge_auto_retrieval === false ? "default" : "accent" },
+        ]}
+      />
 
-      {/* Shared workspace banner */}
-      {inSharedWorkspace && (
-        <div style={{
-          display: "flex", flexDirection: "column", gap: 8,
-          padding: "14px 16px", background: t.purpleSubtle,
-          border: `1px solid ${t.purpleBorder}`, borderRadius: 10,
-        }}>
-          <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Package size={14} color={t.purple} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: t.text }}>Shared Workspace</span>
-            <span style={{
-              padding: "2px 8px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-              background: draft.shared_workspace_role === "orchestrator" ? t.purpleSubtle : t.accentSubtle,
-              color: draft.shared_workspace_role === "orchestrator" ? t.purple : t.accent,
-            }}>
-              {draft.shared_workspace_role || "member"}
-            </span>
-          </div>
-          <div style={{ fontSize: 11, color: t.textMuted, lineHeight: 1.5 }}>
-            This bot is connected to a shared workspace. Container settings (image, ports, mounts, env) are managed at the workspace level.
-            {draft.shared_workspace_role === "orchestrator"
-              ? " As orchestrator, this bot is scoped to /workspace/bots/" + (draft.id || "...") + "/."
-              : " As a member, this bot is scoped to /workspace/bots/" + (draft.id || "...") + "/."
-            }
-          </div>
-          <a
-            href={`/admin/workspaces/${draft.shared_workspace_id}`}
-            style={{
-              display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-              fontSize: 12, fontWeight: 600, color: t.accent,
-              textDecoration: "none", alignSelf: "flex-start",
-            }}
-          >
-            Open Workspace Settings &rarr;
-          </a>
-        </div>
+      {inSharedWorkspace ? (
+        <SettingsControlRow
+          leading={<Package size={14} />}
+          title={editorData.bot.shared_workspace_id || "Shared workspace"}
+          description={`This bot is scoped to /workspace/bots/${draft.id || "bot-id"}/. Container settings are managed by the workspace.`}
+          meta={<StatusBadge label={draft.shared_workspace_role || "member"} variant={draft.shared_workspace_role === "orchestrator" ? "purple" : "info"} />}
+          action={
+            <Link to={`/admin/workspaces/${draft.shared_workspace_id}`} className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-accent hover:bg-accent/[0.08]">
+              Workspace <ExternalLink size={12} />
+            </Link>
+          }
+        />
+      ) : (
+        <Toggle
+          value={ws.enabled ?? false}
+          onChange={(value) => setWs({ enabled: value })}
+          label="Enable workspace tools"
+          description="Adds command execution, workspace search, delegation-to-exec, and file tools for this bot."
+        />
       )}
 
-      {/* Per-bot workspace toggle — only when NOT in a shared workspace */}
-      {!inSharedWorkspace && (
-        <Toggle value={ws.enabled ?? false} onChange={(v) => setWs({ enabled: v })} label="Enable Workspace"
-          description="Auto-injects exec_command, search_workspace, delegate_to_exec, file tools." />
-      )}
-
-      {(ws.enabled || inSharedWorkspace) && (
+      {workspaceEnabled && (
         <>
-          {/* Per-bot docker/host settings — only when NOT in a shared workspace */}
           {!inSharedWorkspace && (
-            <>
-              <Row gap={12}>
-                <Col>
-                  <FormRow label="Type">
-                    <SelectInput value={ws.type || "docker"} onChange={(v) => setWs({ type: v })}
-                      options={[{ label: "Docker Container", value: "docker" }, { label: "Host Execution", value: "host" }]} />
-                  </FormRow>
-                </Col>
-                <Col>
-                  <FormRow label="Timeout (seconds)">
-                    <TextInput value={String(ws.timeout ?? "")} onChangeText={(v) => setWs({ timeout: v ? parseInt(v) : null })} placeholder="30" type="number" />
-                  </FormRow>
-                </Col>
-                <Col>
-                  <FormRow label="Max Output Bytes">
-                    <TextInput value={String(ws.max_output_bytes ?? "")} onChangeText={(v) => setWs({ max_output_bytes: v ? parseInt(v) : null })} placeholder="65536" type="number" />
-                  </FormRow>
-                </Col>
-              </Row>
+            <div className="flex flex-col gap-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <FormRow label="Type">
+                  <SelectInput
+                    value={ws.type || "docker"}
+                    onChange={(value) => setWs({ type: value })}
+                    options={[
+                      { label: "Docker container", value: "docker" },
+                      { label: "Host execution", value: "host" },
+                    ]}
+                  />
+                </FormRow>
+                <FormRow label="Timeout">
+                  <TextInput value={String(ws.timeout ?? "")} onChangeText={(value) => setWs({ timeout: value ? parseInt(value, 10) : null })} placeholder="30" type="number" />
+                </FormRow>
+                <FormRow label="Max output bytes">
+                  <TextInput value={String(ws.max_output_bytes ?? "")} onChangeText={(value) => setWs({ max_output_bytes: value ? parseInt(value, 10) : null })} placeholder="65536" type="number" />
+                </FormRow>
+              </div>
 
-              {/* Docker panel */}
               {(ws.type || "docker") === "docker" && (
-                <div style={{ borderLeft: `2px solid ${t.accentMuted}`, paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Docker Settings</div>
-
-                  {/* Container status */}
+                <div className="flex flex-col gap-4">
+                  <SettingsGroupLabel label="Docker sandbox" icon={<Container size={12} className="text-text-dim" />} />
                   {isExisting && sandbox.data && (
                     <ContainerStatusBanner
                       sandbox={sandbox.data}
                       isRecreating={recreate.isPending}
                       onRecreate={() => recreate.mutate()}
-                      t={t}
                     />
                   )}
-
-                  <Row gap={12}>
-                    <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(v) => setDocker({ image: v })} placeholder="python:3.12-slim" /></FormRow></Col>
-                    <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(v) => setDocker({ network: v })}
-                      options={[{ label: "none", value: "none" }, { label: "bridge", value: "bridge" }, { label: "host", value: "host" }]} /></FormRow></Col>
+                  <Row>
+                    <Col><FormRow label="Image"><TextInput value={docker.image || ""} onChangeText={(value) => setDocker({ image: value })} placeholder="python:3.12-slim" /></FormRow></Col>
+                    <Col><FormRow label="Network"><SelectInput value={docker.network || "none"} onChange={(value) => setDocker({ network: value })} options={[{ label: "none", value: "none" }, { label: "bridge", value: "bridge" }, { label: "host", value: "host" }]} /></FormRow></Col>
                   </Row>
-                  <Row gap={12}>
-                    <Col><FormRow label="Run as User"><TextInput value={docker.user || ""} onChangeText={(v) => setDocker({ user: v })} placeholder="image default" /></FormRow></Col>
-                    <Col><FormRow label="CPUs"><TextInput value={String(docker.cpus ?? "")} onChangeText={(v) => setDocker({ cpus: v ? parseFloat(v) : null })} placeholder="unlimited" type="number" /></FormRow></Col>
-                    <Col><FormRow label="Memory"><TextInput value={docker.memory || ""} onChangeText={(v) => setDocker({ memory: v })} placeholder="e.g. 512m, 2g" /></FormRow></Col>
+                  <Row>
+                    <Col><FormRow label="Run as user"><TextInput value={docker.user || ""} onChangeText={(value) => setDocker({ user: value })} placeholder="image default" /></FormRow></Col>
+                    <Col><FormRow label="CPUs"><TextInput value={String(docker.cpus ?? "")} onChangeText={(value) => setDocker({ cpus: value ? parseFloat(value) : null })} placeholder="unlimited" type="number" /></FormRow></Col>
+                    <Col><FormRow label="Memory"><TextInput value={docker.memory || ""} onChangeText={(value) => setDocker({ memory: value })} placeholder="512m" /></FormRow></Col>
                   </Row>
-                  <Toggle value={docker.read_only_root ?? false} onChange={(v) => setDocker({ read_only_root: v })} label="Read-only root filesystem" />
+                  <Toggle value={docker.read_only_root ?? false} onChange={(value) => setDocker({ read_only_root: value })} label="Read-only root filesystem" />
 
-                  {/* Env vars */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Environment Variables</div>
-                    {envEntries.map(([k, v]) => (
-                      <div key={k} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: t.accent, minWidth: 60, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis" }}>{k}</span>
-                        <span style={{ color: t.textDim }}>=</span>
-                        <span style={{ fontFamily: "monospace", color: t.textMuted, flex: 1 }}>{v as string}</span>
-                        {removeBtn(() => { const e = { ...docker.env }; delete e[k]; setDocker({ env: e }); })}
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                      {miniInput(newEnvKey, setNewEnvKey, "KEY", { flex: 1, maxWidth: 120 })}
-                      <span style={{ color: t.textDim, fontSize: 11 }}>=</span>
-                      {miniInput(newEnvVal, setNewEnvVal, "value", { flex: 1 })}
-                      {addBtn("Add", () => {
-                        if (newEnvKey.trim()) { setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } }); setNewEnvKey(""); setNewEnvVal(""); }
-                      })}
+                  <div className="flex flex-col gap-2">
+                    <SettingsGroupLabel label="Environment variables" count={envEntries.length} />
+                    <ChipList
+                      items={envEntries}
+                      empty="No container environment variables configured."
+                      render={([key, value]) => <span className="font-mono">{key}=<span className="text-text-dim">{String(value)}</span></span>}
+                      onRemove={(index) => {
+                        const next = { ...docker.env };
+                        delete next[envEntries[index][0]];
+                        setDocker({ env: next });
+                      }}
+                    />
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,160px)_minmax(0,1fr)_auto]">
+                      <TextInput value={newEnvKey} onChangeText={setNewEnvKey} placeholder="KEY" />
+                      <TextInput value={newEnvVal} onChangeText={setNewEnvVal} placeholder="value" />
+                      <ActionButton label="Add" icon={<Plus size={12} />} size="small" onPress={() => {
+                        if (!newEnvKey.trim()) return;
+                        setDocker({ env: { ...docker.env, [newEnvKey.trim()]: newEnvVal } });
+                        setNewEnvKey("");
+                        setNewEnvVal("");
+                      }} />
                     </div>
-                    <div style={{ fontSize: 10, color: t.textDim, marginTop: 6 }}>
-                      For sensitive values (API keys, tokens), use <a href="/admin/secret-values" style={{ color: t.accent }}>Secrets</a> instead — they are encrypted and redacted from LLM output.
-                    </div>
+                    <InfoBanner icon={<Shield size={14} />}>
+                      Use <Link to="/admin/secret-values" className="font-semibold text-accent">Secrets</Link> for API keys and tokens.
+                    </InfoBanner>
                   </div>
 
-                  {/* Ports */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Port Mappings</div>
-                    {ports.map((p: any, i: number) => (
-                      <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: t.accent }}>{p.host_port ? `${p.host_port}:${p.container_port}` : p.container_port}</span>
-                        {removeBtn(() => setDocker({ ports: ports.filter((_, j: number) => j !== i) }))}
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="flex flex-col gap-2">
+                      <SettingsGroupLabel label="Port mappings" count={ports.length} />
+                      <ChipList
+                        items={ports}
+                        empty="No extra ports exposed."
+                        render={(port) => <span className="font-mono">{port.host_port ? `${port.host_port}:` : ""}{port.container_port}</span>}
+                        onRemove={(index) => setDocker({ ports: ports.filter((_, itemIndex) => itemIndex !== index) })}
+                      />
+                      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                        <TextInput value={newHostPort} onChangeText={setNewHostPort} placeholder="host optional" />
+                        <TextInput value={newContainerPort} onChangeText={setNewContainerPort} placeholder="container" />
+                        <ActionButton label="Add" size="small" onPress={() => {
+                          if (!newContainerPort.trim()) return;
+                          setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] });
+                          setNewHostPort("");
+                          setNewContainerPort("");
+                        }} />
                       </div>
-                    ))}
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                      {miniInput(newHostPort, setNewHostPort, "host (opt)", { flex: 1, maxWidth: 100 })}
-                      <span style={{ color: t.textDim, fontSize: 11 }}>:</span>
-                      {miniInput(newContainerPort, setNewContainerPort, "container", { flex: 1, maxWidth: 100 })}
-                      {addBtn("Add", () => {
-                        if (newContainerPort.trim()) { setDocker({ ports: [...ports, { host_port: newHostPort.trim(), container_port: newContainerPort.trim() }] }); setNewHostPort(""); setNewContainerPort(""); }
-                      })}
                     </div>
-                  </div>
-
-                  {/* Mounts */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Extra Volume Mounts</div>
-                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>Workspace root always mounted at /workspace.</div>
-                    {mounts.map((m: any, i: number) => (
-                      <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: t.accent, flex: 1 }}>{m.host_path} : {m.container_path} : {m.mode || "rw"}</span>
-                        {removeBtn(() => setDocker({ mounts: mounts.filter((_, j: number) => j !== i) }))}
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                      {miniInput(newMountHost, setNewMountHost, "host path", { flex: 1, minWidth: 80 })}
-                      <span style={{ color: t.textDim, fontSize: 11 }}>:</span>
-                      {miniInput(newMountContainer, setNewMountContainer, "container path", { flex: 1, minWidth: 80 })}
-                      <select value={newMountMode} onChange={(e) => setNewMountMode(e.target.value)}
-                        style={{ background: t.surface, border: `1px solid ${t.surfaceBorder}`, borderRadius: 4, padding: "3px 4px", fontSize: 11, color: t.text, width: 50 }}>
-                        <option value="rw">rw</option>
-                        <option value="ro">ro</option>
-                      </select>
-                      {addBtn("Add", () => {
-                        if (newMountHost.trim() && newMountContainer.trim()) {
+                    <div className="flex flex-col gap-2">
+                      <SettingsGroupLabel label="Extra mounts" count={mounts.length} />
+                      <ChipList
+                        items={mounts}
+                        empty="Workspace root is still mounted at /workspace."
+                        render={(mount) => <span className="font-mono">{mount.host_path} : {mount.container_path} : {mount.mode || "rw"}</span>}
+                        onRemove={(index) => setDocker({ mounts: mounts.filter((_, itemIndex) => itemIndex !== index) })}
+                      />
+                      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_80px_auto]">
+                        <TextInput value={newMountHost} onChangeText={setNewMountHost} placeholder="host path" />
+                        <TextInput value={newMountContainer} onChangeText={setNewMountContainer} placeholder="container path" />
+                        <SelectInput value={newMountMode} onChange={setNewMountMode} options={[{ label: "rw", value: "rw" }, { label: "ro", value: "ro" }]} />
+                        <ActionButton label="Add" size="small" onPress={() => {
+                          if (!newMountHost.trim() || !newMountContainer.trim()) return;
                           setDocker({ mounts: [...mounts, { host_path: newMountHost.trim(), container_path: newMountContainer.trim(), mode: newMountMode }] });
-                          setNewMountHost(""); setNewMountContainer(""); setNewMountMode("rw");
-                        }
-                      })}
+                          setNewMountHost("");
+                          setNewMountContainer("");
+                          setNewMountMode("rw");
+                        }} />
+                      </div>
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* Host panel */}
               {ws.type === "host" && (
-                <div style={{ borderLeft: `2px solid ${t.success}`, paddingLeft: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Host Settings</div>
-                  <FormRow label="Custom Root"><TextInput value={host.root || ""} onChangeText={(v) => setHost({ root: v })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
-
-                  {/* Commands */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Allowed Commands</div>
-                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>Use * to allow any. Leave subcommands empty for all.</div>
-                    {commands.map((cmd: any, i: number) => (
-                      <div key={i} style={rowStyle}>
-                        <span style={{ fontFamily: "monospace", color: t.purpleMuted, minWidth: 50, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis" }}>{cmd.name}</span>
-                        <span style={{ color: t.textMuted, flex: 1 }}>{cmd.subcommands?.length ? cmd.subcommands.join(", ") : "(all)"}</span>
-                        {removeBtn(() => setHost({ commands: commands.filter((_: any, j: number) => j !== i) }))}
-                      </div>
-                    ))}
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                      {miniInput(newCmd, setNewCmd, "binary", { flex: 1, maxWidth: 100 })}
-                      {miniInput(newCmdSubs, setNewCmdSubs, "subcommands (comma-sep)", { flex: 1 })}
-                      {addBtn("Add", () => {
-                        if (newCmd.trim()) {
-                          const subs = newCmdSubs.trim() ? newCmdSubs.split(",").map((s) => s.trim()).filter(Boolean) : [];
-                          setHost({ commands: [...commands, { name: newCmd.trim(), subcommands: subs }] });
-                          setNewCmd(""); setNewCmdSubs("");
-                        }
-                      })}
+                <div className="flex flex-col gap-4">
+                  <SettingsGroupLabel label="Host execution" icon={<Server size={12} className="text-text-dim" />} />
+                  <FormRow label="Custom root"><TextInput value={host.root || ""} onChangeText={(value) => setHost({ root: value })} placeholder="auto: ~/.agent-workspaces/<bot-id>/" /></FormRow>
+                  <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="flex flex-col gap-2">
+                      <SettingsGroupLabel label="Allowed commands" count={commands.length} />
+                      <ChipList
+                        items={commands}
+                        empty="No commands configured."
+                        render={(command) => <span className="font-mono">{command.name} <span className="text-text-dim">{command.subcommands?.length ? command.subcommands.join(", ") : "(all)"}</span></span>}
+                        onRemove={(index) => setHost({ commands: commands.filter((_, itemIndex) => itemIndex !== index) })}
+                      />
+                      <TextInput value={newCmd} onChangeText={setNewCmd} placeholder="binary" />
+                      <TextInput value={newCmdSubs} onChangeText={setNewCmdSubs} placeholder="subcommands comma-separated" />
+                      <ActionButton label="Add command" size="small" onPress={() => {
+                        if (!newCmd.trim()) return;
+                        const subcommands = newCmdSubs.trim().split(",").map((value) => value.trim()).filter(Boolean);
+                        setHost({ commands: [...commands, { name: newCmd.trim(), subcommands }] });
+                        setNewCmd("");
+                        setNewCmdSubs("");
+                      }} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <SettingsGroupLabel label="Blocked patterns" count={blocked.length} />
+                      <ChipList items={blocked} empty="No blocked regex patterns." render={(item) => <span className="font-mono">{item}</span>} onRemove={(index) => setHost({ blocked_patterns: blocked.filter((_, itemIndex) => itemIndex !== index) })} />
+                      <TextInput value={newBlocked} onChangeText={setNewBlocked} placeholder="regex pattern" />
+                      <ActionButton label="Add pattern" size="small" onPress={() => {
+                        setHost({ blocked_patterns: addToArray(blocked, newBlocked.trim()) });
+                        setNewBlocked("");
+                      }} />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <SettingsGroupLabel label="Env passthrough" count={envPass.length} />
+                      <ChipList items={envPass} empty="No environment variables passed through." render={(item) => <span className="font-mono">{item}</span>} onRemove={(index) => setHost({ env_passthrough: envPass.filter((_, itemIndex) => itemIndex !== index) })} />
+                      <TextInput value={newEnvPass} onChangeText={setNewEnvPass} placeholder="ENV_VAR_NAME" />
+                      <ActionButton label="Add env" size="small" onPress={() => {
+                        setHost({ env_passthrough: addToArray(envPass, newEnvPass.trim()) });
+                        setNewEnvPass("");
+                      }} />
                     </div>
                   </div>
-
-                  {/* Blocked patterns */}
-                  <div>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Blocked Patterns (regex)</div>
-                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                  {blocked.map((pat, i) => (
-                    <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.warningMuted }}>
-                      {pat} {removeBtn(() => setHost({ blocked_patterns: blocked.filter((_, j) => j !== i) }))}
-                    </span>
-                  ))}
                 </div>
-                <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                  {miniInput(newBlocked, setNewBlocked, "regex pattern", { flex: 1 })}
-                  {addBtn("Add", () => { if (newBlocked.trim()) { setHost({ blocked_patterns: [...blocked, newBlocked.trim()] }); setNewBlocked(""); } })}
-                </div>
-              </div>
-
-              {/* Env passthrough */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Env Passthrough</div>
-                <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                  {envPass.map((v, i) => (
-                    <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
-                      {v} {removeBtn(() => setHost({ env_passthrough: envPass.filter((_, j) => j !== i) }))}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                  {miniInput(newEnvPass, setNewEnvPass, "ENV_VAR_NAME", { flex: 1, maxWidth: 200 })}
-                  {addBtn("Add", () => { if (newEnvPass.trim()) { setHost({ env_passthrough: [...envPass, newEnvPass.trim()] }); setNewEnvPass(""); } })}
-                </div>
-              </div>
+              )}
             </div>
           )}
-            </>
-          )}
 
-          {/* Memory indexing info banner */}
           {draft.memory_scheme === "workspace-files" && (
-            <div style={{
-              padding: "10px 14px", background: t.purpleSubtle,
-              border: `1px solid ${t.purpleBorder}`, borderRadius: 8,
-              fontSize: 11, color: t.textMuted, lineHeight: 1.5,
-            }}>
-              <span style={{ fontWeight: 600, color: t.purple }}>Memory indexing is automatic</span>
-              {" "}— files in <span style={{ fontFamily: "monospace" }}>memory/**/*.md</span> are always indexed and searchable via search_memory, regardless of the settings below.
-            </div>
+            <InfoBanner icon={<Box size={14} />}>
+              Memory files under <span className="font-mono">memory/**/*.md</span> are indexed automatically and do not need a manual segment.
+            </InfoBanner>
           )}
 
           {draft.id ? (
@@ -540,207 +505,83 @@ export function WorkspaceSection({
               onToggle={(value) => setWs({ bot_knowledge_auto_retrieval: value })}
             />
           ) : (
-            <div style={{
-              padding: "10px 14px", background: t.surfaceOverlay,
-              border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-              fontSize: 11, color: t.textMuted, lineHeight: 1.5,
-            }}>
-              Save the bot once to create its <span style={{ fontFamily: "monospace" }}>knowledge-base/</span> folder and retrieval settings.
-            </div>
+            <EmptyState message="Save the bot once to create its knowledge-base folder and retrieval settings." />
           )}
 
-          {/* Indexing panel */}
-          <div style={{ borderTop: `1px solid ${t.surfaceRaised}`, paddingTop: 12 }}>
-            <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: t.textMuted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Workspace File Indexing</div>
-              <Toggle value={indexing.enabled !== false} onChange={(v) => setIndexing({ enabled: v })} label="Enable" />
-              {indexing.enabled !== false && (
-                <Toggle value={indexing.watch !== false} onChange={(v) => setIndexing({ watch: v })} label="Watch" />
-              )}
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <SettingsGroupLabel label="Workspace file indexing" icon={<Search size={12} className="text-text-dim" />} />
+              <div className="flex flex-wrap items-center gap-3">
+                <Toggle value={indexing.enabled !== false} onChange={(value) => setIndexing({ enabled: value })} label="Enable" />
+                {indexing.enabled !== false && <Toggle value={indexing.watch !== false} onChange={(value) => setIndexing({ watch: value })} label="Watch" />}
+              </div>
             </div>
+
             {indexing.enabled !== false && (
               <>
-                {/* Segments — the primary way to define what gets indexed */}
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{
-                    padding: "8px 12px", background: t.accentSubtle,
-                    border: `1px solid ${t.accentBorder}`, borderRadius: 6,
-                    fontSize: 11, color: t.textMuted, lineHeight: 1.5, marginBottom: 8,
-                  }}>
-                    {inSharedWorkspace ? (<>
-                      Add segments to index specific directories in the workspace for RAG retrieval.
-                      Each segment defines a directory path and its file patterns.
-                      {draft.memory_scheme === "workspace-files" && (<>
-                        {" "}Memory files are indexed automatically and don't need a segment.
-                      </>)}
-                      {" "}<strong>Only directories listed as segments are indexed</strong> — nothing is indexed by default.
-                    </>) : (<>
-                      Files matching the patterns below are indexed for RAG retrieval via search_workspace.
-                      {draft.memory_scheme === "workspace-files" && (<>
-                        {" "}Memory files (<span style={{ fontFamily: "monospace" }}>memory/</span>) are handled separately above.
-                      </>)}
-                      {" "}Use directory-scoped patterns (e.g. <span style={{ fontFamily: "monospace" }}>docs/**/*.md</span>) to target specific folders.
-                    </>)}
-                  </div>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>
-                    {inSharedWorkspace ? "Indexed Directories" : "Segments"}
-                    {!inSharedWorkspace && (
-                      <span style={{ fontWeight: 400, color: t.textDim, textTransform: "none", marginLeft: 6 }}>per-directory overrides</span>
+                <InfoBanner>
+                  {inSharedWorkspace
+                    ? "Add directory segments to index specific workspace paths for retrieval. Shared workspaces index only configured directories by default."
+                    : "Add patterns and optional segments to control what standalone workspace files enter retrieval."}
+                </InfoBanner>
+
+                <div className="flex flex-col gap-2">
+                  <SettingsGroupLabel label={inSharedWorkspace ? "Indexed directories" : "Segments"} count={segments.length} />
+                  <ChipList
+                    items={segments}
+                    empty={inSharedWorkspace ? "No directories configured; only memory files are indexed." : "No per-directory segment overrides."}
+                    render={(segment) => (
+                      <span className="font-mono">
+                        {segment.path_prefix}
+                        {segment.embedding_model && <span className="text-text-dim"> · {segment.embedding_model}</span>}
+                        {segment.patterns?.length ? <span className="text-text-dim"> · {segment.patterns.length} patterns</span> : null}
+                      </span>
                     )}
-                  </div>
-                  {inSharedWorkspace && (
-                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
-                      Each entry indexes files under that workspace path. Paths are relative to the workspace root
-                      (e.g. <span style={{ fontFamily: "monospace" }}>common/</span>, <span style={{ fontFamily: "monospace" }}>bots/{draft.id}/repo/</span>).
-                      Patterns and embedding model can be customized per directory.
-                    </div>
-                  )}
-                  {!inSharedWorkspace && (
-                    <div style={{ fontSize: 10, color: t.textDim, marginBottom: 4 }}>
-                      Override the embedding model or retrieval settings for files under a specific path prefix.
-                    </div>
-                  )}
-                  {segments.map((seg: any, i: number) => (
-                    <div key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 6, padding: "4px 8px", background: t.inputBg, borderRadius: 4, fontSize: 11, marginBottom: 4 }}>
-                      <span style={{ fontFamily: "monospace", color: t.accent }}>{seg.path_prefix}</span>
-                      {seg.embedding_model && <span style={{ color: t.textMuted }}>model: <span style={{ color: t.purpleMuted, fontFamily: "monospace" }}>{seg.embedding_model}</span></span>}
-                      {seg.patterns && <span style={{ color: t.textDim }}>patterns: {seg.patterns.length}</span>}
-                      {seg.similarity_threshold != null && <span style={{ color: t.textDim }}>thresh: {seg.similarity_threshold}</span>}
-                      {seg.top_k != null && <span style={{ color: t.textDim }}>k: {seg.top_k}</span>}
-                      {removeBtn(() => setIndexing({ segments: segments.filter((_: any, j: number) => j !== i) }))}
-                    </div>
-                  ))}
-                  {segments.length === 0 && inSharedWorkspace && (
-                    <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
-                      No directories configured — only memory files are indexed. Add a directory to enable file indexing.
-                    </div>
-                  )}
-                  <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
-                    {miniInput(newSegPrefix, setNewSegPrefix, inSharedWorkspace ? "directory (e.g. common/)" : "path_prefix (e.g. src/)", { flex: 1, minWidth: 80 })}
-                    {miniInput(newSegModel, setNewSegModel, "embedding model (optional)", { flex: 1, minWidth: 80 })}
-                    {addBtn(inSharedWorkspace ? "Add Directory" : "Add Segment", () => {
-                      if (newSegPrefix.trim()) {
-                        const seg: any = { path_prefix: newSegPrefix.trim() };
-                        if (newSegModel.trim()) seg.embedding_model = newSegModel.trim();
-                        setIndexing({ segments: [...segments, seg] });
-                        setNewSegPrefix("");
-                        setNewSegModel("");
-                      }
-                    })}
+                    onRemove={(index) => setIndexing({ segments: segments.filter((_, itemIndex) => itemIndex !== index) })}
+                  />
+                  <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                    <TextInput value={newSegPrefix} onChangeText={setNewSegPrefix} placeholder={inSharedWorkspace ? "directory, e.g. common/" : "path prefix, e.g. src/"} />
+                    <TextInput value={newSegModel} onChangeText={setNewSegModel} placeholder="embedding model optional" />
+                    <ActionButton label={inSharedWorkspace ? "Add directory" : "Add segment"} size="small" onPress={() => {
+                      if (!newSegPrefix.trim()) return;
+                      const segment: Record<string, any> = { path_prefix: newSegPrefix.trim() };
+                      if (newSegModel.trim()) segment.embedding_model = newSegModel.trim();
+                      setIndexing({ segments: [...segments, segment] });
+                      setNewSegPrefix("");
+                      setNewSegModel("");
+                    }} />
                   </div>
                 </div>
 
-                {/* Base patterns — only shown for standalone bots (shared ws bots use segments exclusively) */}
                 {!inSharedWorkspace && (
-                  <div style={{ marginBottom: 8 }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: t.textDim, textTransform: "uppercase", marginBottom: 4 }}>Indexed File Patterns</div>
-                    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 4 }}>
-                      {patterns.map((pat, i) => (
-                        <span key={i} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 4, background: t.inputBg, borderRadius: 4, padding: "2px 8px", fontSize: 11, fontFamily: "monospace", color: t.accent }}>
-                          {pat} {removeBtn(() => setIndexing({ patterns: patterns.filter((_, j) => j !== i) }))}
-                        </span>
-                      ))}
-                    </div>
-                    {patterns.length === 0 && (
-                      <div style={{ fontSize: 10, color: t.textDim, fontStyle: "italic", marginTop: 2 }}>
-                        No patterns — nothing will be indexed beyond memory. Add patterns to index specific directories.
-                      </div>
-                    )}
-                    <div style={{ display: "flex", flexDirection: "row", gap: 4, marginTop: 4 }}>
-                      {miniInput(newPattern, setNewPattern, "docs/**/*.md", { flex: 1, maxWidth: 200 })}
-                      {addBtn("Add", () => { if (newPattern.trim()) { setIndexing({ patterns: [...patterns, newPattern.trim()] }); setNewPattern(""); } })}
+                  <div className="flex flex-col gap-2">
+                    <SettingsGroupLabel label="Indexed file patterns" count={patterns.length} />
+                    <ChipList
+                      items={patterns}
+                      empty="No file patterns configured beyond memory."
+                      render={(pattern) => <span className="font-mono">{pattern}</span>}
+                      onRemove={(index) => setIndexing({ patterns: patterns.filter((_, itemIndex) => itemIndex !== index) })}
+                    />
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+                      <TextInput value={newPattern} onChangeText={setNewPattern} placeholder="docs/**/*.md" />
+                      <ActionButton label="Add pattern" size="small" onPress={() => {
+                        setIndexing({ patterns: addToArray(patterns, newPattern.trim()) });
+                        setNewPattern("");
+                      }} />
                     </div>
                   </div>
                 )}
 
-                <Row gap={12}>
-                  <Col><FormRow label="Similarity Threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(v) => setIndexing({ similarity_threshold: v ? parseFloat(v) : null })} placeholder="server default" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Top-K Results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(v) => setIndexing({ top_k: v ? parseInt(v) : null })} placeholder="8" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Cooldown (sec)"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(v) => setIndexing({ cooldown_seconds: v ? parseInt(v) : null })} placeholder="300" type="number" /></FormRow></Col>
-                  <Col><FormRow label="Embedding Model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(v) => setIndexing({ embedding_model: v || null })} placeholder="server default" variant="embedding" /></FormRow></Col>
+                <Row>
+                  <Col><FormRow label="Similarity threshold"><TextInput value={String(indexing.similarity_threshold ?? "")} onChangeText={(value) => setIndexing({ similarity_threshold: value ? parseFloat(value) : null })} placeholder="server default" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Top-K results"><TextInput value={String(indexing.top_k ?? "")} onChangeText={(value) => setIndexing({ top_k: value ? parseInt(value, 10) : null })} placeholder="8" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Cooldown"><TextInput value={String(indexing.cooldown_seconds ?? "")} onChangeText={(value) => setIndexing({ cooldown_seconds: value ? parseInt(value, 10) : null })} placeholder="300" type="number" /></FormRow></Col>
+                  <Col><FormRow label="Embedding model"><LlmModelDropdown value={indexing.embedding_model ?? ""} onChange={(value) => setIndexing({ embedding_model: value || null })} placeholder="server default" variant="embedding" /></FormRow></Col>
                 </Row>
               </>
             )}
           </div>
         </>
-      )}
-
-    </div>
-  );
-}
-
-
-function ContainerStatusBanner({ sandbox, isRecreating, onRecreate, t }: {
-  sandbox: { exists: boolean; status?: string | null; container_name?: string | null; container_id?: string | null; image_id?: string | null; error_message?: string | null; created_at?: string | null; last_used_at?: string | null };
-  isRecreating: boolean;
-  onRecreate: () => void;
-  t: ReturnType<typeof useThemeTokens>;
-}) {
-  if (!sandbox.exists) {
-    return (
-      <div style={{
-        display: "flex", flexDirection: "row", alignItems: "center", gap: 8,
-        padding: "8px 12px", background: t.surfaceRaised, borderRadius: 8,
-        fontSize: 11, color: t.textDim,
-      }}>
-        <Container size={13} />
-        <span>No container — will be created on first use</span>
-      </div>
-    );
-  }
-
-  const status = sandbox.status || "unknown";
-  const statusColor: Record<string, string> = {
-    running: t.success, creating: t.accent, stopped: t.warning,
-    dead: t.danger, unknown: t.textDim,
-  };
-  const color = statusColor[status] || t.textDim;
-
-  return (
-    <div style={{
-      display: "flex", flexDirection: "column", gap: 6,
-      padding: "10px 12px", background: t.surfaceRaised, borderRadius: 8,
-      border: sandbox.error_message ? `1px solid ${t.dangerMuted}` : undefined,
-    }}>
-      <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Container size={13} color={color} />
-        <span style={{
-          padding: "1px 7px", borderRadius: 4, fontSize: 10, fontWeight: 600,
-          background: color + "22", color,
-        }}>
-          {status}
-        </span>
-        {sandbox.container_name && (
-          <span style={{ fontFamily: "monospace", fontSize: 10, color: t.textMuted }}>{sandbox.container_name}</span>
-        )}
-        {sandbox.container_id && (
-          <span style={{ fontFamily: "monospace", fontSize: 10, color: t.textDim }}>{sandbox.container_id}</span>
-        )}
-        <div style={{ flex: 1 }} />
-        <button
-          onClick={onRecreate}
-          disabled={isRecreating}
-          style={{
-            display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 4,
-            padding: "3px 10px", fontSize: 10, fontWeight: 600,
-            background: t.surface, border: `1px solid ${t.surfaceBorder}`,
-            borderRadius: 4, color: t.warningMuted, cursor: isRecreating ? "wait" : "pointer",
-            opacity: isRecreating ? 0.6 : 1,
-          }}
-        >
-          <RefreshCw size={10} style={isRecreating ? { animation: "spin 1s linear infinite" } : undefined} />
-          {isRecreating ? "Recreating..." : "Recreate"}
-        </button>
-      </div>
-      <div style={{ display: "flex", flexDirection: "row", gap: 16, fontSize: 10, color: t.textDim }}>
-        {sandbox.created_at && <span>Created: {formatDateTime(sandbox.created_at)}</span>}
-        {sandbox.last_used_at && <span>Last used: {formatDateTime(sandbox.last_used_at)}</span>}
-        {sandbox.image_id && <span>Image: <span style={{ fontFamily: "monospace" }}>{sandbox.image_id}</span></span>}
-      </div>
-      {sandbox.error_message && (
-        <div style={{ fontSize: 10, color: t.danger, fontFamily: "monospace", whiteSpace: "pre-wrap" }}>
-          {sandbox.error_message}
-        </div>
       )}
     </div>
   );
