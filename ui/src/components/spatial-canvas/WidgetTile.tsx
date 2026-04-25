@@ -80,15 +80,36 @@ export function WidgetTile({
   );
 }
 
+/**
+ * Diamond glyph (rotated 45° square) — distinct silhouette from the
+ * channel `dot` so the user reads "widget" vs "channel" at any zoom level.
+ * The icon counter-rotates to stay upright.
+ */
+function WidgetGlyph({ size }: { size: number }) {
+  return (
+    <div
+      className="bg-accent/15 border-2 border-accent shadow-md flex items-center justify-center text-accent"
+      style={{
+        width: size,
+        height: size,
+        transform: "rotate(45deg)",
+        borderRadius: 6,
+      }}
+    >
+      <div style={{ transform: "rotate(-45deg)" }}>
+        <Box size={Math.round(size * 0.45)} />
+      </div>
+    </div>
+  );
+}
+
 function ChipView() {
   return (
     <div
       data-tile-kind="widget"
       className="w-full h-full flex flex-col items-center justify-center cursor-grab active:cursor-grabbing"
     >
-      <div className="w-10 h-10 rounded-lg bg-surface-raised border border-surface-border flex flex-row items-center justify-center text-text-dim shadow-md">
-        <Box size={18} />
-      </div>
+      <WidgetGlyph size={64} />
     </div>
   );
 }
@@ -97,12 +118,10 @@ function ChipTitleView({ pin }: { pin: SpatialNodePin }) {
   return (
     <div
       data-tile-kind="widget"
-      className="w-full h-full flex flex-col items-center justify-center gap-1.5 cursor-grab active:cursor-grabbing"
+      className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-grab active:cursor-grabbing"
     >
-      <div className="w-9 h-9 rounded-lg bg-surface-raised border border-surface-border flex flex-row items-center justify-center text-text-dim shadow-md">
-        <Box size={16} />
-      </div>
-      <div className="text-xs font-medium text-text whitespace-nowrap max-w-full truncate px-2">
+      <WidgetGlyph size={56} />
+      <div className="text-base font-semibold text-text whitespace-nowrap max-w-full truncate px-2">
         {widgetTitle(pin)}
       </div>
     </div>

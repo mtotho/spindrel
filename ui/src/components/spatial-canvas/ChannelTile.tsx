@@ -65,17 +65,17 @@ function DotView({ channel, onDive }: { channel: Channel; onDive: () => void }) 
     <div
       data-tile-kind="channel"
       onDoubleClick={onDive}
-      className="w-full h-full flex flex-col items-center justify-center gap-2 cursor-grab active:cursor-grabbing"
+      className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-grab active:cursor-grabbing"
     >
       <div
-        className="rounded-full shadow-md"
+        className="rounded-full shadow-md ring-2 ring-text/10"
         style={{
-          width: 56,
-          height: 56,
+          width: 88,
+          height: 88,
           background: dotColor(channel.id),
         }}
       />
-      <div className="text-sm font-semibold text-text whitespace-nowrap max-w-full truncate px-2">
+      <div className="text-lg font-semibold text-text whitespace-nowrap max-w-full truncate px-2">
         {name}
       </div>
     </div>

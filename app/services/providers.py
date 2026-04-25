@@ -65,7 +65,8 @@ async def seed_provider_from_file(path: Path = Path("provider-seed.yaml")) -> No
     """On first boot, create a provider from the setup wizard's seed file.
 
     The seed file is written by ``scripts/setup.py`` and contains a single
-    provider config (id, provider_type, display_name, base_url, api_key).
+    provider config (id, provider_type, display_name, base_url, api_key,
+    plus optional billing/config fields).
     Once consumed the file is deleted so the seed is one-shot.
     """
     if not path.exists():
@@ -93,9 +94,13 @@ async def seed_provider_from_file(path: Path = Path("provider-seed.yaml")) -> No
             id=data["id"],
             provider_type=data["provider_type"],
             display_name=data.get("display_name", data["id"]),
-            base_url=data.get("base_url"),
+            base_url=data.get("base_url") or None,
             api_key=encrypt(api_key) if api_key else None,
             is_enabled=True,
+            config=data.get("config") or {},
+            billing_type=data.get("billing_type") or "usage",
+            plan_cost=data.get("plan_cost"),
+            plan_period=data.get("plan_period"),
         )
         db.add(provider)
         await db.commit()

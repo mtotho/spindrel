@@ -122,7 +122,7 @@ def setup_4_websearch_select() -> Frame:
         ("Deployment mode:", "Docker (recommended)"),
         ("LLM Provider:", "OpenAI"),
         ("API key:", "************************"),
-        ("Default model:", "gpt-4.1"),
+        ("Default model:", "gpt-5.5"),
     ])
     web_choices = [
         "SearXNG — built-in containers (adds 2 containers)",
@@ -138,14 +138,14 @@ def setup_5_start() -> Frame:
     """Final confirm + service-up output."""
     lines: list[Line] = []
     lines += _answered_lines([
-        ("Default model:", "gpt-4.1"),
+        ("Default model:", "gpt-5.5"),
         ("Web search backend:", "SearXNG — built-in containers"),
         ("Auth API key:", "Generate random key (sk-spi-9b41…)"),
     ])
     lines.append(Line.blank())
     lines.append(Line.of("  Next steps:", bold=True))
-    lines.append(Line.of("  1. Open http://localhost:8000"))
-    lines.append(Line.of("  2. Login with credentials shown above"))
+    lines.append(Line.of("  1. docker compose up -d"))
+    lines.append(Line.of("  2. Open http://localhost:8000"))
     lines.append(Line.of("  3. The Orchestrator will greet you and walk you through setup."))
     lines.append(Line.blank())
     confirm = Line.of("? ", color="prompt", bold=True).then("Start docker compose now? ", bold=True)
@@ -153,8 +153,7 @@ def setup_5_start() -> Frame:
     lines.append(confirm)
     lines.append(Line.blank())
     lines.append(Line.of("  provider-seed.yaml will be consumed on first server boot", color="fg_dim"))
-    lines.append(Line.of("  ✓ ", color="green", bold=True).then("Server running at ").then("http://localhost:8000", bold=True))
-    lines.append(Line.of("  ✓ ", color="green", bold=True).then("UI hosted at     ").then("http://localhost:8081", bold=True))
+    lines.append(Line.of("  ✓ ", color="green", bold=True).then("Spindrel running at ").then("http://localhost:8000", bold=True))
     lines.append(Line.blank())
     lines.append(Line.of("  ✓ ", color="green", bold=True).then("CLI installed. Commands:"))
     lines.append(Line.of("    spindrel status    — Show service status", color="fg_dim"))

@@ -41,8 +41,19 @@ logger = logging.getLogger(__name__)
 # decision #6. Tuned to keep tiles well-spaced at default tile size.
 _GOLDEN_ANGLE = math.pi * (3.0 - math.sqrt(5.0))  # ≈ 137.5°
 _PHYLLOTAXIS_RADIUS = 280.0
-_DEFAULT_TILE_W = 220.0
-_DEFAULT_TILE_H = 140.0
+_DEFAULT_TILE_W = 280.0
+_DEFAULT_TILE_H = 180.0
+# Widgets host live iframes at close zoom — give them more room than channels
+# by default. They're also a visually distinct shape (wider aspect ratio +
+# more chrome) so the user reads "this is a widget, not a channel" at any
+# zoom level. Existing rows keep their stored size; only new pins use these.
+_DEFAULT_WIDGET_W = 360.0
+_DEFAULT_WIDGET_H = 240.0
+# Satellite ring around a source channel — first widget sits ~_SAT_RING out
+# from the channel's center; subsequent widgets spiral outward by the golden
+# angle so they don't pile up at one bearing.
+_SAT_RING_RADIUS = 220.0
+_SAT_RING_GROWTH = 60.0
 
 
 def phyllotaxis_position(seed_index: int) -> tuple[float, float]:
@@ -103,6 +114,91 @@ async def _next_seed_index(db: AsyncSession) -> int:
         select(func.max(WorkspaceSpatialNode.seed_index))
     )).scalar_one_or_none()
     return (row or 0) + 1 if row is not None else 0
+
+
+async def _satellite_position_for_channel(
+    db: AsyncSession,
+    source_channel_id: uuid.UUID,
+) -> tuple[float, float] | None:
+    """Compute (world_x, world_y) for a new widget pinned from this channel.
+
+    Looks up the channel's spatial node and places the new widget on a
+    golden-angle ring around its center. Subsequent widgets from the same
+    channel spiral outward so they don't stack on top of each other.
+
+    Returns ``None`` when the channel has no spatial node yet — caller falls
+    back to global phyllotaxis. (The channel-node-upsert in
+    ``_ensure_channel_nodes`` runs on canvas list, so the row may legitimately
+    be missing if the user hasn't opened the canvas yet — we handle that by
+    auto-seeding the channel node first; see ``pin_widget_to_canvas``.)
+    """
+    channel_node = (await db.execute(
+        select(WorkspaceSpatialNode).where(
+            WorkspaceSpatialNode.channel_id == source_channel_id,
+        )
+    )).scalar_one_or_none()
+    if channel_node is None:
+        return None
+    # Existing widget pins sourced from this channel (any spatial-node status
+    # — counts both placed and yet-to-be-placed; safer than joining on
+    # WorkspaceSpatialNode and missing in-flight rows). The dashboard the pin
+    # lives on doesn't matter; what matters is "how many widgets the user has
+    # already pulled out of this channel."
+    existing = (await db.execute(
+        select(func.count(WorkspaceSpatialNode.id))
+        .join(
+            WidgetDashboardPin,
+            WorkspaceSpatialNode.widget_pin_id == WidgetDashboardPin.id,
+        )
+        .where(WidgetDashboardPin.source_channel_id == source_channel_id)
+    )).scalar_one()
+    cx = channel_node.world_x + _DEFAULT_TILE_W / 2
+    cy = channel_node.world_y + _DEFAULT_TILE_H / 2
+    angle = (existing + 1) * _GOLDEN_ANGLE
+    radius = _SAT_RING_RADIUS + math.sqrt(existing) * _SAT_RING_GROWTH
+    sx = cx + math.cos(angle) * radius
+    sy = cy + math.sin(angle) * radius
+    return (sx - _DEFAULT_TILE_W / 2, sy - _DEFAULT_TILE_H / 2)
+
+
+async def _ensure_channel_node(
+    db: AsyncSession,
+    channel_id: uuid.UUID,
+) -> WorkspaceSpatialNode | None:
+    """Create a spatial node for one channel if it doesn't have one yet.
+
+    Returns the existing or newly-created node, or None if the channel id
+    doesn't resolve. Smaller-scope variant of ``_ensure_channel_nodes`` —
+    used by ``pin_widget_to_canvas`` so satellite-positioning works even if
+    the user hasn't opened the canvas yet.
+    """
+    existing = (await db.execute(
+        select(WorkspaceSpatialNode).where(
+            WorkspaceSpatialNode.channel_id == channel_id,
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        return existing
+    # Verify the channel actually exists before seeding — guard against
+    # callers passing a stale id that could otherwise create a phantom node.
+    ch_exists = (await db.execute(
+        select(Channel.id).where(Channel.id == channel_id)
+    )).scalar_one_or_none()
+    if ch_exists is None:
+        return None
+    seed = await _next_seed_index(db)
+    x, y = phyllotaxis_position(seed)
+    node = WorkspaceSpatialNode(
+        channel_id=channel_id,
+        world_x=x,
+        world_y=y,
+        world_w=_DEFAULT_TILE_W,
+        world_h=_DEFAULT_TILE_H,
+        seed_index=seed,
+    )
+    db.add(node)
+    await db.flush()
+    return node
 
 
 async def _ensure_channel_nodes(db: AsyncSession) -> int:
@@ -245,8 +341,8 @@ async def pin_widget_to_canvas(
     display_label: str | None = None,
     world_x: float | None = None,
     world_y: float | None = None,
-    world_w: float = _DEFAULT_TILE_W,
-    world_h: float = _DEFAULT_TILE_H,
+    world_w: float = _DEFAULT_WIDGET_W,
+    world_h: float = _DEFAULT_WIDGET_H,
 ) -> tuple[WidgetDashboardPin, WorkspaceSpatialNode]:
     """Atomically create a widget pin on the workspace:spatial dashboard
     AND its matching workspace_spatial_nodes row.
@@ -271,6 +367,23 @@ async def pin_widget_to_canvas(
     )
 
     try:
+        # Position priority:
+        #   1. Caller-supplied world_x/world_y wins (admin tools, drag-drop
+        #      from a known anchor, etc.).
+        #   2. Satellite ring around the source channel — the typical case.
+        #      Auto-seeds the channel's spatial node if it doesn't exist yet
+        #      so satellite-positioning works even before the user opens the
+        #      canvas.
+        #   3. Global phyllotaxis fallback (adhoc widgets with no source
+        #      channel — they spiral into open space).
+        if (world_x is None or world_y is None) and source_channel_id is not None:
+            await _ensure_channel_node(db, source_channel_id)
+            sat = await _satellite_position_for_channel(db, source_channel_id)
+            if sat is not None:
+                if world_x is None:
+                    world_x = sat[0]
+                if world_y is None:
+                    world_y = sat[1]
         seed = await _next_seed_index(db)
         if world_x is None or world_y is None:
             seeded_x, seeded_y = phyllotaxis_position(seed)

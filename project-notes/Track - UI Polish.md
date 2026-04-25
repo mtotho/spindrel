@@ -496,5 +496,6 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Clarified session picker state: current/visible session badges now distinguish `Current` from `Open`, previous-channel sessions get stable `?surface=channel` routes, and `Set as channel primary` is visible as an explicit row action for scratch/previous sessions.
 - [x] Clarified full-screen session picker state: the current route-level chat is grouped as `This chat`, cannot be re-selected or split against itself, and primary remains visible as an escape hatch even if the catalog omits it.
 - [x] Removed session navigation implementation leakage: split/session chrome no longer labels previous-channel sessions as `WEB-ONLY`; integration mirroring remains a primary-session concern rather than picker copy.
+- [x] Clarified Memory tab conversation-history scope: current-session archive is the default/runtime mirror, all-sessions is an explicit grouped inventory view, and section search/index preview no longer imply the bot sees a flattened channel archive.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`

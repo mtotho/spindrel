@@ -23,8 +23,8 @@ set +a
 
 pip install -q -e ".[dev]"
 
-echo "Starting services (postgres, searxng, playwright)..."
-docker compose up postgres searxng playwright -d
+echo "Starting services (postgres)..."
+docker compose up postgres -d
 
 echo "Waiting for postgres..."
 until docker compose exec postgres pg_isready -U agent -d agentdb -q 2>/dev/null; do

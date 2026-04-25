@@ -35,7 +35,7 @@ It does **not** create bot YAML files or modify any code. Two system bots (`defa
 The setup wizard is an interactive TUI that checks these prerequisites, then walks you through:
 
 1. **Deployment mode** — Docker (recommended) or local dev
-2. **LLM provider** — Pick from presets (Ollama, OpenAI, Anthropic, Google Gemini, OpenRouter, LiteLLM proxy) or enter a custom OpenAI-compatible endpoint
+2. **LLM provider** — Pick from presets (Ollama, OpenAI, ChatGPT Subscription, Anthropic, Google Gemini, OpenRouter, LiteLLM proxy) or enter a custom OpenAI-compatible endpoint
 3. **Default model** — Provider-specific model list with option for custom model names
 4. **Web search backend** — SearXNG (built-in or external), DuckDuckGo, or disabled
 5. **API authentication** — Auto-generate a random key or enter your own
@@ -56,7 +56,7 @@ The wizard generates `.env` and a `provider-seed.yaml` file. On first server boo
 
 ### After setup
 
-Open the UI and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
+Open `http://localhost:8000` and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
 
 ![Login screen](images/setup-6-login-screen.png)
 *Log in with your API key.*
@@ -87,7 +87,17 @@ Edit `.env` with your settings. Required fields:
 | `DATABASE_URL` | PostgreSQL connection string |
 | `DEFAULT_MODEL` | Default LLM model (e.g. `gemma4:e4b` for Ollama) |
 
-Then configure your LLM provider via **Admin UI > Providers**, or create a `provider-seed.yaml` for first-boot seeding (see `scripts/setup.py` for the format).
+Then configure your LLM provider via **Admin UI > Providers**, or create a `provider-seed.yaml` for first-boot seeding:
+
+```yaml
+id: openai
+provider_type: openai
+display_name: OpenAI
+base_url: https://api.openai.com/v1
+api_key: sk-...
+```
+
+The setup wizard writes this file for you. The server consumes it once on first boot and then deletes it.
 
 You can also set `LLM_BASE_URL` and `LLM_API_KEY` in `.env` for a typeless OpenAI-compatible fallback — but a proper DB provider (created by the setup wizard or Admin UI) is recommended for full features.
 
@@ -258,6 +268,12 @@ list for offline cases. Expect this to evolve as GPT-5 point releases move.
 5. On success, the panel shows the connected email + plan. Tokens are stored encrypted on
    the provider row and refreshed automatically with a 10-minute leeway.
 
+**Setup wizard path.** If you choose **ChatGPT Subscription (OpenAI OAuth, no API key)**
+in `bash setup.sh` and let the wizard start Docker, the terminal prints the verification
+URL and user code after the server becomes healthy, then polls until you approve the
+login in a browser. In headless mode or if you start Docker later, connect from
+**Admin UI > Providers** after opening `http://localhost:8000`.
+
 **Billing config.** When you create an `openai-subscription` provider, `billing_type=plan`
 and `plan_cost=20` / `plan_period=monthly` are pre-filled so the plan-billing path reports
 `$0` per call (the cost is your flat monthly subscription, not per-token). Override in the
@@ -352,7 +368,6 @@ Integrations are discovered from `integrations/*/` directories. Each can provide
 - **Hooks** — event handlers
 - **Process** — background service (e.g., Slack bot, MQTT listener)
 - **Tools** — bot-callable functions
-- **Skills** — knowledge documents
 - **Skills** — reusable markdown knowledge, including foldered skill packs
 - **Templates** — workspace schema templates
 
@@ -521,9 +536,9 @@ The web UI auto-detects the server URL from the browser's address bar — it tak
 
 | You open | UI connects to |
 |----------|---------------|
-| `http://localhost:8081` | `http://localhost:8000` |
-| `http://10.0.0.5:8081` | `http://10.0.0.5:8000` |
-| `http://myserver.local:8081` | `http://myserver.local:8000` |
+| `http://localhost:8000` | `http://localhost:8000` |
+| `http://10.0.0.5:8000` | `http://10.0.0.5:8000` |
+| `http://myserver.local:8000` | `http://myserver.local:8000` |
 
 You can also override the server URL manually on the login screen.
 
@@ -531,20 +546,20 @@ You can also override the server URL manually on the login screen.
 
 When the UI and server are on different origins (different hostnames or ports), browsers block requests unless the server explicitly allows them via CORS headers.
 
-The server automatically allows CORS from `http://localhost:8081` (the default UI port), so local development works out of the box.
+The Docker image serves the built UI from the same FastAPI origin on port 8000, so no CORS setting is needed for the default Docker install. Local Vite development still uses a separate origin and is allowed from `http://localhost:5173`.
 
 **For LAN or remote access**, add your origins to `CORS_ORIGINS`:
 
 ```bash
 # .env
-CORS_ORIGINS=http://10.0.0.5:8081,http://myserver.local:8081
+CORS_ORIGINS=http://10.0.0.5:5173,http://myserver.local:5173
 ```
 
 Add every origin (scheme + hostname + port) you'll access the UI from. Comma-separated, no trailing slashes.
 
 ### Docker Compose port binding
 
-By default, Docker binds ports to `0.0.0.0` (all interfaces), so the server and UI are already accessible from other machines on your network. If you want to restrict to localhost only:
+By default, Docker binds port 8000 to `0.0.0.0` (all interfaces), so the server and built UI are already accessible from other machines on your network. If you want to restrict to localhost only:
 
 ```yaml
 # docker-compose.override.yml
@@ -552,9 +567,6 @@ services:
   agent-server:
     ports:
       - "127.0.0.1:8000:8000"
-  ui:
-    ports:
-      - "127.0.0.1:8081:80"
 ```
 
 ### Reverse proxy / tunnel

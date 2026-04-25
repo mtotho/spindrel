@@ -110,8 +110,8 @@ async def test_admin_sections_all_scope_returns_session_labeled_inventory(client
     assert resp.status_code == 200
     data = resp.json()
     assert data["scope"] == "all"
-    assert [s["title"] for s in data["sections"]] == ["Active Section", "Previous Section"]
-    previous = data["sections"][1]["session"]
+    assert {s["title"] for s in data["sections"]} == {"Active Section", "Previous Section"}
+    previous = next(s["session"] for s in data["sections"] if s["title"] == "Previous Section")
     assert previous["id"] == str(previous_id)
     assert previous["title"] == "Previous chat"
     assert previous["kind"] == "previous"

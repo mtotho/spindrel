@@ -465,6 +465,12 @@ class TestSeedProviderFromFile:
             "display_name: Test Ollama\n"
             "base_url: http://localhost:11434\n"
             "api_key: ''\n"
+            "billing_type: plan\n"
+            "plan_cost: 20\n"
+            "plan_period: monthly\n"
+            "config:\n"
+            "  extra_headers:\n"
+            "    X-Test: setup\n"
         )
 
         # Mock DB session
@@ -498,6 +504,10 @@ class TestSeedProviderFromFile:
         assert mock_provider_row is not None
         assert mock_provider_row.id == "test-ollama"
         assert mock_provider_row.provider_type == "ollama"
+        assert mock_provider_row.billing_type == "plan"
+        assert mock_provider_row.plan_cost == 20
+        assert mock_provider_row.plan_period == "monthly"
+        assert mock_provider_row.config == {"extra_headers": {"X-Test": "setup"}}
 
     @pytest.mark.asyncio
     async def test_skips_when_provider_exists(self, tmp_path):

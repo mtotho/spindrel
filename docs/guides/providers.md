@@ -73,11 +73,11 @@ Any row mutation triggers a `load_providers()` reload so the in-memory capabilit
 On first boot with an empty DB, the server looks for `provider-seed.yaml` (shipped by the `scripts/setup.py` wizard or hand-written). Example:
 
 ```yaml
-provider:
-  name: "OpenAI"
-  type: "openai"
-  api_key: "sk-..."
-  default_model: "gpt-4o-mini"
+id: openai
+provider_type: openai
+display_name: OpenAI
+base_url: https://api.openai.com/v1
+api_key: sk-...
 ```
 
 The file is consumed once and then deleted — subsequent boots don't re-read it. Manage providers through the UI after that.
@@ -99,8 +99,8 @@ Use your existing ChatGPT paid-subscription login — no API key, no per-token b
 OAuth only authorizes a subset of OpenAI's public catalog. The live list is fetched from Codex's `/models` endpoint on boot and seeded into `provider_models`; a fallback list ships in the driver in case the endpoint is unreachable:
 
 ```
-gpt-5, gpt-5-mini, gpt-5-codex, gpt-5.4, gpt-5.4-mini,
-gpt-5.3-codex, gpt-5.3-codex-spark, gpt-5.2
+gpt-5.4, gpt-5.4-mini, gpt-5.3-codex,
+gpt-5.3-codex-spark, gpt-5.2
 ```
 
 The naming shifts across GPT-5 point releases; the driver re-syncs on each boot so stale entries don't linger.
@@ -114,6 +114,8 @@ The naming shifts across GPT-5 point releases; the driver re-syncs on each boot 
 5. The panel polls until approval. On success it shows your email + plan.
 
 Tokens persist encrypted on `ProviderConfig.config['oauth']`. Refreshes run automatically with a 10-minute leeway — long-running agents don't see auth blips.
+
+The setup wizard can create this provider as the first boot seed. If Docker is started from the wizard, the terminal prints the verification URL and user code, then polls until browser approval completes. In headless or deferred-start installs, connect later from the provider edit page.
 
 ### Billing
 

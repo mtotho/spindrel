@@ -742,3 +742,18 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 - The SDK is the thin public interface for a deep integration module.
 - Keeping app imports inside infrastructure shims makes dependency direction obvious and keeps future integration packaging work tractable.
 - Tests should protect the boundary instead of documenting a growing debt list.
+
+### Conversation-history admin views are current-session-first
+**Decided 2026-04-25.** Runtime conversation history is session-scoped; admin Memory/History views must make that same boundary visible instead of flattening every archived section in the channel by default.
+
+**Contract.**
+- The current-session scope mirrors what the active chat can browse with `read_conversation_history`.
+- All-sessions scope is an explicit admin inventory view. It may group and search across sessions, but copy must not imply the bot sees that flattened archive automatically.
+- Section index preview is current-session-scoped because it previews prompt injection.
+- Backfill/resume/re-chunk operate on the channel's current primary session, not every session attached to the channel.
+- Section rows in cross-session views carry session metadata so users can see which chat produced each archive section.
+
+**Why.**
+- Primary, scratch, and previous channel sessions are equal transcript owners, but only one session is active for a single turn.
+- Showing all archived sections as the default made a new primary session look like it already had 100+ sections and suggested the agent had access to a flattened channel memory it does not actually receive.
+- Keeping inventory available behind an explicit scope preserves admin discoverability without lying about runtime context.

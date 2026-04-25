@@ -1748,7 +1748,11 @@ async def admin_channel_sections(
     rows = (
         await db.execute(
             query
-            .order_by(ConversationSection.sequence)
+            .order_by(
+                ConversationSection.sequence if scope == "current" else ConversationSection.period_start,
+                ConversationSection.created_at,
+                ConversationSection.sequence,
+            )
             .options(defer(ConversationSection.transcript), defer(ConversationSection.embedding))
         )
     ).scalars().all()

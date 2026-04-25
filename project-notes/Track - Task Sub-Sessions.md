@@ -57,6 +57,13 @@ Scratch sessions stopped being a thin "current pointer + first-message preview" 
 - `repair_section_periods` / retention/admin surfaces still have channel-scoped section queries in a few maintenance-only paths; runtime prompting/history no longer depends on them, but the cleanup pass is still worth doing.
 - Targeted pytest needs a trustworthy local harness pass before calling the new scratch promotion contract fully regression-covered.
 
+### Follow-up: Memory tab scope hardening (2026-04-25)
+
+- Admin section list/search/index-preview now defaults to the active session instead of flattening the channel archive. `scope=all` remains available for explicit inventory views and returns session metadata per section.
+- The Memory tab now has an archive-scope segmented control: Current session mirrors `read_conversation_history`; All sessions is labeled as an admin inventory view and grouped by session.
+- Backfill copy and stats now describe the current primary session. Coverage compares current-session sections to current-session eligible messages, so a newly promoted primary no longer shows nonsensical channel-wide coverage like `16408/85`.
+- Added regression coverage for current-vs-all section list/search behavior in `tests/integration/test_admin_channel_sections_scope.py`.
+
 ## Phase 8 polish — bot visibility + mobile dock + cross-device scratch (shipped 2026-04-21)
 
 After Phases 6 + 7 + 7-hardening landed, three gaps surfaced in everyday use:

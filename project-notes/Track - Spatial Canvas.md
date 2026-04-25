@@ -1,7 +1,7 @@
 ---
 tags: [track, ui, spatial-canvas]
 status: active
-updated: 2026-04-25 (P3b live iframe + gesture shield + viewport culling shipped. Pin-to-canvas action also extended onto `PinnedToolWidget` chrome rows — every existing channel-dashboard pin now has a hover-reveal `LayoutGrid` button that promotes it to the canvas without needing a fresh bot widget emission. Independent rows per design decision 4.)
+updated: 2026-04-25 (P3b live iframe shipped, plus polish: pin-to-canvas action on existing dashboard pins (P3c), satellite positioning so widget tiles spawn next to their source channel instead of in deep space, larger default tile sizes (channels 280×180, widgets 360×240), distinct widget glyph (rotated diamond vs channel disc) at chip / chip+title zoom levels. Connection lines + tile resize captured in Ideas.)
 ---
 
 # Track — Spatial Canvas
