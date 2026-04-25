@@ -365,6 +365,7 @@ class UsageLogsOut(BaseModel):
 
 class BreakdownGroup(BaseModel):
     label: str
+    key: str = ""
     calls: int = 0
     tokens: int = 0
     prompt_tokens: int = 0
@@ -1183,7 +1184,7 @@ async def usage_breakdown(
             label = key
             if group_by == "channel" and key in channel_name_map:
                 label = channel_name_map[key]
-            groups[key] = BreakdownGroup(label=label)
+            groups[key] = BreakdownGroup(label=label, key=key)
 
         g = groups[key]
         g.calls += 1

@@ -30,6 +30,10 @@ import { ChannelTile } from "./ChannelTile";
 import { WidgetTile } from "./WidgetTile";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
+import { ConnectionLineLayer } from "./ConnectionLineLayer";
+import { UsageDensityLayer, type DensityMode, type DensityWindow } from "./UsageDensityLayer";
+import { UsageDensityChrome } from "./UsageDensityChrome";
+import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
   CAMERA_STORAGE_KEY,
   DEFAULT_CAMERA,
@@ -135,6 +139,17 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   // hand pointer events to its iframe; Esc / click on the canvas background
   // / dragging the tile / activating another tile deactivates.
   const [activatedTileId, setActivatedTileId] = useState<string | null>(null);
+  // Hovered tile (for connection-line highlighting). Tracked at the canvas
+  // level so layers under the tile map can react.
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
+  // Token-usage density layer state (client-only; not persisted in v1).
+  const [densityEnabled, setDensityEnabled] = useState(false);
+  const [densityWindow, setDensityWindow] = useState<DensityWindow>("24h");
+  const [densityMode, setDensityMode] = useState<DensityMode>("absolute");
+  const [densityAnimate, setDensityAnimate] = useState(true);
+  // Connection-line layer toggle (widget → source channel curves).
+  const [connectionsEnabled, setConnectionsEnabled] = useState(false);
   // Viewport size in screen pixels — used together with `camera` to compute
   // each tile's `inViewport` flag for iframe culling. ResizeObserver keeps it
   // current across overlay open/close, sidebar toggles, and window resizes.
@@ -296,11 +311,13 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panState.current;
     if (!p || p.pointerId !== e.pointerId) return;
-        setCamera((c) => clampCamera({
-          ...c,
-          x: p.cameraX + (e.clientX - p.startX),
-          y: p.cameraY + (e.clientY - p.startY),
-        }));
+    setCamera((c) =>
+      clampCamera({
+        ...c,
+        x: p.cameraX + (e.clientX - p.startX),
+        y: p.cameraY + (e.clientY - p.startY),
+      }),
+    );
   }, []);
 
   const onBgPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -368,6 +385,45 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     },
     [navigate, onAfterDive, lensEngaged, triggerLensSettle],
   );
+
+  // Pan + scale the camera to a single channel tile (Cmd+K override target).
+  // Same scale-derivation pattern as `diveToChannel` but capped at scale 1.0
+  // so the user lands at the channel's "preview" zoom — readable but not
+  // fully zoomed-in (which would overshoot into a single-tile-fills-screen
+  // state that's hard to navigate away from).
+  const flyToChannel = useCallback(
+    (channelId: string): boolean => {
+      const node = (nodes ?? []).find((n) => n.channel_id === channelId);
+      const rect = viewportRef.current?.getBoundingClientRect();
+      if (!node || !rect) return false;
+      const targetScale = Math.min(
+        1.0,
+        Math.max(rect.width / (node.world_w * 4), rect.height / (node.world_h * 4)),
+      );
+      const cx = node.world_x + node.world_w / 2;
+      const cy = node.world_y + node.world_h / 2;
+      const targetX = rect.width / 2 - cx * targetScale;
+      const targetY = rect.height / 2 - cy * targetScale;
+      if (lensEngaged) {
+        setLensEngaged(false);
+        triggerLensSettle();
+      }
+      setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
+      return true;
+    },
+    [nodes, lensEngaged, triggerLensSettle],
+  );
+
+  // Register the channel-pick override on the palette. While the canvas is
+  // mounted, Cmd+K → channel selection flies the camera instead of routing
+  // away. Cleared on unmount, so navigating to a channel page restores
+  // default route behavior.
+  useEffect(() => {
+    usePaletteOverrides.getState().setChannelPick(flyToChannel);
+    return () => {
+      usePaletteOverrides.getState().setChannelPick(null);
+    };
+  }, [flyToChannel]);
 
   // Pan + scale the camera so the Now Well fills the viewport with a small
   // padding margin. Uses the same scale-derivation trick as `diveToChannel`
@@ -449,6 +505,11 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     [viewportWorldBounds],
   );
 
+  const nowWellLens =
+    lensEngaged && focalScreen
+      ? projectFisheye(WELL_X, WELL_Y, camera, focalScreen, lensRadius)
+      : null;
+
   const handleActivate = useCallback((nodeId: string) => {
     setActivatedTileId(nodeId);
   }, []);
@@ -479,7 +540,25 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="absolute inset-0" style={worldStyle}>
           <OriginMarker />
-          <NowWell tickedNow={tickedNow} zoom={camera.scale} />
+          {densityEnabled && (
+            <UsageDensityLayer
+              nodes={nodes ?? []}
+              window={densityWindow}
+              mode={densityMode}
+              animate={densityAnimate}
+            />
+          )}
+          {connectionsEnabled && (
+            <ConnectionLineLayer
+              nodes={nodes ?? []}
+              hoveredNodeId={hoveredNodeId}
+            />
+          )}
+          <NowWell
+            tickedNow={tickedNow}
+            zoom={camera.scale}
+            lens={nowWellLens}
+          />
           {(upcomingItems ?? []).map((item) => {
             const orbit = upcomingOrbit(item, tickedNow);
             const lens =
@@ -553,6 +632,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
                 diving={diving}
                 lens={lens}
                 lensSettling={lensSettling}
+                onHoverChange={(hovered) =>
+                  setHoveredNodeId((curr) => {
+                    if (hovered) return node.id;
+                    return curr === node.id ? null : curr;
+                  })
+                }
               >
                 <WidgetTile
                   pin={node.pin}
@@ -569,6 +654,18 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
         </div>
       </DndContext>
       <LensHint engaged={lensEngaged} />
+      <UsageDensityChrome
+        enabled={densityEnabled}
+        onToggle={() => setDensityEnabled((v) => !v)}
+        window={densityWindow}
+        onWindowChange={setDensityWindow}
+        mode={densityMode}
+        onModeChange={setDensityMode}
+        animate={densityAnimate}
+        onAnimateChange={setDensityAnimate}
+        connectionsEnabled={connectionsEnabled}
+        onConnectionsToggle={() => setConnectionsEnabled((v) => !v)}
+      />
       <div className="absolute bottom-4 right-4 z-[2] flex flex-row items-center gap-2">
         <NowButton onClick={flyToWell} />
         <RecenterButton onClick={() => setCamera(DEFAULT_CAMERA)} />
@@ -673,6 +770,9 @@ interface DraggableNodeProps {
    *  transition; while the lens is steady-engaged + cursor moving, this is
    *  false so tiles track the cursor without lag. */
   lensSettling: boolean;
+  /** Optional hover callback — used by the connection-line layer to
+   *  brighten the line for the currently-hovered widget. */
+  onHoverChange?: (hovered: boolean) => void;
   children: React.ReactNode;
 }
 
@@ -683,6 +783,7 @@ function DraggableNode({
   diving,
   lens,
   lensSettling,
+  onHoverChange,
   children,
 }: DraggableNodeProps) {
   const { setNodeRef, listeners, attributes, transform } = useDraggable({
@@ -731,7 +832,14 @@ function DraggableNode({
     touchAction: "none",
   };
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
+      onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
+      {...attributes}
+      {...listeners}
+    >
       {children}
     </div>
   );

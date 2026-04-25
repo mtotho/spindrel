@@ -12,6 +12,7 @@ import { useResponsiveColumns } from "../../hooks/useResponsiveColumns";
 import { useThemeTokens } from "../../theme/tokens";
 import { useUIStore } from "../../stores/ui";
 import { usePaletteActions } from "../../stores/paletteActions";
+import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import { buildRecentHref } from "../../lib/recentPages";
 import { normalizePalettePathInput, resolvePaletteRoute } from "../../lib/paletteRoutes.js";
 import { useIsAdmin } from "../../hooks/useScope";
@@ -259,6 +260,21 @@ export function CommandPaletteContent({
         closeMobileSidebar();
         item.onSelect();
         return;
+      }
+      // Channel-pick override: when the spatial canvas is the active surface,
+      // picking a channel flies the camera instead of navigating away. The
+      // canvas registers the handler on mount and clears it on unmount.
+      if (item.href && item.href.startsWith("/channels/")) {
+        const tail = item.href.slice("/channels/".length);
+        const isPureChannelHref = tail.length > 0 && !tail.includes("/");
+        if (isPureChannelHref) {
+          const handler = usePaletteOverrides.getState().channelPick;
+          if (handler && handler(tail)) {
+            onAfterSelect?.(item);
+            closeMobileSidebar();
+            return;
+          }
+        }
       }
       if (item.href) go(item, item.href);
     },

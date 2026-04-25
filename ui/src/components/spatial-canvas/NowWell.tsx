@@ -13,7 +13,9 @@
  * sit on the same ellipses.
  */
 
+import { useNavigate } from "react-router-dom";
 import {
+  type LensTransform,
   WELL_R_MAX,
   WELL_R_MIN,
   WELL_RINGS,
@@ -30,10 +32,16 @@ interface NowWellProps {
    *  text and re-renders the well in lockstep with orbiting tiles. */
   tickedNow: number;
   zoom: number;
+  /** Shared spatial projection from the canvas lens pass. */
+  lens?: LensTransform | null;
 }
 
-export function NowWell({ tickedNow, zoom }: NowWellProps) {
+export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
+  const navigate = useNavigate();
   const showLabels = zoom >= 0.6;
+  // Hit target sized to the inner dark hole — clicking the well takes you
+  // to the task list (the "what's all this resolving into?" destination).
+  const innerR = WELL_R_MIN * 1.4;
   // SVG is sized to fit the largest ring with a small margin, centered on
   // the absolute (left, top) anchor. Negative offsets center the SVG.
   const pad = 40;
@@ -55,6 +63,10 @@ export function NowWell({ tickedNow, zoom }: NowWellProps) {
         top: WELL_Y - svgH / 2,
         width: svgW,
         height: svgH,
+        transform: lens
+          ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
+          : undefined,
+        transformOrigin: "center center",
       }}
       aria-hidden
     >
@@ -153,6 +165,22 @@ export function NowWell({ tickedNow, zoom }: NowWellProps) {
           </text>
         )}
       </svg>
+      <button
+        type="button"
+        onClick={() => navigate("/admin/tasks")}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Open task list"
+        aria-label="Open task list"
+        className="absolute rounded-full pointer-events-auto cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/50"
+        style={{
+          left: cx - innerR,
+          top: cy - innerR * WELL_Y_SQUASH,
+          width: innerR * 2,
+          height: innerR * 2 * WELL_Y_SQUASH,
+          background: "transparent",
+          border: "none",
+        }}
+      />
     </div>
   );
 }

@@ -63,6 +63,7 @@ export interface UsageLogsResponse {
 
 export interface BreakdownGroup {
   label: string;
+  key: string;
   calls: number;
   tokens: number;
   prompt_tokens: number;
