@@ -97,50 +97,6 @@ export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
             <stop offset="50%" stopColor="rgb(var(--color-purple))" stopOpacity="0.045" />
             <stop offset="100%" stopColor="rgb(var(--color-purple))" stopOpacity="0" />
           </radialGradient>
-          <radialGradient id="now-well-dust" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="rgb(var(--color-accent))" stopOpacity="0.055" />
-            <stop offset="44%" stopColor="rgb(var(--color-text-muted))" stopOpacity="0.038" />
-            <stop offset="100%" stopColor="rgb(var(--color-text-muted))" stopOpacity="0" />
-          </radialGradient>
-          <filter id="now-well-clouds" x="-30%" y="-70%" width="160%" height="240%">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.018 0.085"
-              numOctaves="4"
-              seed="23"
-              result="noise"
-            />
-            <feColorMatrix
-              in="noise"
-              type="matrix"
-              values="
-                0 0 0 0 0.95
-                0 0 0 0 0.72
-                0 0 0 0 0.55
-                0 0 0 0.18 0"
-              result="colored"
-            />
-            <feGaussianBlur in="colored" stdDeviation="2.8" result="soft" />
-            <feComposite in="soft" in2="SourceGraphic" operator="in" />
-          </filter>
-          <mask id="now-well-dust-mask">
-            <rect width={svgW} height={svgH} fill="black" />
-            <ellipse
-              cx={cx}
-              cy={cy}
-              rx={WELL_R_MIN * 3.45}
-              ry={WELL_R_MIN * 1.12}
-              fill="white"
-              transform={`rotate(-7 ${cx} ${cy})`}
-            />
-            <ellipse
-              cx={cx}
-              cy={cy}
-              rx={WELL_R_MIN * 1.28}
-              ry={WELL_R_MIN * 0.50}
-              fill="black"
-            />
-          </mask>
         </defs>
 
         {/* Outer glow — visible at far zoom without becoming a second halo system. */}
@@ -152,45 +108,27 @@ export function NowWell({ tickedNow, zoom, lens = null }: NowWellProps) {
           fill="url(#now-well-glow)"
         />
 
-        <ellipse
-          cx={cx - WELL_R_MIN * 1.55}
-          cy={cy - WELL_R_MIN * 0.52}
-          rx={WELL_R_MIN * 1.2}
-          ry={WELL_R_MIN * 0.72}
-          fill="url(#now-well-orb-violet)"
-          opacity={0.55}
-          transform={`rotate(-12 ${cx - WELL_R_MIN * 1.55} ${cy - WELL_R_MIN * 0.52})`}
-        />
-        <ellipse
-          cx={cx + WELL_R_MIN * 1.85}
-          cy={cy + WELL_R_MIN * 0.42}
-          rx={WELL_R_MIN * 1.36}
-          ry={WELL_R_MIN * 0.58}
-          fill="url(#now-well-orb-blue)"
-          opacity={0.38}
-          transform={`rotate(9 ${cx + WELL_R_MIN * 1.85} ${cy + WELL_R_MIN * 0.42})`}
-        />
-
-        <g mask="url(#now-well-dust-mask)" opacity={0.42}>
-          <ellipse
-            cx={cx}
-            cy={cy}
-            rx={WELL_R_MIN * 3.2}
-            ry={WELL_R_MIN * 0.9}
-            fill="url(#now-well-dust)"
-            transform={`rotate(-7 ${cx} ${cy})`}
-          />
-          <ellipse
-            cx={cx}
-            cy={cy}
-            rx={WELL_R_MIN * 3.25}
-            ry={WELL_R_MIN * 0.94}
-            fill="rgb(var(--color-text-muted))"
-            opacity={0.14}
-            filter="url(#now-well-clouds)"
-            transform={`rotate(-7 ${cx} ${cy})`}
-          />
-        </g>
+        {[
+          { x: -1.9, y: -0.48, rx: 1.75, ry: 0.9, fill: "url(#now-well-orb-violet)", opacity: 0.58, rot: -14 },
+          { x: 1.95, y: 0.42, rx: 1.95, ry: 0.78, fill: "url(#now-well-orb-blue)", opacity: 0.46, rot: 10 },
+          { x: -0.95, y: 0.58, rx: 1.45, ry: 0.55, fill: "url(#now-well-orb-blue)", opacity: 0.24, rot: 4 },
+          { x: 0.95, y: -0.62, rx: 1.35, ry: 0.5, fill: "url(#now-well-orb-violet)", opacity: 0.22, rot: -8 },
+        ].map((blob, i) => {
+          const bx = cx + WELL_R_MIN * blob.x;
+          const by = cy + WELL_R_MIN * blob.y;
+          return (
+            <ellipse
+              key={i}
+              cx={bx}
+              cy={by}
+              rx={WELL_R_MIN * blob.rx}
+              ry={WELL_R_MIN * blob.ry}
+              fill={blob.fill}
+              opacity={blob.opacity}
+              transform={`rotate(${blob.rot} ${bx} ${by})`}
+            />
+          );
+        })}
 
         {/* Time-band rings — squashed ellipses to fake isometric tilt. */}
         {WELL_RINGS.map((ring) => {

@@ -430,6 +430,17 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             games_block = None
         if games_block:
             prompt = "\n\n".join(part for part in [prompt.strip(), games_block] if part)
+            try:
+                from app.tools.local.dashboard_tools import _INVOKE_WIDGET_ACTION_SCHEMA
+                if injected_tools is None:
+                    injected_tools = []
+                if not any(
+                    (t.get("function") or {}).get("name") == "invoke_widget_action"
+                    for t in injected_tools
+                ):
+                    injected_tools.append(_INVOKE_WIDGET_ACTION_SCHEMA)
+            except Exception:
+                logger.exception("Heartbeat %s: failed to inject invoke_widget_action tool", hb.id)
 
         # --- Build heartbeat metadata header ---
         # NOTE: This is injected as a system_preamble right before the user message.

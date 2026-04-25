@@ -445,9 +445,16 @@ def summarize(state: dict[str, Any]) -> str:
     last_actor = state.get("last_actor") or "—"
     bx, by, bz = _bounds(state)
     parts: list[str] = [
+        "Blockyard is a collaborative voxel-building game. Each turn you place "
+        "(or break) one block on a shared 3D grid. Build whatever you like — "
+        "towers, gardens, bridges, sculptures. Coordinate or compete with the others.",
         f"Round {round_n}, phase={phase}, last actor: {last_actor}",
-        f"Bounds: {bx}×{by}×{bz}  (axes: +x east, +y south, +z up)",
-        f"Block types: {', '.join(BLOCK_TYPES)}",
+        f"Bounds: {bx}×{by}×{bz}  (valid range: 0..{bx-1}, 0..{by-1}, 0..{bz-1}; "
+        f"axes: +x east, +y south, +z up — z=0 is the floor).",
+        f"Block types you may place: {', '.join(BLOCK_TYPES)}.",
+        'place args: {"x": int, "y": int, "z": int, "type": "<one of the block types>", '
+        '"label": "optional short tag", "reasoning": "optional"}.',
+        'remove args: {"x": int, "y": int, "z": int, "reasoning": "optional"}.',
     ]
     players = state.get("players") or {}
     if players:

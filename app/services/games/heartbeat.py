@@ -113,7 +113,8 @@ async def build_active_games_block(
 
     lines: list[str] = ["[active_games]"]
     lines.append(
-        f"You are a participant in {len(pending)} spatial game(s) waiting for your move.",
+        f"⚠️ It is YOUR TURN in {len(pending)} spatial game(s). You MUST take your "
+        f"turn now by calling invoke_widget_action — do not just acknowledge this block.",
     )
     for idx, (instance, state) in enumerate(pending, 1):
         pin = pin_lookup.get(instance.id)
@@ -124,7 +125,7 @@ async def build_active_games_block(
             location = f"@ ({node.world_x:.0f}, {node.world_y:.0f})"
         else:
             location = ""
-        pin_segment = f"pin_id={pin.id}" if pin else "pin_id=<missing>"
+        pin_segment = f"dashboard_pin_id={pin.id}" if pin else "dashboard_pin_id=<missing>"
         header = f"  {idx}. {spec_label.title()} {location} {pin_segment}".rstrip()
         lines.append(header)
         digest = summarize_state_for_prompt(widget_ref, state)
@@ -132,11 +133,21 @@ async def build_active_games_block(
             lines.append(f"     {digest_line}")
         actions = available_actions_for(widget_ref, state, bot_id)
         if actions:
-            lines.append(
-                f"     Available actions: {', '.join(actions)}. "
-                f"Call invoke_widget_action(dashboard_pin_id, action, args).",
-            )
+            lines.append(f"     Available actions: {', '.join(actions)}.")
+            pin_id_text = str(pin.id) if pin else "<missing>"
+            if "place" in actions:
+                lines.append(
+                    f'     EXAMPLE: invoke_widget_action(dashboard_pin_id="{pin_id_text}", '
+                    f'action="place", args={{"x": 3, "y": 5, "z": 0, "type": "wood", '
+                    f'"label": "tower base", "reasoning": "starting a tower near center"}}).',
+                )
+                lines.append(
+                    "     Pick coordinates within bounds, choose a block type from the list, "
+                    "and CALL the tool now. Build something interesting — a wall, tower, "
+                    "tree, sculpture, gateway. Use your most recent placement as the anchor.",
+                )
     lines.append(
-        "Move thoughtfully — turns persist and the log is visible to other participants.",
+        "Take your turn now via invoke_widget_action. Do not wait, do not just describe "
+        "what you would do — actually call the tool.",
     )
     return "\n".join(lines)
