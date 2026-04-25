@@ -11,10 +11,12 @@ import {
   isUntouchedDraftSession,
   maximizeChannelChatPane,
   minimizeChannelChatPane,
+  moveChannelChatPane,
   normalizeChannelChatPaneLayout,
   normalizeChannelSessionPanels,
   removeChannelSessionPanel,
   replaceFocusedChannelChatPane,
+  restoreMiniChannelChatPane,
   restoreChannelChatPanes,
   resizeChannelChatPanes,
 } from "./channelSessionSurfaces.js";
@@ -191,6 +193,19 @@ const minimizedLayout = minimizeChannelChatPane(restoredLayout, "channel:later")
 assert.equal(minimizedLayout.miniPane?.id, "channel:later");
 assert.deepEqual(minimizedLayout.panes.map((pane) => pane.id), ["primary", "channel:old"]);
 assert.equal(minimizedLayout.maximizedPaneId, null);
+
+const restoredMiniLayout = restoreMiniChannelChatPane(minimizedLayout);
+assert.equal(restoredMiniLayout.miniPane, null);
+assert.equal(restoredMiniLayout.focusedPaneId, "channel:later");
+assert.deepEqual(restoredMiniLayout.panes.map((pane) => pane.id), ["primary", "channel:old", "channel:later"]);
+
+const movedRightLayout = moveChannelChatPane(restoredMiniLayout, "primary", "right");
+assert.deepEqual(movedRightLayout.panes.map((pane) => pane.id), ["channel:old", "primary", "channel:later"]);
+assert.equal(movedRightLayout.focusedPaneId, "channel:later");
+assert.equal(Math.round(Object.values(movedRightLayout.widths).reduce((sum, width) => sum + width, 0) * 1000), 1000);
+const movedLeftLayout = moveChannelChatPane(movedRightLayout, "channel:later", "left");
+assert.deepEqual(movedLeftLayout.panes.map((pane) => pane.id), ["channel:old", "channel:later", "primary"]);
+assert.deepEqual(moveChannelChatPane(movedLeftLayout, "channel:old", "left").panes.map((pane) => pane.id), ["channel:old", "channel:later", "primary"]);
 
 const browseGroups = buildChannelSessionPickerGroups(catalogEntries, "");
 assert.deepEqual(browseGroups.map((group) => group.id), ["previous"]);

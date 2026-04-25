@@ -11,6 +11,10 @@ export interface PaletteItem {
   lastMessageAt?: string | null;
   /** Keep searchable and recent-eligible, but omit from the empty-query browse list. */
   hideFromBrowse?: boolean;
+  /** Keep browse/recent eligible, but omit from typed search results. */
+  hideFromSearch?: boolean;
+  /** Extra searchable terms that should not be rendered as the visible label. */
+  searchText?: string;
   onSelect?: () => void;
   routeKind?: string;
 }

@@ -1,7 +1,7 @@
 """Phase F — SlackRenderer unit tests.
 
-These tests mock the shared httpx client used by the renderer
-(``integrations.slack.renderer._http``) so we can assert exactly which
+These tests mock the shared httpx client used by Slack transport
+(``integrations.slack.transport._http``) so we can assert exactly which
 Slack API methods get called for each ChannelEventKind without doing
 real HTTP. The rate limiter and render-context registry are reset
 between tests so state doesn't leak.
@@ -29,6 +29,7 @@ from app.domain.message import Message as DomainMessage
 from app.domain.payloads import (
     ApprovalRequestedPayload,
     AttachmentDeletedPayload,
+    EphemeralMessagePayload,
     MessagePayload,
     TurnEndedPayload,
     TurnStartedPayload,
@@ -38,6 +39,8 @@ from app.domain.payloads import (
 from app.integrations import renderer_registry
 from app.integrations.renderer import DeliveryReceipt
 from integrations.slack import renderer as slack_renderer_mod
+from integrations.slack import streaming as slack_streaming_mod
+from integrations.slack import transport as slack_transport_mod
 from integrations.slack.rate_limit import slack_rate_limiter
 from integrations.slack.render_context import (
     STREAM_FLUSH_INTERVAL,
@@ -73,7 +76,7 @@ def _reset_renderer_state():
 
 @pytest.fixture
 def fake_http():
-    """Replace ``slack_renderer_mod._http`` with an AsyncMock that returns
+    """Replace ``slack_transport_mod._http`` with an AsyncMock that returns
     a configurable Slack API response.
 
     Tests use ``fake_http.set_response(method, payload)`` to script the
@@ -115,7 +118,7 @@ def fake_http():
             return response
 
     fake = FakeHTTP()
-    with patch.object(slack_renderer_mod, "_http", fake):
+    with patch.object(slack_transport_mod, "_http", fake):
         yield fake
 
 
@@ -247,6 +250,23 @@ def _approval_event(
     )
 
 
+def _ephemeral_event() -> ChannelEvent:
+    msg = DomainMessage(
+        id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        role="assistant",
+        content="secret",
+        created_at=datetime.now(timezone.utc),
+        actor=ActorRef.bot("test-bot"),
+        metadata={"ephemeral": True, "recipient_user_id": "UALICE"},
+    )
+    return ChannelEvent(
+        channel_id=uuid.uuid4(),
+        kind=ChannelEventKind.EPHEMERAL_MESSAGE,
+        payload=EphemeralMessagePayload(message=msg, recipient_user_id="UALICE"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Self-registration & capability declarations
 # ---------------------------------------------------------------------------
@@ -334,7 +354,7 @@ class TestTurnStarted:
             await asyncio.sleep(10)
 
         monkeypatch.setattr(
-            slack_renderer_mod,
+            slack_streaming_mod,
             "count_pending_outbox",
             stuck_count_pending_outbox,
         )
@@ -598,17 +618,16 @@ class TestTurnEnded:
 
 
 # ---------------------------------------------------------------------------
-# NEW_MESSAGE — passive / mirror posts
+# NEW_MESSAGE routing
 # ---------------------------------------------------------------------------
 
 
-class TestNewMessage:
-    async def test_posts_assistant_message_with_attribution(self, fake_http):
+class TestNewMessageRouting:
+    async def test_routes_new_message_to_message_delivery(self, fake_http):
         fake_http.set_response({"ok": True, "ts": "1700000002.0"})
         renderer = SlackRenderer()
-        target = _slack_target("C123")
 
-        receipt = await renderer.render(_new_message_event(), target)
+        receipt = await renderer.render(_new_message_event(), _slack_target("C123"))
 
         assert receipt.success is True
         assert len(fake_http.calls) == 1
@@ -617,330 +636,44 @@ class TestNewMessage:
         assert call["body"]["channel"] == "C123"
         assert call["body"]["username"] == "Test Bot"
 
-    async def test_skips_tool_role(self, fake_http):
-        """Regression: file_ops.write returns `{"ok": true, "bytes": N}` as
-        a tool-role message. Without the role filter that raw JSON was
-        being posted to Slack as a user-visible chat message under the
-        bare Slack App name (no bot_attribution override)."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.1"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
 
-        receipt = await renderer.render(
-            _new_message_event(role="tool", content='{"ok": true, "bytes": 1181}'),
-            target,
-        )
+# ---------------------------------------------------------------------------
+# APPROVAL_REQUESTED routing
+# ---------------------------------------------------------------------------
 
-        assert receipt.success is True
-        assert receipt.skip_reason is not None
-        assert len(fake_http.calls) == 0
 
-    async def test_skips_system_role(self, fake_http):
-        fake_http.set_response({"ok": True, "ts": "1700000002.2"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        receipt = await renderer.render(
-            _new_message_event(role="system", content="[datetime] …"),
-            target,
-        )
-
-        assert receipt.skip_reason is not None
-        assert len(fake_http.calls) == 0
-
-    async def test_assistant_during_active_turn_updates_placeholder(self, fake_http):
-        """When an assistant NEW_MESSAGE arrives during an active turn,
-        the outbox updates the thinking placeholder instead of posting a
-        duplicate. TURN_ENDED handles the streaming UX; NEW_MESSAGE is
-        the sole durable delivery path."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.3"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        # Simulate an active turn with a thinking placeholder.
-        turn_id = uuid.uuid4()
-        ctx = slack_render_contexts.get_or_create(
-            "C123", str(turn_id), bot_id="test-bot"
-        )
-        ctx.thinking_ts = "1700000000.123"
-        ctx.thinking_channel = "C123"
-
-        ev = _new_message_event(
-            role="assistant",
-            content="Final answer from outbox",
-            correlation_id=turn_id,
-        )
-
-        receipt = await renderer.render(ev, target)
-
-        assert receipt.success is True
-        assert receipt.skip_reason is None
-        # Should use chat.update (not chat.postMessage) for the placeholder.
-        assert len(fake_http.calls) == 1
-        assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.update"
-        assert "Final answer" in fake_http.calls[0]["body"]["text"]
-        # Context should be cleaned up by NEW_MESSAGE.
-        assert slack_render_contexts.get("C123", str(turn_id)) is None
-
-    async def test_assistant_no_turn_context_posts_new_message(self, fake_http):
-        """When no turn context exists (TURN_ENDED failed and discarded
-        it, or process restarted), NEW_MESSAGE posts as a new message
-        via the outbox — the durable fallback."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.4"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        assert not slack_render_contexts.has_active_turn("C123")
-
-        receipt = await renderer.render(
-            _new_message_event(role="assistant", content="durable delivery"),
-            target,
-        )
+class TestApprovalRequestedRouting:
+    async def test_routes_approval_to_delivery(self, fake_http):
+        fake_http.set_response({"ok": True, "ts": "1700000003.0"})
+        with patch(
+            "integrations.slack.approval_blocks.build_suggestions",
+            return_value=[],
+        ):
+            receipt = await SlackRenderer().render(
+                _approval_event(), _slack_target("C123"),
+            )
 
         assert receipt.success is True
         assert len(fake_http.calls) == 1
         assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.postMessage"
-
-    async def test_workflow_assistant_still_posts(self, fake_http):
-        """Assistant messages published outside any active turn context
-        (e.g. from ``workflow_executor.py``) are sideband messages with
-        no TURN_ENDED to deliver them — NEW_MESSAGE must still reach
-        Slack for the workflow UI to render."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.4"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        # No render context — no active turn.
-        assert not slack_render_contexts.has_active_turn("C123")
-
-        receipt = await renderer.render(
-            _new_message_event(role="assistant", content="workflow step 1 done"),
-            target,
-        )
-
-        assert receipt.success is True
-        assert len(fake_http.calls) == 1
-
-    async def test_skips_slack_origin_user_message_echo_via_metadata(self, fake_http):
-        """Regression: user types in Slack, server pre-persists the user
-        message and publishes NEW_MESSAGE, IntegrationDispatcherTask
-        routes the event back to this renderer, which must NOT re-post
-        the user's own message into their own Slack channel as an APP
-        reply.
-
-        Primary signal: ``metadata["source"] == "slack"`` set by
-        ``integrations/slack/message_handlers.py:msg_metadata`` and
-        threaded onto the DomainMessage by ``turn_worker._persist_and_
-        publish_user_message``. The actor.id prefix is the legacy
-        fallback exercised by the next test."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.6"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        # Note: actor.id intentionally has NO ``slack:`` prefix here
-        # — we want to prove the metadata-based check is enough on
-        # its own, so a future refactor that strips integration prefixes
-        # from actor.id can't silently break echo prevention.
-        ev = _new_message_event(
-            role="user",
-            # Per the ingest contract, content is the raw user text; Slack
-            # identity lives in metadata. The echo-prevention check must
-            # hinge on metadata.source (and the actor.id fallback below) —
-            # NOT on any in-content prefix.
-            content="Test from slack",
-            actor=ActorRef.user("U06STGBF4Q0", display_name="Michael"),
-            metadata={"source": "slack", "sender_id": "slack:U06STGBF4Q0"},
-        )
-
-        receipt = await renderer.render(ev, target)
-
-        assert receipt.success is True
-        assert receipt.skip_reason is not None
-        assert "echo" in receipt.skip_reason
-        assert len(fake_http.calls) == 0
-
-    async def test_skips_slack_origin_user_message_echo_legacy_actor_prefix(
-        self, fake_http
-    ):
-        """Legacy fallback: a Slack-origin user message that lacks
-        ``metadata["source"]`` (e.g. persisted before the metadata fix
-        landed) is still caught by the ``slack:`` prefix on actor.id."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.6"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        slack_origin_actor = ActorRef.user("slack:U06STGBF4Q0", display_name="Michael")
-        ev = _new_message_event(
-            role="user",
-            content="Test from slack",
-            actor=slack_origin_actor,
-            # metadata empty — exercises the fallback path
-        )
-
-        receipt = await renderer.render(ev, target)
-
-        assert receipt.success is True
-        assert receipt.skip_reason is not None
-        assert "echo" in receipt.skip_reason
-        assert len(fake_http.calls) == 0
-
-    async def test_still_mirrors_cross_integration_user_message(self, fake_http):
-        """Cross-integration mirror: user types in the web UI in a
-        channel that's also bound to Slack. The user message must still
-        reach Slack — the echo filter only catches Slack-origin ids."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.7"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        # Web user — actor.id is a UUID string, no "slack:" prefix.
-        web_user_actor = ActorRef.user(
-            "550e8400-e29b-41d4-a716-446655440000",
-            display_name="Alice",
-        )
-        ev = _new_message_event(
-            role="user",
-            content="hi from web",
-            actor=web_user_actor,
-        )
-
-        receipt = await renderer.render(ev, target)
-
-        assert receipt.success is True
-        assert receipt.skip_reason is None
-        assert len(fake_http.calls) == 1
-        assert fake_http.calls[0]["body"]["username"] == "Alice"
-
-    async def test_user_message_never_updates_thinking_placeholder(self, fake_http):
-        """Regression: the user's NEW_MESSAGE shares correlation_id=turn_id
-        with the bot's thinking placeholder. Before this guard the user
-        message hit the placeholder-update path and chat.update'd over a
-        message already branded with bot_attribution — Slack's chat.update
-        ignores username/icon, so the user's text surfaced as the bot
-        (and the message carried an '(edited)' stamp). User messages must
-        always post fresh."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.8"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        turn_id = uuid.uuid4()
-        ctx = slack_render_contexts.get_or_create(
-            "C123", str(turn_id), bot_id="test-bot"
-        )
-        ctx.thinking_ts = "1700000000.777"
-        ctx.thinking_channel = "C123"
-
-        web_user_actor = ActorRef.user(
-            "550e8400-e29b-41d4-a716-446655440000",
-            display_name="Michael",
-        )
-        ev = _new_message_event(
-            role="user",
-            content="hey rolland, can you get_weather?",
-            actor=web_user_actor,
-            correlation_id=turn_id,
-        )
-
-        receipt = await renderer.render(ev, target)
-
-        assert receipt.success is True
-        assert len(fake_http.calls) == 1
-        call = fake_http.calls[0]
-        assert call["url"] == "https://slack.com/api/chat.postMessage"
-        assert call["body"]["username"] == "Michael"
-        # Placeholder context must survive — it's the bot's response slot
-        # and TURN_ENDED still needs it to finalize the reply.
-        assert slack_render_contexts.get("C123", str(turn_id)) is ctx
-        assert ctx.thinking_ts == "1700000000.777"
-
-    async def test_no_dedup_state_held_across_calls(self, fake_http):
-        """The renderer no longer carries a per-instance dedup LRU.
-
-        NEW_MESSAGE is now outbox-durable
-        (``ChannelEventKind.is_outbox_durable``) — the bus path
-        (``IntegrationDispatcherTask.subscribe_all``) short-circuits
-        these kinds in ``_dispatch``, so the renderer is only ever
-        invoked once per (msg_id, target) by the outbox drainer.
-        Cross-path dedup state is therefore unnecessary and the
-        ``_posted_set`` / ``_posted_order`` LRU was deleted.
-
-        This test asserts the deletion is real: a renderer instance
-        carries no dedup attributes, and rendering the same event
-        twice (the way you'd simulate a buggy double-delivery) posts
-        twice — which is the correct contract once the outbox is the
-        single delivery path."""
-        fake_http.set_response({"ok": True, "ts": "1700000002.5"})
-        renderer = SlackRenderer()
-        target = _slack_target("C123")
-
-        assert not hasattr(renderer, "_posted_set")
-        assert not hasattr(renderer, "_posted_order")
-
-        msg_id = uuid.uuid4()
-        cid = uuid.uuid4()
-        ev = _new_message_event(
-            role="user", content="hi from web", channel_id=cid, msg_id=msg_id,
-        )
-
-        r1 = await renderer.render(ev, target)
-        r2 = await renderer.render(ev, target)
-
-        assert r1.success is True
-        assert r1.skip_reason is None
-        assert r2.success is True
-        assert r2.skip_reason is None
-        # Both calls hit the API — there's no per-renderer dedup
-        # protecting against caller bugs anymore. Cross-path dedup is
-        # the outbox drainer's responsibility (via the kind check).
-        assert len(fake_http.calls) == 2
+        assert "blocks" in fake_http.calls[0]["body"]
 
 
 # ---------------------------------------------------------------------------
-# APPROVAL_REQUESTED — Block Kit posts
+# EPHEMERAL_MESSAGE routing
 # ---------------------------------------------------------------------------
 
 
-class TestApprovalRequested:
-    async def test_tool_approval_posts_block_kit(self, fake_http):
-        fake_http.set_response({"ok": True, "ts": "1700000003.0"})
-        # Stub build_suggestions so we don't depend on its real
-        # signature here.
-        with patch(
-            "app.services.approval_suggestions.build_suggestions",
-            return_value=[],
-        ):
-            renderer = SlackRenderer()
-            receipt = await renderer.render(_approval_event(), _slack_target("C123"))
+class TestEphemeralMessageRouting:
+    async def test_routes_ephemeral_to_delivery(self, fake_http):
+        fake_http.set_response({"ok": True, "message_ts": "99.1"})
+
+        receipt = await SlackRenderer().render(_ephemeral_event(), _slack_target("C123"))
 
         assert receipt.success is True
-        body = fake_http.calls[0]["body"]
-        assert "blocks" in body
-        # Three primary buttons: Allow / Approve / Deny.
-        action_blocks = [b for b in body["blocks"] if b["type"] == "actions"]
-        assert any(
-            any(el["action_id"] == "approve_tool_call" for el in b["elements"])
-            for b in action_blocks
-        )
-
-    async def test_capability_approval_uses_capability_blocks(self, fake_http):
-        fake_http.set_response({"ok": True, "ts": "1700000003.5"})
-        cap = {
-            "id": "cap-1",
-            "name": "WebSearch",
-            "description": "Search the web",
-            "tools_count": 2,
-            "skills_count": 1,
-        }
-        renderer = SlackRenderer()
-        receipt = await renderer.render(
-            _approval_event(capability=cap), _slack_target("C123"),
-        )
-
-        assert receipt.success is True
-        body = fake_http.calls[0]["body"]
-        # Capability text appears in the header section.
-        first_section = next(b for b in body["blocks"] if b["type"] == "section")
-        assert "WebSearch" in first_section["text"]["text"]
-        assert "Capability activation" in first_section["text"]["text"]
+        assert len(fake_http.calls) == 1
+        assert fake_http.calls[0]["url"] == "https://slack.com/api/chat.postEphemeral"
+        assert fake_http.calls[0]["body"]["user"] == "UALICE"
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import {
 import { TaskStatusBadge, TypeBadge, BotDot } from "@/src/components/shared/TaskConstants";
 import { useUIStore } from "@/src/stores/ui";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
 
 function fmtDatetime(iso: string | null | undefined) {
   if (!iso) return "\u2014";
@@ -423,8 +424,8 @@ function StepStatusIcon({ status }: { status: string }) {
 
 // Per-step row for the pipeline detail panel. Pulled out so each row can
 // lazy-fetch its child task and surface a real Trace link once the child
-// task's correlation_id lands — navigating to the actual trace page
-// (/admin/logs/{correlation_id}) instead of the child task detail.
+// task's correlation_id lands, then opens the shared trace inspector instead
+// of routing away from the task context.
 function PipelineStepRow({
   ss,
   stepDef,
@@ -454,15 +455,13 @@ function PipelineStepRow({
           {ss.started_at && ss.completed_at ? durationStr(ss.started_at, ss.completed_at) : ss.status}
         </span>
         {correlationId && (
-          <button
-            onClick={(e) => { e.stopPropagation(); navigate(`/admin/logs/${correlationId}`); }}
-            title="Open the LLM trace for this step"
-            className="flex items-center gap-1 text-[10px] text-accent/80 hover:text-accent
-                       px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors"
-          >
-            Trace
-            <ExternalLink size={10} />
-          </button>
+          <TraceActionButton
+            correlationId={correlationId}
+            title={label}
+            label="Trace"
+            variant="primary"
+            stopPropagation
+          />
         )}
         {childTaskId && (
           <button
@@ -538,13 +537,14 @@ function RunRow({ run }: { run: TaskDetail }) {
         </div>
         <div className="w-8 shrink-0 flex justify-end">
           {run.correlation_id && (
-            <span
-              onClick={(e) => { e.stopPropagation(); navigate(`/admin/logs/${run.correlation_id}`); }}
-              title="View trace"
+            <TraceActionButton
+              correlationId={run.correlation_id}
+              title="Task run"
+              subtitle={run.status}
+              iconOnly
+              stopPropagation
               className="flex items-center justify-center w-6 h-6 rounded-md text-text-muted hover:text-accent hover:bg-accent/10 transition-colors"
-            >
-              <ExternalLink size={11} />
-            </span>
+            />
           )}
         </div>
       </button>
@@ -586,13 +586,13 @@ function RunRow({ run }: { run: TaskDetail }) {
 
           {/* Trace link */}
           {run.correlation_id && (
-            <button
-              onClick={() => navigate(`/admin/logs/${run.correlation_id}`)}
-              className="flex flex-row items-center gap-1.5 text-[11px] text-accent bg-transparent border-none cursor-pointer hover:underline p-0"
-            >
-              <ExternalLink size={11} />
-              View full trace
-            </button>
+            <TraceActionButton
+              correlationId={run.correlation_id}
+              title="Task run"
+              subtitle={run.status}
+              label="View trace"
+              variant="primary"
+            />
           )}
         </div>
       )}
@@ -660,13 +660,13 @@ function SystemManagedOverview({ task, label }: { task: TaskDetail; label: strin
       {/* Trace link */}
       {task.correlation_id && (
         <div className="w-full border-t border-surface-border pt-4">
-          <button
-            onClick={() => navigate(`/admin/logs/${task.correlation_id}`)}
-            className="flex flex-row items-center gap-1.5 text-xs text-accent bg-transparent border-none cursor-pointer hover:underline p-0"
-          >
-            <ExternalLink size={12} />
-            View full trace
-          </button>
+          <TraceActionButton
+            correlationId={task.correlation_id}
+            title="Task run"
+            subtitle={task.status}
+            label="View trace"
+            variant="primary"
+          />
         </div>
       )}
     </div>

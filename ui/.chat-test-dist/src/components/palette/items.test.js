@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildPaletteItems } from "./catalog.js";
-import { getCollapsiblePaletteBrowseSection, shouldIncludePaletteBrowseItem } from "./search.js";
+import { getCollapsiblePaletteBrowseSection, scorePaletteSearchItems, shouldIncludePaletteBrowseItem, shouldIncludePaletteSearchItem, } from "./search.js";
 test("buildPaletteItems includes the major durable destinations and detail pages", () => {
     const items = buildPaletteItems({
         isAdmin: true,
@@ -119,4 +119,28 @@ test("palette browse collapse classifier targets noisy detail families only", ()
     assert.equal(navPolicies ? getCollapsiblePaletteBrowseSection(navPolicies) : null, null);
     assert.equal(policyDetail ? getCollapsiblePaletteBrowseSection(policyDetail) : null, "policies");
     assert.equal(traceDetail ? getCollapsiblePaletteBrowseSection(traceDetail) : null, "traces");
+});
+test("tool detail rows stay out of typed search while the tools page matches tool names", () => {
+    const items = buildPaletteItems({
+        isAdmin: true,
+        channels: [
+            { id: "channel-jellyfin", name: "jellyfin-support" },
+        ],
+        tools: [
+            { id: "tool-users", tool_name: "jellyfin_users" },
+            { id: "tool-library", tool_name: "jellyfin_library" },
+            { id: "tool-manage", tool_name: "jellyseerr_manage" },
+            { id: "tool-search", tool_name: "jellyseerr_search" },
+        ],
+    });
+    const navTools = items.find((item) => item.id === "nav-tools");
+    const toolDetails = items.filter((item) => item.id.startsWith("tool-"));
+    const searchable = items.filter(shouldIncludePaletteSearchItem);
+    const results = scorePaletteSearchItems(searchable, "jell", new Map(), 10);
+    assert.ok(navTools?.searchText?.includes("jellyfin_users"));
+    assert.equal(toolDetails.length, 4);
+    assert.deepEqual(toolDetails.map((item) => shouldIncludePaletteSearchItem(item)), [false, false, false, false]);
+    assert.equal(results[0]?.item.href, "/channels/channel-jellyfin");
+    assert.ok(results.some((result) => result.item.href === "/admin/tools"));
+    assert.equal(results.some((result) => result.item.href?.startsWith("/admin/tools/")), false);
 });

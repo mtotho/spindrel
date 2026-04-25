@@ -1369,6 +1369,76 @@ async def _consume_stream(stream) -> AsyncGenerator[dict | AccumulatedMessage, N
     yield accumulator.build()
 
 
+def _build_attempt_factories(
+    *,
+    messages: list,
+    tools_param: list | None,
+    tool_choice: str | None,
+    stream: bool,
+):
+    """Build (`_make_attempt`, `_make_no_tools`, `_make_no_images`) closures shared by
+    streaming and non-streaming `_llm_call*` paths.
+
+    `stream=True` adds `stream=True` + `stream_options` to kwargs and emits a
+    per-attempt info log on the primary `_make_attempt`. `stream=False` runs
+    post-call validation (`EmptyChoicesError`) and provider usage recording.
+    """
+
+    def _build_kwargs(p, *, include_tools: bool) -> dict:
+        kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
+        if stream:
+            kwargs["stream"] = True
+            kwargs["stream_options"] = {"include_usage": True}
+        if include_tools:
+            if p.tools is not None:
+                kwargs["tools"] = p.tools
+            if p.tool_choice is not None:
+                kwargs["tool_choice"] = p.tool_choice
+        return kwargs
+
+    def _post_call(resp, m, p):
+        if stream:
+            return resp
+        if not resp.choices:
+            raise EmptyChoicesError(
+                f"LLM returned empty choices list (model={m}, "
+                f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
+            )
+        if resp.usage:
+            from app.services.providers import record_usage
+            record_usage(p.provider_id, resp.usage.total_tokens)
+        return resp
+
+    def _make_attempt(m, pid, mp):
+        async def _attempt():
+            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp)
+            if stream:
+                logger.info(
+                    "LLM call: model=%s, provider_id=%s→%s, base_url=%s",
+                    m, pid, p.provider_id, getattr(p.client, "base_url", "?"),
+                )
+            resp = await p.client.chat.completions.create(**_build_kwargs(p, include_tools=True))
+            return _post_call(resp, m, p)
+        return _attempt
+
+    def _make_no_tools(m, pid, mp):
+        async def _attempt():
+            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=True)
+            resp = await p.client.chat.completions.create(**_build_kwargs(p, include_tools=False))
+            return _post_call(resp, m, p)
+        return _attempt
+
+    def _make_no_images(m, pid, mp):
+        async def _attempt():
+            stripped = await _strip_images_with_descriptions(messages)
+            p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
+            resp = await p.client.chat.completions.create(**_build_kwargs(p, include_tools=True))
+            return _post_call(resp, m, p)
+        return _attempt
+
+    return _make_attempt, _make_no_tools, _make_no_images
+
+
 async def _llm_call_stream(
     model: str,
     messages: list,
@@ -1388,46 +1458,12 @@ async def _llm_call_stream(
     def _on_event(ev: dict):
         event_queue.put_nowait(ev)
 
-    def _make_attempt(m, pid, mp):
-        async def _attempt():
-            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp)
-            logger.info("LLM call: model=%s, provider_id=%s→%s, base_url=%s",
-                        m, pid, p.provider_id, getattr(p.client, 'base_url', '?'))
-            kwargs: dict = dict(
-                model=p.model, messages=p.messages, stream=True,
-                stream_options={"include_usage": True}, **p.extra,
-            )
-            if p.tools is not None:
-                kwargs["tools"] = p.tools
-            if p.tool_choice is not None:
-                kwargs["tool_choice"] = p.tool_choice
-            return await p.client.chat.completions.create(**kwargs)
-        return _attempt
-
-    def _make_no_tools(m, pid, mp):
-        async def _attempt():
-            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=True)
-            kwargs: dict = dict(
-                model=p.model, messages=p.messages, stream=True,
-                stream_options={"include_usage": True}, **p.extra,
-            )
-            return await p.client.chat.completions.create(**kwargs)
-        return _attempt
-
-    def _make_no_images(m, pid, mp):
-        async def _attempt():
-            stripped = await _strip_images_with_descriptions(messages)
-            p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
-            kwargs: dict = dict(
-                model=p.model, messages=p.messages, stream=True,
-                stream_options={"include_usage": True}, **p.extra,
-            )
-            if p.tools is not None:
-                kwargs["tools"] = p.tools
-            if p.tool_choice is not None:
-                kwargs["tool_choice"] = p.tool_choice
-            return await p.client.chat.completions.create(**kwargs)
-        return _attempt
+    _make_attempt, _make_no_tools, _make_no_images = _build_attempt_factories(
+        messages=messages,
+        tools_param=tools_param,
+        tool_choice=tool_choice,
+        stream=True,
+    )
 
     # Run the retry/fallback chain in a background task so we can yield
     # events from the queue in real-time while retries are in progress.
@@ -1499,61 +1535,12 @@ async def _llm_call(
     - After all retries exhausted on primary, try each fallback in order.
     - Global fallback list is appended after the caller's list.
     """
-    from app.services.providers import record_usage
-
-    def _make_attempt(m, pid, mp):
-        async def _attempt():
-            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp)
-            kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
-            if p.tools is not None:
-                kwargs["tools"] = p.tools
-            if p.tool_choice is not None:
-                kwargs["tool_choice"] = p.tool_choice
-            resp = await p.client.chat.completions.create(**kwargs)
-            if not resp.choices:
-                raise EmptyChoicesError(
-                    f"LLM returned empty choices list (model={m}, "
-                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
-                )
-            if resp.usage:
-                record_usage(p.provider_id, resp.usage.total_tokens)
-            return resp
-        return _attempt
-
-    def _make_no_tools(m, pid, mp):
-        async def _attempt():
-            p = _prepare_call_params(m, messages, tools_param, tool_choice, pid, mp, force_no_tools=True)
-            kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
-            resp = await p.client.chat.completions.create(**kwargs)
-            if not resp.choices:
-                raise EmptyChoicesError(
-                    f"LLM returned empty choices list (model={m}, "
-                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
-                )
-            if resp.usage:
-                record_usage(p.provider_id, resp.usage.total_tokens)
-            return resp
-        return _attempt
-
-    def _make_no_images(m, pid, mp):
-        async def _attempt():
-            stripped = await _strip_images_with_descriptions(messages)
-            p = _prepare_call_params(m, stripped, tools_param, tool_choice, pid, mp)
-            kwargs: dict = dict(model=p.model, messages=p.messages, **p.extra)
-            if p.tools is not None:
-                kwargs["tools"] = p.tools
-            if p.tool_choice is not None:
-                kwargs["tool_choice"] = p.tool_choice
-            resp = await p.client.chat.completions.create(**kwargs)
-            if not resp.choices:
-                raise EmptyChoicesError(
-                    f"LLM returned empty choices list (model={m}, "
-                    f"finish_reason=n/a, id={getattr(resp, 'id', '?')})"
-                )
-            if resp.usage:
-                record_usage(p.provider_id, resp.usage.total_tokens)
-            return resp
-        return _attempt
+    _make_attempt, _make_no_tools, _make_no_images = _build_attempt_factories(
+        messages=messages,
+        tools_param=tools_param,
+        tool_choice=tool_choice,
+        stream=False,
+    )
 
     return await _run_with_fallback_chain(
         model, provider_id, model_params,

@@ -112,7 +112,7 @@ async def _handle_approve_reaction(
 async def _extract_approval_id(client, channel: str, ts: str) -> str | None:
     """Look up the approval_id embedded in an approval message's buttons.
 
-    Approval messages are posted by ``SlackRenderer._handle_approval_requested``
+    Approval messages are posted by ``SlackApprovalDelivery``
     and their action buttons carry ``value`` = either the bare approval_id
     (approve / deny buttons) or a JSON blob containing ``approval_id`` (rule
     / pin buttons). We fetch the message, scan the action blocks, and return

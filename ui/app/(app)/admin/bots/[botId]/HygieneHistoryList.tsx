@@ -1,13 +1,12 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, Clock, ExternalLink, FileText, Zap } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, FileText, Zap } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { cn } from "@/src/lib/cn";
 import {
-  ActionButton,
   SettingsGroupLabel,
   StatusBadge,
 } from "@/src/components/shared/SettingsControls";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
 import type { MemoryHygieneRun } from "@/src/api/hooks/useMemoryHygiene";
 import type { LearningHygieneRun } from "@/src/api/hooks/useLearningOverview";
 
@@ -47,7 +46,6 @@ function jobTypeClass(run: RunWithExtras): string {
 }
 
 export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[]; showBotName?: boolean }) {
-  const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -157,12 +155,10 @@ export function HygieneHistoryList({ runs, showBotName }: { runs: RunWithExtras[
                   )}
                   {run.correlation_id && (
                     <div className="mt-2">
-                      <ActionButton
-                        label="View trace"
-                        size="small"
-                        variant="secondary"
-                        icon={<ExternalLink size={11} />}
-                        onPress={() => navigate(`/admin/logs/${run.correlation_id}`)}
+                      <TraceActionButton
+                        correlationId={run.correlation_id}
+                        title={run.bot_name ? `${run.bot_name} dreaming run` : "Dreaming run"}
+                        subtitle={run.status}
                       />
                     </div>
                   )}

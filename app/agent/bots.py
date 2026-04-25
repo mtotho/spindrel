@@ -292,13 +292,15 @@ def _parse_docker_stacks_config(raw: dict) -> DockerStackConfig:
     )
 
 
-def _bot_row_to_config(row: BotRow) -> BotConfig:
-    """Convert a DB BotRow to a BotConfig dataclass."""
-    # MemoryConfig is DEPRECATED — always use defaults.
-    # DB column memory_config is ignored.
-    memory_cfg = MemoryConfig()
-    fs_raw = row.filesystem_indexes or []
-    filesystem_indexes = [
+# ===== Cluster 14 _bot_row_to_config sub-config builders =====
+# Five nested-config builders + two repetitive-field mappers shared with
+# `_bot_row_to_config`. Each consumes `row` directly and returns its sub-object;
+# `_bot_row_to_config` becomes a linear assembly that calls them in turn and
+# spreads the dict mappers into the BotConfig kwargs.
+
+
+def _build_filesystem_indexes(row: BotRow) -> list[FilesystemIndexConfig]:
+    return [
         FilesystemIndexConfig(
             root=entry["root"],
             patterns=entry.get("patterns", ["**/*.py", "**/*.md", "**/*.yaml"]),
@@ -306,18 +308,18 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
             watch=entry.get("watch", False),
             similarity_threshold=entry.get("similarity_threshold"),
         )
-        for entry in fs_raw
+        for entry in (row.filesystem_indexes or [])
     ]
+
+
+def _build_host_exec_config(row: BotRow) -> HostExecConfig:
     he_raw = row.host_exec_config or {}
-    host_exec_cfg = HostExecConfig(
+    return HostExecConfig(
         enabled=he_raw.get("enabled", False),
         dry_run=he_raw.get("dry_run", False),
         working_dirs=he_raw.get("working_dirs", []),
         commands=[
-            HostExecCommandEntry(
-                name=c["name"],
-                subcommands=c.get("subcommands", []),
-            )
+            HostExecCommandEntry(name=c["name"], subcommands=c.get("subcommands", []))
             for c in he_raw.get("commands", [])
         ],
         blocked_patterns=he_raw.get("blocked_patterns", []),
@@ -325,16 +327,18 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         timeout=he_raw.get("timeout"),
         max_output_bytes=he_raw.get("max_output_bytes"),
     )
-    fs_access_raw = row.filesystem_access or []
-    filesystem_access = [
-        FilesystemAccessEntry(
-            path=e["path"],
-            mode=e.get("mode", "read"),
-        )
-        for e in fs_access_raw
+
+
+def _build_filesystem_access(row: BotRow) -> list[FilesystemAccessEntry]:
+    return [
+        FilesystemAccessEntry(path=e["path"], mode=e.get("mode", "read"))
+        for e in (row.filesystem_access or [])
     ]
+
+
+def _build_bot_sandbox_config(row: BotRow) -> BotSandboxConfig:
     bs_raw = row.bot_sandbox or {}
-    bot_sandbox_cfg = BotSandboxConfig(
+    return BotSandboxConfig(
         enabled=bs_raw.get("enabled", False),
         unrestricted=bs_raw.get("unrestricted", False),
         image=bs_raw.get("image", "python:3.12-slim"),
@@ -344,6 +348,10 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         mounts=bs_raw.get("mounts", []),
         user=bs_raw.get("user", ""),
     )
+
+
+def _build_workspace_config(row: BotRow) -> tuple[WorkspaceConfig, dict]:
+    """Returns the WorkspaceConfig plus the raw workspace dict (kept for `_workspace_raw`)."""
     ws_raw = row.workspace or {}
     ws_docker_raw = ws_raw.get("docker", {})
     ws_host_raw = ws_raw.get("host", {})
@@ -351,7 +359,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
     # Shared workspace bots always have workspace enabled — the shared workspace
     # manages the container/root, so the bot-level toggle is irrelevant.
     _in_shared_ws = bool(getattr(row, "_sw_workspace_id", None))
-    workspace_cfg = WorkspaceConfig(
+    cfg = WorkspaceConfig(
         enabled=ws_raw.get("enabled", False) or _in_shared_ws,
         type=ws_raw.get("type", "docker"),
         bot_knowledge_auto_retrieval=ws_raw.get("bot_knowledge_auto_retrieval", True),
@@ -369,10 +377,7 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         host=WorkspaceHostConfig(
             root=ws_host_raw.get("root", ""),
             commands=[
-                HostExecCommandEntry(
-                    name=c["name"],
-                    subcommands=c.get("subcommands", []),
-                )
+                HostExecCommandEntry(name=c["name"], subcommands=c.get("subcommands", []))
                 for c in ws_host_raw.get("commands", [])
             ],
             blocked_patterns=ws_host_raw.get("blocked_patterns", []),
@@ -403,14 +408,42 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
             ],
         ),
     )
-    # Read user_id (UUID → string)
+    return cfg, ws_raw
+
+
+_HYGIENE_FIELDS = (
+    "memory_hygiene_enabled",
+    "memory_hygiene_interval_hours",
+    "memory_hygiene_prompt",
+    "memory_hygiene_only_if_active",
+    "memory_hygiene_model",
+    "memory_hygiene_model_provider_id",
+    "memory_hygiene_target_hour",
+    "memory_hygiene_extra_instructions",
+)
+
+_SKILL_REVIEW_FIELDS = (
+    "skill_review_enabled",
+    "skill_review_interval_hours",
+    "skill_review_prompt",
+    "skill_review_only_if_active",
+    "skill_review_model",
+    "skill_review_model_provider_id",
+    "skill_review_target_hour",
+    "skill_review_extra_instructions",
+)
+
+
+def _map_optional_attrs(row: BotRow, names: tuple[str, ...]) -> dict:
+    """Map a fixed set of optional row attributes via getattr-with-None default."""
+    return {name: getattr(row, name, None) for name in names}
+
+
+def _bot_row_to_config(row: BotRow) -> BotConfig:
+    """Convert a DB BotRow to a BotConfig dataclass."""
+    workspace_cfg, ws_raw = _build_workspace_config(row)
     _user_id = str(row.user_id) if getattr(row, "user_id", None) else None
-
-    # Read shared workspace membership (set by load_bots via _shared_workspace_cache)
     _sw_id = getattr(row, "_sw_workspace_id", None)
-    _sw_role = getattr(row, "_sw_role", None)
-    _sw_cwd = getattr(row, "_sw_cwd_override", None)
-
     return BotConfig(
         id=row.id,
         name=row.name,
@@ -435,12 +468,13 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         memory_knowledge_compaction_prompt=row.memory_knowledge_compaction_prompt,
         compaction_prompt_template_id=str(row.compaction_prompt_template_id) if getattr(row, "compaction_prompt_template_id", None) else None,
         audio_input=row.audio_input or "transcribe",
-        memory=memory_cfg,
-        filesystem_indexes=filesystem_indexes,
+        # MemoryConfig is DEPRECATED — DB column memory_config is ignored.
+        memory=MemoryConfig(),
+        filesystem_indexes=_build_filesystem_indexes(row),
         docker_sandbox_profiles=row.docker_sandbox_profiles or [],
         docker_stacks=_parse_docker_stacks_config(getattr(row, "docker_stacks_config", None) or {}),
-        host_exec=host_exec_cfg,
-        filesystem_access=filesystem_access,
+        host_exec=_build_host_exec_config(row),
+        filesystem_access=_build_filesystem_access(row),
         display_name=row.display_name,
         avatar_url=row.avatar_url,
         integration_config=row.integration_config or {},
@@ -451,34 +485,20 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         model_params=row.model_params or {},
         model_provider_id=row.model_provider_id,
         fallback_models=row.fallback_models or [],
-        bot_sandbox=bot_sandbox_cfg,
+        bot_sandbox=_build_bot_sandbox_config(row),
         workspace=workspace_cfg,
         user_id=_user_id,
         shared_workspace_id=str(_sw_id) if _sw_id else None,
-        shared_workspace_role=_sw_role,
+        shared_workspace_role=getattr(row, "_sw_role", None),
         context_pruning=getattr(row, "context_pruning", None),
         history_mode=row.history_mode or "file",
         memory_scheme=getattr(row, "memory_scheme", None),
-        memory_hygiene_enabled=getattr(row, "memory_hygiene_enabled", None),
-        memory_hygiene_interval_hours=getattr(row, "memory_hygiene_interval_hours", None),
-        memory_hygiene_prompt=getattr(row, "memory_hygiene_prompt", None),
-        memory_hygiene_only_if_active=getattr(row, "memory_hygiene_only_if_active", None),
-        memory_hygiene_model=getattr(row, "memory_hygiene_model", None),
-        memory_hygiene_model_provider_id=getattr(row, "memory_hygiene_model_provider_id", None),
-        memory_hygiene_target_hour=getattr(row, "memory_hygiene_target_hour", None),
-        memory_hygiene_extra_instructions=getattr(row, "memory_hygiene_extra_instructions", None),
-        skill_review_enabled=getattr(row, "skill_review_enabled", None),
-        skill_review_interval_hours=getattr(row, "skill_review_interval_hours", None),
-        skill_review_prompt=getattr(row, "skill_review_prompt", None),
-        skill_review_only_if_active=getattr(row, "skill_review_only_if_active", None),
-        skill_review_model=getattr(row, "skill_review_model", None),
-        skill_review_model_provider_id=getattr(row, "skill_review_model_provider_id", None),
-        skill_review_target_hour=getattr(row, "skill_review_target_hour", None),
-        skill_review_extra_instructions=getattr(row, "skill_review_extra_instructions", None),
+        **_map_optional_attrs(row, _HYGIENE_FIELDS),
+        **_map_optional_attrs(row, _SKILL_REVIEW_FIELDS),
         system_prompt_workspace_file=getattr(row, "system_prompt_workspace_file", False),
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         source_type=getattr(row, "source_type", "manual"),
-        shared_workspace_cwd=_sw_cwd,
+        shared_workspace_cwd=getattr(row, "_sw_cwd_override", None),
         _workspace_raw=ws_raw,
     )
 

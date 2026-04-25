@@ -1,9 +1,10 @@
 ---
 tags: [agent-server, track, ui, vision]
 status: active
-updated: 2026-04-24
+updated: 2026-04-25
 ---
 
+<!-- Latest pass (2026-04-25): usage/cost tabs refreshed, trace drilldowns promoted to shared drawer action, SettingsMeter added to shared controls. -->
 <!-- Latest pass (2026-04-24): Memory & Knowledge Dreaming tab/table cleanup completed the missed shared-control migration. See UI Polish shared-control reset. -->
 <!-- Previous pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->
 <!-- Previous pass (2026-04-23): Pass 3 — channel dashboard + settings migration + two-gear unification. -->
@@ -46,6 +47,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Admin Memory & Knowledge | ✅ first pass + Dreaming cleanup 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, file-backed in-page source inspection, and lower-chrome Dreaming/Skills tabs. The shared Dreaming bot surface is token/Tailwind-based, uses shared empty/pill/badge/action primitives, and now experiments with per-bot dual job lanes instead of a dense table while keeping maintenance amber distinct from skill review purple. |
 | Admin Machines + Integrations | ✅ migrated 2026-04-24 | `/admin/machines`, `/admin/integrations`, integration detail, and route-owned integration subcomponents now use shared control-surface primitives, Tailwind tokens, no `useThemeTokens()`, and no inline hex/RGBA in the refreshed paths. Machine-control integration detail remains summary/link-only, with Admin > Machines as the canonical lifecycle surface. |
 | Settings foundation | ✅ shipped 2026-04-24 | `/settings` is now one nested shell with role-aware index redirect; `/settings/account`, `/settings/channels`, and `/settings/bots` use shared low-chrome primitives; `/settings/system` is the admin control center with domain-first tabs, Overview domain cards, canonical-surface links per domain, and an Advanced registry fallback instead of the old generic page owning the IA. |
+| Usage & trace investigation | ✅ refreshed 2026-04-25 | `/admin/usage` stale Forecast/Limits/Alerts tabs now use shared controls, canonical meters, and low-chrome rows; trace evidence across usage, tasks, channels, workflows, dreaming, and chat actions opens the global trace inspector by default via `TraceActionButton` / `openTraceInspector`. |
 | Deeper settings tab panels | ⏳ deferred | **Pass 4c remaining candidates**: HeartbeatTab (+ HeartbeatHistoryList, HeartbeatContextPreview), PipelinesTab (+ PipelineRunLive/PreRun), HistoryTab, QuietHoursPicker. **Pass 4d**: ContextTab (dirtiest — 10 inline hex). **Pass 4e (own plan)**: ChannelWorkspaceTab, AttachmentsTab, ChannelFileBrowser/Viewer/ExplorerParts. |
 
 ## Adoption guardrails
@@ -72,6 +74,8 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 - **Active-row signal is the pill in `ui/global.css:11-13`.** Do not invent alternatives.
 - **Routine control actions are inline/ghost.** Filled accent buttons are reserved for rare final confirmation moments, not `Add`/`Edit`/`Run` rows.
 - **Flow beats row paint.** Mixed current/available catalogs must be grouped and searchable before row styling is considered complete.
+- **Trace drilldowns stay in context.** User-facing trace links should open the global trace inspector drawer first; direct `/admin/logs/:id` navigation is reserved for route/catalog/open-full-page affordances.
+- **Projected state uses one meter.** Cost, quota, capacity, and usage-risk surfaces use `SettingsMeter` before inventing local progress visuals.
 - **Dark and light are co-equal.** Neither is an afterthought.
 
 ## See Also

@@ -559,136 +559,131 @@ def strip_metadata_keys(messages: list[dict]) -> list[dict]:
     return _strip_metadata_keys(messages)
 
 
-async def persist_turn(
-    db: AsyncSession,
-    session_id: uuid.UUID,
-    bot: BotConfig,
+# ===== Cluster 15 persist_turn stage helpers =====
+# Six helpers compose the per-turn persistence pipeline: filter ephemeral/system
+# rows, build per-row metadata, insert message rows, fan out outbox enqueues
+# (channel + thread variants), link orphan attachments, and publish to the
+# in-memory bus. `persist_turn` itself is now a linear driver.
+
+
+def _filter_messages_to_persist(
     messages: list[dict],
     from_index: int,
-    correlation_id: uuid.UUID | None = None,
-    msg_metadata: dict | None = None,
-    channel_id: uuid.UUID | None = None,
-    is_heartbeat: bool = False,
-    pre_user_msg_id: uuid.UUID | None = None,
-    hide_messages: bool = False,
-    suppress_outbox: bool = False,
-) -> uuid.UUID | None:
-    """Persist new messages from a turn. Returns the first user message ID (for attachment linking).
-
-    If pre_user_msg_id is set, the first user message was already persisted
-    before the agent loop and should be skipped here. The pre-persisted ID
-    is used for attachment linking.
-    """
-    # Ephemeral system messages (datetime, memory, skills, fs_context, tool_index, etc.) are
-    # re-injected fresh on every turn — persisting them causes unbounded context growth.
+    *,
+    pre_user_msg_id: uuid.UUID | None,
+) -> list[dict]:
+    """Drop ephemeral system rows and (when the first user message is already persisted) skip it."""
     new_messages = [m for m in messages[from_index:] if m.get("role") != "system"]
-
-    # If user message was pre-persisted, skip the first user message from the list
     if pre_user_msg_id:
         _skipped = False
-        filtered = []
+        filtered: list[dict] = []
         for m in new_messages:
             if not _skipped and m.get("role") == "user":
                 _skipped = True
                 continue
             filtered.append(m)
         new_messages = filtered
+    return new_messages
 
-    roles = [m.get("role") for m in new_messages]
-    logger.info(
-        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s pre_user=%s",
-        session_id, from_index, len(messages), len(new_messages), roles,
-        pre_user_msg_id is not None,
-    )
-    now = datetime.now(timezone.utc)
-    first_user = pre_user_msg_id is None  # only track first user if not pre-persisted
+
+def _build_message_metadata(
+    msg: dict,
+    *,
+    bot: BotConfig,
+    msg_metadata: dict | None,
+    is_first_user_with_metadata: bool,
+    is_heartbeat: bool,
+    hide_messages: bool,
+) -> dict:
+    """Build the metadata dict for a single Message row."""
+    meta: dict = {}
+    if msg_metadata and msg.get("role") == "user" and is_first_user_with_metadata:
+        meta = msg_metadata
+    if msg.get("role") == "assistant" and not meta:
+        meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
+    if msg.get("_tools_used"):
+        meta = {**meta, "tools_used": msg["_tools_used"]}
+    if msg.get("_tool_envelopes"):
+        meta = {**meta, "tool_results": msg["_tool_envelopes"]}
+    if msg.get("_thinking_content"):
+        meta = {**meta, "thinking": msg["_thinking_content"]}
+    assistant_turn_body = msg.get("_assistant_turn_body")
+    if not assistant_turn_body and msg.get("_transcript_entries"):
+        assistant_turn_body = {"version": 1, "items": msg["_transcript_entries"]}
+    if assistant_turn_body:
+        meta = {**meta, "assistant_turn_body": assistant_turn_body}
+    if msg.get("_tool_record_id"):
+        meta = {**meta, "tool_record_id": msg["_tool_record_id"]}
+    if msg.get("_no_prune"):
+        meta = {**meta, "no_prune": True}
+    if msg.get("_auto_injected_skills"):
+        meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
+    if msg.get("_active_skills"):
+        meta = {**meta, "active_skills": msg["_active_skills"]}
+    if msg.get("_skills_in_context"):
+        meta = {**meta, "skills_in_context": msg["_skills_in_context"]}
+    if msg.get("_llm_status"):
+        meta = {**meta, "llm_status": msg["_llm_status"]}
+    if msg.get("_turn_error"):
+        meta = {**meta, "turn_error": True}
+        if msg.get("_turn_error_message"):
+            meta = {**meta, "turn_error_message": str(msg["_turn_error_message"])}
+    if msg.get("role") == "assistant" and msg.get("tool_calls"):
+        _delegations = []
+        for tc in msg["tool_calls"]:
+            fn = tc.get("function") or {}
+            if fn.get("name") == "delegate_to_agent":
+                try:
+                    args = json.loads(fn.get("arguments", "{}"))
+                    _delegations.append({
+                        "bot_id": args.get("bot_id"),
+                        "prompt_preview": (args.get("prompt") or "")[:200],
+                        "notify_parent": args.get("notify_parent", True),
+                    })
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        if _delegations:
+            meta = {**meta, "delegations": _delegations}
+    if is_heartbeat:
+        meta = {**meta, "is_heartbeat": True}
+    # Pipeline agent-step children: persist for session-history context but tag
+    # so the web UI filter drops them (see useChannelChat.ts).
+    if hide_messages:
+        meta = {**meta, "hidden": True, "pipeline_step": True}
+    if msg.get("_hidden"):
+        meta = {**meta, "hidden": True}
+    return meta
+
+
+def _insert_message_records(
+    db: AsyncSession,
+    *,
+    new_messages: list[dict],
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    msg_metadata: dict | None,
+    correlation_id: uuid.UUID | None,
+    is_heartbeat: bool,
+    hide_messages: bool,
+    pre_user_msg_id: uuid.UUID | None,
+    now: datetime,
+) -> tuple[list[Message], uuid.UUID | None, uuid.UUID | None]:
+    """Stage per-row Message inserts. Returns (records, first_user_msg_id, last_assistant_msg_id)."""
+    first_user_with_metadata = pre_user_msg_id is None
     first_user_msg_id: uuid.UUID | None = pre_user_msg_id
     last_assistant_msg_id: uuid.UUID | None = None
-    # Track records for per-row SSE publish after commit + attachment linking
     persisted_records: list[Message] = []
     for i, msg in enumerate(new_messages):
-        # Attach msg_metadata to the first user message in the turn
-        meta = {}
-        if msg_metadata and msg.get("role") == "user" and first_user:
-            meta = msg_metadata
-            first_user = False
-        # Auto-inject bot metadata on assistant messages
-        if msg.get("role") == "assistant" and not meta:
-            meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
-        # Carry forward tools_used from the agent loop into message metadata
-        if msg.get("_tools_used"):
-            meta = {**meta, "tools_used": msg["_tools_used"]}
-        # Carry forward per-tool envelopes (rendered output keyed by mimetype)
-        # so the web UI can show rich tool result rendering on persisted
-        # messages — not just during streaming. The list is in invocation
-        # order, matching message.tool_calls[].
-        if msg.get("_tool_envelopes"):
-            meta = {**meta, "tool_results": msg["_tool_envelopes"]}
-        # Carry forward accumulated thinking so the UI can render a collapsed
-        # ThinkingBlock on historical (page-refresh) views — not just live.
-        if msg.get("_thinking_content"):
-            meta = {**meta, "thinking": msg["_thinking_content"]}
-        # Carry forward the canonical assistant turn body for settled-chat replay.
-        assistant_turn_body = msg.get("_assistant_turn_body")
-        if not assistant_turn_body and msg.get("_transcript_entries"):
-            assistant_turn_body = {
-                "version": 1,
-                "items": msg["_transcript_entries"],
-            }
-        if assistant_turn_body:
-            meta = {**meta, "assistant_turn_body": assistant_turn_body}
-        # Carry forward tool record ID for retrieval-pointer pruning
-        if msg.get("_tool_record_id"):
-            meta = {**meta, "tool_record_id": msg["_tool_record_id"]}
-        # Carry forward sticky-tool flag (skill/runbook output never pruned)
-        if msg.get("_no_prune"):
-            meta = {**meta, "no_prune": True}
-        # Carry forward auto-injected skills for UI display on persisted messages
-        if msg.get("_auto_injected_skills"):
-            meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
-        # Carry forward skills still in context (from prior get_skill calls)
-        # for the UI skill orb on persisted messages.
-        if msg.get("_active_skills"):
-            meta = {**meta, "active_skills": msg["_active_skills"]}
-        if msg.get("_skills_in_context"):
-            meta = {**meta, "skills_in_context": msg["_skills_in_context"]}
-        # Carry forward LLM retry/fallback info for UI display on persisted messages
-        if msg.get("_llm_status"):
-            meta = {**meta, "llm_status": msg["_llm_status"]}
-        # Carry forward terminal turn failures so refreshed clients can render
-        # an explicit failed-turn row instead of a silent empty assistant turn.
-        if msg.get("_turn_error"):
-            meta = {**meta, "turn_error": True}
-            if msg.get("_turn_error_message"):
-                meta = {**meta, "turn_error_message": str(msg["_turn_error_message"])}
-        # Extract delegation info from delegate_to_agent tool calls
-        if msg.get("role") == "assistant" and msg.get("tool_calls"):
-            _delegations = []
-            for tc in msg["tool_calls"]:
-                fn = tc.get("function") or {}
-                if fn.get("name") == "delegate_to_agent":
-                    try:
-                        args = json.loads(fn.get("arguments", "{}"))
-                        _delegations.append({
-                            "bot_id": args.get("bot_id"),
-                            "prompt_preview": (args.get("prompt") or "")[:200],
-                            "notify_parent": args.get("notify_parent", True),
-                        })
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-            if _delegations:
-                meta = {**meta, "delegations": _delegations}
-        # Tag all messages in heartbeat turns so _load_messages can filter old ones
-        if is_heartbeat:
-            meta = {**meta, "is_heartbeat": True}
-        # Pipeline agent-step children: persist for session-history context,
-        # but tag so the web UI filter drops them (see useChannelChat.ts) and
-        # they don't clutter the channel next time someone refreshes. The
-        # envelope anchor is the only user-facing surface.
-        if hide_messages:
-            meta = {**meta, "hidden": True, "pipeline_step": True}
-        if msg.get("_hidden"):
-            meta = {**meta, "hidden": True}
+        meta = _build_message_metadata(
+            msg,
+            bot=bot,
+            msg_metadata=msg_metadata,
+            is_first_user_with_metadata=first_user_with_metadata,
+            is_heartbeat=is_heartbeat,
+            hide_messages=hide_messages,
+        )
+        if msg_metadata and msg.get("role") == "user" and first_user_with_metadata:
+            first_user_with_metadata = False
         record = Message(
             id=uuid.uuid4(),
             session_id=session_id,
@@ -709,185 +704,247 @@ async def persist_turn(
             first_user_msg_id = record.id
         if msg.get("role") == "assistant":
             last_assistant_msg_id = record.id
+    return persisted_records, first_user_msg_id, last_assistant_msg_id
 
-    await db.execute(
-        update(Session)
-        .where(Session.id == session_id)
-        .values(last_active=now)
+
+async def _enqueue_outbox_for_channel(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    persisted_records: list[Message],
+) -> None:
+    """Outbox enqueue for a normal channel turn — one row per (record, target) pair."""
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.message import Message as DomainMessage
+    from app.domain.payloads import MessagePayload
+    from app.services import outbox as _outbox
+    from app.services.dispatch_resolution import resolve_targets
+
+    channel_row = await db.get(Channel, channel_id)
+    if channel_row is None:
+        return
+    targets = await resolve_targets(channel_row)
+    for record in persisted_records:
+        domain_msg = DomainMessage.from_orm(record, channel_id=channel_id)
+        event = ChannelEvent(
+            channel_id=channel_id,
+            kind=ChannelEventKind.NEW_MESSAGE,
+            payload=MessagePayload(message=domain_msg),
+        )
+        await _outbox.enqueue(db, channel_id, event, targets)
+
+
+async def _enqueue_outbox_for_thread(
+    db: AsyncSession,
+    *,
+    session_id: uuid.UUID,
+    persisted_records: list[Message],
+) -> None:
+    """Outbox enqueue for a thread sub-session turn — mirrors the parent channel's targets,
+    layered with thread-specific refs from `Session.integration_thread_refs`."""
+    session_row = await db.get(Session, session_id)
+    if session_row is None or session_row.session_type != "thread":
+        return
+    from app.domain.channel_events import ChannelEvent, ChannelEventKind
+    from app.domain.message import Message as DomainMessage
+    from app.domain.payloads import MessagePayload
+    from app.services import outbox as _outbox
+    from app.services.dispatch_resolution import (
+        apply_session_thread_refs,
+        resolve_targets,
     )
+    from app.services.sub_session_bus import resolve_bus_channel_id
 
-    # Outbox enqueue (durable channel-event delivery). Resolve every
-    # dispatch target bound to the channel and insert one outbox row per
-    # (record, target) pair INSIDE the same transaction as the message
-    # inserts. The drainer (`outbox_drainer.py`) picks them up and routes
-    # them through the renderer registry. A crash between this commit and
-    # the renderer ack does not lose deliveries — the rows survive.
-    #
-    # An enqueue failure here propagates: the in-progress transaction
-    # rolls back (taking the message inserts with it) and the caller
-    # surfaces the error. We deliberately do NOT swallow — the legacy
-    # try/except let one row's outbox insert silently fail while the
-    # commit proceeded, leaving the bus subscribers with a NEW_MESSAGE
-    # for which no integration delivery was ever attempted. Atomicity
-    # is the entire point of the outbox pattern.
-    if channel_id and persisted_records and not suppress_outbox:
+    bus_ch = await resolve_bus_channel_id(db, session_id)
+    if bus_ch is None:
+        return
+    channel_row = await db.get(Channel, bus_ch)
+    if channel_row is None:
+        return
+    targets = await resolve_targets(channel_row)
+    targets = apply_session_thread_refs(session_row, targets)
+    for record in persisted_records:
+        domain_msg = DomainMessage.from_orm(record, channel_id=None)
+        event = ChannelEvent(
+            channel_id=bus_ch,
+            kind=ChannelEventKind.NEW_MESSAGE,
+            payload=MessagePayload(message=domain_msg),
+        )
+        await _outbox.enqueue(db, bus_ch, event, targets)
+
+
+async def _link_orphan_attachments(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    first_user_msg_id: uuid.UUID | None,
+    last_assistant_msg_id: uuid.UUID | None,
+) -> None:
+    """Link unattached attachments to user/assistant messages from this turn.
+
+    User uploads (`posted_by IS NULL`) → first user message.
+    Bot/tool-created (`posted_by IS NOT NULL`, e.g. `send_file`) → last assistant message.
+    Commits its own update.
+    """
+    try:
+        from app.db.models import Attachment
+        linked_count = 0
+        if first_user_msg_id:
+            res = await db.execute(
+                update(Attachment)
+                .where(
+                    Attachment.channel_id == channel_id,
+                    Attachment.message_id.is_(None),
+                    Attachment.posted_by.is_(None),
+                )
+                .values(message_id=first_user_msg_id)
+            )
+            linked_count += res.rowcount
+        if last_assistant_msg_id:
+            res = await db.execute(
+                update(Attachment)
+                .where(
+                    Attachment.channel_id == channel_id,
+                    Attachment.message_id.is_(None),
+                    Attachment.posted_by.isnot(None),
+                )
+                .values(message_id=last_assistant_msg_id)
+            )
+            linked_count += res.rowcount
+        if linked_count:
+            await db.commit()
+            logger.info(
+                "Linked %d orphan attachment(s) in channel %s (user_msg=%s, asst_msg=%s)",
+                linked_count, channel_id, first_user_msg_id, last_assistant_msg_id,
+            )
+        else:
+            logger.debug(
+                "No orphan attachments to link in channel %s (user_msg=%s, asst_msg=%s)",
+                channel_id, first_user_msg_id, last_assistant_msg_id,
+            )
+    except Exception:
+        logger.exception(
+            "Failed to link orphan attachments in channel %s (user_msg=%s, asst_msg=%s)",
+            channel_id, first_user_msg_id, last_assistant_msg_id,
+        )
+
+
+async def _publish_persisted_messages_to_bus(
+    db: AsyncSession,
+    *,
+    bus_channel: uuid.UUID,
+    persisted_records: list[Message],
+) -> None:
+    """Re-read persisted rows with attachments eagerly loaded and publish each to the in-memory bus."""
+    try:
         from app.domain.channel_events import ChannelEvent, ChannelEventKind
         from app.domain.message import Message as DomainMessage
         from app.domain.payloads import MessagePayload
-        from app.services import outbox as _outbox
-        from app.services.dispatch_resolution import resolve_targets
+        from app.services.outbox_publish import publish_to_bus
 
-        channel_row = await db.get(Channel, channel_id)
-        if channel_row is not None:
-            targets = await resolve_targets(channel_row)
-            for record in persisted_records:
-                domain_msg = DomainMessage.from_orm(
-                    record, channel_id=channel_id
-                )
+        record_ids = [r.id for r in persisted_records]
+        fresh_rows = (await db.execute(
+            select(Message)
+            .options(selectinload(Message.attachments))
+            .where(Message.id.in_(record_ids))
+            .order_by(Message.created_at)
+        )).scalars().all()
+        for row in fresh_rows:
+            try:
+                domain_msg = DomainMessage.from_orm(row, channel_id=bus_channel)
                 event = ChannelEvent(
-                    channel_id=channel_id,
+                    channel_id=bus_channel,
                     kind=ChannelEventKind.NEW_MESSAGE,
                     payload=MessagePayload(message=domain_msg),
                 )
-                await _outbox.enqueue(db, channel_id, event, targets)
+                publish_to_bus(bus_channel, event)
+            except Exception:
+                logger.warning(
+                    "Failed to publish persisted message %s for channel %s",
+                    row.id, bus_channel, exc_info=True,
+                )
+    except Exception:
+        logger.exception("Failed publish loop for channel %s", bus_channel)
 
-    # Thread sub-sessions live as ``channel_id IS NULL`` rows but mirror
-    # their parent channel's integrations (with Session.integration_thread_refs
-    # swapping in thread-specific target fields). ``suppress_outbox`` is
-    # True for thread turns because the bus-level session_id tagging logic
-    # in turn_worker is gated on the same flag — we still want the outbox
-    # fanout though, so the decision here is intentionally independent.
-    #
-    # Enqueue inline, pre-commit: message inserts and outbox rows land in
-    # the same transaction, matching the channel branch's atomicity. A
-    # failure here rolls back the whole turn so we never end up with a
-    # persisted assistant message that has no delivery row.
-    if channel_id is None and persisted_records:
-        session_row = await db.get(Session, session_id)
-        if session_row is not None and session_row.session_type == "thread":
-            from app.domain.channel_events import ChannelEvent, ChannelEventKind
-            from app.domain.message import Message as DomainMessage
-            from app.domain.payloads import MessagePayload
-            from app.services import outbox as _outbox
-            from app.services.dispatch_resolution import (
-                apply_session_thread_refs,
-                resolve_targets,
-            )
-            from app.services.sub_session_bus import resolve_bus_channel_id
 
-            bus_ch = await resolve_bus_channel_id(db, session_id)
-            if bus_ch is not None:
-                channel_row = await db.get(Channel, bus_ch)
-                if channel_row is not None:
-                    targets = await resolve_targets(channel_row)
-                    targets = apply_session_thread_refs(session_row, targets)
-                    for record in persisted_records:
-                        domain_msg = DomainMessage.from_orm(
-                            record, channel_id=None,
-                        )
-                        event = ChannelEvent(
-                            channel_id=bus_ch,
-                            kind=ChannelEventKind.NEW_MESSAGE,
-                            payload=MessagePayload(message=domain_msg),
-                        )
-                        await _outbox.enqueue(db, bus_ch, event, targets)
+async def persist_turn(
+    db: AsyncSession,
+    session_id: uuid.UUID,
+    bot: BotConfig,
+    messages: list[dict],
+    from_index: int,
+    correlation_id: uuid.UUID | None = None,
+    msg_metadata: dict | None = None,
+    channel_id: uuid.UUID | None = None,
+    is_heartbeat: bool = False,
+    pre_user_msg_id: uuid.UUID | None = None,
+    hide_messages: bool = False,
+    suppress_outbox: bool = False,
+) -> uuid.UUID | None:
+    """Persist new messages from a turn. Returns the first user message ID (for attachment linking).
+
+    If pre_user_msg_id is set, the first user message was already persisted
+    before the agent loop and should be skipped here. The pre-persisted ID
+    is used for attachment linking.
+
+    Outbox enqueues happen INSIDE the same transaction as the message inserts so
+    a crash between commit and renderer ack does not lose deliveries — atomicity
+    is the entire point of the outbox pattern. We deliberately do NOT swallow:
+    a failure rolls back the message inserts too. Bus publish is best-effort
+    post-commit (logged on failure) so SSE subscribers do not block durability.
+    """
+    new_messages = _filter_messages_to_persist(messages, from_index, pre_user_msg_id=pre_user_msg_id)
+    logger.info(
+        "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s pre_user=%s",
+        session_id, from_index, len(messages), len(new_messages),
+        [m.get("role") for m in new_messages], pre_user_msg_id is not None,
+    )
+
+    now = datetime.now(timezone.utc)
+    persisted_records, first_user_msg_id, last_assistant_msg_id = _insert_message_records(
+        db,
+        new_messages=new_messages,
+        session_id=session_id,
+        bot=bot,
+        msg_metadata=msg_metadata,
+        correlation_id=correlation_id,
+        is_heartbeat=is_heartbeat,
+        hide_messages=hide_messages,
+        pre_user_msg_id=pre_user_msg_id,
+        now=now,
+    )
+
+    await db.execute(update(Session).where(Session.id == session_id).values(last_active=now))
+
+    if channel_id and persisted_records and not suppress_outbox:
+        await _enqueue_outbox_for_channel(db, channel_id=channel_id, persisted_records=persisted_records)
+    elif channel_id is None and persisted_records:
+        # Thread sub-sessions live as channel_id IS NULL rows but mirror their parent channel's
+        # integrations. `suppress_outbox` is independent here — bus-level session_id tagging is
+        # gated separately in turn_worker; we still want the outbox fanout.
+        await _enqueue_outbox_for_thread(db, session_id=session_id, persisted_records=persisted_records)
 
     await db.commit()
 
-    # Link orphaned attachments to the correct message in this turn.
-    # User-uploaded attachments (posted_by IS NULL) → first user message.
-    # Bot/tool-created attachments (posted_by IS NOT NULL, e.g. send_file) → last assistant message.
     if channel_id:
-        try:
-            from app.db.models import Attachment
-            linked_count = 0
-            if first_user_msg_id:
-                res = await db.execute(
-                    update(Attachment)
-                    .where(
-                        Attachment.channel_id == channel_id,
-                        Attachment.message_id.is_(None),
-                        Attachment.posted_by.is_(None),
-                    )
-                    .values(message_id=first_user_msg_id)
-                )
-                linked_count += res.rowcount
-            if last_assistant_msg_id:
-                res = await db.execute(
-                    update(Attachment)
-                    .where(
-                        Attachment.channel_id == channel_id,
-                        Attachment.message_id.is_(None),
-                        Attachment.posted_by.isnot(None),
-                    )
-                    .values(message_id=last_assistant_msg_id)
-                )
-                linked_count += res.rowcount
-            if linked_count:
-                await db.commit()
-                logger.info(
-                    "Linked %d orphan attachment(s) in channel %s (user_msg=%s, asst_msg=%s)",
-                    linked_count, channel_id, first_user_msg_id, last_assistant_msg_id,
-                )
-            else:
-                logger.debug(
-                    "No orphan attachments to link in channel %s (user_msg=%s, asst_msg=%s)",
-                    channel_id, first_user_msg_id, last_assistant_msg_id,
-                )
-        except Exception:
-            logger.exception(
-                "Failed to link orphan attachments in channel %s (user_msg=%s, asst_msg=%s)",
-                channel_id, first_user_msg_id, last_assistant_msg_id,
-            )
+        await _link_orphan_attachments(
+            db,
+            channel_id=channel_id,
+            first_user_msg_id=first_user_msg_id,
+            last_assistant_msg_id=last_assistant_msg_id,
+        )
 
-    # Publish each persisted row to the in-memory channel-events bus so
-    # SSE subscribers (web UI tabs) receive the typed NEW_MESSAGE event
-    # without waiting for the drainer. Attachments are eagerly loaded so
-    # the payload is complete. Outbox delivery to integrations runs in
-    # parallel via the drainer (rows enqueued above).
-    #
-    # Sub-session runs (channel_id is None but the Session walks up to a
-    # parent channel) resolve the parent channel and publish there — this
-    # is how the run-view modal receives live events. The bus event's
-    # payload carries the sub-session's session_id so parent-channel UI
-    # subscribers can filter it out and the modal can filter it in.
-    _bus_channel = channel_id
-    if _bus_channel is None and persisted_records:
+    # Publish each persisted row to the in-memory channel-events bus so SSE
+    # subscribers (web UI tabs) receive the typed NEW_MESSAGE event without
+    # waiting for the drainer. Sub-session runs (channel_id is None but the
+    # Session walks up to a parent channel) resolve the parent channel and
+    # publish there — this is how the run-view modal receives live events.
+    bus_channel = channel_id
+    if bus_channel is None and persisted_records:
         from app.services.sub_session_bus import resolve_bus_channel_id
-        _bus_channel = await resolve_bus_channel_id(db, session_id)
-
-    if _bus_channel and persisted_records:
-        try:
-            from app.domain.channel_events import ChannelEvent, ChannelEventKind
-            from app.domain.message import Message as DomainMessage
-            from app.domain.payloads import MessagePayload
-            from app.services.outbox_publish import publish_to_bus
-
-            record_ids = [r.id for r in persisted_records]
-            fresh_rows = (await db.execute(
-                select(Message)
-                .options(selectinload(Message.attachments))
-                .where(Message.id.in_(record_ids))
-                .order_by(Message.created_at)
-            )).scalars().all()
-            for row in fresh_rows:
-                try:
-                    domain_msg = DomainMessage.from_orm(row, channel_id=_bus_channel)
-                    event = ChannelEvent(
-                        channel_id=_bus_channel,
-                        kind=ChannelEventKind.NEW_MESSAGE,
-                        payload=MessagePayload(message=domain_msg),
-                    )
-                    publish_to_bus(_bus_channel, event)
-                except Exception:
-                    logger.warning(
-                        "Failed to publish persisted message %s for channel %s",
-                        row.id, _bus_channel, exc_info=True,
-                    )
-        except Exception:
-            logger.exception(
-                "Failed publish loop for channel %s", _bus_channel,
-            )
+        bus_channel = await resolve_bus_channel_id(db, session_id)
+    if bus_channel and persisted_records:
+        await _publish_persisted_messages_to_bus(db, bus_channel=bus_channel, persisted_records=persisted_records)
 
     return first_user_msg_id
 

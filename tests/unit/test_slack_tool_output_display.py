@@ -2,8 +2,8 @@
 
 Covers:
 - ``_badges_to_context_block`` — pure Block Kit formatting, no I/O.
-- ``_handle_new_message`` rendering behavior for each mode
-  (``compact``, ``full``, ``none``) with ``_resolve_tool_output_display``
+- ``SlackMessageDelivery`` rendering behavior for each mode
+  (``compact``, ``full``, ``none``) with ``resolve_tool_output_display``
   patched so we don't need a real DB.
 """
 from __future__ import annotations
@@ -19,14 +19,15 @@ from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.message import Message as DomainMessage
 from app.domain.payloads import MessagePayload
 from integrations.sdk import ToolBadge
-from integrations.slack import renderer as slack_renderer_mod
+from integrations.slack import transport as slack_transport_mod
+from integrations.slack.message_delivery import SlackMessageDelivery
 from integrations.slack.rate_limit import slack_rate_limiter
 from integrations.slack.render_context import slack_render_contexts
-from integrations.slack.renderer import (
-    SlackRenderer,
-    _badges_to_context_block,
-)
+from integrations.slack.renderer import SlackRenderer
 from integrations.slack.target import SlackTarget
+from integrations.slack.tool_result_adapter import (
+    badges_to_context_block as _badges_to_context_block,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +86,7 @@ class TestBadgesToContextBlock:
 
 
 # ---------------------------------------------------------------------------
-# _handle_new_message — mode branching
+# SlackMessageDelivery — mode branching
 # ---------------------------------------------------------------------------
 
 
@@ -93,19 +94,9 @@ class TestBadgesToContextBlock:
 def _reset_renderer_state():
     slack_render_contexts.reset()
     slack_rate_limiter.reset()
-    slack_renderer_mod._register()
     yield
     slack_render_contexts.reset()
     slack_rate_limiter.reset()
-
-
-@pytest.fixture(autouse=True)
-def _mock_bot_attribution():
-    with patch(
-        "integrations.slack.renderer.bot_attribution",
-        return_value={"username": "Test Bot", "icon_emoji": ":robot:"},
-    ):
-        yield
 
 
 @pytest.fixture
@@ -124,7 +115,7 @@ def fake_http():
             return response
 
     fake = FakeHTTP()
-    with patch.object(slack_renderer_mod, "_http", fake):
+    with patch.object(slack_transport_mod, "_http", fake):
         yield fake
 
 
@@ -181,13 +172,24 @@ def _target() -> SlackTarget:
     return SlackTarget(channel_id="C123", token="xoxb-test")
 
 
+def _delivery() -> SlackMessageDelivery:
+    return SlackMessageDelivery(
+        call_slack=slack_transport_mod.call_slack,
+        bot_attribution=lambda _bot_id: {
+            "username": "Test Bot",
+            "icon_emoji": ":robot:",
+        },
+        tool_result_rendering=SlackRenderer.tool_result_rendering,
+    )
+
+
 async def _render(mode: str, fake_http, metadata: dict) -> list[dict]:
     """Render one NEW_MESSAGE and return the list of chat.postMessage bodies."""
     with patch(
-        "integrations.slack.renderer._resolve_tool_output_display",
+        "integrations.slack.message_delivery.resolve_tool_output_display",
         AsyncMock(return_value=mode),
     ):
-        receipt = await SlackRenderer().render(_message_event(metadata), _target())
+        receipt = await _delivery().render(_message_event(metadata), _target())
     assert receipt.ok, f"delivery failed: {receipt}"
     return [
         call["body"]
@@ -303,10 +305,10 @@ class TestRendererBranching:
             ),
         )
         with patch(
-            "integrations.slack.renderer._resolve_tool_output_display",
+            "integrations.slack.message_delivery.resolve_tool_output_display",
             AsyncMock(return_value="compact"),
         ):
-            receipt = await SlackRenderer().render(evt, _target())
+            receipt = await _delivery().render(evt, _target())
         assert receipt.ok
         posts = [c["body"] for c in fake_http.calls if c["url"].endswith("chat.postMessage")]
         assert len(posts) == 1

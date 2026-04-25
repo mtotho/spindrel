@@ -608,6 +608,86 @@ CORE_FEATURE_SPECS: list[ScreenshotSpec] = [
         ],
         output="kb-detail.png",
     ),
+    # chat-delegation — feeds `docs/guides/delegation.md`. Routes to the
+    # dedicated ``screenshot:chat-delegation`` channel which carries one
+    # seeded turn driven via ``client.seed_turn`` before capture: user asks
+    # Orion to delegate, Orion calls ``delegate_to_agent`` and the persisted
+    # assistant message renders the DelegationCard ("Delegated to vega").
+    # Predicate gates on the card's literal text — ``MessageBubble`` only
+    # mounts the card when ``metadata.delegations`` is non-empty, which the
+    # backend only populates when ``delegate_to_agent`` was actually invoked
+    # (see ``app/services/sessions.py``). No need to gate on the loading
+    # state here because the message is already persisted at capture time.
+    ScreenshotSpec(
+        name="chat-delegation",
+        route="/channels/{chat_delegation}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Delegated to/.test(document.body.innerText)'
+            ' && /DELEGATE TO AGENT/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-delegation.png",
+    ),
+    # chat-command-execution — feeds `docs/guides/command-execution.md`. The
+    # seed_turn prompt asks the bot to run a small `python -c` snippet via
+    # ``exec_command`` and quote the raw stdout in a fenced code block, so
+    # the hero shows tool badge + short explanation + the actual shell-output
+    # block. Predicate gates on the EXEC COMMAND badge plus the literal
+    # "Linux" string from the seeded stdout — uniquely present only after
+    # the agent loop ran the command and persisted its result.
+    # chat-plan-card — feeds `docs/guides/plan-mode.md` (or whichever guide
+    # in the planning area picks up this hero next). The seed helper flips
+    # the channel's session into plan mode before sending so ``publish_plan``
+    # is accepted; the bot publishes a 4-step Postgres-backup plan and the
+    # SessionPlanCard renders inline above the assistant text. Predicate
+    # gates on the plan title + the PLANNING status pill.
+    ScreenshotSpec(
+        name="chat-plan-card",
+        route="/channels/{chat_plan}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/Postgres backup pipeline/i.test(document.body.innerText)'
+            ' && /\\bPLANNING\\b/.test(document.body.innerText)'
+            ' && /Approve\\s*&\\s*Execute/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-plan-card.png",
+    ),
+    ScreenshotSpec(
+        name="chat-command-execution",
+        route="/channels/{chat_cmd_exec}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/EXEC COMMAND/i.test(document.body.innerText)'
+            ' && /Linux/.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-command-execution.png",
+    ),
+    # chat-subagents — feeds `docs/guides/subagents.md`. Bot calls
+    # ``spawn_subagents`` with two preset-driven children (summarizer +
+    # researcher); after the tool returns, the parent emits a one-sentence
+    # synthesis. The seed helper passes ``wait_subagents=True`` so subagent
+    # turns (which inline-render WEB SEARCH rows on the parent channel
+    # while running) finish painting before capture. Predicate gates on
+    # the SPAWN SUBAGENTS badge plus the synthesis substring, both of
+    # which only exist after the parent turn fully resolved.
+    ScreenshotSpec(
+        name="chat-subagents",
+        route="/channels/{chat_subagents}",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=(
+            '/SPAWN SUBAGENTS/i.test(document.body.innerText)'
+            ' && /(HNSW|vector\\s+search)/i.test(document.body.innerText)'
+            ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+        ),
+        output="chat-subagents.png",
+    ),
 ]
 
 

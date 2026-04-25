@@ -66,7 +66,7 @@ test("EditPinDrawer keeps its hooks above the open-state early return", () => {
 });
 test("channel settings form hydrates header strip shell from saved settings", () => {
     const channelSettings = readFileSync(resolve(process.cwd(), "app/(app)/channels/[channelId]/settings.tsx"), "utf8");
-    assert.match(channelSettings, /header_backdrop_mode:\s*settings\.header_backdrop_mode\s*\?\?\s*"default"/);
+    assert.match(channelSettings, /header_backdrop_mode:\s*settings\.header_backdrop_mode\s*\?\?\s*"glass"/);
 });
 test("machine-control rich-result views are extracted into dedicated renderer files", () => {
     const richToolResult = readChatFile("RichToolResult.tsx");

@@ -94,3 +94,6 @@ site/
 
 # Quickstart video output (derived artifact — storyboard is the source of truth)
 docs/videos/
+
+# Local throwaway prototypes / experiments
+scratch/

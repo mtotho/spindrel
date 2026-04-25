@@ -1,12 +1,13 @@
 import { Spinner } from "@/src/components/shared/Spinner";
 import { useState, useMemo } from "react";
 
-import { ChevronDown, ChevronRight, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { type ThemeTokens } from "@/src/theme/tokens";
 import { useWorkflowRunTasks } from "@/src/api/hooks/useWorkflows";
 import { TaskStatusBadge, TypeBadge, displayTitle } from "@/src/components/shared/TaskConstants";
 import { formatStepDuration } from "./WorkflowRunHelpers";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 // ---------------------------------------------------------------------------
 // WorkflowRunTasks — collapsible panel showing tasks spawned by a workflow run
@@ -68,53 +69,59 @@ export default function WorkflowRunTasks({ runId, steps, t }: {
             tasks.map((task) => {
               const duration = formatStepDuration(task.run_at || task.created_at, task.completed_at);
               const step = stepLabel(task.workflow_step_index);
-              // Prefer trace view (logs) when available; fall back to task editor
-              const href = task.correlation_id
-                ? `/admin/logs/${task.correlation_id}`
-                : `/admin/tasks/${task.id}`;
-              return (
-                <Link key={task.id} to={href}>
-                  <div
-                    onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceRaised; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                    style={{
-                      display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
-                      padding: "8px 14px",
-                      borderBottom: `1px solid ${t.surfaceBorder}`,
-                      cursor: "pointer", transition: "background 0.1s",
-                    }}
-                  >
-                    {/* Step label */}
-                    {step && (
-                      <span style={{
-                        fontSize: 11, fontWeight: 600, color: t.accent,
-                        fontFamily: "monospace", flexShrink: 0,
-                      }}>
-                        {step}
-                      </span>
-                    )}
-                    {/* Title */}
+              const row = (
+                <div
+                  onMouseEnter={(e) => { e.currentTarget.style.background = t.surfaceRaised; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  style={{
+                    display: "flex", flexDirection: "row", alignItems: "center", gap: 10,
+                    padding: "8px 14px",
+                    borderBottom: `1px solid ${t.surfaceBorder}`,
+                    cursor: "pointer", transition: "background 0.1s",
+                  }}
+                >
+                  {/* Step label */}
+                  {step && (
                     <span style={{
-                      fontSize: 12, color: t.text, flex: 1, minWidth: 0,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      fontSize: 11, fontWeight: 600, color: t.accent,
+                      fontFamily: "monospace", flexShrink: 0,
                     }}>
-                      {displayTitle(task)}
+                      {step}
                     </span>
-                    {/* Status */}
-                    <TaskStatusBadge status={task.status} />
-                    {/* Type */}
-                    {task.task_type && <TypeBadge type={task.task_type} />}
-                    {/* Trace indicator */}
-                    {task.correlation_id && (
-                      <FileText size={10} color={t.textDim} style={{ flexShrink: 0 }} />
-                    )}
-                    {/* Duration */}
-                    {duration && (
-                      <span style={{ fontSize: 10, color: t.textDim, flexShrink: 0 }}>
-                        {duration}
-                      </span>
-                    )}
-                  </div>
+                  )}
+                  {/* Title */}
+                  <span style={{
+                    fontSize: 12, color: t.text, flex: 1, minWidth: 0,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {displayTitle(task)}
+                  </span>
+                  <TaskStatusBadge status={task.status} />
+                  {task.task_type && <TypeBadge type={task.task_type} />}
+                  <span style={{ fontSize: 11, color: t.textDim, flexShrink: 0 }}>
+                    {duration}
+                  </span>
+                </div>
+              );
+              if (task.correlation_id) {
+                return (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => openTraceInspector({
+                      correlationId: task.correlation_id!,
+                      title: displayTitle(task),
+                      subtitle: task.bot_id,
+                    })}
+                    className="block w-full bg-transparent p-0 text-left"
+                  >
+                    {row}
+                  </button>
+                );
+              }
+              return (
+                <Link key={task.id} to={`/admin/tasks/${task.id}`}>
+                  {row}
                 </Link>
               );
             })

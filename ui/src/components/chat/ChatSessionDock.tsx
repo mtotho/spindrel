@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, X } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 
 interface ChatSessionDockProps {
@@ -9,6 +9,9 @@ interface ChatSessionDockProps {
   expanded: boolean;
   onExpandedChange: (next: boolean) => void;
   title: string;
+  collapsedTitle?: string;
+  collapsedSubtitle?: string | null;
+  onCloseCollapsed?: () => void;
   children: React.ReactNode;
   /** When provided, the dock has no FAB lifecycle — dismissal (scrim
    *  click, Escape, mobile swipe-down) calls onDismiss instead of
@@ -90,6 +93,9 @@ export function ChatSessionDock({
   expanded,
   onExpandedChange,
   title,
+  collapsedTitle,
+  collapsedSubtitle,
+  onCloseCollapsed,
   children,
   onDismiss,
   storageKey,
@@ -239,14 +245,41 @@ export function ChatSessionDock({
     // clickable without the FAB intercepting. When a drawer opens, its scrim
     // visually dims the FAB too; when no drawer is open, the FAB is still the
     // top-most button in the bottom-right region.
+    if (collapsedTitle) {
+      return (
+        <div className="fixed bottom-4 right-4 z-[30] flex max-w-[min(360px,calc(100vw-32px))] items-center gap-1 rounded-md border border-surface-border bg-surface-raised p-1 text-text shadow-[0_4px_16px_rgba(0,0,0,0.28)]">
+          <button
+            onClick={() => onExpandedChange(true)}
+            aria-label={`Open ${title}`}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left transition-colors hover:bg-surface-overlay active:scale-[0.99]"
+          >
+            <MessageSquare size={15} className="shrink-0" />
+            <span className="min-w-0">
+              <span className="block truncate text-[12px] font-semibold">{collapsedTitle}</span>
+              {collapsedSubtitle && (
+                <span className="block truncate text-[10px] text-text-dim">{collapsedSubtitle}</span>
+              )}
+            </span>
+          </button>
+          {onCloseCollapsed && (
+            <button
+              type="button"
+              aria-label={`Close ${title}`}
+              title="Close mini chat"
+              onClick={onCloseCollapsed}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-text-dim hover:bg-surface-overlay hover:text-text"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      );
+    }
     return (
       <button
         onClick={() => onExpandedChange(true)}
         aria-label={`Open ${title}`}
-        className="fixed bottom-4 right-4 z-[30] w-12 h-12 rounded-full
-                   bg-accent text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)]
-                   flex items-center justify-center
-                   hover:brightness-110 active:scale-95 transition-all"
+        className="fixed bottom-4 right-4 z-[30] w-12 h-12 rounded-full bg-accent text-white shadow-[0_4px_16px_rgba(0,0,0,0.35)] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all"
       >
         <MessageSquare size={18} />
       </button>

@@ -163,6 +163,115 @@ def _build_docker_run_args(
     return args
 
 
+# ===== Cluster 13 sandbox exec helpers =====
+# Shared building blocks for `SandboxService.exec` and `SandboxService.exec_bot_local`.
+# Both invoke `docker exec` with identical env injection (server URL + per-bot API
+# key + scoped secrets) and identical subprocess + timeout + truncation handling;
+# only the bot-id source and the optional `--user` flag differ.
+
+
+async def _build_docker_exec_args(
+    *,
+    bot_id: str,
+    user: str | None = None,
+) -> list[str]:
+    """Build the leading `docker exec` argv (env-injection only).
+
+    Callers append `[container_id, "sh", "-c", command]` to the returned list.
+    Best-effort secret/API-key lookups swallow exceptions to match prior behavior:
+    a missing or broken secret store must not block command execution.
+    """
+    args: list[str] = ["docker", "exec", "-i"]
+    if user:
+        args += ["--user", user]
+    args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
+    try:
+        from app.services.api_keys import get_bot_api_key_value
+        async with async_session() as _db:
+            _bot_key = await get_bot_api_key_value(_db, bot_id)
+        if _bot_key:
+            args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
+    except Exception:
+        pass
+    try:
+        from app.services.secret_values import get_env_dict as _get_secret_env
+        from app.agent.context import current_allowed_secrets
+        _all_secrets = _get_secret_env()
+        _allowed = current_allowed_secrets.get(None)
+        _secrets_to_inject = (
+            {k: v for k, v in _all_secrets.items() if k in _allowed}
+            if _allowed is not None else _all_secrets
+        )
+        for _sk, _sv in _secrets_to_inject.items():
+            if _ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
+                args += ["-e", f"{_sk}={_sv}"]
+    except Exception:
+        pass
+    return args
+
+
+async def _run_docker_exec(
+    exec_args: list[str],
+    *,
+    timeout_secs: int,
+    max_bytes: int,
+    start_ts: float,
+) -> ExecResult:
+    """Run a prepared `docker exec` argv, applying timeout + output truncation.
+
+    Returns a timeout-shaped `ExecResult` on `asyncio.TimeoutError`. All other
+    exceptions propagate; callers wrap them as `SandboxError` to preserve
+    per-call-site error messages.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *exec_args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            proc.communicate(),
+            timeout=timeout_secs,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
+        return ExecResult(
+            stdout="",
+            stderr=f"Command timed out after {timeout_secs}s",
+            exit_code=-1,
+            truncated=False,
+            duration_ms=duration_ms,
+        )
+
+    duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
+    truncated = False
+    if len(stdout_bytes) > max_bytes:
+        stdout_bytes = stdout_bytes[:max_bytes]
+        truncated = True
+    if len(stderr_bytes) > max_bytes:
+        stderr_bytes = stderr_bytes[:max_bytes]
+        truncated = True
+
+    return ExecResult(
+        stdout=stdout_bytes.decode("utf-8", errors="replace"),
+        stderr=stderr_bytes.decode("utf-8", errors="replace"),
+        exit_code=proc.returncode if proc.returncode is not None else 0,
+        truncated=truncated,
+        duration_ms=duration_ms,
+    )
+
+
+async def _touch_instance_last_used(instance_id) -> None:
+    """Bump `SandboxInstance.last_used_at` in its own commit."""
+    async with async_session() as db:
+        inst = await db.get(SandboxInstance, instance_id)
+        if inst:
+            inst.last_used_at = datetime.now(timezone.utc)
+            await db.commit()
+
+
 class SandboxService:
     def _assert_not_locked(self, instance: SandboxInstance, operation: str) -> None:
         locked = instance.locked_operations or []
@@ -343,83 +452,23 @@ class SandboxService:
 
         timeout_secs = timeout or settings.DOCKER_SANDBOX_DEFAULT_TIMEOUT
         max_bytes = settings.DOCKER_SANDBOX_MAX_OUTPUT_BYTES
-
         start_ts = datetime.now(timezone.utc).timestamp()
 
-        # Build exec args, injecting server URL + per-bot API key
-        _exec_args = ["docker", "exec", "-i"]
-        _exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
-        try:
-            from app.services.api_keys import get_bot_api_key_value
-            async with async_session() as _db:
-                _bot_key = await get_bot_api_key_value(_db, instance.created_by_bot)
-            if _bot_key:
-                _exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
-        except Exception:
-            pass
-        # Inject secret values as env vars (respecting scoped secrets from workflows)
-        try:
-            from app.services.secret_values import get_env_dict as _get_secret_env
-            from app.agent.context import current_allowed_secrets
-            _all_secrets = _get_secret_env()
-            _allowed = current_allowed_secrets.get(None)
-            _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
-            for _sk, _sv in _secrets_to_inject.items():
-                if _ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
-                    _exec_args += ["-e", f"{_sk}={_sv}"]
-        except Exception:
-            pass
-        _exec_args += [instance.container_id, "sh", "-c", command]
+        exec_args = await _build_docker_exec_args(bot_id=instance.created_by_bot)
+        exec_args += [instance.container_id, "sh", "-c", command]
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *_exec_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = await _run_docker_exec(
+                exec_args,
+                timeout_secs=timeout_secs,
+                max_bytes=max_bytes,
+                start_ts=start_ts,
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout_secs,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
-                duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
-                return ExecResult(
-                    stdout="",
-                    stderr=f"Command timed out after {timeout_secs}s",
-                    exit_code=-1,
-                    truncated=False,
-                    duration_ms=duration_ms,
-                )
         except Exception as e:
             raise SandboxError(f"Failed to exec command: {e}") from e
 
-        duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
-
-        truncated = False
-        if len(stdout_bytes) > max_bytes:
-            stdout_bytes = stdout_bytes[:max_bytes]
-            truncated = True
-        if len(stderr_bytes) > max_bytes:
-            stderr_bytes = stderr_bytes[:max_bytes]
-            truncated = True
-
-        # Update last_used_at
-        async with async_session() as db:
-            inst = await db.get(SandboxInstance, instance.id)
-            if inst:
-                inst.last_used_at = datetime.now(timezone.utc)
-                await db.commit()
-
-        return ExecResult(
-            stdout=stdout_bytes.decode("utf-8", errors="replace"),
-            stderr=stderr_bytes.decode("utf-8", errors="replace"),
-            exit_code=proc.returncode if proc.returncode is not None else 0,
-            truncated=truncated,
-            duration_ms=duration_ms,
-        )
+        await _touch_instance_last_used(instance.id)
+        return result
 
     async def stop(self, instance: SandboxInstance) -> None:
         self._assert_not_locked(instance, "stop")
@@ -769,79 +818,21 @@ class SandboxService:
         max_out = max_bytes or settings.DOCKER_SANDBOX_MAX_OUTPUT_BYTES
         start_ts = datetime.now(timezone.utc).timestamp()
 
+        exec_args = await _build_docker_exec_args(bot_id=bot_id, user=config.user)
+        exec_args += [instance.container_id, "sh", "-c", command]
+
         try:
-            exec_args = ["docker", "exec", "-i"]
-            if config.user:
-                exec_args += ["--user", config.user]
-            # Inject server URL + per-bot API key so containers can call back
-            exec_args += ["-e", f"AGENT_SERVER_URL={settings.SERVER_PUBLIC_URL}"]
-            try:
-                from app.services.api_keys import get_bot_api_key_value
-                async with async_session() as _db:
-                    _bot_key = await get_bot_api_key_value(_db, bot_id)
-                if _bot_key:
-                    exec_args += ["-e", f"AGENT_SERVER_API_KEY={_bot_key}"]
-            except Exception:
-                pass
-            # Inject secret values as env vars (respecting scoped secrets from workflows)
-            try:
-                from app.services.secret_values import get_env_dict as _get_secret_env
-                from app.agent.context import current_allowed_secrets
-                _all_secrets = _get_secret_env()
-                _allowed = current_allowed_secrets.get(None)
-                _secrets_to_inject = {k: v for k, v in _all_secrets.items() if k in _allowed} if _allowed is not None else _all_secrets
-                for _sk, _sv in _secrets_to_inject.items():
-                    if _ENV_NAME_RE.match(_sk) and "\x00" not in str(_sv):
-                        exec_args += ["-e", f"{_sk}={_sv}"]
-            except Exception:
-                pass
-            exec_args += [instance.container_id, "sh", "-c", command]
-            proc = await asyncio.create_subprocess_exec(
-                *exec_args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            result = await _run_docker_exec(
+                exec_args,
+                timeout_secs=timeout_secs,
+                max_bytes=max_out,
+                start_ts=start_ts,
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=timeout_secs,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.communicate()
-                duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
-                return ExecResult(
-                    stdout="",
-                    stderr=f"Command timed out after {timeout_secs}s",
-                    exit_code=-1,
-                    truncated=False,
-                    duration_ms=duration_ms,
-                )
         except Exception as e:
             raise SandboxError(f"Failed to exec bot-local command: {e}") from e
 
-        duration_ms = int((datetime.now(timezone.utc).timestamp() - start_ts) * 1000)
-        truncated = False
-        if len(stdout_bytes) > max_out:
-            stdout_bytes = stdout_bytes[:max_out]
-            truncated = True
-        if len(stderr_bytes) > max_out:
-            stderr_bytes = stderr_bytes[:max_out]
-            truncated = True
-
-        async with async_session() as db:
-            inst = await db.get(SandboxInstance, instance.id)
-            if inst:
-                inst.last_used_at = datetime.now(timezone.utc)
-                await db.commit()
-
-        return ExecResult(
-            stdout=stdout_bytes.decode("utf-8", errors="replace"),
-            stderr=stderr_bytes.decode("utf-8", errors="replace"),
-            exit_code=proc.returncode if proc.returncode is not None else 0,
-            truncated=truncated,
-            duration_ms=duration_ms,
-        )
+        await _touch_instance_last_used(instance.id)
+        return result
 
     async def recreate_bot_local(self, bot_id: str) -> None:
         """Stop, remove, and delete the DB row for a bot-local sandbox.

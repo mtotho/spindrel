@@ -164,8 +164,26 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
         elif only == "core-features":
-            # Both routes are static admin pages — no placeholders.
+            # Admin routes are static; chat-content captures need each
+            # dedicated channel's UUID resolved from its stable client_id.
             spec_list = CORE_FEATURE_SPECS
+            all_channels = {c.get("client_id"): c for c in client.list_channels()}
+            for client_id, key in (
+                ("screenshot:chat-delegation", "chat_delegation"),
+                ("screenshot:chat-cmd-exec",   "chat_cmd_exec"),
+                ("screenshot:chat-plan",       "chat_plan"),
+                ("screenshot:chat-subagents",  "chat_subagents"),
+            ):
+                ch = all_channels.get(client_id)
+                if ch:
+                    placeholders[key] = str(ch["id"])
+                else:
+                    # Stage hasn't created the channel yet — most likely the
+                    # capture is being run before stage. Skip gracefully so
+                    # the admin captures still land; the chat-content spec
+                    # will fail its predicate with a clear "channel missing"
+                    # signal in the route.
+                    placeholders[key] = "missing"
         elif only == "a3-docs":
             # Most admin routes are static, but workspace-files needs the
             # default workspace UUID resolved from the API at capture time.

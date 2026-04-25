@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, track, ui, polish]
 status: in-progress
-updated: 2026-04-24 (Usage anomaly dashboard)
+updated: 2026-04-25 (usage trace shared controls)
 ---
 # Track — UI Polish
 
@@ -26,7 +26,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Updated the Dreaming Recent Runs list to the same compact shared expandable-row style, removing the older inline `useThemeTokens()` implementation from `HygieneHistoryList`.
 - [x] Refreshed `/admin/machines` and `/admin/integrations` against the canonical control-surface standard: shared token/Tailwind controls, no route-level `useThemeTokens()`, no inline hex/RGBA, lower-chrome rows/sections, and machine-control provider detail kept summary/link-only.
 - [x] Added shared `EmptyState` for low-chrome empty surfaces and moved the new Memory & Knowledge page onto existing shared controls instead of one-off dropdowns/buttons.
-- [x] Added shared read-only `SourceFileInspector` and wired Memory & Knowledge file-backed memory/KB rows to open their actual workspace source file in-page; non-file fallbacks now say `Open location`, not `Open source`.
+- [x] Added shared read-only `SourceFileInspector` and wired Memory & Knowledge file-backed memory/KB rows to open their actual workspace source file in-page; non-file fallbacks now say `Open location`, not `Open source`. Follow-up sweep added inline panel mode and moved read-only bot/channel knowledge-base previews onto the same component; editable file managers and linked prompt editors intentionally stay on richer editor/viewer surfaces.
 - [x] Retuned global light-mode neutral tokens so low-chrome shared controls read with more surface depth without adding a second accent or page-local decorative fills.
 - [x] Started the post-theme integration detail density pass: high-volume detected asset/env-var chip groups now collapse behind overflow controls, and capability chips read as metadata instead of accent-colored state.
 - [x] Added shared `SourceTextEditor` for literal YAML/JSON/code strings and moved the integration manifest YAML tab off its raw textarea while keeping file-inspector ownership separate.
@@ -34,6 +34,9 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Reframed `/admin/usage` around anomaly investigation instead of billing-only reporting: stat health strip, token timeline markers, trace-burst/top-contributor signals, source/channel filters, shared `TraceInspector` drilldowns, and low-chrome trend charts.
 - [x] Added canonical `TraceInspector` and token-driven chart guidance to `ui-components.md` so usage, task, heartbeat, and debugging drilldowns have one shared trace preview path.
 - [x] Corrected trace inspection into a global modal drawer instead of a page-local sticky panel: `TraceInspectorRoot` now portals from `AppShell`, usage/traces rows call the global opener, and the drawer/full trace page share one low-chrome `TraceTimeline` renderer.
+- [x] Promoted trace drilldowns into a shared action: `TraceActionButton` / `openTraceInspector` now cover user-facing trace buttons across usage alerts, tasks, workflows, channel logs, heartbeat history, dreaming runs, and chat actions, while direct `/admin/logs/:id` navigation remains only for explicit full-page/open-location affordances.
+- [x] Refreshed the stale `/admin/usage` Forecast, Limits, and Alerts tabs after the anomaly-dashboard pass: shared settings rows/actions/selects, canonical current/projected meters, trace evidence buttons, and no page-local `useThemeTokens()` in those refreshed tabs.
+- [x] Added `SettingsMeter` as the shared current/projected progress primitive and documented that cost/quota/capacity surfaces should use it instead of local progress-bar implementations.
 - [x] Rebuilt the settings foundation: `/settings` is now one nested shell with role-aware redirect, Account owns personal/device preferences, Channels/Bots are catalog-first self-service pages, and admin System moved to a domain-first control center with an Advanced registry fallback. Palette/admin deep links now target `/settings/system#...` instead of the retired generic page. The System page now has Overview domain cards plus per-domain stat/link headers so settings stay tied to canonical admin workflow surfaces.
 - [ ] Follow-up: tighten remaining channel-settings loading shells until skeleton/control placeholders exactly match final content footprint. Heartbeat is improved but still shows minor residual layout movement on some loads.
 - [x] Added canonical `PromptEditor` while preserving `LlmPrompt` as the compatibility entrypoint; prompt fields now default to a larger resizable editor with fullscreen expansion and quiet generate controls.
@@ -41,6 +44,7 @@ Taking design inspiration from Google Stitch-generated mockups (see [[Stitch Des
 - [x] Reduced Knowledge tab guide-panel density by replacing repeated faded tiles with compact definition rows.
 - [x] Trimmed the command palette browse defaults so per-channel `Settings · #channel` entries stay searchable and recent-eligible but no longer appear beside every `Chat · #channel` row in the empty Ctrl+K listing.
 - [x] Collapsed noisy command-palette detail families in the empty browse view: tool detail rows, policy detail rows, and recent trace rows now sit behind `Show ...` toggles, while typed search bypasses the collapse and queries the full catalog.
+- [x] Reduced typed command-palette tool spam: individual `Tool · name` admin detail pages no longer appear in typed search, while the single top-level Tools page matches installed tool names through hidden search aliases. Channel matches rank above the Tools aggregate for tool-family names like `jell`.
 - [x] Clarified the composer plan control: inactive chat now shows `Start plan` / `Resume plan` as direct actions, while active plan modes show semantic status labels (`Planning`, `Executing`, `Blocked`, `Done`) and keep the dropdown only for active-mode actions.
 - [x] Fixed terminal-mode mobile tool rows: result previews no longer force horizontal page scroll, and the primary tool label stays intact while secondary path/preview text truncates within the row.
 - [x] Fixed mobile file-tool path overflow: generic file-tool rows now keep operation labels separate from long workspace paths, target paths left-truncate to show the end-most segment, and the row wraps within chat width instead of forcing horizontal page scroll.
@@ -465,3 +469,6 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Fixed stale post-compaction typing indicators: channel-state rehydration now treats lifecycle-only `turn_started` / `skill_index` trace rows as active only while the session lock is active, so reopening a compacted idle thread does not show a phantom bot thinking until the 10-minute TTL expires.
 - [x] Fixed scratch/session context-budget bleed: `context_budget` typed bus payloads now carry `session_id`, and primary/member turn lifecycle streams tag the real session so scratch/session subscribers drop sibling parent-channel budget events instead of showing the parent channel's gross token total.
 - [x] Fixed split-session identity bleed: focused scratch/previous panes now drive the session picker current row and top header mode, while each split pane header owns its own session-specific token/turn/compaction stats.
+- [x] Hardened session canvas semantics: 2+ visible panes use a channel/canvas header, single/maximized panes use session chrome, pane headers expose direct maximize/minimize/close controls, minimized panes occupy the single mini-chat slot, and fixed-session sends now show immediate processing feedback after submit acknowledgement.
+- [x] Polished split-pane window controls: minimize now uses a traditional `-`, pane actions are grouped as layout vs session actions, `Make primary` is now `Set as channel primary`, panes can move left/right, and minimized sessions collapse into a labeled bottom mini-chat chip that expands upward and can restore to the canvas.
+- [x] Tightened mobile channel header priority: mobile hides inline session title/meta and long turn/compaction details, keeping the channel identity plus compact mode/token signals.

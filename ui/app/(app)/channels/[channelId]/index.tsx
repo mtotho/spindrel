@@ -80,13 +80,16 @@ import {
   addChannelChatPane,
   maximizeChannelChatPane,
   minimizeChannelChatPane,
+  moveChannelChatPane,
   paneIdForSurface,
   removeChannelChatPane,
   replaceFocusedChannelChatPane,
+  restoreMiniChannelChatPane,
   restoreChannelChatPanes,
   buildChannelSessionChatSource,
   buildScratchChatSource,
   type ChannelChatPane,
+  type ChannelSessionCatalogItem,
   type ChannelSessionSurface,
 } from "@/src/lib/channelSessionSurfaces";
 import {
@@ -117,6 +120,26 @@ type PanelSpineAction = {
 const COLLAPSED_PANEL_SPINE_WIDTH_PX = 44;
 const HEADER_RAIL_EDGE_INSET_PX = 12;
 const CENTER_PANEL_GUTTER_PX = 6;
+
+function labelMiniChatPane(
+  pane: ChannelChatPane | null,
+  catalog: ChannelSessionCatalogItem[] | undefined,
+): { title: string; subtitle: string } {
+  if (!pane) return { title: "Session", subtitle: "Mini chat" };
+  if (pane.surface.kind === "primary") {
+    const row = catalog?.find((item) => item.is_active) ?? null;
+    return {
+      title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Primary session",
+      subtitle: "Primary session",
+    };
+  }
+  const surface = pane.surface;
+  const row = catalog?.find((item) => item.session_id === surface.sessionId) ?? null;
+  return {
+    title: row?.label?.trim() || row?.summary?.trim() || row?.preview?.trim() || "Untitled session",
+    subtitle: surface.kind === "scratch" ? "Scratch session" : row?.is_active ? "Primary session" : "Previous chat",
+  };
+}
 
 /** Collapsed panel spine: the closed panel still occupies an honest slot in
  *  the row instead of relying on hidden edge hover or floating grabbers. */
@@ -668,6 +691,10 @@ export default function ChatScreen() {
       sessionId: miniPane.surface.sessionId,
     });
   }, [channel?.bot_id, channelId, miniPane]);
+  const miniPaneLabel = useMemo(
+    () => labelMiniChatPane(miniPane, channelSessionCatalog),
+    [channelSessionCatalog, miniPane],
+  );
   const handleCloseMiniPane = useCallback(() => {
     if (!channelId) return;
     patchChannelPanelPrefs(channelId, (current) => ({
@@ -675,6 +702,12 @@ export default function ChatScreen() {
         ...current.chatPaneLayout,
         miniPane: null,
       },
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const restoreMiniPane = useCallback(() => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: restoreMiniChannelChatPane(current.chatPaneLayout),
     }));
   }, [channelId, patchChannelPanelPrefs]);
   const visibleChatPanes = useMemo(() => {
@@ -771,6 +804,12 @@ export default function ChatScreen() {
     setScratchPinnedSessionId(null);
     patchChannelPanelPrefs(channelId, (current) => ({
       chatPaneLayout: minimizeChannelChatPane(current.chatPaneLayout, paneId),
+    }));
+  }, [channelId, patchChannelPanelPrefs]);
+  const movePane = useCallback((paneId: string, direction: "left" | "right") => {
+    if (!channelId) return;
+    patchChannelPanelPrefs(channelId, (current) => ({
+      chatPaneLayout: moveChannelChatPane(current.chatPaneLayout, paneId, direction),
     }));
   }, [channelId, patchChannelPanelPrefs]);
   const commitPaneWidths = useCallback((widths: Record<string, number>) => {
@@ -1843,6 +1882,7 @@ export default function ChatScreen() {
                   onMaximizePane={maximizePane}
                   onRestorePanes={restorePanes}
                   onMinimizePane={minimizePane}
+                  onMovePane={movePane}
                   onCommitPaneWidths={commitPaneWidths}
                   onMakePrimary={makePanePrimary}
                   onOpenSessions={openSessionsOverlay}
@@ -2093,8 +2133,11 @@ export default function ChatScreen() {
           shape="dock"
           open
           onClose={handleCloseMiniPane}
-          title="Session"
-          initiallyExpanded
+          title={miniPaneLabel.title}
+          dismissMode="collapse"
+          dockCollapsedTitle={miniPaneLabel.title}
+          dockCollapsedSubtitle={miniPaneLabel.subtitle}
+          onRestoreToCanvas={restoreMiniPane}
           chatMode={chatMode}
           onOpenSessions={openSessionsOverlay}
           onOpenSessionSplit={openSplitOverlay}

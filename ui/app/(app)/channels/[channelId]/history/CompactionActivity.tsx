@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Spinner } from "@/src/components/shared/Spinner";
-import { AlertTriangle, ExternalLink } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
 import { EmptyState } from "@/src/components/shared/FormControls";
 import { InfoBanner, QuietPill, SettingsControlRow } from "@/src/components/shared/SettingsControls";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
 import { apiFetch } from "@/src/api/client";
 import { useQuery } from "@tanstack/react-query";
 
@@ -120,14 +121,13 @@ export function CompactionActivity({ channelId }: { channelId: string }) {
                 {_detailRow("Timestamp", log.created_at ? new Date(log.created_at).toLocaleString() : null)}
                 {log.correlation_id && (
                   <div className="mt-1 flex items-center gap-1">
-                    <a
-                      href={`/admin/logs/${log.correlation_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[10px] text-accent no-underline hover:text-accent/80"
-                    >
-                      <ExternalLink size={10} /> View trace
-                    </a>
+                    <TraceActionButton
+                      correlationId={log.correlation_id}
+                      title="Compaction run"
+                      subtitle={log.model}
+                      size="small"
+                      variant="primary"
+                    />
                   </div>
                 )}
                 {log.flush_result && (

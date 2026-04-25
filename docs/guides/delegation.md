@@ -1,5 +1,7 @@
 # Bot-to-Bot Delegation
 
+![Delegation card — Orion calls delegate_to_agent and the assistant turn renders a "Delegated to vega" pill](../images/chat-delegation.png)
+
 Delegation lets one bot (the **orchestrator**) hand off a task to another bot (the **delegate**) and optionally get the result back synchronously. Delegates can themselves delegate further, forming a chain up to a configurable depth limit.
 
 ## Quick Start

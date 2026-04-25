@@ -150,7 +150,12 @@ export function buildPaletteItems(input: PaletteCatalogInput): PaletteItem[] {
   }
 
   for (const item of ADMIN_ITEMS) {
-    pushUnique(items, item);
+    pushUnique(items, { ...item });
+  }
+
+  const navTools = items.find((item) => item.id === "nav-tools");
+  if (navTools && input.tools?.length) {
+    navTools.searchText = input.tools.map((tool) => tool.tool_name).join(" ");
   }
 
   for (const bot of input.bots ?? []) {
@@ -194,6 +199,7 @@ export function buildPaletteItems(input: PaletteCatalogInput): PaletteItem[] {
       href: `/admin/tools/${tool.id}`,
       icon: Wrench,
       category: "Configure",
+      hideFromSearch: true,
     });
   }
 

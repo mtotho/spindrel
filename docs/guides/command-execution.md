@@ -1,5 +1,7 @@
 # Command Execution
 
+![Chat command execution — Orion runs a Python snippet via `exec_command` and the assistant turn shows the EXEC COMMAND tool badge plus the raw stdout in a fenced code block](../images/chat-command-execution.png)
+
 Spindrel bots can execute shell commands in several ways, each with different isolation levels, security controls, and client compatibility. This guide explains when to use each mode and how to configure them.
 
 ## Quick Decision Guide

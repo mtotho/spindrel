@@ -1,10 +1,10 @@
-import { RefreshCw, FileText } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 import { formatTime } from "@/src/utils/time";
 import {
   type TaskItem, STATUS_CFG, displayTitle,
   TaskStatusBadge, TypeBadge, BotDot,
 } from "./TaskConstants";
+import { TraceActionButton } from "./TraceActionButton";
 
 export interface TaskCardRowProps {
   task: TaskItem;
@@ -18,7 +18,6 @@ export function TaskCardRow({
   task, onClick, isPast = false,
   showBotDot = true, showBotName = true,
 }: TaskCardRowProps) {
-  const navigate = useNavigate();
   const s = STATUS_CFG[task.status] || STATUS_CFG.pending;
   const Icon = s.icon;
   const time = task.scheduled_at || task.created_at;
@@ -79,16 +78,13 @@ export function TaskCardRow({
           <span className="shrink-0 text-[10px] text-text-dim">{task.run_count} runs</span>
         )}
         {task.correlation_id && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/admin/logs/${task.correlation_id}`);
-            }}
-            title="View trace"
-            className="inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-text-dim transition-colors hover:bg-surface-overlay/60 hover:text-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35"
-          >
-            <FileText size={11} />
-          </button>
+          <TraceActionButton
+            correlationId={task.correlation_id}
+            title={displayTitle(task)}
+            subtitle={task.bot_id}
+            iconOnly
+            stopPropagation
+          />
         )}
         <span className="shrink-0 text-[11px] text-text-dim">
           {time ? formatTime(time) : "\u2014"}

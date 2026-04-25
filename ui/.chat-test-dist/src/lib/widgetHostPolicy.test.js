@@ -21,6 +21,11 @@ test("header zone stays titleless even when widget config requests a host title"
     assert.equal(resolved.titleMode, "hidden");
 });
 test("header backdrop mode selects the intended host surface", () => {
+    const implicit = resolveWidgetHostPolicy({
+        layout: "header",
+        chrome,
+        widgetConfig: null,
+    });
     const glass = resolveWidgetHostPolicy({
         layout: "header",
         chrome,
@@ -39,6 +44,7 @@ test("header backdrop mode selects the intended host surface", () => {
         widgetConfig: null,
         headerBackdropMode: "default",
     });
+    assert.equal(implicit.wrapperSurface, "translucent");
     assert.equal(glass.wrapperSurface, "translucent");
     assert.equal(clear.wrapperSurface, "plain");
     assert.equal(fallback.wrapperSurface, "surface");

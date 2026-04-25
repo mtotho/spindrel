@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Maximize2, Minimize2, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Maximize2, Minus, MoreHorizontal, Rows3, X as CloseIcon } from "lucide-react";
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
@@ -29,6 +29,7 @@ interface ChannelChatPaneGroupProps {
   onMaximizePane: (paneId: string) => void;
   onRestorePanes: () => void;
   onMinimizePane: (paneId: string) => void;
+  onMovePane: (paneId: string, direction: "left" | "right") => void;
   onCommitPaneWidths: (widths: Record<string, number>) => void;
   onMakePrimary: (pane: ChannelChatPane) => void;
   onOpenSessions?: () => void;
@@ -97,7 +98,11 @@ function PaneHeader({
   onMaximize,
   onRestore,
   onMinimize,
+  onMoveLeft,
+  onMoveRight,
   onMakePrimary,
+  canMoveLeft,
+  canMoveRight,
 }: {
   pane: ChannelChatPane;
   channelId: string;
@@ -109,7 +114,11 @@ function PaneHeader({
   onMaximize: () => void;
   onRestore: () => void;
   onMinimize: () => void;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
   onMakePrimary: () => void;
+  canMoveLeft: boolean;
+  canMoveRight: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -170,21 +179,21 @@ function PaneHeader({
       <div className="flex shrink-0 items-center gap-0.5">
         <button
           type="button"
+          onClick={onMinimize}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+          aria-label="Minimize to mini chat"
+          title="Minimize to mini chat"
+        >
+          <Minus size={14} />
+        </button>
+        <button
+          type="button"
           onClick={maximized ? onRestore : onMaximize}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
           aria-label={maximized ? "Restore splits" : "Maximize pane"}
           title={maximized ? "Restore splits" : "Maximize pane"}
         >
           {maximized ? <Rows3 size={13} /> : <Maximize2 size={13} />}
-        </button>
-        <button
-          type="button"
-          onClick={onMinimize}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
-          aria-label="Minimize to mini chat"
-          title="Minimize to mini chat"
-        >
-          <Minimize2 size={13} />
         </button>
         <button
           type="button"
@@ -210,7 +219,54 @@ function PaneHeader({
           <MoreHorizontal size={14} />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-8 z-20 w-36 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg">
+          <div className="absolute right-0 top-8 z-20 w-48 rounded-md border border-surface-border bg-surface-raised p-1 shadow-lg">
+            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Layout</div>
+            <button
+              type="button"
+              onClick={() => {
+                maximized ? onRestore() : onMaximize();
+                setMenuOpen(false);
+              }}
+              className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+            >
+              {maximized ? "Restore split layout" : "Maximize pane"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                onMinimize();
+                setMenuOpen(false);
+              }}
+              className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
+            >
+              Minimize to mini chat
+            </button>
+            <button
+              type="button"
+              disabled={!canMoveLeft}
+              onClick={() => {
+                onMoveLeft();
+                setMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:opacity-40"
+            >
+              <ArrowLeft size={12} />
+              Move left
+            </button>
+            <button
+              type="button"
+              disabled={!canMoveRight}
+              onClick={() => {
+                onMoveRight();
+                setMenuOpen(false);
+              }}
+              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay disabled:opacity-40"
+            >
+              <ArrowRight size={12} />
+              Move right
+            </button>
+            <div className="my-1 h-px bg-surface-border/60" />
+            <div className="px-2 pb-1 pt-1 text-[10px] uppercase tracking-[0.08em] text-text-dim/70">Session</div>
             <button
               type="button"
               disabled={!sessionId}
@@ -232,9 +288,10 @@ function PaneHeader({
                 }}
                 className="block w-full rounded px-2 py-1.5 text-left text-[12px] text-text hover:bg-surface-overlay"
               >
-                Make primary
+                Set as channel primary
               </button>
             )}
+            <div className="my-1 h-px bg-surface-border/60" />
             <button
               type="button"
               onClick={onClose}
@@ -266,6 +323,7 @@ export function ChannelChatPaneGroup({
   onMaximizePane,
   onRestorePanes,
   onMinimizePane,
+  onMovePane,
   onCommitPaneWidths,
   onMakePrimary,
   onOpenSessions,
@@ -366,7 +424,11 @@ export function ChannelChatPaneGroup({
                 onMaximize={() => onMaximizePane(pane.id)}
                 onRestore={onRestorePanes}
                 onMinimize={() => onMinimizePane(pane.id)}
+                onMoveLeft={() => onMovePane(pane.id, "left")}
+                onMoveRight={() => onMovePane(pane.id, "right")}
                 onMakePrimary={() => onMakePrimary(pane)}
+                canMoveLeft={index > 0}
+                canMoveRight={index < visiblePanes.length - 1}
               />
               <div className="flex min-h-0 flex-1 flex-col">{body}</div>
             </div>

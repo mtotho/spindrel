@@ -472,3 +472,64 @@ export function SettingsStatGrid({
     </div>
   );
 }
+
+type MeterTone = "success" | "warning" | "danger" | "accent" | "neutral";
+
+const METER_TONE_CLASSES: Record<MeterTone, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  accent: "bg-accent",
+  neutral: "bg-text-dim",
+};
+
+export function SettingsMeter({
+  value,
+  projected,
+  max = 100,
+  tone = "accent",
+  label,
+  valueLabel,
+  projectedLabel,
+  className = "",
+}: {
+  value: number;
+  projected?: number | null;
+  max?: number;
+  tone?: MeterTone;
+  label?: React.ReactNode;
+  valueLabel?: React.ReactNode;
+  projectedLabel?: React.ReactNode;
+  className?: string;
+}) {
+  const safeMax = max > 0 ? max : 100;
+  const currentPct = Math.max(0, Math.min(100, (value / safeMax) * 100));
+  const projectedPct =
+    projected == null ? null : Math.max(0, Math.min(100, (projected / safeMax) * 100));
+
+  return (
+    <div className={className}>
+      {(label || valueLabel || projectedLabel) && (
+        <div className="mb-1.5 flex min-w-0 flex-wrap items-center justify-between gap-2">
+          {label && <div className="min-w-0 text-[11px] font-medium text-text-muted">{label}</div>}
+          <div className="ml-auto flex shrink-0 items-center gap-2 font-mono text-[10px] text-text-dim">
+            {valueLabel && <span>{valueLabel}</span>}
+            {projectedLabel && <span className="text-text-muted">{projectedLabel}</span>}
+          </div>
+        </div>
+      )}
+      <div className="relative h-1.5 overflow-hidden rounded-full bg-surface-overlay/45">
+        {projectedPct != null && projectedPct > currentPct && (
+          <div
+            className={`${METER_TONE_CLASSES[tone]} absolute inset-y-0 left-0 rounded-full opacity-25 transition-[width]`}
+            style={{ width: `${projectedPct}%` }}
+          />
+        )}
+        <div
+          className={`${METER_TONE_CLASSES[tone]} relative h-full rounded-full transition-[width]`}
+          style={{ width: `${currentPct}%` }}
+        />
+      </div>
+    </div>
+  );
+}

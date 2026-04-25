@@ -110,7 +110,7 @@ test("skill load results preserve useful preview text", () => {
                     label: "Loaded skill",
                     target_id: "workspace_files",
                     target_label: "Workspace Files",
-                    preview_text: "# Workspace Files",
+                    preview_text: "Guide for using the file tool",
                 },
                 envelope: {
                     content_type: "text/markdown",
@@ -128,8 +128,33 @@ test("skill load results preserve useful preview text", () => {
     if (items[0]?.kind !== "transcript")
         throw new Error("expected transcript item");
     assert.equal(items[0].entries[0]?.metaLabel, "(Workspace Files)");
-    assert.equal(items[0].entries[0]?.previewText, "# Workspace Files");
+    assert.equal(items[0].entries[0]?.previewText, "Guide for using the file tool");
     assert.equal(items[0].entries[0]?.detailKind, "expandable");
+});
+test("file tool paths stay in the shrinkable target field", () => {
+    const items = buildAssistantTurnBodyItems({
+        assistantTurnBody: {
+            version: 1,
+            items: [{ id: "tool-file", kind: "tool_call", toolCallId: "call-file" }],
+        },
+        toolCalls: [
+            {
+                id: "call-file",
+                name: "file",
+                args: JSON.stringify({
+                    operation: "read",
+                    path: "/workspace/channels/d0cb2ce8-b7b8-5f9d-b02f-392ba81e281f/data/channel_heartbeat.md",
+                }),
+                surface: "transcript",
+                status: "done",
+            },
+        ],
+    });
+    assert.equal(items[0]?.kind, "transcript");
+    if (items[0]?.kind !== "transcript")
+        throw new Error("expected transcript item");
+    assert.equal(items[0].entries[0]?.label, "Read file");
+    assert.equal(items[0].entries[0]?.target, "/workspace/channels/d0cb2ce8-b7b8-5f9d-b02f-392ba81e281f/data/channel_heartbeat.md");
 });
 test("diff results stay rich inline in the canonical builder", () => {
     const items = buildAssistantTurnBodyItems({

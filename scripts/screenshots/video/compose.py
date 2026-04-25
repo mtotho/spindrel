@@ -8,6 +8,7 @@ over the entire video.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -19,10 +20,15 @@ from moviepy.editor import (
     concatenate_videoclips,
 )
 
+from scripts.screenshots.video import _doc_capture
 from scripts.screenshots.video.clips import build_clip
+from scripts.screenshots.video.mkdocs_server import mkdocs_serve
 from scripts.screenshots.video.overlays import title_card as title_card_overlay
 from scripts.screenshots.video.overlays import watermark as watermark_overlay
 from scripts.screenshots.video.storyboard import Meta, Storyboard
+
+
+_DOC_KINDS = {"doc_hero", "doc_callout"}
 
 
 logger = logging.getLogger("screenshots.video")
@@ -42,12 +48,30 @@ def render_to_file(
     `video preview` subcommand for fast iteration).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    if only_scene:
-        clip = _build_single(sb, only_scene)
-    else:
-        clip = _build_full(sb)
-    _write(clip, output_path, fps=sb.meta.fps)
+    with _doc_view_context(sb, only_scene=only_scene):
+        if only_scene:
+            clip = _build_single(sb, only_scene)
+        else:
+            clip = _build_full(sb)
+        _write(clip, output_path, fps=sb.meta.fps)
     return output_path
+
+
+@contextmanager
+def _doc_view_context(sb: Storyboard, *, only_scene: str | None):
+    """Spin up mkdocs only when at least one rendered scene needs it."""
+    if only_scene:
+        scene_ids = [only_scene]
+    else:
+        scene_ids = sb.ordered_scene_ids()
+    needs_docs = any(sb.scenes[sid].kind in _DOC_KINDS for sid in scene_ids)
+    if not needs_docs:
+        yield
+        return
+    cache_dir = sb.repo_root / "scripts" / "screenshots" / ".cache" / "doc_views"
+    with mkdocs_serve(sb.repo_root) as base_url:
+        _doc_capture.configure(base_url=base_url, cache_dir=cache_dir)
+        yield
 
 
 # -------------------------------------------------------------- single preview

@@ -72,7 +72,7 @@ export function FormRow({ label, description, children }: {
 // ---------------------------------------------------------------------------
 // Text / number input
 // ---------------------------------------------------------------------------
-export function TextInput({ value, onChangeText, placeholder, type = "text", style, className, disabled }: {
+export function TextInput({ value, onChangeText, placeholder, type = "text", style, className, disabled, onBlur, min, step }: {
   value: string;
   onChangeText: (t: string) => void;
   placeholder?: string;
@@ -80,12 +80,18 @@ export function TextInput({ value, onChangeText, placeholder, type = "text", sty
   style?: React.CSSProperties;
   className?: string;
   disabled?: boolean;
+  onBlur?: React.FocusEventHandler<HTMLInputElement>;
+  min?: number;
+  step?: string;
 }) {
   return (
     <input
       type={type}
       value={value}
       disabled={disabled}
+      onBlur={onBlur}
+      min={min}
+      step={step}
       onChange={(e) => onChangeText(e.target.value)}
       placeholder={placeholder}
       style={style}

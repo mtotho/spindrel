@@ -7,6 +7,28 @@ import { resolveRecentPaletteItem } from "./recent";
 export function shouldIncludePaletteBrowseItem(item) {
     return !item.hideFromBrowse;
 }
+export function shouldIncludePaletteSearchItem(item) {
+    return !item.hideFromSearch;
+}
+export function scorePaletteSearchItems(items, query, recencyBonus = new Map(), searchLimit = 30) {
+    return items
+        .map((item) => {
+        const [labelScore, labelIndices] = fuzzyMatch(query, item.label);
+        const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
+        const [catScore] = fuzzyMatch(query, item.category);
+        const [searchTextScore] = item.searchText ? fuzzyMatch(query, item.searchText) : [0, []];
+        const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3, searchTextScore * 0.9);
+        const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
+        return {
+            item,
+            score: bestScore + bonus,
+            matchIndices: labelScore >= hintScore * 0.5 ? labelIndices : [],
+        };
+    })
+        .filter((r) => r.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, searchLimit);
+}
 export function getCollapsiblePaletteBrowseSection(item) {
     if (item.id.startsWith("tool-"))
         return "tools";
@@ -96,7 +118,7 @@ export function usePaletteSearch(allItems, query, { currentHref, recentLimit = 2
             if (resolved?.href)
                 syntheticRecents.push(resolved);
         }
-        const searchPool = [...allItems, ...syntheticRecents];
+        const searchPool = [...allItems.filter(shouldIncludePaletteSearchItem), ...syntheticRecents];
         const recencyBonus = new Map();
         let bonusSlot = 0;
         for (const rp of recentPages) {
@@ -107,22 +129,7 @@ export function usePaletteSearch(allItems, query, { currentHref, recentLimit = 2
             recencyBonus.set(rp.href, 15 - bonusSlot * 5);
             bonusSlot++;
         }
-        return searchPool
-            .map((item) => {
-            const [labelScore, labelIndices] = fuzzyMatch(query, item.label);
-            const [hintScore] = item.hint ? fuzzyMatch(query, item.hint) : [0, []];
-            const [catScore] = fuzzyMatch(query, item.category);
-            const bestScore = Math.max(labelScore, hintScore * 0.5, catScore * 0.3);
-            const bonus = item.href ? recencyBonus.get(item.href) ?? 0 : 0;
-            return {
-                item,
-                score: bestScore + bonus,
-                matchIndices: labelScore >= hintScore * 0.5 ? labelIndices : [],
-            };
-        })
-            .filter((r) => r.score > 0)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, searchLimit);
+        return scorePaletteSearchItems(searchPool, query, recencyBonus, searchLimit);
     }, [query, allItems, recentPages, currentHref, resolveRecent, isSubPage, recentLimit, searchLimit, isAdmin]);
     const isEmpty = !query.trim();
     const groups = useMemo(() => {

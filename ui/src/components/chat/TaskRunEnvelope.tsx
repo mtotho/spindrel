@@ -1,4 +1,4 @@
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -23,6 +23,7 @@ import { useSessionMessages } from "@/src/api/hooks/useSessionMessages";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { writeToClipboard } from "@/src/utils/clipboard";
 import { cn } from "@/src/lib/cn";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 // ---------------------------------------------------------------------------
 // Metadata shape persisted on the anchor Message (see
@@ -124,7 +125,6 @@ function formatDuration(ms: number | null | undefined): string | null {
 // Rendered as a span (not <a>) because the enclosing row is a <button>;
 // nested interactive <a>/<button> is invalid HTML.
 function StepTraceChip({ childTaskId, status }: { childTaskId: string; status: StepStatus }) {
-  const navigate = useNavigate();
   const enabled = status !== "pending" && status !== "skipped";
   const { data: childTask } = useTask(enabled ? childTaskId : undefined);
   const correlationId = childTask?.correlation_id;
@@ -132,7 +132,10 @@ function StepTraceChip({ childTaskId, status }: { childTaskId: string; status: S
   return (
     <span
       role="link"
-      onClick={(e) => { e.stopPropagation(); navigate(`/admin/logs/${correlationId}`); }}
+      onClick={(e) => {
+        e.stopPropagation();
+        openTraceInspector({ correlationId, title: "Step trace", subtitle: status });
+      }}
       title="Open the LLM trace for this step"
       className="inline-flex items-center gap-0.5 text-[10px] text-accent/80 hover:text-accent
                  px-1.5 py-0.5 rounded hover:bg-accent/10 transition-colors flex-shrink-0 cursor-pointer"
@@ -184,11 +187,20 @@ function StepResultPanel({
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [traceCorrelationId, setTraceCorrelationId] = useState<string | null>(null);
-  const navigate = useNavigate();
   const t = useThemeTokens();
   // Lazy-fetch the child task only when the user asks for the trace deeplink.
   const { data: childTask } = useTask(traceCorrelationId === null ? undefined : childTaskId);
   const correlationId = childTask?.correlation_id;
+
+  useEffect(() => {
+    if (!traceCorrelationId || !correlationId) return;
+    openTraceInspector({
+      correlationId,
+      title: isError ? "Step error trace" : "Step result trace",
+      subtitle: childTaskId,
+    });
+    setTraceCorrelationId(null);
+  }, [childTaskId, correlationId, isError, traceCorrelationId]);
 
   // Prefer live result over anchor preview when (a) live exists and (b) it's
   // longer — handles the case where live is null while still loading. The
@@ -207,7 +219,11 @@ function StepResultPanel({
   const handleTrace = () => {
     if (!childTaskId) return;
     if (correlationId) {
-      navigate(`/admin/logs/${correlationId}`);
+      openTraceInspector({
+        correlationId,
+        title: isError ? "Step error trace" : "Step result trace",
+        subtitle: childTaskId,
+      });
     } else {
       setTraceCorrelationId(childTaskId);
     }

@@ -19,7 +19,7 @@ KNOWN_KINDS: frozenset[str] = frozenset(
 )
 # Implemented right now. Others are schema-reserved; clip modules raise at
 # render time with a phase marker.
-IMPLEMENTED_KINDS: frozenset[str] = frozenset(["still"])
+IMPLEMENTED_KINDS: frozenset[str] = frozenset(["still", "doc_hero", "doc_callout"])
 
 
 @dataclass

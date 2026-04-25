@@ -1,4 +1,4 @@
-"""Slack renderer: EPHEMERAL_MESSAGE → chat.postEphemeral.
+"""Slack ephemeral delivery: EPHEMERAL_MESSAGE → chat.postEphemeral.
 
 Uses the same fake_http + reset fixtures as test_slack_renderer.py so
 the renderer state is isolated between cases.
@@ -16,7 +16,8 @@ from app.domain.capability import Capability
 from app.domain.channel_events import ChannelEvent, ChannelEventKind
 from app.domain.message import Message as DomainMessage
 from app.domain.payloads import EphemeralMessagePayload
-from integrations.slack import renderer as slack_renderer_mod
+from integrations.slack import transport as slack_transport_mod
+from integrations.slack.ephemeral_delivery import SlackEphemeralDelivery
 from integrations.slack.rate_limit import slack_rate_limiter
 from integrations.slack.render_context import slack_render_contexts
 from integrations.slack.renderer import SlackRenderer
@@ -29,19 +30,9 @@ pytestmark = pytest.mark.asyncio
 def _reset_renderer_state():
     slack_render_contexts.reset()
     slack_rate_limiter.reset()
-    slack_renderer_mod._register()
     yield
     slack_render_contexts.reset()
     slack_rate_limiter.reset()
-
-
-@pytest.fixture(autouse=True)
-def _mock_bot_attribution():
-    with patch(
-        "integrations.slack.renderer.bot_attribution",
-        return_value={"username": "TB", "icon_emoji": ":robot:"},
-    ) as m:
-        yield m
 
 
 @pytest.fixture
@@ -64,7 +55,7 @@ def fake_http():
             return response
 
     fake = FakeHTTP()
-    with patch.object(slack_renderer_mod, "_http", fake):
+    with patch.object(slack_transport_mod, "_http", fake):
         yield fake
 
 
@@ -94,6 +85,13 @@ def _ephemeral_event(
     return event, target
 
 
+def _delivery() -> SlackEphemeralDelivery:
+    return SlackEphemeralDelivery(
+        call_slack=slack_transport_mod.call_slack,
+        bot_attribution=lambda _bot_id: {"username": "TB", "icon_emoji": ":robot:"},
+    )
+
+
 class TestSlackEphemeralCapability:
     def test_renderer_declares_ephemeral(self):
         assert Capability.EPHEMERAL in SlackRenderer.capabilities
@@ -103,8 +101,7 @@ class TestEphemeralDelivery:
     async def test_posts_to_chat_post_ephemeral(self, fake_http):
         fake_http.set_response({"ok": True, "message_ts": "99.1"})
         event, target = _ephemeral_event(recipient="UALICE", text="secret")
-        renderer = SlackRenderer()
-        receipt = await renderer.render(event, target)
+        receipt = await _delivery().render(event, target)
         assert receipt.success
         assert len(fake_http.calls) == 1
         call = fake_http.calls[0]
@@ -121,20 +118,20 @@ class TestEphemeralDelivery:
         event, target = _ephemeral_event(
             recipient="UALICE", text="hi", thread_ts="1.23",
         )
-        await SlackRenderer().render(event, target)
+        await _delivery().render(event, target)
         body = fake_http.calls[0]["body"]
         assert body["thread_ts"] == "1.23"
 
     async def test_skipped_on_empty_text(self, fake_http):
         event, target = _ephemeral_event(recipient="UALICE", text="  ")
-        receipt = await SlackRenderer().render(event, target)
+        receipt = await _delivery().render(event, target)
         assert receipt.success
         assert receipt.skip_reason
         assert not fake_http.calls
 
     async def test_skipped_without_recipient(self, fake_http):
         event, target = _ephemeral_event(recipient="", text="hi")
-        receipt = await SlackRenderer().render(event, target)
+        receipt = await _delivery().render(event, target)
         assert receipt.success
         assert receipt.skip_reason
         assert not fake_http.calls

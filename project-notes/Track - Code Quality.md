@@ -2,11 +2,44 @@
 tags: [agent-server, track, code-quality]
 status: active
 created: 2026-04-09
-updated: 2026-04-24 (Cluster 10 shipped — file_sync.py sync_all/watch duplication collapsed into 8 stage helpers; sync_all_files 333 → 159 LOC -52%, sync_changed_file 180 → 60 LOC -67%)
+updated: 2026-04-24 (Audit close-out SHIPPED — 7 clusters all done same day post-Cluster 10; track moves to ambient maintenance per `feedback_living_tracks_never_close`)
 ---
 # Track — Code Quality & Refactoring
 
 Systematic audit of core agent-server files. 156 files, ~50K lines across `app/agent/`, `app/services/`, `app/tools/`. Findings organized by priority.
+
+## Audit close-out roadmap (planned 2026-04-24)
+
+After Cluster 10 shipped, planned the remaining slate as one sequenced close-out: Cluster 9 (`run_task` 657 LOC) + 3 secondary duplications (llm closures, sandbox exec, knowledge dual-lookup) + 2 god-functions (`_bot_row_to_config` 283 LOC, `persist_turn` 333 LOC) + 1 test fixture single-liner. Order: easy wins first → hardest last. Per `feedback_opus_plans_sonnet_executes`, each cluster is a separate Sonnet execution session; do not batch in the same session as planning.
+
+Per `feedback_living_tracks_never_close`: when this slate ships, do NOT flip `status: complete`. Compress prose in place; Track stays evergreen for ambient maintenance.
+
+| # | Name | Target | Result | Status |
+|---|---|---|---|---|
+| **Pre-11** | Test fixture fix | `tests/unit/test_file_sync.py:240-249` | +1 line `as embed`; 8 sync_all tests unblocked (10/18 → 18/18) | ✅ SHIPPED |
+| **11** | knowledge dedup (verify-first) | track claim stale | `knowledge.py` deleted in commit `e0b448c7` (2026-04-16); duplication moot | ✅ MOOT |
+| **12** | `llm.py` factory closure unify | `app/agent/llm.py:1391-1565` | 6 closures → 1 builder `_build_attempt_factories(stream: bool)`; file 1781 → 1768 LOC; 326/7 baseline match | ✅ SHIPPED |
+| **13** | `sandbox.py` exec / exec_bot_local | `app/services/sandbox.py:319, 754` | 3 helpers (`_build_docker_exec_args`, `_run_docker_exec`, `_touch_instance_last_used`); exec 95 → ~20 LOC, exec_bot_local 90 → ~20 LOC; file 907 → 898 LOC; 25/25 baseline match | ✅ SHIPPED |
+| **14** | `_bot_row_to_config` decomposition | `app/agent/bots.py:295` | 5 nested-config builders + 2 repetitive-field mappers; function 189 → 64 LOC (-66%); file 821 → 841 LOC; 103/1 baseline match | ✅ SHIPPED |
+| **15** | `persist_turn` decomposition | `app/services/sessions.py:562` | 6 stage helpers (filter/metadata/insert/outbox-channel/outbox-thread/attachment-link/bus-publish); function 331 → 82 LOC (-75%); file 1341 → 1398 LOC; 16+442/5/2 baseline match | ✅ SHIPPED |
+| **9** | `run_task` Wave A+B | `app/agent/tasks.py:774` | 3 helpers (`_mark_task_failed_in_db`, `_publish_turn_ended_safe`, `_dispatch_to_specialized_runner`); 5 of 8 mark-failed copies collapsed; function 657 → 596 LOC (-9%); file 1712 → 1729 LOC; 103/0 baseline match. Deeper agent-run-path extraction deferred — too test-coupled. | ✅ SHIPPED (partial) |
+
+**Drift caught during planning** (track entries proved stale):
+- `_bot_row_to_config` claimed ~180 LOC, actually 283.
+- `persist_turn` claimed ~150 LOC, actually 333.
+- `tasks.py` "mark task failed" claimed 4× duplication, actually 8× (lines 656, 680, 767, 816, 1371, 1400, 1416, 1491).
+- `knowledge.py:240-370` dual-lookup — module not found at planning time; needs verify-first pass before scoping Cluster 11.
+
+**Cross-cluster discipline** (same as Clusters 5-8, 10):
+- One commit per cluster, behavior-preserving; baseline-FIRST exact-match.
+- In-file helpers (preserves test-patch surfaces).
+- Helpers raise; callers wrap.
+- Vault same-edit (Track row + RFC + session log + Loose Ends entries).
+- `mirror-agent-server-docs-bulk.sh` after vault edits.
+- Per `feedback_targeted_test_runs`: scoped pytest, never `pytest tests/ integrations/` in Docker.
+- Per `feedback_git_workflow`: agent-server uses manual commit; commit only when user directs.
+
+**Detail per cluster** lives at `~/.claude/plans/woolly-tumbling-robin.md` (ephemeral scaffolding — refer to it when starting an execution session, but the durable status table is here).
 
 ## Ousterhout depth audit (2026-04-23)
 
@@ -311,11 +344,11 @@ These functions are too large to test, review, or safely modify. Each handles 5-
 | context_assembly.py | `assemble_context()` | ~~1400~~ ~~990~~ ~~1490~~ ~~1341~~ ~~1211~~ ~~898~~ ~~740~~ ~~654~~ ~~498~~ ~~441~~ **357** (file: ~~2730~~ ~~2857~~ ~~2963~~ ~~3013~~ ~~3047~~ ~~3083~~ ~~3122~~ ~~3167~~ **3220**) | **✅ CLUSTER 7 COMPLETE.** 16 in-file helpers extracted across 7a-7e-d covering all 33 pipeline stages. Cumulative 1490 → 357 LOC (**-76%**). Final sub-cluster 7e-d shipped Stages 30-33 finalization traces helper (105 LOC → 20 LOC caller). `assemble_context` is now a readable top-to-bottom driver: each `# --- stage ---` divider marks a helper call, and stages that aren't yet helpers (channel workspace, conversation sections, RAG, bot KB, plan artifact, memory scheme) already had their own inline helpers pre-Cluster 7. |
 | loop.py | `run_agent_tool_loop()` | ~~960~~ ~~1030~~ ~~809~~ **591** (file: ~~**1684**~~ ~~1358~~ **1136**) | Clusters 6a+6b shipped. 929 → 591 LOC (-36%). Remaining 591 LOC is cohesive per-iteration orchestration (cancellation checks, LLM streaming, dispatch, image injection, skill-nudge, cycle detection) — further reduction needs cross-iteration state objects, not more extractions. |
 | file_sync.py | `sync_all_files()` + `sync_changed_file()` | ~~333~~ **159** + ~~180~~ **60** (file: ~~851~~ **908**) | **✅ CLUSTER 10 SHIPPED.** 8 in-file stage helpers (`_log_action`, `_upsert_skill_row`, `_build_prompt_template_fields`, `_upsert_prompt_template_row`, `_upsert_workflow_row`, `_delete_orphan_skills`, `_delete_orphan_prompt_templates`, `_delete_orphan_workflows`, `_delete_rows_by_source_path`) collapse the sync_all/watch duplication. sync_all_files 333 → 159 (-52%); sync_changed_file 180 → 60 (-67%). `log_path: Path \| None` toggles watch vs sync_all logging + sync_all-only branches (manual-skip on workflows, source-drift fix on unchanged). |
-| tasks.py | `run_task()` | ~490 | session, config, prompt, agent run, persistence, dispatch, follow-up |
+| tasks.py | `run_task()` | ~~~490~~ ~~657~~ **596** (file: ~~1712~~ **1729**) | **✅ CLUSTER 9 (Wave A+B) SHIPPED.** Three helpers extracted: `_mark_task_failed_in_db` (DB-only mark-failed write — collapses 5 of 8 inline copies; rate-limit retry branch and `recover_stuck_tasks` keep their inline writes because they touch other state in the same session), `_publish_turn_ended_safe` (try/except wrapper around `_publish_turn_ended` — collapses 4 inline copies), `_dispatch_to_specialized_runner` (returns True if task was routed to exec/pipeline/workflow_trigger/claude_code; pulls ~50 LOC of branching out of `run_task`'s prologue). Function 657 → 596 LOC (-9%). Heavier deep-extraction of the agent-run path deferred — surface is too test-coupled to attempt without dedicated test refactor. Behavior-preserving: 103 task tests passed (exact baseline match). |
 | tool_dispatch.py | `dispatch_tool_call()` | ~385 | auth, policy, approval, routing, recording, redaction, summarization |
 | compaction.py | `run_compaction_stream()` | ~~342~~ ~~363~~ **177** + `run_compaction_forced()` ~~254~~ **106** (file: ~~2653~~ **2637**) | **✅ CLUSTER 8 SHIPPED.** 5 in-file stage helpers (`_run_memory_flush_phase`, `_compute_compaction_watermark`, `_persist_section_and_summary`, `_persist_session_compaction_state`, `_record_compaction_completion`) collapse the stream/forced duplication. Stream 361 → 177 (-51%); forced 248 → 106 (-57%). Both wrappers now linear drivers. |
-| bots.py | `_bot_row_to_config()` | ~180 | manual field-by-field mapping |
-| sessions.py | `persist_turn()` | ~150 | filtering, metadata, delegation, heartbeat, DB, attachments |
+| bots.py | `_bot_row_to_config()` | ~~~180~~ ~~283~~ **64** (file: ~~821~~ **841**) | **✅ CLUSTER 14 SHIPPED.** 5 nested-config builders (`_build_filesystem_indexes`, `_build_host_exec_config`, `_build_filesystem_access`, `_build_bot_sandbox_config`, `_build_workspace_config`) + 2 repetitive-field mappers (`_HYGIENE_FIELDS`, `_SKILL_REVIEW_FIELDS` consumed via `_map_optional_attrs`) collapse the inline construction. Function 189 → 64 LOC (-66%). Behavior-preserving: 103 passed / 1 pre-existing fail (exact baseline match). |
+| sessions.py | `persist_turn()` | ~~~150~~ ~~331~~ **82** (file: ~~1341~~ **1398**) | **✅ CLUSTER 15 SHIPPED.** 6 in-file stage helpers (`_filter_messages_to_persist`, `_build_message_metadata`, `_insert_message_records`, `_enqueue_outbox_for_channel`, `_enqueue_outbox_for_thread`, `_link_orphan_attachments`, `_publish_persisted_messages_to_bus`) collapse the persistence pipeline. Function 331 → 82 LOC (-75%). Behavior-preserving: 16 focused passed + 442/5/2 broader sweep (exact baseline match). |
 
 **Approach**: Extract each concern into a named sub-function. For `assemble_context`, each `# ---` section becomes its own async function operating on a shared pipeline state object.
 
@@ -372,9 +405,8 @@ Shipped as `app/agent/loop_dispatch.py`. One `dispatch_iteration_tool_calls()` p
 ### ~~loop.py:894-997, 1065-1138 — `dispatch_tool_call` invoked 4x with identical 16+ kwargs~~ FIXED April 23
 Collapsed behind `_make_dispatch_kwargs()` in `loop_dispatch.py` plus the `SummarizeSettings` dataclass. Initial dispatch and approval re-dispatch now use the same argument builder.
 
-### llm.py:1071-1226 — Streaming vs non-streaming factory closures
-6 near-identical closures (`_make_attempt`, `_make_no_tools`, `_make_no_images` × 2). Same kwargs construction repeated 6 times.
-- **Fix**: Unify into single factory with `stream: bool` parameter
+### ~~llm.py:1071-1226 — Streaming vs non-streaming factory closures~~ FIXED 2026-04-24 (Cluster 12)
+Unified into a single module-level `_build_attempt_factories(*, messages, tools_param, tool_choice, stream: bool)` that returns `(_make_attempt, _make_no_tools, _make_no_images)`. `stream=True` adds `stream=True` + `stream_options` + per-attempt info log; `stream=False` runs post-call `EmptyChoicesError` validation and `record_usage`. Both `_llm_call_stream` and `_llm_call` now call the builder once and pass the closures into `_run_with_fallback_chain`. Behavior-preserving: 326 passed / 7 pre-existing fails (exact baseline match). File 1781 → 1768 LOC; ~150 LOC of duplication collapsed into a 70-LOC builder.
 
 ### ~~compaction.py:830-1474 — Stream vs forced compaction~~ FIXED 2026-04-24 (Cluster 8)
 Extracted 5 in-file stage helpers (`_run_memory_flush_phase`, `_compute_compaction_watermark`, `_persist_section_and_summary`, `_persist_session_compaction_state`, `_record_compaction_completion`) that both wrappers now drive sequentially. ~250 LOC of duplicated pipeline collapsed; commit boundaries preserved (stream commits internally, forced lets caller commit). Behavior-preserving: focused 7-file suite 157 passed / 2 pre-existing fails (exact baseline match).
@@ -382,15 +414,14 @@ Extracted 5 in-file stage helpers (`_run_memory_flush_phase`, `_compute_compacti
 ### ~~file_sync.py:241-1041 — Full sync vs watch handler~~ FIXED 2026-04-24 (Cluster 10)
 Extracted 8 in-file stage helpers (3 upsert + 3 orphan-delete + 1 path-delete + 1 log-formatter). `log_path: Path | None` kwarg threads watch vs sync_all variants of log lines and behavior (sync_all-only manual-workflow skip, source-drift fix on unchanged). ~250 LOC of duplicated per-resource-type upsert logic collapsed; both wrappers now linear drivers. Behavior-preserving: focused 3-file suite 34 passed / 8 pre-existing fixture errors (exact baseline match).
 
-### sandbox.py:319-844 — `exec` vs `exec_bot_local`
-Secret injection (~15 lines), API key injection, subprocess creation, output truncation — all duplicated.
-- **Fix**: Extract `_build_exec_env()` and `_run_subprocess()`
+### ~~sandbox.py:319-844 — `exec` vs `exec_bot_local`~~ FIXED 2026-04-24 (Cluster 13)
+Extracted three module-level helpers: `_build_docker_exec_args(*, bot_id, user=None)` builds the leading `docker exec` argv with server URL + per-bot API key + scoped secret injection (best-effort try/except preserved); `_run_docker_exec(exec_args, *, timeout_secs, max_bytes, start_ts)` runs the subprocess with timeout-shaped `ExecResult` and output truncation; `_touch_instance_last_used(instance_id)` bumps `last_used_at` in its own commit. `exec` (95 LOC) and `exec_bot_local` (90 LOC) collapsed to ~20 LOC each. Behavior-preserving: 25 sandbox tests passed (exact baseline match). File 907 → 898 LOC.
 
-### knowledge.py:240-370 — Dual-lookup pattern 5x
-Same ~20-line "try legacy lookup, then fallback to knowledge_access" pattern copy-pasted.
-- **Fix**: Extract `_find_knowledge_by_name()` helper
+### ~~knowledge.py:240-370 — Dual-lookup pattern 5x~~ MOOT 2026-04-24 (Cluster 11 verify-first)
+Module removed by commit `e0b448c7` (2026-04-16, "deprecated knowledge system removal"). No `knowledge.py` exists anywhere in `app/` or `integrations/`; only residual reference is `app/services/memory_scheme.py` mentioning the removed surface in passing. Duplication self-resolved with the legacy system retirement; no extraction needed.
 
-### tasks.py:376-981 — "Mark task failed" pattern 4x
+### ~~tasks.py:376-981 — "Mark task failed" pattern 4x (actually 8×)~~ FIXED 2026-04-24 (Cluster 9)
+Original audit undercounted: 8 inline copies of fetch → set status → commit, not 4. Extracted `_mark_task_failed_in_db(task_id, *, error, completed_at=None)`; replaced 5 of 8 copies (run_exec_task TimeoutError + Exception, _run_workflow_trigger_task Exception, run_task TimeoutError + Exception, plus the claude_code-import-error fallback inside `_dispatch_to_specialized_runner`). Two skipped: rate-limit max-retries branch (in-place mutation of an already-open session that touches retry_count/scheduled_at), and `recover_stuck_tasks` (status=='running' guard + workflow-task hook-skip branching). `_publish_turn_ended_safe` separately collapses 4 try/except publish blocks.
 `fetch task → set failed → commit → fire hook → dispatch error` repeated with trivial variations.
 - **Fix**: Extract `_fail_task()` helper
 

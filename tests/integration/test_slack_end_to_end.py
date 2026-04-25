@@ -19,8 +19,9 @@ and asserts:
 3. The final ``chat.update`` carries the complete final text.
 4. No second ``chat.postMessage`` for the body (the placeholder is
    reused via update, not replaced with a new post).
-5. The render-context registry is empty after TURN_ENDED — no
-   in-memory leak across turns.
+5. The render-context registry is preserved after TURN_ENDED so the
+   durable NEW_MESSAGE path can reuse the placeholder instead of posting
+   a duplicate.
 """
 from __future__ import annotations
 
@@ -38,6 +39,7 @@ from app.domain.payloads import (
     TurnStreamTokenPayload,
 )
 from integrations.slack import renderer as slack_renderer_mod
+from integrations.slack import transport as slack_transport_mod
 from integrations.slack.rate_limit import slack_rate_limiter
 from integrations.slack.render_context import (
     STREAM_FLUSH_INTERVAL,
@@ -97,7 +99,7 @@ def fake_slack_http():
             return [c for c in self.calls if c["url"].endswith(suffix)]
 
     fake = FakeHTTP()
-    with patch.object(slack_renderer_mod, "_http", fake):
+    with patch.object(slack_transport_mod, "_http", fake):
         yield fake
 
 
@@ -202,8 +204,9 @@ class TestSlackRenderEndToEnd:
             "final TURN_ENDED edit should not carry the streaming '...' marker"
         )
 
-        # Render-context registry is empty after TURN_ENDED.
-        assert slack_render_contexts.get("C123", str(turn_id)) is None
+        # TURN_ENDED preserves context; NEW_MESSAGE owns cleanup after it
+        # reuses the placeholder for durable delivery.
+        assert slack_render_contexts.get("C123", str(turn_id)) is not None
 
     async def test_no_orphaned_placeholder_on_error(self, fake_slack_http):
         """If the agent emits TURN_ENDED with an error, the placeholder
@@ -233,8 +236,8 @@ class TestSlackRenderEndToEnd:
         final_text = update_calls[-1]["body"]["text"]
         assert "provider timed out" in final_text
         assert "Agent error" in final_text
-        # Registry cleared.
-        assert slack_render_contexts.get("C123", str(turn_id)) is None
+        # TURN_ENDED preserves context; NEW_MESSAGE owns cleanup.
+        assert slack_render_contexts.get("C123", str(turn_id)) is not None
 
     async def test_two_parallel_turns_do_not_share_state(self, fake_slack_http):
         """Two simultaneous turns on the same Slack channel must not

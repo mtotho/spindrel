@@ -21,6 +21,7 @@ interface SourceFileInspectorProps {
   fallbackUrl?: string | null;
   onClose: () => void;
   onOpenFallback?: (url: string) => void;
+  variant?: "aside" | "panel";
   className?: string;
 }
 
@@ -81,6 +82,7 @@ export function SourceFileInspector({
   fallbackUrl,
   onClose,
   onOpenFallback,
+  variant = "aside",
   className = "",
 }: SourceFileInspectorProps) {
   const { data, isLoading, error } = useWorkspaceFileContent(target.workspace_id, target.path);
@@ -102,14 +104,16 @@ export function SourceFileInspector({
     window.setTimeout(() => setCopied(false), 1600);
   };
 
+  const containerClass = variant === "panel"
+    ? `flex min-h-0 flex-col overflow-hidden rounded-md bg-surface-raised ring-1 ring-surface-border ${className}`
+    : (
+      `fixed inset-3 z-40 flex min-h-0 flex-col overflow-hidden rounded-md bg-surface-raised ` +
+      `ring-1 ring-surface-border xl:sticky xl:top-3 xl:inset-auto xl:z-auto xl:h-[calc(100vh-180px)] xl:w-[480px] xl:shrink-0 ` +
+      className
+    );
+
   return (
-    <aside
-      className={
-        `fixed inset-3 z-40 flex min-h-0 flex-col overflow-hidden rounded-md bg-surface-raised ` +
-        `ring-1 ring-surface-border xl:sticky xl:top-3 xl:inset-auto xl:z-auto xl:h-[calc(100vh-180px)] xl:w-[480px] xl:shrink-0 ` +
-        className
-      }
-    >
+    <aside className={containerClass}>
       <div className="flex shrink-0 items-start justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
           <div className="mb-1 flex items-center gap-1.5">

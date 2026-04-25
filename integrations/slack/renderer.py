@@ -29,49 +29,26 @@ the bus because they're inherently ephemeral.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
-import time
-import uuid
 from typing import ClassVar
-
-import httpx
 
 from integrations.sdk import (
     Capability, ChannelEvent, ChannelEventKind,
     DispatchTarget, OutboundAction, DeliveryReceipt,
-    ToolBadge, ToolOutputDisplay, ToolResultRenderingSupport,
-    count_pending_outbox,
-    get_channel_for_integration,
+    ToolBadge, ToolResultRenderingSupport,
     renderer_registry,
 )
-from integrations.slack.approval_blocks import (
-    build_capability_approval_blocks as _build_capability_approval_blocks,
-    build_tool_approval_blocks as _build_tool_approval_blocks,
-)
+from integrations.slack.approval_delivery import SlackApprovalDelivery
 from integrations.slack.client import bot_attribution
-from integrations.slack.formatting import markdown_to_slack_mrkdwn, split_for_slack
-from integrations.slack.rate_limit import slack_rate_limiter
-from integrations.slack.render_context import (
-    STREAM_FLUSH_INTERVAL,
-    STREAM_MAX_CHARS,
-    TurnContext,
-    slack_render_contexts,
-)
+from integrations.slack.ephemeral_delivery import SlackEphemeralDelivery
+from integrations.slack.formatting import markdown_to_slack_mrkdwn
+from integrations.slack.message_delivery import SlackMessageDelivery
+from integrations.slack.streaming import STREAMING_KINDS, SlackStreamingDelivery
 from integrations.slack.target import SlackTarget
-from integrations.slack.tool_result_adapter import (
-    badges_to_context_block,
-    build_tool_result_blocks,
-)
+from integrations.slack.tool_result_adapter import badges_to_context_block
+from integrations.slack.transport import call_slack
 
 logger = logging.getLogger(__name__)
-
-
-# Module-level shared httpx client. Mirrors the per-helper clients in
-# integrations/slack/client.py — we use a separate one here so the
-# renderer's lifecycle is decoupled from the legacy helpers (which the
-# renderer also calls into via ``post_message`` etc.).
-_http = httpx.AsyncClient(timeout=30.0)
 
 
 class SlackRenderer:
@@ -130,6 +107,25 @@ class SlackRenderer:
         })
     )
 
+    def __init__(self) -> None:
+        self._streaming = SlackStreamingDelivery(
+            call_slack=call_slack,
+            bot_attribution=bot_attribution,
+        )
+        self._messages = SlackMessageDelivery(
+            call_slack=call_slack,
+            bot_attribution=bot_attribution,
+            tool_result_rendering=self.tool_result_rendering,
+        )
+        self._approvals = SlackApprovalDelivery(
+            call_slack=call_slack,
+            bot_attribution=bot_attribution,
+        )
+        self._ephemeral = SlackEphemeralDelivery(
+            call_slack=call_slack,
+            bot_attribution=bot_attribution,
+        )
+
     async def render(
         self,
         event: ChannelEvent,
@@ -143,42 +139,16 @@ class SlackRenderer:
 
         kind = event.kind
         try:
-            if kind == ChannelEventKind.TURN_STARTED:
-                return await self._handle_turn_started(event, target)
-            if kind == ChannelEventKind.TURN_STREAM_TOKEN:
-                return await self._handle_stream_token(event, target)
-            if kind == ChannelEventKind.TURN_STREAM_TOOL_START:
-                return await self._handle_tool_start(event, target)
-            if kind == ChannelEventKind.TURN_STREAM_TOOL_RESULT:
-                # Tool results aren't rendered as their own message; the
-                # next text_delta will resume the stream. Force-flush so
-                # any queued text reaches the user before the tool runs.
-                await self._force_flush(event, target)
-                # Stash envelope for later Block Kit rendering in TURN_ENDED.
-                payload = event.payload
-                turn_id = str(getattr(payload, "turn_id", "") or "")
-                envelope = getattr(payload, "envelope", None)
-                if envelope and turn_id:
-                    ctx = slack_render_contexts.get(target.channel_id, turn_id)
-                    if ctx is None:
-                        # Context may not exist if TURN_STARTED hasn't arrived
-                        # yet (race) — create lazily so we don't lose envelopes.
-                        ctx = slack_render_contexts.get_or_create(
-                            target.channel_id, turn_id,
-                            bot_id=getattr(payload, "bot_id", "") or "",
-                        )
-                    ctx.tool_envelopes.append(envelope)
-                return DeliveryReceipt.skipped("tool_result subsumed by next stream flush")
-            if kind == ChannelEventKind.TURN_ENDED:
-                return await self._handle_turn_ended(event, target)
+            if kind in STREAMING_KINDS:
+                return await self._streaming.render(event, target)
             if kind == ChannelEventKind.NEW_MESSAGE:
-                return await self._handle_new_message(event, target)
+                return await self._messages.render(event, target)
             if kind == ChannelEventKind.MESSAGE_UPDATED:
                 return await self._handle_message_updated(event, target)
             if kind == ChannelEventKind.APPROVAL_REQUESTED:
-                return await self._handle_approval_requested(event, target)
+                return await self._approvals.render(event, target)
             if kind == ChannelEventKind.EPHEMERAL_MESSAGE:
-                return await self._handle_ephemeral_message(event, target)
+                return await self._ephemeral.render(event, target)
             if kind == ChannelEventKind.ATTACHMENT_DELETED:
                 return await self._handle_attachment_deleted(event, target)
         except Exception as exc:
@@ -222,365 +192,6 @@ class SlackRenderer:
     # Event handlers
     # ------------------------------------------------------------------
 
-    async def _handle_turn_started(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        payload = event.payload
-        bot_id = getattr(payload, "bot_id", "") or ""
-        turn_id = str(getattr(payload, "turn_id", "") or "")
-        if not turn_id:
-            return DeliveryReceipt.failed("turn_started without turn_id", retryable=False)
-
-        ctx = slack_render_contexts.get_or_create(
-            target.channel_id, turn_id, bot_id=bot_id
-        )
-        if ctx.thinking_ts is not None:
-            # Idempotent — already posted the placeholder for this turn.
-            return DeliveryReceipt.ok(external_id=ctx.thinking_ts)
-
-        # Ordering: TURN_STARTED rides the in-process bus (fast), while
-        # the user's NEW_MESSAGE goes through the outbox drainer (slower)
-        # — so without this wait, the placeholder lands in Slack before
-        # the user-mirror message when the user typed from the web UI,
-        # producing "bot thinking → user message" out-of-order scrollback.
-        # For user-triggered turns, briefly wait for any pending outbox
-        # rows targeting this Slack channel to drain before posting.
-        reason = getattr(payload, "reason", "")
-        if reason == "user_message":
-            await _wait_for_pending_outbox(event.channel_id, timeout=1.5)
-
-        attrs = bot_attribution(bot_id) if bot_id else {}
-        body: dict = {
-            "channel": target.channel_id,
-            "text": "\u23f3 _thinking..._",
-            **attrs,
-        }
-        if target.thread_ts and target.reply_in_thread:
-            body["thread_ts"] = target.thread_ts
-
-        result = await self._call_slack("chat.postMessage", target.token, body)
-        if not result.success:
-            return result
-        data = result.data or {}
-        ctx.thinking_ts = data.get("ts")
-        ctx.thinking_channel = data.get("channel")
-        ctx.last_flush_at = time.monotonic()
-        return DeliveryReceipt.ok(external_id=ctx.thinking_ts)
-
-    async def _handle_stream_token(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        payload = event.payload
-        turn_id = str(getattr(payload, "turn_id", "") or "")
-        delta = getattr(payload, "delta", "") or ""
-        ctx = slack_render_contexts.get(target.channel_id, turn_id)
-        if ctx is None:
-            # Stream token arrived without a turn_started — drop the
-            # placeholder requirement and create one lazily so we don't
-            # silently lose tokens.
-            ctx = slack_render_contexts.get_or_create(
-                target.channel_id, turn_id,
-                bot_id=getattr(payload, "bot_id", "") or "",
-            )
-
-        ctx.accumulated_text += delta
-        return await self._maybe_flush(ctx, target)
-
-    async def _handle_tool_start(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        # Force-flush any pending text so the user sees what the agent
-        # had so far before the tool runs. The tool name itself isn't
-        # surfaced in the placeholder; the next text_delta resumes the
-        # stream.
-        await self._force_flush(event, target)
-        return DeliveryReceipt.ok()
-
-    async def _handle_turn_ended(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        """Serialize the final chat.update against any in-flight `_do_flush`.
-
-        The renderer is invoked via two paths concurrently — the
-        ``subscribe_all`` bus subscription in
-        ``app/services/channel_renderers.py`` AND the outbox drainer in
-        ``app/services/outbox_drainer.py``. If a streaming-token render
-        is mid-flight inside ``_do_flush`` for the same turn when
-        ``TURN_ENDED`` arrives via the *other* path, two ``chat.update``
-        calls race against the same ``ts``. Slack ``chat.update`` is
-        idempotent on ``ts`` but NOT on body — the resulting final
-        state is non-deterministic. Acquire the per-turn ``flush_lock``
-        before touching ``ts`` so the streaming flush completes first.
-        """
-        turn_id = str(getattr(event.payload, "turn_id", "") or "")
-        ctx = slack_render_contexts.get(target.channel_id, turn_id)
-
-        if ctx is not None:
-            async with ctx.flush_lock:
-                return await self._handle_turn_ended_locked(event, target, ctx)
-        return await self._handle_turn_ended_locked(event, target, None)
-
-    async def _handle_turn_ended_locked(
-        self,
-        event: ChannelEvent,
-        target: SlackTarget,
-        ctx: TurnContext | None,
-    ) -> DeliveryReceipt:
-        """Streaming UX finalization — best-effort only.
-
-        Updates the thinking placeholder with the final response text.
-        Never posts new messages — that's the outbox's job via
-        NEW_MESSAGE. If the placeholder update fails, the outbox still
-        delivers the message durably.
-        """
-        payload = event.payload
-        turn_id = str(getattr(payload, "turn_id", "") or "")
-        bot_id = getattr(payload, "bot_id", "") or ""
-
-        if ctx is None or not ctx.thinking_ts or not ctx.thinking_channel:
-            # No placeholder to update — outbox NEW_MESSAGE handles
-            # delivery. Nothing for the streaming path to do.
-            return DeliveryReceipt.ok()
-
-        result_text = getattr(payload, "result", None) or ""
-        error_text = getattr(payload, "error", None) or ""
-
-        if result_text:
-            body_text = result_text
-        elif error_text:
-            body_text = f":warning: _Agent error: {error_text}_"
-        else:
-            body_text = "_(no response)_"
-
-        slack_text = markdown_to_slack_mrkdwn(body_text)
-        chunks = split_for_slack(slack_text) or [slack_text]
-        attrs = bot_attribution(bot_id) if bot_id else {}
-
-        # Update the thinking placeholder with the first chunk.
-        update_body: dict = {
-            "channel": ctx.thinking_channel,
-            "ts": ctx.thinking_ts,
-            "text": chunks[0],
-            **attrs,
-        }
-        update_result = await self._call_slack(
-            "chat.update", target.token, update_body
-        )
-        if not update_result.success:
-            # Placeholder update failed — discard context so NEW_MESSAGE
-            # falls through to posting as a new message.
-            slack_render_contexts.discard(target.channel_id, turn_id)
-            return update_result
-
-        # Upload any image / file actions attached to the turn.
-        # These are supplementary (not the message itself) and only
-        # exist on TurnEndedPayload, so they stay here.
-        client_actions = getattr(payload, "client_actions", None) or []
-        if client_actions:
-            await self._upload_actions(target, attrs, client_actions)
-
-        # Do NOT discard context — NEW_MESSAGE needs the thinking_ts
-        # to update the placeholder instead of posting a duplicate.
-        # NEW_MESSAGE owns context cleanup.
-        return DeliveryReceipt.ok(external_id=ctx.thinking_ts)
-
-    async def _handle_new_message(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        payload = event.payload
-        msg = getattr(payload, "message", None)
-        if msg is None:
-            return DeliveryReceipt.skipped("new_message without message payload")
-
-        # Task-run envelopes are UI-only — the web renderer shows a card
-        # with live step progress, but Slack would just see a
-        # "[Pipeline · running · 1/2 steps]" line which is noise. Dispatch
-        # only the separate ``task_run_summary`` message (gated on
-        # ``post_final_to_channel``), which DOES flow through here.
-        msg_meta_early = getattr(msg, "metadata", None) or {}
-        if msg_meta_early.get("kind") == "task_run" or msg_meta_early.get("ui_only"):
-            return DeliveryReceipt.skipped("slack skips UI-only task_run envelope")
-
-        # Internal roles are never user-facing. Without this filter the
-        # renderer happily serializes raw tool-result JSON (e.g.
-        # ``{"ok": true, "bytes": 1181}`` from file_ops.write) into a
-        # Slack message, attributed to the bare Slack App name because
-        # there's no bot actor to pass through ``bot_attribution``.
-        role = getattr(msg, "role", "") or ""
-        if role in ("tool", "system"):
-            return DeliveryReceipt.skipped(f"slack skips internal role={role}")
-
-        # Echo prevention. Slack-origin user messages reach the bus via
-        # ``turn_worker._persist_and_publish_user_message`` publishing a
-        # NEW_MESSAGE, which the IntegrationDispatcherTask then routes
-        # right back to this renderer. Posting it would re-display the
-        # user's own message in their own Slack channel as an APP post.
-        # Cross-integration mirroring (user types in web UI, message
-        # should appear in Slack) still works — those user messages
-        # have a different ``metadata["source"]``.
-        #
-        # Primary signal: ``metadata["source"] == "slack"`` set by
-        # ``integrations/slack/message_handlers.py:msg_metadata`` and
-        # threaded through ``turn_worker._persist_and_publish_user_message``
-        # onto the DomainMessage. Fallback: legacy ``slack:`` prefix on
-        # ``actor.id`` for messages persisted before metadata was threaded.
-        if role == "user":
-            msg_metadata = getattr(msg, "metadata", None) or {}
-            if msg_metadata.get("source") == "slack":
-                return DeliveryReceipt.skipped(
-                    "slack skips own-origin user message (echo prevention)"
-                )
-            actor = getattr(msg, "actor", None)
-            actor_id = getattr(actor, "id", "") or "" if actor is not None else ""
-            if actor_id.startswith("slack:"):
-                return DeliveryReceipt.skipped(
-                    "slack skips own-origin user message (echo prevention)"
-                )
-
-        # Use the message's actor for display attribution. Bot
-        # messages get bot_attribution; user messages get the user's
-        # display name. The legacy mirror path used the same pattern.
-        actor = getattr(msg, "actor", None)
-        attrs: dict = {}
-        if actor is not None and getattr(actor, "kind", "") == "bot":
-            attrs = bot_attribution(getattr(actor, "id", ""))
-        elif actor is not None:
-            display_name = getattr(actor, "display_name", None)
-            if display_name:
-                attrs["username"] = display_name
-
-        text = getattr(msg, "content", "") or ""
-        if not text.strip():
-            return DeliveryReceipt.skipped("new_message with empty content")
-        slack_text = markdown_to_slack_mrkdwn(text)
-        chunks = split_for_slack(slack_text) or [slack_text]
-
-        # If the publishing tool stashed raw Slack blocks on the message
-        # (e.g. the ``open_modal`` tool emits an "Open form" button), post
-        # them as a single message with the blocks directly attached.
-        # We bypass the placeholder-update path because the message is
-        # carrying interactive UI, not assistant response text.
-        msg_metadata = getattr(msg, "metadata", None) or {}
-        prebuilt_blocks = msg_metadata.get("slack_blocks") or []
-        if isinstance(prebuilt_blocks, list) and prebuilt_blocks:
-            body: dict = {
-                "channel": target.channel_id,
-                "text": text,
-                "blocks": prebuilt_blocks[:50],
-                **attrs,
-            }
-            if target.thread_ts and target.reply_in_thread:
-                body["thread_ts"] = target.thread_ts
-            return (await self._call_slack(
-                "chat.postMessage", target.token, body
-            )).to_receipt()
-
-        # Resolve tool-call rendering BEFORE posting the text so we can
-        # attach the blocks to the same message (placeholder update or
-        # last chunk) rather than a separate chat.postMessage — the
-        # latter lands with a newer ts and Slack interleaves any user
-        # messages sent in the meantime between the text and the tool
-        # badge.
-        tool_results = msg_metadata.get("tool_results") or []
-        tool_blocks: list[dict] = []
-        if tool_results and role != "user":
-            display_mode = await _resolve_tool_output_display(target.channel_id)
-            tool_blocks = build_tool_result_blocks(
-                tool_results,
-                display_mode=display_mode,
-                support=self.tool_result_rendering,
-            )
-        tool_blocks = tool_blocks[:50]  # Slack per-message blocks cap
-
-        # If a thinking placeholder exists for this turn, update it
-        # with the first chunk instead of posting a new message. This
-        # is the handoff from the streaming path (TURN_ENDED updated
-        # the placeholder best-effort) to the durable outbox path.
-        # The update is idempotent — if TURN_ENDED already wrote the
-        # same text, this is a no-op from Slack's perspective.
-        correlation_id = str(getattr(msg, "correlation_id", "") or "")
-        ctx_info = (
-            slack_render_contexts.find_by_turn_id(correlation_id)
-            if correlation_id else None
-        )
-        # The thinking placeholder is the bot's response slot — it was posted
-        # with bot_attribution and Slack's chat.update cannot change username/
-        # icon. Reusing it for a user message would stamp the user's text onto
-        # a message that's permanently branded as the bot.
-        if ctx_info is not None and role != "user":
-            ctx_channel_id, ctx = ctx_info
-            if ctx.thinking_ts and ctx.thinking_channel:
-                # Attach tool blocks to the placeholder update when this
-                # is the only/last chunk of text — Slack accepts text +
-                # blocks on the same message, so tool badges stay
-                # visually tied to the assistant's reply.
-                update_body: dict = {
-                    "channel": ctx.thinking_channel,
-                    "ts": ctx.thinking_ts,
-                    "text": chunks[0],
-                    **attrs,
-                }
-                if len(chunks) == 1 and tool_blocks:
-                    # Build a section block carrying the text (chat.update
-                    # otherwise ignores the top-level `text` when `blocks`
-                    # is present for rendering purposes) plus the tool
-                    # context block(s) after it.
-                    update_body["blocks"] = [
-                        {"type": "section", "text": {"type": "mrkdwn", "text": chunks[0]}},
-                        *tool_blocks,
-                    ]
-                    tool_blocks = []
-                update_result = await self._call_slack(
-                    "chat.update", target.token, update_body
-                )
-                if update_result.success:
-                    chunks = chunks[1:]
-                # If update failed (placeholder deleted, etc.), fall
-                # through to posting all chunks as new messages. The
-                # tool blocks were consumed into the failed update —
-                # the user will see the text without the badge, which
-                # is a strictly better outcome than a crash and matches
-                # the pre-existing behavior for placeholder-update
-                # failures.
-            # Context cleanup — NEW_MESSAGE owns this.
-            slack_render_contexts.discard(ctx_channel_id, correlation_id)
-
-        # Post chunks as new messages (all of them if no placeholder,
-        # or remaining overflow chunks if the placeholder took the first).
-        # Tool blocks ride along on the last chunk's post.
-        # Track the latest chat.postMessage ts so we can return it to the
-        # outbox drainer, which persists it as ``Message.metadata_.slack_ts``
-        # for thread-ref lookups.
-        latest_ts: str | None = None
-        if ctx_info is not None and not chunks:
-            # Placeholder update consumed the single chunk — external_id is
-            # the placeholder ts so the Message row links to the message the
-            # user actually sees in Slack.
-            latest_ts = ctx_info[1].thinking_ts
-        for idx, chunk in enumerate(chunks):
-            is_last = idx == len(chunks) - 1
-            body: dict = {
-                "channel": target.channel_id,
-                "text": chunk,
-                **attrs,
-            }
-            if is_last and tool_blocks:
-                body["blocks"] = [
-                    {"type": "section", "text": {"type": "mrkdwn", "text": chunk}},
-                    *tool_blocks,
-                ]
-                tool_blocks = []
-            if target.thread_ts and target.reply_in_thread:
-                body["thread_ts"] = target.thread_ts
-            result = await self._call_slack("chat.postMessage", target.token, body)
-            if not result.success:
-                return result
-            ts = (result.data or {}).get("ts") if result.data else None
-            if ts:
-                latest_ts = ts
-
-        return DeliveryReceipt.ok(external_id=latest_ts)
-
     async def _handle_message_updated(
         self, event: ChannelEvent, target: SlackTarget
     ) -> DeliveryReceipt:
@@ -592,85 +203,6 @@ class SlackRenderer:
         return DeliveryReceipt.skipped(
             "message_updated needs an external_id slack ts (not yet wired)"
         )
-
-    async def _handle_approval_requested(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        payload = event.payload
-        approval_id = getattr(payload, "approval_id", "") or ""
-        bot_id = getattr(payload, "bot_id", "") or ""
-        tool_name = getattr(payload, "tool_name", "") or ""
-        arguments = getattr(payload, "arguments", {}) or {}
-        reason = getattr(payload, "reason", None)
-        capability = getattr(payload, "capability", None)
-
-        attrs = bot_attribution(bot_id) if bot_id else {}
-        if capability:
-            blocks = _build_capability_approval_blocks(
-                approval_id, bot_id, capability,
-            )
-            fallback = (
-                f"Capability activation: {capability.get('name', 'unknown')} "
-                f"(approval {approval_id})"
-            )
-        else:
-            blocks = _build_tool_approval_blocks(
-                approval_id, bot_id, tool_name, arguments, reason,
-            )
-            fallback = (
-                f"Tool approval required: {tool_name} (approval {approval_id})"
-            )
-
-        body: dict = {
-            "channel": target.channel_id,
-            "text": fallback,
-            "blocks": blocks,
-            **attrs,
-        }
-        if target.thread_ts and target.reply_in_thread:
-            body["thread_ts"] = target.thread_ts
-
-        return (await self._call_slack(
-            "chat.postMessage", target.token, body
-        )).to_receipt()
-
-    async def _handle_ephemeral_message(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> DeliveryReceipt:
-        """Deliver an ``EPHEMERAL_MESSAGE`` via ``chat.postEphemeral``.
-
-        Only the ``recipient_user_id`` on the payload sees the message
-        (Slack enforces; the bot's own message log shows nothing). No
-        placeholder update flow — ephemerals are one-shot, transient.
-        """
-        payload = event.payload
-        message = getattr(payload, "message", None)
-        recipient_user_id = getattr(payload, "recipient_user_id", "") or ""
-        if message is None or not recipient_user_id:
-            return DeliveryReceipt.skipped(
-                "ephemeral_message missing message or recipient_user_id"
-            )
-        text = (getattr(message, "content", "") or "").strip()
-        if not text:
-            return DeliveryReceipt.skipped("ephemeral_message empty text")
-
-        bot_id = ""
-        actor = getattr(message, "actor", None)
-        if actor is not None and getattr(actor, "kind", "") == "bot":
-            bot_id = getattr(actor, "id", "") or ""
-        attrs = bot_attribution(bot_id) if bot_id else {}
-
-        body: dict = {
-            "channel": target.channel_id,
-            "user": recipient_user_id,
-            "text": text,
-            **attrs,
-        }
-        if target.thread_ts and target.reply_in_thread:
-            body["thread_ts"] = target.thread_ts
-        return (await self._call_slack(
-            "chat.postEphemeral", target.token, body
-        )).to_receipt()
 
     async def _handle_attachment_deleted(
         self, event: ChannelEvent, target: SlackTarget
@@ -690,204 +222,10 @@ class SlackRenderer:
             "delete_slack_file returned False", retryable=True,
         )
 
-    # ------------------------------------------------------------------
-    # Streaming flush helpers — the original-bug fix
-    # ------------------------------------------------------------------
-
-    async def _maybe_flush(
-        self, ctx: TurnContext, target: SlackTarget
-    ) -> DeliveryReceipt:
-        """Flush ``ctx.accumulated_text`` if the debounce window has elapsed.
-
-        Otherwise queue the latest text in ``ctx.pending_text`` so the
-        in-flight flush will pick it up via the safety pass.
-        """
-        now = time.monotonic()
-        if now - ctx.last_flush_at < STREAM_FLUSH_INTERVAL:
-            ctx.pending_text = ctx.accumulated_text
-            return DeliveryReceipt.ok()
-
-        if ctx.flush_lock.locked():
-            # Another flush is in flight; queue and let it pick this up.
-            ctx.pending_text = ctx.accumulated_text
-            return DeliveryReceipt.ok()
-
-        return await self._do_flush(ctx, target)
-
-    async def _force_flush(
-        self, event: ChannelEvent, target: SlackTarget
-    ) -> None:
-        payload = event.payload
-        turn_id = str(getattr(payload, "turn_id", "") or "")
-        ctx = slack_render_contexts.get(target.channel_id, turn_id)
-        if ctx is None or not ctx.accumulated_text:
-            return
-        await self._do_flush(ctx, target)
-
-    async def _do_flush(
-        self, ctx: TurnContext, target: SlackTarget
-    ) -> DeliveryReceipt:
-        async with ctx.flush_lock:
-            if ctx.thinking_ts is None or ctx.thinking_channel is None:
-                # No placeholder yet — fall through to TURN_ENDED.
-                return DeliveryReceipt.ok()
-
-            text = _truncate_for_stream(ctx.accumulated_text)
-            attrs = bot_attribution(ctx.bot_id) if ctx.bot_id else {}
-            body: dict = {
-                "channel": ctx.thinking_channel,
-                "ts": ctx.thinking_ts,
-                "text": text,
-                **attrs,
-            }
-            result = await self._call_slack("chat.update", target.token, body)
-            ctx.last_flush_at = time.monotonic()
-
-            # Safety pass: if more tokens arrived during the flush,
-            # fire one more update with the queued text. This is the
-            # critical fix for the rapid-edit race that broke Slack
-            # mobile cache refreshes.
-            if (
-                ctx.pending_text is not None
-                and ctx.pending_text != ctx.accumulated_text
-            ):
-                queued = ctx.pending_text
-                ctx.pending_text = None
-                queued_text = _truncate_for_stream(queued)
-                queued_body = {**body, "text": queued_text}
-                await self._call_slack("chat.update", target.token, queued_body)
-                ctx.last_flush_at = time.monotonic()
-            else:
-                ctx.pending_text = None
-
-            return result.to_receipt()
-
-    # ------------------------------------------------------------------
-    # HTTP / rate-limit plumbing
-    # ------------------------------------------------------------------
-
-    async def _call_slack(
-        self,
-        method: str,
-        token: str,
-        body: dict,
-    ) -> "_SlackCallResult":
-        """Make a single rate-limited Slack web-API call.
-
-        Returns a ``_SlackCallResult`` so callers can read both the
-        DeliveryReceipt-equivalent state AND the raw response data
-        (needed by ``_handle_turn_started`` to capture the placeholder
-        ts).
-        """
-        await slack_rate_limiter.acquire(method)
-        url = f"https://slack.com/api/{method}"
-        headers = {"Authorization": f"Bearer {token}"}
-        try:
-            response = await _http.post(url, json=body, headers=headers)
-        except httpx.RequestError as exc:
-            logger.warning("SlackRenderer: %s connection error: %s", method, exc)
-            return _SlackCallResult.failed(f"connection error: {exc}", retryable=True)
-
-        if response.status_code == 429:
-            retry_after = float(response.headers.get("Retry-After", "1"))
-            slack_rate_limiter.record_429(method, retry_after)
-            return _SlackCallResult.failed(
-                f"slack 429 (Retry-After={retry_after}s)", retryable=True,
-            )
-
-        try:
-            data = response.json()
-        except ValueError:
-            return _SlackCallResult.failed(
-                f"slack {method} returned non-JSON status={response.status_code}",
-                retryable=response.status_code >= 500,
-            )
-
-        if not response.is_success:
-            return _SlackCallResult.failed(
-                f"slack {method} HTTP {response.status_code}",
-                retryable=response.status_code >= 500,
-            )
-
-        if not data.get("ok"):
-            error = data.get("error", "unknown")
-            # Slack-side errors that are clearly fatal — bad token,
-            # missing channel — are non-retryable. Everything else
-            # gets a retry.
-            non_retryable = {
-                "invalid_auth", "not_authed", "channel_not_found",
-                "is_archived", "msg_too_long", "no_text",
-            }
-            retryable = error not in non_retryable
-            return _SlackCallResult.failed(
-                f"slack {method} error: {error}", retryable=retryable,
-            )
-
-        return _SlackCallResult.ok(data)
-
-    async def _upload_actions(
-        self,
-        target: SlackTarget,
-        attrs: dict,
-        actions: list,
-    ) -> None:
-        """Upload images / files attached to a TurnEndedPayload.
-
-        Imports lazily because the upload helper pulls in the slack
-        SDK and we don't want it loaded for every chat.update flush.
-        """
-        try:
-            from integrations.slack.uploads import upload_image
-        except Exception:
-            logger.exception("SlackRenderer: failed to import upload helper")
-            return
-
-        for action in actions:
-            action_dict = (
-                action if isinstance(action, dict) else _action_to_dict(action)
-            )
-            if action_dict.get("type") not in ("upload_image", "upload_file"):
-                continue
-            try:
-                await upload_image(
-                    token=target.token,
-                    channel_id=target.channel_id,
-                    thread_ts=target.thread_ts,
-                    reply_in_thread=target.reply_in_thread,
-                    action=action_dict,
-                    username=attrs.get("username"),
-                    icon_emoji=attrs.get("icon_emoji"),
-                )
-            except Exception:
-                logger.exception("SlackRenderer: upload_image failed for action")
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _truncate_for_stream(text: str) -> str:
-    """Mirror the legacy ``SlackStreamBuffer._build_display`` truncation."""
-    text = (text or "").lstrip()
-    if not text:
-        return ""
-    if len(text) > STREAM_MAX_CHARS - 4:
-        return text[:STREAM_MAX_CHARS - 4] + " ..."
-    return text + " ..."
-
-
-def _action_to_dict(action) -> dict:
-    """Best-effort conversion of an OutboundAction dataclass into a dict."""
-    if isinstance(action, dict):
-        return action
-    try:
-        from dataclasses import asdict, is_dataclass
-        if is_dataclass(action) and not isinstance(action, type):
-            return asdict(action)
-    except Exception:
-        pass
-    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -909,52 +247,6 @@ _LINK_EMOJI = {
     "email": ":email:",
     "file": ":page_facing_up:",
 }
-
-
-async def _wait_for_pending_outbox(
-    channel_id: uuid.UUID,
-    *,
-    timeout: float = 1.5,
-    poll_interval: float = 0.05,
-) -> None:
-    """Block until no undelivered Slack outbox rows remain for this channel.
-
-    Called from ``_handle_turn_started`` to keep the "thinking..."
-    placeholder from jumping ahead of the user's mirror message. Polls
-    every ``poll_interval`` seconds, returning as soon as nothing is
-    pending or after ``timeout`` seconds have elapsed.
-    """
-    deadline = time.monotonic() + timeout
-    try:
-        while time.monotonic() < deadline:
-            remaining = max(0.0, deadline - time.monotonic())
-            pending = await asyncio.wait_for(
-                count_pending_outbox(channel_id, "slack"),
-                timeout=max(0.001, min(poll_interval, remaining)),
-            )
-            if not pending:
-                return
-            await asyncio.sleep(poll_interval)
-    except asyncio.TimeoutError:
-        logger.debug("_wait_for_pending_outbox poll timed out; continuing")
-    except Exception:
-        logger.debug("_wait_for_pending_outbox poll failed; continuing", exc_info=True)
-
-
-async def _resolve_tool_output_display(slack_channel_id: str) -> str:
-    """Look up the channel's ``tool_output_display`` setting.
-
-    Falls back to ``compact`` when the channel can't be resolved (e.g.
-    transient DB error or a Slack channel the server hasn't bound yet).
-    """
-    client_id = f"slack:{slack_channel_id}"
-    try:
-        channel = await get_channel_for_integration("slack", client_id)
-        if channel is not None:
-            return ToolOutputDisplay.normalize(channel.tool_output_display)
-    except Exception:
-        logger.debug("tool_output_display lookup failed, using default", exc_info=True)
-    return ToolOutputDisplay.COMPACT
 
 
 def _badges_to_context_block(badges: list[ToolBadge]) -> dict | None:
@@ -1162,45 +454,6 @@ def _node_to_block(node: dict) -> dict | None:
 def _escape_mrkdwn(text: str) -> str:
     """Escape Slack mrkdwn special characters in user-provided text."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
-# ---------------------------------------------------------------------------
-# Internal Slack call result type
-# ---------------------------------------------------------------------------
-
-
-class _SlackCallResult:
-    """Carrier object for ``_call_slack``: success/failure + raw data."""
-
-    __slots__ = ("success", "data", "error", "retryable")
-
-    def __init__(
-        self,
-        success: bool,
-        *,
-        data: dict | None = None,
-        error: str | None = None,
-        retryable: bool = False,
-    ) -> None:
-        self.success = success
-        self.data = data
-        self.error = error
-        self.retryable = retryable
-
-    @classmethod
-    def ok(cls, data: dict) -> "_SlackCallResult":
-        return cls(True, data=data)
-
-    @classmethod
-    def failed(cls, error: str, *, retryable: bool) -> "_SlackCallResult":
-        return cls(False, error=error, retryable=retryable)
-
-    def to_receipt(self) -> DeliveryReceipt:
-        if self.success:
-            return DeliveryReceipt.ok(
-                external_id=(self.data or {}).get("ts") if self.data else None,
-            )
-        return DeliveryReceipt.failed(self.error or "unknown", retryable=self.retryable)
 
 
 # ---------------------------------------------------------------------------

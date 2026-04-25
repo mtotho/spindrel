@@ -36,11 +36,16 @@ sections:
 
   - id: dashboards
     title: "Dashboards from tool results"
-    scenes: [widget_dashboard]
+    scenes: [widget_dashboard, doc_widget_system]
 
   - id: pipelines
     title: "Pipelines that stream progress"
     scenes: [pipeline_live]
+
+  - id: read_more
+    title: "Read more in the docs"
+    scenes: [doc_index_hero]
+    title_card: false
 
 scenes:
   - id: hero_home
@@ -78,3 +83,20 @@ scenes:
       start: [1.06, 0.50, 0.30]
       end:   [1.00, 0.50, 0.55]
     caption: "Pipelines chain steps — gather, summarize, post — streaming progress into the chat."
+
+  # B2 — doc views. Captured live from the running mkdocs site at render time.
+  - id: doc_widget_system
+    kind: doc_callout
+    guide: guides/widget-system.md
+    highlight: "h1"
+    duration: 4
+    color_scheme: dark
+    zoom: 1.18
+    caption: "The widget system — pin tool results, build dashboards from them."
+
+  - id: doc_index_hero
+    kind: doc_hero
+    guide: guides/index.md
+    duration: 7
+    color_scheme: dark
+    caption: "Every feature has a guide — same site, same tokens, one source of truth."

@@ -1,0 +1,44 @@
+# Phase B2 proof — exercises doc_hero + doc_callout against the live mkdocs
+# site. Independent from quickstart.yml so the working storyboard isn't
+# blocked on B2 stabilizing. Promote scenes from here into quickstart.yml
+# once the rendering quality reads cleanly.
+
+meta:
+  title: "Spindrel docs view proof"
+  slug: b2_proof
+  output_dir: docs/videos/
+  resolution: [1920, 1080]
+  fps: 30
+  transition: crossfade
+  transition_duration: 0.4
+  watermark:
+    text: "spindrel.dev"
+    opacity: 0.45
+  caption_style:
+    position: bottom
+    font_size: 36
+    padding: 48
+    bg_opacity: 0.6
+
+sections:
+  - id: docs_intro
+    title: "From the docs"
+    title_card: false
+    scenes: [hero_widget_system, callout_pin_button]
+
+scenes:
+  - id: hero_widget_system
+    kind: doc_hero
+    guide: guides/widget-system.md
+    duration: 6
+    color_scheme: dark
+    caption: "Read the widget system guide right inside the video."
+
+  - id: callout_pin_button
+    kind: doc_callout
+    guide: guides/widget-system.md
+    highlight: "h1"
+    duration: 4
+    color_scheme: dark
+    zoom: 1.20
+    caption: "Pin tool results — they become live widgets."

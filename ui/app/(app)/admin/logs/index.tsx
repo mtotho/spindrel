@@ -12,6 +12,7 @@ import { useTurns } from "@/src/api/hooks/useTurns";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
 import { useThemeTokens } from "@/src/theme/tokens";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 // ---------------------------------------------------------------------------
 // Filter bar
@@ -229,7 +230,7 @@ export default function LogsScreen() {
                 turn={turn}
                 isMobile={isMobile}
                 bots={bots}
-                onPress={(cid) => navigate(`/admin/logs/${cid}`)}
+                onPress={(cid) => openTraceInspector(cid)}
               />
             ))}
             {data?.turns.length === 0 && (

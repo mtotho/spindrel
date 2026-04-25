@@ -32,7 +32,7 @@ function resolveTitleMode(chrome, widgetConfig, presentation, enforceHidden = fa
         return "hidden";
     return presentation?.show_panel_title && presentation?.panel_title ? "panel" : "generic";
 }
-export function resolveWidgetHostPolicy({ layout, chrome, widgetConfig, widgetPresentation, runtimeRail = false, forceChip = false, headerBackdropMode = "default", }) {
+export function resolveWidgetHostPolicy({ layout, chrome, widgetConfig, widgetPresentation, runtimeRail = false, forceChip = false, headerBackdropMode = "glass", }) {
     const zone = layout ?? "grid";
     const headerZone = zone === "header";
     const presentationFamily = forceChip

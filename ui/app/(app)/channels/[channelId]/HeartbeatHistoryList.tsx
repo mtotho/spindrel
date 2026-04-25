@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ExternalLink, ChevronDown, ChevronRight, Clock, Zap, AlertTriangle } from "lucide-react";
+import { ChevronDown, ChevronRight, Clock, Zap, AlertTriangle } from "lucide-react";
 import { ToolCallsList } from "@/src/components/shared/ToolCallsList";
-import { ActionButton, SettingsGroupLabel, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { SettingsGroupLabel, StatusBadge } from "@/src/components/shared/SettingsControls";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
 import type { HeartbeatHistoryRun } from "@/src/types/api";
 
 function fmtDuration(ms: number | null | undefined): string {
@@ -17,7 +17,6 @@ function fmtTokens(n: number): string {
 }
 
 export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHistoryRun[]; isWide?: boolean }) {
-  const navigate = useNavigate();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -99,12 +98,11 @@ export function HeartbeatHistoryList({ history, isWide }: { history: HeartbeatHi
                   )}
                   {hb.correlation_id && (
                     <div className="mt-2">
-                      <ActionButton
-                        label="View trace"
-                        onPress={() => navigate(`/admin/logs/${hb.correlation_id}`)}
-                        icon={<ExternalLink size={11} />}
+                      <TraceActionButton
+                        correlationId={hb.correlation_id}
+                        title="Heartbeat run"
+                        subtitle={hb.status}
                         variant="primary"
-                        size="small"
                       />
                     </div>
                   )}

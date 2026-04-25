@@ -650,37 +650,23 @@ async def run_exec_task(task: Task) -> None:
 
     except asyncio.TimeoutError:
         logger.error("Exec task %s timed out after %ds", task.id, _exec_timeout)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = f"Timed out after {_exec_timeout}s"
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+        _timeout_msg = f"Timed out after {_exec_timeout}s"
+        await _mark_task_failed_in_db(task.id, error=_timeout_msg)
         await _fire_task_complete(task, "failed")
-        try:
-            output_task = Task(
-                id=task.id, bot_id=task.bot_id, channel_id=task.channel_id,
-                dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
-            )
-            await _publish_turn_ended(
-                output_task,
-                turn_id=_turn_id,
-                result=None,
-                error=f"Timed out after {_exec_timeout}s",
-            )
-        except Exception:
-            logger.warning("Failed to publish timeout error for exec task %s", task.id)
+        output_task = Task(
+            id=task.id, bot_id=task.bot_id, channel_id=task.channel_id,
+            dispatch_type=output_dispatch_type, dispatch_config=output_dispatch_config,
+        )
+        await _publish_turn_ended_safe(
+            output_task,
+            turn_id=_turn_id,
+            error=_timeout_msg,
+            log_label="timeout error for exec task",
+        )
 
     except Exception as exc:
         logger.exception("Exec task %s failed", task.id)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = str(exc)[:4000]
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+        await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
         await _fire_task_complete(task, "failed")
         try:
             from app.agent.recording import schedule_exec_completion_record
@@ -761,22 +747,67 @@ async def _run_workflow_trigger_task(task: Task) -> None:
         await _fire_task_complete(task, "complete")
     except Exception as exc:
         logger.exception("Workflow trigger task %s failed", task.id)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = str(exc)[:4000]
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+        await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
         await _fire_task_complete(task, "failed")
 
 
-async def run_task(task: Task) -> None:
-    """Execute a single task: run the agent, store result, dispatch."""
-    # Route on task_type (preferred) with fallback to dispatch_type for legacy rows
+# ===== Cluster 9 task-failure + dispatch helpers =====
+
+
+async def _mark_task_failed_in_db(
+    task_id: uuid.UUID,
+    *,
+    error: str,
+    completed_at: datetime | None = None,
+) -> None:
+    """Persist `status='failed'` + truncated error + completed_at on the Task row.
+
+    Single source of truth for the 6-of-8 mark-failed sites that share the same
+    fetch → set → commit pattern. The two non-conforming sites (`run_task`'s
+    rate-limit retry branch which mutates the row in-place, and
+    `recover_stuck_tasks` which guards on `status == 'running'`) keep their
+    inline writes.
+    """
+    async with async_session() as db:
+        t = await db.get(Task, task_id)
+        if t:
+            t.status = "failed"
+            t.error = error
+            t.completed_at = completed_at or datetime.now(timezone.utc)
+            await db.commit()
+
+
+async def _publish_turn_ended_safe(
+    target_task: Task,
+    *,
+    turn_id: uuid.UUID,
+    error: str,
+    result: dict | None = None,
+    log_label: str = "task",
+) -> None:
+    """Best-effort `_publish_turn_ended` — swallows exceptions and logs a warning.
+
+    Wraps the try/except boilerplate that wraps every TURN_ENDED publish in the
+    failure paths. The `log_label` (e.g. "task", "exec task", "rate limit error")
+    flows into the warning so log lines stay distinguishable.
+    """
+    try:
+        await _publish_turn_ended(target_task, turn_id=turn_id, result=result, error=error)
+    except Exception:
+        logger.warning("Failed to publish %s for task %s", log_label, target_task.id)
+
+
+async def _dispatch_to_specialized_runner(task: Task) -> bool:
+    """Route task_type-specific tasks to their dedicated runners.
+
+    Returns True if the task was dispatched (caller should return).
+    Returns False to indicate the caller should run the general agent path.
+    Handles: `exec`, `pipeline` (with scheduling-session lock-defer), workflow
+    trigger, and `claude_code` (including the missing-integration failure path).
+    """
     if task.task_type == "exec" or (task.task_type == "agent" and task.dispatch_type == "exec"):
         await run_exec_task(task)
-        return
+        return True
     if task.task_type == "pipeline":
         # Respect the scheduling session's lock so the pipeline (and its
         # anchor envelope) fires AFTER the bot's "pipeline is running"
@@ -797,28 +828,28 @@ async def run_task(task: Task) -> None:
                     t.scheduled_at = datetime.now(timezone.utc) + timedelta(seconds=3)
                     await db.commit()
             logger.info("Pipeline %s deferred 3s: scheduling session %s busy", task.id, task.session_id)
-            return
+            return True
         from app.services.step_executor import run_task_pipeline
         await run_task_pipeline(task)
-        return
+        return True
     if task.workflow_id:
         await _run_workflow_trigger_task(task)
-        return
-
+        return True
     if task.task_type == "claude_code":
         try:
             from integrations.claude_code.executor import run_claude_code_task
         except ImportError:
             logger.error("claude_code integration not installed; failing task %s", task.id)
-            async with async_session() as db:
-                t = await db.get(Task, task.id)
-                if t:
-                    t.status = "failed"
-                    t.error = "claude_code integration not installed"
-                    t.completed_at = datetime.now(timezone.utc)
-                    await db.commit()
-            return
+            await _mark_task_failed_in_db(task.id, error="claude_code integration not installed")
+            return True
         await run_claude_code_task(task)
+        return True
+    return False
+
+
+async def run_task(task: Task) -> None:
+    """Execute a single task: run the agent, store result, dispatch."""
+    if await _dispatch_to_specialized_runner(task):
         return
 
     # Resolve the channel's current active session so tasks always run in the
@@ -1365,19 +1396,12 @@ async def run_task(task: Task) -> None:
     except asyncio.TimeoutError:
         logger.error("Task %s timed out after %ds", task.id, _task_timeout)
         _timeout_err = f"Timed out after {_task_timeout}s"
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = _timeout_err
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+        await _mark_task_failed_in_db(task.id, error=_timeout_err)
         await _record_timeout_event(task, correlation_id, _timeout_err)
         await _fire_task_complete(task, "failed")
-        try:
-            await _publish_turn_ended(task, turn_id=_turn_id, result=None, error=_timeout_err)
-        except Exception:
-            logger.warning("Failed to publish timeout error for task %s", task.id)
+        await _publish_turn_ended_safe(
+            task, turn_id=_turn_id, error=_timeout_err, log_label="timeout error",
+        )
 
     except openai.RateLimitError as exc:
         async with async_session() as db:
@@ -1403,25 +1427,18 @@ async def run_task(task: Task) -> None:
                 await db.commit()
                 logger.error("Task %s failed after %d rate limit retries", task.id, t.retry_count)
                 await _fire_task_complete(task, "failed")
-                try:
-                    await _publish_turn_ended(task, turn_id=_turn_id, result=None, error="rate_limited")
-                except Exception:
-                    logger.warning("Failed to publish rate limit error for task %s", task.id)
+                await _publish_turn_ended_safe(
+                    task, turn_id=_turn_id, error="rate_limited",
+                    log_label="rate limit error",
+                )
 
     except Exception as exc:
         logger.exception("Task %s failed", task.id)
-        async with async_session() as db:
-            t = await db.get(Task, task.id)
-            if t:
-                t.status = "failed"
-                t.error = str(exc)[:4000]
-                t.completed_at = datetime.now(timezone.utc)
-                await db.commit()
+        await _mark_task_failed_in_db(task.id, error=str(exc)[:4000])
         await _fire_task_complete(task, "failed")
-        try:
-            await _publish_turn_ended(task, turn_id=_turn_id, result=None, error=str(exc)[:500])
-        except Exception:
-            logger.warning("Failed to publish error for task %s", task.id)
+        await _publish_turn_ended_safe(
+            task, turn_id=_turn_id, error=str(exc)[:500], log_label="error",
+        )
     finally:
         if _lock_acquired:
             session_locks.release(task.session_id)

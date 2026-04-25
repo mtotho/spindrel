@@ -299,6 +299,27 @@ export function removeChannelChatPane(
   };
 }
 
+export function moveChannelChatPane(
+  layout: ChannelChatPaneLayout,
+  paneId: string,
+  direction: "left" | "right",
+): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  const index = existing.panes.findIndex((pane) => pane.id === paneId);
+  if (index < 0) return existing;
+  const nextIndex = direction === "left" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= existing.panes.length) return existing;
+  const panes = [...existing.panes];
+  const current = panes[index]!;
+  panes[index] = panes[nextIndex]!;
+  panes[nextIndex] = current;
+  return {
+    ...existing,
+    panes,
+    widths: normalizeWidths(panes, existing.widths),
+  };
+}
+
 export function maximizeChannelChatPane(
   layout: ChannelChatPaneLayout,
   paneId: string,
@@ -334,6 +355,22 @@ export function minimizeChannelChatPane(
     widths: normalizeWidths(panes, existing.widths),
     maximizedPaneId: existing.maximizedPaneId === paneId ? null : existing.maximizedPaneId,
     miniPane: pane,
+  };
+}
+
+export function restoreMiniChannelChatPane(layout: ChannelChatPaneLayout): ChannelChatPaneLayout {
+  const existing = normalizeChannelChatPaneLayout(layout);
+  if (!existing.miniPane) return existing;
+  const pane = existing.miniPane;
+  const panes = existing.panes.some((candidate) => candidate.id === pane.id)
+    ? existing.panes
+    : [...existing.panes, pane].slice(-MAX_CHANNEL_CHAT_PANES);
+  return {
+    panes,
+    focusedPaneId: pane.id,
+    widths: normalizeWidths(panes, existing.widths),
+    maximizedPaneId: null,
+    miniPane: null,
   };
 }
 

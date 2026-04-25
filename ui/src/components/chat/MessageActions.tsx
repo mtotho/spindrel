@@ -6,12 +6,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Copy, Check, Activity, Cog, FileText, MessageCircle, CornerDownRight, Braces } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { createPortal } from "react-dom";
 import { writeToClipboard } from "../../utils/clipboard";
 import type { ThemeTokens } from "../../theme/tokens";
 import type { Message } from "../../types/api";
 import { stringifyMessagesForJsonCopy } from "./messageJsonCopy";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 // ---------------------------------------------------------------------------
 // Copy + trace buttons -- appears on hover (web only)
@@ -39,7 +39,6 @@ export function MessageActions({
   onReplyInThread?: () => void;
 }) {
   const [copied, setCopied] = useState<"single" | "full" | "json" | false>(false);
-  const navigate = useNavigate();
 
   const btnStyle = (active?: boolean): React.CSSProperties => ({
     display: "flex", flexDirection: "row",
@@ -85,7 +84,7 @@ export function MessageActions({
         <button
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/admin/logs/${correlationId}`);
+            openTraceInspector(correlationId);
           }}
           title="View trace"
           style={btnStyle()}
@@ -157,7 +156,6 @@ export function TimestampActions({
   onReplyInThread,
   t,
 }: TimestampActionsProps) {
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState<"single" | "full" | "json" | false>(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -257,7 +255,7 @@ export function TimestampActions({
               t={t}
               onClick={() => {
                 setOpen(false);
-                navigate(`/admin/logs/${correlationId}`);
+                openTraceInspector(correlationId);
               }}
             />
           )}

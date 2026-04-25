@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   Check,
   XCircle,
@@ -10,6 +9,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/src/lib/cn";
 import { useResolveStep } from "@/src/api/hooks/useResolveStep";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 // ---------------------------------------------------------------------------
 // Shared renderer for `widget_envelope.template.kind === "approval_review"`
@@ -200,16 +200,21 @@ function ProposalRow({
         <div className="flex flex-row flex-wrap items-center gap-1 text-[10px]">
           <span className="text-text-dim uppercase tracking-wider">evidence:</span>
           {tracedEvidence.map((e, i) => (
-            <Link
+            <button
+              type="button"
               key={`t-${i}`}
-              to={`/admin/logs/${e.correlation_id}`}
               title={e.signal || e.correlation_id}
+              onClick={() => openTraceInspector({
+                correlationId: e.correlation_id!,
+                title: e.signal || "Approval evidence",
+                subtitle: e.bot_id,
+              })}
               className="inline-flex items-center px-1.5 py-0.5 rounded bg-surface-overlay/60
                          border border-surface-border font-mono text-accent
                          hover:bg-accent/10 hover:border-accent/40 transition-colors"
             >
               {(e.correlation_id || "").slice(0, 8)}
-            </Link>
+            </button>
           ))}
           {untracedEvidence.map((e, i) => (
             <span

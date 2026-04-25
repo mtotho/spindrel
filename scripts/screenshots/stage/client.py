@@ -7,6 +7,7 @@ path here (the browser layer handles JWTs for localStorage seeding).
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -87,6 +88,25 @@ class SpindrelClient:
         r = self._http.delete(f"/api/v1/admin/bots/{bot_id}")
         if r.status_code not in (200, 204, 404):
             r.raise_for_status()
+
+    def update_bot(self, bot_id: str, **fields: Any) -> dict:
+        """PATCH a bot's config. Only fields named in ``BotUpdateIn`` are honored.
+
+        Used by chat-content stagers to enable delegation (``delegation_config``),
+        pin tools that would otherwise sit behind discovery (``pinned_tools``),
+        or enroll skills (``skills``) on the screenshot bot just for the time
+        the capture is staged. Idempotent — PATCH replaces only the provided
+        keys; reruns reapply the same values.
+        """
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /admin/bots/%s fields=%s", bot_id, sorted(fields))
+            return {"id": bot_id, "dry_run": True}
+        r = self._http.patch(f"/api/v1/admin/bots/{bot_id}", json=fields)
+        if r.status_code >= 400:
+            logger.error("PATCH /admin/bots/%s -> %s body=%s",
+                         bot_id, r.status_code, r.text[:300])
+        r.raise_for_status()
+        return r.json()
 
     # --- channels ----------------------------------------------------------
 
@@ -179,6 +199,157 @@ class SpindrelClient:
             "/chat",
             json={"channel_id": channel_id, "message": text},
         ).json()
+
+    def start_session_plan_mode(self, session_id: str) -> dict:
+        """Flip a session into ``planning`` mode so ``publish_plan`` is allowed."""
+        if self._dry_run:
+            logger.info("DRY-RUN POST /sessions/%s/plan/start", session_id)
+            return {"dry_run": True}
+        # ``sessions.router`` is mounted at /sessions (no /api/v1 prefix).
+        r = self._http.post(f"/sessions/{session_id}/plan/start", json={})
+        r.raise_for_status()
+        return r.json()
+
+    def get_active_session_id(self, channel_id: str) -> str | None:
+        # Public ``GET /channels/{id}`` includes ``active_session_id``; the
+        # admin variant strips it (only the public schema carries it).
+        r = self._http.get(f"/api/v1/channels/{channel_id}")
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json().get("active_session_id")
+
+    def reset_channel(self, channel_id: str) -> dict:
+        """Start a fresh session on the channel — the prior conversation is preserved.
+
+        Used before ``seed_turn`` so each chat-content capture renders a clean
+        single-turn conversation instead of accumulating from prior runs.
+        """
+        if self._dry_run:
+            logger.info("DRY-RUN POST /channels/%s/reset", channel_id)
+            return {"channel_id": channel_id, "dry_run": True}
+        r = self._http.post(f"/api/v1/channels/{channel_id}/reset", json={})
+        r.raise_for_status()
+        return r.json()
+
+    def get_channel_state(self, channel_id: str) -> dict:
+        r = self._http.get(f"/api/v1/channels/{channel_id}/state")
+        r.raise_for_status()
+        return r.json()
+
+    def list_session_messages(self, session_id: str, *, limit: int = 20) -> list[dict]:
+        r = self._http.get(
+            f"/api/v1/sessions/{session_id}/messages",
+            params={"limit": limit},
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def seed_turn(
+        self,
+        *,
+        channel_id: str,
+        message: str,
+        bot_id: str | None = None,
+        expected_tool: str | None = None,
+        timeout_s: float = 120.0,
+        poll_interval_s: float = 1.5,
+        wait_subagents: bool = False,
+        subagent_timeout_s: float = 180.0,
+    ) -> dict:
+        """Drive the agent loop deterministically for chat-content captures.
+
+        Posts a user turn, polls ``/channels/{id}/state`` until ``active_turns``
+        drains (the canonical "done thinking" signal), and — when
+        ``expected_tool`` is set — verifies the latest assistant message's
+        ``tool_calls`` includes the named tool. Raises ``RuntimeError`` if the
+        turn does not settle in ``timeout_s`` or if the expected tool was not
+        called (so a flaky model selection fails the staging step instead of
+        producing a misleading screenshot).
+
+        Returns the final assistant ``MessageOut`` dict so callers can inspect
+        ``tool_calls`` / ``metadata`` if they need to chain assertions.
+        """
+        if self._dry_run:
+            logger.info(
+                "DRY-RUN seed_turn channel=%s expected_tool=%s msg=%r",
+                channel_id, expected_tool, message[:80],
+            )
+            return {"role": "assistant", "content": "", "tool_calls": [], "dry_run": True}
+
+        body: dict[str, Any] = {"channel_id": channel_id, "message": message}
+        if bot_id:
+            body["bot_id"] = bot_id
+        chat_resp = self._post("/chat", json=body).json()
+        session_id = chat_resp.get("session_id")
+        if not session_id:
+            raise RuntimeError(f"seed_turn: /chat response missing session_id: {chat_resp}")
+
+        deadline = time.monotonic() + timeout_s
+        last_state: dict | None = None
+        while time.monotonic() < deadline:
+            time.sleep(poll_interval_s)
+            last_state = self.get_channel_state(channel_id)
+            # spawn_subagents schedules ephemeral _subagent_* sub-sessions
+            # whose turn entries land in active_turns with is_primary=False.
+            # The parent's UI message is finalized as soon as the tool call
+            # returns; subagent activity continues in the background and is
+            # irrelevant to the screenshot. Filter so only primary (parent)
+            # turns gate the poll.
+            primary = [
+                t for t in (last_state.get("active_turns") or [])
+                if t.get("is_primary", True)
+            ]
+            if not primary:
+                break
+        else:
+            raise RuntimeError(
+                f"seed_turn: turn did not settle within {timeout_s}s "
+                f"(last active_turns={last_state.get('active_turns') if last_state else None})"
+            )
+
+        if wait_subagents:
+            # Subagent turns render their own WEB SEARCH / READ_FILE rows on
+            # the parent channel with a typing cursor while still in flight,
+            # which would leak a "still streaming" artifact into a capture.
+            # Wait once more — until ALL turns drain — so the subagent row
+            # paints its final body. Best-effort: timeout exits silently
+            # (the parent message is already complete; subagent might still
+            # be working but a partial render is the worst case, not a
+            # broken capture).
+            sub_deadline = time.monotonic() + subagent_timeout_s
+            while time.monotonic() < sub_deadline:
+                time.sleep(poll_interval_s)
+                state = self.get_channel_state(channel_id)
+                if not state.get("active_turns"):
+                    break
+
+        msgs = self.list_session_messages(session_id, limit=30)
+        latest_assistant = next(
+            (m for m in reversed(msgs) if m.get("role") == "assistant"),
+            None,
+        )
+        if latest_assistant is None:
+            raise RuntimeError(
+                f"seed_turn: no assistant message found after settle "
+                f"(session_id={session_id})"
+            )
+
+        if expected_tool:
+            tool_calls = latest_assistant.get("tool_calls") or []
+            names: list[str] = []
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                name = fn.get("name") or tc.get("name")
+                if name:
+                    names.append(name)
+            if expected_tool not in names:
+                raise RuntimeError(
+                    f"seed_turn: expected tool {expected_tool!r} in tool_calls, "
+                    f"got {names!r} (session_id={session_id})"
+                )
+
+        return latest_assistant
 
     # --- dashboard pins ----------------------------------------------------
 

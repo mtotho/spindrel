@@ -12,6 +12,11 @@ import numpy as np
 from moviepy.editor import CompositeVideoClip, ImageClip, VideoClip
 from PIL import Image
 
+# Doc-hero scenes capture full-page screenshots that can exceed PIL's
+# default decompression-bomb threshold for very long guides. These are
+# our own renders, never untrusted input.
+Image.MAX_IMAGE_PIXELS = None
+
 from scripts.screenshots.video.overlays import caption as caption_overlay
 from scripts.screenshots.video.storyboard import KenBurns, Meta, Scene
 
@@ -26,17 +31,41 @@ def build(scene: Scene, meta: Meta) -> VideoClip:
     repo_root = _default_repo_root()
     asset_path = repo_root / scene.asset
 
-    base = _ken_burns_clip(
+    return build_from_image(
         image_path=asset_path,
-        duration=scene.duration,
-        fps=meta.fps,
-        output_size=meta.resolution,
+        scene=scene,
+        meta=meta,
         kb=scene.ken_burns,
     )
 
+
+def build_from_image(
+    *,
+    image_path: Path,
+    scene: Scene,
+    meta: Meta,
+    kb: KenBurns,
+    fit: str = "cover",
+) -> VideoClip:
+    """Public helper: render a Ken Burns clip from any image + scene metadata.
+
+    `fit` controls how the source is mapped onto the output frame before
+    the Ken Burns crop is applied:
+    - ``cover`` — center-fit so output is filled (default; matches still).
+    - ``width`` — scale source to output width; height may exceed output and
+      will be panned by the Ken Burns vertical crop. Used by doc_hero for
+      tall full-page screenshots.
+    """
+    base = _ken_burns_clip(
+        image_path=image_path,
+        duration=scene.duration,
+        fps=meta.fps,
+        output_size=meta.resolution,
+        kb=kb,
+        fit=fit,
+    )
     if not scene.caption:
         return base
-
     cap_png = caption_overlay.render(
         text=scene.caption,
         video_width=meta.resolution[0],
@@ -64,19 +93,24 @@ def _ken_burns_clip(
     fps: int,
     output_size: tuple[int, int],
     kb: KenBurns,
+    fit: str = "cover",
 ) -> VideoClip:
     """Animate a crop window over a source image; resize each frame to output.
 
     Source image is loaded once; per-frame work is crop + resize (both fast
     enough in PIL for 30fps). Zoom, cx, cy are linearly interpolated from
     kb.start to kb.end across [0, duration].
+
+    `fit="cover"` center-crops to output aspect (good for hero stills).
+    `fit="width"` scales to output width — height grows; used for tall
+    full-page screenshots that should pan vertically.
     """
     src = Image.open(image_path).convert("RGB")
-    src_w, src_h = src.size
     out_w, out_h = output_size
-    # Pre-fit the source so its aspect matches output: letterbox-free crop
-    # means the full output frame is always filled at zoom=1.0.
-    src = _center_fit(src, out_w, out_h)
+    if fit == "width":
+        src = _fit_width(src, out_w, out_h)
+    else:
+        src = _center_fit(src, out_w, out_h)
     src_w, src_h = src.size
 
     start_z, start_cx, start_cy = kb.start
@@ -87,9 +121,17 @@ def _ken_burns_clip(
         zoom = start_z + (end_z - start_z) * u
         cx = start_cx + (end_cx - start_cx) * u
         cy = start_cy + (end_cy - start_cy) * u
-        # Crop window in source pixels — smaller window = more zoom
-        crop_w = src_w / zoom
-        crop_h = src_h / zoom
+        # Crop window in source pixels — smaller window = more zoom.
+        # For fit="cover" the source has output aspect, so cropping in src
+        # coords stays output-aspect. For fit="width" the source can be much
+        # taller than output, so the crop window must be derived from the
+        # output dims to keep the rendered frame from squashing.
+        if fit == "width":
+            crop_w = out_w / zoom
+            crop_h = out_h / zoom
+        else:
+            crop_w = src_w / zoom
+            crop_h = src_h / zoom
         center_x = cx * src_w
         center_y = cy * src_h
         x0 = max(0.0, min(center_x - crop_w / 2, src_w - crop_w))
@@ -101,6 +143,28 @@ def _ken_burns_clip(
 
     clip = VideoClip(make_frame, duration=duration)
     return clip.set_fps(fps)
+
+
+def _fit_width(src: Image.Image, out_w: int, out_h: int) -> Image.Image:
+    """Scale source so its width equals out_w; height scales proportionally.
+
+    Used for tall full-page screenshots where the Ken Burns will pan
+    vertically. If the source is already too short to cover even one
+    output frame, pad-bottom with the bottom-most pixel row so cropping
+    doesn't read past the source.
+    """
+    src_w, src_h = src.size
+    if src_w == out_w:
+        scaled = src
+    else:
+        new_h = max(1, int(round(src_h * out_w / src_w)))
+        scaled = src.resize((out_w, new_h), Image.LANCZOS)
+    if scaled.size[1] >= out_h:
+        return scaled
+    # Pad short pages so the crop math has somewhere to land.
+    padded = Image.new("RGB", (out_w, out_h), color=(0, 0, 0))
+    padded.paste(scaled, (0, 0))
+    return padded
 
 
 def _center_fit(src: Image.Image, out_w: int, out_h: int) -> Image.Image:

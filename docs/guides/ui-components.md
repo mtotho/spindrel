@@ -62,6 +62,7 @@ Use `FormControls.tsx` and `SettingsControls.tsx`.
 - `FormRow`: label, control, optional description.
 - `ActionButton`: primary is transparent accent text; secondary is muted text; danger is text-danger. Filled accent is reserved for rare final confirmation.
 - `SettingsControlRow`: logical row item with low tonal fill. Add borders only for expanded inline forms.
+- `SettingsMeter`: canonical current/projected meter for cost, quota, capacity, and threshold progress. Use it instead of local progress bars when a value may have a projected extension.
 - `EmptyState`: dashed low-chrome placeholder.
 - `StatusBadge`, `InfoBanner`, and `SaveStatusPill`: semantic state only, not decoration.
 - `QuietPill`: low-emphasis metadata tags inside dense rows. Use this for archived-section tags, compact row labels, and other metadata that should not compete with the row title.
@@ -80,7 +81,8 @@ Use `SourceFileInspector` from `ui/src/components/shared/SourceFileInspector.tsx
 
 Use the global trace inspector controller from `ui/src/stores/traceInspector.ts` when a dashboard, anomaly row, usage row, or activity item opens a trace by `correlation_id`.
 
-- Trace-backed drilldowns should call `openTraceInspector({ correlationId, title?, subtitle? })` before navigating users to `/admin/logs/:correlationId`.
+- Trace-backed drilldowns should use `TraceActionButton` or call `openTraceInspector({ correlationId, title?, subtitle? })` before navigating users to `/admin/logs/:correlationId`.
+- `TraceActionButton` is the default for visible trace actions in rows, cards, alerts, scheduled runs, heartbeat history, and task surfaces. Use `iconOnly` only inside already-dense rows with a tooltip/title.
 - `TraceInspectorRoot` is mounted once in `AppShell` and portals a modal right-side drawer to `document.body`; pages must not mount their own trace drawers.
 - `TraceTimeline` owns summary-first trace rendering shared by the drawer and `/admin/logs/:correlationId`: event filtering, in-trace find support, compact metadata, and collapsed raw payloads.
 - Do not create page-local trace drawers for usage, scheduled tasks, heartbeat runs, memory activity, or debugging tables. Extend `TraceInspectorRoot` / `TraceTimeline` once when richer trace preview behavior is needed.

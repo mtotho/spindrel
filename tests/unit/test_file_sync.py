@@ -237,7 +237,7 @@ def isolate_file_sync(tmp_path, monkeypatch):
     with patch(
         "app.services.file_sync._embed_skill_from_content",
         new_callable=AsyncMock,
-    ), patch(
+    ) as embed, patch(
         "app.services.workflows.collect_workflow_files", return_value=[]
     ), patch(
         "app.services.workflows.reload_workflows", new_callable=AsyncMock

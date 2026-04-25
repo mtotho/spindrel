@@ -1,5 +1,7 @@
 # Session Plan Mode
 
+![Session plan card — `publish_plan` renders the plan inline with status pill, scope, runtime issues, and a per-step checklist](../images/chat-plan-card.png)
+
 This is the canonical document for the web session planning system.
 
 If plan-mode behavior, prompting, tools, UI, or execution semantics change, update this file first and then update any shorter guides that point at it.

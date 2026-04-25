@@ -42,7 +42,7 @@ import {
   getTurnText,
 } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { useThemeTokens } from "@/src/theme/tokens";
-import { History, Maximize2, Minimize2, RotateCcw, X } from "lucide-react";
+import { History, Maximize2, Minimize2, RotateCcw, Rows3, X } from "lucide-react";
 import { ScratchHistoryModal } from "./ScratchHistoryModal";
 import type { Message } from "@/src/types/api";
 import { buildThreadParentPreviewRow } from "./threadPreview";
@@ -179,6 +179,9 @@ export interface ChatSessionProps {
    *  Used for the minimize-from-channel round-trip so the user lands on
    *  the dashboard with the chat already visible. */
   initiallyExpanded?: boolean;
+  dockCollapsedTitle?: string;
+  dockCollapsedSubtitle?: string | null;
+  onRestoreToCanvas?: () => void;
   /** What happens when the user dismisses the dock — via swipe-down on
    *  mobile or the header collapse button. Defaults to 'collapse' which
    *  retreats to the bottom-right FAB (dashboard surface). The chat
@@ -271,6 +274,9 @@ function ChannelChatSession({
   title,
   emptyState,
   initiallyExpanded,
+  dockCollapsedTitle,
+  dockCollapsedSubtitle,
+  onRestoreToCanvas,
   onOpenSessions,
   onOpenSessionSplit,
   onToggleFocusLayout,
@@ -395,9 +401,13 @@ function ChannelChatSession({
   }, [navigate, source.channelId]);
 
   const handleHeaderClose = useCallback(() => {
+    if (shape === "dock" && onRestoreToCanvas) {
+      onClose();
+      return;
+    }
     if (shape === "dock") setDockExpanded(false);
     else onClose();
-  }, [shape, onClose]);
+  }, [shape, onClose, onRestoreToCanvas]);
 
   const { handleSend: srcHandleSend } = src;
   const handleSendMsg = useCallback(
@@ -529,6 +539,16 @@ function ChannelChatSession({
         >
           <Maximize2 size={13} />
         </button>
+        {onRestoreToCanvas && (
+          <button
+            onClick={onRestoreToCanvas}
+            title="Restore to canvas"
+            aria-label="Restore to canvas"
+            className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          >
+            <Rows3 size={13} />
+          </button>
+        )}
         <button
           onClick={handleHeaderClose}
           title={shape === "dock" ? "Collapse to button" : "Close"}
@@ -681,6 +701,9 @@ function ChannelChatSession({
       expanded={dockExpanded}
       onExpandedChange={setDockExpanded}
       title={displayTitle}
+      collapsedTitle={dockCollapsedTitle}
+      collapsedSubtitle={dockCollapsedSubtitle}
+      onCloseCollapsed={dockCollapsedTitle ? onClose : undefined}
       storageKey={getDockStorageKey(source)}
       chatMode={chatMode}
     >
@@ -705,6 +728,9 @@ function FixedSessionChatSession({
   title = "Session",
   emptyState,
   initiallyExpanded,
+  dockCollapsedTitle,
+  dockCollapsedSubtitle,
+  onRestoreToCanvas,
   onOpenSessions,
   onOpenSessionSplit,
   onToggleFocusLayout,
@@ -910,6 +936,31 @@ function FixedSessionChatSession({
 
   const body = (
     <div className="flex h-full min-h-0 flex-col">
+      {shape === "dock" && onRestoreToCanvas && (
+        <div className="flex h-9 shrink-0 items-center justify-between gap-2 bg-surface-overlay/30 px-3">
+          <span className="min-w-0 truncate text-[12px] font-semibold text-text">{title}</span>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={onRestoreToCanvas}
+              title="Restore to canvas"
+              aria-label="Restore to canvas"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+            >
+              <Rows3 size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              title="Close mini chat"
+              aria-label="Close mini chat"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim hover:bg-surface-overlay hover:text-text"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         <SessionChatView
           sessionId={sessionId}
@@ -945,6 +996,9 @@ function FixedSessionChatSession({
         expanded={dockExpanded}
         onExpandedChange={setDockExpanded}
         title={title}
+        collapsedTitle={dockCollapsedTitle}
+        collapsedSubtitle={dockCollapsedSubtitle}
+        onCloseCollapsed={dockCollapsedTitle ? onClose : undefined}
         storageKey={getDockStorageKey(source)}
         chatMode={chatMode}
       >
@@ -973,6 +1027,9 @@ function EphemeralChatSession({
   emptyState,
   initiallyExpanded,
   dismissMode,
+  dockCollapsedTitle,
+  dockCollapsedSubtitle,
+  onRestoreToCanvas,
   onOpenSessions,
   onOpenSessionSplit,
   onToggleFocusLayout,
@@ -1285,8 +1342,12 @@ function EphemeralChatSession({
   // only entry point is the channel header button, so a minimized dock-FAB
   // would be redundant chrome).
   const handleHeaderClose = useCallback(() => {
+    if (mode === "dock" && onRestoreToCanvas) {
+      onClose();
+      return;
+    }
     onClose();
-  }, [onClose]);
+  }, [mode, onClose, onRestoreToCanvas]);
 
   const isFullpage = mode === "fullpage";
   // Scratch docks navigate to a dedicated full-page route instead of
@@ -1419,6 +1480,16 @@ function EphemeralChatSession({
             className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
           >
             <ExpandIcon size={13} />
+          </button>
+        )}
+        {onRestoreToCanvas && (
+          <button
+            onClick={onRestoreToCanvas}
+            title="Restore to canvas"
+            aria-label="Restore to canvas"
+            className="p-1.5 rounded text-text-dim hover:text-text hover:bg-white/5 transition-colors"
+          >
+            <Rows3 size={13} />
           </button>
         )}
         {scratchBoundChannelId && (
@@ -1647,6 +1718,9 @@ function EphemeralChatSession({
         dismissMode === "collapse" ? undefined : onClose
       }
       title={title}
+      collapsedTitle={dockCollapsedTitle}
+      collapsedSubtitle={dockCollapsedSubtitle}
+      onCloseCollapsed={dockCollapsedTitle ? onClose : undefined}
       storageKey={getDockStorageKey(source)}
       chatMode={chatMode}
     >

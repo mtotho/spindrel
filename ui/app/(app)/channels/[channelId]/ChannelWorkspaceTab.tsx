@@ -30,9 +30,9 @@ import {
 import { WorkspaceSchemaEditor } from "@/src/components/shared/WorkspaceSchemaEditor";
 import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import {
-  useWorkspaceFileContent,
   useWorkspaceFiles,
 } from "@/src/api/hooks/useWorkspaces";
+import { SourceFileInspector } from "@/src/components/shared/SourceFileInspector";
 import { apiFetch } from "@/src/api/client";
 import type { ChannelSettings, WorkspaceFileEntry } from "@/src/types/api";
 
@@ -81,29 +81,6 @@ function buildBreadcrumbs(path: string, rootPath: string): Array<{ label: string
     crumbs.push({ label: part, path: ensureLeadingSlash(current) });
   }
   return crumbs;
-}
-
-function FileViewer({ workspaceId, path }: { workspaceId: string; path: string }) {
-  const { data, isLoading } = useWorkspaceFileContent(workspaceId, path);
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-4">
-        <Spinner />
-      </div>
-    );
-  }
-
-  if (!data) return <span className="block p-4 text-[12px] text-text-dim">File not found</span>;
-
-  return (
-    <div className="max-h-[400px] overflow-auto rounded-md bg-surface-raised/40 p-3">
-      <div className="mb-2 font-mono text-[11px] font-semibold text-text-dim">{path}</div>
-      <pre className="m-0 whitespace-pre-wrap font-mono text-[12px] leading-relaxed text-text">
-        {data.content}
-      </pre>
-    </div>
-  );
 }
 
 function InlineLink({
@@ -559,7 +536,20 @@ export function ChannelWorkspaceTab({
 
       {selectedPath && workspaceId && (
         <Section title="File Preview" description="Preview the selected knowledge-base file without leaving settings.">
-          <FileViewer workspaceId={workspaceId} path={selectedPath} />
+          <SourceFileInspector
+            variant="panel"
+            className="h-[420px]"
+            target={{
+              kind: "workspace_file",
+              workspace_id: workspaceId,
+              path: selectedPath,
+              display_path: selectedPath.replace(/^\//, ""),
+              owner_type: "channel",
+              owner_id: channelId,
+              owner_name: "Channel knowledge",
+            }}
+            onClose={() => setSelectedPath(null)}
+          />
         </Section>
       )}
 

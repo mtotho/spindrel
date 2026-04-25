@@ -9,9 +9,9 @@ import {
 import { useBotSandboxStatus, useRecreateBotSandbox } from "@/src/api/hooks/useBots";
 import { Spinner } from "@/src/components/shared/Spinner";
 import {
-  useWorkspaceFileContent,
   useWorkspaceFiles,
 } from "@/src/api/hooks/useWorkspaces";
+import { SourceFileInspector } from "@/src/components/shared/SourceFileInspector";
 import { formatDateTime } from "@/src/utils/time";
 import type { BotConfig, BotEditorData } from "@/src/types/api";
 
@@ -41,7 +41,6 @@ function BotKnowledgeBaseSection({
   const rootPath = ensureLeadingSlash(workspaceId ? `bots/${botId}/knowledge-base` : "knowledge-base");
   const { data, isLoading, refetch } = useWorkspaceFiles(workspaceId ?? undefined, rootPath);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const preview = useWorkspaceFileContent(workspaceId ?? undefined, selectedPath);
   const entries = [...(data?.entries ?? [])]
     .sort((a, b) => {
       if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
@@ -192,28 +191,21 @@ function BotKnowledgeBaseSection({
             <span style={{ fontSize: 11, fontWeight: 600, color: t.textMuted }}>Preview</span>
             {!selectedPath ? (
               <span style={{ fontSize: 11, color: t.textDim }}>Select a knowledge-base file to preview it here.</span>
-            ) : preview.isLoading ? (
-              <div style={{ padding: 16, display: "flex", justifyContent: "center" }}>
-                <Spinner color={t.accent} />
-              </div>
-            ) : !preview.data ? (
-              <span style={{ fontSize: 11, color: t.textDim }}>File not found.</span>
             ) : (
-              <div style={{
-                padding: 12,
-                borderRadius: 8,
-                background: t.surfaceRaised,
-                border: `1px solid ${t.surfaceBorder}`,
-                maxHeight: 320,
-                overflow: "auto",
-              }}>
-                <div style={{ fontSize: 11, color: t.textDim, marginBottom: 8, fontFamily: "monospace" }}>
-                  {selectedPath.replace(/^\//, "")}
-                </div>
-                <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: t.text, fontSize: 12, fontFamily: "monospace" }}>
-                  {preview.data.content}
-                </pre>
-              </div>
+              <SourceFileInspector
+                variant="panel"
+                className="h-[320px]"
+                target={{
+                  kind: "workspace_file",
+                  workspace_id: workspaceId,
+                  path: selectedPath,
+                  display_path: selectedPath.replace(/^\//, ""),
+                  owner_type: "bot",
+                  owner_id: botId,
+                  owner_name: "Bot knowledge",
+                }}
+                onClose={() => setSelectedPath(null)}
+              />
             )}
           </div>
         </div>

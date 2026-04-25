@@ -7,7 +7,7 @@
 import { useCallback } from "react";
 import ReactDOM from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, Trash2, Copy, FileText, ArrowUpRight } from "lucide-react";
+import { ChevronLeft, Trash2, Copy, ArrowUpRight } from "lucide-react";
 import { useTaskFormState } from "./task/useTaskFormState";
 import { ContentFields, ExecutionFields, TriggerFields } from "./task/TaskFormFields";
 import { formatDateTime } from "@/src/utils/time";
@@ -19,6 +19,7 @@ import {
 } from "@/src/components/shared/SchedulingPickers";
 import { FormRow, SelectInput, Section } from "@/src/components/shared/FormControls";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { TraceActionButton } from "@/src/components/shared/TraceActionButton";
 
 // ---------------------------------------------------------------------------
 // TaskEditor (near-fullscreen overlay)
@@ -103,17 +104,14 @@ export function TaskEditor({
 
         {/* View Logs button */}
         {!isCreate && form.existingTask?.correlation_id && (
-          <button
-            onClick={() => {
-              onClose();
-              navigate(`/admin/logs/${form.existingTask!.correlation_id}`);
-            }}
-            title="View Logs"
-            className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-accent-muted rounded-md bg-transparent text-accent cursor-pointer shrink-0 hover:bg-accent/[0.06] transition-colors`}
-          >
-            <FileText size={14} />
-            {isWide && "Logs"}
-          </button>
+          <TraceActionButton
+            correlationId={form.existingTask.correlation_id}
+            title={form.title || "Task run"}
+            subtitle={form.existingTask.bot_id}
+            label={isWide ? "Logs" : "Trace"}
+            size="small"
+            variant="primary"
+          />
         )}
 
         {/* Clone button */}

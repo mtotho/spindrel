@@ -214,40 +214,45 @@ export function ChannelHeader({
     sessionChromeMeta ?? scratchSessionMeta?.lastActiveLabel ?? null,
   );
   const modeLabel = showCanvasState ? "Canvas" : headerSessionChrome.modeLabel;
+  const compactModeLabel = showCanvasState && typeof canvasSessionCount === "number"
+    ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
+    : modeLabel;
+  const showModeBadge = !isSystemChannel && (!isMobile || showScratchState || showCanvasState);
   const canvasTitle = showCanvasState && typeof canvasSessionCount === "number"
     ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
     : null;
+  const tokenUsageBit = resolvedMetrics.hasAnyTokenUsage ? (
+    <span
+      key="tokens"
+      onClick={onContextBudgetClick}
+      style={{
+        fontSize: 10,
+        fontFamily: "monospace",
+        color: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : (resolvedMetrics.utilization ?? 0) > 0.5 ? "#fbbf24" : t.textDim,
+        flexShrink: 0,
+        cursor: onContextBudgetClick ? "pointer" : undefined,
+        borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
+        transition: "border-color 0.15s",
+      }}
+      onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
+      onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
+      title={[
+        resolvedMetrics.hasTokenMetrics
+          ? `Prompt: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} tokens (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`
+          : `Prompt: ${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tokens`,
+        resolvedMetrics.current != null ? `Current: ${fmtTokens(resolvedMetrics.current)}` : null,
+        resolvedMetrics.cached != null ? `Cached: ${fmtTokens(resolvedMetrics.cached)}` : null,
+        resolvedMetrics.completion != null ? `Completion: ${fmtTokens(resolvedMetrics.completion)}` : null,
+        resolvedMetrics.contextProfile ? `Profile: ${resolvedMetrics.contextProfile}` : null,
+      ].filter(Boolean).join("\n")}
+    >
+      {resolvedMetrics.hasTokenMetrics
+        ? `${fmtTokens(resolvedMetrics.gross ?? 0)}/${fmtTokens(resolvedMetrics.total ?? 0)}`
+        : `${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tok`}
+    </span>
+  ) : null;
   const headerMetaBits = [
-    resolvedMetrics.hasAnyTokenUsage ? (
-      <span
-        key="tokens"
-        onClick={onContextBudgetClick}
-        style={{
-          fontSize: 10,
-          fontFamily: "monospace",
-          color: (resolvedMetrics.utilization ?? 0) > 0.8 ? "#f87171" : (resolvedMetrics.utilization ?? 0) > 0.5 ? "#fbbf24" : t.textDim,
-          flexShrink: 0,
-          cursor: onContextBudgetClick ? "pointer" : undefined,
-          borderBottom: onContextBudgetClick ? "1px dotted transparent" : undefined,
-          transition: "border-color 0.15s",
-        }}
-        onMouseEnter={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = t.textDim; } : undefined}
-        onMouseLeave={onContextBudgetClick ? (e) => { (e.currentTarget as HTMLSpanElement).style.borderBottomColor = "transparent"; } : undefined}
-        title={[
-          resolvedMetrics.hasTokenMetrics
-            ? `Prompt: ${fmtTokens(resolvedMetrics.gross ?? 0)} / ${fmtTokens(resolvedMetrics.total ?? 0)} tokens (${Math.round((resolvedMetrics.utilization ?? 0) * 100)}%)`
-            : `Prompt: ${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tokens`,
-          resolvedMetrics.current != null ? `Current: ${fmtTokens(resolvedMetrics.current)}` : null,
-          resolvedMetrics.cached != null ? `Cached: ${fmtTokens(resolvedMetrics.cached)}` : null,
-          resolvedMetrics.completion != null ? `Completion: ${fmtTokens(resolvedMetrics.completion)}` : null,
-          resolvedMetrics.contextProfile ? `Profile: ${resolvedMetrics.contextProfile}` : null,
-        ].filter(Boolean).join("\n")}
-      >
-        {resolvedMetrics.hasTokenMetrics
-          ? `${fmtTokens(resolvedMetrics.gross ?? 0)}/${fmtTokens(resolvedMetrics.total ?? 0)}`
-          : `${fmtTokens(resolvedMetrics.gross ?? resolvedMetrics.current ?? 0)} tok`}
-      </span>
-    ) : null,
+    tokenUsageBit,
     !resolvedMetrics.hasTokenMetrics && showScratchState ? (
       <span key="session-kind" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
         {headerSessionChrome.subtitleIdentity ?? "session"}
@@ -372,14 +377,28 @@ export function ChannelHeader({
         title={isMobile && !isSystemChannel && bot ? bot.name : undefined}
       >
         <div className="flex flex-row items-center gap-2 min-w-0">
-          <span style={{ fontSize: 15, fontWeight: 700, color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span
+            style={{
+              fontSize: isMobile ? 14 : 15,
+              fontWeight: 700,
+              color: t.text,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              minWidth: 0,
+            }}
+          >
             {displayName}
           </span>
-          {!isSystemChannel && (
+          {showModeBadge && (
             <span
               className="inline-flex items-center gap-1 px-0 py-0 text-[10px] font-medium uppercase tracking-[0.16em] shrink-0"
               style={{
                 color: t.textDim,
+                maxWidth: isMobile ? 88 : undefined,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
               }}
               title={
                 [
@@ -390,10 +409,10 @@ export function ChannelHeader({
               }
             >
               {showScratchState || showCanvasState ? <StickyNote size={10} color={t.textDim} /> : null}
-              {modeLabel}
+              {isMobile ? compactModeLabel : modeLabel}
             </span>
           )}
-          {(showCanvasState ? null : headerSessionChrome.inlineMeta) ? (
+          {!isMobile && (showCanvasState ? null : headerSessionChrome.inlineMeta) ? (
             <span
               className="shrink-0 text-[10px] uppercase tracking-[0.12em]"
               style={{ color: t.textDim }}
@@ -402,7 +421,7 @@ export function ChannelHeader({
               {headerSessionChrome.inlineMeta}
             </span>
           ) : null}
-          {(showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle) ? (
+          {!isMobile && (showCanvasState ? canvasTitle : headerSessionChrome.inlineTitle) ? (
             <span
               className="truncate text-[11px] shrink max-w-[28rem]"
               style={{ color: t.textMuted }}
@@ -472,7 +491,7 @@ export function ChannelHeader({
             >
               {bot.name}
             </a>
-            {headerMetaBits.map((bit, idx) => (
+            {(isMobile ? [tokenUsageBit].filter(Boolean) : headerMetaBits).map((bit, idx) => (
               <React.Fragment key={idx}>{bit}</React.Fragment>
             ))}
           </div>

@@ -11,6 +11,7 @@ import {
 } from "@/src/components/shared/SettingsControls";
 import { TurnCard } from "@/src/components/shared/TurnCard";
 import { useTurns } from "@/src/api/hooks/useTurns";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 
 const PAGE_SIZE = 20;
 type LogFilter = "all" | "errors" | "tools";
@@ -106,7 +107,7 @@ export function LogsTab({ channelId }: { channelId: string }) {
             key={turn.correlation_id}
             turn={turn}
             isMobile={isMobile}
-            onPress={(cid) => navigate(`/admin/logs/${cid}`)}
+            onPress={(cid) => openTraceInspector(cid)}
             showBotBadge={false}
             showChannelBadge={false}
           />

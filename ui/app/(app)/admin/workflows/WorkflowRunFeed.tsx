@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { WorkflowStepState } from "@/src/types/api";
+import { openTraceInspector } from "@/src/stores/traceInspector";
 import {
   getStatusStyle, StatusBadge, describeCondition, useElapsed,
   fmtTime, formatStepDuration,
@@ -517,25 +518,32 @@ function TaskLink({ taskId, correlationId, t }: { taskId: string; correlationId?
     setTimeout(() => setCopied(false), 1500);
   };
 
-  // Prefer trace view when available — task editor is useless for ephemeral tasks
-  const href = correlationId
-    ? `/admin/logs/${correlationId}`
-    : `/admin/tasks/${taskId}`;
+  const content = (
+    <span style={{
+      display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
+      fontSize: 10, color: t.accent, fontFamily: "monospace",
+      padding: "1px 5px", borderRadius: 3,
+      background: t.codeBg, border: `1px solid ${t.codeBorder}`,
+      cursor: "pointer",
+    }}>
+      <ExternalLink size={8} />
+      Task: {taskId.slice(0, 8)}
+    </span>
+  );
 
   return (
     <span style={{ display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3 }}>
-      <Link to={href}>
-        <span style={{
-          display: "inline-flex", flexDirection: "row", alignItems: "center", gap: 3,
-          fontSize: 10, color: t.accent, fontFamily: "monospace",
-          padding: "1px 5px", borderRadius: 3,
-          background: t.codeBg, border: `1px solid ${t.codeBorder}`,
-          cursor: "pointer",
-        }}>
-          <ExternalLink size={8} />
-          Task: {taskId.slice(0, 8)}
-        </span>
-      </Link>
+      {correlationId ? (
+        <button
+          type="button"
+          onClick={() => openTraceInspector({ correlationId, title: `Task ${taskId.slice(0, 8)}` })}
+          className="bg-transparent p-0"
+        >
+          {content}
+        </button>
+      ) : (
+        <Link to={`/admin/tasks/${taskId}`}>{content}</Link>
+      )}
       <button type="button" onClick={handleCopy as any} style={{ padding: 2 }}>
         <Copy size={9} color={copied ? t.success : t.textMuted} />
       </button>

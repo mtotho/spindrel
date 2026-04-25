@@ -1,5 +1,7 @@
 # Sub-Agents
 
+![Sub-agent demo — Orion calls `spawn_subagents` with two preset-driven children (summarizer + researcher), then emits a one-sentence synthesis above the SPAWN SUBAGENTS tool badge](../images/chat-subagents.png)
+
 `spawn_subagents` is an experimental tool for **bounded, parallel, read-only side work**.
 
 It is not a default orchestration primitive, not a replacement for normal tool use, and not a generic "help me think" escape hatch.

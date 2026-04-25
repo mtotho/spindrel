@@ -1,273 +1,176 @@
-import { Spinner } from "@/src/components/shared/Spinner";
+import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
-import { Trash2 } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
+import { useUsageForecast, type LimitForecast } from "@/src/api/hooks/useUsageForecast";
 import {
+  type UsageLimitStatus,
+  useCreateUsageLimit,
+  useDeleteUsageLimit,
+  useUpdateUsageLimit,
   useUsageLimits,
   useUsageLimitsStatus,
-  useCreateUsageLimit,
-  useUpdateUsageLimit,
-  useDeleteUsageLimit,
-  type UsageLimitStatus,
 } from "@/src/api/hooks/useUsageLimits";
-import { useUsageForecast, type LimitForecast } from "@/src/api/hooks/useUsageForecast";
-import { useThemeTokens } from "@/src/theme/tokens";
-import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
 import { useConfirm } from "@/src/components/shared/ConfirmDialog";
+import { Col, FormRow, Row, SelectInput, TextInput } from "@/src/components/shared/FormControls";
+import { LlmModelDropdown } from "@/src/components/shared/LlmModelDropdown";
+import { Spinner } from "@/src/components/shared/Spinner";
+import {
+  ActionButton,
+  EmptyState,
+  SettingsControlRow,
+  SettingsGroupLabel,
+  SettingsMeter,
+  StatusBadge,
+} from "@/src/components/shared/SettingsControls";
 
-function fmtCost(v: number | null | undefined): string {
-  if (v == null) return "--";
-  if (v < 0.01) return `$${v.toFixed(4)}`;
-  return `$${v.toFixed(2)}`;
+function fmtCost(value: number | null | undefined): string {
+  if (value == null) return "--";
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
 }
 
-function progressColor(pct: number, t: ReturnType<typeof useThemeTokens>): string {
-  if (pct >= 90) return t.danger;
-  if (pct >= 70) return t.warning;
-  return t.success;
+function limitTone(value: number): "success" | "warning" | "danger" | "accent" {
+  if (value >= 90) return "danger";
+  if (value >= 70) return "warning";
+  return "success";
 }
 
-/** Shared input style matching LlmModelDropdown's trigger (7px 12px, border-radius 8). */
-function useInputStyle(): React.CSSProperties {
-  const t = useThemeTokens();
-  return {
-    background: t.inputBg,
-    color: t.text,
-    border: `1px solid ${t.inputBorder}`,
-    borderRadius: 8,
-    padding: "7px 12px",
-    fontSize: 13,
-    outline: "none",
-    height: 36,
-    boxSizing: "border-box" as const,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Status cards
-// ---------------------------------------------------------------------------
-
-function LimitStatusCard({ s, forecast }: { s: UsageLimitStatus; forecast?: LimitForecast }) {
-  const t = useThemeTokens();
-  const color = progressColor(s.percentage, t);
-  const projPct = forecast?.projected_percentage;
-  const projColor = projPct != null ? progressColor(projPct, t) : undefined;
+function LimitStatusCard({ status, forecast }: { status: UsageLimitStatus; forecast?: LimitForecast }) {
+  const projected = forecast?.projected_percentage;
+  const tone = limitTone(Math.max(status.percentage, projected ?? 0));
 
   return (
-    <div
-      style={{
-        flex: 1,
-        minWidth: 200,
-        background: t.surfaceRaised,
-        borderRadius: 8,
-        padding: "14px 16px",
-        border: `1px solid ${t.surfaceOverlay}`,
-      }}
-    >
-      <div style={{ display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-        <div style={{ fontSize: 11, color: t.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-          {s.scope_type} &middot; {s.period}
-        </div>
-        <div style={{ display: "flex", flexDirection: "row", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color }}>{s.percentage}%</span>
-          {projPct != null && projPct > s.percentage && (
-            <span style={{ fontSize: 10, color: projColor }}>
-              → {projPct.toFixed(0)}%
-            </span>
-          )}
-        </div>
+    <div className="rounded-md bg-surface-raised/40 px-4 py-3">
+      <div className="mb-2 flex min-w-0 items-center gap-2">
+        <StatusBadge label={status.period} variant={tone === "danger" ? "danger" : tone === "warning" ? "warning" : "success"} />
+        <div className="min-w-0 truncate text-[12px] font-semibold text-text">{status.scope_value}</div>
+        <div className="ml-auto text-[10px] uppercase tracking-[0.06em] text-text-dim">{status.scope_type}</div>
       </div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>
-        {s.scope_value}
+      <div className="mb-2 font-mono text-[16px] font-semibold text-text">
+        {fmtCost(status.current_spend)}
+        <span className="text-[11px] font-medium text-text-dim"> / {fmtCost(status.limit_usd)}</span>
       </div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: t.text, fontFamily: "monospace", marginBottom: 2 }}>
-        {fmtCost(s.current_spend)}
-        <span style={{ fontSize: 12, fontWeight: 400, color: t.textMuted }}> / {fmtCost(s.limit_usd)}</span>
-      </div>
+      <SettingsMeter
+        value={status.percentage}
+        projected={projected}
+        tone={tone}
+        valueLabel={`${status.percentage}%`}
+        projectedLabel={projected != null && projected > status.percentage ? `projected ${projected.toFixed(0)}%` : undefined}
+      />
       {forecast && (
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 6 }}>
-          Projected: {fmtCost(forecast.projected_spend)}
+        <div className="mt-2 text-[11px] text-text-dim">
+          Projected spend: <span className="font-mono text-text-muted">{fmtCost(forecast.projected_spend)}</span>
         </div>
       )}
-      {/* Dual progress bar: solid for current, striped extension for projected */}
-      <div
-        style={{
-          height: 4,
-          borderRadius: 2,
-          background: t.surfaceBorder,
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        {/* Projected extension (behind, wider) */}
-        {projPct != null && projPct > s.percentage && (
-          <div
-            style={{
-              position: "absolute",
-              height: "100%",
-              width: `${Math.min(projPct, 100)}%`,
-              background: projColor,
-              borderRadius: 2,
-              opacity: 0.3,
-              transition: "width 0.3s ease",
-            }}
-          />
-        )}
-        {/* Current (solid, on top) */}
-        <div
-          style={{
-            position: "relative",
-            height: "100%",
-            width: `${Math.min(s.percentage, 100)}%`,
-            background: color,
-            borderRadius: 2,
-            transition: "width 0.3s ease",
-          }}
-        />
-      </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Add Limit form
-// ---------------------------------------------------------------------------
-
-function AddLimitForm({ knownModels }: { knownModels: string[] }) {
-  const t = useThemeTokens();
-  const inputStyle = useInputStyle();
+function AddLimitForm() {
   const { data: bots } = useBots();
   const createMutation = useCreateUsageLimit();
-
   const [scopeType, setScopeType] = useState<"model" | "bot">("model");
   const [scopeValue, setScopeValue] = useState("");
   const [period, setPeriod] = useState<"daily" | "monthly">("daily");
   const [limitUsd, setLimitUsd] = useState("");
 
+  const botOptions = (bots ?? []).map((bot: any) => ({ label: bot.name || bot.id, value: bot.id as string }));
+  const canSubmit = Boolean(scopeValue && limitUsd && !createMutation.isPending);
+
   const handleSubmit = () => {
-    const val = parseFloat(limitUsd);
-    if (!scopeValue || isNaN(val) || val <= 0) return;
+    const limit = parseFloat(limitUsd);
+    if (!scopeValue || Number.isNaN(limit) || limit <= 0) return;
     createMutation.mutate(
-      { scope_type: scopeType, scope_value: scopeValue, period, limit_usd: val },
-      { onSuccess: () => { setLimitUsd(""); setScopeValue(""); } },
+      { scope_type: scopeType, scope_value: scopeValue, period, limit_usd: limit },
+      {
+        onSuccess: () => {
+          setLimitUsd("");
+          setScopeValue("");
+        },
+      },
     );
   };
 
-  const botOptions = (bots ?? []).map((b: any) => b.id as string);
-  const canSubmit = !!scopeValue && !!limitUsd && !createMutation.isPending;
-
   return (
-    <div
-      style={{
-        display: "flex", flexDirection: "row",
-        flexWrap: "wrap",
-        gap: 8,
-        alignItems: "flex-end",
-      }}
-    >
-      {/* Scope type */}
-      <div style={{ minWidth: 90 }}>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Type</div>
-        <select
-          value={scopeType}
-          onChange={(e) => { setScopeType(e.target.value as any); setScopeValue(""); }}
-          style={inputStyle}
-        >
-          <option value="model">Model</option>
-          <option value="bot">Bot</option>
-        </select>
-      </div>
-
-      {/* Scope value — LlmModelDropdown for models, select for bots */}
-      <div style={{ minWidth: 200, flex: 1 }}>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>
-          {scopeType === "model" ? "Model" : "Bot"}
-        </div>
-        {scopeType === "model" ? (
-          <LlmModelDropdown
-            value={scopeValue}
-            onChange={setScopeValue}
-            placeholder="Select model..."
-            allowClear={false}
-          />
-        ) : botOptions.length > 0 ? (
-          <select value={scopeValue} onChange={(e) => setScopeValue(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
-            <option value="">Select bot...</option>
-            {botOptions.map((v) => (
-              <option key={v} value={v}>{v}</option>
-            ))}
-          </select>
-        ) : (
-          <input
-            value={scopeValue}
-            onChange={(e) => setScopeValue(e.target.value)}
-            placeholder="Bot ID"
-            style={{ ...inputStyle, width: "100%" }}
-          />
+    <div className="rounded-md bg-surface-raised/35 px-4 py-3">
+      <Row>
+        <Col minWidth={150}>
+          <FormRow label="Scope">
+            <SelectInput
+              value={scopeType}
+              onChange={(next) => {
+                setScopeType(next as "model" | "bot");
+                setScopeValue("");
+              }}
+              options={[
+                { label: "Model", value: "model" },
+                { label: "Bot", value: "bot" },
+              ]}
+            />
+          </FormRow>
+        </Col>
+        <Col minWidth={260} flex={2}>
+          <FormRow label={scopeType === "model" ? "Model" : "Bot"}>
+            {scopeType === "model" ? (
+              <LlmModelDropdown
+                value={scopeValue}
+                onChange={setScopeValue}
+                placeholder="Select model..."
+                allowClear={false}
+              />
+            ) : botOptions.length > 0 ? (
+              <SelectInput
+                value={scopeValue}
+                onChange={setScopeValue}
+                options={[{ label: "Select bot...", value: "" }, ...botOptions]}
+              />
+            ) : (
+              <TextInput value={scopeValue} onChangeText={setScopeValue} placeholder="Bot ID" />
+            )}
+          </FormRow>
+        </Col>
+        <Col minWidth={150}>
+          <FormRow label="Period">
+            <SelectInput
+              value={period}
+              onChange={(next) => setPeriod(next as "daily" | "monthly")}
+              options={[
+                { label: "Daily", value: "daily" },
+                { label: "Monthly", value: "monthly" },
+              ]}
+            />
+          </FormRow>
+        </Col>
+        <Col minWidth={140}>
+          <FormRow label="Limit">
+            <TextInput
+              value={limitUsd}
+              onChangeText={setLimitUsd}
+              type="number"
+              placeholder="0.00"
+            />
+          </FormRow>
+        </Col>
+      </Row>
+      <div className="mt-3 flex items-center justify-end gap-2">
+        {createMutation.isError && (
+          <div className="mr-auto text-[12px] text-danger">
+            {(createMutation.error as any)?.message || "Failed to create limit"}
+          </div>
         )}
-      </div>
-
-      {/* Period */}
-      <div style={{ minWidth: 90 }}>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Period</div>
-        <select value={period} onChange={(e) => setPeriod(e.target.value as any)} style={inputStyle}>
-          <option value="daily">Daily</option>
-          <option value="monthly">Monthly</option>
-        </select>
-      </div>
-
-      {/* Limit USD */}
-      <div style={{ minWidth: 80 }}>
-        <div style={{ fontSize: 11, color: t.textDim, marginBottom: 4 }}>Limit ($)</div>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={limitUsd}
-          onChange={(e) => setLimitUsd(e.target.value)}
-          placeholder="0.00"
-          style={{ ...inputStyle, width: "100%" }}
+        <ActionButton
+          label={createMutation.isPending ? "Adding..." : "Add limit"}
+          icon={<Plus size={12} />}
+          disabled={!canSubmit}
+          onPress={handleSubmit}
         />
       </div>
-
-      {/* Submit */}
-      <div>
-        <button
-          onClick={handleSubmit}
-          disabled={!canSubmit}
-          style={{
-            height: 36,
-            padding: "0 16px",
-            fontSize: 13,
-            fontWeight: 600,
-            background: canSubmit ? t.accent : t.surfaceRaised,
-            color: canSubmit ? "#fff" : t.textDim,
-            border: `1px solid ${canSubmit ? t.accent : t.surfaceBorder}`,
-            borderRadius: 8,
-            cursor: canSubmit ? "pointer" : "default",
-            boxSizing: "border-box" as const,
-          }}
-        >
-          {createMutation.isPending ? "Adding..." : "Add Limit"}
-        </button>
-      </div>
-
-      {createMutation.isError && (
-        <div style={{ width: "100%", color: t.danger, fontSize: 12 }}>
-          {(createMutation.error as any)?.message || "Failed to create"}
-        </div>
-      )}
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Limits list
-// ---------------------------------------------------------------------------
-
-function LimitsTable() {
-  const t = useThemeTokens();
+function LimitsList() {
   const { data: limits, isLoading } = useUsageLimits();
   const updateMutation = useUpdateUsageLimit();
   const deleteMutation = useDeleteUsageLimit();
@@ -275,140 +178,89 @@ function LimitsTable() {
 
   if (isLoading) return <Spinner />;
   if (!limits || limits.length === 0) {
-    return (
-      <div style={{ color: t.textDim, fontSize: 12, marginTop: 8 }}>
-        No limits configured.
-      </div>
-    );
+    return <EmptyState message="No limits configured." />;
   }
 
   return (
-    <div style={{ border: `1px solid ${t.surfaceOverlay}`, borderRadius: 8, overflow: "hidden" }}>
-      {/* Header */}
-      <div
-        style={{
-          display: "flex", flexDirection: "row",
-          gap: 12,
-          padding: "8px 12px",
-          fontSize: 10,
-          fontWeight: 600,
-          color: t.textDim,
-          textTransform: "uppercase",
-          borderBottom: `1px solid ${t.surfaceOverlay}`,
-          background: t.surfaceOverlay,
-        }}
-      >
-        <span style={{ width: 60 }}>Scope</span>
-        <span style={{ flex: 1, minWidth: 0 }}>Value</span>
-        <span style={{ width: 60 }}>Period</span>
-        <span style={{ width: 70, textAlign: "right" }}>Limit</span>
-        <span style={{ width: 50, textAlign: "center" }}>Active</span>
-        <span style={{ width: 30 }}></span>
-      </div>
-      {limits.map((lim, i) => (
-        <div
-          key={lim.id}
-          style={{
-            display: "flex", flexDirection: "row",
-            gap: 12,
-            padding: "7px 12px",
-            fontSize: 12,
-            borderBottom: i < limits.length - 1 ? `1px solid ${t.surfaceRaised}` : "none",
-            alignItems: "center",
-            opacity: lim.enabled ? 1 : 0.5,
-          }}
-        >
-          <span style={{ width: 60, color: t.textMuted }}>{lim.scope_type}</span>
-          <span style={{ flex: 1, minWidth: 0, color: t.text, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {lim.scope_value}
-          </span>
-          <span style={{ width: 60, color: t.textMuted }}>{lim.period}</span>
-          <span style={{ width: 70, textAlign: "right", color: t.text, fontFamily: "monospace" }}>
-            ${lim.limit_usd.toFixed(2)}
-          </span>
-          <span style={{ width: 50, textAlign: "center" }}>
-            <button
-              onClick={() => updateMutation.mutate({ id: lim.id, enabled: !lim.enabled })}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                fontSize: 12,
-                color: lim.enabled ? t.success : t.textDim,
-                padding: 0,
-                fontWeight: 500,
-              }}
-            >
-              {lim.enabled ? "on" : "off"}
-            </button>
-          </span>
-          <span style={{ width: 30, textAlign: "center" }}>
-            <button
-              onClick={async () => {
-                const ok = await confirm("Delete this limit?", {
-                  title: "Delete limit",
-                  confirmLabel: "Delete",
-                  variant: "danger",
-                });
-                if (ok) deleteMutation.mutate(lim.id);
-              }}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: t.textDim,
-                padding: 2,
-              }}
-              title="Delete"
-            >
-              <Trash2 size={13} />
-            </button>
-          </span>
-        </div>
+    <div className="flex flex-col gap-1">
+      {limits.map((limit) => (
+        <SettingsControlRow
+          key={limit.id}
+          compact
+          className={limit.enabled ? "" : "opacity-55"}
+          title={limit.scope_value}
+          description={`${limit.scope_type} · ${limit.period}`}
+          meta={
+            <div className="font-mono text-[11px] text-text-muted">
+              ${limit.limit_usd.toFixed(2)}
+            </div>
+          }
+          action={
+            <div className="flex items-center gap-1">
+              <ActionButton
+                label={limit.enabled ? "On" : "Off"}
+                size="small"
+                variant={limit.enabled ? "primary" : "secondary"}
+                onPress={() => updateMutation.mutate({ id: limit.id, enabled: !limit.enabled })}
+              />
+              <ActionButton
+                label="Delete"
+                size="small"
+                variant="danger"
+                icon={<Trash2 size={12} />}
+                onPress={async () => {
+                  const ok = await confirm("Delete this limit?", {
+                    title: "Delete limit",
+                    confirmLabel: "Delete",
+                    variant: "danger",
+                  });
+                  if (ok) deleteMutation.mutate(limit.id);
+                }}
+              />
+            </div>
+          }
+        />
       ))}
       <ConfirmDialogSlot />
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main tab
-// ---------------------------------------------------------------------------
-
-export function LimitsTab({ knownModels }: { knownModels: string[] }) {
-  const t = useThemeTokens();
+export function LimitsTab({ knownModels: _knownModels }: { knownModels: string[] }) {
   const { data: statuses, isLoading } = useUsageLimitsStatus();
   const { data: forecast } = useUsageForecast();
 
-  // Match forecast limits to status cards by scope_type + scope_value + period
-  const findForecast = (s: UsageLimitStatus): LimitForecast | undefined =>
+  const findForecast = (status: UsageLimitStatus): LimitForecast | undefined =>
     forecast?.limits.find(
-      (lf) => lf.scope_type === s.scope_type && lf.scope_value === s.scope_value && lf.period === s.period,
+      (limit) =>
+        limit.scope_type === status.scope_type &&
+        limit.scope_value === status.scope_value &&
+        limit.period === status.period,
     );
 
   return (
-    <div>
-      {/* Status cards */}
-      {isLoading ? (
-        <Spinner />
-      ) : statuses && statuses.length > 0 ? (
-        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
-          {statuses.map((s) => (
-            <LimitStatusCard key={s.id} s={s} forecast={findForecast(s)} />
-          ))}
-        </div>
-      ) : null}
-
-      {/* Add limit */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>Add Limit</div>
-        <AddLimitForm knownModels={knownModels} />
+    <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-2">
+        <SettingsGroupLabel label="Active guardrails" count={statuses?.length ?? 0} />
+        {isLoading ? (
+          <Spinner />
+        ) : statuses && statuses.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {statuses.map((status) => (
+              <LimitStatusCard key={status.id} status={status} forecast={findForecast(status)} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState message="No active limit status yet. Add a limit to start tracking spend guardrails." />
+        )}
       </div>
-
-      {/* All limits */}
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: t.text, marginBottom: 8 }}>All Limits</div>
-        <LimitsTable />
+      <div className="flex flex-col gap-2">
+        <SettingsGroupLabel label="Add limit" />
+        <AddLimitForm />
+      </div>
+      <div className="flex flex-col gap-2">
+        <SettingsGroupLabel label="All limits" />
+        <LimitsList />
       </div>
     </div>
   );
