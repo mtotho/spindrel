@@ -715,6 +715,128 @@ def _omnipanel_mobile_init_script(chat_main_id: str) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Spatial Canvas specs — five hero captures referenced by
+# ``docs/guides/spatial-canvas.md``. Each spec seeds the canvas's
+# ``localStorage`` camera + chrome prefs in an init script so the canvas
+# mounts already framed for the shot — no fragile pan/zoom DOM choreography.
+#
+# Camera math: viewport is 1440x900; world transform is
+# ``translate(camera.x, camera.y) scale(camera.scale)``. To land world point
+# ``(wx, wy)`` at screen center ``(720, 450)``:
+#   camera.x = 720 - wx*scale
+#   camera.y = 450 - wy*scale
+# ---------------------------------------------------------------------------
+
+
+def _spatial_camera_init(camera: dict, *, density: str = "bold", connections: bool = True) -> str:
+    """Seed ``spatial.camera`` and chrome prefs before the canvas mounts.
+
+    `camera` is the persisted ``{x, y, scale}`` dict; the canvas reads it via
+    ``loadStoredCamera`` on mount. ``density`` is one of subtle|bold|off and
+    ``connections`` toggles widget→channel curves.
+    """
+    import json as _json
+    return (
+        "(() => {\n"
+        f"  localStorage.setItem('spatial.camera', {_json.dumps(_json.dumps(camera))});\n"
+        f"  localStorage.setItem('spatial.density.intensity', {_json.dumps(density)});\n"
+        f"  localStorage.setItem('spatial.connections.enabled', {_json.dumps('1' if connections else '0')});\n"
+        "  localStorage.setItem('spatial.density.window', '24h');\n"
+        "  localStorage.setItem('spatial.bots.visible', '1');\n"
+        "})();"
+    )
+
+
+# Wait predicate shared across all spatial specs: canvas mounted + at least
+# four channel tiles painted (channels render as ``<a href="/channels/UUID">``
+# both in the sidebar and as canvas tile labels). A higher floor than four
+# would race against phyllotaxis seeding on the first run.
+_SPATIAL_READY = (
+    '!!document.querySelector(\'[data-spatial-canvas="true"]\')'
+    ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
+)
+
+
+SPATIAL_SPECS: list[ScreenshotSpec] = [
+    # 1. spatial-overview-1.png — wide shot of the canvas, channels +
+    # widgets + halos all visible. Default scale 0.7 frames most of the
+    # constellation around the origin.
+    ScreenshotSpec(
+        name="spatial-overview-1",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-overview-1.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.7}),
+        ],
+    ),
+    # 2. spatial-channel-zoomed-out.png — channels at "dot" zoom level
+    # (scale < 0.4). Each channel is a colored disc + name label.
+    ScreenshotSpec(
+        name="spatial-channel-zoomed-out",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-channel-zoomed-out.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 0.32}),
+        ],
+    ),
+    # 3. spatial-channel-zoomed-in-1.png — close zoom showing a channel
+    # tile + outgoing widget connection lines. Centered on origin with a
+    # high scale so connection curves brighten clearly.
+    ScreenshotSpec(
+        name="spatial-channel-zoomed-in-1",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-channel-zoomed-in-1.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 450, "scale": 1.3}),
+        ],
+    ),
+    # 4. spatial-zoom-widgets.png — three widget tiles at live-iframe zoom
+    # (scale ≥ 0.6). Centered on the QA-channel cluster where stage_spatial
+    # places Notes / Todos / Standing-order pins.
+    ScreenshotSpec(
+        name="spatial-zoom-widgets",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-zoom-widgets.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            # Center on (-280, -190) — midpoint of Notes/Todos pins seeded
+            # by stage_spatial — at scale 1.6.
+            _spatial_camera_init({"x": 1168, "y": 754, "scale": 1.6}),
+        ],
+    ),
+    # 5. spatial-blackhole.png — Now Well close-up. WELL_X=0, WELL_Y=2200
+    # in spatialGeometry.ts. Frame at scale 0.85.
+    ScreenshotSpec(
+        name="spatial-blackhole",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-blackhole.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": -1420, "scale": 0.85}),
+        ],
+    ),
+]
+
+
 def resolve_specs(specs: list[ScreenshotSpec], staged: dict[str, str]) -> list[ScreenshotSpec]:
     """Return new specs with ``route`` placeholders substituted from ``staged``.
 

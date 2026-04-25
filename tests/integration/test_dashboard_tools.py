@@ -368,6 +368,46 @@ class TestPinWidget:
         assert "invoke_widget_action" in todo_pin["context_hint"]
 
     @pytest.mark.asyncio
+    async def test_invoke_native_widget_action_validation_error_survives_rollback(
+        self, engine, db_session, channel_id, bot_with_key,
+    ):
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.services.dashboard_pins import create_pin
+        from app.services.dashboards import WORKSPACE_SPATIAL_DASHBOARD_KEY
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+        from app.tools.local.dashboard_tools import invoke_widget_action
+
+        pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="core/game_blockyard",
+            envelope=build_native_widget_preview_envelope(
+                "core/game_blockyard",
+                source_bot_id="test-bot",
+            ),
+            source_bot_id="test-bot",
+            dashboard_key=WORKSPACE_SPATIAL_DASHBOARD_KEY,
+            zone="grid",
+        )
+        pin_id = str(pin.id)
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                result = json.loads(await invoke_widget_action(
+                    pin_id=pin_id,
+                    action="inspect",
+                ))
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert result["ok"] is False
+        assert "Missing required action arg: x" in result["error"]
+        assert "MissingGreenlet" not in result["error"]
+
+    @pytest.mark.asyncio
     async def test_auth_scope_bot_stamps_source_bot_id(
         self, engine, channel_id, bot_with_key,
     ):

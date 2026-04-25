@@ -1540,27 +1540,29 @@ async def invoke_widget_action(
             instance = await get_native_widget_instance_for_pin(db, pin)
 
         if instance is not None:
+            pin_id_text = str(pin.id) if pin is not None else None
+            instance_id_text = str(instance.id)
             body = {
                 "dispatch": "native_widget",
                 "action": action,
                 "args": args or {},
-                "widget_instance_id": str(instance.id),
+                "widget_instance_id": instance_id_text,
             }
-            if pin is not None:
-                body["dashboard_pin_id"] = str(pin.id)
+            if pin_id_text is not None:
+                body["dashboard_pin_id"] = pin_id_text
             from app.routers.api_v1_widget_actions import WidgetActionRequest, dispatch_widget_action
 
             resp = await dispatch_widget_action(WidgetActionRequest(**body), db)
             payload = {
                 "ok": resp.ok,
                 "action": action,
-                "pin_id": str(pin.id) if pin is not None else None,
-                "widget_instance_id": str(instance.id),
+                "pin_id": pin_id_text,
+                "widget_instance_id": instance_id_text,
                 "result": resp.result,
                 "error": resp.error,
             }
-            if resp.ok and pin is not None and resp.envelope is not None:
-                payload["llm"] = f"Invoked native widget action {action!r} on pin {pin.id}."
+            if resp.ok and pin_id_text is not None and resp.envelope is not None:
+                payload["llm"] = f"Invoked native widget action {action!r} on pin {pin_id_text}."
             return json.dumps(payload)
 
         if pin is None:

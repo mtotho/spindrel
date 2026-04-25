@@ -1,0 +1,25 @@
+id: marp_slides
+name: Marp Slides
+icon: Presentation
+description: Create presentation decks from Marp-flavored Markdown and export them as HTML, PDF, or PPTX files.
+version: "1.0"
+
+dependencies:
+  system:
+    - binary: node
+      apt_package: nodejs
+      install_hint: "Install Node.js so Marp CLI can run."
+    - binary: npx
+      apt_package: npm
+      install_hint: "Install npm/npx, or install @marp-team/marp-cli globally."
+    - binary: chromium
+      apt_package: chromium
+      alternatives: [chromium-browser, google-chrome-stable, google-chrome]
+      install_hint: "Install Chromium for PDF/PPTX export."
+  npm:
+    - package: "@marp-team/marp-cli"
+      binary_name: marp
+
+provides:
+  - tools
+  - skills

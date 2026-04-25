@@ -25,6 +25,7 @@ from scripts.screenshots.capture.specs import (
     DOCS_REPAIR_SPECS,
     FLAGSHIP_SPECS,
     INTEGRATIONS_SPECS,
+    SPATIAL_SPECS,
     resolve_specs,
 )
 from scripts.screenshots.stage.client import SpindrelClient
@@ -42,6 +43,7 @@ from scripts.screenshots.stage.scenarios.integrations import (
     stage_integrations,
     teardown_integrations,
 )
+from scripts.screenshots.stage.scenarios.spatial import stage_spatial, teardown_spatial
 
 
 logger = logging.getLogger("screenshots")
@@ -54,7 +56,7 @@ def _parse() -> argparse.Namespace:
         choices=["stage", "capture", "all", "teardown", "video", "check"],
     )
     p.add_argument("--only", default="flagship",
-                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui"],
+                   choices=["flagship", "docs-repair", "integrations", "a3-docs", "core-features", "setup-tui", "spatial"],
                    help="scenario bundle")
     p.add_argument("--dry-run", action="store_true",
                    help="log writes without executing (stage/teardown only)")
@@ -110,6 +112,23 @@ def _run_stage(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
             )
         print("staged (core-features): seeded webhook rows + bot knowledge-base chunks")
         return None
+    if only == "spatial":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            state = stage_spatial(
+                client,
+                ssh_alias=cfg.ssh_alias,
+                ssh_container=cfg.ssh_container,
+                dry_run=dry_run,
+            )
+        print(f"staged (spatial):")
+        from dataclasses import asdict as _asdict
+        for k, v in _asdict(state).items():
+            if isinstance(v, dict) and len(v) > 6:
+                # collapse the long channel/bot maps for legibility
+                print(f"  {k}: {len(v)} entries")
+            else:
+                print(f"  {k}: {v}")
+        return state
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":
             state = stage_flagship(
@@ -169,7 +188,13 @@ def _run_capture(cfg: config.Config, *, only: str = "flagship"):
 
         placeholders: dict[str, str] = {}
 
-        if only == "integrations":
+        if only == "spatial":
+            # Spatial canvas captures key off ``/`` only — the canvas mounts
+            # there and reads camera / chrome state from localStorage that
+            # each spec seeds via ``extra_init_scripts``. No route
+            # placeholders needed.
+            spec_list = SPATIAL_SPECS
+        elif only == "integrations":
             # Routes are static (/admin/integrations/<slug>) — no placeholders.
             spec_list = INTEGRATIONS_SPECS
         elif only == "core-features":
@@ -314,6 +339,11 @@ def _run_teardown(cfg: config.Config, *, dry_run: bool, only: str = "flagship"):
                 ssh_container=cfg.ssh_container,
             )
         print("teardown (core-features): removed seeded webhook rows + KB chunks")
+        return
+    if only == "spatial":
+        with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
+            teardown_spatial(client)
+        print("teardown (spatial): removed spatial canvas pins, channels, and bots")
         return
     with SpindrelClient(cfg.api_url, cfg.api_key, dry_run=dry_run) as client:
         if only == "flagship":

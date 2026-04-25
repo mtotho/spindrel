@@ -1034,6 +1034,45 @@ def build_native_widget_preview_envelope(
     }
 
 
+async def create_unique_native_widget_instance(
+    db: AsyncSession,
+    *,
+    widget_ref: str,
+    config: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
+) -> WidgetInstance:
+    """Create a fresh ``WidgetInstance`` with a synthetic per-instance ``scope_ref``.
+
+    Used by surfaces that legitimately want multiple independent copies of the
+    same widget (e.g. multiple Notes / Todo tiles on the workspace canvas).
+    Mirrors the Standing Orders pattern: scope_ref encodes the widget short
+    name + a fresh uuid so the table-level unique constraint
+    ``(widget_kind, widget_ref, scope_kind, scope_ref)`` always holds.
+    """
+    spec = get_native_widget_spec(widget_ref)
+    if spec is None:
+        raise NotFoundError(f"Unknown native widget: {widget_ref!r}")
+    short = widget_ref.split("/")[-1] or "native"
+    synthetic_scope_ref = f"{short}/{uuid.uuid4()}"
+    merged_state = _merge_defaults(spec.default_state, state)
+    merged_config = _merge_defaults(spec.default_config, config)
+    if not merged_state.get("created_at"):
+        merged_state["created_at"] = _now_iso()
+    if not merged_state.get("updated_at"):
+        merged_state["updated_at"] = merged_state["created_at"]
+    instance = WidgetInstance(
+        widget_kind="native_app",
+        widget_ref=widget_ref,
+        scope_kind="dashboard",
+        scope_ref=synthetic_scope_ref,
+        config=merged_config,
+        state=merged_state,
+    )
+    db.add(instance)
+    await db.flush()
+    return instance
+
+
 async def get_or_create_native_widget_instance(
     db: AsyncSession,
     *,

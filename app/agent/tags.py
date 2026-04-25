@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Match @name or @type:name.
 # Negative lookbehind: skip Slack's <@USERID> and email addresses (foo@bar).
 # Names must start with a letter or underscore (not a digit).
-# Allows slashes for path-style IDs (e.g. packages/slides/slides).
+# Allows slashes for path-style IDs (e.g. integrations/marp_slides/marp_slides).
 # tool-pack must appear before tool in the alternation to avoid partial matching.
 _TAG_RE = re.compile(r"(?<![<\w@])@((?:skill|tool-pack|tool|bot):)?([A-Za-z_][\w\-\./]*)")
 
@@ -33,7 +33,7 @@ class ResolvedTag:
 
 
 def _match_skill_short_name(short: str, skill_set: set[str]) -> str | None:
-    """Match a short name like 'slides' to a full path-style skill ID like 'packages/slides/slides'.
+    """Match a short name like 'marp_slides' to a full path-style skill ID like 'integrations/marp_slides/marp_slides'.
 
     Returns the full ID if exactly one skill ends with the short name as its final segment.
     """

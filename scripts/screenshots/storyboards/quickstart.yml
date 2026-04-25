@@ -28,7 +28,7 @@ meta:
 sections:
   - id: intro
     title: "What is Spindrel?"
-    scenes: [hero_home]
+    scenes: [hero_spatial]
 
   - id: first_channel
     title: "One channel, one bot"
@@ -48,14 +48,28 @@ sections:
     title_card: false
 
 scenes:
-  - id: hero_home
-    kind: still
-    asset: docs/images/home.png
+  - id: hero_spatial
+    kind: playwright
     duration: 6
-    ken_burns:
-      start: [1.00, 0.50, 0.50]
-      end:   [1.08, 0.50, 0.55]
-    caption: "Spindrel organizes AI around channels — one bot, one chat, one workspace."
+    color_scheme: dark
+    caption: "Your workspace, as a place — every channel, every widget, every scheduled job."
+    # Live recording of Spindrel's home — the spatial canvas. Stage with
+    # `python -m scripts.screenshots stage --only spatial` so the canvas
+    # populates with the demo cast before this clip records.
+    actions:
+      - goto: "/"
+      - wait_for: "css=[data-spatial-canvas=\"true\"]"
+        state: visible
+      # Initial settle — channels paint, halos fade in, connection lines draw.
+      - wait_ms: 1500
+      # Recenter is a no-op camera nudge if no prior camera; at default
+      # scale 1.0 it's a quiet beat that lets viewers register the layout.
+      - click: "css=[aria-label=\"Recenter canvas\"]"
+      - wait_ms: 1500
+      # Fly to Now Well — the dramatic pan downward across the constellation
+      # to the orbiting scheduled-task ring. ~600ms tween + 2s hold.
+      - click: "css=[aria-label=\"Fly to Now Well\"]"
+      - wait_ms: 2000
 
   - id: channel_chat
     kind: still

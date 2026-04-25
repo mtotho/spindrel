@@ -55,14 +55,14 @@ class TestTagRegex:
         assert self._find_all("@123abc") == []
 
     def test_path_style_name(self):
-        assert self._find_all("@packages/slides/slides") == ["@packages/slides/slides"]
+        assert self._find_all("@integrations/marp_slides/marp_slides") == ["@integrations/marp_slides/marp_slides"]
 
     def test_skill_prefix_with_path(self):
-        assert self._find_all("@skill:packages/slides/slides") == ["@skill:packages/slides/slides"]
+        assert self._find_all("@skill:integrations/marp_slides/marp_slides") == ["@skill:integrations/marp_slides/marp_slides"]
 
     def test_path_in_sentence(self):
-        tags = self._find_all("use @packages/slides/slides for the presentation")
-        assert tags == ["@packages/slides/slides"]
+        tags = self._find_all("use @integrations/marp_slides/marp_slides for the presentation")
+        assert tags == ["@integrations/marp_slides/marp_slides"]
 
 
 # ---------------------------------------------------------------------------
@@ -71,11 +71,11 @@ class TestTagRegex:
 
 class TestMatchSkillShortName:
     def test_matches_final_segment(self):
-        skills = {"packages/slides/slides", "arch_linux"}
-        assert _match_skill_short_name("slides", skills) == "packages/slides/slides"
+        skills = {"integrations/marp_slides/marp_slides", "arch_linux"}
+        assert _match_skill_short_name("marp_slides", skills) == "integrations/marp_slides/marp_slides"
 
     def test_no_match(self):
-        skills = {"packages/slides/slides", "arch_linux"}
+        skills = {"integrations/marp_slides/marp_slides", "arch_linux"}
         assert _match_skill_short_name("cooking", skills) is None
 
     def test_exact_match_not_duplicated(self):
@@ -84,7 +84,7 @@ class TestMatchSkillShortName:
         assert _match_skill_short_name("arch_linux", skills) is None
 
     def test_plain_skill_matched(self):
-        skills = {"cooking", "packages/slides/slides"}
+        skills = {"cooking", "integrations/marp_slides/marp_slides"}
         assert _match_skill_short_name("cooking", skills) == "cooking"
 
 
@@ -163,30 +163,30 @@ class TestResolveTags:
 
     async def test_short_name_resolves_to_full_path(self):
         result = await resolve_tags(
-            "@slides",
-            ["packages/slides/slides", "arch_linux"], [], [], "mybot", "client1"
+            "@marp_slides",
+            ["integrations/marp_slides/marp_slides", "arch_linux"], [], [], "mybot", "client1"
         )
         assert len(result) == 1
         assert result[0].tag_type == "skill"
-        assert result[0].name == "packages/slides/slides"
+        assert result[0].name == "integrations/marp_slides/marp_slides"
 
     async def test_full_path_resolves(self):
         result = await resolve_tags(
-            "@packages/slides/slides",
-            ["packages/slides/slides"], [], [], "mybot", "client1"
+            "@integrations/marp_slides/marp_slides",
+            ["integrations/marp_slides/marp_slides"], [], [], "mybot", "client1"
         )
         assert len(result) == 1
         assert result[0].tag_type == "skill"
-        assert result[0].name == "packages/slides/slides"
+        assert result[0].name == "integrations/marp_slides/marp_slides"
 
     async def test_forced_skill_with_path(self):
         result = await resolve_tags(
-            "@skill:packages/slides/slides",
+            "@skill:integrations/marp_slides/marp_slides",
             [], [], [], "mybot", "client1"
         )
         assert len(result) == 1
         assert result[0].tag_type == "skill"
-        assert result[0].name == "packages/slides/slides"
+        assert result[0].name == "integrations/marp_slides/marp_slides"
 
     async def test_deduplicates(self):
         result = await resolve_tags(

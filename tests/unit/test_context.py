@@ -101,8 +101,8 @@ class TestSetEphemeralDelegates:
 @pytest.mark.asyncio
 class TestSetEphemeralSkills:
     async def test_set_and_get(self):
-        set_ephemeral_skills(["packages/slides/slides", "arch_linux"])
-        assert current_ephemeral_skills.get() == ["packages/slides/slides", "arch_linux"]
+        set_ephemeral_skills(["integrations/marp_slides/marp_slides", "arch_linux"])
+        assert current_ephemeral_skills.get() == ["integrations/marp_slides/marp_slides", "arch_linux"]
 
     async def test_creates_copy(self):
         original = ["slides"]

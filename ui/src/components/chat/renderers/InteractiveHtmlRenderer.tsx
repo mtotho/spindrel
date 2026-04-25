@@ -304,6 +304,15 @@ function buildCsp(
       appendCspOrigins(merged, "script-src", [runtimeOrigin]);
     }
   }
+  if (options?.allowAppScripts) {
+    // Babel.transform + `new Function(compiled)` in the React runtime shim
+    // both count as "evaluating a string as JavaScript" — without
+    // 'unsafe-eval' the iframe blocks JSX compilation entirely. This is
+    // scoped to the `runtime: react` path; HTML widgets stay locked down.
+    if (!merged["script-src"].includes("'unsafe-eval'")) {
+      merged["script-src"].push("'unsafe-eval'");
+    }
+  }
   if (extra && typeof extra === "object") {
     for (const [key, value] of Object.entries(extra)) {
       const directive = CSP_DIRECTIVE_MAP[key];

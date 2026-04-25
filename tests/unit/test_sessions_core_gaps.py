@@ -635,3 +635,126 @@ class TestStoreDispatchEcho:
         mock_db.execute.assert_not_awaited()
         # store_passive_message IS called (no passive_memory gate for non-integration)
         mock_spm.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# stage_turn_messages — malformed delegate_to_agent argument JSON
+# ---------------------------------------------------------------------------
+#
+# Bug class previously hidden behind `_build_message_metadata`'s silent
+# `except (json.JSONDecodeError, TypeError): pass`: a truncated streaming
+# response produces a tool_call with non-decodable `arguments`, the
+# delegation entry vanishes from metadata, and the parent loses track of
+# the delegate. After Cluster 15 follow-up (`session_writes.py`), the
+# parser logs a WARNING and skips just the malformed entry — the row
+# itself still persists, and other delegations in the same call list
+# still land.
+
+class TestStageTurnMessagesMalformedDelegations:
+    """Pin: malformed delegate_to_agent args don't kill the row, log loudly."""
+
+    def _ctx(self, **overrides):
+        from datetime import datetime, timezone
+        from app.services.session_writes import TurnContext
+
+        defaults = dict(
+            session_id=uuid.uuid4(),
+            bot=_make_bot_cfg(),
+            correlation_id=uuid.uuid4(),
+            msg_metadata=None,
+            is_heartbeat=False,
+            hide_messages=False,
+            pre_user_msg_id=None,
+            now=datetime.now(timezone.utc),
+        )
+        defaults.update(overrides)
+        return TurnContext(**defaults)
+
+    def test_malformed_args_skip_entry_but_row_lands(self, caplog):
+        from app.services.session_writes import stage_turn_messages
+
+        db = MagicMock()
+        ctx = self._ctx()
+        messages = [
+            {
+                "role": "assistant",
+                "content": "calling delegate",
+                "tool_calls": [
+                    {
+                        "id": "tc-bad",
+                        "function": {"name": "delegate_to_agent", "arguments": "{not json"},
+                    },
+                ],
+            },
+        ]
+
+        with caplog.at_level("WARNING", logger="app.services.session_writes"):
+            staged = stage_turn_messages(db, ctx, messages)
+
+        assert len(staged.records) == 1, "row must persist even when delegation parse fails"
+        meta = staged.records[0].metadata_
+        assert "delegations" not in meta, "malformed entry must be dropped from metadata"
+        assert any("Malformed delegate_to_agent" in rec.message for rec in caplog.records), (
+            "parser failure must surface as a WARNING, not silent pass"
+        )
+        db.add.assert_called_once()
+
+    def test_partial_failure_preserves_other_delegations(self, caplog):
+        """One malformed call in a list does not erase the well-formed sibling."""
+        import json as _json
+        from app.services.session_writes import stage_turn_messages
+
+        db = MagicMock()
+        ctx = self._ctx()
+        good_args = _json.dumps({"bot_id": "child-bot", "prompt": "do thing"})
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "tc-bad",
+                        "function": {"name": "delegate_to_agent", "arguments": "garbage{"},
+                    },
+                    {
+                        "id": "tc-good",
+                        "function": {"name": "delegate_to_agent", "arguments": good_args},
+                    },
+                ],
+            },
+        ]
+
+        with caplog.at_level("WARNING", logger="app.services.session_writes"):
+            staged = stage_turn_messages(db, ctx, messages)
+
+        meta = staged.records[0].metadata_
+        delegations = meta.get("delegations", [])
+        assert len(delegations) == 1, "well-formed delegation survives sibling parse failure"
+        assert delegations[0]["bot_id"] == "child-bot"
+        assert any("Malformed delegate_to_agent" in rec.message for rec in caplog.records)
+
+    def test_non_object_args_also_skipped(self, caplog):
+        """JSON that parses to a non-object (e.g. list, string, null) is also skipped."""
+        from app.services.session_writes import stage_turn_messages
+
+        db = MagicMock()
+        ctx = self._ctx()
+        messages = [
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "tc-array",
+                        "function": {"name": "delegate_to_agent", "arguments": "[1, 2, 3]"},
+                    },
+                ],
+            },
+        ]
+
+        with caplog.at_level("WARNING", logger="app.services.session_writes"):
+            staged = stage_turn_messages(db, ctx, messages)
+
+        meta = staged.records[0].metadata_
+        assert "delegations" not in meta
+        assert any("non-object" in rec.message for rec in caplog.records)

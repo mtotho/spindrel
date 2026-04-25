@@ -1031,6 +1031,26 @@ async def pin_widget_to_canvas(
     Both writes commit together. If the spatial node insert fails, the pin
     is dropped (compensating delete). No orphan pins.
     """
+    # Native widgets pinned to the canvas always get a fresh WidgetInstance
+    # so multiple Notes/Todo/Blockyard tiles can coexist with independent
+    # state. The default get-or-create path would singleton them all to the
+    # same workspace:spatial scope_ref. (Channel-scoped pins keep the
+    # one-per-channel singleton — that's intentional.)
+    override_instance = None
+    from app.services.native_app_widgets import (
+        NATIVE_APP_CONTENT_TYPE,
+        create_unique_native_widget_instance,
+        extract_native_widget_ref_from_envelope,
+    )
+    if isinstance(envelope, dict) and envelope.get("content_type") == NATIVE_APP_CONTENT_TYPE:
+        widget_ref = extract_native_widget_ref_from_envelope(envelope)
+        if widget_ref:
+            override_instance = await create_unique_native_widget_instance(
+                db,
+                widget_ref=widget_ref,
+                config=widget_config or {},
+            )
+
     pin = await create_pin(
         db,
         source_kind=source_kind,
@@ -1044,6 +1064,7 @@ async def pin_widget_to_canvas(
         display_label=display_label,
         dashboard_key=WORKSPACE_SPATIAL_DASHBOARD_KEY,
         zone="grid",
+        override_widget_instance=override_instance,
         commit=False,
     )
 

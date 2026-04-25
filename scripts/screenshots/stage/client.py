@@ -421,6 +421,61 @@ class SpindrelClient:
         r.raise_for_status()
         return r.json()
 
+    # --- workspace spatial canvas -----------------------------------------
+
+    def list_spatial_nodes(self) -> list[dict]:
+        """List spatial nodes — also seeds rows for any channel/bot that
+        doesn't yet have a position. Idempotent: callers can use this purely
+        as a "force phyllotaxis seeding" trigger before captures."""
+        return self._get("/api/v1/workspace/spatial/nodes").json().get("nodes", [])
+
+    def pin_canvas_widget(
+        self,
+        *,
+        tool_name: str,
+        envelope: dict,
+        source_kind: str = "channel",
+        source_channel_id: str | None = None,
+        source_bot_id: str | None = None,
+        display_label: str | None = None,
+        world_x: float | None = None,
+        world_y: float | None = None,
+        world_w: float | None = None,
+        world_h: float | None = None,
+    ) -> dict:
+        """Atomically pin a widget onto the workspace spatial canvas.
+
+        Wraps ``POST /api/v1/workspace/spatial/widget-pins`` which creates the
+        ``widget_dashboard_pins`` row on the reserved ``workspace:spatial``
+        slug AND its matching ``workspace_spatial_nodes`` row in one
+        transaction. Use this instead of ``create_pin(dashboard_key=
+        "workspace:spatial", ...)`` so the canvas node is in the same commit
+        as the pin row.
+        """
+        body: dict[str, Any] = {
+            "source_kind": source_kind,
+            "tool_name": tool_name,
+            "envelope": envelope,
+        }
+        if source_channel_id:
+            body["source_channel_id"] = source_channel_id
+        if source_bot_id:
+            body["source_bot_id"] = source_bot_id
+        if display_label:
+            body["display_label"] = display_label
+        if world_x is not None:
+            body["world_x"] = world_x
+        if world_y is not None:
+            body["world_y"] = world_y
+        if world_w is not None:
+            body["world_w"] = world_w
+        if world_h is not None:
+            body["world_h"] = world_h
+        return self._post(
+            "/api/v1/workspace/spatial/widget-pins",
+            json=body,
+        ).json()
+
     # --- tasks / pipelines -------------------------------------------------
 
     def create_pipeline(
@@ -549,6 +604,52 @@ class SpindrelClient:
             f"/api/v1/admin/channels/{channel_id}/heartbeat/toggle",
             json={"enabled": enabled},
         ).json()
+
+    def set_heartbeat(
+        self,
+        *,
+        channel_id: str,
+        enabled: bool | None = None,
+        interval_minutes: int | None = None,
+        prompt: str | None = None,
+        model: str | None = None,
+        dispatch_mode: str | None = None,
+        append_spatial_prompt: bool | None = None,
+    ) -> dict:
+        """Update heartbeat config (interval, prompt, dispatch, etc.).
+
+        Wraps ``PATCH /admin/channels/{id}/heartbeat`` (also accepts PUT) per
+        ``app/routers/api_v1_admin/channels.py:1246``. Only fields that are
+        non-None are sent — the server uses ``model_dump(exclude_unset=True)``
+        and applies them as a partial update.
+        """
+        body: dict[str, Any] = {}
+        if enabled is not None:
+            body["enabled"] = enabled
+        if interval_minutes is not None:
+            body["interval_minutes"] = interval_minutes
+        if prompt is not None:
+            body["prompt"] = prompt
+        if model is not None:
+            body["model"] = model
+        if dispatch_mode is not None:
+            body["dispatch_mode"] = dispatch_mode
+        if append_spatial_prompt is not None:
+            body["append_spatial_prompt"] = append_spatial_prompt
+        if self._dry_run:
+            logger.info("DRY-RUN PATCH /admin/channels/%s/heartbeat body=%s", channel_id, body)
+            return {"channel_id": channel_id, "dry_run": True, **body}
+        r = self._http.patch(
+            f"/api/v1/admin/channels/{channel_id}/heartbeat",
+            json=body,
+        )
+        if r.status_code >= 400:
+            logger.error(
+                "PATCH /admin/channels/%s/heartbeat -> %s body=%s",
+                channel_id, r.status_code, r.text[:300],
+            )
+        r.raise_for_status()
+        return r.json()
 
     # --- webhooks ----------------------------------------------------------
 

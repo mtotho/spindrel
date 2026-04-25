@@ -2,7 +2,7 @@
 tags: [agent-server, track, integrations, docs, contract]
 status: active
 created: 2026-04-23
-updated: 2026-04-23
+updated: 2026-04-25
 ---
 # Track — Integration Contract + Canonical Guide
 
@@ -53,6 +53,10 @@ Full detail lives in the plan file. One-line-per-phase summary:
 - `binding.suggestions_endpoint` always returns `BindingSuggestionsResponse`; schema test gates drift.
 - No integration-specific branches in `app/` — integrations register per-integration callables on `IntegrationMeta` in their own `hooks.py`, and `app/` calls through the lookup helpers in `app/agent/hooks.py` (`claims_user_id`, `integration_id_from_sender_id`, `integration_id_from_attachment_meta`, `get_all_client_id_prefixes`).
 - `chat_hud` / `chat_hud_presets` are dead surface. Do not reintroduce; use the widget/dashboard system.
+
+## Follow-up cleanup
+
+- **2026-04-25 — Marp Slides relocation:** moved the lone `packages/slides` bundle into first-party integration shape at `integrations/marp_slides` with a manifest (`name: Marp Slides`), tool + skill under the integration namespace, and no remaining tracked `packages/` example.
 
 ## References
 

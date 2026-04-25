@@ -3,7 +3,7 @@ import logging
 import re
 import uuid
 from typing import Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -586,127 +586,6 @@ def _filter_messages_to_persist(
     return new_messages
 
 
-def _build_message_metadata(
-    msg: dict,
-    *,
-    bot: BotConfig,
-    msg_metadata: dict | None,
-    is_first_user_with_metadata: bool,
-    is_heartbeat: bool,
-    hide_messages: bool,
-) -> dict:
-    """Build the metadata dict for a single Message row."""
-    meta: dict = {}
-    if msg_metadata and msg.get("role") == "user" and is_first_user_with_metadata:
-        meta = msg_metadata
-    if msg.get("role") == "assistant" and not meta:
-        meta = {"sender_type": "bot", "sender_id": f"bot:{bot.id}", "sender_display_name": bot.name}
-    if msg.get("_tools_used"):
-        meta = {**meta, "tools_used": msg["_tools_used"]}
-    if msg.get("_tool_envelopes"):
-        meta = {**meta, "tool_results": msg["_tool_envelopes"]}
-    if msg.get("_thinking_content"):
-        meta = {**meta, "thinking": msg["_thinking_content"]}
-    assistant_turn_body = msg.get("_assistant_turn_body")
-    if not assistant_turn_body and msg.get("_transcript_entries"):
-        assistant_turn_body = {"version": 1, "items": msg["_transcript_entries"]}
-    if assistant_turn_body:
-        meta = {**meta, "assistant_turn_body": assistant_turn_body}
-    if msg.get("_tool_record_id"):
-        meta = {**meta, "tool_record_id": msg["_tool_record_id"]}
-    if msg.get("_no_prune"):
-        meta = {**meta, "no_prune": True}
-    if msg.get("_auto_injected_skills"):
-        meta = {**meta, "auto_injected_skills": msg["_auto_injected_skills"]}
-    if msg.get("_active_skills"):
-        meta = {**meta, "active_skills": msg["_active_skills"]}
-    if msg.get("_skills_in_context"):
-        meta = {**meta, "skills_in_context": msg["_skills_in_context"]}
-    if msg.get("_llm_status"):
-        meta = {**meta, "llm_status": msg["_llm_status"]}
-    if msg.get("_turn_error"):
-        meta = {**meta, "turn_error": True}
-        if msg.get("_turn_error_message"):
-            meta = {**meta, "turn_error_message": str(msg["_turn_error_message"])}
-    if msg.get("role") == "assistant" and msg.get("tool_calls"):
-        _delegations = []
-        for tc in msg["tool_calls"]:
-            fn = tc.get("function") or {}
-            if fn.get("name") == "delegate_to_agent":
-                try:
-                    args = json.loads(fn.get("arguments", "{}"))
-                    _delegations.append({
-                        "bot_id": args.get("bot_id"),
-                        "prompt_preview": (args.get("prompt") or "")[:200],
-                        "notify_parent": args.get("notify_parent", True),
-                    })
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        if _delegations:
-            meta = {**meta, "delegations": _delegations}
-    if is_heartbeat:
-        meta = {**meta, "is_heartbeat": True}
-    # Pipeline agent-step children: persist for session-history context but tag
-    # so the web UI filter drops them (see useChannelChat.ts).
-    if hide_messages:
-        meta = {**meta, "hidden": True, "pipeline_step": True}
-    if msg.get("_hidden"):
-        meta = {**meta, "hidden": True}
-    return meta
-
-
-def _insert_message_records(
-    db: AsyncSession,
-    *,
-    new_messages: list[dict],
-    session_id: uuid.UUID,
-    bot: BotConfig,
-    msg_metadata: dict | None,
-    correlation_id: uuid.UUID | None,
-    is_heartbeat: bool,
-    hide_messages: bool,
-    pre_user_msg_id: uuid.UUID | None,
-    now: datetime,
-) -> tuple[list[Message], uuid.UUID | None, uuid.UUID | None]:
-    """Stage per-row Message inserts. Returns (records, first_user_msg_id, last_assistant_msg_id)."""
-    first_user_with_metadata = pre_user_msg_id is None
-    first_user_msg_id: uuid.UUID | None = pre_user_msg_id
-    last_assistant_msg_id: uuid.UUID | None = None
-    persisted_records: list[Message] = []
-    for i, msg in enumerate(new_messages):
-        meta = _build_message_metadata(
-            msg,
-            bot=bot,
-            msg_metadata=msg_metadata,
-            is_first_user_with_metadata=first_user_with_metadata,
-            is_heartbeat=is_heartbeat,
-            hide_messages=hide_messages,
-        )
-        if msg_metadata and msg.get("role") == "user" and first_user_with_metadata:
-            first_user_with_metadata = False
-        record = Message(
-            id=uuid.uuid4(),
-            session_id=session_id,
-            role=msg["role"],
-            content=_content_for_db(msg),
-            tool_calls=normalize_persisted_tool_calls(
-                msg.get("tool_calls"),
-                envelopes=msg.get("_tool_envelopes"),
-            ) if msg.get("role") == "assistant" else msg.get("tool_calls"),
-            tool_call_id=msg.get("tool_call_id"),
-            correlation_id=correlation_id,
-            metadata_=meta,
-            created_at=now + timedelta(microseconds=i),
-        )
-        db.add(record)
-        persisted_records.append(record)
-        if first_user_msg_id is None and msg.get("role") == "user":
-            first_user_msg_id = record.id
-        if msg.get("role") == "assistant":
-            last_assistant_msg_id = record.id
-    return persisted_records, first_user_msg_id, last_assistant_msg_id
-
-
 async def _enqueue_outbox_for_channel(
     db: AsyncSession,
     *,
@@ -893,6 +772,8 @@ async def persist_turn(
     a failure rolls back the message inserts too. Bus publish is best-effort
     post-commit (logged on failure) so SSE subscribers do not block durability.
     """
+    from app.services.session_writes import TurnContext, stage_turn_messages
+
     new_messages = _filter_messages_to_persist(messages, from_index, pre_user_msg_id=pre_user_msg_id)
     logger.info(
         "persist_turn: session=%s from_index=%d total_msgs=%d new_msgs=%d roles=%s pre_user=%s",
@@ -901,28 +782,27 @@ async def persist_turn(
     )
 
     now = datetime.now(timezone.utc)
-    persisted_records, first_user_msg_id, last_assistant_msg_id = _insert_message_records(
-        db,
-        new_messages=new_messages,
+    ctx = TurnContext(
         session_id=session_id,
         bot=bot,
-        msg_metadata=msg_metadata,
         correlation_id=correlation_id,
+        msg_metadata=msg_metadata,
         is_heartbeat=is_heartbeat,
         hide_messages=hide_messages,
         pre_user_msg_id=pre_user_msg_id,
         now=now,
     )
+    staged = stage_turn_messages(db, ctx, new_messages)
 
     await db.execute(update(Session).where(Session.id == session_id).values(last_active=now))
 
-    if channel_id and persisted_records and not suppress_outbox:
-        await _enqueue_outbox_for_channel(db, channel_id=channel_id, persisted_records=persisted_records)
-    elif channel_id is None and persisted_records:
+    if channel_id and staged.records and not suppress_outbox:
+        await _enqueue_outbox_for_channel(db, channel_id=channel_id, persisted_records=staged.records)
+    elif channel_id is None and staged.records:
         # Thread sub-sessions live as channel_id IS NULL rows but mirror their parent channel's
         # integrations. `suppress_outbox` is independent here — bus-level session_id tagging is
         # gated separately in turn_worker; we still want the outbox fanout.
-        await _enqueue_outbox_for_thread(db, session_id=session_id, persisted_records=persisted_records)
+        await _enqueue_outbox_for_thread(db, session_id=session_id, persisted_records=staged.records)
 
     await db.commit()
 
@@ -930,8 +810,8 @@ async def persist_turn(
         await _link_orphan_attachments(
             db,
             channel_id=channel_id,
-            first_user_msg_id=first_user_msg_id,
-            last_assistant_msg_id=last_assistant_msg_id,
+            first_user_msg_id=staged.first_user_msg_id,
+            last_assistant_msg_id=staged.last_assistant_msg_id,
         )
 
     # Publish each persisted row to the in-memory channel-events bus so SSE
@@ -940,13 +820,13 @@ async def persist_turn(
     # Session walks up to a parent channel) resolve the parent channel and
     # publish there — this is how the run-view modal receives live events.
     bus_channel = channel_id
-    if bus_channel is None and persisted_records:
+    if bus_channel is None and staged.records:
         from app.services.sub_session_bus import resolve_bus_channel_id
         bus_channel = await resolve_bus_channel_id(db, session_id)
-    if bus_channel and persisted_records:
-        await _publish_persisted_messages_to_bus(db, bus_channel=bus_channel, persisted_records=persisted_records)
+    if bus_channel and staged.records:
+        await _publish_persisted_messages_to_bus(db, bus_channel=bus_channel, persisted_records=staged.records)
 
-    return first_user_msg_id
+    return staged.first_user_msg_id
 
 
 async def store_dispatch_echo(

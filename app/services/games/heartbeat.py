@@ -48,10 +48,17 @@ async def build_active_games_block(
     if not bot_id:
         return None
 
-    instances_stmt = select(WidgetInstance).where(
-        WidgetInstance.widget_kind == "native_app",
-        WidgetInstance.scope_kind == "dashboard",
-        WidgetInstance.scope_ref == WORKSPACE_SPATIAL_DASHBOARD_KEY,
+    # Spatial canvas pins now use synthetic per-instance scope_refs so
+    # multiple Notes/Todo/Blockyard tiles can coexist. The canonical "is
+    # this on the canvas" relationship is the WidgetDashboardPin row on
+    # ``workspace:spatial`` — join through it to find game instances.
+    instances_stmt = (
+        select(WidgetInstance)
+        .join(WidgetDashboardPin, WidgetDashboardPin.widget_instance_id == WidgetInstance.id)
+        .where(
+            WidgetInstance.widget_kind == "native_app",
+            WidgetDashboardPin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY,
+        )
     )
     try:
         instances = list((await db.execute(instances_stmt)).scalars().all())
