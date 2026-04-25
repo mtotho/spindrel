@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +68,7 @@ DIRECTIONS = {
 
 def default_state() -> dict[str, Any]:
     cells: list[list[Any]] = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
+    now = datetime.now(timezone.utc).isoformat()
     return {
         "game_type": "ecosystem",
         "phase": PHASE_SETUP,
@@ -78,6 +80,8 @@ def default_state() -> dict[str, Any]:
         "board": {"size": BOARD_SIZE, "cells": cells},
         "species": {},
         "environment": {"weather": "neutral", "food_sources": []},
+        "created_at": now,
+        "updated_at": now,
     }
 
 

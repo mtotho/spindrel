@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, X } from "lucide-react";
+import { Box, GripVertical, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useThemeTokens } from "../../theme/tokens";
 import { InteractiveHtmlRenderer } from "../chat/renderers/InteractiveHtmlRenderer";
@@ -205,6 +205,10 @@ function CardView({
   const ct = envelope.content_type;
   const isHtmlWidget = ct === "application/vnd.spindrel.html+interactive";
   const isNativeWidget = ct === "application/vnd.spindrel.native-app+json";
+  // Game widgets (and anything else that opts in) render edge-to-edge with
+  // no chrome strip and a transparent body, so the canvas backdrop becomes
+  // the widget's "background" and the widget itself reads as artwork.
+  const isFramelessNative = isNativeWidget && pin.tool_name?.startsWith("core/game_");
   const live = inViewport;
 
   // Local envelope state — component-widget action results return a fresh
@@ -313,12 +317,45 @@ function CardView({
   return (
     <div
       data-tile-kind="widget"
-      className={`group relative w-full h-full rounded-xl border bg-surface-raised text-text shadow-lg flex flex-col cursor-grab active:cursor-grabbing overflow-hidden ${
-        activated ? "border-accent" : "border-surface-border"
+      className={`group relative w-full h-full text-text flex flex-col cursor-grab active:cursor-grabbing overflow-hidden ${
+        isFramelessNative
+          ? ""
+          : `rounded-xl border bg-surface-raised shadow-lg ${
+              activated ? "border-accent" : "border-surface-border"
+            }`
       }`}
     >
+      {/* Frameless game widgets float on the canvas. The drag handle is a
+          small grabber in the top-right corner — same pattern used elsewhere
+          for floating handles. Doesn't stopPropagation so dnd-kit picks up
+          the drag. The unpin X tucks just below it on hover. */}
+      {isFramelessNative && (
+        <>
+          <div
+            title={`Drag to move · ${title}`}
+            aria-label="Drag handle"
+            className="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-50 group-hover:opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center cursor-grab active:cursor-grabbing"
+          >
+            <GripVertical size={11} />
+          </div>
+          <button
+            type="button"
+            aria-label="Remove from canvas"
+            title="Remove from canvas"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteNode.mutate(nodeId);
+            }}
+            className="absolute top-9 right-1.5 z-20 w-6 h-6 rounded-full bg-text/15 backdrop-blur-md text-text-dim opacity-0 group-hover:opacity-80 hover:!opacity-100 hover:bg-text/25 hover:text-text transition-all flex items-center justify-center"
+          >
+            <X size={11} />
+          </button>
+        </>
+      )}
       {/* Drag-handle chrome strip — always pannable / dnd-kit drag handle.
           The unpin "X" is hover-reveal so calm tiles stay calm. */}
+      {!isFramelessNative && (
       <div className="flex flex-row items-center gap-1.5 px-3 py-2 border-b border-surface-border bg-surface-raised flex-shrink-0">
         <Box size={11} className="text-text-dim" />
         <span className="text-[11px] font-semibold uppercase tracking-wider text-text-dim">
@@ -344,9 +381,10 @@ function CardView({
           <X size={11} className="text-text-dim" />
         </button>
       </div>
+      )}
 
       {/* Body — branches on widget content type. */}
-      <div className="flex-1 relative bg-surface min-h-0 overflow-hidden">
+      <div className={`flex-1 relative min-h-0 overflow-hidden ${isFramelessNative ? "" : "bg-surface"}`}>
         {!live ? (
           <StaticBody pin={pin} />
         ) : isHtmlWidget ? (
@@ -395,7 +433,7 @@ function CardView({
           // expect their host to provide horizontal padding (their own padding
           // is vertical-only).
           <div
-            className="absolute inset-0 overflow-y-auto px-3 py-2"
+            className={`absolute inset-0 ${isFramelessNative ? "overflow-hidden" : "overflow-y-auto px-3 py-2"}`}
             onPointerDown={(e) => e.stopPropagation()}
           >
             {renderNativeWidget({

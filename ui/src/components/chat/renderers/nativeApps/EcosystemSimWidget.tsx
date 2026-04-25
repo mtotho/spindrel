@@ -1,13 +1,20 @@
 import { useMemo, useState } from "react";
-import { Plus, X, Sun, CloudRain, Droplets, Sparkles } from "lucide-react";
+import { Plus, Settings, ChevronRight } from "lucide-react";
 import { useBots } from "@/src/api/hooks/useBots";
 import {
   PreviewCard,
   type NativeAppRendererProps,
   useNativeEnvelopeState,
 } from "./shared";
+import { WidgetSettingsDrawer, WidgetSettingsSection } from "./WidgetSettingsDrawer";
+import {
+  GameParticipantsSection,
+  GamePhaseSection,
+  GameTurnLogSection,
+  type GamePhase,
+} from "./games/GameSettingsSections";
 
-type EcosystemPhase = "setup" | "playing" | "ended";
+type EcosystemPhase = GamePhase;
 
 interface SpeciesRecord {
   emoji: string;
@@ -50,87 +57,116 @@ interface EcosystemState {
 
 const BOARD_SIZE = 12;
 
-// Procedurally generate an asteroid silhouette path. Stable per pinId so each
-// instance has a recognizable shape.
-function asteroidPath(seed: string, cx: number, cy: number, baseR: number): string {
-  // Simple seeded PRNG (mulberry32).
-  let state = 0;
-  for (let i = 0; i < seed.length; i++) state = (state * 31 + seed.charCodeAt(i)) >>> 0;
-  function rand() {
+// ── Procedural helpers ────────────────────────────────────────────────────
+
+function hash32(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+function makeRng(seed: string) {
+  let state = hash32(seed) || 1;
+  return () => {
     state |= 0;
     state = (state + 0x6d2b79f5) | 0;
     let t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+interface AtmStar { x: number; y: number; r: number; o: number; phase: number }
+
+function atmosphereStars(seed: string, count = 75): AtmStar[] {
+  const rand = makeRng(seed);
+  const out: AtmStar[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push({
+      x: rand() * 100,
+      y: rand() * 100,
+      r: 0.18 + rand() * 0.22,
+      o: 0.25 + rand() * 0.55,
+      phase: rand() * 6,
+    });
   }
-  const segments = 22;
-  const points: Array<[number, number]> = [];
+  return out;
+}
+
+// Isometric projection of grid (x, y) into SVG coords on the 200×140 viewBox.
+const ISO_CX = 100;
+const ISO_CY = 36;
+const ISO_TILE_W = 7;
+const ISO_TILE_H = 3.6;
+const ISO_DEPTH = 22;
+
+function iso(x: number, y: number): [number, number] {
+  return [
+    ISO_CX + (x - y) * (ISO_TILE_W / 2),
+    ISO_CY + (x + y) * (ISO_TILE_H / 2),
+  ];
+}
+
+// Asteroid silhouette: irregular bottom edge below the iso plane so the
+// platform reads as a chunk of rock floating in space, not a clean diamond.
+function asteroidPath(seed: string): string {
+  const rand = makeRng(seed);
+  const [tx, ty] = iso(0, 0);              // top point
+  const [rx, ry] = iso(BOARD_SIZE - 1, 0); // right point
+  const [bx, by] = iso(BOARD_SIZE - 1, BOARD_SIZE - 1); // bottom point
+  const [lx, ly] = iso(0, BOARD_SIZE - 1); // left point
+
+  const depthRight: number[] = [];
+  const depthLeft: number[] = [];
+  const segments = 7;
   for (let i = 0; i < segments; i++) {
-    const a = (i / segments) * Math.PI * 2;
-    // Vary the radius between 0.78 and 1.18 of base.
-    const r = baseR * (0.78 + rand() * 0.4);
-    points.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.92]);
+    depthRight.push(ISO_DEPTH * (0.6 + rand() * 0.8));
+    depthLeft.push(ISO_DEPTH * (0.6 + rand() * 0.8));
   }
-  // Smooth via cardinal-spline-ish: just use Q curves through midpoints.
+
   const path: string[] = [];
-  for (let i = 0; i < points.length; i++) {
-    const [x0, y0] = points[i];
-    const [x1, y1] = points[(i + 1) % points.length];
-    const mx = (x0 + x1) / 2;
-    const my = (y0 + y1) / 2;
-    if (i === 0) path.push(`M ${mx.toFixed(1)} ${my.toFixed(1)}`);
-    path.push(`Q ${x1.toFixed(1)} ${y1.toFixed(1)} ${((x1 + points[(i + 2) % points.length][0]) / 2).toFixed(1)} ${((y1 + points[(i + 2) % points.length][1]) / 2).toFixed(1)}`);
+  // Top contour: top → right → bottom → left → close
+  path.push(`M ${tx.toFixed(1)} ${ty.toFixed(1)}`);
+  path.push(`L ${rx.toFixed(1)} ${ry.toFixed(1)}`);
+  // Drop down right side jaggedly to bottom corner
+  for (let i = 0; i < segments; i++) {
+    const t = (i + 1) / segments;
+    const sx = rx + (bx - rx) * t;
+    const sy = ry + (by - ry) * t + depthRight[i];
+    path.push(`L ${sx.toFixed(1)} ${sy.toFixed(1)}`);
   }
+  // Climb back up left side jaggedly to left corner
+  for (let i = segments - 1; i >= 0; i--) {
+    const t = i / segments;
+    const sx = lx + (bx - lx) * t;
+    const sy = ly + (by - ly) * t + depthLeft[i];
+    path.push(`L ${sx.toFixed(1)} ${sy.toFixed(1)}`);
+  }
+  path.push(`L ${lx.toFixed(1)} ${ly.toFixed(1)}`);
   path.push("Z");
   return path.join(" ");
 }
 
-function starfield(seed: string, count = 90): Array<{ x: number; y: number; r: number; o: number }> {
-  let state = 0;
-  for (let i = 0; i < seed.length; i++) state = (state * 33 + seed.charCodeAt(i)) >>> 0;
-  function rand() {
-    state |= 0;
-    state = (state + 0x9e3779b9) | 0;
-    let t = Math.imul(state ^ (state >>> 16), 1 | state);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  }
-  const stars: Array<{ x: number; y: number; r: number; o: number }> = [];
-  for (let i = 0; i < count; i++) {
-    stars.push({
-      x: rand() * 100,
-      y: rand() * 100,
-      r: rand() < 0.85 ? 0.5 : 1.1,
-      o: 0.25 + rand() * 0.55,
-    });
-  }
-  return stars;
+// Top diamond as a polygon (4 iso corners).
+function topDiamondPoints(): string {
+  const [tx, ty] = iso(0, 0);
+  const [rx, ry] = iso(BOARD_SIZE - 1, 0);
+  const [bx, by] = iso(BOARD_SIZE - 1, BOARD_SIZE - 1);
+  const [lx, ly] = iso(0, BOARD_SIZE - 1);
+  return `${tx},${ty} ${rx},${ry} ${bx},${by} ${lx},${ly}`;
 }
 
-const TRAIT_ICONS: Record<string, string> = {
-  aggressive: "✦",
-  fast: "»",
-  slow: "◐",
-  photosynthetic: "☀",
-  parasitic: "✶",
-  thorny: "⌇",
-  burrowing: "▽",
-  luminous: "✺",
+const WEATHER_TINTS: Record<string, { tint: string; sky: string; label: string; emoji: string }> = {
+  neutral: { tint: "transparent", sky: "rgba(40, 50, 90, 0.0)", label: "Neutral", emoji: "🌑" },
+  drought: { tint: "rgba(220, 130, 50, 0.32)", sky: "rgba(180, 90, 40, 0.18)", label: "Drought", emoji: "☀️" },
+  flood:   { tint: "rgba(80, 140, 220, 0.34)", sky: "rgba(60, 110, 200, 0.18)", label: "Flood", emoji: "🌊" },
+  bloom:   { tint: "rgba(120, 200, 90, 0.30)", sky: "rgba(110, 200, 110, 0.18)", label: "Bloom", emoji: "🌸" },
 };
 
-const WEATHER_TINTS: Record<string, string> = {
-  neutral: "transparent",
-  drought: "rgba(220, 130, 50, 0.32)",
-  flood: "rgba(80, 140, 220, 0.34)",
-  bloom: "rgba(120, 200, 90, 0.30)",
-};
-
-function weatherIcon(weather: string) {
-  if (weather === "drought") return <Sun size={12} />;
-  if (weather === "flood") return <Droplets size={12} />;
-  if (weather === "bloom") return <Sparkles size={12} />;
-  return <CloudRain size={12} />;
-}
+// ── Component ─────────────────────────────────────────────────────────────
 
 export function EcosystemSimWidget({
   envelope,
@@ -155,33 +191,35 @@ export function EcosystemSimWidget({
   const round = state.round ?? 0;
   const lastActor = state.last_actor ?? null;
   const foodSources = env.food_sources ?? [];
+  const weather = env.weather ?? "neutral";
+  const weatherSkin = WEATHER_TINTS[weather] ?? WEATHER_TINTS.neutral;
 
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showLog, setShowLog] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [placeFoodMode, setPlaceFoodMode] = useState(false);
-  const [participantPickerOpen, setParticipantPickerOpen] = useState(false);
 
-  const stars = useMemo(
-    () => starfield(dashboardPinId ?? widgetInstanceId ?? "asteroid", 90),
-    [dashboardPinId, widgetInstanceId],
-  );
-  const asteroidD = useMemo(
-    () => asteroidPath(dashboardPinId ?? widgetInstanceId ?? "asteroid", 50, 50, 38),
-    [dashboardPinId, widgetInstanceId],
-  );
+  const seed = dashboardPinId ?? widgetInstanceId ?? "asteroid";
+  const asteroidD = useMemo(() => asteroidPath(seed), [seed]);
+  const atmStars = useMemo(() => atmosphereStars(seed, 75), [seed]);
+  const topD = useMemo(() => topDiamondPoints(), []);
 
   const { data: bots } = useBots();
+  const botById = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    (bots ?? []).forEach((b) => map.set(b.id, { id: b.id, name: b.name ?? b.id }));
+    return map;
+  }, [bots]);
   const availableBots = useMemo(
-    () => (bots ?? []).map((b) => ({ id: b.id, name: b.name ?? b.id })),
-    [bots],
+    () => Array.from(botById.values()),
+    [botById],
   );
 
   if (!widgetInstanceId) {
     return (
       <PreviewCard
         title="Ecosystem Sim"
-        description="Async turn-based ecosystem on a tiny floating asteroid. Bots evolve species; you play the weather."
+        description="A floating asteroid where bots evolve species. Pin to begin."
         t={t}
       />
     );
@@ -206,8 +244,8 @@ export function EcosystemSimWidget({
     void runAction("set_participants", { bot_ids: next });
   }
 
-  function setWeather(weather: string) {
-    void runAction("set_environment", { weather });
+  function setWeather(w: string) {
+    void runAction("set_environment", { weather: w });
   }
 
   function placeFoodAt(x: number, y: number) {
@@ -221,454 +259,562 @@ export function EcosystemSimWidget({
     void runAction("set_environment", { food_sources: next });
   }
 
-  // Build a sparse map of board cells → species owner for SVG rendering.
-  const cells: Array<{ x: number; y: number; cell: CellRecord }> = [];
+  // Sparse list of owned cells with iso coords for SVG.
+  const cells: Array<{ x: number; y: number; cell: CellRecord; sx: number; sy: number }> = [];
   for (let y = 0; y < BOARD_SIZE; y++) {
     for (let x = 0; x < BOARD_SIZE; x++) {
       const cell = board[y]?.[x];
-      if (cell) cells.push({ x, y, cell });
+      if (cell) {
+        const [sx, sy] = iso(x, y);
+        cells.push({ x, y, cell, sx, sy });
+      }
     }
   }
 
-  // Map board (12×12) onto asteroid bounding box centered at SVG (50, 50) radius 38.
-  // Each cell projects into the SVG; clip-path keeps only the visible portion.
-  const cellSize = 6.5; // svg units
-  const boardOriginX = 50 - (cellSize * BOARD_SIZE) / 2;
-  const boardOriginY = 50 - (cellSize * BOARD_SIZE) / 2;
-  function cellCenter(x: number, y: number): [number, number] {
-    return [
-      boardOriginX + cellSize * (x + 0.5),
-      boardOriginY + cellSize * (y + 0.5),
-    ];
+  // Bot avatar positions — anchor on the species' first owned cell so the
+  // little character stands on the patch they grew. Falls back to the seed
+  // location if the bot has no cells yet (setup phase).
+  const botAvatars: Array<{ botId: string; sx: number; sy: number; species: SpeciesRecord; phase: number }> = [];
+  for (const botId of participants) {
+    const sp = species[botId];
+    if (!sp) continue;
+    const owned = cells.filter((c) => c.cell.owner === botId);
+    let sx = 0;
+    let sy = 0;
+    if (owned.length > 0) {
+      sx = owned.reduce((a, c) => a + c.sx, 0) / owned.length;
+      sy = owned.reduce((a, c) => a + c.sy, 0) / owned.length;
+    } else {
+      const h = hash32(botId);
+      const x = h % BOARD_SIZE;
+      const y = (h >> 8) % BOARD_SIZE;
+      const [px, py] = iso(x, y);
+      sx = px;
+      sy = py;
+    }
+    botAvatars.push({
+      botId,
+      sx,
+      sy,
+      species: sp,
+      phase: (hash32(botId) % 1000) / 1000,
+    });
   }
 
-  const phaseChipBg = phase === "playing" ? "rgba(120, 200, 130, 0.22)" : phase === "ended" ? "rgba(220, 90, 90, 0.22)" : "rgba(180, 180, 180, 0.18)";
-  const weatherTint = WEATHER_TINTS[env.weather ?? "neutral"] ?? "transparent";
-
   return (
-    <div className="group/ecosystem relative flex flex-col w-full h-full min-h-0 overflow-hidden text-text">
-      {/* Participants strip */}
-      <div className="flex flex-row items-center gap-2 px-3 py-2 border-b border-surface-border min-h-[40px]">
-        <span className="text-[10px] uppercase tracking-wider text-text-dim">Species</span>
-        <div className="flex flex-row items-center gap-1.5 flex-1 flex-wrap">
-          {participants.length === 0 && (
-            <span className="text-[11px] text-text-dim italic">No participants yet</span>
-          )}
-          {participants.map((botId) => {
-            const sp = species[botId];
-            const emoji = sp?.emoji ?? "🌱";
-            const color = sp?.color ?? "#7aa2c8";
-            const food = sp?.food ?? 0;
-            return (
-              <div
-                key={botId}
-                className="flex flex-row items-center gap-1 px-1.5 py-0.5 rounded text-[11px]"
-                style={{ background: `${color}22`, border: `1px solid ${color}55` }}
-                title={`${botId}: ${sp?.traits?.join(", ") || "no traits"} · food ${food}`}
-              >
-                <span>{emoji}</span>
-                <span className="font-medium" style={{ color }}>{botId}</span>
-                <span className="text-text-dim">·{food}</span>
-              </div>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => setParticipantPickerOpen((v) => !v)}
-            className="flex flex-row items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-text-dim hover:text-text border border-surface-border hover:border-text-dim transition-colors"
-            title="Add or remove participants"
-          >
-            <Plus size={11} />
-            <span>add bot</span>
-          </button>
-        </div>
+    <div className="ecosystem-stage group/ecosystem relative flex w-full h-full min-h-0 overflow-hidden">
+      {/* Atmosphere — a soft radial halo that sits ON TOP of the canvas
+          backdrop. In dark mode it reads as deeper space; in light mode it
+          reads as a luminous near-white halo so the asteroid still has
+          presence against the cream canvas. Color comes from CSS variables
+          declared on `.ecosystem-stage` and overridden under `:root.dark`. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background:
+            "radial-gradient(80% 60% at 50% 45%, var(--eco-bg-inner) 0%, var(--eco-bg-mid) 55%, var(--eco-bg-outer) 100%)",
+        }}
+      />
+      {/* Weather glow — soft tint at the asteroid's center */}
+      {weatherSkin.tint !== "transparent" && (
         <div
-          className="flex flex-row items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px]"
-          style={{ background: phaseChipBg, color: t.text }}
-        >
-          <span className="font-semibold uppercase tracking-wide">{phase}</span>
-          <span className="text-text-dim">· r{round}</span>
-          {lastActor && <span className="text-text-dim">· last {lastActor}</span>}
-        </div>
-      </div>
-
-      {participantPickerOpen && (
-        <div className="px-3 py-2 border-b border-surface-border bg-surface flex flex-row items-center gap-2 flex-wrap">
-          {availableBots.length === 0 && (
-            <span className="text-[11px] text-text-dim">No bots configured.</span>
-          )}
-          {availableBots.map((b) => {
-            const active = participants.includes(b.id);
-            return (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => toggleParticipant(b.id)}
-                className="px-2 py-0.5 rounded text-[11px] border transition-colors"
-                style={{
-                  background: active ? t.accentSubtle : "transparent",
-                  borderColor: active ? t.accentBorder : t.surfaceBorder,
-                  color: active ? t.text : t.textDim,
-                }}
-                title={active ? "Remove from game" : "Add to game"}
-              >
-                {b.name}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            className="ml-auto text-[11px] text-text-dim hover:text-text"
-            onClick={() => setParticipantPickerOpen(false)}
-          >
-            done
-          </button>
-        </div>
+          aria-hidden
+          className="absolute inset-0 ecosystem-nebula pointer-events-none mix-blend-screen"
+          style={{
+            background: `radial-gradient(55% 45% at 50% 55%, ${weatherSkin.sky} 0%, transparent 80%)`,
+            transition: "background 1.4s ease",
+          }}
+        />
       )}
+      {/* Atmospheric glitter — small twinkling dots that sit on top of the
+          background halo. Color matches the canvas starfield in each theme.
+          Density is tuned to read as "glitter" not "starfield" — only ~75 dots. */}
+      <svg
+        aria-hidden
+        className="absolute inset-0 w-full h-full pointer-events-none"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="xMidYMid slice"
+      >
+        {atmStars.map((s, i) => (
+          <circle
+            key={i}
+            cx={s.x}
+            cy={s.y}
+            r={s.r * 0.32}
+            fill="var(--eco-star)"
+            opacity={s.o}
+            className="ecosystem-atm-star"
+            style={{ animationDelay: `${s.phase}s` }}
+          />
+        ))}
+      </svg>
 
-      {/* Asteroid stage */}
-      <div className="relative flex-1 min-h-0 overflow-hidden">
-        <div
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(circle at 50% 45%, #0e1428 0%, #07091a 60%, #04050d 100%)",
-          }}
-        />
-        {/* Subtle conic nebula (slow rotation via CSS keyframe inlined) */}
-        <div
-          aria-hidden
-          className="absolute inset-0 mix-blend-screen opacity-40 ecosystem-nebula"
-          style={{
-            background:
-              "conic-gradient(from 0deg, rgba(120,80,180,0.06), rgba(50,90,180,0.03), rgba(180,80,140,0.05), rgba(120,80,180,0.06))",
-          }}
-        />
-        {/* Starfield */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="xMidYMid slice"
-          aria-hidden
-        >
-          {stars.map((s, i) => (
-            <circle
-              key={i}
-              cx={s.x}
-              cy={s.y}
-              r={s.r * 0.3}
-              fill="#dfe7ff"
-              opacity={s.o}
-              className="ecosystem-star"
-              style={{ animationDelay: `${(i % 12) * 0.4}s` }}
-            />
-          ))}
-        </svg>
+      {/* ── Main asteroid stage ──────────────────────────────────────── */}
+      <svg
+        className="absolute inset-0 w-full h-full"
+        viewBox="0 0 200 140"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        <defs>
+          <radialGradient id={`top-${widgetInstanceId}`} cx="0.5" cy="0.4" r="0.7">
+            <stop offset="0%" stopColor="#a07a5e" />
+            <stop offset="55%" stopColor="#6b4f3c" />
+            <stop offset="100%" stopColor="#3d2a1f" />
+          </radialGradient>
+          <linearGradient id={`side-${widgetInstanceId}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#3a2818" />
+            <stop offset="100%" stopColor="#150d08" />
+          </linearGradient>
+          <radialGradient id={`bot-shadow-${widgetInstanceId}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stopColor="rgba(0,0,0,0.55)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+          <filter id={`glow-${widgetInstanceId}`} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="0.8" result="b" />
+            <feMerge>
+              <feMergeNode in="b" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <clipPath id={`top-clip-${widgetInstanceId}`}>
+            <polygon points={topD} />
+          </clipPath>
+        </defs>
 
-        {/* Asteroid + vegetation */}
-        <svg
-          className="absolute inset-0 w-full h-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <defs>
-            <radialGradient id={`rock-${widgetInstanceId}`} cx="0.42" cy="0.38" r="0.7">
-              <stop offset="0%" stopColor="#b08a6a" />
-              <stop offset="45%" stopColor="#7a5a44" />
-              <stop offset="100%" stopColor="#2d1f17" />
-            </radialGradient>
-            <filter id={`rim-${widgetInstanceId}`}>
-              <feGaussianBlur stdDeviation="0.6" />
-            </filter>
-            <clipPath id={`asteroid-clip-${widgetInstanceId}`}>
-              <path d={asteroidD} />
-            </clipPath>
-          </defs>
-          <g className="ecosystem-drift">
-            {/* Rim glow */}
-            <path
-              d={asteroidD}
-              fill="none"
-              stroke="rgba(170, 200, 255, 0.35)"
-              strokeWidth="0.5"
-              filter={`url(#rim-${widgetInstanceId})`}
-            />
-            {/* Body */}
-            <path d={asteroidD} fill={`url(#rock-${widgetInstanceId})`} />
-            {/* Inner shadow */}
-            <path
-              d={asteroidD}
-              fill="none"
-              stroke="rgba(0, 0, 0, 0.45)"
-              strokeWidth="2"
-              clipPath={`url(#asteroid-clip-${widgetInstanceId})`}
-            />
-            {/* Weather overlay */}
-            {weatherTint !== "transparent" && (
-              <path d={asteroidD} fill={weatherTint} />
-            )}
+        {/* Drop shadow under asteroid — anchors it in space */}
+        <ellipse cx="100" cy="120" rx="55" ry="4.5" fill="black" opacity="0.55" filter={`url(#glow-${widgetInstanceId})`} />
 
-            {/* Cells */}
-            <g clipPath={`url(#asteroid-clip-${widgetInstanceId})`}>
-              {cells.map(({ x, y, cell }) => {
+        {/* Asteroid body — bobs gently */}
+        <g className="ecosystem-bob" style={{ transformOrigin: "100px 70px" }}>
+          {/* Side walls / underside (irregular jagged shape) */}
+          <path d={asteroidD} fill={`url(#side-${widgetInstanceId})`} />
+          {/* Subtle rim catch-light on the asteroid silhouette */}
+          <path
+            d={asteroidD}
+            fill="none"
+            stroke="rgba(170, 200, 255, 0.18)"
+            strokeWidth="0.4"
+          />
+
+          {/* Top iso surface (the playable plane) */}
+          <polygon points={topD} fill={`url(#top-${widgetInstanceId})`} />
+
+          {/* Subtle iso grid hint on the surface — only inner lines, faint */}
+          <g clipPath={`url(#top-clip-${widgetInstanceId})`} opacity="0.08" stroke="#fff8dc" strokeWidth="0.12">
+            {Array.from({ length: BOARD_SIZE - 1 }, (_, i) => i + 1).map((i) => {
+              const [ax, ay] = iso(i, 0);
+              const [bx, by] = iso(i, BOARD_SIZE - 1);
+              return <line key={`gx-${i}`} x1={ax} y1={ay} x2={bx} y2={by} />;
+            })}
+            {Array.from({ length: BOARD_SIZE - 1 }, (_, i) => i + 1).map((i) => {
+              const [ax, ay] = iso(0, i);
+              const [bx, by] = iso(BOARD_SIZE - 1, i);
+              return <line key={`gy-${i}`} x1={ax} y1={ay} x2={bx} y2={by} />;
+            })}
+          </g>
+
+          {/* Surface texture: scattered rock specks */}
+          <g clipPath={`url(#top-clip-${widgetInstanceId})`}>
+            {useMemo(() => {
+              const rand = makeRng(`${seed}-specks`);
+              const dots: Array<{ cx: number; cy: number; r: number; o: number }> = [];
+              for (let i = 0; i < 60; i++) {
+                const gx = rand() * (BOARD_SIZE - 1);
+                const gy = rand() * (BOARD_SIZE - 1);
+                const [sx, sy] = iso(gx, gy);
+                dots.push({ cx: sx, cy: sy, r: 0.18 + rand() * 0.22, o: 0.18 + rand() * 0.18 });
+              }
+              return dots;
+            }, [seed]).map((d, i) => (
+              <circle key={i} cx={d.cx} cy={d.cy} r={d.r} fill="#e6c79c" opacity={d.o} />
+            ))}
+          </g>
+
+          {/* Weather tint overlay on the surface */}
+          {weatherSkin.tint !== "transparent" && (
+            <polygon points={topD} fill={weatherSkin.tint} className="ecosystem-weather-overlay" />
+          )}
+
+          {/* Vegetation patches — drawn at iso position, painter's algorithm by sy */}
+          <g>
+            {[...cells]
+              .sort((a, b) => a.sy - b.sy)
+              .map(({ x, y, cell, sx, sy }) => {
                 const owner = cell.owner;
                 const sp = species[owner];
                 const color = sp?.color ?? "#7aa2c8";
                 const traits = sp?.traits ?? [];
-                const [cx, cy] = cellCenter(x, y);
                 return (
-                  <g key={`${x}-${y}`} transform={`translate(${cx} ${cy})`}>
-                    {/* Vegetation patch */}
-                    <circle r={cellSize * 0.42} fill={color} opacity={0.85} />
-                    <circle r={cellSize * 0.22} fill="#fff" opacity={0.15} />
-                    {/* Trait flourishes */}
-                    {traits.includes("aggressive") &&
-                      [0, 1, 2, 3, 4, 5].map((i) => {
-                        const a = (i / 6) * Math.PI * 2;
-                        const r1 = cellSize * 0.42;
-                        const r2 = cellSize * 0.62;
+                  <g key={`v-${x}-${y}`} transform={`translate(${sx} ${sy})`}>
+                    {/* Soft ground halo */}
+                    <ellipse cx="0" cy="0.5" rx="2.2" ry="1.0" fill={color} opacity={0.22} />
+                    {/* Stalk */}
+                    <line x1="0" y1="0" x2="0" y2={traits.includes("slow") ? -2.6 : -2} stroke={color} strokeWidth={traits.includes("slow") ? 0.6 : 0.4} />
+                    {/* Bulb */}
+                    <circle cx="0" cy={traits.includes("slow") ? -2.6 : -2} r={0.9} fill={color} />
+                    {/* Photosynthetic — soft glow ring */}
+                    {traits.includes("photosynthetic") && (
+                      <circle cx="0" cy={-2} r={1.6} fill="none" stroke="#fff7c2" strokeWidth={0.18} opacity={0.65} />
+                    )}
+                    {/* Luminous — bright pip */}
+                    {traits.includes("luminous") && (
+                      <circle cx="0" cy={-2} r={0.4} fill="#fff7e0" opacity={0.95} />
+                    )}
+                    {/* Thorny — spikes radiating from bulb */}
+                    {traits.includes("thorny") &&
+                      [0, 1, 2, 3, 4].map((i) => {
+                        const a = (i / 5) * Math.PI * 2;
                         return (
                           <line
                             key={i}
-                            x1={Math.cos(a) * r1}
-                            y1={Math.sin(a) * r1}
-                            x2={Math.cos(a) * r2}
-                            y2={Math.sin(a) * r2}
+                            x1={Math.cos(a) * 0.9}
+                            y1={-2 + Math.sin(a) * 0.9}
+                            x2={Math.cos(a) * 1.5}
+                            y2={-2 + Math.sin(a) * 1.5}
                             stroke={color}
-                            strokeWidth={0.4}
+                            strokeWidth={0.18}
                             opacity={0.85}
                           />
                         );
                       })}
-                    {traits.includes("photosynthetic") && (
-                      <circle r={cellSize * 0.55} fill="none" stroke="#fff7c2" strokeWidth={0.25} opacity={0.55} />
+                    {/* Aggressive — small fang triangle */}
+                    {traits.includes("aggressive") && (
+                      <polygon
+                        points={`-0.5,-1.3 0,-2.4 0.5,-1.3`}
+                        fill="#fff"
+                        opacity={0.7}
+                      />
                     )}
-                    {traits.includes("luminous") && (
-                      <circle r={cellSize * 0.18} fill="#fff7e0" opacity={0.85} />
-                    )}
-                    {traits.includes("thorny") &&
-                      [0, 1, 2, 3].map((i) => {
-                        const a = (i / 4) * Math.PI * 2 + 0.4;
-                        return (
-                          <polygon
-                            key={i}
-                            points={`0,0 ${(Math.cos(a) * cellSize * 0.55).toFixed(2)},${(Math.sin(a) * cellSize * 0.55).toFixed(2)} ${(Math.cos(a + 0.25) * cellSize * 0.35).toFixed(2)},${(Math.sin(a + 0.25) * cellSize * 0.35).toFixed(2)}`}
-                            fill={color}
-                            opacity={0.7}
-                          />
-                        );
-                      })}
+                    {/* Fast — speed lines */}
                     {traits.includes("fast") &&
-                      [0, 1, 2].map((i) => (
+                      [0, 1].map((i) => (
                         <line
                           key={i}
-                          x1={cellSize * 0.5}
-                          y1={(i - 1) * cellSize * 0.18}
-                          x2={cellSize * 0.85}
-                          y2={(i - 1) * cellSize * 0.18}
+                          x1={1.0}
+                          y1={-1.6 + i * 0.4}
+                          x2={2.2}
+                          y2={-1.6 + i * 0.4}
                           stroke={color}
-                          strokeWidth={0.25}
+                          strokeWidth={0.15}
                           opacity={0.55}
                         />
                       ))}
                   </g>
                 );
               })}
+          </g>
 
-              {/* Food source glints */}
-              {foodSources.map((src, i) => {
-                const [cx, cy] = cellCenter(src.x, src.y);
+          {/* Food source glints */}
+          <g>
+            {foodSources.map((src, i) => {
+              const [sx, sy] = iso(src.x, src.y);
+              return (
+                <g key={`food-${i}`} transform={`translate(${sx} ${sy - 0.4})`} className="ecosystem-glint">
+                  <circle r={1.0} fill="#fff7c2" opacity={0.55} />
+                  <circle r={0.45} fill="#ffeb88" />
+                  <text textAnchor="middle" y={-1.2} fontSize="1.6" fill="#fff7c2">✦</text>
+                </g>
+              );
+            })}
+          </g>
+
+          {/* Place-food cell hit zones — only when in placement mode */}
+          {placeFoodMode && (
+            <g clipPath={`url(#top-clip-${widgetInstanceId})`}>
+              {Array.from({ length: BOARD_SIZE }, (_, y) =>
+                Array.from({ length: BOARD_SIZE }, (_, x) => {
+                  const [sx, sy] = iso(x, y);
+                  const has = foodSources.find((s) => s.x === x && s.y === y);
+                  const half = ISO_TILE_W / 2;
+                  return (
+                    <polygon
+                      key={`hit-${x}-${y}`}
+                      points={`${sx},${sy - ISO_TILE_H / 2} ${sx + half},${sy} ${sx},${sy + ISO_TILE_H / 2} ${sx - half},${sy}`}
+                      fill="rgba(255, 247, 194, 0.10)"
+                      stroke="rgba(255, 247, 194, 0.45)"
+                      strokeWidth={0.12}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => (has ? clearFoodAt(x, y) : placeFoodAt(x, y))}
+                    />
+                  );
+                }),
+              )}
+            </g>
+          )}
+
+          {/* Bot characters — bobbing, rendered last so they sit on top */}
+          <g>
+            {botAvatars
+              .sort((a, b) => a.sy - b.sy)
+              .map(({ botId, sx, sy, species: sp, phase: phaseOffset }) => {
+                const color = sp.color || "#7aa2c8";
+                const emoji = sp.emoji || "🌱";
                 return (
-                  <g key={`food-${i}`} transform={`translate(${cx} ${cy})`} className="ecosystem-glint">
-                    <circle r={1.6} fill="#fff7c2" opacity={0.75} />
-                    <circle r={0.8} fill="#ffeb88" />
+                  <g
+                    key={`bot-${botId}`}
+                    transform={`translate(${sx} ${sy})`}
+                    style={{ animation: `ecosystem-walk 5.5s ease-in-out infinite`, animationDelay: `${phaseOffset * -5.5}s`, transformBox: "fill-box" }}
+                  >
+                    {/* contact shadow */}
+                    <ellipse cx="0" cy="0.4" rx="1.6" ry="0.5" fill={`url(#bot-shadow-${widgetInstanceId})`} />
+                    {/* bobbing body */}
+                    <g
+                      className="ecosystem-bob-body"
+                      style={{ animation: `ecosystem-bob 2.2s ease-in-out infinite`, animationDelay: `${phaseOffset * -2.2}s` }}
+                    >
+                      {/* back foot/stalk */}
+                      <ellipse cx="-0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
+                      <ellipse cx="0.55" cy="0" rx="0.35" ry="0.25" fill={color} opacity={0.85} />
+                      {/* body */}
+                      <ellipse cx="0" cy="-1.4" rx="1.55" ry="1.85" fill={color} />
+                      {/* belly highlight */}
+                      <ellipse cx="-0.3" cy="-1.7" rx="0.6" ry="0.85" fill="#fff" opacity={0.25} />
+                      {/* eyes */}
+                      <circle cx="-0.5" cy="-1.5" r="0.32" fill="#fff" />
+                      <circle cx="0.55" cy="-1.5" r="0.32" fill="#fff" />
+                      <circle cx="-0.4" cy="-1.45" r="0.16" fill="#0b0612" />
+                      <circle cx="0.65" cy="-1.45" r="0.16" fill="#0b0612" />
+                      {/* mouth — reflects "aggressive" */}
+                      {sp.traits?.includes("aggressive") ? (
+                        <polygon points="-0.45,-0.85 0,-0.45 0.45,-0.85" fill="#0b0612" />
+                      ) : (
+                        <path d="M -0.4 -0.9 Q 0 -0.65 0.4 -0.9" stroke="#0b0612" strokeWidth={0.14} fill="none" strokeLinecap="round" />
+                      )}
+                      {/* trait flourish on head */}
+                      {sp.traits?.includes("luminous") && (
+                        <circle cx="0" cy="-3.1" r="0.3" fill="#fff7e0" opacity="0.9" filter={`url(#glow-${widgetInstanceId})`} />
+                      )}
+                      {sp.traits?.includes("thorny") &&
+                        [0, 1, 2].map((i) => (
+                          <polygon
+                            key={i}
+                            points={`${-0.6 + i * 0.6},-3.0 ${-0.4 + i * 0.6},-3.7 ${-0.2 + i * 0.6},-3.0`}
+                            fill={color}
+                          />
+                        ))}
+                      {/* species emoji floating above */}
+                      <text
+                        x="0"
+                        y="-3.6"
+                        textAnchor="middle"
+                        fontSize="2.0"
+                        style={{ filter: `url(#glow-${widgetInstanceId})` }}
+                      >
+                        {emoji}
+                      </text>
+                      {/* food count */}
+                      <g transform="translate(1.2, -3.1)">
+                        <rect x="-0.4" y="-0.6" width={String(sp.food ?? 0).length * 0.5 + 0.6} height="0.95" rx="0.45" fill="rgba(0,0,0,0.6)" />
+                        <text x="0" y="0.05" fontSize="0.85" fill="#fff7c2">{sp.food ?? 0}</text>
+                      </g>
+                    </g>
                   </g>
                 );
               })}
-
-              {/* Place-food click capture */}
-              {placeFoodMode &&
-                Array.from({ length: BOARD_SIZE }, (_, y) =>
-                  Array.from({ length: BOARD_SIZE }, (_, x) => {
-                    const [cx, cy] = cellCenter(x, y);
-                    const has = foodSources.find((s) => s.x === x && s.y === y);
-                    return (
-                      <rect
-                        key={`hit-${x}-${y}`}
-                        x={cx - cellSize / 2}
-                        y={cy - cellSize / 2}
-                        width={cellSize}
-                        height={cellSize}
-                        fill="rgba(255, 247, 194, 0.05)"
-                        stroke="rgba(255, 247, 194, 0.25)"
-                        strokeWidth={0.15}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => (has ? clearFoodAt(x, y) : placeFoodAt(x, y))}
-                      />
-                    );
-                  }),
-                )}
-            </g>
           </g>
-        </svg>
+        </g>
+      </svg>
 
-        {/* Round + last_actor chip */}
-        <div className="absolute top-2 left-2 px-2 py-1 rounded-md text-[10px] tracking-wide flex flex-row items-center gap-1.5 bg-surface-raised/40 backdrop-blur-sm text-text">
-          {weatherIcon(env.weather ?? "neutral")}
-          <span className="capitalize">{env.weather ?? "neutral"}</span>
-        </div>
+      {/* ── Floating chrome — invisible until you hover the stage ──── */}
+      <div className="absolute top-2 left-2 flex flex-row items-center gap-1.5 px-2 py-1 rounded-full text-[10px] tracking-wide bg-black/40 backdrop-blur-md text-white/85 border border-white/10 opacity-0 group-hover/ecosystem:opacity-100 transition-opacity duration-300 pointer-events-none">
+        <span>{weatherSkin.emoji}</span>
+        <span className="capitalize">{weatherSkin.label}</span>
+        <span className="text-white/40">·</span>
+        <span className="uppercase font-semibold tracking-wider">{phase}</span>
+        <span className="text-white/40">·</span>
+        <span>r{round}</span>
+        {lastActor && (
+          <>
+            <span className="text-white/40">·</span>
+            <span className="text-white/60">{lastActor === "__user__" ? "you" : (botById.get(lastActor)?.name ?? lastActor)}</span>
+          </>
+        )}
+      </div>
 
-        {/* Turn log button */}
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/30 backdrop-blur-md text-white/70 border border-white/10 flex items-center justify-center opacity-25 hover:opacity-100 group-hover/ecosystem:opacity-90 hover:bg-black/55 transition-all duration-300"
+        title="Game settings"
+      >
+        <Settings size={12} />
+      </button>
+
+      {/* Setup hint when no participants */}
+      {phase === "setup" && participants.length === 0 && (
         <button
           type="button"
-          onClick={() => setShowLog((v) => !v)}
-          className="absolute bottom-2 left-2 px-2 py-1 rounded-md text-[10px] bg-surface-raised/40 backdrop-blur-sm text-text-dim hover:text-text"
+          onClick={() => setSettingsOpen(true)}
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-[11px] bg-black/55 backdrop-blur-md text-white/90 border border-white/15 flex items-center gap-1.5 hover:bg-black/70 transition-colors"
         >
-          {showLog ? "hide log" : `log (${turnLog.length})`}
+          <Plus size={12} />
+          Add bots to begin
+          <ChevronRight size={12} className="opacity-60" />
         </button>
+      )}
 
-        {/* Turn log drawer */}
-        {showLog && (
-          <div className="absolute left-2 right-2 bottom-10 max-h-[55%] overflow-y-auto rounded-md bg-surface-raised/85 backdrop-blur-sm border border-surface-border p-2 text-[11px] text-text">
-            {turnLog.length === 0 && (
-              <div className="text-text-dim italic">No turns yet.</div>
-            )}
-            {[...turnLog].reverse().slice(0, 30).map((entry, i) => {
-              const sp = species[entry.actor];
-              const color = sp?.color ?? t.textDim;
+      {/* Place-food active banner */}
+      {placeFoodMode && (
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] bg-amber-500/30 backdrop-blur-md text-amber-100 border border-amber-200/30 flex items-center gap-2">
+          Click a tile to place food
+          <button onClick={() => setPlaceFoodMode(false)} className="opacity-70 hover:opacity-100">cancel</button>
+        </div>
+      )}
+
+      {/* Inline error / busy chips */}
+      {error && (
+        <div className="absolute top-12 right-2 max-w-[60%] px-2 py-1 rounded-md text-[10px] bg-danger/30 text-danger border border-danger/40 backdrop-blur-md">
+          {error}
+        </div>
+      )}
+      {busy && !settingsOpen && (
+        <div className="absolute top-12 right-2 px-2 py-1 rounded-md text-[10px] bg-black/50 backdrop-blur-md text-white/70">
+          …
+        </div>
+      )}
+
+      {/* ── Settings drawer (generic chrome + shared sections) ──────── */}
+      <WidgetSettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        kicker="Ecosystem"
+        title={phase === "setup" ? "Setup" : phase === "playing" ? `Playing · round ${round}` : "Ended"}
+      >
+        <GameParticipantsSection
+          bots={availableBots}
+          participants={participants}
+          speciesByBotId={species}
+          onToggle={toggleParticipant}
+        />
+
+        <GamePhaseSection
+          phase={phase}
+          participantCount={participants.length}
+          busy={busy === "set_phase"}
+          onSetPhase={(next) => void runAction("set_phase", { phase: next })}
+          onAdvanceRound={() => void runAction("advance_round", {})}
+        />
+
+        {/* Weather — game-specific */}
+        <WidgetSettingsSection label="Weather">
+          <div className="grid grid-cols-2 gap-1.5">
+            {(["neutral", "drought", "flood", "bloom"] as const).map((w) => {
+              const skin = WEATHER_TINTS[w];
+              const active = weather === w;
               return (
-                <div key={i} className="flex flex-row items-baseline gap-1.5 leading-snug py-0.5">
-                  <span className="font-mono text-[10px]" style={{ color }}>
-                    {entry.actor === "__user__" ? "you" : entry.actor}
-                  </span>
-                  <span className="text-text">{entry.summary || entry.action}</span>
-                  {entry.reasoning && (
-                    <span className="text-text-dim italic">— {entry.reasoning}</span>
-                  )}
-                </div>
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => setWeather(w)}
+                  className="px-2 py-1.5 rounded text-[11px] border transition-colors capitalize flex items-center gap-1.5"
+                  style={{
+                    background: active ? t.accentSubtle : "transparent",
+                    borderColor: active ? t.accentBorder : t.surfaceBorder,
+                    color: active ? t.text : t.textDim,
+                  }}
+                >
+                  <span>{skin.emoji}</span>
+                  <span>{skin.label}</span>
+                </button>
               );
             })}
           </div>
-        )}
+        </WidgetSettingsSection>
 
-        {error && (
-          <div className="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px] bg-danger/20 text-danger border border-danger/40">
-            {error}
-          </div>
-        )}
-        {busy && (
-          <div className="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px] bg-surface-raised/40 backdrop-blur-sm text-text-dim">
-            …
-          </div>
-        )}
-      </div>
-
-      {/* User control footer */}
-      <div className="flex flex-row items-center gap-2 px-3 py-2 border-t border-surface-border bg-surface flex-wrap min-h-[40px]">
-        <span className="text-[10px] uppercase tracking-wider text-text-dim">Weather</span>
-        {(["neutral", "drought", "flood", "bloom"] as const).map((w) => (
-          <button
-            key={w}
-            type="button"
-            onClick={() => setWeather(w)}
-            className="px-2 py-0.5 rounded text-[11px] border transition-colors capitalize"
-            style={{
-              background: env.weather === w ? t.accentSubtle : "transparent",
-              borderColor: env.weather === w ? t.accentBorder : t.surfaceBorder,
-              color: env.weather === w ? t.text : t.textDim,
-            }}
-          >
-            {w}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => setPlaceFoodMode((v) => !v)}
-          className="px-2 py-0.5 rounded text-[11px] border transition-colors"
-          style={{
-            background: placeFoodMode ? "rgba(255, 247, 194, 0.18)" : "transparent",
-            borderColor: placeFoodMode ? "rgba(255, 247, 194, 0.55)" : t.surfaceBorder,
-            color: placeFoodMode ? "#fff7c2" : t.textDim,
-          }}
-          title={placeFoodMode ? "Click any cell to place / clear food" : "Place food source"}
+        {/* Food — game-specific */}
+        <WidgetSettingsSection
+          label="Food sources"
+          hint={`${foodSources.length} on map`}
         >
-          {placeFoodMode ? "click cell to place / cancel" : "place food"}
-        </button>
-
-        <div className="flex-1" />
-
-        {phase === "setup" && participants.length > 0 && (
           <button
             type="button"
-            onClick={() => void runAction("set_phase", { phase: "playing" })}
-            className="px-2 py-0.5 rounded text-[11px] font-medium border border-accent text-accent hover:bg-accent hover:text-white transition-colors"
+            onClick={() => {
+              setPlaceFoodMode((v) => !v);
+              setSettingsOpen(false);
+            }}
+            className="px-2 py-1.5 rounded text-[11px] border border-surface-border hover:bg-surface text-left"
           >
-            start
+            {placeFoodMode ? "Cancel placement" : "Place food on a tile…"}
           </button>
-        )}
-        {phase === "playing" && (
-          <>
-            <button
-              type="button"
-              onClick={() => void runAction("advance_round", {})}
-              className="px-2 py-0.5 rounded text-[11px] border border-surface-border text-text hover:bg-surface-raised"
-            >
-              advance round
-            </button>
-            <button
-              type="button"
-              onClick={() => void runAction("set_phase", { phase: "ended" })}
-              className="px-2 py-0.5 rounded text-[11px] border border-surface-border text-text-dim hover:text-text"
-              title="End game (no more bot moves)"
-            >
-              <X size={12} />
-            </button>
-          </>
-        )}
-        {phase === "ended" && (
-          <button
-            type="button"
-            onClick={() => void runAction("set_phase", { phase: "playing" })}
-            className="px-2 py-0.5 rounded text-[11px] border border-surface-border text-text-dim hover:text-text"
-          >
-            resume
-          </button>
-        )}
-      </div>
+        </WidgetSettingsSection>
+
+        <GameTurnLogSection
+          log={turnLog}
+          actorMeta={Object.fromEntries(
+            participants.map((id) => [
+              id,
+              { name: botById.get(id)?.name, color: species[id]?.color },
+            ]),
+          )}
+        />
+      </WidgetSettingsDrawer>
 
       <style>{`
+        /* Theme-aware atmosphere — light mode uses near-white halo with a
+           cool tint; dark mode uses translucent deep-space gradient. The
+           glitter color matches the canvas starfield so the widget reads
+           as continuous with the canvas. */
+        .ecosystem-stage {
+          /* Light mode — almost transparent, just a hint of a halo so the
+             asteroid has gravitas without putting a blue square behind it. */
+          --eco-bg-inner: rgba(220, 232, 255, 0.10);
+          --eco-bg-mid: rgba(200, 218, 245, 0.04);
+          --eco-bg-outer: rgba(200, 218, 245, 0);
+          --eco-star: #5a78c8;
+        }
+        :root.dark .ecosystem-stage,
+        .dark .ecosystem-stage {
+          /* Dark mode — much fainter so the widget's rectangular edge isn't
+             visible against the canvas; just a hint of warmth around the rock. */
+          --eco-bg-inner: rgba(40, 40, 80, 0.18);
+          --eco-bg-mid: rgba(20, 20, 40, 0.08);
+          --eco-bg-outer: rgba(10, 10, 25, 0);
+          --eco-star: #dfe7ff;
+        }
+        @keyframes ecosystem-atm-twinkle {
+          0%, 100% { opacity: 0.25; }
+          50% { opacity: 0.95; }
+        }
+        .ecosystem-atm-star {
+          animation: ecosystem-atm-twinkle 4s ease-in-out infinite;
+        }
+        @keyframes ecosystem-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-0.6px); }
+        }
+        @keyframes ecosystem-walk {
+          0%, 100% { transform: translateX(0px); }
+          50% { transform: translateX(0.4px); }
+        }
         @keyframes ecosystem-drift {
           0% { transform: translate(0, 0) rotate(0deg); }
-          100% { transform: translate(0.6px, -1px) rotate(0.5deg); }
-        }
-        @keyframes ecosystem-twinkle {
-          0%, 100% { opacity: 0.3; }
-          50% { opacity: 0.95; }
+          100% { transform: translate(0.8px, -1.2px) rotate(0.4deg); }
         }
         @keyframes ecosystem-nebula-rotate {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
         @keyframes ecosystem-glint {
-          0%, 100% { transform-origin: center; opacity: 0.55; }
+          0%, 100% { opacity: 0.55; }
           50% { opacity: 1; }
         }
-        .ecosystem-drift {
-          animation: ecosystem-drift 14s ease-in-out infinite alternate;
-          transform-origin: 50% 50%;
-        }
-        .ecosystem-star {
-          animation: ecosystem-twinkle 4s ease-in-out infinite;
+        .ecosystem-bob {
+          animation: ecosystem-drift 16s ease-in-out infinite alternate;
         }
         .ecosystem-nebula {
-          animation: ecosystem-nebula-rotate 80s linear infinite;
+          animation: ecosystem-nebula-rotate 120s linear infinite;
         }
         .ecosystem-glint {
           animation: ecosystem-glint 2.5s ease-in-out infinite;
         }
+        .ecosystem-weather-overlay {
+          transition: fill 1s ease;
+        }
         @media (prefers-reduced-motion: reduce) {
-          .ecosystem-drift, .ecosystem-star, .ecosystem-nebula, .ecosystem-glint {
-            animation: none;
+          .ecosystem-bob, .ecosystem-nebula, .ecosystem-glint,
+          .ecosystem-atm-star, .ecosystem-bob-body {
+            animation: none !important;
           }
         }
       `}</style>

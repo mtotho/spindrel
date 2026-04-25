@@ -686,6 +686,7 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
         cursor: panState.current ? "grabbing" : "grab",
       }}
     >
+      <CanvasStarfield />
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="absolute inset-0" style={worldStyle}>
           <OriginMarker />
@@ -1094,6 +1095,98 @@ function BotTile({
  * tile bounds at index 0 will partially overlap the inner ring; the visible
  * arc still reads as "you're near the origin."
  */
+/**
+ * Subtle twinkling starfield rendered behind the spatial canvas world.
+ * Sits below the dnd / world layers so panning and tile interaction are
+ * unaffected; uses `pointer-events-none` to stay out of the way.
+ *
+ * Star positions are deterministic per-mount (seeded RNG) so the layout
+ * is stable across re-renders within a session. Twinkle is a CSS
+ * `@keyframes` opacity loop with phase offsets so individual stars
+ * pulse out of sync — feels alive without being noisy.
+ */
+function CanvasStarfield() {
+  const stars = useMemo(() => {
+    let s = 0xc0ffee;
+    function rand() {
+      s |= 0;
+      s = (s + 0x6d2b79f5) | 0;
+      let t = Math.imul(s ^ (s >>> 15), 1 | s);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    }
+    const out: Array<{ x: number; y: number; r: number; o: number; phase: number; dur: number; warm: number }> = [];
+    for (let i = 0; i < 220; i++) {
+      const tier = rand();
+      out.push({
+        x: rand() * 100,
+        y: rand() * 100,
+        r: tier > 0.97 ? 1.4 : tier > 0.85 ? 0.9 : 0.5,
+        o: tier > 0.97 ? 0.85 : tier > 0.85 ? 0.55 : 0.30,
+        phase: rand() * 8,
+        dur: 4 + rand() * 4,
+        warm: rand(),  // 0..1 — used to pick a color from the theme palette
+      });
+    }
+    return out;
+  }, []);
+  return (
+    <div className="canvas-starfield absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
+      <svg
+        className="absolute inset-0 w-full h-full"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="xMidYMid slice"
+      >
+        {stars.map((s, i) => {
+          // Three subtle blue-spectrum hues that read as "candle-blue starlight"
+          // in light mode and stay luminous in dark mode. Mostly cool with a
+          // few warm whites for variety.
+          const fill =
+            s.warm > 0.92 ? "var(--star-warm)" :
+            s.warm > 0.6  ? "var(--star-blue-mid)" :
+                            "var(--star-blue-deep)";
+          return (
+            <circle
+              key={i}
+              cx={s.x}
+              cy={s.y}
+              r={s.r * 0.05}
+              fill={fill}
+              opacity={s.o}
+              style={{
+                animation: `canvas-star-twinkle ${s.dur}s ease-in-out infinite`,
+                animationDelay: `${s.phase}s`,
+              }}
+            />
+          );
+        })}
+      </svg>
+      <style>{`
+        .canvas-starfield {
+          /* Light mode — bluish "candle-blue" stars over the warm canvas bg */
+          --star-blue-deep: #5a78c8;
+          --star-blue-mid: #88aae0;
+          --star-warm: #c8a878;
+        }
+        :root.dark .canvas-starfield,
+        .dark .canvas-starfield {
+          /* Dark mode — bright luminous stars */
+          --star-blue-deep: #aac4ff;
+          --star-blue-mid: #d8e3ff;
+          --star-warm: #ffe9c0;
+        }
+        @keyframes canvas-star-twinkle {
+          0%, 100% { opacity: 0.25; }
+          50% { opacity: 1; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .canvas-starfield svg circle { animation: none !important; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 function OriginMarker() {
   return (
     <div

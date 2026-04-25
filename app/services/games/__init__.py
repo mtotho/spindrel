@@ -102,6 +102,7 @@ def record_turn(
         "summary": summary,
     })
     state["turn_log"] = log
+    state["updated_at"] = log[-1]["ts"]
     if actor != ACTOR_USER:
         state["last_actor"] = actor
 
