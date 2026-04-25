@@ -15,6 +15,64 @@ export const MIN_SCALE = 0.05;
 export const MAX_SCALE = 3.0;
 export const CAMERA_STORAGE_KEY = "spatial.camera";
 
+// Canvas chrome preferences. Persisted across sessions so the user lands
+// in the same visual state they last left.
+export type DensityIntensity = "off" | "subtle" | "bold";
+export type DensityWindow = "24h" | "7d" | "30d";
+export const DENSITY_INTENSITY_KEY = "spatial.density.intensity";
+export const CONNECTIONS_ENABLED_KEY = "spatial.connections.enabled";
+export const DENSITY_WINDOW_KEY = "spatial.density.window";
+export const DENSITY_COMPARE_KEY = "spatial.density.compare";
+export const DENSITY_ANIMATE_KEY = "spatial.density.animate";
+
+export function loadDensityIntensity(storage: Storage = localStorage): DensityIntensity {
+  try {
+    const v = storage.getItem(DENSITY_INTENSITY_KEY);
+    if (v === "off" || v === "subtle" || v === "bold") return v;
+  } catch {
+    /* storage disabled */
+  }
+  return "subtle";
+}
+
+export function loadDensityWindow(storage: Storage = localStorage): DensityWindow {
+  try {
+    const v = storage.getItem(DENSITY_WINDOW_KEY);
+    if (v === "24h" || v === "7d" || v === "30d") return v;
+  } catch {
+    /* storage disabled */
+  }
+  return "24h";
+}
+
+export function loadDensityCompare(storage: Storage = localStorage): boolean {
+  try {
+    return storage.getItem(DENSITY_COMPARE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function loadDensityAnimate(storage: Storage = localStorage): boolean {
+  try {
+    if (storage.getItem(DENSITY_ANIMATE_KEY) === "0") return false;
+  } catch {
+    /* storage disabled */
+  }
+  return true;
+}
+
+export function loadConnectionsEnabled(storage: Storage = localStorage): boolean {
+  try {
+    const v = storage.getItem(CONNECTIONS_ENABLED_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* storage disabled */
+  }
+  return true;
+}
+
 export const WELL_X = 0;
 export const WELL_Y = 2200;
 export const WELL_Y_SQUASH = 0.55;

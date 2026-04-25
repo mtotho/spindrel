@@ -2,25 +2,43 @@ import { useMemo } from "react";
 import { useUsageBreakdown, type BreakdownGroup } from "../../api/hooks/useUsage";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import { UsageHalo } from "./UsageHalo";
+import { channelHue } from "./ChannelTile";
+import type { DensityIntensity, DensityWindow } from "./spatialGeometry";
+
+export type { DensityWindow };
 
 /**
  * Per-channel token-usage density layer. Renders a glow halo behind each
- * channel tile, sized by token volume (log-scaled across the visible set)
- * and tinted by either cost intensity (cost-per-token) or deviation ratio
- * (current / baseline). Toggleable via `UsageDensityChrome`.
+ * channel tile, sized + alpha-scaled by token volume. Hue defaults to the
+ * channel's stable hue (`channelHue(id)`) so the halo amplifies the dot's
+ * existing identity rather than introducing a parallel color system.
  *
- * Rendered inside the canvas's world-transformed div so pan/zoom apply for
- * free. NOT projected through the P16 lens — fisheye-warped halos misread
- * volume; halos stay round in world space.
+ * Two intensity tiers in the standard control surface:
+ *   - subtle: small radius, low opacity, ambient signal you don't need to
+ *     opt into. The default state.
+ *   - bold: ~1.7x radius and opacity, easier to compare across the canvas
+ *     at a glance.
+ *
+ * Compare mode (formerly "Deviation only") tints by `current/baseline`
+ * ratio instead of channel hue: cool below baseline, warm above. Useful
+ * for spotting spikes; off by default.
+ *
+ * Volume → radius uses a sqrt-of-ratio curve normalized against the
+ * heaviest spender visible. Sqrt is the right shape to avoid the log
+ * compression that made 200k vs 1.5m look identical (log(2e5+1)/log(1.5e6+1)
+ * ≈ 0.86 — barely distinguishable). With sqrt, 200k vs 1.5m of the same
+ * max reads as ~36% vs 100% radius, so the difference is unmistakable.
+ *
+ * NOT projected through the P16 lens — fisheye-warped halos misread volume.
+ * Halos stay round in world space. Slight desync at the lens edge accepted
+ * (halos are ambient signal, not foreground content).
  */
-
-export type DensityWindow = "24h" | "7d" | "30d";
-export type DensityMode = "absolute" | "deviation";
 
 interface UsageDensityLayerProps {
   nodes: SpatialNode[];
+  intensity: Exclude<DensityIntensity, "off">;
   window: DensityWindow;
-  mode: DensityMode;
+  compare: boolean;
   animate: boolean;
 }
 
@@ -30,10 +48,36 @@ const WINDOW_HOURS: Record<DensityWindow, number> = {
   "30d": 24 * 30,
 };
 
-// Halo radius range in world px. Scales with the heaviest spender in the set
-// — small workspaces don't get tiny halos and busy workspaces don't blow out.
-const RADIUS_MIN = 110;
-const RADIUS_MAX = 320;
+interface IntensityRamp {
+  /** World-px halo radius range. */
+  radiusMin: number;
+  radiusMax: number;
+  /** Opacity range applied on top of the t-curve. Bold rides higher. */
+  opacityMin: number;
+  opacityMax: number;
+  /** HSL saturation/lightness for channel-hued halos. */
+  saturation: number;
+  lightness: number;
+}
+
+const RAMPS: Record<Exclude<DensityIntensity, "off">, IntensityRamp> = {
+  subtle: {
+    radiusMin: 60,
+    radiusMax: 220,
+    opacityMin: 0.15,
+    opacityMax: 0.42,
+    saturation: 60,
+    lightness: 65,
+  },
+  bold: {
+    radiusMin: 100,
+    radiusMax: 360,
+    opacityMin: 0.30,
+    opacityMax: 0.78,
+    saturation: 75,
+    lightness: 55,
+  },
+};
 
 function isoHoursAgo(hours: number): string {
   return new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -41,15 +85,6 @@ function isoHoursAgo(hours: number): string {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-/** Map cost-per-token (USD/1M) to a hue: cool blue → warm red. */
-function hueForCostIntensity(usdPerMillion: number): number {
-  // Calibrated for current pricing: Haiku ≈ $1, Sonnet ≈ $5, Opus ≈ $20+/1M.
-  // log-scale so the cool-warm ramp spans the price range smoothly.
-  const t = Math.min(1, Math.max(0, Math.log10(Math.max(0.1, usdPerMillion) / 1) / 2));
-  // 220° (blue) → 0° (red) via 180° (cyan), 120° (green), 60° (yellow), 30° (orange)
-  return 220 - t * 220;
 }
 
 /** Map deviation ratio (current/baseline) to a hue: <1 cool, >1 warm. */
@@ -65,28 +100,30 @@ function hueForDeviation(ratio: number): number {
 
 export function UsageDensityLayer({
   nodes,
-  window,
-  mode,
+  intensity,
+  window: densityWindow,
+  compare,
   animate,
 }: UsageDensityLayerProps) {
-  const after = useMemo(() => isoHoursAgo(WINDOW_HOURS[window]), [window]);
-  const before = useMemo(() => nowIso(), [window]); // recomputed when window changes
+  const after = useMemo(() => isoHoursAgo(WINDOW_HOURS[densityWindow]), [densityWindow]);
+  const before = useMemo(() => nowIso(), [densityWindow]);
   const baselineAfter = useMemo(
-    () => isoHoursAgo(WINDOW_HOURS[window] * 2),
-    [window],
+    () => isoHoursAgo(WINDOW_HOURS[densityWindow] * 2),
+    [densityWindow],
   );
   const baselineBefore = useMemo(
-    () => isoHoursAgo(WINDOW_HOURS[window]),
-    [window],
+    () => isoHoursAgo(WINDOW_HOURS[densityWindow]),
+    [densityWindow],
   );
 
   const current = useUsageBreakdown({ group_by: "channel", after, before });
+  // Always fetch the baseline window — at workspace scale (≤ 30 channels)
+  // the extra request is cheap, and it means flipping compare-mode on shows
+  // results immediately instead of after a cold fetch.
   const baseline = useUsageBreakdown({
     group_by: "channel",
     after: baselineAfter,
     before: baselineBefore,
-    // Don't refetch baseline when not in deviation mode — but querykey
-    // already keys on params so flipping mode is cheap.
   });
 
   const groupsByChannel = useMemo(() => {
@@ -98,12 +135,13 @@ export function UsageDensityLayer({
   }, [current.data]);
 
   const baselineByChannel = useMemo(() => {
+    if (!compare) return new Map<string, BreakdownGroup>();
     const m = new Map<string, BreakdownGroup>();
     for (const g of baseline.data?.groups ?? []) {
       if (g.key) m.set(g.key, g);
     }
     return m;
-  }, [baseline.data]);
+  }, [baseline.data, compare]);
 
   const maxTokens = useMemo(() => {
     let m = 0;
@@ -115,6 +153,8 @@ export function UsageDensityLayer({
 
   if (!current.data) return null;
 
+  const ramp = RAMPS[intensity];
+
   return (
     <>
       {nodes.map((node) => {
@@ -122,31 +162,42 @@ export function UsageDensityLayer({
         const g = groupsByChannel.get(node.channel_id);
         if (!g || g.tokens === 0) return null;
 
-        // Log-scaled radius, normalized against the workspace's heaviest
-        // spender — readable both in small and busy workspaces.
-        const t = maxTokens > 0
-          ? Math.log(g.tokens + 1) / Math.log(maxTokens + 1)
-          : 0;
-        const radius = RADIUS_MIN + (RADIUS_MAX - RADIUS_MIN) * t;
+        // Sqrt-of-ratio against the heaviest spender. Linear felt right
+        // initially, but a workspace where one channel does 90% of traffic
+        // would render every other channel as a tiny dot; sqrt gives small
+        // channels a visible-but-clearly-smaller halo while still letting
+        // the heavy channel dominate. Crucially, 200k vs 1.5m at the same
+        // max reads as t=0.365 vs t=1.0 — clearly distinct.
+        const ratio = maxTokens > 0 ? g.tokens / maxTokens : 0;
+        const t = Math.sqrt(ratio);
+        const radius = ramp.radiusMin + (ramp.radiusMax - ramp.radiusMin) * t;
+        // Opacity: also sqrt-curved so big halos read brighter, not just
+        // bigger. Together with radius this creates a strong gradient
+        // between volumes.
+        const opacity = ramp.opacityMin + (ramp.opacityMax - ramp.opacityMin) * t;
 
         let hue: number;
+        let saturation = ramp.saturation;
+        let lightness = ramp.lightness;
         let title: string;
-        if (mode === "deviation") {
+
+        if (compare) {
           const baseG = baselineByChannel.get(node.channel_id);
           const baseTokens = baseG?.tokens ?? 0;
-          // No baseline = neutral. Tiny baselines (< 1k tokens) are noisy —
-          // also treat as neutral so a sneeze doesn't read as a 50x spike.
-          const ratio = baseTokens > 1000 ? g.tokens / baseTokens : 1.0;
-          hue = hueForDeviation(ratio);
-          const ratioStr = baseTokens > 1000 ? `${ratio.toFixed(2)}× baseline` : "no baseline";
+          // No baseline (or microscopic) = neutral. Treat <1k as noise floor.
+          const r = baseTokens > 1000 ? g.tokens / baseTokens : 1.0;
+          hue = hueForDeviation(r);
+          // Spike colors should pop — override the per-tier saturation.
+          saturation = 78;
+          lightness = 55;
+          const ratioStr = baseTokens > 1000 ? `${r.toFixed(2)}× prior period` : "no baseline";
           title = `${g.label} · ${g.tokens.toLocaleString()} tokens · ${ratioStr} · ${g.calls} calls`;
         } else {
+          // Channel hue keeps the halo coupled to the dot's identity.
+          hue = channelHue(node.channel_id);
           const cost = g.cost ?? 0;
-          // Avoid div-by-zero; very low-volume channels read cool by default.
-          const usdPerMillion = g.tokens > 0 ? (cost / g.tokens) * 1_000_000 : 0;
-          hue = hueForCostIntensity(usdPerMillion);
-          const costStr = cost > 0 ? `$${cost.toFixed(2)}` : "—";
-          title = `${g.label} · ${g.tokens.toLocaleString()} tokens · ${costStr} · ${g.calls} calls`;
+          const costStr = cost > 0 ? ` · $${cost.toFixed(2)}` : "";
+          title = `${g.label} · ${g.tokens.toLocaleString()} tokens${costStr} · ${g.calls} calls`;
         }
 
         // Larger halos breathe slower (perceived weight). 4s → 8s range.
@@ -162,9 +213,9 @@ export function UsageDensityLayer({
             centerY={cy}
             radius={radius}
             hue={hue}
-            saturation={70}
-            lightness={55}
-            opacity={0.35 + t * 0.35}
+            saturation={saturation}
+            lightness={lightness}
+            opacity={opacity}
             animate={animate}
             breathSeconds={breathSeconds}
             title={title}

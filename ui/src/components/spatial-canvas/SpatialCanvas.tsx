@@ -31,12 +31,17 @@ import { WidgetTile } from "./WidgetTile";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
-import { UsageDensityLayer, type DensityMode, type DensityWindow } from "./UsageDensityLayer";
+import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
   CAMERA_STORAGE_KEY,
+  CONNECTIONS_ENABLED_KEY,
   DEFAULT_CAMERA,
+  DENSITY_ANIMATE_KEY,
+  DENSITY_COMPARE_KEY,
+  DENSITY_INTENSITY_KEY,
+  DENSITY_WINDOW_KEY,
   LENS_NATIVE_FRACTION,
   LENS_SETTLE_MS,
   MAX_SCALE,
@@ -45,6 +50,13 @@ import {
   WELL_X,
   WELL_Y,
   WELL_Y_SQUASH,
+  type DensityIntensity,
+  type DensityWindow,
+  loadConnectionsEnabled,
+  loadDensityAnimate,
+  loadDensityCompare,
+  loadDensityIntensity,
+  loadDensityWindow,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -143,13 +155,40 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
   // level so layers under the tile map can react.
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
-  // Token-usage density layer state (client-only; not persisted in v1).
-  const [densityEnabled, setDensityEnabled] = useState(false);
-  const [densityWindow, setDensityWindow] = useState<DensityWindow>("24h");
-  const [densityMode, setDensityMode] = useState<DensityMode>("absolute");
-  const [densityAnimate, setDensityAnimate] = useState(true);
-  // Connection-line layer toggle (widget → source channel curves).
-  const [connectionsEnabled, setConnectionsEnabled] = useState(false);
+  // Token-usage density layer state. Defaults: subtle (on), 24h, channel-hued
+  // (compare off), breathing on. Persisted to localStorage so the user's
+  // preferred visual state survives reloads.
+  const [densityIntensity, setDensityIntensity] = useState<DensityIntensity>(loadDensityIntensity);
+  const [densityWindow, setDensityWindow] = useState<DensityWindow>(loadDensityWindow);
+  const [densityCompare, setDensityCompare] = useState<boolean>(loadDensityCompare);
+  const [densityAnimate, setDensityAnimate] = useState<boolean>(loadDensityAnimate);
+  // Connection-line layer (widget → source channel curves). On by default —
+  // the relationship is most of the value of pinning a widget to the canvas.
+  const [connectionsEnabled, setConnectionsEnabled] = useState<boolean>(loadConnectionsEnabled);
+
+  // Persist chrome prefs on change. Single effect with all deps — localStorage
+  // writes are sub-ms and these toggles fire at most a few times per session.
+  useEffect(() => {
+    try {
+      localStorage.setItem(DENSITY_INTENSITY_KEY, densityIntensity);
+      localStorage.setItem(DENSITY_WINDOW_KEY, densityWindow);
+      localStorage.setItem(DENSITY_COMPARE_KEY, densityCompare ? "1" : "0");
+      localStorage.setItem(DENSITY_ANIMATE_KEY, densityAnimate ? "1" : "0");
+      localStorage.setItem(CONNECTIONS_ENABLED_KEY, connectionsEnabled ? "1" : "0");
+    } catch {
+      /* storage disabled */
+    }
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled]);
+
+  const cycleDensityIntensity = useCallback(() => {
+    setDensityIntensity((curr) => {
+      // Cycle: subtle → bold → off → subtle. Default state (subtle) is one
+      // click away from "off" or "bold" — both extremes reachable quickly.
+      if (curr === "subtle") return "bold";
+      if (curr === "bold") return "off";
+      return "subtle";
+    });
+  }, []);
   // Viewport size in screen pixels — used together with `camera` to compute
   // each tile's `inViewport` flag for iframe culling. ResizeObserver keeps it
   // current across overlay open/close, sidebar toggles, and window resizes.
@@ -540,11 +579,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="absolute inset-0" style={worldStyle}>
           <OriginMarker />
-          {densityEnabled && (
+          {densityIntensity !== "off" && (
             <UsageDensityLayer
               nodes={nodes ?? []}
+              intensity={densityIntensity}
               window={densityWindow}
-              mode={densityMode}
+              compare={densityCompare}
               animate={densityAnimate}
             />
           )}
@@ -655,12 +695,12 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
       </DndContext>
       <LensHint engaged={lensEngaged} />
       <UsageDensityChrome
-        enabled={densityEnabled}
-        onToggle={() => setDensityEnabled((v) => !v)}
+        intensity={densityIntensity}
+        onCycleIntensity={cycleDensityIntensity}
         window={densityWindow}
         onWindowChange={setDensityWindow}
-        mode={densityMode}
-        onModeChange={setDensityMode}
+        compare={densityCompare}
+        onCompareChange={setDensityCompare}
         animate={densityAnimate}
         onAnimateChange={setDensityAnimate}
         connectionsEnabled={connectionsEnabled}

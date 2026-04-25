@@ -133,10 +133,10 @@ function PreviewView({
     >
       <div className="flex flex-row items-center gap-1.5 text-[10px] tracking-wider text-text-dim uppercase">
         <span
-          className="w-1.5 h-1.5 rounded-full"
+          className="w-2.5 h-2.5 rounded-full"
           style={{ background: dotColor(channel.id) }}
         />
-        <ChannelGlyph icon={icon} size={11} />
+        <ChannelGlyph icon={icon} size={14} />
         <span>Channel</span>
         {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}
       </div>
@@ -168,10 +168,10 @@ function SnapshotView({
     >
       <div className="flex flex-row items-center gap-2 text-[10px] tracking-wider text-text-dim uppercase">
         <span
-          className="w-2 h-2 rounded-full"
+          className="w-3 h-3 rounded-full"
           style={{ background: dotColor(channel.id) }}
         />
-        <ChannelGlyph icon={icon} size={12} />
+        <ChannelGlyph icon={icon} size={16} />
         <span>Channel</span>
         {channel.private && <span className="ml-1">· private</span>}
         {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}

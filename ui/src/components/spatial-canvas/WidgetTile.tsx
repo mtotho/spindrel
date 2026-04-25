@@ -389,8 +389,11 @@ function CardView({
         ) : isNativeWidget ? (
           // Native widgets (Notes, Todo, …) own their dispatch via
           // useNativeEnvelopeState; we just give them the right host props.
+          // Inner padding mirrors WidgetCard's `px-3 pb-2` — native renderers
+          // expect their host to provide horizontal padding (their own padding
+          // is vertical-only).
           <div
-            className="absolute inset-0 overflow-y-auto"
+            className="absolute inset-0 overflow-y-auto px-3 py-2"
             onPointerDown={(e) => e.stopPropagation()}
           >
             {renderNativeWidget({
@@ -405,7 +408,7 @@ function CardView({
           // Component widgets — DOM tree wrapped in WidgetActionContext so
           // toggles / buttons / sliders dispatch through the canvas pin.
           <div
-            className="absolute inset-0 overflow-y-auto"
+            className="absolute inset-0 overflow-y-auto px-3 py-2"
             onPointerDown={(e) => e.stopPropagation()}
           >
             {actionCtx ? (

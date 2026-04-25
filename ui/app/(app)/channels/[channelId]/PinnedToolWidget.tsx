@@ -1027,6 +1027,13 @@ function PinToCanvasIconButton({
   const [flash, setFlash] = useState(false);
   const sourceBotId =
     widget.bot_id || widget.envelope?.source_bot_id || null;
+  // Forward the source pin's widget_config to the canvas pin. Without this,
+  // tools with config-driven state_poll behavior (e.g. HA's GetLiveContext,
+  // which falls back to the full-home grid when no entity_id is set) would
+  // poll into a different view on first action and never recover.
+  const sourceWidgetConfig = useDashboardPinsStore(
+    (s) => s.pins.find((p) => p.id === widget.id)?.widget_config,
+  );
 
   const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope);
   const onCanvasNode = useFindCanvasNodeByIdentity(identityKey, (p) =>
@@ -1052,6 +1059,7 @@ function PinToCanvasIconButton({
         source_channel_id: channelId,
         source_bot_id: sourceBotId,
         display_label: widget.envelope?.display_label ?? undefined,
+        widget_config: sourceWidgetConfig ?? undefined,
       },
       {
         onSuccess: () => {

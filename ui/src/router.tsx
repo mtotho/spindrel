@@ -35,6 +35,7 @@ const SetupPage = lazy(() => import("@/app/(auth)/setup"));
 
 // App root
 const HomePage = lazy(() => import("@/app/(app)/index"));
+const CanvasPage = lazy(() => import("@/app/(app)/canvas"));
 const SettingsShell = lazy(() =>
   import("@/app/(app)/settings/SettingsShell").then((m) => ({
     default: m.SettingsShell,
@@ -128,6 +129,7 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <HomePage /> },
+          { path: "canvas", element: <CanvasPage /> },
           {
             path: "settings",
             element: <SettingsShell />,
