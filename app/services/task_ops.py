@@ -112,6 +112,7 @@ async def spawn_child_run(
         workflow_id=parent.workflow_id,
         workflow_session_mode=parent.workflow_session_mode,
         steps=list(parent.steps) if parent.steps else None,
+        layout=dict(parent.layout) if parent.layout else {},
         # Inherit run_isolation from the definition so pipeline runs spawned
         # from a sub_session definition render as a sub-session anchor in
         # the parent channel (and route their step output to the run's

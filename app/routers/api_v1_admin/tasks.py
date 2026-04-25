@@ -65,6 +65,7 @@ class TaskDetailOut(BaseModel):
     trigger_config: Optional[dict] = None
     steps: Optional[list[dict]] = None
     step_states: Optional[list[dict]] = None
+    layout: dict = {}
     # Surfaced from execution_config/callback_config for convenience
     model_override: Optional[str] = None
     model_provider_id_override: Optional[str] = None
@@ -129,6 +130,7 @@ class TaskCreateIn(BaseModel):
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
     steps: Optional[list[dict]] = None
+    layout: Optional[dict] = None
     # Channel-output controls — surface dispatch + history behavior from
     # execution_config in a structured way so the admin UI can wire them
     # directly instead of requiring raw JSONB edits.
@@ -183,6 +185,7 @@ class TaskUpdateIn(BaseModel):
     skills: Optional[list[str]] = None
     tools: Optional[list[str]] = None
     steps: Optional[list[dict]] = None
+    layout: Optional[dict] = None
     post_final_to_channel: Optional[bool] = None
     history_mode: Optional[str] = None  # "none" | "recent" | "full"
     history_recent_count: Optional[int] = None
@@ -394,6 +397,7 @@ async def admin_list_tasks(
             "trigger_config": t.trigger_config,
             "steps": t.steps,
             "step_states": t.step_states,
+            "layout": t.layout or {},
             # Surface execution_config so the admin list + orchestrator
             # launchpad can read featured/description/params_schema without
             # an extra per-row fetch. Small JSONB; safe to include.
@@ -661,6 +665,7 @@ async def admin_create_task(
         workflow_session_mode=body.workflow_session_mode,
         trigger_config=body.trigger_config,
         steps=body.steps,
+        layout=body.layout or {},
     )
     db.add(task)
     await db.commit()
@@ -684,6 +689,20 @@ async def admin_update_task(
 
     updates = body.model_dump(exclude_unset=True)
 
+    # System pipelines are read-only configuration — only `layout` may be edited.
+    # Other fields are seeded from YAML and would be reverted on next restart anyway,
+    # so reject the request explicitly rather than letting it appear to succeed.
+    if task.source == "system":
+        forbidden = set(updates) - {"layout"}
+        if forbidden:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"System pipelines are read-only; only `layout` may be patched. "
+                    f"Rejected fields: {sorted(forbidden)}"
+                ),
+            )
+
     for field in ("prompt", "prompt_template_id", "workspace_file_path", "workspace_id", "bot_id", "status", "task_type", "title", "max_run_seconds", "workflow_id", "workflow_session_mode", "trigger_config"):
         if field in updates:
             setattr(task, field, updates[field])
@@ -696,6 +715,10 @@ async def admin_update_task(
             task.task_type = "pipeline"
         elif task.task_type == "pipeline":
             task.task_type = "agent"
+
+    if "layout" in updates:
+        task.layout = updates["layout"] or {}
+        sa_attributes.flag_modified(task, "layout")
     if "recurrence" in updates:
         task.recurrence = updates["recurrence"] or None
 

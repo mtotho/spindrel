@@ -2481,6 +2481,20 @@ function buildReactRuntimePreamble(serverUrl: string | null): string {
       }
     } catch (_) { /* ignore */ }
   }
+  // Surface async runtime errors. React 18's createRoot schedules render —
+  // an exception inside a component (undefined hook, bad data access, etc.)
+  // is captured by React and reported via window.onerror / unhandledrejection
+  // rather than our sync try/catch. Without this trap the iframe goes blank
+  // with only a "Minified React error #..." in the iframe console.
+  window.addEventListener('error',function(ev){
+    var msg=(ev&&ev.error&&(ev.error.stack||ev.error.message))||(ev&&ev.message)||'unknown error';
+    showErr(String(msg));
+  });
+  window.addEventListener('unhandledrejection',function(ev){
+    var r=ev&&ev.reason;
+    var msg=(r&&(r.stack||r.message))||String(r||'unhandled rejection');
+    showErr(msg);
+  });
   if (typeof Babel==='undefined'||typeof React==='undefined'||typeof ReactDOM==='undefined'){
     showErr('Failed to load React runtime from /widget-runtime/. Verify the agent-server static mount is reachable.');
     return;

@@ -551,6 +551,37 @@ class TestRunTaskPipeline:
         assert mock_record.status == "complete"
 
     @pytest.mark.asyncio
+    async def test_layout_is_invariant_through_pipeline_run(self):
+        """Pipeline Canvas tab position metadata lives on `Task.layout`. The
+        runtime must never read or write it. Pin the invariant: a sentinel
+        layout is structurally equal before and after a successful run."""
+        from app.services.step_executor import run_task_pipeline
+
+        ctx, _, mock_record = _make_db_ctx()
+        sentinel = {
+            "version": 1,
+            "nodes": {"s0": {"x": 42, "y": 24}},
+            "camera": {"x": 0, "y": 0, "scale": 1.5},
+        }
+        # `mock_record` is what step_executor mutates; mirror it on the task
+        # so we can compare before/after.
+        mock_record.layout = dict(sentinel)
+        task = _make_task(
+            steps=[{"id": "s0", "type": "exec", "prompt": "echo hello"}],
+            layout=dict(sentinel),
+        )
+
+        with (
+            patch("app.services.step_executor.async_session", return_value=ctx),
+            patch("app.services.step_executor._run_exec_step", new_callable=AsyncMock, return_value=("done", "output", None)),
+            patch("app.agent.tasks._fire_task_complete", new_callable=AsyncMock),
+        ):
+            await run_task_pipeline(task)
+
+        assert mock_record.layout == sentinel
+        assert task.layout == sentinel
+
+    @pytest.mark.asyncio
     async def test_exec_step_failure_aborts(self):
         from app.services.step_executor import run_task_pipeline
 

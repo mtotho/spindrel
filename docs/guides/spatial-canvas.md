@@ -67,6 +67,14 @@ Widget tiles also have three semantic-zoom levels:
 
 Widgets on the canvas use the same iframe contract, SDK, theme, and bot-scoped auth as channel-dashboard widgets. The widget runs as the bot that authored it.
 
+## Bot nodes
+
+Bots that participate in channels can appear as actor nodes on the canvas when a channel's spatial-bot policy enables them. Their world position is global per bot, while awareness, self-movement, object tugging, inspection, and bot-owned widget management are gated per channel.
+
+Bot nodes are seeded near their primary or member channel, but not inside the channel/widget cluster. The server tests candidate spawn positions against existing canvas rectangles and keeps at least the default edge-clearance gap, so a bot is not born already crowding another object. Older untouched bot rows that still match the former overlapping spawn distance are repaired the next time the bot node is ensured.
+
+`move_on_canvas` moves by bounded grid steps. If a move would worsen under-clearance crowding, the tool rejects it and names the blocking object plus the before/after edge gap in policy steps.
+
 ## Connection lines
 
 ![Channel zoomed in with widget tiles connected by faint dashed lines](../images/spatial-channel-zoomed-in-1.png)
@@ -124,7 +132,7 @@ You will never see `workspace:spatial` in the UI. If you ever do, that is a bug.
 - **Auto-edges.** Edges between tiles are limited to widget→channel connection lines today. User-drawn edges, shared-bot edges, etc. are backlog.
 - **Multi-select / undo / snap-to-grid.** Single-tile drag only.
 - **Activity pulses.** Halos summarize *historical* token usage; there is no SSE-driven live pulse on tile updates yet.
-- **Other node types.** Files, bots, workflows, pinned sessions are backlog. The schema reserves room for them.
+- **Other node types.** Files, workflows, pinned sessions are backlog. The schema reserves room for them.
 
 ## Data model
 
@@ -132,9 +140,11 @@ You will never see `workspace:spatial` in the UI. If you ever do, that is a bug.
 
 - `channel_id` (nullable, FK `channels.id`, cascade delete)
 - `widget_pin_id` (nullable, FK `widget_dashboard_pins.id`, cascade delete)
-- CHECK: exactly one of the two is non-null
+- `bot_id` (nullable; registry-backed bot id)
+- CHECK: exactly one target is non-null
 - `world_x`, `world_y`, `world_w`, `world_h`
 - `seed_index` (monotonic; used for deterministic phyllotaxis seeding; never recomputed)
+- `last_movement` (short-lived movement trace for bot movement and object tugs)
 - `pinned_at`, `updated_at`
 
 Channel positions never leak into the `channels` table. Widget canvas positions never leak into `widget_dashboard_pins.grid_layout`.

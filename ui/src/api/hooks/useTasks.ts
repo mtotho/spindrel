@@ -56,6 +56,14 @@ export interface StepState {
 
 export type TaskSource = "user" | "system";
 
+export interface TaskLayout {
+  version?: number;
+  nodes?: Record<string, { x: number; y: number }>;
+  camera?: { x: number; y: number; scale: number };
+  // Forward-compatible: future keys are preserved verbatim by the backend.
+  [key: string]: any;
+}
+
 export interface TaskDetail {
   id: string;
   status: string;
@@ -102,6 +110,7 @@ export interface TaskDetail {
   last_run_status?: string | null;
   last_run_at?: string | null;
   subscription_count?: number;
+  layout?: TaskLayout;
 }
 
 export interface TaskCreatePayload {
@@ -126,6 +135,7 @@ export interface TaskCreatePayload {
   skills?: string[] | null;
   tools?: string[] | null;
   steps?: StepDef[] | null;
+  layout?: TaskLayout | null;
   post_final_to_channel?: boolean | null;
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;
@@ -153,6 +163,7 @@ export interface TaskUpdatePayload {
   skills?: string[] | null;
   tools?: string[] | null;
   steps?: StepDef[] | null;
+  layout?: TaskLayout | null;
   post_final_to_channel?: boolean | null;
   history_mode?: "none" | "recent" | "full" | null;
   history_recent_count?: number | null;

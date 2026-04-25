@@ -294,21 +294,140 @@ async def _resolved_primary_channel_for_bot(
     )).scalar_one_or_none()
 
 
+def _rect_edge_clearance(
+    *,
+    a_x: float,
+    a_y: float,
+    a_w: float,
+    a_h: float,
+    b: WorkspaceSpatialNode,
+) -> float:
+    """Return visual gap between an arbitrary rect and a spatial node."""
+    right_a = a_x + a_w
+    bottom_a = a_y + a_h
+    right_b = b.world_x + b.world_w
+    bottom_b = b.world_y + b.world_h
+    dx = max(b.world_x - right_a, a_x - right_b, 0.0)
+    dy = max(b.world_y - bottom_a, a_y - bottom_b, 0.0)
+    return math.hypot(dx, dy)
+
+
+def _default_min_clearance_world_units() -> float:
+    return float(
+        DEFAULT_SPATIAL_POLICY["minimum_clearance_steps"]
+        * DEFAULT_SPATIAL_POLICY["step_world_units"]
+    )
+
+
+def _candidate_clears_existing_nodes(
+    *,
+    world_x: float,
+    world_y: float,
+    world_w: float,
+    world_h: float,
+    existing_nodes: list[WorkspaceSpatialNode],
+    min_clearance: float,
+    ignore_node_id: uuid.UUID | None = None,
+) -> bool:
+    for other in existing_nodes:
+        if ignore_node_id is not None and other.id == ignore_node_id:
+            continue
+        if _rect_edge_clearance(
+            a_x=world_x,
+            a_y=world_y,
+            a_w=world_w,
+            a_h=world_h,
+            b=other,
+        ) < min_clearance:
+            return False
+    return True
+
+
+def _bot_spawn_position_near_channel(
+    *,
+    channel_node: WorkspaceSpatialNode,
+    seed: int,
+    existing_nodes: list[WorkspaceSpatialNode],
+    ignore_node_id: uuid.UUID | None = None,
+) -> tuple[float, float]:
+    """Pick a deterministic nearby bot spawn that is not born crowded.
+
+    The bot visual is nearly as large as a channel tile. A small center-radius
+    orbit makes the rectangles overlap even though the actor looks "near" on
+    the map, which then causes the movement guard to reject reasonable first
+    moves. Search a few deterministic rings around the source channel and keep
+    the first position that satisfies the default clearance from every current
+    canvas node.
+    """
+    min_clearance = _default_min_clearance_world_units()
+    cx, cy = _node_center(channel_node)
+    half_w = channel_node.world_w / 2 + _DEFAULT_BOT_W / 2
+    half_h = channel_node.world_h / 2 + _DEFAULT_BOT_H / 2
+    base_radius = max(half_w, half_h) + min_clearance
+    start_angle = (seed + 1) * _GOLDEN_ANGLE
+    angle_step = math.tau / 16
+    ring_step = max(float(DEFAULT_SPATIAL_POLICY["step_world_units"]) * 2, min_clearance / 2)
+    fallback: tuple[float, float] | None = None
+
+    for ring in range(8):
+        radius = base_radius + ring * ring_step
+        for slot in range(16):
+            angle = start_angle + slot * angle_step
+            world_x = cx + math.cos(angle) * radius - _DEFAULT_BOT_W / 2
+            world_y = cy + math.sin(angle) * radius - _DEFAULT_BOT_H / 2
+            fallback = (float(world_x), float(world_y))
+            if _candidate_clears_existing_nodes(
+                world_x=float(world_x),
+                world_y=float(world_y),
+                world_w=_DEFAULT_BOT_W,
+                world_h=_DEFAULT_BOT_H,
+                existing_nodes=existing_nodes,
+                min_clearance=min_clearance,
+                ignore_node_id=ignore_node_id,
+            ):
+                return (float(world_x), float(world_y))
+
+    assert fallback is not None
+    return fallback
+
+
 async def _ensure_bot_node(
     db: AsyncSession,
     bot_id: str,
+    changed_out: list[bool] | None = None,
 ) -> WorkspaceSpatialNode | None:
     existing = (await db.execute(
         select(WorkspaceSpatialNode).where(WorkspaceSpatialNode.bot_id == bot_id)
     )).scalar_one_or_none()
     if existing is not None:
+        changed = False
         if existing.world_w < _DEFAULT_BOT_W or existing.world_h < _DEFAULT_BOT_H:
             cx, cy = _node_center(existing)
             existing.world_w = _DEFAULT_BOT_W
             existing.world_h = _DEFAULT_BOT_H
             existing.world_x = cx - _DEFAULT_BOT_W / 2
             existing.world_y = cy - _DEFAULT_BOT_H / 2
+            changed = True
+        channel = await _resolved_primary_channel_for_bot(db, bot_id)
+        if channel is not None and existing.last_movement is None:
+            channel_node = await _ensure_channel_node(db, channel.id)
+            if (
+                channel_node is not None
+                and _edge_clearance(existing, channel_node) < _default_min_clearance_world_units()
+                and _distance(existing, channel_node) <= 180.0
+            ):
+                nodes = list((await db.execute(select(WorkspaceSpatialNode))).scalars().all())
+                existing.world_x, existing.world_y = _bot_spawn_position_near_channel(
+                    channel_node=channel_node,
+                    seed=existing.seed_index or 0,
+                    existing_nodes=nodes,
+                    ignore_node_id=existing.id,
+                )
+                changed = True
+        if changed:
             await db.flush()
+            if changed_out is not None:
+                changed_out[0] = True
         return existing
 
     seed = await _next_seed_index(db)
@@ -317,12 +436,12 @@ async def _ensure_bot_node(
     if channel is not None:
         channel_node = await _ensure_channel_node(db, channel.id)
         if channel_node is not None:
-            cx = channel_node.world_x + channel_node.world_w / 2
-            cy = channel_node.world_y + channel_node.world_h / 2
-            angle = (seed + 1) * _GOLDEN_ANGLE
-            radius = 150.0
-            world_x = cx + math.cos(angle) * radius - _DEFAULT_BOT_W / 2
-            world_y = cy + math.sin(angle) * radius - _DEFAULT_BOT_H / 2
+            nodes = list((await db.execute(select(WorkspaceSpatialNode))).scalars().all())
+            world_x, world_y = _bot_spawn_position_near_channel(
+                channel_node=channel_node,
+                seed=seed,
+                existing_nodes=nodes,
+            )
 
     node = WorkspaceSpatialNode(
         bot_id=bot_id,
@@ -346,14 +465,17 @@ async def _ensure_bot_nodes(db: AsyncSession) -> int:
     )).scalars().all()
     bot_ids = sorted({bot_id for bot_id in [*primary_ids, *member_ids] if bot_id})
     count = 0
+    changed = False
     for bot_id in bot_ids:
         before = (await db.execute(
             select(WorkspaceSpatialNode.id).where(WorkspaceSpatialNode.bot_id == bot_id)
         )).scalar_one_or_none()
-        await _ensure_bot_node(db, bot_id)
+        changed_out = [False]
+        await _ensure_bot_node(db, bot_id, changed_out=changed_out)
         if before is None:
             count += 1
-    if count:
+        changed = changed or changed_out[0]
+    if count or changed:
         await db.commit()
     return count
 
@@ -392,6 +514,17 @@ async def list_nodes(
         if await _sync_native_pin_envelopes(db, list(pin_rows)):
             await db.commit()
         pin_map = {p.id: p for p in pin_rows}
+    missing_pin_nodes = [
+        n
+        for n in nodes
+        if n.widget_pin_id is not None and n.widget_pin_id not in pin_map
+    ]
+    if missing_pin_nodes:
+        for node in missing_pin_nodes:
+            await db.delete(node)
+        await db.commit()
+        missing_ids = {n.id for n in missing_pin_nodes}
+        nodes = [n for n in nodes if n.id not in missing_ids]
     return [(n, pin_map.get(n.widget_pin_id) if n.widget_pin_id else None) for n in nodes]
 
 
@@ -503,15 +636,13 @@ def _edge_clearance(
     """Return visual gap between node rectangles; 0 means touching/overlap."""
     left_a = a.world_x if a_x is None else a_x
     top_a = a.world_y if a_y is None else a_y
-    right_a = left_a + a.world_w
-    bottom_a = top_a + a.world_h
-    left_b = b.world_x
-    top_b = b.world_y
-    right_b = b.world_x + b.world_w
-    bottom_b = b.world_y + b.world_h
-    dx = max(left_b - right_a, left_a - right_b, 0.0)
-    dy = max(top_b - bottom_a, top_a - bottom_b, 0.0)
-    return math.hypot(dx, dy)
+    return _rect_edge_clearance(
+        a_x=left_a,
+        a_y=top_a,
+        a_w=a.world_w,
+        a_h=a.world_h,
+        b=b,
+    )
 
 
 def _center_distance_from(
@@ -581,7 +712,7 @@ async def move_bot_node(
     to_y = float(node.world_y + int(dy_steps) * step)
     min_clearance = float(policy["minimum_clearance_steps"] * policy["step_world_units"])
     if min_clearance > 0:
-        nodes, _pin_map = await _nodes_with_pins(db)
+        nodes, pin_map = await _nodes_with_pins(db)
         for other in nodes:
             if other.id == node.id:
                 continue
@@ -594,9 +725,19 @@ async def move_bot_node(
             if after_clearance < before_clearance or (
                 after_clearance == before_clearance and after_center < before_center
             ):
+                pin = pin_map.get(other.widget_pin_id) if other.widget_pin_id else None
+                blocker_label = _node_label(other, pin)
+                if other.channel_id:
+                    channel = await db.get(Channel, other.channel_id)
+                    if channel is not None:
+                        blocker_label = f"#{channel.name}"
+                before_steps = before_clearance / step if step else before_clearance
+                after_steps = after_clearance / step if step else after_clearance
                 raise ValidationError(
                     "Move would crowd another canvas object; keep at least "
-                    f"{policy['minimum_clearance_steps']} step(s) of clearance or move away first."
+                    f"{policy['minimum_clearance_steps']} step(s) of clearance or move away first. "
+                    f"Blocking object: {blocker_label} ({_node_kind(other)}), "
+                    f"edge gap {before_steps:.1f} -> {after_steps:.1f} step(s)."
                 )
     node.world_x = to_x
     node.world_y = to_y
@@ -1184,6 +1325,18 @@ async def pin_dashboard_pin_to_canvas(
     source_pin = await get_pin(db, source_dashboard_pin_id)
     if source_pin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY:
         raise ValidationError("source_dashboard_pin_id already belongs to the workspace canvas")
+
+    existing_rows = (
+        await db.execute(
+            select(WidgetDashboardPin, WorkspaceSpatialNode)
+            .join(WorkspaceSpatialNode, WorkspaceSpatialNode.widget_pin_id == WidgetDashboardPin.id)
+            .where(WidgetDashboardPin.dashboard_key == WORKSPACE_SPATIAL_DASHBOARD_KEY)
+        )
+    ).all()
+    for existing_pin, existing_node in existing_rows:
+        origin = existing_pin.widget_origin or {}
+        if origin.get("source_dashboard_pin_id") == str(source_pin.id):
+            return existing_pin, existing_node
 
     override_instance = None
     if source_pin.widget_instance_id is not None:

@@ -1181,6 +1181,12 @@ class Task(Base):
     trigger_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     steps: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     step_states: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    layout: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        default=dict,
+    )
     source: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'user'"))
     run_isolation: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'inline'"),

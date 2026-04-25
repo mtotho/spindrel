@@ -254,6 +254,69 @@ class TestSpawnChildRunParams:
         child = await spawn_child_run(parent.id, db_session)
         assert child.execution_config is None
 
+    @pytest.mark.asyncio
+    async def test_spawn_child_run_copies_layout(self, db_session):
+        """Pipeline Canvas tab positions must follow the run, not just the
+        definition — child-run views render with the same node positions
+        as the parent."""
+        from app.services.task_ops import spawn_child_run
+
+        layout = {
+            "version": 1,
+            "nodes": {"s1": {"x": 100, "y": 200}},
+            "camera": {"x": 0, "y": 0, "scale": 1},
+        }
+        parent = Task(
+            id=uuid.uuid4(),
+            bot_id="orchestrator",
+            prompt="p",
+            task_type="pipeline",
+            steps=[{"id": "s1", "type": "exec", "prompt": "echo x"}],
+            layout=layout,
+            source="system",
+        )
+        db_session.add(parent)
+        await db_session.commit()
+
+        child = await spawn_child_run(parent.id, db_session)
+        assert child.layout == layout
+        assert child.layout is not parent.layout, (
+            "child layout must be a copy so later parent edits don't bleed in"
+        )
+
+
+class TestSeedingPreservesLayout:
+    @pytest.mark.asyncio
+    async def test_layout_untouched_by_reseed(self, patched_session, tmp_path):
+        """`Task.layout` is per-installation state owned by the frontend.
+        The seeder's `_SYSTEM_PIPELINE_FIELDS` allowlist must NOT include it,
+        so `ensure_system_pipelines()` leaves an authored layout alone."""
+        _write_yaml(tmp_path / "x.yaml", _pipeline_yaml("x", "X"))
+        await seed_pipelines_from_yaml(tmp_path)
+
+        custom_layout = {
+            "version": 1,
+            "nodes": {"s1": {"x": 999, "y": 999}},
+            "camera": {"x": 50, "y": 50, "scale": 0.8},
+        }
+        async with patched_session() as db:
+            row = await db.get(Task, pipeline_uuid("x"))
+            row.layout = custom_layout
+            await db.commit()
+
+        # Reseed — same YAML, no content change — must NOT reset layout.
+        await seed_pipelines_from_yaml(tmp_path)
+
+        async with patched_session() as db:
+            row = await db.get(Task, pipeline_uuid("x"))
+            assert row.layout == custom_layout
+
+    def test_seeding_allowlist_excludes_layout(self):
+        """Lock the allowlist so a future contributor can't accidentally add
+        `layout` and have YAML clobber per-install positions on every restart."""
+        from app.services.task_seeding import _SYSTEM_PIPELINE_FIELDS
+        assert "layout" not in _SYSTEM_PIPELINE_FIELDS
+
 
 # ---------------------------------------------------------------------------
 # render_prompt: {{params.*}} dotted access

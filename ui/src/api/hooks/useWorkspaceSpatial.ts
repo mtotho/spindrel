@@ -142,7 +142,21 @@ export function useDeleteSpatialNode() {
       });
       return nodeId;
     },
+    onMutate: async (nodeId) => {
+      await qc.cancelQueries({ queryKey: NODES_KEY });
+      const prev = qc.getQueryData<SpatialNode[]>(NODES_KEY);
+      qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
+        (old ?? []).filter((n) => n.id !== nodeId),
+      );
+      return { prev };
+    },
+    onError: (_err, _nodeId, ctx) => {
+      if (ctx?.prev) qc.setQueryData(NODES_KEY, ctx.prev);
+    },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: NODES_KEY });
+    },
+    onSettled: () => {
       qc.invalidateQueries({ queryKey: NODES_KEY });
     },
   });
@@ -174,9 +188,24 @@ export function useFindCanvasNodeByIdentity(
   identityKey: string | null,
   identityFor: (pin: SpatialNodePin) => string,
 ): SpatialNode | undefined {
+  return useFindCanvasNodesByIdentity(identityKey, identityFor)[0];
+}
+
+export function useFindCanvasNodesByIdentity(
+  identityKey: string | null,
+  identityFor: (pin: SpatialNodePin) => string,
+): SpatialNode[] {
   const { data: nodes } = useSpatialNodes();
-  if (!identityKey || !nodes) return undefined;
-  return nodes.find((n) => n.pin && identityFor(n.pin) === identityKey);
+  if (!identityKey || !nodes) return [];
+  return nodes.filter((n) => n.pin && identityFor(n.pin) === identityKey);
+}
+
+export function useFindCanvasNodesByPinPredicate(
+  predicate: (pin: SpatialNodePin) => boolean,
+): SpatialNode[] {
+  const { data: nodes } = useSpatialNodes();
+  if (!nodes) return [];
+  return nodes.filter((n) => n.pin && predicate(n.pin));
 }
 
 /** Atomically pin a widget to the workspace canvas. Server creates the

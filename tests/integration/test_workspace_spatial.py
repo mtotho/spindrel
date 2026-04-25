@@ -28,6 +28,7 @@ from app.services.dashboards import (
     list_dashboards,
 )
 from app.services.workspace_spatial import (
+    DEFAULT_SPATIAL_POLICY,
     build_canvas_neighborhood,
     move_bot_node,
     update_channel_bot_spatial_policy,
@@ -49,6 +50,20 @@ def _envelope(label: str = "x") -> dict:
         "byte_size": 2,
         "display_label": label,
     }
+
+
+def _edge_gap(a: dict, b: dict) -> float:
+    dx = max(
+        b["world_x"] - (a["world_x"] + a["world_w"]),
+        a["world_x"] - (b["world_x"] + b["world_w"]),
+        0.0,
+    )
+    dy = max(
+        b["world_y"] - (a["world_y"] + a["world_h"]),
+        a["world_y"] - (b["world_y"] + b["world_h"]),
+        0.0,
+    )
+    return (dx * dx + dy * dy) ** 0.5
 
 
 async def _create_channel(client, **overrides) -> dict:
@@ -133,6 +148,20 @@ class TestSpatialNodesAutoSeed:
         assert bot_nodes[0]["channel_id"] is None
         assert bot_nodes[0]["widget_pin_id"] is None
         assert bot_nodes[0]["bot"]["id"] == "test-bot"
+
+    async def test_bot_rows_spawn_outside_default_channel_clearance(self, client):
+        ch = await _create_channel(client)
+        r = await client.get("/api/v1/workspace/spatial/nodes", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        nodes = r.json()["nodes"]
+        channel_node = next(n for n in nodes if n["channel_id"] == ch["id"])
+        bot_node = next(n for n in nodes if n["bot_id"] == "test-bot")
+
+        min_gap = (
+            DEFAULT_SPATIAL_POLICY["minimum_clearance_steps"]
+            * DEFAULT_SPATIAL_POLICY["step_world_units"]
+        )
+        assert _edge_gap(bot_node, channel_node) >= min_gap
 
     async def test_channel_spatial_bot_policy_roundtrip(self, client):
         ch = await _create_channel(client)
@@ -438,6 +467,35 @@ class TestPinWidgetToCanvas:
 
         assert projected_instances == [str(p.widget_instance_id) for p in source_pins]
         assert len(set(projected_instances)) == 2
+
+    async def test_channel_native_projection_is_idempotent_for_same_source_pin(self, client, db_session):
+        from app.services.dashboard_pins import create_pin
+        from app.services.native_app_widgets import build_native_widget_preview_envelope
+
+        ch = await _create_channel(client, name="QA")
+        channel_id = uuid.UUID(ch["id"])
+        source_pin = await create_pin(
+            db_session,
+            source_kind="adhoc",
+            tool_name="core/notes_native",
+            envelope=build_native_widget_preview_envelope("core/notes_native"),
+            source_channel_id=channel_id,
+            display_label="Notes",
+            dashboard_key=f"channel:{channel_id}",
+        )
+
+        responses = []
+        for _ in range(2):
+            r = await client.post(
+                "/api/v1/workspace/spatial/widget-pins",
+                json={"source_dashboard_pin_id": str(source_pin.id)},
+                headers=AUTH_HEADERS,
+            )
+            assert r.status_code == 201, r.text
+            responses.append(r.json())
+
+        assert responses[0]["pin"]["id"] == responses[1]["pin"]["id"]
+        assert responses[0]["node"]["id"] == responses[1]["node"]["id"]
 
     async def test_direct_native_canvas_pins_get_fresh_instances(self, client, db_session):
         from app.services.native_app_widgets import build_native_widget_preview_envelope

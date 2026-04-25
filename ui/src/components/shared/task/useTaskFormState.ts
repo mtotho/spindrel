@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBots } from "@/src/api/hooks/useBots";
 import { useChannels } from "@/src/api/hooks/useChannels";
-import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type StepDef } from "@/src/api/hooks/useTasks";
+import { useTask, useCreateTask, useUpdateTask, useDeleteTask, type StepDef, type TaskLayout } from "@/src/api/hooks/useTasks";
 import { useSkills } from "@/src/api/hooks/useSkills";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { localInputToISO, isoToLocalInput } from "@/src/utils/time";
@@ -62,6 +62,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedToolKeys, setSelectedToolKeys] = useState<string[]>([]);
   const [steps, setSteps] = useState<StepDef[] | null>(null);
+  const [layout, setLayout] = useState<TaskLayout>({});
   const [postFinalToChannel, setPostFinalToChannel] = useState(false);
   const [historyMode, setHistoryMode] = useState<"none" | "recent" | "full">("none");
   const [historyRecentCount, setHistoryRecentCount] = useState(10);
@@ -100,6 +101,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
       setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
       setSteps(existingTask.steps ?? null);
+      setLayout(existingTask.layout ?? {});
       setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
       setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
       setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
@@ -131,6 +133,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       setSelectedSkillIds(existingTask.execution_config?.skills ?? []);
       setSelectedToolKeys(existingTask.execution_config?.tools ?? []);
       setSteps(existingTask.steps ?? null);
+      setLayout(existingTask.layout ?? {});
       setPostFinalToChannel(!!existingTask.execution_config?.post_final_to_channel);
       setHistoryMode((existingTask.execution_config?.history_mode as any) ?? "none");
       setHistoryRecentCount(existingTask.execution_config?.history_recent_count ?? 10);
@@ -168,6 +171,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
       const effectiveRecurrence = triggerConfig.type === "schedule" ? (recurrence || null) : null;
       const effectiveTaskType = steps && steps.length > 0 ? "pipeline" : taskType;
       const effectiveSteps = steps && steps.length > 0 ? steps : null;
+      const effectiveLayout: TaskLayout | null = stepsMode ? layout : null;
       const skillsPayload = selectedSkillIds.length > 0 ? selectedSkillIds : null;
       const toolsPayload = selectedToolKeys.length > 0 ? selectedToolKeys : null;
       const channelOutputPayload = {
@@ -198,6 +202,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           skills: skillsPayload,
           tools: toolsPayload,
           steps: effectiveSteps,
+          layout: effectiveLayout,
           ...channelOutputPayload,
         });
         invalidateExtra();
@@ -225,6 +230,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
           skills: skillsPayload,
           tools: toolsPayload,
           steps: effectiveSteps,
+          layout: effectiveLayout,
           ...channelOutputPayload,
         });
       }
@@ -233,7 +239,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     } catch {
       // error shown via mutation state
     }
-  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, postFinalToChannel, historyMode, historyRecentCount]);
+  }, [prompt, title, botId, channelId, scheduledAt, recurrence, taskType, triggerRagLoop, modelOverride, fallbackModels, maxRunSeconds, status, isCreate, createMut, updateMut, onSaved, invalidateExtra, promptTemplateId, workspaceFilePath, workspaceId, workflowId, workflowSessionMode, hasPromptOrWorkflow, triggerConfig, selectedSkillIds, selectedToolKeys, steps, layout, stepsMode, postFinalToChannel, historyMode, historyRecentCount]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -288,6 +294,7 @@ export function useTaskFormState(opts: UseTaskFormStateOptions) {
     selectedSkillIds, setSelectedSkillIds,
     selectedToolKeys, setSelectedToolKeys,
     steps, setSteps,
+    layout, setLayout,
     postFinalToChannel, setPostFinalToChannel,
     historyMode, setHistoryMode,
     historyRecentCount, setHistoryRecentCount,

@@ -26,7 +26,8 @@ import { useDashboardPinsStore } from "@/src/stores/dashboardPins";
 import { apiFetch } from "@/src/api/client";
 import {
   useDeleteSpatialNode,
-  useFindCanvasNodeByIdentity,
+  useFindCanvasNodesByIdentity,
+  useFindCanvasNodesByPinPredicate,
   usePinWidgetToCanvas,
 } from "@/src/api/hooks/useWorkspaceSpatial";
 import { envelopeIdentityKey as canvasEnvelopeIdentityKey } from "@/src/stores/pinnedWidgets";
@@ -1025,6 +1026,7 @@ function PinToCanvasIconButton({
   const pin = usePinWidgetToCanvas();
   const del = useDeleteSpatialNode();
   const [flash, setFlash] = useState(false);
+  const [canvasError, setCanvasError] = useState<string | null>(null);
   const sourceBotId =
     widget.bot_id || widget.envelope?.source_bot_id || null;
   // Forward the source pin's widget_config to the canvas pin. Without this,
@@ -1037,19 +1039,37 @@ function PinToCanvasIconButton({
   const widgetConfig = sourceWidgetConfig ?? widget.config ?? null;
 
   const identityKey = canvasEnvelopeIdentityKey(widget.tool_name, widget.envelope, widgetConfig);
-  const onCanvasNode = useFindCanvasNodeByIdentity(identityKey, (p) =>
+  const projectionNodes = useFindCanvasNodesByPinPredicate((p) => {
+    const origin = p.widget_origin;
+    return (
+      !!origin
+      && typeof origin.source_dashboard_pin_id === "string"
+      && origin.source_dashboard_pin_id === widget.id
+    );
+  });
+  const identityNodes = useFindCanvasNodesByIdentity(identityKey, (p) =>
     canvasEnvelopeIdentityKey(
       p.tool_name,
       p.envelope as unknown as ToolResultEnvelope,
       p.widget_config ?? null,
     ),
   );
-  const isOnCanvas = !!onCanvasNode;
+  const canvasNodes = projectionNodes.length > 0 ? projectionNodes : identityNodes;
+  const isOnCanvas = canvasNodes.length > 0;
 
-  const handle = (e: React.MouseEvent) => {
+  const handle = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isOnCanvas && onCanvasNode) {
-      del.mutate(onCanvasNode.id);
+    setCanvasError(null);
+    if (isOnCanvas) {
+      const nodeIds = [...new Set(canvasNodes.map((n) => n.id))];
+      const results = await Promise.allSettled(
+        nodeIds.map((nodeId) => del.mutateAsync(nodeId)),
+      );
+      const failed = results.filter((r) => r.status === "rejected");
+      if (failed.length > 0) {
+        setCanvasError("Remove failed — refresh spatial canvas state");
+        console.error("Remove from canvas failed", failed);
+      }
       return;
     }
     pin.mutate(
@@ -1068,11 +1088,14 @@ function PinToCanvasIconButton({
           setFlash(true);
           window.setTimeout(() => setFlash(false), 1500);
         },
+        onError: (err) => {
+          setCanvasError(err instanceof Error ? err.message : "Pin to canvas failed");
+        },
       },
     );
   };
 
-  const colorActive = flash || isOnCanvas;
+  const colorActive = flash || isOnCanvas || !!canvasError;
   return (
     <button
       type="button"
@@ -1081,10 +1104,14 @@ function PinToCanvasIconButton({
       className={btnClass}
       aria-label={isOnCanvas ? "Remove from workspace canvas" : "Pin to workspace canvas"}
       title={
-        flash
+        canvasError
+          ? canvasError
+          : flash
           ? "Pinned to canvas"
           : isOnCanvas
-          ? "On canvas — click to remove"
+          ? canvasNodes.length > 1
+            ? `On canvas (${canvasNodes.length}) — click to remove all`
+            : "On canvas — click to remove"
           : "Pin to canvas"
       }
     >
