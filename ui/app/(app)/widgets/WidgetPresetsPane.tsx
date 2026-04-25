@@ -20,6 +20,14 @@ import type { ToolResultEnvelope } from "@/src/types/api";
 
 type PresetStep = "catalog" | "configure" | "preview";
 
+export interface PresetPinContext {
+  presetId: string;
+  config: Record<string, unknown>;
+  sourceBotId: string;
+  sourceChannelId: string | null;
+  displayLabel: string | null;
+}
+
 interface Props {
   mode: "pin" | "browse";
   query?: string;
@@ -30,6 +38,12 @@ interface Props {
   step?: PresetStep;
   onStepChange?: (step: PresetStep) => void;
   layout?: "compact" | "builder";
+  /** Override the default dashboard pin path. When provided, the pane calls
+   *  `onPin(ctx)` instead of `pinPreset(...)`. Use to route pins to the
+   *  workspace canvas, a sub-dashboard, or any non-default destination. The
+   *  caller is responsible for the actual API call; the returned pin id is
+   *  forwarded to `onPinCreated`. */
+  onPin?: (ctx: PresetPinContext) => Promise<{ id: string }>;
 }
 
 export function WidgetPresetsPane({
@@ -42,6 +56,7 @@ export function WidgetPresetsPane({
   step,
   onStepChange,
   layout = "compact",
+  onPin,
 }: Props) {
   const { data: bots } = useBots();
   const { data: scopedChannel } = useChannel(scopeChannelId ?? undefined);
@@ -342,12 +357,20 @@ export function WidgetPresetsPane({
     setPinning(true);
     setPinError(null);
     try {
-      const created = await pinPreset(selectedPreset.id, {
-        config: previewState.config,
-        source_bot_id: selectedBotId,
-        source_channel_id: scopeChannelId ?? null,
-        display_label: selectedEntityLabel,
-      });
+      const created = onPin
+        ? await onPin({
+            presetId: selectedPreset.id,
+            config: previewState.config,
+            sourceBotId: selectedBotId,
+            sourceChannelId: scopeChannelId ?? null,
+            displayLabel: selectedEntityLabel,
+          })
+        : await pinPreset(selectedPreset.id, {
+            config: previewState.config,
+            source_bot_id: selectedBotId,
+            source_channel_id: scopeChannelId ?? null,
+            display_label: selectedEntityLabel,
+          });
       setPinSuccess(true);
       onPinCreated?.(created.id);
     } catch (err) {

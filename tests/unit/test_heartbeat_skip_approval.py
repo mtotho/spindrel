@@ -136,6 +136,10 @@ class TestHeartbeatModel:
         from app.db.models import ChannelHeartbeat
         assert hasattr(ChannelHeartbeat, "skip_tool_approval")
 
+    def test_model_has_execution_policy(self):
+        from app.db.models import ChannelHeartbeat
+        assert hasattr(ChannelHeartbeat, "execution_policy")
+
 
 class TestHeartbeatAPISchemas:
     """Verify the API schemas include skip_tool_approval."""
@@ -147,12 +151,16 @@ class TestHeartbeatAPISchemas:
             pytest.skip("Admin channel router has unrelated import issue")
         fields = HeartbeatConfigOut.model_fields
         assert "skip_tool_approval" in fields
+        assert "execution_policy" in fields
 
     def test_heartbeat_update_has_field(self):
         try:
             from app.routers.api_v1_admin.channels import HeartbeatUpdate
         except ImportError:
             pytest.skip("Admin channel router has unrelated import issue")
+        fields = HeartbeatUpdate.model_fields
+        assert "skip_tool_approval" in fields
+        assert "execution_policy" in fields
         fields = HeartbeatUpdate.model_fields
         assert "skip_tool_approval" in fields
         schema = HeartbeatUpdate.model_json_schema()

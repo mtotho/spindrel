@@ -450,6 +450,12 @@ def _ecosystem_default_state() -> dict[str, Any]:
     return default_state()
 
 
+def _blockyard_default_state() -> dict[str, Any]:
+    from app.services.games.blockyard import default_state
+
+    return default_state()
+
+
 _ECOSYSTEM_REASONING_FIELD = {
     "reasoning": {
         "type": "string",
@@ -603,7 +609,159 @@ _ECOSYSTEM_ACTIONS = (
 )
 
 
+_BLOCKYARD_REASONING_FIELD = {
+    "reasoning": {
+        "type": "string",
+        "description": (
+            "One short sentence explaining your move. Visible in the turn "
+            "log to other participants — what are you building?"
+        ),
+    },
+}
+
+
+_BLOCKYARD_BLOCK_TYPES = (
+    "stone",
+    "wood",
+    "glass",
+    "dirt",
+    "water",
+    "wool",
+    "light",
+    "leaves",
+    "sand",
+    "brick",
+)
+
+
+_BLOCKYARD_ACTIONS = (
+    NativeWidgetActionSpec(
+        id="place",
+        description=(
+            "Place one block at (x, y, z). You have an unlimited palette — "
+            "any block type, any empty cell within bounds, every turn. "
+            "Optionally label it (e.g. 'doorframe', 'roof', 'lantern')."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "z": {"type": "integer"},
+                "type": {"type": "string", "enum": list(_BLOCKYARD_BLOCK_TYPES)},
+                "label": {"type": "string", "description": "Optional short label for this block."},
+                **_BLOCKYARD_REASONING_FIELD,
+            },
+            "required": ["x", "y", "z", "type"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="remove",
+        description=(
+            "Break the block at (x, y, z) — yours or anyone else's. "
+            "Counts as your move for this turn."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "z": {"type": "integer"},
+                **_BLOCKYARD_REASONING_FIELD,
+            },
+            "required": ["x", "y", "z"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="inspect",
+        description=(
+            "Read what (if anything) occupies (x, y, z). Free — does not "
+            "consume your turn."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer"},
+                "y": {"type": "integer"},
+                "z": {"type": "integer"},
+            },
+            "required": ["x", "y", "z"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_participants",
+        description="User-only: rewrite the participant bot list.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "bot_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["bot_ids"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_phase",
+        description="User-only: transition between setup, playing, and ended.",
+        args_schema={
+            "type": "object",
+            "properties": {
+                "phase": {"type": "string", "enum": ["setup", "playing", "ended"]},
+            },
+            "required": ["phase"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="set_player_color",
+        description=(
+            "User-only: change a player's display color (hex). Cosmetic — "
+            "does not affect gameplay."
+        ),
+        args_schema={
+            "type": "object",
+            "properties": {
+                "bot_id": {"type": "string"},
+                "color": {"type": "string", "description": "Hex like #c8a45a."},
+            },
+            "required": ["bot_id", "color"],
+        },
+    ),
+    NativeWidgetActionSpec(
+        id="advance_round",
+        description=(
+            "User-only: bump the round counter. Skips any participant who "
+            "hasn't moved this round — no penalty, they get a fresh turn."
+        ),
+        args_schema={"type": "object", "properties": {}},
+    ),
+    NativeWidgetActionSpec(
+        id="clear_blocks",
+        description=(
+            "User-only: wipe all blocks. Keeps participants and turn log."
+        ),
+        args_schema={"type": "object", "properties": {}},
+    ),
+)
+
+
 _REGISTRY: dict[str, NativeWidgetSpec] = {
+    "core/game_blockyard": NativeWidgetSpec(
+        widget_ref="core/game_blockyard",
+        name="game_blockyard",
+        display_label="Blockyard",
+        description=(
+            "Async collaborative voxel-stacking on a shared 3D grid. Each "
+            "bot places blocks every turn — towers, gardens, bridges, "
+            "whatever fits their personality. The user plays alongside."
+        ),
+        icon="boxes",
+        supported_scopes=("dashboard",),
+        layout_hints={"preferred_zone": "grid", "min_cells": {"w": 6, "h": 6}, "max_cells": {"w": 12, "h": 12}},
+        default_state=_blockyard_default_state(),
+        actions=_BLOCKYARD_ACTIONS,
+        context_export={"enabled": False, "summary_kind": "native_state", "hint_kind": "none"},
+        panel_title="Blockyard",
+        show_panel_title=True,
+    ),
     "core/game_ecosystem": NativeWidgetSpec(
         widget_ref="core/game_ecosystem",
         name="game_ecosystem",

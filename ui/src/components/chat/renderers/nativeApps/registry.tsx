@@ -1,3 +1,4 @@
+import { BlockyardWidget } from "./BlockyardWidget";
 import { ChannelFilesWidget } from "./ChannelFilesWidget";
 import type { ReactNode } from "react";
 import { ContextTrackerWidget } from "./ContextTrackerWidget";
@@ -18,6 +19,7 @@ const NATIVE_WIDGET_REGISTRY: Record<string, NativeWidgetComponent> = {
   "core/channel_files_native": ChannelFilesWidget,
   "core/plan_questions": PlanQuestionsWidget,
   "core/context_tracker": ContextTrackerWidget,
+  "core/game_blockyard": BlockyardWidget,
   "core/game_ecosystem": EcosystemSimWidget,
   "core/machine_control_native": MachineControlWidget,
   "core/notes_native": NotesWidget,

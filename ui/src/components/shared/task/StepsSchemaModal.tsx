@@ -366,10 +366,10 @@ export function StepsSchemaModal() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false); }}
         >
-          <div className="bg-surface border border-surface-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
+          <div className="bg-surface border border-surface-border rounded-lg w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
             {/* Header */}
             <div className="flex flex-row items-center justify-between px-5 py-3.5 border-b border-surface-border shrink-0">
               <div className="flex flex-col gap-0.5">

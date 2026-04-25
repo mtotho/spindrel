@@ -119,7 +119,7 @@ export function TaskEditor({
           <button
             onClick={() => onClone(taskId)}
             title="Clone"
-            className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-surface-border rounded-md bg-transparent text-text-muted cursor-pointer shrink-0 hover:border-accent/50 hover:text-text transition-colors`}
+          className={`flex flex-row items-center ${isWide ? "gap-1.5 px-3.5" : "px-2"} py-1.5 text-[13px] border border-transparent rounded-md bg-transparent text-text-muted cursor-pointer shrink-0 hover:bg-surface-overlay/60 hover:text-text transition-colors`}
           >
             <Copy size={14} />
             {isWide && "Clone"}
@@ -152,7 +152,7 @@ export function TaskEditor({
           disabled={form.saving || !form.canSave}
           className={`${isWide ? "px-5" : "px-3"} py-1.5 text-[13px] font-semibold border-none rounded-md shrink-0 transition-colors ${
             form.canSave
-              ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+              ? "bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08]"
               : "bg-surface-border text-text-dim cursor-not-allowed"
           }`}
         >
@@ -174,7 +174,7 @@ export function TaskEditor({
             onClose();
             navigate(`/admin/tasks/${form.existingTask!.parent_task_id}`);
           }}
-          className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] border-b border-accent/[0.15] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left"
+          className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left"
         >
           <ArrowUpRight size={13} className="shrink-0" />
           <span>
@@ -192,7 +192,7 @@ export function TaskEditor({
       ) : (
         <div className={`flex flex-1 min-h-0 ${isWide ? "flex-row" : "flex-col overflow-y-auto"}`}>
           {/* Left pane — Content */}
-          <div className={isWide ? "flex-[3] min-h-0 overflow-y-auto border-r border-surface-overlay" : ""}>
+          <div className={isWide ? "flex-[3] min-h-0 overflow-y-auto" : ""}>
             <div className="px-5 py-4">
               <ContentFields form={form} promptRows={isWide ? 12 : 6} />
 
@@ -218,7 +218,7 @@ export function TaskEditor({
           </div>
 
           {/* Right pane — Configuration */}
-          <div className={`px-5 py-4 ${isWide ? "flex-[2] min-h-0 overflow-y-auto" : "flex-shrink-0 border-t border-surface-overlay"}`}>
+          <div className={`px-5 py-4 ${isWide ? "flex-[2] min-h-0 overflow-y-auto" : "flex-shrink-0"}`}>
             <div className="flex flex-col gap-4">
               <Section title="Configuration">
                 <ExecutionFields form={form} disableChannel={!isCreate} />

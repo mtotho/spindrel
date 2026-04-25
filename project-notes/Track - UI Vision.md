@@ -1,10 +1,11 @@
 ---
 tags: [agent-server, track, ui, vision]
 status: active
-updated: 2026-04-25
+updated: 2026-04-25 (Admin Tasks + pipeline builder cleanup)
 ---
 
-<!-- Latest pass (2026-04-25): usage/cost tabs refreshed, trace drilldowns promoted to shared drawer action, SettingsMeter added to shared controls. -->
+<!-- Latest pass (2026-04-25): Admin Tasks and the shared pipeline builder migrated to low-chrome task control surfaces. -->
+<!-- Previous pass (2026-04-25): usage/cost tabs refreshed, trace drilldowns promoted to shared drawer action, SettingsMeter added to shared controls. -->
 <!-- Latest pass (2026-04-24): Memory & Knowledge Dreaming tab/table cleanup completed the missed shared-control migration. See UI Polish shared-control reset. -->
 <!-- Previous pass (2026-04-23): Pass 4a — ParticipantsTab + ToolsOverrideTab migrated (agent/channel tab first-landing continuity). See UI Polish track Pass 4a. -->
 <!-- Previous pass (2026-04-23): Pass 3 — channel dashboard + settings migration + two-gear unification. -->
@@ -44,6 +45,7 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 | Integration control proof path | ✅ migrated 2026-04-24 (Pass 4b) | `ActivationsSection`, `ActivationCard`, `ActivationConfigFields`, `BindingsSection`, `BindingForm`, `SuggestionsPicker`, and `MultiSelectPicker` now use token/Tailwind control-surface chrome; activation add-ons split Added vs Available with a quiet filter; no `useThemeTokens()` in the integration settings flow. |
 | `IntegrationsTab` wrapper | ✅ clean 2026-04-23 (Pass 4a) | 5-line re-export already token-free. |
 | Channel Tasks tab | ✅ migrated 2026-04-24 (Pass 4c start) | `TasksTab`, `TaskCardRow`, `TaskConstants`, and `Spinner` now use grouped control flow, quiet segmented filters, borderless tonal rows, semantic token badges, and no `useThemeTokens()` in the visible task list path. |
+| Admin Tasks + pipeline builder | ✅ refreshed 2026-04-25 | `/admin/tasks`, task detail/create/edit, `TaskStepEditor`, JSON/object step editors, and channel pipeline run modal pieces now use low-chrome task controls, shared dropdowns, token-driven status, no native selects in the refreshed path, no Bootstrap-blue/pulse builder states, and no colored left rails. |
 | Admin Memory & Knowledge | ✅ first pass + Dreaming cleanup 2026-04-24 | `/admin/learning` is now Memory & Knowledge with shared tabs, read-first unified search, memory activity, knowledge inventory, conversation-history search, file-backed in-page source inspection, and lower-chrome Dreaming/Skills tabs. The shared Dreaming bot surface is token/Tailwind-based, uses shared empty/pill/badge/action primitives, and now experiments with per-bot dual job lanes instead of a dense table while keeping maintenance amber distinct from skill review purple. |
 | Admin Machines + Integrations | ✅ migrated 2026-04-24 | `/admin/machines`, `/admin/integrations`, integration detail, and route-owned integration subcomponents now use shared control-surface primitives, Tailwind tokens, no `useThemeTokens()`, and no inline hex/RGBA in the refreshed paths. Machine-control integration detail remains summary/link-only, with Admin > Machines as the canonical lifecycle surface. |
 | Settings foundation | ✅ shipped 2026-04-24 | `/settings` is now one nested shell with role-aware index redirect; `/settings/account`, `/settings/channels`, and `/settings/bots` use shared low-chrome primitives; `/settings/system` is the admin control center with domain-first tabs, Overview domain cards, canonical-surface links per domain, and an Advanced registry fallback instead of the old generic page owning the IA. |
@@ -59,11 +61,9 @@ Canonical design spec lives in `agent-server/docs/guides/ui-design.md`. This tra
 
 ## Near-term debt migration targets (in §8 of the doc)
 
-- `ui/src/components/shared/TaskStepEditor.tsx` — running step chrome + `animate-pulse` → token pair + dot.
 - `ui/src/components/chat/ToolsInContextPanel.tsx:38-40` — `rgba(...)` status backgrounds → `bg-purple/10` / `bg-success/10` / `bg-accent/10`.
 - `ui/src/components/layout/SystemPauseBanner.tsx`, `ApprovalToast.tsx`, `MemoryHygieneGroupBanner.tsx`, `DelegationCard.tsx`, `IndexStatusBadge.tsx` — inline-hex icon colors → `text-*` tokens.
 - `ui/src/components/chat/MarkdownContent.tsx:54-58` — `MENTION_COLORS` hex quartet → paired light/dark tokens.
-- `ui/src/components/shared/task/StepsJsonEditor.tsx` — JSON syntax colors → paired light/dark token set (a new "syntax" token family may be justified).
 
 ## Key invariants
 

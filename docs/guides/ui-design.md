@@ -378,7 +378,6 @@ These violate the rules above. They predate the rules. When you touch any file b
 ### Inline hex that bypasses theming
 
 - `ui/src/components/chat/MarkdownContent.tsx:54-58` — `MENTION_COLORS` hard-coded (`#1e1b4b`, `#a5b4fc`, `#14532d`, `#7dd3fc`). Replace with paired light/dark tokens.
-- `ui/src/components/shared/task/StepsJsonEditor.tsx` — JSON syntax colors (`#e06c75`, `#98c379`, `#c678dd`, …). Needs a paired light/dark token set.
 - `ui/src/components/layout/SystemPauseBanner.tsx` — `color: "#f59e0b"` → `text-warning-muted`.
 - `ui/src/components/layout/ApprovalToast.tsx:8` — `color: "#ef4444"` → `text-danger-muted`.
 - `ui/src/components/settings/MemoryHygieneGroupBanner.tsx` — `color: "#8b5cf6"` → `text-purple`.
@@ -389,7 +388,6 @@ These violate the rules above. They predate the rules. When you touch any file b
 ### Bootstrap-blue running / selected states
 
 - `ui/src/components/shared/TaskConstants.tsx:1-4` — `bg-blue-500/[0.12] text-blue-600` task status. Replace with `bg-accent/10 text-accent`.
-- `ui/src/components/shared/TaskStepEditor.tsx` — `bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse` running step. Replace with token pair; drop `animate-pulse`; use a single dot.
 
 ### `useThemeTokens()` callers to migrate opportunistically
 

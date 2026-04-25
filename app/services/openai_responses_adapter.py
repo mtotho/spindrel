@@ -409,8 +409,10 @@ def _build_request_body(
         "model": model,
         "input": items,
         "stream": stream,
-        "store": False,
+        "store": bool(extra.get("store")) if "store" in extra else False,
     }
+    if extra.get("previous_response_id"):
+        body["previous_response_id"] = extra["previous_response_id"]
     if instructions:
         body["instructions"] = instructions
     resp_tools = _translate_tools(tools)

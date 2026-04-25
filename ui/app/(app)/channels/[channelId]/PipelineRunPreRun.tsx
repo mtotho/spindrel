@@ -115,7 +115,7 @@ export function PipelineRunPreRun({
 
       {/* Footer */}
       <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-surface-border shrink-0">
-        <div className="text-[11px] text-red-400 min-w-0 truncate">
+        <div className="text-[11px] text-danger min-w-0 truncate">
           {launchError}
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -130,8 +130,8 @@ export function PipelineRunPreRun({
           <button
             onClick={handleStart}
             disabled={!canLaunch || running || isLoading}
-            className="px-3 py-1.5 text-xs rounded-md bg-accent text-white font-semibold
-                       hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed
+            className="px-3 py-1.5 text-xs rounded-md bg-transparent text-accent font-semibold
+                       hover:bg-accent/[0.08] disabled:opacity-50 disabled:cursor-not-allowed
                        inline-flex items-center gap-1.5"
           >
             {running ? <Loader2 size={12} className="animate-spin" /> : null}

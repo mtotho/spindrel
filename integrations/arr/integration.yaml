@@ -76,6 +76,54 @@ activation:
 provides:
   - tools
 
+tool_families:
+  arr:
+    label: ARR Stack
+    tools:
+      - sonarr_calendar
+      - sonarr_series
+      - sonarr_episodes
+      - sonarr_series_update
+      - sonarr_command
+      - sonarr_wanted
+      - sonarr_queue
+      - sonarr_queue_manage
+      - sonarr_quality_profiles
+      - sonarr_quality_profile_update
+      - sonarr_releases
+      - sonarr_history
+      - sonarr_indexers
+      - radarr_movies
+      - radarr_movie_update
+      - radarr_command
+      - radarr_queue
+      - radarr_queue_manage
+      - radarr_quality_profiles
+      - radarr_quality_profile_update
+      - radarr_releases
+      - radarr_history
+      - radarr_indexers
+      - prowlarr_indexers
+      - prowlarr_indexer_manage
+      - prowlarr_indexer_schemas
+      - prowlarr_search
+      - prowlarr_apps
+      - prowlarr_health
+      - prowlarr_tags
+      - qbit_torrents
+      - qbit_manage
+      - jellyfin_library
+      - jellyfin_now_playing
+      - jellyfin_users
+      - jellyseerr_requests
+      - jellyseerr_search
+      - jellyseerr_manage
+      - bazarr_subtitles
+      - flaresolverr_health
+      - flaresolverr_sessions
+      - flaresolverr_test_fetch
+      - flaresolverr_destroy_all_sessions
+
 # Showcase: rich React widget rendering of `sonarr_calendar` — week-ahead
 # episodes grouped by day with per-episode status chips. Authored as a
 # user-space React widget (`runtime: react`) to demonstrate that the same
@@ -106,3 +154,34 @@ tool_widgets:
       args:
         days_ahead: "{{widget_config.days_ahead}}"
       refresh_interval_seconds: 1800
+
+# Widget presets — guided binding flows surfaced in the Add-to-canvas /
+# dashboard preset pickers. Each preset wraps a tool_widget above; pinning
+# a preset runs the tool once with the resolved config to seed the first
+# envelope, then state_poll on the tool_widget takes over for refreshes.
+widget_presets:
+  arr-sonarr-week-ahead:
+    name: Sonarr — Week Ahead
+    description: Upcoming TV episodes from Sonarr grouped by day, auto-refreshing.
+    icon: CalendarDays
+    layout_hints:
+      preferred_zone: grid
+      min_cells: {w: 4, h: 4}
+    tool_name: sonarr_calendar
+    tool_family: arr
+    tool_dependencies: [sonarr_calendar]
+    binding_schema:
+      type: object
+      properties:
+        days_ahead:
+          type: integer
+          title: Days ahead
+          description: How many days of upcoming episodes to fetch.
+          minimum: 1
+          maximum: 28
+          default: 7
+    default_config:
+      days_ahead: 7
+    runtime:
+      tool_args:
+        days_ahead: "{{config.days_ahead}}"

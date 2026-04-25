@@ -76,14 +76,14 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
         />
       </FormRow>
 
-      {/* Mode toggle: Prompt | Steps */}
+      {/* Mode toggle: Prompt | Pipeline */}
       {!workflowId && (
-        <div className="flex flex-row items-center gap-0 bg-surface-raised rounded-lg border border-surface-border p-0.5 w-fit">
+        <div className="flex flex-row items-center gap-0 bg-surface-raised/40 rounded-md p-1 w-fit">
           <button
             onClick={toggleToPrompt}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md border-none transition-colors ${
               !stepsMode
-                ? "bg-accent text-white"
+                ? "bg-surface-overlay text-text"
                 : "bg-transparent text-text-dim hover:text-text cursor-pointer"
             }`}
           >
@@ -93,7 +93,7 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
             onClick={toggleToSteps}
             className={`px-4 py-1.5 text-xs font-semibold rounded-md border-none transition-colors ${
               stepsMode
-                ? "bg-accent text-white"
+                ? "bg-surface-overlay text-text"
                 : "bg-transparent text-text-dim hover:text-text cursor-pointer"
             }`}
           >
@@ -138,12 +138,12 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
         <>
           {/* Visual / JSON toggle + schema help */}
           <div className="flex flex-row items-center gap-2">
-            <div className="flex flex-row items-center gap-0 bg-surface-raised rounded-md border border-surface-border p-0.5">
+            <div className="flex flex-row items-center gap-0 bg-surface-raised/40 rounded-md p-1">
               <button
                 onClick={() => setJsonMode(false)}
                 className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
                   !jsonMode
-                    ? "bg-surface text-text shadow-sm"
+                    ? "bg-surface-overlay text-text"
                     : "bg-transparent text-text-dim hover:text-text cursor-pointer"
                 }`}
               >
@@ -154,7 +154,7 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
                 onClick={() => setJsonMode(true)}
                 className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
                   jsonMode
-                    ? "bg-surface text-text shadow-sm"
+                    ? "bg-surface-overlay text-text"
                     : "bg-transparent text-text-dim hover:text-text cursor-pointer"
                 }`}
               >

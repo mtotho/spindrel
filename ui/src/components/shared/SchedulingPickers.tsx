@@ -63,7 +63,7 @@ export function ScheduledAtPicker({ value, onChange }: { value: string; onChange
         <button
           onClick={() => onChange("")}
           className={`shrink-0 cursor-pointer rounded-md border border-transparent px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-            isNow ? "bg-accent/[0.08] text-accent" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
+            isNow ? "bg-surface-overlay text-text" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
           }`}
         >
           Now
@@ -122,7 +122,7 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
           <button
             onClick={handleToggle}
             className={`shrink-0 cursor-pointer rounded-md border border-transparent px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              hasRecurrence ? "bg-warning/10 text-warning" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
+              hasRecurrence ? "bg-surface-overlay text-text" : "bg-transparent text-text-muted hover:bg-surface-overlay/45 hover:text-text"
             }`}
           >
             {hasRecurrence ? "Repeating" : "No repeat"}
@@ -135,13 +135,13 @@ export function RecurrencePicker({ value, onChange }: { value: string; onChange:
                 min={1}
                 value={numValue}
                 onChange={(e) => handleNumChange(parseInt(e.target.value) || 1)}
-                className={`w-14 px-2 py-1.5 text-[13px] text-center bg-input border rounded-md text-text outline-none focus:border-accent/40 ${
-                  isValid ? "border-surface-border" : "border-danger"
+                className={`w-14 rounded-md bg-input px-2 py-1.5 text-center text-[13px] text-text outline-none ring-1 focus:ring-accent/40 ${
+                  isValid ? "ring-surface-border" : "ring-danger"
                 }`}
               />
               <div className="w-[112px]">
                 <SelectDropdown
-                value={unitValue}
+                  value={unitValue}
                   options={RECURRENCE_UNITS}
                   onChange={handleUnitChange}
                   size="compact"
@@ -243,7 +243,7 @@ export function ScheduleSummary({
   if (!summary && nextRuns.length === 0) return null;
 
   return (
-    <div className="px-3 py-2.5 rounded-lg bg-surface-raised border border-surface-border flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 rounded-md bg-surface-raised/40 px-3 py-2.5">
       {summary && (
         <div className="text-xs font-medium text-text">
           {summary}

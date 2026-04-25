@@ -399,3 +399,35 @@ def test_list_widget_presets_rejects_invalid_binding_schema(monkeypatch):
 
     with pytest.raises(WidgetPresetValidationError, match="binding_schema"):
         list_widget_presets()
+
+
+def test_arr_sonarr_week_ahead_preset_registers(monkeypatch):
+    """The shipped arr/integration.yaml preset must clear dependency-contract
+    validation and surface in `list_widget_presets`. Pins core invariants:
+    `arr-sonarr-week-ahead` exists, declares `tool_family=arr`, depends only
+    on `sonarr_calendar`, and threads `days_ahead` from config to tool_args.
+    """
+    import yaml
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parents[2] / "integrations" / "arr" / "integration.yaml"
+    manifest = yaml.safe_load(yaml_path.read_text())
+    monkeypatch.setattr(
+        "app.services.widget_presets.get_all_manifests",
+        lambda: {"arr": manifest},
+    )
+
+    presets = list_widget_presets()
+    arr = next((p for p in presets if p["id"] == "arr-sonarr-week-ahead"), None)
+    assert arr is not None, "arr-sonarr-week-ahead preset must register"
+    assert arr["tool_name"] == "sonarr_calendar"
+    assert arr["tool_family"] == "arr"
+    assert arr["tool_dependencies"] == ["sonarr_calendar"]
+
+    args = resolve_runtime_args(
+        preset=arr,
+        config={"days_ahead": 14},
+        source_bot_id=None,
+        source_channel_id=None,
+    )
+    assert args == {"days_ahead": 14}

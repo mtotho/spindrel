@@ -16,13 +16,13 @@ import type { StepDef } from "@/src/api/hooks/useTasks";
 type TokenType = "key" | "string" | "number" | "boolean" | "null" | "punctuation" | "text";
 
 const TOKEN_COLORS: Record<TokenType, string> = {
-  key: "#e06c75",
-  string: "#98c379",
-  number: "#d19a66",
-  boolean: "#c678dd",
-  null: "#c678dd",
-  punctuation: "#56b6c2",
-  text: "#abb2bf",
+  key: "rgb(var(--color-danger-muted))",
+  string: "rgb(var(--color-success))",
+  number: "rgb(var(--color-warning-muted))",
+  boolean: "rgb(var(--color-purple))",
+  null: "rgb(var(--color-purple))",
+  punctuation: "rgb(var(--color-accent))",
+  text: "rgb(var(--color-input-text))",
 };
 
 function escapeHtml(s: string): string {
@@ -228,8 +228,8 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
       <div className="flex flex-row items-center gap-2 flex-wrap">
         <div className={`flex flex-row items-center gap-1.5 px-2 py-1 rounded-md text-xs ${
           parseError
-            ? "bg-red-500/10 text-red-400 border border-red-500/20"
-            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+            ? "bg-danger/10 text-danger"
+            : "bg-success/10 text-success"
         }`}>
           {parseError ? (
             <>
@@ -257,7 +257,7 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
           onClick={handleCopy}
           className="flex flex-row items-center gap-1 px-2 py-1 text-[11px] text-text-dim bg-transparent border border-surface-border rounded-md cursor-pointer hover:text-text hover:border-accent/40 transition-colors"
         >
-          {copied ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+          {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
@@ -271,8 +271,8 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
           minHeight: 300,
           maxHeight: 600,
           borderRadius: 8,
-          border: `1px solid ${parseError ? "rgba(239,68,68,0.3)" : "var(--surface-border, #333)"}`,
-          background: "#0d1117",
+          border: `1px solid ${parseError ? "rgb(var(--color-danger) / 0.30)" : "rgb(var(--color-input-border))"}`,
+          background: "rgb(var(--color-input-bg))",
           overflow: "hidden",
         }}
       >
@@ -289,11 +289,11 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
             fontFamily: FONT,
             fontSize: FONT_SIZE,
             lineHeight: LINE_HEIGHT,
-            color: "rgba(255,255,255,0.25)",
+            color: "rgb(var(--color-text-dim) / 0.65)",
             userSelect: "none",
             pointerEvents: "none",
             overflow: "hidden",
-            borderRight: "1px solid rgba(255,255,255,0.08)",
+            borderRight: "1px solid rgb(var(--color-surface-border) / 0.70)",
           }}
         >
           {Array.from({ length: lineCount }, (_, i) => (
@@ -347,7 +347,7 @@ export function StepsJsonEditor({ steps, onChange, readOnly }: StepsJsonEditorPr
               fontSize: FONT_SIZE,
               lineHeight: LINE_HEIGHT,
               color: "transparent",
-              caretColor: "#e6edf3",
+              caretColor: "rgb(var(--color-input-text))",
               background: "transparent",
               border: "none",
               outline: "none",

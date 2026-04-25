@@ -88,7 +88,7 @@ export function TaskCreateWizard({
       <div className={`flex flex-col bg-surface ${
         isMobile
           ? "w-full h-full"
-          : "w-[min(95vw,720px)] max-h-[85vh] rounded-2xl shadow-2xl border border-surface-border"
+          : "w-[min(95vw,720px)] max-h-[85vh] rounded-lg border border-surface-border"
       } overflow-hidden`}>
 
         {/* Header */}
@@ -107,7 +107,7 @@ export function TaskCreateWizard({
             disabled={form.saving || !form.canSave}
             className={`px-5 py-1.5 text-[13px] font-semibold border-none rounded-lg shrink-0 transition-all duration-150 ${
               form.canSave
-                ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+                ? "bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08]"
                 : "bg-surface-border text-text-dim cursor-not-allowed"
             } ${form.saving ? "opacity-70" : ""}`}
           >
@@ -163,7 +163,7 @@ export function TaskCreateWizard({
               disabled={!canGoNext}
               className={`flex flex-row items-center gap-1 px-4 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
                 canGoNext
-                  ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+                  ? "bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08]"
                   : "bg-surface-border text-text-dim cursor-not-allowed"
               }`}
             >
@@ -176,7 +176,7 @@ export function TaskCreateWizard({
               disabled={form.saving || !form.canSave}
               className={`px-5 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
                 form.canSave
-                  ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+                  ? "bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08]"
                   : "bg-surface-border text-text-dim cursor-not-allowed"
               } ${form.saving ? "opacity-70" : ""}`}
             >

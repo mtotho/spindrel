@@ -456,6 +456,55 @@ class TestSkillInjection:
         assert index_events[0]["count"] == 1
 
     @pytest.mark.asyncio
+    async def test_heartbeat_profile_skips_ambient_skill_index(self, engine, db_session):
+        """Heartbeat runs should not spend iterations loading unrelated enrolled skills."""
+        from app.db.models import Skill
+
+        skill = Skill(
+            id="workspace/channel_workspaces",
+            name="Channel Workspace",
+            content="Large workspace operating guide.",
+            description="How to use channel workspace files",
+            source_type="file",
+        )
+        db_session.add(skill)
+        await db_session.commit()
+
+        bot = _make_bot(skills=[SkillConfig(id="workspace/channel_workspaces", mode="on_demand")])
+        messages = [{"role": "system", "content": bot.system_prompt}]
+        result = AssemblyResult()
+        factory = _session_factory(engine)
+
+        _mock_retrieve = AsyncMock(return_value=[{"skill_id": "workspace/channel_workspaces", "similarity": 0.8}])
+
+        with (
+            patch("app.db.engine.async_session", factory),
+            patch("app.agent.hooks.fire_hook", new_callable=AsyncMock),
+            patch("app.agent.recording._record_trace_event", new_callable=AsyncMock),
+            patch("app.agent.tags.resolve_tags", new_callable=AsyncMock, return_value=[]),
+            patch("app.agent.rag.retrieve_skill_index", _mock_retrieve),
+        ):
+            events = await _collect(assemble_context(
+                messages=messages,
+                bot=bot,
+                user_message="spatial heartbeat turn",
+                session_id=None,
+                client_id=None,
+                correlation_id=None,
+                channel_id=None,
+                audio_data=None,
+                audio_format=None,
+                attachments=None,
+                native_audio=False,
+                result=result,
+                context_profile_name="heartbeat",
+            ))
+
+        assert not [m for m in messages if "call get_skill" in m.get("content", "")]
+        assert not [e for e in events if e.get("type") == "skill_index"]
+        assert result.inject_decisions["skill_index"] == "skipped_by_profile"
+
+    @pytest.mark.asyncio
     async def test_on_demand_skill_index_surfaces_grill_me_trigger(self, engine, db_session):
         """A 'grill me' request should surface the grill_me skill in the index."""
         from app.db.models import Skill

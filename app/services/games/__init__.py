@@ -193,3 +193,4 @@ def is_game_widget(widget_ref: str | None) -> bool:
 # Eagerly import concrete games so their ``register_game`` calls run.
 # Keep imports at the bottom to avoid circular-dep issues with shared helpers.
 from app.services.games import ecosystem  # noqa: E402,F401
+from app.services.games import blockyard  # noqa: E402,F401

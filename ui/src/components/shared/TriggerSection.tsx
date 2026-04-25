@@ -34,26 +34,6 @@ const TRIGGER_TYPES: { label: string; value: TriggerType }[] = [
   { label: "Manual", value: "manual" },
 ];
 
-// ---------------------------------------------------------------------------
-// Integration color map — brand colors for visual identity
-// ---------------------------------------------------------------------------
-const INTEGRATION_COLORS: Record<string, { border: string; bg: string; dot: string }> = {
-  system:      { border: "#6b7280", bg: "rgba(107,114,128,0.08)", dot: "#6b7280" },
-  slack:       { border: "#4A154B", bg: "rgba(74,21,75,0.10)",    dot: "#E01E5A" },
-  github:      { border: "#8b949e", bg: "rgba(139,148,158,0.08)", dot: "#8b949e" },
-  discord:     { border: "#5865F2", bg: "rgba(88,101,242,0.10)",  dot: "#5865F2" },
-  wyoming:     { border: "#14b8a6", bg: "rgba(20,184,166,0.10)",  dot: "#14b8a6" },
-  gmail:       { border: "#EA4335", bg: "rgba(234,67,53,0.10)",   dot: "#EA4335" },
-  frigate:     { border: "#0ea5e9", bg: "rgba(14,165,233,0.10)",  dot: "#0ea5e9" },
-  bluebubbles: { border: "#34D399", bg: "rgba(52,211,153,0.10)",  dot: "#34D399" },
-};
-
-const DEFAULT_COLOR = { border: "#6b7280", bg: "rgba(107,114,128,0.08)", dot: "#6b7280" };
-
-function getColor(intType: string) {
-  return INTEGRATION_COLORS[intType] ?? DEFAULT_COLOR;
-}
-
 export function TriggerSection({
   triggerConfig,
   onTriggerConfigChange,
@@ -72,15 +52,15 @@ export function TriggerSection({
   return (
     <div className="flex flex-col gap-3">
       {/* Segmented control */}
-      <div className="flex flex-row gap-0.5 bg-surface-raised rounded-[10px] border border-surface-border p-[3px]">
+      <div className="flex flex-row gap-0.5 rounded-md bg-surface-raised/40 p-1">
         {TRIGGER_TYPES.map((tt) => (
           <button
             key={tt.value}
             onClick={() => onTriggerConfigChange({ ...triggerConfig, type: tt.value })}
-            className={`flex flex-1 items-center justify-center py-[7px] text-xs font-semibold border-none cursor-pointer rounded-[7px] transition-all duration-150 ${
+            className={`flex flex-1 items-center justify-center rounded px-3 py-2 text-xs font-semibold transition-colors ${
               triggerType === tt.value
-                ? "bg-accent text-white shadow-sm"
-                : "bg-transparent text-text-muted hover:text-text"
+                ? "bg-surface-overlay text-text"
+                : "text-text-muted hover:bg-surface-overlay/50 hover:text-text"
             }`}
           >
             {tt.label}
@@ -110,7 +90,7 @@ export function TriggerSection({
 
       {/* Manual */}
       {triggerType === "manual" && (
-        <div className="px-4 py-3.5 rounded-[10px] bg-surface-raised border border-surface-border text-xs text-text-muted leading-relaxed">
+        <div className="rounded-md bg-surface-raised/40 px-4 py-3 text-xs leading-relaxed text-text-muted">
           Run on demand only — no schedule or event trigger. Use the API or admin UI to execute.
         </div>
       )}
@@ -252,7 +232,7 @@ function EventTriggerFields({
 
   if (sources.length === 0) {
     return (
-      <div className="px-4 py-3.5 rounded-[10px] bg-surface-raised border border-surface-border text-xs text-text-dim leading-normal">
+      <div className="rounded-md bg-surface-raised/40 px-4 py-3 text-xs leading-normal text-text-dim">
         No event sources available. Install integrations or configure channel bindings to enable event triggers.
       </div>
     );
@@ -267,7 +247,6 @@ function EventTriggerFields({
         </div>
 
         {groups.map((group) => {
-          const color = getColor(group.intType);
           const expanded = expandedGroup === group.intType;
           const groupSel = isGroupSelected(group);
           const isSystem = group.intType === "system";
@@ -279,27 +258,22 @@ function EventTriggerFields({
               <button
                 onClick={() => toggleGroup(group.intType, group)}
                 disabled={group.disabled}
-                className={`flex flex-row items-center gap-2.5 w-full px-3 py-2 rounded-lg border text-left transition-all duration-150 cursor-pointer ${
+                className={`flex w-full cursor-pointer flex-row items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors ${
                   group.disabled
-                    ? "opacity-30 cursor-not-allowed border-surface-border bg-surface-raised"
+                    ? "cursor-not-allowed bg-surface-raised/20 opacity-40"
                     : groupSel
-                    ? "border-accent/40 bg-accent/[0.04]"
-                    : "border-surface-border bg-surface-raised hover:border-text-dim/20"
+                    ? "bg-surface-overlay text-text"
+                    : "bg-surface-raised/40 hover:bg-surface-overlay/50"
                 }`}
-                style={{
-                  borderLeftWidth: 3,
-                  borderLeftColor: group.disabled ? "transparent" : color.border,
-                }}
               >
                 {/* Icon */}
-                <div
-                  className="flex items-center justify-center w-6 h-6 rounded shrink-0"
-                  style={{ backgroundColor: color.bg }}
-                >
+                <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${
+                  groupSel ? "bg-surface-raised text-text" : "bg-surface-overlay/60 text-text-dim"
+                }`}>
                   {isSystem ? (
-                    <Server size={12} style={{ color: color.dot }} />
+                    <Server size={12} />
                   ) : (
-                    <Zap size={12} style={{ color: color.dot }} />
+                    <Zap size={12} />
                   )}
                 </div>
 
@@ -330,16 +304,13 @@ function EventTriggerFields({
                     {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                   </div>
                 ) : !group.disabled && groupSel ? (
-                  <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+                  <div className="h-2 w-2 shrink-0 rounded-full bg-accent" />
                 ) : null}
               </button>
 
               {/* Expanded bindings */}
               {expanded && hasBindings && (
-                <div
-                  className="flex flex-col gap-px mt-px ml-4 pl-3 border-l"
-                  style={{ borderLeftColor: color.border + "30" }}
-                >
+                <div className="ml-8 mt-1 flex flex-col gap-1">
                   {/* "Any" option */}
                   {group.anySource && (
                     <BindingItem
@@ -348,7 +319,6 @@ function EventTriggerFields({
                       onClick={() => selectSource(
                         isSelected(group.anySource!.source) ? "" : group.anySource!.source
                       )}
-                      color={color}
                       isWildcard
                     />
                   )}
@@ -359,7 +329,6 @@ function EventTriggerFields({
                       label={b.label}
                       selected={isSelected(b.source)}
                       onClick={() => selectSource(isSelected(b.source) ? "" : b.source)}
-                      color={color}
                     />
                   ))}
                 </div>
@@ -408,7 +377,7 @@ function EventTriggerFields({
             Filter conditions
           </div>
           {filterEntries.map(([k, v]) => (
-            <div key={k} className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface-raised border border-surface-border">
+            <div key={k} className="flex flex-row items-center gap-1.5 rounded-md bg-surface-raised/40 px-2.5 py-1.5">
               <span className="text-[11px] text-accent font-bold font-mono">{k}</span>
               <span className="text-[10px] text-text-dim/60">=</span>
               <span className="text-[11px] text-text flex-1 font-mono">{v}</span>
@@ -426,7 +395,7 @@ function EventTriggerFields({
               value={filterKey}
               onChange={(e) => setFilterKey(e.target.value)}
               placeholder="key"
-              className="flex-1 px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
+              className="flex-1 rounded-md bg-input px-2 py-1.5 text-xs text-text outline-none ring-1 ring-surface-border focus:ring-accent/40"
             />
             <input
               type="text"
@@ -434,12 +403,12 @@ function EventTriggerFields({
               onChange={(e) => setFilterValue(e.target.value)}
               placeholder="value"
               onKeyDown={(e) => { if (e.key === "Enter") addFilter(); }}
-              className="flex-[2] px-2 py-1.5 text-xs bg-input border border-surface-border rounded-md text-text outline-none focus:border-accent/40"
+              className="flex-[2] rounded-md bg-input px-2 py-1.5 text-xs text-text outline-none ring-1 ring-surface-border focus:ring-accent/40"
             />
             <button
               onClick={addFilter}
               disabled={!filterKey.trim() || !filterValue.trim()}
-              className="px-2.5 py-1.5 text-[11px] font-semibold rounded-md border-none cursor-pointer bg-accent text-white disabled:opacity-40"
+              className="cursor-pointer rounded-md bg-surface-overlay px-2.5 py-1.5 text-[11px] font-semibold text-text transition-colors hover:bg-surface-overlay/80 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Add
             </button>
@@ -462,22 +431,20 @@ function BindingItem({
   label,
   selected,
   onClick,
-  color,
   isWildcard,
 }: {
   label: string;
   selected: boolean;
   onClick: () => void;
-  color: { border: string; bg: string; dot: string };
   isWildcard?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
-      className={`flex flex-row items-center gap-2 w-full px-2.5 py-1.5 rounded-md text-left transition-all duration-100 cursor-pointer border ${
+      className={`flex w-full cursor-pointer flex-row items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
         selected
-          ? "border-accent/30 bg-accent/[0.06]"
-          : "border-transparent hover:bg-surface-overlay/50"
+          ? "bg-surface-overlay"
+          : "hover:bg-surface-overlay/50"
       }`}
     >
       {/* Radio dot */}
@@ -522,10 +489,10 @@ function EventPill({
     <button
       onClick={onClick}
       title={description}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium border transition-all duration-100 cursor-pointer ${
+      className={`inline-flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium transition-colors ${
         selected
-          ? "bg-accent/[0.12] text-accent border-accent/30"
-          : "bg-transparent text-text-muted border-surface-border hover:border-text-dim/30 hover:text-text"
+          ? "bg-surface-overlay text-text"
+          : "text-text-muted hover:bg-surface-overlay/50 hover:text-text"
       }`}
     >
       {category && (

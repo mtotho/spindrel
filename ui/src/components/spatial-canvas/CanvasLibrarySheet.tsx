@@ -1,10 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import {
   WidgetLibrary,
   type LibraryPinPayload,
 } from "@/app/(app)/widgets/WidgetLibrary";
-import { usePinWidgetToCanvas } from "@/src/api/hooks/useWorkspaceSpatial";
+import {
+  WidgetPresetsPane,
+  type PresetPinContext,
+} from "@/app/(app)/widgets/WidgetPresetsPane";
+import {
+  usePinWidgetToCanvas,
+  usePinPresetToCanvas,
+} from "@/src/api/hooks/useWorkspaceSpatial";
 
 interface CanvasLibrarySheetProps {
   open: boolean;
@@ -16,14 +23,25 @@ interface CanvasLibrarySheetProps {
 const PIN_W = 320;
 const PIN_H = 220;
 
+type Tab = "presets" | "library";
+
 /**
- * Side-sheet wrapper around the existing `WidgetLibrary` in pin mode. Pinning
- * any library entry creates a workspace-canvas spatial node + dashboard pin
- * (on `workspace:spatial`) at the camera center. Reuses the same library
- * surface as `/(app)/widgets/` — no duplicated pin paths.
+ * Side-sheet wrapper around the existing widget library + preset pickers,
+ * routed at the workspace canvas. Two tabs:
+ *
+ * - **Presets** (default) — `widget_presets` from every enabled integration.
+ *   This matches the dashboard's preset DX: pick → bind → preview → pin. The
+ *   pin lands on the canvas via `usePinPresetToCanvas` instead of the
+ *   default dashboard target.
+ * - **Library** — standalone HTML bundles (core / bot / workspace scopes)
+ *   that don't need tool args. Tool widgets attached to integration
+ *   `tool_widgets` blocks are intentionally **not** here — those are
+ *   instantiated through their preset wrapper instead.
  */
 export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrarySheetProps) {
   const pin = usePinWidgetToCanvas();
+  const pinPreset = usePinPresetToCanvas();
+  const [tab, setTab] = useState<Tab>("presets");
 
   useEffect(() => {
     if (!open) return;
@@ -36,14 +54,13 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
 
   if (!open) return null;
 
-  async function handlePin(payload: LibraryPinPayload) {
+  const x = (worldCenter?.x ?? 0) - PIN_W / 2;
+  const y = (worldCenter?.y ?? 0) - PIN_H / 2;
+
+  async function handleLibraryPin(payload: LibraryPinPayload) {
     const { entry, envelope, botId } = payload;
-    const x = (worldCenter?.x ?? 0) - PIN_W / 2;
-    const y = (worldCenter?.y ?? 0) - PIN_H / 2;
 
     if (entry.widget_kind === "native_app" && entry.widget_ref) {
-      // Native widgets are widget_ref-bound; we use the ref itself as the
-      // pin's tool_name so the row reads usefully in admin views.
       await pin.mutateAsync({
         source_kind: "adhoc",
         tool_name: entry.widget_ref,
@@ -59,8 +76,6 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
       return;
     }
 
-    // HTML library / scanner entries — same shape as the channel-dashboard
-    // library uses, just routed at workspace canvas coords.
     let toolArgs: Record<string, unknown>;
     let sourceKind: "adhoc" | "channel" = "adhoc";
     let pinChannelId: string | null = null;
@@ -96,6 +111,22 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
     onClose();
   }
 
+  async function handlePresetPin(ctx: PresetPinContext): Promise<{ id: string }> {
+    const created = await pinPreset.mutateAsync({
+      preset_id: ctx.presetId,
+      config: ctx.config,
+      source_bot_id: ctx.sourceBotId,
+      source_channel_id: ctx.sourceChannelId,
+      display_label: ctx.displayLabel,
+      world_x: x,
+      world_y: y,
+      world_w: PIN_W,
+      world_h: PIN_H,
+    });
+    onClose();
+    return { id: created.pin.id };
+  }
+
   return (
     <>
       <div
@@ -122,22 +153,49 @@ export function CanvasLibrarySheet({ open, onClose, worldCenter }: CanvasLibrary
             <X size={16} />
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <WidgetLibrary
-            mode="pin"
-            botEnumeration="all-bots"
-            pinScope={{ kind: "user" }}
-            libraryBotId={null}
-            scopeChannelId={null}
-            onPin={handlePin}
-          />
+        <div className="flex flex-row items-center gap-1 px-3 pt-2 pb-1 border-b border-surface-border/50">
+          <CanvasTab label="Presets" active={tab === "presets"} onClick={() => setTab("presets")} />
+          <CanvasTab label="Library" active={tab === "library"} onClick={() => setTab("library")} />
         </div>
-        {pin.isPending && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {tab === "presets" ? (
+            <WidgetPresetsPane
+              mode="pin"
+              scopeChannelId={null}
+              onPin={handlePresetPin}
+            />
+          ) : (
+            <WidgetLibrary
+              mode="pin"
+              botEnumeration="all-bots"
+              pinScope={{ kind: "user" }}
+              libraryBotId={null}
+              scopeChannelId={null}
+              onPin={handleLibraryPin}
+            />
+          )}
+        </div>
+        {(pin.isPending || pinPreset.isPending) && (
           <div className="px-4 py-2 text-[11px] text-text-dim border-t border-surface-border">
             pinning…
           </div>
         )}
       </div>
     </>
+  );
+}
+
+function CanvasTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "rounded-md px-3 py-1.5 text-[12px] transition-colors",
+        active ? "bg-accent/15 text-accent font-semibold" : "text-text-muted hover:bg-surface-overlay/60",
+      ].join(" ")}
+    >
+      {label}
+    </button>
   );
 }

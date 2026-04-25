@@ -146,7 +146,7 @@ export default function TaskDetailScreen() {
                 title="Run now"
                 className={`flex flex-row items-center gap-1 px-2 sm:px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
                   runNowMut.isPending
-                    ? "bg-accent/30 text-accent animate-pulse"
+                    ? "bg-accent/10 text-accent"
                     : "bg-accent/10 text-accent hover:bg-accent/20"
                 }`}
               >
@@ -179,9 +179,9 @@ export default function TaskDetailScreen() {
                 disabled={form.saving || !form.canSave}
                 className={`px-3 sm:px-4 py-1.5 text-xs font-semibold border-none rounded-lg transition-all duration-150 ${
                   savedFlash
-                    ? "bg-success text-white"
+                      ? "bg-success text-white"
                     : form.canSave
-                      ? "bg-accent text-white cursor-pointer hover:bg-accent-hover"
+                      ? "bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08]"
                       : "bg-surface-border text-text-dim cursor-not-allowed"
                 } ${form.saving ? "opacity-70" : ""}`}
               >
@@ -201,7 +201,7 @@ export default function TaskDetailScreen() {
 
       {/* System-seeded banner */}
       {isSystemSeeded && (
-        <div className="flex flex-row items-start gap-2 px-5 py-2.5 bg-accent/[0.06] border-b border-accent/[0.15] text-xs text-accent">
+        <div className="flex flex-row items-start gap-2 px-5 py-2.5 bg-accent/[0.06] text-xs text-accent">
           <Cog size={13} className="shrink-0 mt-px" />
           <span className="leading-relaxed">
             <span className="font-semibold">System pipeline</span> — seeded from{" "}
@@ -217,7 +217,7 @@ export default function TaskDetailScreen() {
       {task.parent_task_id && (
         <button
           onClick={() => navigate(`/admin/tasks/${task.parent_task_id}`)}
-          className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] border-b border-accent/[0.15] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left shrink-0"
+          className="flex flex-row items-center gap-2 px-5 py-2 bg-accent/[0.06] text-xs text-accent cursor-pointer hover:bg-accent/[0.10] transition-colors w-full border-none text-left shrink-0"
         >
           <ArrowUpRight size={13} className="shrink-0" />
           <span>
@@ -229,7 +229,7 @@ export default function TaskDetailScreen() {
 
       {/* Tab bar — hidden for system-managed tasks */}
       {!isSystemManaged && (
-        <div className="flex flex-row items-center gap-0.5 px-5 border-b border-surface-border">
+        <div className="flex flex-row items-center gap-0.5 px-5">
           {(["overview", "runs"] as Tab[]).map((t) => (
             <button
               key={t}
@@ -278,27 +278,27 @@ function OverviewTab({ form, task, readOnly }: { form: ReturnType<typeof useTask
   return (
     <fieldset
       disabled={readOnly}
-      className={`flex flex-col gap-0 max-w-4xl border-0 p-0 m-0 ${readOnly ? "opacity-95" : ""}`}
+      className={`flex flex-col gap-7 max-w-4xl border-0 p-5 m-0 ${readOnly ? "opacity-95" : ""}`}
     >
-      <div className="px-5 py-5 flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <ContentFields form={form} promptRows={10} />
       </div>
-      <div className="px-5 py-5 border-t border-surface-border flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <ExecutionFields form={form} />
       </div>
-      <div className="px-5 py-5 border-t border-surface-border flex flex-col gap-4">
+      <div className="flex flex-col gap-4">
         <TriggerFields form={form} />
       </div>
 
       {/* Subscribed channels — for pipeline definitions only */}
       {task.task_type === "pipeline" && (
-        <div className="px-5 py-5 border-t border-surface-border">
+        <div>
           <SubscribedChannelsSection taskId={task.id} />
         </div>
       )}
 
       {/* Timing info */}
-      <div className="px-5 py-5 border-t border-surface-border">
+      <div>
         <Section title="Timing">
           <div className="flex flex-col gap-2">
             <InfoRow label="Created" value={fmtDatetime(task.created_at)} />
@@ -313,7 +313,7 @@ function OverviewTab({ form, task, readOnly }: { form: ReturnType<typeof useTask
 
       {/* Result/Error for one-shot tasks */}
       {task.result && (
-        <div className="px-5 py-5 border-t border-surface-border">
+        <div>
           <Section title="Result">
             <pre className="text-xs text-success font-mono whitespace-pre-wrap bg-input p-3 rounded-lg border border-surface-border max-h-72 overflow-auto m-0">
               {task.result}
@@ -322,7 +322,7 @@ function OverviewTab({ form, task, readOnly }: { form: ReturnType<typeof useTask
         </div>
       )}
       {task.error && (
-        <div className="px-5 py-5 border-t border-surface-border">
+        <div>
           <Section title="Error">
             <pre className="text-xs text-danger font-mono whitespace-pre-wrap bg-danger/5 p-3 rounded-lg border border-danger/20 max-h-48 overflow-auto m-0">
               {task.error}
@@ -354,7 +354,7 @@ function RunsTab({ taskId, task, children, loading, onRunNow, runningNow }: {
   return (
     <div className="flex flex-col">
       {/* Action bar */}
-      <div className="flex flex-row items-center justify-between px-5 py-3 border-b border-surface-border">
+      <div className="flex flex-row items-center justify-between px-5 py-3">
         <span className="text-xs text-text-muted">
           {isOneShot ? "Single execution" : `${runs.length} run${runs.length !== 1 ? "s" : ""}`}
         </span>
@@ -363,7 +363,7 @@ function RunsTab({ taskId, task, children, loading, onRunNow, runningNow }: {
           disabled={runningNow}
           className={`flex flex-row items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border-none rounded-lg cursor-pointer transition-colors ${
             runningNow
-              ? "bg-accent/30 text-accent animate-pulse"
+              ? "bg-accent/10 text-accent"
               : "bg-accent/10 text-accent hover:bg-accent/20"
           }`}
         >
@@ -410,14 +410,16 @@ const STEP_TYPE_ICON: Record<string, typeof Terminal> = {
   exec: Terminal,
   tool: Wrench,
   agent: Bot,
+  user_prompt: PauseCircle,
+  foreach: Cog,
 };
 
 function StepStatusIcon({ status }: { status: string }) {
   const Icon = STEP_STATUS_ICON[status] || Clock;
   const color = status === "done" ? "text-success" :
     status === "failed" ? "text-danger" :
-    status === "running" ? "text-accent animate-spin" :
-    status === "awaiting_user_input" ? "text-accent animate-pulse" :
+    status === "running" ? "text-accent" :
+    status === "awaiting_user_input" ? "text-accent" :
     status === "skipped" ? "text-text-dim" : "text-text-dim";
   return <Icon size={12} className={color} />;
 }
@@ -496,11 +498,11 @@ function RunRow({ run }: { run: TaskDetail }) {
   const hasDetail = !!(run.result || run.error || hasPipeline);
 
   return (
-    <div className="border-b border-surface-border/50">
+    <div className="px-3">
       {/* Summary row */}
       <button
         onClick={() => hasDetail && setOpen(!open)}
-        className={`flex flex-row items-center gap-3 px-5 py-2.5 w-full border-none text-left transition-colors ${
+        className={`flex flex-row items-center gap-3 px-3 py-2.5 w-full border-none rounded-md text-left transition-colors ${
           hasDetail ? "cursor-pointer hover:bg-surface-overlay/30" : "cursor-default"
         } ${open ? "bg-surface-overlay/20" : "bg-transparent"}`}
       >
@@ -551,7 +553,7 @@ function RunRow({ run }: { run: TaskDetail }) {
 
       {/* Expanded detail panel */}
       {open && (
-        <div className="px-5 pb-4 pt-1 ml-4 border-l-2 border-surface-border">
+        <div className="px-4 pb-4 pt-1 ml-4">
           {/* Pipeline step states */}
           {hasPipeline && (
             <div className="mb-3">
@@ -620,7 +622,7 @@ function SystemManagedOverview({ task, label }: { task: TaskDetail; label: strin
 
       <button
         onClick={() => navigate("/admin/learning")}
-        className="flex flex-row items-center gap-2 px-5 py-2.5 text-sm font-semibold border-none rounded-lg bg-accent text-white cursor-pointer hover:bg-accent-hover transition-colors"
+        className="flex flex-row items-center gap-2 px-5 py-2.5 text-sm font-semibold border-none rounded-md bg-transparent text-accent cursor-pointer hover:bg-accent/[0.08] transition-colors"
       >
         <BookOpen size={16} />
         Open Memory &amp; Knowledge

@@ -37,6 +37,7 @@ from app.services.channel_sessions import (
     build_session_search_rows,
     search_channel_session_rows,
 )
+from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
 from app.tools.local.search_history import _build_query, _serialize_messages
 
 logger = logging.getLogger(__name__)
@@ -263,6 +264,7 @@ class ChannelConfigOut(BaseModel):
     heartbeat_timezone: Optional[str] = None
     heartbeat_max_run_seconds: Optional[int] = None
     heartbeat_skip_tool_approval: bool = False
+    heartbeat_execution_policy: Optional[dict] = None
     heartbeat_last_run_at: Optional[datetime] = None
     heartbeat_next_run_at: Optional[datetime] = None
     # Timestamps
@@ -332,6 +334,7 @@ class ChannelConfigUpdate(BaseModel):
     heartbeat_timezone: Optional[str] = None
     heartbeat_max_run_seconds: Optional[int] = None
     heartbeat_skip_tool_approval: Optional[bool] = None
+    heartbeat_execution_policy: Optional[dict] = None
 
 
 def _enrich_bot_members(channel: Channel) -> list[ChannelBotMemberOut]:
@@ -807,6 +810,8 @@ async def update_channel_config(
                 value = dt_time.fromisoformat(value) if value else None
             elif field == "quiet_end":
                 value = dt_time.fromisoformat(value) if value else None
+            elif field == "execution_policy":
+                value = normalize_heartbeat_execution_policy(value)
             setattr(heartbeat, field, value)
 
         heartbeat.updated_at = now
@@ -891,6 +896,7 @@ def _build_config_out(channel: Channel, heartbeat: ChannelHeartbeat | None) -> C
             "heartbeat_timezone": heartbeat.timezone,
             "heartbeat_max_run_seconds": heartbeat.max_run_seconds,
             "heartbeat_skip_tool_approval": heartbeat.skip_tool_approval,
+            "heartbeat_execution_policy": heartbeat.execution_policy,
             "heartbeat_last_run_at": heartbeat.last_run_at,
             "heartbeat_next_run_at": heartbeat.next_run_at,
         })

@@ -53,6 +53,7 @@ export function SpatialPolicyCard({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const p = policy;
   const patch = (body: Partial<SpatialBotPolicy>) => update.mutate(body);
+  const unitsFor = (steps: number) => `${steps} × ${p?.step_world_units ?? 0} = ${(p?.step_world_units ?? 0) * steps} world units`;
   return (
     <div className="overflow-hidden rounded-md bg-surface-raised/40">
       <button
@@ -90,14 +91,60 @@ export function SpatialPolicyCard({
             <Toggle value={p.allow_nearby_inspect} onChange={(allow_nearby_inspect) => patch({ allow_nearby_inspect })} />
           </FormRow>
           <div className="grid gap-3 md:grid-cols-2">
-            <NumberPolicyInput label="Step size" value={p.step_world_units} onCommit={(step_world_units) => patch({ step_world_units })} />
-            <NumberPolicyInput label="Move budget" value={p.max_move_steps_per_turn} onCommit={(max_move_steps_per_turn) => patch({ max_move_steps_per_turn })} />
-            <NumberPolicyInput label="Min clearance" value={p.minimum_clearance_steps} onCommit={(minimum_clearance_steps) => patch({ minimum_clearance_steps })} />
-            <NumberPolicyInput label="Awareness radius" value={p.awareness_radius_steps} onCommit={(awareness_radius_steps) => patch({ awareness_radius_steps })} />
-            <NumberPolicyInput label="Nearest floor" value={p.nearest_neighbor_floor} onCommit={(nearest_neighbor_floor) => patch({ nearest_neighbor_floor })} />
-            <NumberPolicyInput label="Tug radius" value={p.tug_radius_steps} onCommit={(tug_radius_steps) => patch({ tug_radius_steps })} />
-            <NumberPolicyInput label="Tug budget" value={p.max_tug_steps_per_turn} onCommit={(max_tug_steps_per_turn) => patch({ max_tug_steps_per_turn })} />
-            <NumberPolicyInput label="Trace minutes" value={p.movement_trace_ttl_minutes} onCommit={(movement_trace_ttl_minutes) => patch({ movement_trace_ttl_minutes })} />
+            <NumberPolicyInput
+              label="Step size"
+              value={p.step_world_units}
+              unit="world units"
+              onCommit={(step_world_units) => patch({ step_world_units })}
+            />
+            <NumberPolicyInput
+              label="Move budget"
+              value={p.max_move_steps_per_turn}
+              unit="steps per turn"
+              description={`Max self-move: ${unitsFor(p.max_move_steps_per_turn)}`}
+              onCommit={(max_move_steps_per_turn) => patch({ max_move_steps_per_turn })}
+            />
+            <NumberPolicyInput
+              label="Min clearance"
+              value={p.minimum_clearance_steps}
+              unit="steps"
+              description={`Personal space: ${unitsFor(p.minimum_clearance_steps)}`}
+              onCommit={(minimum_clearance_steps) => patch({ minimum_clearance_steps })}
+            />
+            <NumberPolicyInput
+              label="Awareness radius"
+              value={p.awareness_radius_steps}
+              unit="steps"
+              description={`Nearby search radius: ${unitsFor(p.awareness_radius_steps)}`}
+              onCommit={(awareness_radius_steps) => patch({ awareness_radius_steps })}
+            />
+            <NumberPolicyInput
+              label="Nearest floor"
+              value={p.nearest_neighbor_floor}
+              unit="objects"
+              description="Always includes this many closest objects, even outside radius."
+              onCommit={(nearest_neighbor_floor) => patch({ nearest_neighbor_floor })}
+            />
+            <NumberPolicyInput
+              label="Tug radius"
+              value={p.tug_radius_steps}
+              unit="steps"
+              description={`Object tug range: ${unitsFor(p.tug_radius_steps)}`}
+              onCommit={(tug_radius_steps) => patch({ tug_radius_steps })}
+            />
+            <NumberPolicyInput
+              label="Tug budget"
+              value={p.max_tug_steps_per_turn}
+              unit="steps per turn"
+              description={`Max object move: ${unitsFor(p.max_tug_steps_per_turn)}`}
+              onCommit={(max_tug_steps_per_turn) => patch({ max_tug_steps_per_turn })}
+            />
+            <NumberPolicyInput
+              label="Trace minutes"
+              value={p.movement_trace_ttl_minutes}
+              unit="minutes"
+              onCommit={(movement_trace_ttl_minutes) => patch({ movement_trace_ttl_minutes })}
+            />
           </div>
         </div>
       )}
@@ -108,15 +155,22 @@ export function SpatialPolicyCard({
 function NumberPolicyInput({
   label,
   value,
+  unit,
+  description,
   onCommit,
 }: {
   label: string;
   value: number;
+  unit?: string;
+  description?: string;
   onCommit: (value: number) => void;
 }) {
   return (
     <label className="flex flex-col gap-1 text-[12px] text-text-dim">
-      <span>{label}</span>
+      <span className="flex items-center justify-between gap-2">
+        <span>{label}</span>
+        {unit && <span className="text-[10px] text-text-dim/70">{unit}</span>}
+      </span>
       <input
         type="number"
         min={0}
@@ -127,6 +181,7 @@ function NumberPolicyInput({
           if (!Number.isNaN(parsed)) onCommit(parsed);
         }}
       />
+      {description && <span className="text-[10px] leading-snug text-text-dim/75">{description}</span>}
     </label>
   );
 }

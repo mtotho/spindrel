@@ -101,9 +101,9 @@ export function TaskDefinitionsView({ tasks, schedules, onTaskPress, onRunNow, r
   }
 
   return (
-    <div className="flex flex-col px-4 pb-6">
+    <div className="flex flex-col gap-2 px-4 pb-6 pt-2">
       {/* Table header */}
-      <div className="flex flex-row items-center gap-3 px-3.5 py-2 text-[10px] font-semibold text-text-dim uppercase tracking-wider border-b border-surface-border">
+      <div className="flex flex-row items-center gap-3 px-3.5 py-2 text-[10px] font-semibold text-text-dim uppercase tracking-wider">
         <div className="w-5" /> {/* status dot */}
         <div className="flex-1 min-w-0">Name</div>
         <div className="w-24 shrink-0">Bot</div>
@@ -147,7 +147,7 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
   return (
     <div
       onClick={onPress}
-      className={`flex flex-col gap-2 px-3.5 py-3 rounded-lg bg-surface-raised border border-surface-border cursor-pointer transition-colors active:bg-surface-overlay/60 ${
+      className={`flex flex-col gap-2 px-3.5 py-3 rounded-md bg-surface-raised/40 cursor-pointer transition-colors active:bg-surface-overlay/60 ${
         isCancelled ? "opacity-40" : ""
       }`}
     >
@@ -169,7 +169,7 @@ function MobileDefinitionCard({ def, onPress, onRunNow, isRunning }: {
           title="Run now"
           className={`flex items-center justify-center w-8 h-8 rounded-md border-none cursor-pointer shrink-0 transition-colors ${
             isRunning
-              ? "bg-accent/20 text-accent animate-pulse"
+              ? "bg-accent/10 text-accent"
               : "bg-transparent text-text-muted hover:bg-accent/10 hover:text-accent"
           }`}
         >
@@ -228,7 +228,7 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
   return (
     <div
       onClick={onPress}
-      className={`flex flex-row items-center gap-3 px-3.5 py-2.5 cursor-pointer border-b border-surface-border/50 transition-colors duration-100 hover:bg-surface-overlay/40 ${
+      className={`flex flex-row items-center gap-3 rounded-md px-3.5 py-2.5 cursor-pointer bg-surface-raised/30 transition-colors duration-100 hover:bg-surface-overlay/40 ${
         isCancelled ? "opacity-40" : ""
       }`}
     >
@@ -318,7 +318,7 @@ function DefinitionRow({ def, onPress, onRunNow, isRunning }: {
           title="Run now"
           className={`flex items-center justify-center w-7 h-7 rounded-md border-none cursor-pointer transition-colors ${
             isRunning
-              ? "bg-accent/20 text-accent animate-pulse"
+              ? "bg-accent/10 text-accent"
               : "bg-transparent text-text-muted hover:bg-accent/10 hover:text-accent"
           }`}
         >

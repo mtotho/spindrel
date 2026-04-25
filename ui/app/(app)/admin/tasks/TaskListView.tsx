@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useThemeTokens } from "@/src/theme/tokens";
 import { type TaskItem } from "@/src/components/shared/TaskConstants";
 import { TaskCardRow } from "@/src/components/shared/TaskCardRow";
 import {
@@ -18,7 +17,6 @@ export function TaskListView({ tasks, schedules, upcomingVirtual = [], onTaskPre
   onTaskPress: (tk: TaskItem) => void;
   statusFilter: StatusFilter;
 }) {
-  const t = useThemeTokens();
   const now = new Date();
   const nowMs = now.getTime();
 
@@ -104,41 +102,23 @@ export function TaskListView({ tasks, schedules, upcomingVirtual = [], onTaskPre
 
   if (!hasUpcoming && !hasPast) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: t.textDim, fontSize: 13 }}>
+      <div className="px-4 py-10 text-center text-[13px] text-text-dim">
         No tasks found.
       </div>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 0, padding: "0 16px 24px" }}>
+    <div className="flex flex-col gap-3 px-4 pb-6">
       {/* ── Upcoming ── */}
       {hasUpcoming ? (
         <>
-          <div
-            style={{
-              padding: "14px 0 6px",
-              fontSize: 11,
-              fontWeight: 700,
-              color: t.accent,
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-            }}
-          >
+          <div className="pt-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">
             Upcoming
           </div>
           {Object.entries(upcomingByDate).map(([dayStr, dayTasks]) => (
-            <div key={`up-${dayStr}`}>
-              <div
-                style={{
-                  padding: "10px 0 4px",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  color: isToday(new Date(dayStr)) ? t.accent : t.textDim,
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                }}
-              >
+            <div key={`up-${dayStr}`} className="flex flex-col gap-2">
+              <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${isToday(new Date(dayStr)) ? "text-accent" : "text-text-dim/70"}`}>
                 {dateSectionLabel(new Date(dayStr))}
               </div>
               {dayTasks.map((tk) => (
@@ -148,7 +128,7 @@ export function TaskListView({ tasks, schedules, upcomingVirtual = [], onTaskPre
           ))}
         </>
       ) : (
-        <div style={{ padding: "24px 0 12px", textAlign: "center", color: t.textDim, fontSize: 12 }}>
+        <div className="px-4 py-6 text-center text-[12px] text-text-dim">
           Nothing upcoming.
         </div>
       )}
@@ -156,45 +136,18 @@ export function TaskListView({ tasks, schedules, upcomingVirtual = [], onTaskPre
       {/* ── Fray divider + Previous runs ── */}
       {hasPast && (
         <>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 10,
-              marginTop: 24,
-              marginBottom: 4,
-              opacity: 0.55,
-            }}
-          >
-            <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                color: t.textDim,
-                textTransform: "uppercase",
-                letterSpacing: 0.8,
-              }}
-            >
+          <div className="mt-4 flex flex-row items-center gap-3 text-text-dim/70">
+            <div className="h-px flex-1 bg-surface-border/60" />
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em]">
               Previous runs
             </span>
-            <div style={{ flex: 1, height: 1, background: t.surfaceBorder }} />
+            <div className="h-px flex-1 bg-surface-border/60" />
           </div>
 
-          <div style={{ opacity: 0.85 }}>
+          <div className="flex flex-col gap-2 opacity-85">
             {Object.entries(pastByDate).map(([dayStr, dayTasks]) => (
-              <div key={`past-${dayStr}`}>
-                <div
-                  style={{
-                    padding: "10px 0 4px",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    color: isToday(new Date(dayStr)) ? t.accent : t.textDim,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                  }}
-                >
+              <div key={`past-${dayStr}`} className="flex flex-col gap-2">
+                <div className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${isToday(new Date(dayStr)) ? "text-accent" : "text-text-dim/70"}`}>
                   {dateSectionLabel(new Date(dayStr))}
                 </div>
                 {dayTasks.map((tk) => (

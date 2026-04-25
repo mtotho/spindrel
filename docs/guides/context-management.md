@@ -497,6 +497,7 @@ Heartbeat runs now have their own profile:
 - old heartbeat turns are filtered from reload
 - heartbeat reload trims live history to `0`
 - heartbeat runs do not admit optional conversation-derived or ambient static injections
+- heartbeat runs suppress the ambient enrolled-skill index; explicitly tagged skills can still be loaded
 
 That is the intended steady-state behavior.
 
@@ -544,6 +545,7 @@ Profile gating happens before budget gating.
 | conversation sections / section index | allowed + budget | mandatory | mandatory | mandatory when history exists | off | off |
 | active plan artifact / planning capsules | off | mandatory | mandatory | off | off | off |
 | tool index / discovery hints | allowed + budget | allowed + budget | allowed + budget | allowed + budget | off | off |
+| skill index / enrolled skill hints | allowed | allowed | allowed | allowed | off | off |
 | temporal context | allowed + budget | off | off | off | off | off |
 | pinned widgets prose | allowed + budget | off | off | off | off | off |
 | tool-refusal guard | allowed + budget | off | allowed + budget | off | off | off |

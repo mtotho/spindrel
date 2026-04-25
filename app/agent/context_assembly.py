@@ -975,6 +975,8 @@ async def _inject_skill_working_set(
     budget_can_afford: Any,
     budget_consume: Any,
     result: Any,
+    context_profile: ContextProfile,
+    inject_decisions: dict[str, str],
     out_state: dict,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Phase-3 skill working-set + semantic discovery + auto-inject for the
@@ -1013,6 +1015,11 @@ async def _inject_skill_working_set(
     out_state["auto_injected_similarities"] = _auto_injected_similarities
     out_state["history_fetched_skills"] = _history_fetched_skills
     out_state["history_skill_records"] = _history_skill_records
+
+    if not context_profile.allow_skill_index and not tagged_skill_names and not untagged_ephemeral:
+        _enrolled_ids.extend([s.id for s in bot.skills])
+        _mark_injection_decision(inject_decisions, "skill_index", "skipped_by_profile")
+        return
 
     if not bot.id:
         return
@@ -1181,6 +1188,7 @@ async def _inject_skill_working_set(
                 "role": "system",
                 "content": _header + _working_lines,
             })
+            budget_consume("skill_index", _header + _working_lines)
 
             if _ranking and settings.SKILL_ENROLLED_AUTO_INJECT_MAX > 0 and not skip_skill_inject:
                 _already_injected = (
@@ -1276,6 +1284,7 @@ async def _inject_skill_working_set(
                 "role": "system",
                 "content": _disc_header + "\n" + _disc_lines,
             })
+            budget_consume("skill_index", _disc_header + "\n" + _disc_lines)
 
     if _enrolled_rows or _suggestion_rows:
         _skill_trace_data = {
@@ -1328,6 +1337,7 @@ async def _run_tool_retrieval(
     user_message: Any,
     ch_row: Any,
     tagged_tool_names: list[str],
+    tagged_skill_names: list[str],
     correlation_id: Any,
     session_id: Any,
     client_id: Any,
@@ -1431,7 +1441,7 @@ async def _run_tool_retrieval(
             _effective_pinned.append("run_script")
         if _enrolled_tool_names:
             _effective_pinned += _enrolled_tool_names
-        if bot.skills:
+        if bot.skills and (context_profile.allow_skill_index or tagged_skill_names):
             _effective_pinned += ["get_skill", "get_skill_list"]
         pinned_list = [by_name[n] for n in _effective_pinned if n in by_name]
         _server_pins = {n for n in _effective_pinned if n not in by_name}
@@ -1860,24 +1870,29 @@ async def _append_prompt_and_user_message(
         if _ch_prompt:
             messages.append({"role": "system", "content": _ch_prompt})
             inject_chars["channel_prompt"] = len(_ch_prompt)
+            budget_consume("channel_prompt", _ch_prompt)
 
     # --- system preamble (e.g. heartbeat metadata — injected before user message, after all RAG context) ---
     if system_preamble:
         messages.append({"role": "system", "content": system_preamble})
         inject_chars["system_preamble"] = len(system_preamble)
+        budget_consume("system_preamble", system_preamble)
 
     # --- current-turn marker (helps models distinguish injected context from the live message) ---
     if task_mode:
         # Heartbeat or other system-initiated task — frame as executable task, not conversation
-        messages.append({
+        _turn_marker = {
             "role": "system",
             "content": "Everything above is background context. Your TASK PROMPT follows — execute it now.",
-        })
+        }
+        messages.append(_turn_marker)
     else:
-        messages.append({
+        _turn_marker = {
             "role": "system",
             "content": "Everything above is context and conversation history. The user's CURRENT message follows — respond to it directly.",
-        })
+        }
+        messages.append(_turn_marker)
+    budget_consume("base_context", _turn_marker)
 
     # --- bot system_prompt reinforcement (recency bias) ---
     # Repeats bot.system_prompt near the end of the message array so weaker
@@ -1901,6 +1916,7 @@ async def _append_prompt_and_user_message(
             _reinforce = f"## Your Role (these are your active instructions — follow them)\n\n{_bot_sys_prompt.rstrip()}"
             messages.append({"role": "system", "content": _reinforce})
             inject_chars["bot_system_prompt_reinforce"] = len(_reinforce)
+            budget_consume("bot_system_prompt_reinforce", _reinforce)
 
     # --- user message (audio or text) ---
     if native_audio:
@@ -2959,6 +2975,8 @@ async def assemble_context(
         budget_can_afford=_budget_can_afford,
         budget_consume=_budget_consume,
         result=result,
+        context_profile=context_profile,
+        inject_decisions=_inject_decisions,
         out_state=_ws_state,
     ):
         yield _evt
@@ -3067,6 +3085,7 @@ async def assemble_context(
             user_message=user_message,
             ch_row=_ch_row,
             tagged_tool_names=_tagged_tool_names,
+            tagged_skill_names=_tagged_skill_names,
             correlation_id=correlation_id,
             session_id=session_id,
             client_id=client_id,

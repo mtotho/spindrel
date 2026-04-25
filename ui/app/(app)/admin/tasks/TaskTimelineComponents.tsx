@@ -1,9 +1,8 @@
 import { useState, useMemo } from "react";
 import { RefreshCw, AlertTriangle, ChevronRight } from "lucide-react";
 import { formatTime, formatDate } from "@/src/utils/time";
-import { useThemeTokens } from "@/src/theme/tokens";
 import {
-  type TaskItem, STATUS_CFG, TYPE_BADGE_COLORS,
+  type TaskItem, STATUS_CFG,
   displayTitle, TypeBadge, TaskStatusBadge as StatusBadge, BotDot,
 } from "@/src/components/shared/TaskConstants";
 import { getTaskTime, isToday } from "./taskUtils";
@@ -21,7 +20,7 @@ export function NowLine() {
       className="flex absolute left-0 right-0 flex-row items-center z-[5] pointer-events-none"
       style={{ top: `${pct}%` }}
     >
-      <div className="w-2.5 h-2.5 rounded-full bg-danger -ml-[5px] shadow-[0_0_6px_rgb(var(--color-danger))]" />
+      <div className="w-2.5 h-2.5 rounded-full bg-danger -ml-[5px]" />
       <div className="flex-1 h-[1.5px] bg-danger/70" />
       <span className="text-[9px] text-danger font-bold px-1.5 bg-surface rounded-sm">{timeStr}</span>
     </div>
@@ -67,7 +66,7 @@ export function HourGrid() {
 // ---------------------------------------------------------------------------
 export function ConflictBanner({ warnings }: { warnings: string[] }) {
   return (
-    <div className="flex flex-row items-start gap-2 px-4 py-2 pl-9 bg-warning/[0.08] border-l-[3px] border-l-warning">
+    <div className="flex flex-row items-start gap-2 px-4 py-2 pl-9 bg-warning/[0.08]">
       <AlertTriangle size={14} className="text-warning shrink-0 mt-px" />
       <div className="flex-1 min-w-0">
         <div className="text-[11px] font-bold text-warning-muted mb-0.5">
@@ -91,7 +90,6 @@ export function TaskCard({
 }: {
   task: TaskItem; isPast: boolean; onClick: () => void; compact?: boolean; superCompact?: boolean; style?: React.CSSProperties;
 }) {
-  const t = useThemeTokens();
   const [hovered, setHovered] = useState(false);
   const isVirtual = task.is_virtual;
   const isCancelled = task.status === "cancelled";
@@ -101,17 +99,19 @@ export function TaskCard({
   const time = task.scheduled_at || task.created_at;
 
   // Theme-aware backgrounds — still inline since they depend on multiple runtime states
-  const cancelledBg = hovered ? t.surfaceOverlay : t.surface;
-  const virtualBg = hovered ? t.surfaceOverlay : t.accentMuted;
-  const normalBg = hovered ? t.surfaceOverlay : isPast ? t.inputBg : t.surfaceRaised;
+  const cancelledBg = "rgb(var(--color-surface-raised) / 0.35)";
+  const virtualBg = hovered ? "rgb(var(--color-surface-overlay) / 0.45)" : "rgb(var(--color-surface-raised) / 0.35)";
+  const normalBg = hovered
+    ? "rgb(var(--color-surface-overlay) / 0.45)"
+    : isPast
+      ? "rgb(var(--color-input-bg))"
+      : "rgb(var(--color-surface-raised) / 0.45)";
   const bg = isCancelled ? cancelledBg : isVirtual ? virtualBg : normalBg;
   const borderColor = isCancelled
-    ? t.surfaceRaised
+    ? "transparent"
     : isVirtual
-    ? (hovered ? t.accent : t.surfaceBorder)
-    : hovered ? t.accent : isPast ? t.surfaceRaised : t.surfaceOverlay;
-
-  const typeFg = (TYPE_BADGE_COLORS[task.task_type ?? "agent"] || TYPE_BADGE_COLORS.agent)?.fg || borderColor;
+    ? "rgb(var(--color-surface-border) / 0.60)"
+    : "transparent";
 
   // Super-compact: single-line pip — just status dot + short title
   if (superCompact) {
@@ -126,12 +126,10 @@ export function TaskCard({
           borderRadius: 4,
           background: bg,
           border: `1px solid ${borderColor}`,
-          borderLeft: `3px solid ${typeFg}`,
           borderStyle: isVirtual ? "dashed" : "solid",
           opacity: isCancelled ? 0.35 : isVirtual ? (hovered ? 0.85 : 0.55) : (isPast && !hovered ? 0.45 : 1),
-          transition: "opacity 0.15s, box-shadow 0.15s",
+          transition: "opacity 0.15s, background 0.15s",
           cursor: "pointer",
-          boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "none",
           zIndex: hovered ? 100 : undefined,
           ...extraStyle,
         }}
@@ -160,14 +158,11 @@ export function TaskCard({
         borderRadius: compact ? 6 : 8,
         background: bg,
         border: `1px solid ${borderColor}`,
-        borderLeft: `3px solid ${typeFg}`,
         borderStyle: isVirtual ? "dashed" : "solid",
         opacity: isCancelled ? 0.35 : isVirtual ? (hovered ? 0.85 : 0.55) : (isPast && !hovered ? 0.45 : 1),
-        transition: "opacity 0.2s, box-shadow 0.2s, border-color 0.2s, transform 0.15s",
+        transition: "opacity 0.2s, background 0.2s, border-color 0.2s",
         cursor: "pointer",
-        boxShadow: hovered ? "0 6px 20px rgba(0,0,0,0.2)" : "0 1px 3px rgba(0,0,0,0.06)",
         zIndex: hovered ? 100 : undefined,
-        transform: hovered ? "translateY(-1px)" : "none",
         ...extraStyle,
       }}
     >
@@ -319,10 +314,9 @@ function ClusterChip({ cluster, onClick, isPast, style }: {
       style={{
         padding: "4px 8px",
         borderRadius: 8,
-        background: hovered ? "var(--color-surface-overlay, rgba(255,255,255,0.08))" : "var(--color-surface-raised, rgba(255,255,255,0.04))",
-        border: `1px solid ${hovered ? "var(--color-accent, #3b82f6)" : "var(--color-surface-border, #333)"}`,
+        background: hovered ? "rgb(var(--color-surface-overlay) / 0.45)" : "rgb(var(--color-surface-raised) / 0.45)",
+        border: "1px solid rgb(var(--color-surface-border) / 0.60)",
         opacity: isPast ? 0.5 : 1,
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
         zIndex: hovered ? 100 : undefined,
         ...style,
       }}

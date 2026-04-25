@@ -5,78 +5,20 @@
  * with numbered circle nodes, colored type badges, and an "Add Step" button.
  */
 import { useState, useCallback, useMemo } from "react";
-import { ChevronUp, ChevronDown, Trash2, Terminal, Wrench, Bot, Plus, CheckCircle2, XCircle, Clock, SkipForward, PauseCircle, MessageCircleQuestion, Repeat, AlertCircle, HelpCircle } from "lucide-react";
+import { ChevronUp, ChevronDown, Trash2, Wrench, Plus, CheckCircle2, XCircle, Clock, SkipForward, PauseCircle, AlertCircle } from "lucide-react";
 import type { StepDef, StepType, StepState, ResponseSchema } from "@/src/api/hooks/useTasks";
 import { useTools, type ToolItem } from "@/src/api/hooks/useTools";
 import { LlmModelDropdown } from "./LlmModelDropdown";
 import { JsonObjectEditor } from "./task/JsonObjectEditor";
 import { SelectDropdown } from "./SelectDropdown";
 import { ToolSelector as SharedToolSelector } from "./ToolSelector";
-
-// ---------------------------------------------------------------------------
-// Step type metadata
-// ---------------------------------------------------------------------------
-
-type StepTypeMeta = { value: StepType; label: string; icon: typeof Terminal; color: string; bgBadge: string; node: string };
-
-const STEP_TYPES: StepTypeMeta[] = [
-  { value: "exec",         label: "Shell",       icon: Terminal,               color: "text-amber-300",   bgBadge: "bg-amber-500/10 text-amber-300 border-amber-500/25",       node: "bg-amber-500/15 text-amber-300 border border-amber-500/30" },
-  { value: "tool",         label: "Tool",        icon: Wrench,                 color: "text-sky-300",     bgBadge: "bg-sky-500/10 text-sky-300 border-sky-500/25",             node: "bg-sky-500/15 text-sky-300 border border-sky-500/30" },
-  { value: "agent",        label: "LLM",         icon: Bot,                    color: "text-violet-300",  bgBadge: "bg-violet-500/10 text-violet-300 border-violet-500/25",    node: "bg-violet-500/15 text-violet-300 border border-violet-500/30" },
-  { value: "user_prompt",  label: "User prompt", icon: MessageCircleQuestion,  color: "text-teal-300",    bgBadge: "bg-teal-500/10 text-teal-300 border-teal-500/25",          node: "bg-teal-500/15 text-teal-300 border border-teal-500/30" },
-  { value: "foreach",      label: "For each",    icon: Repeat,                 color: "text-fuchsia-300", bgBadge: "bg-fuchsia-500/10 text-fuchsia-300 border-fuchsia-500/25", node: "bg-fuchsia-500/15 text-fuchsia-300 border border-fuchsia-500/30" },
-];
-
-const UNKNOWN_STEP_META: StepTypeMeta = {
-  value: "exec",
-  label: "Unknown",
-  icon: HelpCircle,
-  color: "text-text-dim",
-  bgBadge: "bg-surface-overlay text-text-dim border-surface-border",
-  node: "bg-surface-overlay text-text-dim border border-surface-border",
-};
-
-function stepMeta(type: string): StepTypeMeta {
-  return STEP_TYPES.find((s) => s.value === type) ?? UNKNOWN_STEP_META;
-}
-
-function isKnownStepType(type: string): type is StepType {
-  return STEP_TYPES.some((s) => s.value === type);
-}
-
-let _stepCounter = 0;
-function nextStepId(): string {
-  return `step_${++_stepCounter}`;
-}
-
-function emptyStep(type: StepType): StepDef {
-  const base: StepDef = {
-    id: nextStepId(),
-    type,
-    label: "",
-    on_failure: "abort",
-  };
-  if (type === "exec" || type === "agent") {
-    base.prompt = "";
-  } else if (type === "user_prompt") {
-    base.title = "";
-    base.response_schema = { type: "binary" };
-  } else if (type === "foreach") {
-    base.over = "";
-    base.on_failure = "continue";
-    base.do = [];
-  }
-  return base;
-}
-
-function emptyToolSubStep(): StepDef {
-  return {
-    id: nextStepId(),
-    type: "tool",
-    label: "",
-    on_failure: "abort",
-  };
-}
+import {
+  STEP_TYPES,
+  emptyStep,
+  emptyToolSubStep,
+  isKnownStepType,
+  stepMeta,
+} from "./task/TaskStepEditorModel";
 
 // ---------------------------------------------------------------------------
 // Shared compact dropdown wrapper for tight task-editor controls.
@@ -235,17 +177,17 @@ function StepConditionEditor({ step, stepIndex, steps, onChange }: {
 
 function StepResultBadge({ state }: { state: StepState }) {
   const config: Record<string, { classes: string; Icon: typeof CheckCircle2; label: string }> = {
-    done: { classes: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", Icon: CheckCircle2, label: "done" },
-    failed: { classes: "bg-red-500/10 text-red-400 border-red-500/20", Icon: XCircle, label: "failed" },
-    skipped: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: SkipForward, label: "skipped" },
-    running: { classes: "bg-blue-500/10 text-blue-400 border-blue-500/20 animate-pulse", Icon: Clock, label: "running" },
-    pending: { classes: "bg-surface-overlay text-text-dim border-surface-border", Icon: Clock, label: "pending" },
-    awaiting_user_input: { classes: "bg-accent/10 text-accent border-accent/25 animate-pulse", Icon: PauseCircle, label: "awaiting input" },
+    done: { classes: "bg-success/10 text-success", Icon: CheckCircle2, label: "done" },
+    failed: { classes: "bg-danger/10 text-danger", Icon: XCircle, label: "failed" },
+    skipped: { classes: "bg-surface-overlay text-text-dim", Icon: SkipForward, label: "skipped" },
+    running: { classes: "bg-accent/10 text-accent", Icon: Clock, label: "running" },
+    pending: { classes: "bg-surface-overlay text-text-dim", Icon: Clock, label: "pending" },
+    awaiting_user_input: { classes: "bg-accent/10 text-accent", Icon: PauseCircle, label: "awaiting input" },
   };
   const { classes, Icon, label } = config[state.status] ?? config.pending;
   return (
-    <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${classes}`}>
-      <Icon size={10} />
+    <span className={`inline-flex flex-row items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${classes}`}>
+      {state.status === "running" ? <span className="h-1.5 w-1.5 rounded-full bg-current" /> : <Icon size={10} />}
       {label}
     </span>
   );
@@ -379,7 +321,7 @@ function StepTypeSelector({ value, onChange }: { value: StepType; onChange: (v: 
             <span className="truncate">{meta.label}</span>
           </span>
         )}
-        triggerClassName={`min-h-[26px] rounded-full px-2.5 ${meta.bgBadge} hover:opacity-80`}
+        triggerClassName={`min-h-[26px] rounded-md border-transparent px-2.5 ${meta.bgBadge} hover:bg-surface-overlay/60`}
       />
     </div>
   );
@@ -523,7 +465,7 @@ function ForeachFields({ step, tools, readOnly, onChange }: {
             v1 supports only <code className="text-accent/80 bg-accent/5 px-1 rounded">tool</code> sub-steps.
           </span>
         </div>
-        <div className="flex flex-col gap-2 pl-2 border-l-2 border-dashed border-surface-border">
+        <div className="flex flex-col gap-2 rounded-md bg-surface-raised/25 p-2">
           {subSteps.length === 0 && !readOnly && (
             <div className="text-[11px] text-text-dim italic py-1">No sub-steps yet.</div>
           )}
@@ -540,7 +482,7 @@ function ForeachFields({ step, tools, readOnly, onChange }: {
           {!readOnly && (
             <button
               onClick={addSub}
-              className="self-start flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-md cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+              className="self-start flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-text-muted bg-transparent border border-transparent rounded-md cursor-pointer hover:bg-accent/[0.08] hover:text-accent transition-colors"
             >
               <Plus size={11} />
               Add tool sub-step
@@ -570,9 +512,9 @@ function ForeachSubStepCard({ sub, tools, readOnly, onChange, onDelete }: {
   const update = (patch: Partial<StepDef>) => onChange({ ...sub, ...patch });
 
   return (
-    <div className="rounded-md border border-surface-border bg-surface-raised/30 group">
+    <div className="rounded-md bg-surface-raised/45 group">
       <div className="flex flex-row items-center gap-2 px-2.5 py-2">
-        <span className="inline-flex flex-row items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full border bg-sky-500/10 text-sky-300 border-sky-500/25">
+        <span className="inline-flex flex-row items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-full bg-surface-overlay text-text-muted">
           <Wrench size={10} />
           Tool
         </span>
@@ -598,7 +540,7 @@ function ForeachSubStepCard({ sub, tools, readOnly, onChange, onDelete }: {
         )}
       </div>
 
-      <div className="px-2.5 py-2 flex flex-col gap-2 border-t border-surface-border/50">
+      <div className="px-2.5 pb-2 flex flex-col gap-2">
         {readOnly ? (
           <div className="text-xs text-text font-mono">{sub.tool_name ?? "No tool selected"}</div>
         ) : (
@@ -650,7 +592,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
   const update = (patch: Partial<StepDef>) => onChange({ ...step, ...patch });
 
   return (
-    <div className="rounded-lg border border-surface-border bg-surface-raised/40 group transition-colors hover:border-surface-border/80">
+    <div className="rounded-md bg-surface-raised/40 group transition-colors hover:bg-surface-overlay/35">
       {/* Header row */}
       <div className="flex flex-row items-center gap-2.5 px-2.5 sm:px-3.5 py-2.5">
         {/* Reorder controls */}
@@ -675,7 +617,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
 
         {/* Type badge */}
         {readOnly ? (
-          <span className={`inline-flex flex-row items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full border ${meta.bgBadge}`}>
+          <span className={`inline-flex flex-row items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-md ${meta.bgBadge}`}>
             <Icon size={11} />
             {meta.label}
           </span>
@@ -718,7 +660,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
       </div>
 
       {/* Body — type-specific fields */}
-      <div className="px-2.5 sm:px-3.5 py-3 flex flex-col gap-2.5 border-t border-surface-border/50">
+      <div className="px-2.5 sm:px-3.5 pb-3 flex flex-col gap-2.5">
         {step.type === "exec" && (
           <>
             <textarea
@@ -802,7 +744,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
         {!isKnownStepType(step.type) && (
           <div className="flex flex-col gap-2">
             <div className="flex flex-row items-start gap-2 text-[11px] text-text-dim bg-surface-overlay/40 border border-surface-border rounded-md p-2">
-              <AlertCircle size={12} className="shrink-0 mt-0.5 text-amber-400" />
+              <AlertCircle size={12} className="shrink-0 mt-0.5 text-warning-muted" />
               <span>
                 Step type <code className="text-accent/80 bg-accent/5 px-1 rounded">{String(step.type)}</code> isn't
                 editable in this view — open the JSON view to edit raw fields.
@@ -837,12 +779,12 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
 
         {/* Result display for completed steps */}
         {stepState && stepState.error && (
-          <div className="rounded-md border border-red-500/20 bg-red-500/5 p-2">
+          <div className="rounded-md bg-danger/10 p-2">
             <div className="flex flex-row items-center gap-1.5 mb-1">
-              <XCircle size={11} className="text-red-400" />
-              <span className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Error</span>
+              <XCircle size={11} className="text-danger" />
+              <span className="text-[10px] font-semibold text-danger uppercase tracking-wider">Error</span>
             </div>
-            <pre className="text-[11px] font-mono text-red-300/80 whitespace-pre-wrap max-h-32 overflow-y-auto m-0">
+            <pre className="text-[11px] font-mono text-danger whitespace-pre-wrap max-h-32 overflow-y-auto m-0">
               {stepState.error}
             </pre>
           </div>
@@ -857,7 +799,7 @@ function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange
             typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
           return (
             <details className="group/result" open={stepState.status === "done" && steps.length <= 3}>
-              <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-emerald-400/70 uppercase tracking-wider hover:text-emerald-400 transition-colors select-none">
+              <summary className="flex flex-row items-center gap-1.5 cursor-pointer text-[10px] font-semibold text-success uppercase tracking-wider transition-colors select-none">
                 <CheckCircle2 size={11} />
                 Output
                 <span className="text-text-dim font-normal normal-case tracking-normal ml-1 truncate max-w-[200px]">
@@ -886,7 +828,7 @@ function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-text-muted bg-transparent border border-dashed border-surface-border rounded-lg cursor-pointer hover:border-accent/50 hover:text-accent transition-colors"
+        className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-text-muted bg-transparent border border-transparent rounded-md cursor-pointer hover:bg-accent/[0.08] hover:text-accent transition-colors"
       >
         <Plus size={14} />
         Add Step
@@ -902,7 +844,7 @@ function AddStepButton({ onAdd }: { onAdd: (type: StepType) => void }) {
           <button
             key={t.value}
             onClick={() => { onAdd(t.value); setOpen(false); }}
-            className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface-raised border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
+            className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface-raised/60 rounded-md cursor-pointer text-text hover:bg-surface-overlay/60 hover:text-accent transition-colors"
           >
             <TIcon size={14} className={t.color} />
             {t.label}
@@ -959,7 +901,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
   return (
     <div className="flex flex-col">
       {steps.length === 0 && !readOnly && (
-        <div className="flex flex-col items-center gap-3 py-10 text-text-dim rounded-xl border border-dashed border-surface-border bg-surface-raised/20">
+        <div className="flex flex-col items-center gap-3 py-10 text-text-dim rounded-md bg-surface-raised/30">
           <div className="text-sm font-medium text-text-muted">Build your pipeline</div>
           <div className="text-xs text-text-dim">Add steps to create a multi-step automation</div>
           <div className="flex flex-row items-center gap-1.5 mt-2">
@@ -969,7 +911,7 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
                 <button
                   key={t.value}
                   onClick={() => addStep(t.value)}
-                  className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface border border-surface-border rounded-lg cursor-pointer text-text hover:border-accent/50 hover:text-accent transition-colors"
+                  className="flex flex-row items-center gap-1.5 px-3.5 py-2 text-xs font-medium bg-surface-raised/60 rounded-md cursor-pointer text-text hover:bg-surface-overlay/60 hover:text-accent transition-colors"
                 >
                   <TIcon size={14} className={t.color} />
                   {t.label}
@@ -995,17 +937,17 @@ export function TaskStepEditor({ steps, onChange, stepStates, readOnly }: TaskSt
               const meta = stepMeta(step.type);
               const stepState = stepStates?.[i];
               const nodeColor = stepState?.status === "done"
-                ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+                ? "bg-success/10 text-success"
                 : stepState?.status === "failed"
-                  ? "bg-red-500/15 text-red-300 border border-red-500/30"
+                  ? "bg-danger/10 text-danger"
                   : stepState?.status === "running"
-                    ? "bg-blue-500/15 text-blue-300 border border-blue-500/30 animate-pulse"
+                    ? "bg-accent/10 text-accent"
                     : meta.node;
 
               return (
                 <div key={step.id} className="relative">
                   {/* Timeline node */}
-                  <div className={`absolute -left-3 sm:-left-5 top-[11px] flex items-center justify-center w-[18px] h-[18px] sm:w-[22px] sm:h-[22px] rounded-full text-[9px] sm:text-[10px] font-bold z-10 ${nodeColor} shadow-sm`}>
+                  <div className={`absolute -left-3 sm:-left-5 top-[11px] flex items-center justify-center w-[18px] h-[18px] sm:w-[22px] sm:h-[22px] rounded-full text-[9px] sm:text-[10px] font-bold z-10 ${nodeColor}`}>
                     {stepState?.status === "done" ? (
                       <CheckCircle2 size={12} />
                     ) : stepState?.status === "failed" ? (

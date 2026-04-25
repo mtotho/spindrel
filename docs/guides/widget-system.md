@@ -472,6 +472,24 @@ A direct rich tool result usually comes from:
 
 Both can land on the dashboard. They are not the same DX path.
 
+### Where presets surface
+
+The dashboard's preset picker (`WidgetPresetsPane`) is the canonical entry
+point for `widget_presets`. The same pane also drives:
+
+- **Spatial canvas → "Add to canvas" sheet** — `Presets` tab (default).
+  Pinning routes through `POST /api/v1/workspace/spatial/preset-pins`, which
+  runs the same `preview_widget_preset` pipeline as the dashboard pin and then
+  persists the resulting envelope on the `workspace:spatial` dashboard with
+  matching `workspace_spatial_nodes` row at camera-center coords.
+
+The `Library` tab on the canvas sheet shows standalone HTML widget bundles
+(core / bot / workspace scopes) — bundles that don't need tool args. **Tool
+widgets that ship under `tool_widgets:` are intentionally NOT listed
+standalone**; an integration that wants its tool widget to be pinnable must
+also declare a matching `widget_presets` entry. Without that, the tool widget
+only renders when the bot calls the underlying tool in chat.
+
 ### Preset dependency contract
 
 Presets may use more than one tool during setup and operation: a binding source can discover options, the backing tool can render, and action tools can mutate state.

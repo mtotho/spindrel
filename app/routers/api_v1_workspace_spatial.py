@@ -61,6 +61,25 @@ class PinWidgetToCanvasRequest(BaseModel):
     world_h: float | None = None
 
 
+class PinPresetToCanvasRequest(BaseModel):
+    """Pin a `widget_presets[*]` entry directly onto the workspace canvas.
+
+    Server runs the preset's preview pipeline (resolves config + binding-derived
+    tool args, executes the tool once, applies the matching tool_widget) so the
+    canvas pin lands with a fully-seeded envelope. Subsequent refreshes flow
+    through the tool_widget's own `state_poll`.
+    """
+    preset_id: str
+    config: dict | None = None
+    source_bot_id: str | None = None
+    source_channel_id: uuid.UUID | None = None
+    display_label: str | None = None
+    world_x: float | None = None
+    world_y: float | None = None
+    world_w: float | None = None
+    world_h: float | None = None
+
+
 class SpatialBotPolicyRequest(BaseModel):
     enabled: bool | None = None
     allow_movement: bool | None = None
@@ -210,6 +229,84 @@ async def pin_widget(
             widget_config=body.widget_config,
             widget_origin=body.widget_origin,
             display_label=body.display_label,
+            world_x=body.world_x,
+            world_y=body.world_y,
+            world_w=body.world_w if body.world_w is not None else 220.0,
+            world_h=body.world_h if body.world_h is not None else 140.0,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"pin": serialize_pin(pin), "node": serialize_node(node)}
+
+
+@router.post("/preset-pins", status_code=201)
+async def pin_preset(
+    body: PinPresetToCanvasRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pin a `widget_presets[*]` entry onto the workspace canvas.
+
+    Mirrors the dashboard preset pin endpoint but routes through
+    `pin_widget_to_canvas`, so the result lands in `workspace_spatial_nodes`
+    at the requested world coords. The seeded envelope, resolved config, and
+    runtime tool_args all come from `preview_widget_preset` — same path the
+    dashboard pin uses, no divergence.
+    """
+    from app.services.widget_presets import (
+        get_widget_preset,
+        preview_envelope_to_dict,
+        preview_widget_preset,
+    )
+
+    try:
+        preview, resolved_config, tool_args = await preview_widget_preset(
+            db,
+            preset_id=body.preset_id,
+            config=body.config,
+            source_bot_id=body.source_bot_id,
+            source_channel_id=str(body.source_channel_id) if body.source_channel_id else None,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+
+    if not preview.ok or preview.envelope is None:
+        raise HTTPException(400, f"Preset '{body.preset_id}' preview failed")
+
+    preset = get_widget_preset(body.preset_id)
+    tool_name = preset.get("tool_name")
+    if not isinstance(tool_name, str) or not tool_name.strip():
+        raise HTTPException(400, f"Preset '{body.preset_id}' missing tool_name")
+
+    envelope = preview_envelope_to_dict(preview.envelope) or {}
+    envelope["source_instantiation_kind"] = "preset"
+    envelope["source_preset_id"] = body.preset_id
+
+    widget_origin: dict = {
+        "definition_kind": "tool_widget",
+        "instantiation_kind": "preset",
+        "tool_name": tool_name,
+        "preset_id": body.preset_id,
+    }
+    tool_family = preset.get("tool_family")
+    if isinstance(tool_family, str) and tool_family.strip():
+        widget_origin["tool_family"] = tool_family.strip()
+    template_id = envelope.get("template_id")
+    if isinstance(template_id, str) and template_id.strip():
+        widget_origin["template_id"] = template_id.strip()
+
+    try:
+        pin, node = await pin_widget_to_canvas(
+            db,
+            source_kind="channel" if body.source_channel_id else "adhoc",
+            tool_name=tool_name,
+            envelope=envelope,
+            source_channel_id=body.source_channel_id,
+            source_bot_id=body.source_bot_id,
+            tool_args=tool_args,
+            widget_config=resolved_config,
+            widget_origin=widget_origin,
+            display_label=body.display_label or preset.get("name"),
             world_x=body.world_x,
             world_y=body.world_y,
             world_w=body.world_w if body.world_w is not None else 220.0,

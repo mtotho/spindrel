@@ -502,3 +502,17 @@ Follow-through on Pass 4b after visual review showed piecemeal tab work was not 
 - [x] Clarified Memory tab conversation-history scope: current-session archive is the default/runtime mirror, all-sessions is an explicit grouped inventory view, and section search/index preview no longer imply the bot sees a flattened channel archive.
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false`
 - [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc -p tsconfig.chat-tests.json --pretty false && node .chat-test-dist/src/lib/channelSessionSurfaces.test.js`
+
+## Pass 4e: Admin Tasks + pipeline builder cleanup (2026-04-25)
+
+- [x] `/admin/tasks` list, definitions, schedule, calendar, and cron surfaces now use lower-chrome rows/actions with token-driven status; refreshed paths have no `useThemeTokens()`, inline hex/RGBA, native `<select>`, decorative shadows, or colored left rails.
+- [x] Task detail/create/edit flows now use spacing-led sections, quieter task notices/actions, and shared dropdowns while preserving existing routes and task API payloads.
+- [x] `TaskStepEditor.tsx` was split by moving builder metadata/helpers into `TaskStepEditorModel.tsx`, bringing the main component under the 1000-line UI limit.
+- [x] Pipeline builder visual mode keeps the vertical sequence but drops Bootstrap-blue running chrome, `animate-pulse`, colored step badges, dashed nesting rails, and heavy card borders in favor of semantic dots/pills and tonal rows.
+- [x] `StepsJsonEditor` and `JsonObjectEditor` now use CSS design tokens for syntax colors and editor chrome instead of hard-coded dark-theme hex/RGBA.
+- [x] Channel pipeline pre-run/live modal pieces now match the same task status/error/action vocabulary.
+- [x] Follow-up: `/admin/tasks` header controls now sit in a separate compact toolbar, and the shared Schedule/Event/Manual trigger section uses neutral segmented controls/source rows instead of filled tabs, colored rails, and hard-coded integration colors.
+
+### Verification
+- [x] `cd /home/mtoth/personal/agent-server/ui && npx tsc --noEmit --pretty false` — clean.
+- [x] Targeted grep over refreshed task surfaces for `useThemeTokens`, inline hex/RGBA, native `<select>`, Bootstrap-blue classes, `animate-pulse`, decorative shadow classes, and colored left-border patterns — 0 matches.

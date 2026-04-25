@@ -379,14 +379,17 @@ def _resolve_loop_config(
     model_override: str | None,
     provider_id_override: str | None,
     context_profile_name: str | None,
+    settings_obj: Any | None = None,
 ) -> LoopRunConfig:
     """Resolve per-run config: iterations, model, provider, effort overlay, summarize settings."""
     from app.agent.context import current_effort_override
     from app.agent.context_profiles import get_context_profile
     from app.agent.loop_dispatch import SummarizeSettings
-    from app.config import settings
+    from app.config import settings as default_settings
 
-    in_loop_keep_iterations = settings.IN_LOOP_PRUNING_KEEP_ITERATIONS
+    cfg = settings_obj or default_settings
+
+    in_loop_keep_iterations = cfg.IN_LOOP_PRUNING_KEEP_ITERATIONS
     if context_profile_name:
         profile_override = get_context_profile(context_profile_name).keep_iterations_override
         if profile_override is not None:
@@ -395,7 +398,7 @@ def _resolve_loop_config(
     effective_max_iterations = (
         max_iterations
         or getattr(bot, "max_iterations", None)
-        or settings.AGENT_MAX_ITERATIONS
+        or cfg.AGENT_MAX_ITERATIONS
     )
     model = model_override or bot.model
     provider_id = _resolve_effective_provider(
@@ -409,11 +412,11 @@ def _resolve_loop_config(
 
     trc = bot.tool_result_config or {}
     summarize_settings = SummarizeSettings(
-        enabled=trc["enabled"] if "enabled" in trc else settings.TOOL_RESULT_SUMMARIZE_ENABLED,
-        threshold=trc.get("threshold") or settings.TOOL_RESULT_SUMMARIZE_THRESHOLD,
-        model=trc.get("model") or settings.TOOL_RESULT_SUMMARIZE_MODEL or model,
-        max_tokens=trc.get("max_tokens") or settings.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
-        exclude=frozenset(settings.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS)
+        enabled=trc["enabled"] if "enabled" in trc else cfg.TOOL_RESULT_SUMMARIZE_ENABLED,
+        threshold=trc.get("threshold") or cfg.TOOL_RESULT_SUMMARIZE_THRESHOLD,
+        model=trc.get("model") or cfg.TOOL_RESULT_SUMMARIZE_MODEL or model,
+        max_tokens=trc.get("max_tokens") or cfg.TOOL_RESULT_SUMMARIZE_MAX_TOKENS,
+        exclude=frozenset(cfg.TOOL_RESULT_SUMMARIZE_EXCLUDE_TOOLS)
               | frozenset(trc.get("exclude_tools") or []),
     )
     return LoopRunConfig(

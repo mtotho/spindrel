@@ -219,6 +219,7 @@ This gives the bot situational awareness without consuming prompt space. The met
 | `quiet_end` | string | — | Quiet window end (HH:MM) |
 | `timezone` | string | — | Timezone for quiet hours |
 | `max_run_seconds` | int | — | Execution timeout (overrides global) |
+| `execution_policy` | object | focused soft budget | Tool-surface and LLM-loop budget controls for autonomous heartbeat runs |
 | `previous_result_max_chars` | int | 500 | How much of last result to inject |
 | `repetition_detection` | bool | — | Override global repetition detection |
 | `workflow_id` | string | — | Trigger a (deprecated) workflow instead of a prompt. For pipelines, use `prompt` + `run_pipeline`. |
@@ -249,6 +250,23 @@ TASK_MAX_RUN_SECONDS=300
 # Timezone for global quiet hours
 TIMEZONE=UTC
 ```
+
+### Execution Policy
+
+Heartbeat runs normalize an optional `execution_policy` object before entering the agent loop. Defaults prioritize useful autonomous work without repeating a full broad-context turn indefinitely:
+
+```json
+{
+  "tool_surface": "focused_escape",
+  "continuation_mode": "stateless",
+  "soft_max_llm_calls": 6,
+  "hard_max_llm_calls": 12,
+  "soft_current_prompt_tokens": 50000,
+  "target_seconds": 90
+}
+```
+
+`focused_escape` keeps the default heartbeat tool surface narrower while preserving `get_tool_info` / `search_tools` escape hatches. When a soft budget trips, the loop emits `heartbeat_budget_pressure`, prunes older in-loop tool results even if the model context window still has headroom, and asks the model to finish unless one more tool call is clearly high-value. `provider_state` continuation is reserved for opt-in provider support; the default remains stateless.
 
 ---
 

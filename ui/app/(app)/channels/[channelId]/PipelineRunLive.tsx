@@ -107,9 +107,9 @@ export function PipelineRunLive({
           <span className="text-sm font-semibold text-text truncate">{title}</span>
           {awaitingCount > 0 ? (
             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded
-                             bg-accent/15 border border-accent/40
+                             bg-accent/10
                              text-[11px] font-semibold text-accent shrink-0">
-              <PauseCircle size={11} className="animate-pulse" />
+              <PauseCircle size={11} />
               Your review needed
             </span>
           ) : (
@@ -117,8 +117,8 @@ export function PipelineRunLive({
               className={cn(
                 "inline-flex items-center gap-1 text-[11px] font-medium shrink-0",
                 status === "running" && "text-accent",
-                status === "complete" && "text-green-500",
-                status === "failed" && "text-red-500",
+                status === "complete" && "text-success",
+                status === "failed" && "text-danger",
                 status === "pending" && "text-text-muted",
               )}
             >
@@ -179,7 +179,7 @@ export function PipelineRunLive({
       {isTerminal ? (
         <div className="border-t border-surface-border shrink-0">
           {sendError && (
-            <div className="px-5 py-1.5 text-[11px] text-red-400 border-b border-red-500/20 bg-red-500/5">
+            <div className="px-5 py-1.5 text-[11px] text-danger bg-danger/10">
               {sendError}
             </div>
           )}
@@ -195,10 +195,10 @@ export function PipelineRunLive({
         <div className="border-t border-surface-border shrink-0 px-5 py-2.5">
           <div
             className="flex items-center gap-2 px-3 py-2 rounded-md
-                       bg-surface/40 border border-surface-border/50 text-[11px] text-text-dim/80 italic"
+                       bg-surface-raised/40 text-[11px] text-text-dim/80"
             title="Mid-run push-back lands in a future phase."
           >
-            <span className="text-text-dim/60">🔒</span>
+            <PauseCircle size={12} className="text-text-dim/60" />
             Composer unlocks once the run finishes — follow up with {task?.bot_id ?? "the bot"} from here.
           </div>
         </div>

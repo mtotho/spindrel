@@ -43,7 +43,7 @@ export function WizardStepIndicator({ currentStep, visitedSteps, validSteps, onS
               {/* Dot */}
               <div className={`flex items-center justify-center w-7 h-7 rounded-full text-[11px] font-bold transition-all duration-200 shrink-0 ${
                 isCurrent
-                  ? "bg-accent text-white shadow-sm shadow-accent/30"
+                  ? "bg-surface-overlay text-text"
                   : isValid
                     ? "bg-accent/15 text-accent border border-accent/30"
                     : isVisited

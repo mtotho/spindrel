@@ -625,6 +625,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             except Exception:
                 logger.debug("Heartbeat %s: failed to infer provider for model %s", hb.id, model_override, exc_info=True)
         _hb_fallback_models = hb.fallback_models or None
+        from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
+        _hb_execution_policy = normalize_heartbeat_execution_policy(getattr(hb, "execution_policy", None))
         trigger_rag_loop = hb.trigger_response
 
     logger.info(
@@ -682,6 +684,7 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 skip_tool_policy=hb.skip_tool_approval,
                 task_mode=True,
                 context_profile_name="heartbeat",
+                run_control_policy=_hb_execution_policy,
             ),
             timeout=_hb_timeout,
         )

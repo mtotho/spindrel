@@ -370,6 +370,43 @@ class TestInLoopPruning:
         pruning = [e for e in events if e.get("type") == "context_pruning"]
         assert len(pruning) == 0, "single-iteration run must not emit context_pruning"
 
+    @pytest.mark.asyncio
+    async def test_heartbeat_soft_budget_forces_pruning_below_context_pressure(self):
+        """Heartbeat soft budget should slim the loop before context-window pressure trips."""
+        from app.agent.loop import run_agent_tool_loop
+
+        tc = _mock_tool_call("step_tool", "{}", "tc_1")
+        acc_tool = _mock_accumulated(content=None, tool_calls=[tc])
+        acc_final = _mock_accumulated("Done")
+
+        bot = _make_bot()
+        events = []
+        with patch("app.agent.loop._llm_call_stream", side_effect=_make_stream_side_effects(acc_tool, acc_final)), \
+             patch("app.services.providers.check_rate_limit", return_value=0), \
+             patch("app.agent.loop.dispatch_iteration_tool_calls", self._fake_dispatch_iteration_tool_calls), \
+             patch("app.agent.loop._record_trace_event", new_callable=AsyncMock), \
+             patch("app.agent.loop.settings") as ms:
+            _base_loop_settings(ms, pruning_enabled=True)
+            ms.IN_LOOP_PRUNING_PRESSURE_THRESHOLD = 0.99
+            async for evt in run_agent_tool_loop(
+                _prior_iter_messages(),
+                bot,
+                pre_selected_tools=[{"type": "function", "function": {"name": "step_tool"}}],
+                context_profile_name="heartbeat",
+                run_control_policy={
+                    "soft_max_llm_calls": 1,
+                    "hard_max_llm_calls": 12,
+                    "soft_current_prompt_tokens": 0,
+                },
+            ):
+                events.append(evt)
+
+        pressure = [e for e in events if e.get("type") == "heartbeat_budget_pressure"]
+        pruning = [e for e in events if e.get("type") == "context_pruning"]
+        assert pressure
+        assert pruning
+        assert pruning[0]["triggered_by"] == "heartbeat_soft_budget"
+
 
 class TestContextWindowGuard:
     @pytest.mark.asyncio

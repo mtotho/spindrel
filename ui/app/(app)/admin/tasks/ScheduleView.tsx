@@ -3,7 +3,7 @@ import { ChevronRight, ChevronDown, RefreshCw, AlertTriangle } from "lucide-reac
 import { formatTime } from "@/src/utils/time";
 import {
   type TaskItem, STATUS_CFG,
-  botColor, displayTitle, TaskStatusBadge as StatusBadge, BotDot,
+  displayTitle, TaskStatusBadge as StatusBadge, BotDot,
 } from "@/src/components/shared/TaskConstants";
 import { ConflictBanner } from "./TaskTimelineComponents";
 import {
@@ -142,7 +142,6 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
   return (
     <div className="flex flex-col pb-6">
       {grouped.map(([botId, botTasks]) => {
-        const c = botColor(botId);
         const isCollapsed = collapsedBots.has(botId);
         const displayTasks = botTasks.filter(t => !(t.is_schedule && !t.is_virtual && t.status === "active"));
         const scheduleCount = botTasks.filter(t => t.is_schedule && !t.is_virtual && (t.status === "active" || t.status === "cancelled")).length;
@@ -158,11 +157,9 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
 
         return (
           <div key={botId}>
-            {/* Bot section header — border-left and bg are runtime bot colors */}
             <div
               onClick={() => toggleBot(botId)}
-              className="flex flex-row items-center gap-2.5 px-5 py-3 cursor-pointer select-none sticky top-0 z-[2]"
-              style={{ borderLeft: `3px solid ${c.border}`, background: c.bg }}
+              className="flex flex-row items-center gap-2.5 px-5 py-3 cursor-pointer select-none sticky top-0 z-[2] bg-surface"
             >
               {isCollapsed
                 ? <ChevronRight size={14} className="text-text-dim" />
@@ -198,10 +195,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
             {!isCollapsed && Object.entries(byDate).map(([dayStr, dayTasks]) => (
               <div key={dayStr}>
                 {/* Date sub-header */}
-                <div
-                  className="py-1.5 px-5 pl-9 border-b border-surface-raised"
-                  style={{ borderLeft: `3px solid ${c.border}` }}
-                >
+                <div className="py-1.5 px-5 pl-9">
                   <span className={`text-[11px] font-semibold ${isToday(new Date(dayStr)) ? "text-accent" : "text-text-dim"}`}>
                     {dateSectionLabel(new Date(dayStr))}
                   </span>
@@ -229,12 +223,11 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                   return (
                     <Fragment key={tk.id}>
                       {showNowDivider && (
-                        <NowDivider borderColor={c.border} />
+                        <NowDivider />
                       )}
                       <div
                         onClick={() => onTaskPress(tk)}
-                        className={`flex flex-row items-center gap-2.5 py-2.5 px-5 pl-9 border-b border-surface-raised cursor-pointer transition-colors duration-100 hover:bg-surface-overlay ${opacityClass} ${bgClass}`}
-                        style={{ borderLeft: `3px solid ${isCancelled ? "var(--color-surface-border, #333)" : c.border}` }}
+                        className={`flex flex-row items-center gap-2.5 py-2.5 px-5 pl-9 cursor-pointer transition-colors duration-100 hover:bg-surface-overlay ${opacityClass} ${bgClass}`}
                       >
                         <Icon size={14} color={s.fg} className="shrink-0" />
 
@@ -268,7 +261,7 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
                 {isToday(new Date(dayStr)) && dayTasks.length > 0 && dayTasks.every(tk =>
                   getTaskTime(tk) < now && tk.status !== "running" && tk.status !== "active"
                 ) && (
-                  <NowDivider borderColor={c.border} />
+                  <NowDivider />
                 )}
               </div>
             ))}
@@ -282,12 +275,9 @@ export function ScheduleView({ tasks, schedules, onTaskPress, bots, statusFilter
 // ---------------------------------------------------------------------------
 // NOW divider — extracted to avoid duplication
 // ---------------------------------------------------------------------------
-function NowDivider({ borderColor }: { borderColor: string }) {
+function NowDivider() {
   return (
-    <div
-      className="flex flex-row items-center gap-2 py-1.5 px-5 pl-9"
-      style={{ borderLeft: `3px solid ${borderColor}` }}
-    >
+    <div className="flex flex-row items-center gap-2 py-1.5 px-5 pl-9">
       <div className="w-2 h-2 rounded-full bg-danger" />
       <div className="flex-1 h-px bg-danger" />
       <span className="text-[9px] font-bold text-danger uppercase tracking-widest">NOW</span>

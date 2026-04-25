@@ -31,6 +31,7 @@ class ContextProfile:
     allow_pinned_widgets: bool
     allow_tool_refusal_guard: bool
     allow_tool_index: bool
+    allow_skill_index: bool
     mandatory_static_injections: tuple[str, ...] = ()
     optional_static_injections: tuple[str, ...] = ()
     # When set, overrides ``settings.IN_LOOP_PRUNING_KEEP_ITERATIONS`` for this
@@ -44,6 +45,7 @@ class ContextProfile:
             "name": self.name,
             "live_history_turns": self.live_history_turns,
             "allow_plan_artifact": self.allow_plan_artifact,
+            "allow_skill_index": self.allow_skill_index,
             "mandatory_static_injections": list(self.mandatory_static_injections),
             "optional_static_injections": list(self.optional_static_injections),
         }
@@ -65,6 +67,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=True,
         allow_tool_refusal_guard=True,
         allow_tool_index=True,
+        allow_skill_index=True,
         mandatory_static_injections=("memory_bootstrap",),
         optional_static_injections=(
             "memory_housekeeping",
@@ -98,6 +101,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
+        allow_skill_index=True,
         mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
         optional_static_injections=("context_profile_note", "tool_index"),
     ),
@@ -116,6 +120,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=True,
         allow_tool_index=True,
+        allow_skill_index=True,
         mandatory_static_injections=("plan_artifact", "conversation_sections", "section_index"),
         optional_static_injections=(
             "context_profile_note",
@@ -142,6 +147,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=True,
+        allow_skill_index=True,
         mandatory_static_injections=("conversation_sections", "section_index"),
         optional_static_injections=("context_profile_note", "tool_index"),
     ),
@@ -160,6 +166,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=False,
+        allow_skill_index=False,
         optional_static_injections=("context_profile_note",),
         keep_iterations_override=8,
     ),
@@ -178,6 +185,7 @@ _PROFILES: dict[str, ContextProfile] = {
         allow_pinned_widgets=False,
         allow_tool_refusal_guard=False,
         allow_tool_index=False,
+        allow_skill_index=False,
         optional_static_injections=("context_profile_note",),
     ),
 }

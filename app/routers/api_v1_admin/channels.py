@@ -287,6 +287,7 @@ class HeartbeatConfigOut(BaseModel):
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
+    execution_policy: Optional[dict] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
     created_at: datetime
@@ -312,7 +313,7 @@ class HeartbeatConfigOut(BaseModel):
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
-            "append_spatial_prompt",
+            "append_spatial_prompt", "execution_policy",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -373,6 +374,7 @@ class HeartbeatUpdate(BaseModel):
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
+    execution_policy: Optional[dict] = None
 
 
 class TaskOut(BaseModel):
@@ -1324,6 +1326,9 @@ async def admin_channel_heartbeat_update(
         heartbeat.workflow_session_mode = val if val in ("shared", "isolated") else None
     if "skip_tool_approval" in updates:
         heartbeat.skip_tool_approval = updates["skip_tool_approval"]
+    if "execution_policy" in updates:
+        from app.services.heartbeat_policy import normalize_heartbeat_execution_policy
+        heartbeat.execution_policy = normalize_heartbeat_execution_policy(updates["execution_policy"])
     if "append_spatial_prompt" in updates:
         heartbeat.append_spatial_prompt = bool(updates["append_spatial_prompt"])
         if heartbeat.append_spatial_prompt:

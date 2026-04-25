@@ -90,6 +90,7 @@ async def run_agent_tool_loop(
     fallback_models: list[dict] | None = None,
     skip_tool_policy: bool = False,
     context_profile_name: str | None = None,
+    run_control_policy: dict[str, Any] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Single agent tool loop: LLM + tool calls until final response. Caller builds messages and sets context.
     When compaction=True, every yielded event gets "compaction": True.
@@ -100,6 +101,7 @@ async def run_agent_tool_loop(
         model_override=model_override,
         provider_id_override=provider_id_override,
         context_profile_name=context_profile_name,
+        settings_obj=settings,
     )
     effective_max_iterations = _loop_config.effective_max_iterations
     model = _loop_config.model
@@ -123,8 +125,36 @@ async def run_agent_tool_loop(
     tool_choice = _tool_state.tool_choice
     _effective_allowed = _tool_state.effective_allowed
     _activated_list = _tool_state.activated_list
+    _run_control_policy = run_control_policy or {}
+    _soft_max_llm_calls = int(_run_control_policy.get("soft_max_llm_calls") or 0)
+    _hard_max_llm_calls = int(_run_control_policy.get("hard_max_llm_calls") or 0)
+    _soft_current_prompt_tokens = int(_run_control_policy.get("soft_current_prompt_tokens") or 0)
+    if _hard_max_llm_calls > 0:
+        effective_max_iterations = min(effective_max_iterations, _hard_max_llm_calls)
 
     logger.debug("Tools available: %s", [t["function"]["name"] for t in all_tools] if all_tools else "(none)")
+
+    if context_profile_name == "heartbeat":
+        import json as _json
+        _tool_schema_chars = sum(len(_json.dumps(t, default=str)) for t in (tools_param or []))
+        _tool_surface_event = {
+            "type": "tool_surface_summary",
+            "context_profile": context_profile_name,
+            "tool_count": len(tools_param or []),
+            "tool_schema_tokens_estimate": estimate_chars_to_tokens(_tool_schema_chars),
+            "tools": [(t.get("function") or {}).get("name") for t in (tools_param or [])],
+            "tool_surface": _run_control_policy.get("tool_surface") or "unknown",
+        }
+        yield _event_with_compaction_tag(_tool_surface_event, compaction)
+        if correlation_id is not None:
+            safe_create_task(_record_trace_event(
+                correlation_id=correlation_id,
+                session_id=session_id,
+                bot_id=bot.id,
+                client_id=client_id,
+                event_type="tool_surface_summary",
+                data={k: v for k, v in _tool_surface_event.items() if k != "type"},
+            ))
 
     transcript_emitted = False
     embedded_client_actions: list[dict] = []
@@ -136,6 +166,9 @@ async def run_agent_tool_loop(
     _tools_to_enroll: list[str] = []  # tools to promote to persistent working set
     _loop_broken_reason: str | None = None  # set before break; None = for-loop exhausted
     _detected_cycle_len: int = 0  # populated when cycle detected
+    _current_prompt_tokens_total = 0
+    _soft_budget_slimmed = False
+    _last_pruned_after_iteration: int | None = None
     dispatch_state = LoopDispatchState(
         messages=messages,
         transcript_entries=transcript_entries,
@@ -190,6 +223,80 @@ async def run_agent_tool_loop(
             # this turn. Runs only when live-history utilization crosses the
             # pressure threshold; below threshold, pruning is pure loss.
             if iteration > 0 and settings.IN_LOOP_PRUNING_ENABLED:
+                _soft_budget_pressure = (
+                    context_profile_name == "heartbeat"
+                    and not _soft_budget_slimmed
+                    and (
+                        (_soft_max_llm_calls > 0 and iteration >= _soft_max_llm_calls)
+                        or (
+                            _soft_current_prompt_tokens > 0
+                            and _current_prompt_tokens_total >= _soft_current_prompt_tokens
+                        )
+                    )
+                )
+                if _soft_budget_pressure:
+                    _soft_budget_slimmed = True
+                    _pressure_event = {
+                        "type": "heartbeat_budget_pressure",
+                        "iteration": iteration + 1,
+                        "soft_max_llm_calls": _soft_max_llm_calls or None,
+                        "soft_current_prompt_tokens": _soft_current_prompt_tokens or None,
+                        "current_prompt_tokens_total": _current_prompt_tokens_total,
+                    }
+                    yield _event_with_compaction_tag(_pressure_event, compaction)
+                    if correlation_id is not None:
+                        safe_create_task(_record_trace_event(
+                            correlation_id=correlation_id,
+                            session_id=session_id,
+                            bot_id=bot.id,
+                            client_id=client_id,
+                            event_type="heartbeat_budget_pressure",
+                            data={k: v for k, v in _pressure_event.items() if k != "type"},
+                        ))
+                    _in_loop_stats = prune_in_loop_tool_results(
+                        messages,
+                        keep_iterations=min(_in_loop_keep_iterations, 1),
+                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
+                    )
+                    yield _event_with_compaction_tag({
+                        "type": "context_pruning",
+                        "pruned_count": _in_loop_stats["pruned_count"],
+                        "chars_saved": _in_loop_stats["chars_saved"],
+                        "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                        "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                        "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
+                        "scope": "in_loop",
+                        "keep_iterations": min(_in_loop_keep_iterations, 1),
+                        "live_history_utilization": None,
+                        "triggered_by": "heartbeat_soft_budget",
+                    }, compaction)
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "Heartbeat soft budget reached. Continue only if one more tool call is clearly "
+                            "high-value and novel; otherwise produce a concise final heartbeat result."
+                        ),
+                    })
+                    if correlation_id is not None:
+                        safe_create_task(_record_trace_event(
+                            correlation_id=correlation_id,
+                            session_id=session_id,
+                            bot_id=bot.id,
+                            client_id=client_id,
+                            event_type="context_pruning",
+                            count=_in_loop_stats["pruned_count"],
+                            data={
+                                "scope": "in_loop",
+                                "chars_saved": _in_loop_stats["chars_saved"],
+                                "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                                "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                                "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
+                                "iteration": iteration + 1,
+                                "keep_iterations": min(_in_loop_keep_iterations, 1),
+                                "triggered_by": "heartbeat_soft_budget",
+                            },
+                        ))
+                    continue
                 _available_budget_tokens = 0
                 try:
                     from app.agent.context_budget import get_model_context_window
@@ -430,12 +537,13 @@ async def run_agent_tool_loop(
                     accumulated_msg.usage.completion_tokens,
                     accumulated_msg.usage.total_tokens,
                 )
+                _gross_prompt_tokens = accumulated_msg.usage.prompt_tokens
+                _cached_prompt_tokens = accumulated_msg.cached_tokens
+                _current_prompt_tokens = _gross_prompt_tokens
+                if _cached_prompt_tokens is not None:
+                    _current_prompt_tokens = max(0, _gross_prompt_tokens - _cached_prompt_tokens)
+                _current_prompt_tokens_total += int(_current_prompt_tokens or 0)
                 if correlation_id is not None:
-                    _gross_prompt_tokens = accumulated_msg.usage.prompt_tokens
-                    _cached_prompt_tokens = accumulated_msg.cached_tokens
-                    _current_prompt_tokens = _gross_prompt_tokens
-                    if _cached_prompt_tokens is not None:
-                        _current_prompt_tokens = max(0, _gross_prompt_tokens - _cached_prompt_tokens)
                     _usage_data = {
                         "prompt_tokens": _gross_prompt_tokens,
                         "gross_prompt_tokens": _gross_prompt_tokens,
@@ -597,6 +705,44 @@ async def run_agent_tool_loop(
                             "wait_seconds": 0,
                         }, compaction)
 
+            if settings.IN_LOOP_PRUNING_ENABLED and _last_pruned_after_iteration != iteration:
+                _available_budget_tokens = 0
+                try:
+                    from app.agent.context_budget import get_model_context_window
+                    _window = get_model_context_window(model, effective_provider_id)
+                    if _window > 0:
+                        _available_budget_tokens = max(
+                            0,
+                            _window - int(_window * settings.CONTEXT_BUDGET_RESERVE_RATIO),
+                        )
+                except Exception:
+                    _available_budget_tokens = 0
+                _should_prune, _utilization = should_prune_in_loop(
+                    messages,
+                    available_budget_tokens=_available_budget_tokens,
+                    pressure_threshold=settings.IN_LOOP_PRUNING_PRESSURE_THRESHOLD,
+                )
+                if _should_prune:
+                    _in_loop_stats = prune_in_loop_tool_results(
+                        messages,
+                        keep_iterations=_in_loop_keep_iterations,
+                        min_content_length=settings.CONTEXT_PRUNING_MIN_LENGTH,
+                    )
+                    if _in_loop_stats["pruned_count"] > 0 or _in_loop_stats.get("tool_call_args_pruned", 0) > 0:
+                        _last_pruned_after_iteration = iteration
+                        yield _event_with_compaction_tag({
+                            "type": "context_pruning",
+                            "pruned_count": _in_loop_stats["pruned_count"],
+                            "chars_saved": _in_loop_stats["chars_saved"],
+                            "iterations_pruned": _in_loop_stats["iterations_pruned"],
+                            "tool_call_args_pruned": _in_loop_stats.get("tool_call_args_pruned", 0),
+                            "tool_call_arg_chars_saved": _in_loop_stats.get("tool_call_arg_chars_saved", 0),
+                            "scope": "in_loop",
+                            "keep_iterations": _in_loop_keep_iterations,
+                            "live_history_utilization": _utilization,
+                            "triggered_by": "pressure",
+                        }, compaction)
+
             # --- Skill learning nudge (one-shot after N iterations) ---
             _nudge_after = settings.SKILL_NUDGE_AFTER_ITERATIONS
             if (
@@ -708,6 +854,7 @@ async def run_stream(
     task_mode: bool = False,
     skip_skill_inject: bool = False,
     context_profile_name: str | None = None,
+    run_control_policy: dict[str, Any] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Core agent loop as an async generator that yields status events.
 
@@ -1039,6 +1186,7 @@ async def run_stream(
             fallback_models=_fallback_models,
             skip_tool_policy=skip_tool_policy,
             context_profile_name=_resolved_context_profile,
+            run_control_policy=run_control_policy,
         ):
             if event.get("type") == "response":
                 _last_response = event
@@ -1080,6 +1228,7 @@ async def run_stream(
             fallback_models=_fallback_models,
             skip_tool_policy=skip_tool_policy,
             context_profile_name=_resolved_context_profile,
+            run_control_policy=run_control_policy,
         ):
             yield event
 
@@ -1106,6 +1255,7 @@ async def run(
     task_mode: bool = False,
     skip_skill_inject: bool = False,
     context_profile_name: str | None = None,
+    run_control_policy: dict[str, Any] | None = None,
 ) -> RunResult:
     """Non-streaming wrapper: runs the agent loop and returns the final result."""
     result = RunResult()
@@ -1128,6 +1278,7 @@ async def run(
         task_mode=task_mode,
         skip_skill_inject=skip_skill_inject,
         context_profile_name=context_profile_name,
+        run_control_policy=run_control_policy,
     ):
         if event["type"] == "assistant_text":
             _intermediate_texts.append(event["text"])

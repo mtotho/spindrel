@@ -198,6 +198,35 @@ export function usePinWidgetToCanvas() {
   });
 }
 
+export interface PinPresetBody {
+  preset_id: string;
+  config?: Record<string, unknown> | null;
+  source_bot_id?: string | null;
+  source_channel_id?: string | null;
+  display_label?: string | null;
+  world_x?: number | null;
+  world_y?: number | null;
+  world_w?: number | null;
+  world_h?: number | null;
+}
+
+/** Pin a `widget_presets[*]` entry to the workspace canvas. Server runs
+ *  the preset preview pipeline and atomically creates the pin + node. */
+export function usePinPresetToCanvas() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: PinPresetBody) => {
+      return apiFetch<{ pin: { id: string }; node: SpatialNode }>(
+        "/api/v1/workspace/spatial/preset-pins",
+        { method: "POST", body: JSON.stringify(body) },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: NODES_KEY });
+    },
+  });
+}
+
 export function useSpatialBotPolicy(channelId: string | undefined, botId: string | undefined) {
   return useQuery({
     queryKey: ["channel-spatial-bot-policy", channelId, botId],

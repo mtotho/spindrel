@@ -86,3 +86,9 @@ def test_bot_knowledge_base_profile_admission_is_explicit():
     assert get_context_profile("heartbeat").allow_bot_knowledge_base is False
     assert "bot_knowledge_base" in get_context_profile("chat").optional_static_injections
     assert "bot_knowledge_base" in get_context_profile("executing").optional_static_injections
+
+
+def test_heartbeat_profile_suppresses_ambient_skill_index():
+    assert get_context_profile("chat").allow_skill_index is True
+    assert get_context_profile("executing").allow_skill_index is True
+    assert get_context_profile("heartbeat").allow_skill_index is False

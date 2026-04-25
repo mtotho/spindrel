@@ -1,4 +1,5 @@
 import { AlertTriangle, XCircle } from "lucide-react";
+import { SelectDropdown } from "@/src/components/shared/SelectDropdown";
 import {
   type TaskTypeFilter, type StatusFilter,
   TASK_TYPE_FILTERS, STATUS_FILTERS,
@@ -29,49 +30,37 @@ export function TaskFilters({
   if (isMobile) {
     return (
       <div className="flex flex-row items-center gap-2 px-4 py-2 border-b border-surface-raised overflow-x-auto">
-        <select
+        <SelectDropdown
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as TaskTypeFilter)}
-          className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
-            typeFilter !== "all"
-              ? "text-text border border-accent"
-              : "text-text-dim border border-surface-border"
-          }`}
-        >
-          {TASK_TYPE_FILTERS.map((f) => (
-            <option key={f.key} value={f.key}>{f.label}</option>
-          ))}
-        </select>
+          onChange={(next) => setTypeFilter(next as TaskTypeFilter)}
+          options={TASK_TYPE_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+          size="compact"
+          popoverWidth="content"
+          triggerClassName="min-h-[30px] min-w-[92px] bg-surface-raised/50 text-[11px]"
+        />
 
-        <select
+        <SelectDropdown
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-          className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
-            statusFilter !== "all"
-              ? "text-text border border-accent"
-              : "text-text-dim border border-surface-border"
-          }`}
-        >
-          {STATUS_FILTERS.map((f) => (
-            <option key={f.key} value={f.key}>{f.label}</option>
-          ))}
-        </select>
+          onChange={(next) => setStatusFilter(next as StatusFilter)}
+          options={STATUS_FILTERS.map((f) => ({ value: f.key, label: f.label }))}
+          size="compact"
+          popoverWidth="content"
+          triggerClassName="min-h-[30px] min-w-[92px] bg-surface-raised/50 text-[11px]"
+        />
 
         {setBotFilter && (
-          <select
+          <SelectDropdown
             value={botFilter ?? ""}
-            onChange={(e) => setBotFilter(e.target.value)}
-            className={`px-2 py-1 text-[11px] rounded-md bg-surface-raised cursor-pointer outline-none ${
-              botFilter
-                ? "text-text border border-accent"
-                : "text-text-dim border border-surface-border"
-            }`}
-          >
-            <option value="">All Bots</option>
-            {bots?.map((b) => (
-              <option key={b.id} value={b.id}>{b.name || b.id}</option>
-            ))}
-          </select>
+            onChange={setBotFilter}
+            options={[
+              { value: "", label: "All Bots" },
+              ...(bots?.map((b) => ({ value: b.id, label: b.name || b.id, searchText: `${b.name ?? ""} ${b.id}` })) ?? []),
+            ]}
+            searchable={(bots?.length ?? 0) > 8}
+            size="compact"
+            popoverWidth="content"
+            triggerClassName="min-h-[30px] min-w-[104px] bg-surface-raised/50 text-[11px]"
+          />
         )}
 
         {disabledScheduleCount > 0 && statusFilter !== "cancelled" && (
@@ -105,7 +94,7 @@ export function TaskFilters({
             onClick={() => setTypeFilter(f.key)}
             className={`px-2.5 py-1 text-[11px] font-semibold border-none cursor-pointer rounded-full whitespace-nowrap transition-colors duration-100 ${
               typeFilter === f.key
-                ? "bg-accent text-white"
+                ? "bg-surface-overlay text-text"
                 : "bg-surface-raised text-text-muted hover:text-text"
             }`}
           >
@@ -130,7 +119,7 @@ export function TaskFilters({
                   ? "bg-surface-border text-text-muted"
                   : f.key === "failed"
                     ? "bg-danger/[0.08] text-danger"
-                    : "bg-accent text-white"
+                    : "bg-surface-overlay text-text"
                 : "bg-surface-raised text-text-muted hover:text-text"
             }`}
           >
