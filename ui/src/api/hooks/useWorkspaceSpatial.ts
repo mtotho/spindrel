@@ -59,6 +59,7 @@ export interface SpatialBotPolicy {
   allow_movement: boolean;
   step_world_units: number;
   max_move_steps_per_turn: number;
+  minimum_clearance_steps: number;
   awareness_radius_steps: number;
   nearest_neighbor_floor: number;
   allow_moving_spatial_objects: boolean;

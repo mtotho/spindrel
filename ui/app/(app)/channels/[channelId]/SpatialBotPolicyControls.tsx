@@ -92,6 +92,7 @@ export function SpatialPolicyCard({
           <div className="grid gap-3 md:grid-cols-2">
             <NumberPolicyInput label="Step size" value={p.step_world_units} onCommit={(step_world_units) => patch({ step_world_units })} />
             <NumberPolicyInput label="Move budget" value={p.max_move_steps_per_turn} onCommit={(max_move_steps_per_turn) => patch({ max_move_steps_per_turn })} />
+            <NumberPolicyInput label="Min clearance" value={p.minimum_clearance_steps} onCommit={(minimum_clearance_steps) => patch({ minimum_clearance_steps })} />
             <NumberPolicyInput label="Awareness radius" value={p.awareness_radius_steps} onCommit={(awareness_radius_steps) => patch({ awareness_radius_steps })} />
             <NumberPolicyInput label="Nearest floor" value={p.nearest_neighbor_floor} onCommit={(nearest_neighbor_floor) => patch({ nearest_neighbor_floor })} />
             <NumberPolicyInput label="Tug radius" value={p.tug_radius_steps} onCommit={(tug_radius_steps) => patch({ tug_radius_steps })} />

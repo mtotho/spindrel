@@ -2286,6 +2286,7 @@ class SpatialBotPolicyRequest(BaseModel):
     allow_movement: Optional[bool] = None
     step_world_units: Optional[int] = None
     max_move_steps_per_turn: Optional[int] = None
+    minimum_clearance_steps: Optional[int] = None
     awareness_radius_steps: Optional[int] = None
     nearest_neighbor_floor: Optional[int] = None
     allow_moving_spatial_objects: Optional[bool] = None

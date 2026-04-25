@@ -65,6 +65,7 @@ DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "allow_movement": False,
     "step_world_units": 32,
     "max_move_steps_per_turn": 2,
+    "minimum_clearance_steps": 3,
     "awareness_radius_steps": 8,
     "nearest_neighbor_floor": 3,
     "allow_moving_spatial_objects": False,
@@ -413,6 +414,7 @@ def normalize_spatial_policy(raw: dict | None) -> dict[str, Any]:
         policy[key] = bool(policy.get(key))
     policy["step_world_units"] = _coerce_positive_int(policy.get("step_world_units"), 32, minimum=1, maximum=1000)
     policy["max_move_steps_per_turn"] = _coerce_positive_int(policy.get("max_move_steps_per_turn"), 2, minimum=0, maximum=100)
+    policy["minimum_clearance_steps"] = _coerce_positive_int(policy.get("minimum_clearance_steps"), 3, minimum=0, maximum=100)
     policy["awareness_radius_steps"] = _coerce_positive_int(policy.get("awareness_radius_steps"), 8, minimum=0, maximum=1000)
     policy["nearest_neighbor_floor"] = _coerce_positive_int(policy.get("nearest_neighbor_floor"), 3, minimum=0, maximum=50)
     policy["tug_radius_steps"] = _coerce_positive_int(policy.get("tug_radius_steps"), 2, minimum=0, maximum=100)
@@ -479,6 +481,40 @@ def _distance(a: WorkspaceSpatialNode, b: WorkspaceSpatialNode) -> float:
     return math.hypot(ax - bx, ay - by)
 
 
+def _edge_clearance(
+    a: WorkspaceSpatialNode,
+    b: WorkspaceSpatialNode,
+    *,
+    a_x: float | None = None,
+    a_y: float | None = None,
+) -> float:
+    """Return visual gap between node rectangles; 0 means touching/overlap."""
+    left_a = a.world_x if a_x is None else a_x
+    top_a = a.world_y if a_y is None else a_y
+    right_a = left_a + a.world_w
+    bottom_a = top_a + a.world_h
+    left_b = b.world_x
+    top_b = b.world_y
+    right_b = b.world_x + b.world_w
+    bottom_b = b.world_y + b.world_h
+    dx = max(left_b - right_a, left_a - right_b, 0.0)
+    dy = max(top_b - bottom_a, top_a - bottom_b, 0.0)
+    return math.hypot(dx, dy)
+
+
+def _center_distance_from(
+    a: WorkspaceSpatialNode,
+    b: WorkspaceSpatialNode,
+    *,
+    a_x: float,
+    a_y: float,
+) -> float:
+    ax = a_x + a.world_w / 2
+    ay = a_y + a.world_h / 2
+    bx, by = _node_center(b)
+    return math.hypot(ax - bx, ay - by)
+
+
 def _movement_payload(
     *,
     actor_bot_id: str,
@@ -529,8 +565,29 @@ async def move_bot_node(
         raise NotFoundError(f"Bot node not found: {bot_id}")
     from_x, from_y = node.world_x, node.world_y
     step = float(policy["step_world_units"])
-    node.world_x = float(node.world_x + int(dx_steps) * step)
-    node.world_y = float(node.world_y + int(dy_steps) * step)
+    to_x = float(node.world_x + int(dx_steps) * step)
+    to_y = float(node.world_y + int(dy_steps) * step)
+    min_clearance = float(policy["minimum_clearance_steps"] * policy["step_world_units"])
+    if min_clearance > 0:
+        nodes, _pin_map = await _nodes_with_pins(db)
+        for other in nodes:
+            if other.id == node.id:
+                continue
+            before_clearance = _edge_clearance(node, other)
+            after_clearance = _edge_clearance(node, other, a_x=to_x, a_y=to_y)
+            if after_clearance >= min_clearance:
+                continue
+            before_center = _distance(node, other)
+            after_center = _center_distance_from(node, other, a_x=to_x, a_y=to_y)
+            if after_clearance < before_clearance or (
+                after_clearance == before_clearance and after_center < before_center
+            ):
+                raise ValidationError(
+                    "Move would crowd another canvas object; keep at least "
+                    f"{policy['minimum_clearance_steps']} step(s) of clearance or move away first."
+                )
+    node.world_x = to_x
+    node.world_y = to_y
     node.last_movement = _movement_payload(
         actor_bot_id=bot_id,
         channel_id=channel_id,
@@ -714,6 +771,7 @@ async def build_canvas_neighborhood(
         raise NotFoundError(f"Bot node not found: {bot_id}")
     nodes, pin_map = await _nodes_with_pins(db)
     radius = float(policy["awareness_radius_steps"] * policy["step_world_units"])
+    min_clearance = float(policy["minimum_clearance_steps"] * policy["step_world_units"])
     floor = int(policy["nearest_neighbor_floor"])
     rows: list[dict[str, Any]] = []
     for node in nodes:
@@ -721,11 +779,15 @@ async def build_canvas_neighborhood(
             continue
         pin = pin_map.get(node.widget_pin_id) if node.widget_pin_id else None
         dist = _distance(bot_node, node)
+        edge = _edge_clearance(bot_node, node)
         rows.append({
             "id": str(node.id),
             "kind": _node_kind(node),
             "label": _node_label(node, pin),
             "distance": round(dist, 1),
+            "edge_distance": round(edge, 1),
+            "overlapping": edge <= 0,
+            "too_close": min_clearance > 0 and edge < min_clearance,
             "within_radius": dist <= radius,
             "tuggable": (
                 bool(policy["allow_moving_spatial_objects"])
@@ -772,6 +834,7 @@ async def build_canvas_neighborhood_block(
         (
             f"movement: step={policy['step_world_units']} world units, "
             f"move_budget={policy['max_move_steps_per_turn']} step(s), "
+            f"minimum_clearance={policy['minimum_clearance_steps']} step(s), "
             f"awareness_radius={policy['awareness_radius_steps']} step(s), "
             f"tug_radius={policy['tug_radius_steps']} step(s)"
         ),
@@ -801,9 +864,14 @@ async def build_canvas_neighborhood_block(
             flags.append("tuggable")
         if row.get("manageable"):
             flags.append("manageable")
+        if row.get("overlapping"):
+            flags.append("overlapping")
+        elif row.get("too_close"):
+            flags.append("too-close")
         flag_text = f" [{' '.join(flags)}]" if flags else ""
         lines.append(
-            f"  - {row['label']} ({row['kind']}) id={row['id']} dist={row['distance']}{flag_text}"
+            f"  - {row['label']} ({row['kind']}) id={row['id']} "
+            f"center_dist={row['distance']} edge_gap={row['edge_distance']}{flag_text}"
         )
     if not neighborhood["neighbors"]:
         lines.append("  - none")
@@ -826,10 +894,14 @@ async def inspect_nearby_spatial_object(
         raise NotFoundError(f"Bot node not found: {bot_id}")
     radius = float(policy["awareness_radius_steps"] * policy["step_world_units"])
     dist = _distance(bot_node, target)
+    edge = _edge_clearance(bot_node, target)
     if dist > radius:
         raise ValidationError("Target is outside this bot's awareness radius.")
     payload = serialize_node(target)
     payload["distance"] = round(dist, 1)
+    payload["edge_distance"] = round(edge, 1)
+    payload["overlapping"] = edge <= 0
+    payload["too_close"] = edge < float(policy["minimum_clearance_steps"] * policy["step_world_units"])
     if target.channel_id:
         ch = await db.get(Channel, target.channel_id)
         payload["summary"] = {

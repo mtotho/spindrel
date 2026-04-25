@@ -91,7 +91,8 @@ function DotView({
     <div
       data-tile-kind="channel"
       onDoubleClick={onDive}
-      className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-grab active:cursor-grabbing"
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center gap-3 active:cursor-grabbing"
+      style={{ width: 240, minHeight: 150 }}
     >
       <div
         className="rounded-full shadow-md ring-2 ring-text/10"

@@ -130,7 +130,8 @@ function ChipView() {
   return (
     <div
       data-tile-kind="widget"
-      className="w-full h-full flex flex-col items-center justify-center cursor-grab active:cursor-grabbing"
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center active:cursor-grabbing"
+      style={{ width: 76, height: 76 }}
     >
       <WidgetGlyph size={64} />
     </div>
@@ -155,7 +156,8 @@ function ChipTitleView({
   return (
     <div
       data-tile-kind="widget"
-      className="w-full h-full flex flex-col items-center justify-center gap-3 cursor-grab active:cursor-grabbing"
+      className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center gap-3 active:cursor-grabbing"
+      style={{ width: 220, minHeight: 112 }}
     >
       <WidgetGlyph size={56} />
       <div

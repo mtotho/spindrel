@@ -530,10 +530,11 @@ export function SpatialCanvas({ onAfterDive }: SpatialCanvasProps) {
     setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
   }, []);
 
-  // dnd-kit sensor with a small activation distance so a click-drag of the
-  // tile starts dnd, but a clean click (or double-click for dive) doesn't.
+  // dnd-kit sensor with a modest activation distance so exploratory clicks
+  // and tiny pointer drift pan/select space instead of immediately moving a
+  // nearby tile.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
@@ -1258,7 +1259,7 @@ function DraggableNode({
   onHoverChange,
   children,
 }: DraggableNodeProps) {
-  const { setNodeRef, listeners, attributes, transform } = useDraggable({
+  const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform } = useDraggable({
     id: node.id,
     disabled: diving,
   });
@@ -1302,6 +1303,7 @@ function DraggableNode({
     transformOrigin: "center center",
     transition,
     touchAction: "none",
+    pointerEvents: "none",
   };
   return (
     <div
@@ -1309,10 +1311,15 @@ function DraggableNode({
       style={style}
       onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
       onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
-      {...attributes}
-      {...listeners}
     >
-      {children}
+      <div
+        ref={setActivatorNodeRef}
+        style={{ display: "contents", pointerEvents: "auto" }}
+        {...attributes}
+        {...listeners}
+      >
+        {children}
+      </div>
     </div>
   );
 }
