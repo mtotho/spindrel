@@ -4,6 +4,7 @@ import { apiFetch } from "../client";
 import { useChatStore } from "../../stores/chat";
 import { useChannel, useUpdateChannelSettings } from "./useChannels";
 import { useChannelEvents } from "./useChannelEvents";
+import { useChannelState } from "./useChannelState";
 import { useCancelChat, useSubmitChat } from "./useChat";
 import { MessagePage, PAGE_SIZE } from "@/app/(app)/channels/[channelId]/chatUtils";
 import { extractDisplayText } from "@/src/components/chat/messageUtils";
@@ -59,6 +60,13 @@ export function useChannelChatSource(channelId: string): UseChannelChatSourceRet
   useChannelEvents(channelId, channel?.bot_id, {
     sessionFilter: activeSessionId,
   });
+
+  // Snapshot of in-flight turns + pending approvals. Mirrors the full channel
+  // page (useChannelChat.ts) so the dock variant rehydrates streaming state
+  // on every (re)mount — without this, dismissing the spatial-canvas mini-chat
+  // mid-turn and reopening it leaves the typing/tool-call cards dark even
+  // though the turn is still running on the server.
+  useChannelState(channelId, channel?.bot_id);
 
   const {
     data: pages,

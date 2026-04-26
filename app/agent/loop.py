@@ -707,7 +707,13 @@ async def run_agent_tool_loop(
                                 "image_url": {"url": f"data:{mime};base64,{b64}"},
                             })
                     if len(_img_parts) > 1:
-                        messages.append({"role": "user", "content": _img_parts})
+                        messages.append({
+                            "role": "user",
+                            "content": _img_parts,
+                            "_hidden": True,
+                            "_suppress_outbox": True,
+                            "_internal_kind": "injected_image_context",
+                        })
                 else:
                     # Auto-describe images using vision model for non-vision models
                     from app.agent.llm import _describe_image_data
@@ -724,7 +730,13 @@ async def run_agent_tool_loop(
                             else "[An image was attached but could not be described.]"
                         )
                     if _desc_parts:
-                        messages.append({"role": "user", "content": "\n\n".join(_desc_parts)})
+                        messages.append({
+                            "role": "user",
+                            "content": "\n\n".join(_desc_parts),
+                            "_hidden": True,
+                            "_suppress_outbox": True,
+                            "_internal_kind": "injected_image_context",
+                        })
                         yield _event_with_compaction_tag({
                             "type": "llm_retry", "reason": "vision_not_supported",
                             "model": model, "attempt": 0, "max_retries": 0,

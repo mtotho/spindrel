@@ -2,7 +2,7 @@
  * ModePickerCard — first card shown for `?new=1` on the automations canvas.
  *
  * Two big choices: Prompt (single-shot agent turn) vs Pipeline (multi-step).
- * Once picked, the canvas page swaps to <EditorCard> with the chosen mode
+ * Once picked, the canvas page swaps to <CanvasEditor> with the chosen mode
  * pre-selected.
  */
 import { MessageSquare, Workflow, X } from "lucide-react";

@@ -44,6 +44,18 @@ type ChannelEventCallback = (event: ChannelEventFrame) => void;
 
 const channelEventSubscribers = new Map<string, Set<ChannelEventCallback>>();
 
+// Last SSE bus seq seen per subscription, persisted across hook remounts so a
+// dock that unmounts mid-turn (e.g. spatial-canvas mini-chat dismissed to look
+// at the map) can resume from `?since=N` instead of starting at the live tail.
+// Keyed by `${subscribePath}:${channelId}` so the channel-events and
+// session-events streams don't collide. Stale entries (channel goes idle for
+// hours, server's 256-event ring rolls past) trigger `replay_lapsed` on the
+// next connect and the existing recovery path reseeds via /state.
+const lastSeqByChannel = new Map<string, number>();
+function seqMapKey(subscribePath: "channels" | "sessions", channelId: string): string {
+  return `${subscribePath}:${channelId}`;
+}
+
 function normalizeEventMessage(message: any): Message {
   return {
     id: message.id,
@@ -176,8 +188,17 @@ export function useChannelEvents(
   // streaming indicator stuck on screen forever.
   const observerTimeoutsRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
-  // Last bus seq we received, for replay-on-reconnect.
+  // Last bus seq we received, for replay-on-reconnect. Seeded from the
+  // module-level cache on mount so a remount (dock close + reopen) resumes
+  // from where the previous mount left off rather than skipping to the live
+  // tail. Lazy init runs only on first render of this hook instance.
   const lastSeqRef = useRef<number | null>(null);
+  const seqInitRef = useRef(false);
+  if (!seqInitRef.current && channelId) {
+    const cached = lastSeqByChannel.get(seqMapKey(subscribePath, channelId));
+    if (typeof cached === "number") lastSeqRef.current = cached;
+    seqInitRef.current = true;
+  }
 
   const flushDeltas = useCallback(
     (chId: string) => {
@@ -333,6 +354,7 @@ export function useChannelEvents(
       const payload = wire?.payload;
       if (typeof wire?.seq === "number") {
         lastSeqRef.current = wire.seq;
+        lastSeqByChannel.set(seqMapKey(subscribePathRef.current, chId), wire.seq);
       }
       if (!kind) return;
       // Session filter: drop events whose payload doesn't match the target
@@ -714,7 +736,10 @@ export function useChannelEvents(
           // with the mount-seed this deprecates the 256-event replay buffer.
           queryClient.invalidateQueries({ queryKey: ["channel-state", chId] });
           // Reset the cursor so the next connect resumes from current head.
+          // Also drop the persisted entry — otherwise a remount would resubmit
+          // a `since` the server already told us is out of range.
           lastSeqRef.current = null;
+          lastSeqByChannel.delete(seqMapKey(subscribePathRef.current, chId));
           return;
         }
 

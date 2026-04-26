@@ -26,6 +26,66 @@ SPATIAL_HEARTBEAT_PROMPT = """Spatial canvas turn:
 - Do not post a routine status update unless you changed something or found something worth sharing."""
 
 
+def _build_dispatch_setup(hb: ChannelHeartbeat, channel: Channel) -> tuple[str, dict | None, list[dict] | None]:
+    """Resolve legacy dispatch config plus optional heartbeat posting tools."""
+    dispatch_type = "none"
+    dispatch_config = None
+    injected_tools: list[dict] | None = None
+    dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
+
+    if hb.dispatch_results and channel.dispatch_config:
+        dispatch_type = channel.integration or "none"
+        dispatch_config = dict(channel.dispatch_config)
+        dispatch_config.pop("thread_ts", None)
+        dispatch_config["reply_in_thread"] = False
+
+    if hb.dispatch_results and dispatch_mode == "optional":
+        from app.tools.local.heartbeat_tools import POST_HEARTBEAT_TO_CHANNEL_SCHEMA
+
+        injected_tools = [POST_HEARTBEAT_TO_CHANNEL_SCHEMA]
+
+    return dispatch_type, dispatch_config, injected_tools
+
+
+async def _enqueue_persisted_heartbeat_result(
+    *,
+    channel_id: uuid.UUID,
+    session_id: uuid.UUID,
+    correlation_id: uuid.UUID,
+) -> None:
+    """Send only the persisted assistant heartbeat result through external outbox."""
+    from app.db.models import Message as _Msg
+    from app.services.sessions import _enqueue_outbox_for_channel
+
+    async with async_session() as db:
+        row = (await db.execute(
+            select(_Msg)
+            .where(
+                _Msg.session_id == session_id,
+                _Msg.correlation_id == correlation_id,
+                _Msg.role == "assistant",
+            )
+            .order_by(_Msg.created_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if row is None:
+            logger.warning(
+                "Heartbeat result dispatch skipped: no assistant row found "
+                "(channel=%s session=%s correlation=%s)",
+                channel_id,
+                session_id,
+                correlation_id,
+            )
+            return
+        logger.info(
+            "Heartbeat result dispatch: enqueueing assistant row %s for channel %s",
+            row.id,
+            channel_id,
+        )
+        await _enqueue_outbox_for_channel(db, channel_id=channel_id, persisted_records=[row])
+        await db.commit()
+
+
 def _trim_history_for_task(messages: list[dict], max_turns: int) -> list[dict]:
     """Trim conversation history to last *max_turns* non-heartbeat turn-pairs.
 
@@ -391,19 +451,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
             logger.warning("Heartbeat %s: channel %s not found, skipping", hb.id, hb.channel_id)
             return
 
-        dispatch_type = "none"
-        dispatch_config = None
-        injected_tools: list[dict] | None = None
         _dispatch_mode = getattr(hb, "dispatch_mode", "always") or "always"
-        if hb.dispatch_results and channel.dispatch_config:
-            dispatch_type = channel.integration or "none"
-            dispatch_config = dict(channel.dispatch_config)
-            dispatch_config.pop("thread_ts", None)
-            dispatch_config["reply_in_thread"] = False
-            if _dispatch_mode == "optional":
-                # LLM gets a tool to post if it wants; result NOT auto-dispatched
-                from app.tools.local.heartbeat_tools import POST_HEARTBEAT_TO_CHANNEL_SCHEMA
-                injected_tools = [POST_HEARTBEAT_TO_CHANNEL_SCHEMA]
+        dispatch_type, dispatch_config, injected_tools = _build_dispatch_setup(hb, channel)
 
         # Resolve prompt: workspace file > template > inline
         from app.services.prompt_resolution import resolve_prompt
@@ -723,6 +772,14 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 correlation_id=correlation_id, channel_id=channel_id,
                 is_heartbeat=True,
                 msg_metadata={"trigger": "heartbeat", "dispatched": _dispatched},
+                suppress_outbox=True,
+            )
+
+        if _dispatched and channel_id is not None:
+            await _enqueue_persisted_heartbeat_result(
+                channel_id=channel_id,
+                session_id=eff_session_id,
+                correlation_id=correlation_id,
             )
 
         # Publish heartbeat result to the bus. Renderers consume TURN_ENDED

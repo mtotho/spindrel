@@ -603,7 +603,24 @@ async def _enqueue_outbox_for_channel(
     if channel_row is None:
         return
     targets = await resolve_targets(channel_row)
+    logger.debug(
+        "persist_turn: resolved %d external target(s) for channel %s (%s): %s",
+        len(targets),
+        channel_id,
+        getattr(channel_row, "name", None),
+        [integration_id for integration_id, _target in targets],
+    )
     for record in persisted_records:
+        if _should_suppress_external_delivery(record):
+            logger.debug(
+                "persist_turn: skipping external delivery for internal row %s "
+                "(channel=%s role=%s metadata=%s)",
+                record.id,
+                channel_id,
+                record.role,
+                record.metadata_ or {},
+            )
+            continue
         domain_msg = DomainMessage.from_orm(record, channel_id=channel_id)
         event = ChannelEvent(
             channel_id=channel_id,
@@ -643,6 +660,16 @@ async def _enqueue_outbox_for_thread(
     targets = await resolve_targets(channel_row)
     targets = apply_session_thread_refs(session_row, targets)
     for record in persisted_records:
+        if _should_suppress_external_delivery(record):
+            logger.debug(
+                "persist_turn: skipping thread external delivery for internal row %s "
+                "(session=%s role=%s metadata=%s)",
+                record.id,
+                session_id,
+                record.role,
+                record.metadata_ or {},
+            )
+            continue
         domain_msg = DomainMessage.from_orm(record, channel_id=None)
         event = ChannelEvent(
             channel_id=bus_ch,
@@ -650,6 +677,11 @@ async def _enqueue_outbox_for_thread(
             payload=MessagePayload(message=domain_msg),
         )
         await _outbox.enqueue(db, bus_ch, event, targets)
+
+
+def _should_suppress_external_delivery(record: Message) -> bool:
+    meta = record.metadata_ or {}
+    return bool(meta.get("suppress_outbox") or meta.get("hidden"))
 
 
 async def _link_orphan_attachments(

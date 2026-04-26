@@ -2,7 +2,7 @@
 tags: [agent-server, track, integrations, architecture]
 status: polish
 created: 2026-04-11
-updated: 2026-04-11
+updated: 2026-04-26
 ---
 # Track — Integration Delivery Layer Refactor
 
@@ -13,6 +13,8 @@ updated: 2026-04-11
 > **Where the shipped detail lives**: [[Completed Tracks#Integration Delivery Layer Refactor]] — phase summary + commit pointers + test coverage.
 >
 > **Where the bug-by-bug history lives**: [[Fix Log]] — the 9 manual-smoke fixes + the 4 session-11 backend fixes + 11 session-15 polish landings.
+
+> **2026-04-26 monitor follow-up:** `persist_turn` external delivery now filters `hidden` / `suppress_outbox` rows before enqueueing integration outbox records. This closes a Slack leak where scheduled heartbeat prompt/context rows and tool-injected image analysis rows were correctly persisted for internal history but incorrectly mirrored as channel messages. Heartbeat auto-dispatch now suppresses the full turn outbox and explicitly enqueues only the final assistant result; optional heartbeat posting still uses `post_heartbeat_to_channel`.
 
 ## Phase H acceptance — ✅ landed session 15
 

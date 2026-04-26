@@ -139,6 +139,7 @@ class TestPersistTurnOutboxEnqueue:
         db = AsyncMock()
         db.add = MagicMock()
         db.get = AsyncMock(return_value=channel_row)
+        db.execute = AsyncMock(return_value=MagicMock(rowcount=0))
         return db
 
     @pytest.mark.asyncio
@@ -243,6 +244,61 @@ class TestPersistTurnOutboxEnqueue:
             await persist_turn(db, session_id, bot, messages, from_index=0, channel_id=channel_id)
 
         assert mock_enqueue.await_count == 1, "only the one user message triggers enqueue"
+
+    @pytest.mark.asyncio
+    async def test_hidden_and_suppressed_rows_are_not_enqueued(self):
+        """Internal rows may persist for history but must not leave the channel."""
+        from app.services.sessions import persist_turn
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        bot = _make_bot_cfg()
+        db = self._make_db(channel_row=MagicMock())
+        messages = [
+            {"role": "user", "content": "visible"},
+            {"role": "user", "content": "hidden", "_hidden": True},
+            {"role": "user", "content": "suppressed", "_suppress_outbox": True},
+            {"role": "assistant", "content": "answer"},
+        ]
+
+        with patch("app.services.dispatch_resolution.resolve_targets",
+                   new=AsyncMock(return_value=[("slack", MagicMock())])), \
+             patch("app.services.outbox.enqueue",
+                   new_callable=AsyncMock) as mock_enqueue, \
+             patch("app.domain.message.Message.from_orm", return_value=MagicMock()) as mock_from_orm:
+            await persist_turn(db, session_id, bot, messages, from_index=0, channel_id=channel_id)
+
+        assert mock_enqueue.await_count == 2
+        enqueued_contents = [call.args[0].content for call in mock_from_orm.call_args_list]
+        assert enqueued_contents == ["visible", "answer"]
+
+    @pytest.mark.asyncio
+    async def test_suppressed_rows_keep_metadata_for_audit(self):
+        """The suppression marker is persisted so delivery filtering is inspectable."""
+        from app.services.sessions import persist_turn
+
+        channel_id = uuid.uuid4()
+        session_id = uuid.uuid4()
+        bot = _make_bot_cfg()
+        db = self._make_db(channel_row=MagicMock())
+        messages = [
+            {
+                "role": "user",
+                "content": "internal image context",
+                "_hidden": True,
+                "_suppress_outbox": True,
+                "_internal_kind": "injected_image_context",
+            },
+        ]
+
+        with patch("app.services.dispatch_resolution.resolve_targets",
+                   new=AsyncMock(return_value=[])):
+            await persist_turn(db, session_id, bot, messages, from_index=0, channel_id=channel_id)
+
+        persisted = db.add.call_args.args[0]
+        assert persisted.metadata_["hidden"] is True
+        assert persisted.metadata_["suppress_outbox"] is True
+        assert persisted.metadata_["internal_kind"] == "injected_image_context"
 
 
 # ---------------------------------------------------------------------------

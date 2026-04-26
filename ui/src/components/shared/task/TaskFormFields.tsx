@@ -26,7 +26,7 @@ import type { TaskFormState } from "./useTaskFormState";
 // Content Fields — Title, Prompt/Steps toggle, prompt or pipeline editor
 // ---------------------------------------------------------------------------
 
-export function ContentFields({ form, promptRows }: { form: TaskFormState; promptRows?: number }) {
+export function ContentFields({ form, promptRows, hideStepEditor }: { form: TaskFormState; promptRows?: number; hideStepEditor?: boolean }) {
   const {
     title, setTitle, prompt, setPrompt,
     promptTemplateId, setPromptTemplateId,
@@ -133,8 +133,15 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
         </>
       )}
 
+      {/* Steps mode — hint when editor is hidden (canvas tile) */}
+      {stepsMode && hideStepEditor && (
+        <div className="px-3 py-3 rounded-md bg-surface-raised/40 border border-surface-border/60 text-[11.5px] text-text-dim leading-snug">
+          Pipeline steps live as tiles on the canvas. Use <span className="font-semibold text-text">+ Add Step</span> to create one.
+        </div>
+      )}
+
       {/* Steps mode */}
-      {stepsMode && (
+      {stepsMode && !hideStepEditor && (
         <>
           {/* Visual / JSON tab strip + schema help */}
           <div className="flex flex-row items-center gap-2">

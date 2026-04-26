@@ -17,7 +17,7 @@ import { apiFetch } from "@/src/api/client";
 import type { TasksResponse } from "@/src/components/shared/TaskConstants";
 import { DefinitionsSidebar } from "./DefinitionsSidebar";
 import { ModePickerCard } from "./ModePickerCard";
-import { EditorCard } from "./EditorCard";
+import { CanvasEditor } from "./CanvasEditor";
 
 export function AutomationsCanvasPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -101,40 +101,42 @@ export function AutomationsCanvasPage() {
           )}
         </div>
 
-        {/* Centered floating card */}
-        {(isNew || editTaskId) && (
-          <div className="absolute inset-0 z-[1] flex items-center justify-center p-6 overflow-y-auto">
-            {isNew && !pickedMode && (
+        {/* Mode picker — centered floating card before a mode is chosen */}
+        {isNew && !pickedMode && !editTaskId && (
+          <div className="absolute inset-0 z-[1] flex items-center justify-center p-6 overflow-y-auto pointer-events-none">
+            <div className="pointer-events-auto">
               <ModePickerCard
                 onPick={(mode) => setParams({ mode })}
                 onClose={closeCard}
               />
-            )}
-            {isNew && pickedMode && (
-              <EditorCard
-                key={`new-${pickedMode}`}
-                mode="create"
-                initialMode={pickedMode}
-                onClose={closeCard}
-                onSaved={(createdId) => {
-                  if (createdId) openEdit(createdId);
-                  else closeCard();
-                }}
-              />
-            )}
-            {editTaskId && (
-              <EditorCard
-                key={`edit-${editTaskId}`}
-                mode="edit"
-                taskId={editTaskId}
-                onClose={closeCard}
-                onSaved={() => {
-                  /* stay on the card after save so user can keep iterating */
-                }}
-                onDeleted={closeCard}
-              />
-            )}
+            </div>
           </div>
+        )}
+
+        {/* Tile-based editor — covers the canvas plane with floating tiles */}
+        {isNew && pickedMode && (
+          <CanvasEditor
+            key={`new-${pickedMode}`}
+            mode="create"
+            initialMode={pickedMode}
+            onClose={closeCard}
+            onSaved={(createdId) => {
+              if (createdId) openEdit(createdId);
+              else closeCard();
+            }}
+          />
+        )}
+        {editTaskId && (
+          <CanvasEditor
+            key={`edit-${editTaskId}`}
+            mode="edit"
+            taskId={editTaskId}
+            onClose={closeCard}
+            onSaved={() => {
+              /* stay on the canvas after save so user can keep iterating */
+            }}
+            onDeleted={closeCard}
+          />
         )}
       </div>
     </div>

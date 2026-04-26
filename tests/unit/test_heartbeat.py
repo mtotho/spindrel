@@ -12,6 +12,7 @@ from app.services.heartbeat import (
     next_aligned_time,
     _detect_repetition,
     _build_repetition_preamble,
+    _build_dispatch_setup,
 )
 
 
@@ -228,6 +229,32 @@ class TestHeartbeatDefaultPrompt:
         """HEARTBEAT_DEFAULT_PROMPT should default to empty string."""
         from app.config import Settings
         assert Settings.model_fields["HEARTBEAT_DEFAULT_PROMPT"].default == ""
+
+
+class TestHeartbeatDispatchSetup:
+    def test_optional_dispatch_injects_post_tool_without_legacy_dispatch_config(self):
+        hb = SimpleNamespace(dispatch_results=True, dispatch_mode="optional")
+        channel = SimpleNamespace(integration=None, dispatch_config=None)
+
+        dispatch_type, dispatch_config, injected_tools = _build_dispatch_setup(hb, channel)
+
+        assert dispatch_type == "none"
+        assert dispatch_config is None
+        tool_names = [(t.get("function") or {}).get("name") for t in injected_tools or []]
+        assert "post_heartbeat_to_channel" in tool_names
+
+    def test_always_dispatch_uses_legacy_config_when_present(self):
+        hb = SimpleNamespace(dispatch_results=True, dispatch_mode="always")
+        channel = SimpleNamespace(
+            integration="slack",
+            dispatch_config={"channel": "C123", "thread_ts": "old"},
+        )
+
+        dispatch_type, dispatch_config, injected_tools = _build_dispatch_setup(hb, channel)
+
+        assert dispatch_type == "slack"
+        assert dispatch_config == {"channel": "C123", "reply_in_thread": False}
+        assert injected_tools is None
 
 
 def _make_run(result=None, error=None, correlation_id=None, minutes_ago=0):
