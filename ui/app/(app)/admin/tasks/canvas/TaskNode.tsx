@@ -40,8 +40,8 @@ function TaskNodeImpl({ data, selected }: NodeProps<TaskNodeType>) {
 
   return (
     <div
-      className={`flex flex-col rounded-xl border border-surface-border bg-surface shadow-xl overflow-hidden ${ringClass}`}
-      style={{ width: 420, maxHeight: "78vh" }}
+      className={`flex flex-col overflow-hidden rounded-md border border-surface-border bg-surface ring-black/10 sm:rounded-xl ${ringClass}`}
+      style={{ width: "min(420px, calc(100vw - 32px))", maxHeight: "calc(100dvh - 156px)" }}
     >
       <Handle type="source" position={Position.Right} className={INVISIBLE_HANDLE} isConnectable={false} />
 
@@ -56,12 +56,12 @@ function TaskNodeImpl({ data, selected }: NodeProps<TaskNodeType>) {
       </div>
 
       {/* Section tabs */}
-      <div className="nodrag nowheel flex flex-row items-center gap-0 px-2 pt-2 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="nodrag nowheel flex flex-row items-center gap-0 overflow-x-auto px-2 pt-2 shrink-0" onPointerDown={(e) => e.stopPropagation()}>
         {SECTIONS.map(({ key, label, Icon }) => (
           <button
             key={key}
             onClick={() => setSection(key)}
-            className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium border-none cursor-pointer rounded-md transition-colors ${
+            className={`flex shrink-0 flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium border-none cursor-pointer rounded-md transition-colors ${
               section === key
                 ? "bg-accent/10 text-accent"
                 : "bg-transparent text-text-dim hover:text-text hover:bg-surface-overlay/50"

@@ -12,6 +12,11 @@ Task pipelines are the automation primitive — multi-step sequences (shell → 
 
 This pass folded three things together: replaced the hand-rolled drag/edges with **xyflow (React Flow v12)**; pulled task definitions onto the **main spatial canvas** as an outer-ring orbit around the Now Well that zoom-dives into the editor; tightened dark-mode contrast on the mode picker.
 
+### 2026-04-26 follow-up — mobile editor fit + date picker portal
+
+- `DateTimePicker` now renders its calendar panel through a body-level portal with viewport-aware fixed positioning, matching the shared dropdown pattern. This lets the Trigger tab's start-date picker escape the task card's scroll/overflow boundary.
+- The automation canvas editor now has a narrow-viewport default camera, a wrapping action bar, mobile-hidden minimap toggle, scroll-safe mode picker, and viewport-clamped task node width/height so iPhone-sized viewports do not crop the task card or top actions.
+
 ### Library survey (recorded for future picks)
 
 - **`@xyflow/react` (React Flow v12)** — adopted. MIT, ~50 KB gz. Pan/zoom, controlled positions, edges with handles, snap-to-grid, multi-select + marquee, CSS-var theming via `--xy-*`. Bridge file at `ui/app/(app)/admin/tasks/canvas/CanvasTheme.css` maps `--xy-*` onto Spindrel `--color-*` tokens.

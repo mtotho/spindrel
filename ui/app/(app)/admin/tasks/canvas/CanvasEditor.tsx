@@ -54,6 +54,23 @@ const EDGE_TYPES = {
   secondary: SecondaryEdge,
 };
 
+function useNarrowViewport() {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 640px)").matches : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setNarrow(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  return narrow;
+}
+
 interface CommonProps {
   onClose: () => void;
   onSaved: (createdTaskId?: string) => void;
@@ -79,6 +96,7 @@ export function CanvasEditor(props: CanvasEditorProps) {
 
 function CanvasEditorInner(props: CanvasEditorProps) {
   const qc = useQueryClient();
+  const narrowViewport = useNarrowViewport();
   const isCreate = props.mode === "create";
   const taskId = props.mode === "edit" ? props.taskId : undefined;
   const { data: allTools } = useTools();
@@ -283,10 +301,11 @@ function CanvasEditorInner(props: CanvasEditorProps) {
   }, [setLayout]);
 
   const initialViewport = useMemo<Viewport>(() => {
+    if (narrowViewport) return { x: -24, y: 78, zoom: 1 };
     const cam = layout.camera;
     if (cam) return { x: cam.x, y: cam.y, zoom: cam.scale };
     return { x: 0, y: 0, zoom: 0.95 };
-  }, [layout.camera]);
+  }, [layout.camera, narrowViewport]);
 
   // Save flow updates dirty baseline
   const handleSave = useCallback(async () => {
@@ -346,7 +365,11 @@ function CanvasEditorInner(props: CanvasEditorProps) {
     placedRef.current.add(id);
   }, [form, flowApi, setLayout]);
 
-  const [minimapVisible, setMinimapVisible] = useState(true);
+  const [minimapVisible, setMinimapVisible] = useState(() => !narrowViewport);
+
+  useEffect(() => {
+    if (narrowViewport) setMinimapVisible(false);
+  }, [narrowViewport]);
 
   if (!isCreate && form.loadingTask) {
     return (
@@ -382,7 +405,7 @@ function CanvasEditorInner(props: CanvasEditorProps) {
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.4} />
-        <Controls position="bottom-left" showInteractive={false} />
+        <Controls position="bottom-left" showInteractive={false} className="max-sm:!bottom-3" />
         {minimapVisible && (
           <MiniMap
             position="bottom-right"
@@ -395,7 +418,7 @@ function CanvasEditorInner(props: CanvasEditorProps) {
       </ReactFlow>
 
       {/* Floating action bar — top-right */}
-      <div className="absolute top-3 right-3 z-30 flex flex-row items-center gap-2 pointer-events-auto">
+      <div className="absolute left-2 right-2 top-2 z-30 flex flex-row flex-wrap items-center justify-end gap-2 pointer-events-auto sm:left-auto sm:right-3 sm:top-3">
         {dirty.isDirty && !form.saving && (
           <span className="px-2 py-1 rounded-md bg-warning-muted/15 text-warning-muted text-[10.5px] font-semibold uppercase tracking-wider">
             Unsaved
@@ -409,14 +432,14 @@ function CanvasEditorInner(props: CanvasEditorProps) {
         <button
           onClick={() => setMinimapVisible((v) => !v)}
           title={minimapVisible ? "Hide minimap" : "Show minimap"}
-          className="flex items-center justify-center w-7 h-7 rounded-md bg-surface-raised border border-surface-border text-text-dim hover:text-text hover:bg-surface-overlay cursor-pointer transition-colors"
+          className="hidden items-center justify-center w-7 h-7 rounded-md bg-surface-raised border border-surface-border text-text-dim hover:text-text hover:bg-surface-overlay cursor-pointer transition-colors sm:flex"
         >
           <MapIcon size={13} />
         </button>
         <button
           onClick={guardedClose}
           title="Close editor (Esc)"
-          className="flex flex-row items-center gap-1.5 px-3 py-[6px] text-xs font-semibold border border-surface-border bg-surface-raised text-text hover:bg-surface-overlay cursor-pointer rounded-md transition-colors"
+          className="flex flex-row items-center gap-1.5 px-2.5 py-[6px] text-xs font-semibold border border-surface-border bg-surface-raised text-text hover:bg-surface-overlay cursor-pointer rounded-md transition-colors sm:px-3"
         >
           <X size={14} />
           Close
@@ -433,7 +456,7 @@ function CanvasEditorInner(props: CanvasEditorProps) {
         <button
           onClick={handleSave}
           disabled={form.saving || !form.canSave}
-          className={`flex flex-row items-center gap-1.5 px-3 py-[6px] text-xs font-semibold border-none rounded-md transition-colors ${
+          className={`flex flex-row items-center gap-1.5 px-2.5 py-[6px] text-xs font-semibold border-none rounded-md transition-colors sm:px-3 ${
             form.canSave && !form.saving
               ? "bg-accent text-white hover:bg-accent/90 cursor-pointer"
               : "bg-surface-border text-text-dim cursor-not-allowed"
@@ -449,7 +472,7 @@ function CanvasEditorInner(props: CanvasEditorProps) {
         <button
           onClick={addStep}
           title="Add step (or double-click empty canvas)"
-          className="absolute bottom-4 right-4 z-30 flex flex-row items-center gap-1.5 px-4 py-2 rounded-full bg-accent text-white text-xs font-semibold border-none cursor-pointer shadow-lg hover:bg-accent/90 transition-colors"
+          className="absolute bottom-4 right-4 z-30 flex flex-row items-center gap-1.5 rounded-full bg-accent px-3 py-2 text-xs font-semibold text-white border-none cursor-pointer hover:bg-accent/90 transition-colors sm:px-4"
         >
           <Plus size={14} />
           Add Step

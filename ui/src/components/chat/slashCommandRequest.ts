@@ -21,6 +21,7 @@ export function buildSlashCommandExecuteBody({
       command_id: commandId,
       channel_id: channelId,
       session_id: null,
+      current_session_id: sessionId ?? null,
       surface: "web" as const,
       args,
     };
@@ -31,6 +32,7 @@ export function buildSlashCommandExecuteBody({
     command_id: commandId,
     channel_id: null,
     session_id: sessionId,
+    current_session_id: null,
     surface: "web" as const,
     args,
   };

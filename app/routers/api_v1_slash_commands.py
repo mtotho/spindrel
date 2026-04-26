@@ -24,6 +24,7 @@ class SlashCommandExecuteRequest(BaseModel):
     command_id: str
     channel_id: uuid.UUID | None = None
     session_id: uuid.UUID | None = None
+    current_session_id: uuid.UUID | None = None
     surface: str = "web"
     args: list[str] = []
 
@@ -38,6 +39,10 @@ def _auth_has_scope(auth, scope: str) -> bool:
 def _require_scope(auth, scope: str):
     if not _auth_has_scope(auth, scope):
         raise HTTPException(status_code=403, detail=f"{scope} required")
+
+
+def _session_belongs_to_channel(session: Session, channel_id: uuid.UUID) -> bool:
+    return session.channel_id == channel_id or session.parent_channel_id == channel_id
 
 
 @router.get("")
@@ -66,11 +71,19 @@ async def run_slash_command(
 ):
     if bool(body.channel_id) == bool(body.session_id):
         raise HTTPException(status_code=422, detail="Exactly one of channel_id or session_id is required")
+    if body.current_session_id is not None and body.channel_id is None:
+        raise HTTPException(status_code=422, detail="current_session_id is only valid with channel_id")
 
     if body.channel_id is not None:
         channel = await db.get(Channel, body.channel_id)
         if channel is None:
             raise HTTPException(status_code=404, detail="Channel not found")
+        if body.current_session_id is not None:
+            current_session = await db.get(Session, body.current_session_id)
+            if current_session is None:
+                raise HTTPException(status_code=404, detail="Current session not found")
+            if not _session_belongs_to_channel(current_session, body.channel_id):
+                raise HTTPException(status_code=422, detail="current_session_id does not belong to channel")
         if body.command_id == "context":
             await _auth_channel_context(body.channel_id, auth, db)
         else:
@@ -90,6 +103,7 @@ async def run_slash_command(
             command_id=body.command_id,
             channel_id=body.channel_id,
             session_id=body.session_id,
+            current_session_id=body.current_session_id,
             db=db,
             args=list(body.args or []),
         )

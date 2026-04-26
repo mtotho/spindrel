@@ -191,6 +191,7 @@ class SlashCommandContext:
     session: Session | None
     channel_id: uuid.UUID | None
     session_id: uuid.UUID | None
+    current_session_id: uuid.UUID | None
     args: list[str]
     db: AsyncSession
 
@@ -704,10 +705,39 @@ async def _toggle_plan_mode(
 # ============================================================================
 
 
+def _session_belongs_to_channel(session: Session, channel_id: uuid.UUID) -> bool:
+    return session.channel_id == channel_id or session.parent_channel_id == channel_id
+
+
+async def _resolve_current_session(ctx: SlashCommandContext) -> Session:
+    """Resolve the UI-current session for session-scoped work.
+
+    ``Channel.active_session_id`` is only the primary/default session. Channel
+    surfaces may carry ``current_session_id`` when a scratch, split, or thread
+    pane is focused; that explicit id wins.
+    """
+    if ctx.surface == "session":
+        if ctx.session is None:
+            raise LookupError("Session not found")
+        return ctx.session
+
+    assert ctx.channel is not None and ctx.channel_id is not None
+    target_id = ctx.current_session_id or ctx.channel.active_session_id
+    if target_id is None:
+        raise LookupError("Channel has no current conversation")
+
+    session = await ctx.db.get(Session, target_id)
+    if session is None:
+        raise LookupError("Session not found")
+    if not _session_belongs_to_channel(session, ctx.channel_id):
+        raise ValueError("Current session does not belong to this channel")
+    return session
+
+
 async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface == "channel":
-        assert ctx.channel_id is not None
-        return await _build_channel_context_summary(ctx.channel_id, ctx.db)
+        session = await _resolve_current_session(ctx)
+        return await _build_session_context_summary(session.id, ctx.db)
     assert ctx.session_id is not None
     return await _build_session_context_summary(ctx.session_id, ctx.db)
 
@@ -715,10 +745,9 @@ async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 async def _stop_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface == "channel":
         assert ctx.channel is not None and ctx.channel_id is not None
-        if ctx.channel.active_session_id is None:
-            raise LookupError("Channel has no active conversation")
+        session = await _resolve_current_session(ctx)
         return await _stop_session(
-            session_id=ctx.channel.active_session_id,
+            session_id=session.id,
             scope_kind="channel",
             scope_id=ctx.channel_id,
             db=ctx.db,
@@ -735,10 +764,9 @@ async def _stop_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 async def _compact_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface == "channel":
         assert ctx.channel is not None and ctx.channel_id is not None
-        if ctx.channel.active_session_id is None:
-            raise LookupError("Channel has no active conversation")
+        session = await _resolve_current_session(ctx)
         return await _compact_session(
-            session_id=ctx.channel.active_session_id,
+            session_id=session.id,
             scope_kind="channel",
             scope_id=ctx.channel_id,
             db=ctx.db,
@@ -755,11 +783,7 @@ async def _compact_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 async def _plan_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface == "channel":
         assert ctx.channel is not None and ctx.channel_id is not None
-        if ctx.channel.active_session_id is None:
-            raise LookupError("Channel has no active conversation")
-        session = await ctx.db.get(Session, ctx.channel.active_session_id)
-        if session is None:
-            raise LookupError("Session not found")
+        session = await _resolve_current_session(ctx)
         return await _toggle_plan_mode(
             session=session,
             scope_kind="channel",
@@ -842,16 +866,13 @@ async def _harness_effort_handler(
             f"{', '.join(caps.effort_values)}"
         )
 
-    if ctx.session_id is None:
-        raise ValueError(
-            "/effort in a harness channel must target a specific session"
-        )
-    await patch_session_settings(ctx.db, ctx.session_id, patch={"effort": level})
+    session = await _resolve_current_session(ctx)
+    await patch_session_settings(ctx.db, session.id, patch={"effort": level})
 
     payload = SideEffectPayload(
         effect="effort",
         scope_kind="session",
-        scope_id=str(ctx.session_id),
+        scope_id=str(session.id),
         title=f"Effort: {level}",
         detail=f"{display} effort set to {level} for this session.",
     )
@@ -882,20 +903,15 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
 
     runtime = await _resolve_harness_runtime_for_bot(ctx.db, bot_id_str)
     if runtime is not None:
-        # Resolve target session: explicit ctx.session_id wins, otherwise fall
-        # back to the channel's currently-active session. The composer fires
-        # /model from a channel surface (channel_id only) — without this
-        # fallback, harness /model is unreachable from typed slash usage.
-        target_session_id = ctx.session_id
-        if target_session_id is None and ctx.channel is not None:
-            target_session_id = ctx.channel.active_session_id
-        if target_session_id is None:
+        try:
+            session = await _resolve_current_session(ctx)
+        except LookupError:
             raise ValueError(
                 "/model in a harness channel needs an active session — "
                 "open or send a message to a session first, then retry"
             )
         try:
-            await patch_session_settings(ctx.db, target_session_id, patch={"model": raw})
+            await patch_session_settings(ctx.db, session.id, patch={"model": raw})
         except ValueError as exc:
             raise ValueError(f"/model: {exc}")
         caps = runtime.capabilities() if hasattr(runtime, "capabilities") else None
@@ -903,7 +919,7 @@ async def _model_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         payload = SideEffectPayload(
             effect="model",
             scope_kind="session",
-            scope_id=str(target_session_id),
+            scope_id=str(session.id),
             title=f"Model: {raw}",
             detail=f"{display} model set to {raw} for this session.",
         )
@@ -999,6 +1015,7 @@ async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
         raise ValueError("/find requires a search query")
 
     session_ids: list[uuid.UUID]
+    current_session_id: uuid.UUID | None = None
     if search_all:
         session_ids = list((await ctx.db.execute(
             select(Session.id)
@@ -1013,10 +1030,13 @@ async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
             .order_by(Session.last_active.desc())
             .limit(200)
         )).scalars().all())
-    elif ctx.channel.active_session_id:
-        session_ids = [ctx.channel.active_session_id]
     else:
-        session_ids = []
+        try:
+            current_session = await _resolve_current_session(ctx)
+        except LookupError:
+            current_session = None
+        current_session_id = current_session.id if current_session else None
+        session_ids = [current_session.id] if current_session else []
 
     stmt = _build_session_query(
         session_ids,
@@ -1038,7 +1058,7 @@ async def _find_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     ]
     payload = FindResultsPayload(
         scope_kind="channel" if search_all else "session",
-        scope_id=str(ctx.channel_id if search_all else (ctx.channel.active_session_id or ctx.channel_id)),
+        scope_id=str(ctx.channel_id if search_all else (current_session_id or ctx.channel_id)),
         query=query,
         matches=matches,
         truncated=len(matches) >= FIND_LIMIT,
@@ -1327,10 +1347,13 @@ async def execute_slash_command(
     channel_id: uuid.UUID | None,
     session_id: uuid.UUID | None,
     db: AsyncSession,
+    current_session_id: uuid.UUID | None = None,
     args: list[str] | None = None,
 ) -> SlashCommandResult:
     if bool(channel_id) == bool(session_id):
         raise ValueError("Exactly one of channel_id or session_id is required")
+    if current_session_id is not None and channel_id is None:
+        raise ValueError("current_session_id is only valid with channel_id")
     args = list(args or [])
 
     spec = COMMANDS.get(command_id)
@@ -1376,6 +1399,12 @@ async def execute_slash_command(
         channel = await db.get(Channel, channel_id)
         if channel is None:
             raise LookupError("Channel not found")
+        if current_session_id is not None:
+            current_session = await db.get(Session, current_session_id)
+            if current_session is None:
+                raise LookupError("Current session not found")
+            if not _session_belongs_to_channel(current_session, channel_id):
+                raise ValueError("Current session does not belong to this channel")
     else:
         session = await db.get(Session, session_id)
         if session is None:
@@ -1388,6 +1417,7 @@ async def execute_slash_command(
         session=session,
         channel_id=channel_id,
         session_id=session_id,
+        current_session_id=current_session_id,
         args=args,
         db=db,
     )

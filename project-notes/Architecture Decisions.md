@@ -18,6 +18,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Core `app/` code must not bake in Claude-only tool names or permission semantics. Runtime adapters own tool classification and SDK-native translation.
 - Harness approvals reuse `ToolApproval` but native harness tool prompts do not create linked `ToolCall` rows.
 - Harness model, effort, and approval settings are session-scoped first so split panes, scratch sessions, and concurrent harness sessions do not trample each other.
+- For channel-surface web commands, the current component/querystring session id is the session target. `channel.active_session_id` is only the primary/default fallback and the integration-mirroring pointer.
 - Any future bridge from a harness into Spindrel tools must route through existing Spindrel dispatch, policy, approval, trace, and result-envelope paths.
 
 ### `schedule_task` split into `schedule_prompt` + `define_pipeline`; `/admin/tasks` → `/admin/automations`

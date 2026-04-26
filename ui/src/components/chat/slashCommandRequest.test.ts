@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { buildSlashCommandExecuteBody } from "./slashCommandRequest.js";
 
-test("channel surface prefers channel scope even when a session id is present", () => {
+test("channel surface carries the current session id when present", () => {
   assert.deepEqual(
     buildSlashCommandExecuteBody({
       commandId: "compact",
@@ -15,6 +15,7 @@ test("channel surface prefers channel scope even when a session id is present", 
       command_id: "compact",
       channel_id: "channel-1",
       session_id: null,
+      current_session_id: "session-1",
       surface: "web",
       args: [],
     },
@@ -33,6 +34,7 @@ test("session surface prefers session scope even when a channel id is present", 
       command_id: "context",
       channel_id: null,
       session_id: "session-1",
+      current_session_id: null,
       surface: "web",
       args: [],
     },
@@ -51,6 +53,7 @@ test("args are forwarded when provided (e.g. /effort high)", () => {
       command_id: "effort",
       channel_id: "channel-1",
       session_id: null,
+      current_session_id: null,
       surface: "web",
       args: ["high"],
     },

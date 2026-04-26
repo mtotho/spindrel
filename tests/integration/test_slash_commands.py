@@ -60,8 +60,8 @@ class TestSlashCommandExecute:
         body = resp.json()
         assert body["command_id"] == "context"
         assert body["result_type"] == "context_summary"
-        assert body["payload"]["scope_kind"] == "channel"
-        assert body["payload"]["scope_id"] == channel_id
+        assert body["payload"]["scope_kind"] == "session"
+        assert body["payload"]["scope_id"] == session_id
         assert body["payload"]["session_id"] == session_id
         assert body["payload"]["pinned_widget_context"]["enabled"] is True
         assert isinstance(body["payload"]["top_categories"], list)
@@ -84,6 +84,50 @@ class TestSlashCommandExecute:
         assert body["payload"]["bot_id"] == "test-bot"
         assert body["payload"]["pinned_widget_context"]["enabled"] is True
         assert isinstance(body["fallback_text"], str) and body["fallback_text"]
+
+    async def test_channel_command_uses_explicit_current_session(self, client, db_session):
+        channel_id, primary_session_id = await _create_channel_with_session(db_session)
+        scratch_session_id = uuid.uuid4()
+        db_session.add(Session(
+            id=scratch_session_id,
+            bot_id="test-bot",
+            client_id=f"slash-scratch-{scratch_session_id.hex[:8]}",
+            channel_id=None,
+            parent_channel_id=uuid.UUID(channel_id),
+            session_type="scratch",
+        ))
+        await db_session.commit()
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={
+                "command_id": "context",
+                "channel_id": channel_id,
+                "current_session_id": str(scratch_session_id),
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["payload"]["scope_kind"] == "session"
+        assert body["payload"]["scope_id"] == str(scratch_session_id)
+        assert body["payload"]["session_id"] != primary_session_id
+
+    async def test_channel_command_rejects_current_session_from_other_channel(self, client, db_session):
+        channel_id, _session_id = await _create_channel_with_session(db_session)
+        _other_channel_id, other_session_id = await _create_channel_with_session(db_session)
+
+        resp = await client.post(
+            "/api/v1/slash-commands/execute",
+            json={
+                "command_id": "context",
+                "channel_id": channel_id,
+                "current_session_id": other_session_id,
+            },
+            headers=AUTH_HEADERS,
+        )
+        assert resp.status_code == 422, resp.text
+        assert "does not belong" in resp.text
 
     async def test_stop_command_for_session_returns_side_effect(self, client, db_session):
         _channel_id, session_id = await _create_channel_with_session(db_session)

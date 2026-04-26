@@ -4,6 +4,7 @@
  */
 import { Calendar, X, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { useRef, useState, useMemo, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { SelectDropdown, type SelectDropdownOption } from "./SelectDropdown";
 
 interface Props {
@@ -173,18 +174,26 @@ function sameDay(a: Date, b: Date): boolean {
 
 export function DateTimePicker({ value, onChange, placeholder = "Pick a date & time..." }: Props) {
   const [open, setOpen] = useState(false);
-  const [flipUp, setFlipUp] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 390, bottom: 0, anchor: "bottom" as "bottom" | "top" });
   const ref = useRef<HTMLDivElement>(null);
   const display = useMemo(() => formatDisplay(value), [value]);
 
-  // Flip popover upward if it would overflow the viewport bottom
-  useEffect(() => {
-    if (!open || !ref.current) return;
+  const updatePosition = useCallback(() => {
+    if (!ref.current || typeof window === "undefined") return;
     const rect = ref.current.getBoundingClientRect();
-    const popoverHeight = 420; // approximate max height
+    const width = Math.min(390, window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.left), Math.max(12, window.innerWidth - width - 12));
+    const popoverHeight = window.innerWidth < 640 ? 560 : 420;
     const spaceBelow = window.innerHeight - rect.bottom;
-    setFlipUp(spaceBelow < popoverHeight && rect.top > popoverHeight);
-  }, [open]);
+    const anchor = spaceBelow < Math.min(popoverHeight, window.innerHeight - 24) && rect.top > spaceBelow ? "top" : "bottom";
+    setPos({
+      top: rect.bottom + 6,
+      left,
+      width,
+      bottom: window.innerHeight - rect.top + 6,
+      anchor,
+    });
+  }, []);
 
   // Calendar view state
   const now = new Date();
@@ -207,12 +216,21 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
   // Click outside
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    updatePosition();
+    const onResize = () => updatePosition();
+    const onScroll = () => updatePosition();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, updatePosition]);
 
   const calendarDays = useMemo(() => getCalendarDays(viewYear, viewMonth), [viewYear, viewMonth]);
 
@@ -273,11 +291,25 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
         )}
       </button>
 
-      {/* Popover */}
-      {open && (
-        <div className={`absolute left-0 z-50 w-[390px] max-w-[calc(100vw-32px)] overflow-hidden rounded-md border border-surface-border bg-surface-raised ring-1 ring-black/10 max-sm:left-auto max-sm:right-0 ${
-          flipUp ? "bottom-full mb-1.5" : "top-full mt-1.5"
-        }`}>
+      {open && typeof document !== "undefined" && createPortal(
+        <>
+          <div
+            aria-hidden
+            className="fixed inset-0"
+            style={{ zIndex: 50000 }}
+            onMouseDown={() => setOpen(false)}
+          />
+          <div
+            className="fixed max-h-[calc(100dvh-24px)] overflow-x-hidden overflow-y-auto rounded-md border border-surface-border bg-surface-raised ring-1 ring-black/10"
+            style={{
+              ...(pos.anchor === "top"
+                ? { bottom: pos.bottom, left: pos.left, width: pos.width }
+                : { top: pos.top, left: pos.left, width: pos.width }),
+              maxWidth: "calc(100vw - 24px)",
+              zIndex: 50001,
+            }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
           <div className="flex items-start justify-between gap-3 border-b border-surface-border/50 px-3 py-2.5">
             <div className="min-w-0">
               <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-dim">Selected</div>
@@ -403,7 +435,9 @@ export function DateTimePicker({ value, onChange, placeholder = "Pick a date & t
             />
             <span className="ml-auto text-[11px] text-text-dim">{selectedTimeLabel}</span>
           </div>
-        </div>
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );

@@ -221,9 +221,6 @@ export default function ChatScreen() {
 
   // Harness composer model picker — only fetches when bot is a harness.
   const { data: harnessCaps } = useRuntimeCapabilities(bot?.harness_runtime ?? null);
-  const { data: harnessSettings } = useSessionHarnessSettings(
-    bot?.harness_runtime ? channel?.active_session_id ?? null : null,
-  );
   const setHarnessSettings = useSetSessionHarnessSettings();
   const { data: systemStatus } = useSystemStatus();
   const { data: configOverheadData } = useChannelConfigOverhead(channelId);
@@ -750,6 +747,9 @@ export default function ChatScreen() {
   const headerPaneSessionId = headerPane?.surface.kind === "primary"
     ? channel?.active_session_id ?? null
     : headerPane?.surface.sessionId ?? null;
+  const { data: harnessSettings } = useSessionHarnessSettings(
+    bot?.harness_runtime ? headerPaneSessionId : null,
+  );
   const headerPaneCatalogRow = headerPaneSessionId
     ? channelSessionCatalog?.find((item) => item.session_id === headerPaneSessionId) ?? null
     : null;
@@ -1499,7 +1499,7 @@ export default function ChatScreen() {
     harnessAvailableModels: harnessCaps?.available_models ?? [],
     harnessCurrentModel: harnessSettings?.model ?? null,
     onHarnessModelChange: (model: string | null) => {
-      const sid = channel?.active_session_id;
+      const sid = headerPaneSessionId;
       if (!sid) return;
       setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
     },

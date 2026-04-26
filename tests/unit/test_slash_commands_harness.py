@@ -183,6 +183,66 @@ async def test_harness_model_from_channel_surface_resolves_active_session(db_ses
     assert channel.model_override is None
 
 
+async def test_harness_model_from_channel_surface_uses_current_session_id(db_session):
+    """Channel surface commands must target the UI-current session, not the
+    channel primary. ``active_session_id`` only supplies the default primary
+    when no current session is provided."""
+    bot, channel, primary = await _make_harness_setup(db_session)
+    scratch = SessionRow(
+        id=uuid.uuid4(),
+        client_id="hs-client",
+        bot_id=bot.id,
+        channel_id=None,
+        parent_channel_id=channel.id,
+        session_type="scratch",
+        created_at=datetime.now(timezone.utc),
+        last_active=datetime.now(timezone.utc),
+    )
+    db_session.add(scratch)
+    await db_session.commit()
+
+    result = await execute_slash_command(
+        command_id="model",
+        channel_id=channel.id,
+        session_id=None,
+        current_session_id=scratch.id,
+        db=db_session,
+        args=["claude-haiku-4-5"],
+    )
+    assert result.command_id == "model"
+
+    scratch_settings = await load_session_settings(db_session, scratch.id)
+    primary_settings = await load_session_settings(db_session, primary.id)
+    assert scratch_settings.model == "claude-haiku-4-5"
+    assert primary_settings.model is None
+
+
+async def test_channel_surface_rejects_current_session_from_other_channel(db_session):
+    bot, channel, primary = await _make_harness_setup(db_session)
+    other_channel = build_channel(bot_id=bot.id)
+    db_session.add(other_channel)
+    other_session = SessionRow(
+        id=uuid.uuid4(),
+        client_id="hs-client",
+        bot_id=bot.id,
+        channel_id=other_channel.id,
+        created_at=datetime.now(timezone.utc),
+        last_active=datetime.now(timezone.utc),
+    )
+    db_session.add(other_session)
+    await db_session.commit()
+
+    with pytest.raises(ValueError, match="does not belong"):
+        await execute_slash_command(
+            command_id="model",
+            channel_id=channel.id,
+            session_id=None,
+            current_session_id=other_session.id,
+            db=db_session,
+            args=["claude-haiku-4-5"],
+        )
+
+
 async def test_normal_model_writes_channel_override(db_session):
     bot, channel, session = await _make_normal_setup(db_session)
 

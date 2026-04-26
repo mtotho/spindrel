@@ -4,7 +4,7 @@ An **external agent harness** lets you run a coding-agent session from Spindrel'
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 
-There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel model, prompt, tools, skills, memory, and KB injection are bypassed for that turn.
+There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel prompt, tools, skills, memory, and KB injection are bypassed for that turn. Harness model/effort controls are runtime-owned and stored per session under `Session.metadata["harness_settings"]`.
 
 ## Quick start
 
@@ -25,7 +25,7 @@ There is no Spindrel agent middleman in the turn. Internally the runtime is sele
 
     Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there alongside the repo.
 
-    Other fields (model, system prompt, skills, tools, memory) are inert when a runtime is set — the harness owns them.
+    System prompt, skills, tools, and memory fields are inert when a runtime is set — the harness owns them. Model/effort are exposed through the harness runtime capability contract, not the normal Spindrel provider override.
 
 6. **Open a channel with the bot and chat.** Each turn opens a `ClaudeSDKClient` against your workspace dir, streams the assistant's text + tool calls into the channel, and persists the assistant message + the harness's session id for resume on the next turn.
 
@@ -66,9 +66,9 @@ This writes credentials inside the container's filesystem only. They're lost on 
 
 These are deliberate v1 boundaries, not oversights:
 
-- **No Spindrel skills, KB, or capability injection.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged.
+- **No Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged. Later bridge work should expose selected Spindrel tools/skills through the normal policy/approval/trace paths instead of direct runtime imports.
 - **No widgets / no tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. No `emit_html_widget`, no standing orders, no dashboard pins.
-- **No Spindrel approvals UI for tool calls.** The driver runs with `allowed_tools=["Read","Glob","Grep","Bash","Edit","Write","Task","WebFetch","WebSearch"]` and `permission_mode="acceptEdits"` — listed tools auto-approve, anything else hard-fails. A future per-session permission mode will route harness approval requests into Spindrel approval cards.
+- **Native harness tools are not Spindrel tools.** Harness approval modes can route native SDK permission prompts into Spindrel approval cards, but approved native calls still execute in the harness, not through Spindrel's `ToolCall` dispatcher.
 - **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
 - **No tool-call rehydration after page refresh.** The live stream shows tool calls; on reload, only the final assistant text comes back from the `Message` row.
 - **No @-mention fanout.** A harness session owns its turn end-to-end; it doesn't trigger member-bot replies, supervisors, or context compaction.
@@ -79,9 +79,22 @@ Spindrel still applies its secret redactor at the harness host boundary, coverin
 
 ## How session resume works
 
-Every turn returns a `session_id` from the SDK's `ResultMessage`. We persist it in `bots.harness_session_state.session_id`. The next turn passes that to the SDK as `ClaudeAgentOptions(resume=...)` so the harness re-enters the same conversation — no re-introduction, no lost state.
+Every turn returns a `session_id` from the SDK's `ResultMessage`. Spindrel persists it on the assistant message under `metadata.harness.session_id`. The next turn for the same Spindrel `Session.id` reads the most recent harness metadata and passes that to the SDK as `ClaudeAgentOptions(resume=...)` so the harness re-enters the same conversation — no re-introduction, no lost state.
 
-Cost accumulates in `harness_session_state.cost_total` (sum of `total_cost_usd` reported by each `ResultMessage`).
+Cost is read from persisted assistant-message harness metadata (`metadata.harness.cost_usd` / `usage`) and surfaced in the UI; the old bot-level `harness_session_state` column is not the source of truth for current harness turns.
+
+Harness settings are Spindrel-session scoped. In the web UI, a slash command or model/approval pill targets the current pane/session id from component state or the route querystring. `channel.active_session_id` is only the primary/default fallback and the integration-mirroring pointer; it must not be treated as the target for scratch, split, or thread panes.
+
+## Runtime controls
+
+Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runtimes/{name}/capabilities`. The host uses it to render harness controls and filter slash commands:
+
+- `supported_models` / `available_models` plus `model_is_freeform` drive the harness model picker.
+- `effort_values` controls whether an effort pill or `/effort` value is available. Claude Code currently exposes no effort knob.
+- `approval_modes` powers the per-session approval-mode pill.
+- `slash_policy.allowed_command_ids` filters `/api/v1/slash-commands?bot_id=...` and `/help`.
+
+Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harness-settings`. Missing patch keys mean no change; JSON `null` clears a value.
 
 ## Adding context
 
@@ -105,7 +118,7 @@ There is intentionally no UI for this in v1. The directory IS the contract.
 Each runtime lives **inside its own integration**, never in `app/`. The pattern mirrors how integration tools register today.
 
 1. Pick (or create) the integration: `integrations/<id>/`. Add `harness` to its `integration.yaml` `provides:` list. Pin the harness's Python package in `integrations/<id>/requirements.txt`.
-2. Implement `HarnessRuntime` in `integrations/<id>/harness.py` — one `start_turn()` method that translates the harness's streaming output into `ChannelEventEmitter` calls, plus an `auth_status()` method. Import from `app.services.agent_harnesses.base`, never reach into `app/services/agent_harnesses/__init__.py` for runtime classes.
+2. Implement `HarnessRuntime` in `integrations/<id>/harness.py` — `start_turn()` translates the harness's streaming output into `ChannelEventEmitter` calls, `auth_status()` reports login state, `capabilities()` describes model/effort/slash controls, and approval classification methods describe which native tools are read-only or prompt-worthy. Import host contracts from `integrations.sdk`.
 3. At the bottom of `harness.py`, call `register_runtime(name, RuntimeClass())` so the side effect fires on import.
 4. Add the runtime label to the dropdown in `ui/app/(app)/admin/bots/[botId]/index.tsx` (the harness section in `IdentitySection`).
 
@@ -115,6 +128,7 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 
 ## What's coming
 
-- **Phase 2:** Workspace/session list on `/admin/harnesses` (per-bot last session id + cost), "open in shell" hint, bot-editor "Create workspace dir" button.
-- **Phase 3:** Per-channel plan-mode toggle (`permission_mode="plan"`); permission-request routing into Spindrel's approvals UI. Today every harness wires its own auto-approve hook (Claude SDK uses `can_use_tool`, Codex will have its analogous "ask before tool" plug). Phase 3 introduces a `HarnessApprovalRequest` event on the channel bus and a per-harness adapter that resolves the SDK's allow/deny via Spindrel approval cards — designed against both Claude and Codex APIs from day one so we don't bake in Claude-isms.
-- **Phase 4:** Codex driver. Either via the `codex-app-server-sdk` Python package once it lands on PyPI, or via subprocess to the `codex` CLI sooner — the protocol accepts both.
+- **Codex driver:** Implement Codex against the same `TurnContext`, approval, settings, and capability contracts.
+- **Native compact/status:** Add harness-aware `/compact` semantics that summarize/reset the native resume state, and expose runtime context/window status in the chat chrome when available.
+- **Tool and skill bridge:** Expose selected Spindrel tools/skills to harnesses through a bridge that preserves dispatch, policy, approval, trace, and result envelopes.
+- **Heartbeat/memory integration:** Add a harness heartbeat path that can inject optional context hints, then layer read-only memory hints before allowing explicit writes through bridged tools.
