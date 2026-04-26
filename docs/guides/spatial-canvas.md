@@ -154,6 +154,16 @@ system failures render as asteroid-style markers and are admin-only. Clicking
 a Beacon opens the Attention drawer with the message, next steps, status
 actions, reply handoff, and trace evidence when available.
 
+Badges are nested in the rendered target node or cluster rather than projected
+from stale overlay coordinates. They keep a stable screen size through inverse
+scaling, but their position follows the bound tile during pan, zoom, drag, and
+semantic-zoom transitions.
+
+The canvas also has a fixed **Attention Hub** landmark above the seed center.
+Opening it shows the global attention lanes, create form, assignment controls,
+and bot findings without leaving the canvas. The same hub can be opened from an
+edge beacon, the channel header count, or the command palette.
+
 ## Reserved dashboard slug
 
 Internally, canvas widget pins live under a reserved widget-dashboard slug, `workspace:spatial`. This slug is filtered out of every UI surface that lists dashboards (tabs, target pickers, recents, sidebar). It exists so canvas pins reuse the entire existing widget-dashboard plumbing — envelope, contract snapshot, presentation snapshot, source bot, iframe auth — without a parallel widget host path.

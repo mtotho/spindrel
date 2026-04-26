@@ -183,6 +183,14 @@ avoid duplicating warnings and can resolve stale ones. System-authored
 structured-failure beacons remain admin-only and are not injected into bot
 context in v1.
 
+If an Attention Item is assigned with `mode="next_heartbeat"`, the heartbeat
+preamble also receives an `attention assignments` block for that bot and
+channel. The block includes item ids, severity, target, message, next steps,
+and assignment instructions. The run gets the `report_attention_assignment`
+tool injected so the bot can store concise findings on the item. Assignment
+semantics are investigate/report only; they do not authorize the bot to execute
+fixes.
+
 ---
 
 ## Metadata Injection

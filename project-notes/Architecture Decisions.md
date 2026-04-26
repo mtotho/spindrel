@@ -827,14 +827,43 @@ The runtime substrate is deliberately **not** unified. HTML widgets keep the exi
 **Decided 2026-04-26.** Human-visible warnings and structured system failures use one `WorkspaceAttentionItem` domain model. The Spatial Canvas renders active items as Attention Beacons, but spatial nodes do not own warning lifecycle.
 
 **Contract.**
-- `workspace_attention_items` owns source, target, severity, status, dedupe, occurrence count, evidence, response metadata, and future assignment shape.
+- `workspace_attention_items` owns source, target, severity, status, dedupe, occurrence count, evidence, response metadata, and assignment state.
 - `workspace_spatial_nodes` remains the single source of truth for canvas positions only.
 - Bot-authored beacons are created through policy-gated heartbeat/spatial tools and attach to existing channel/bot/widget/system targets.
-- Structured system failures are admin-only Attention Items; bot-authored channel beacons remain visible to non-admin channel viewers.
+- User-authored items are first-class Attention Items and can be created from the Attention Hub.
+- Structured system failures are admin-only Attention Items; bot-authored and user-authored channel beacons remain visible to non-admin channel viewers.
 - Reply status is distinct from resolution: a response marks `responded`, while humans or the source bot must still resolve the item.
-- Future assignment adds workflow state around the item rather than overloading item lifecycle.
+- Assignment adds workflow state around the item rather than overloading item lifecycle. V1 assignment modes are `next_heartbeat` and `run_now`, both investigate/report only.
+- The Spatial Canvas renders badges inside the target node or cluster shell with inverse scaling, so badges stay screen-sized but move with the bound object.
+- The Attention Hub is the shared triage surface for lanes, manual intake, assignment, bot findings, and trace evidence.
 
 **Why.**
-- The same visual marker can represent a bot warning, an automatic trace failure, or future investigate/report work without duplicating models.
+- The same visual marker can represent a bot warning, a human-created item, an automatic trace failure, or investigate/report work without duplicating models.
 - Keeping coordinates out of the attention table prevents a second spatial placement source of truth.
 - Keeping assignment separate avoids painting a simple alert model into a command-queue corner too early.
+
+### Harness host state is session metadata, not channel active state
+**Decided 2026-04-26.** External harness runtime controls and host-side continuity state are bound to `Session.id`. `Channel.active_session_id` remains only the primary/default session and integration-mirroring pointer.
+
+**What this means.**
+- Harness model, effort, approval mode, native resume reset, and one-shot host hints live under `Session.metadata`.
+- Web UI controls and slash commands must target the current component/querystring session id when present, falling back to `channel.active_session_id` only when no explicit session is supplied.
+- Harness `/compact` resets the native resume boundary for that session and injects a continuity summary as a one-shot hint.
+- Harness heartbeats enqueue host hints onto the channel primary session for now; scratch/split fanout requires an explicit future policy.
+
+**Why.**
+- Scratch, split, and primary panes are equal runtime sessions in the web app. Mutating the channel primary from another pane corrupts the wrong Claude/Codex native thread.
+- A harness owns its native context, so host continuity needs a small explicit state contract instead of trying to reuse normal context sections/backfill.
+
+### Bridged harness tools execute through Spindrel dispatch
+**Decided 2026-04-26.** When a harness sees Spindrel tools, it sees adapter definitions only. Invocation routes back through `dispatch_tool_call`; runtimes do not call registry functions directly.
+
+**What this means.**
+- Tool definitions are resolved from the effective bot/channel tool set, including auto-injected tools and activated integration tools.
+- Browser-client tools are excluded from server-side harness bridges.
+- Policy checks, approval cards, trace/audit rows, secret redaction, result summarization, and stored tool-call rows remain centralized in the normal dispatcher.
+- Claude Code uses the SDK's in-process MCP helper surface as the transport when available; other runtimes can map the same host adapter to their native tool mechanism.
+
+**Why.**
+- Direct runtime calls would bypass the security and observability properties users expect from Spindrel tools.
+- A transport-specific adapter keeps Claude/Codex details out of core tool dispatch while still allowing harnesses to feel normal over time.
