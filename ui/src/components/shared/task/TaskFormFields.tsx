@@ -5,7 +5,7 @@
  * Each receives a slice of TaskFormState and renders the appropriate form controls.
  */
 import { useState, useRef } from "react";
-import { ChevronRight, Code2, LayoutList, Network } from "lucide-react";
+import { ChevronRight, Code2, LayoutList } from "lucide-react";
 import type { StepDef } from "@/src/api/hooks/useTasks";
 import { LlmPrompt } from "../LlmPrompt";
 import { PromptTemplateLink } from "../PromptTemplateLink";
@@ -17,8 +17,6 @@ import { TriggerSection, type TriggerConfig } from "../TriggerSection";
 import { TaskStepEditor } from "../TaskStepEditor";
 import { StepsJsonEditor } from "./StepsJsonEditor";
 import { StepsSchemaModal } from "./StepsSchemaModal";
-import { PipelineCanvas } from "./PipelineCanvas";
-import { useTools } from "@/src/api/hooks/useTools";
 import { BotPicker } from "../BotPicker";
 import { ChannelPicker } from "../ChannelPicker";
 import { ChipPicker, ToolMultiPicker } from "./ChipPicker";
@@ -28,23 +26,17 @@ import type { TaskFormState } from "./useTaskFormState";
 // Content Fields — Title, Prompt/Steps toggle, prompt or pipeline editor
 // ---------------------------------------------------------------------------
 
-type StepsViewMode = "visual" | "json" | "canvas";
-
 export function ContentFields({ form, promptRows }: { form: TaskFormState; promptRows?: number }) {
   const {
     title, setTitle, prompt, setPrompt,
     promptTemplateId, setPromptTemplateId,
     workspaceFilePath, setWorkspaceFilePath, workspaceId, setWorkspaceId,
     workflowId, steps, setSteps, stepsMode,
-    layout, setLayout,
     botId, channelId, selectedBot, existingTask,
   } = form;
 
   const stashedSteps = useRef<StepDef[] | null>(null);
-  const [stepsView, setStepsView] = useState<StepsViewMode>("visual");
-  const { data: allTools } = useTools();
-  // Mobile fallback — Canvas is desktop-only.
-  const isDesktop = typeof window === "undefined" ? true : window.innerWidth >= 768;
+  const [jsonMode, setJsonMode] = useState(false);
 
   const toggleToSteps = () => {
     if (!stepsMode) {
@@ -144,17 +136,17 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
       {/* Steps mode */}
       {stepsMode && (
         <>
-          {/* Visual / JSON / Canvas tab strip + schema help */}
+          {/* Visual / JSON tab strip + schema help */}
           <div className="flex flex-row items-center gap-2">
             <div
               data-testid="steps-tab-strip"
               className="flex flex-row items-center gap-0 bg-surface-raised/40 rounded-md p-1"
             >
               <button
-                onClick={() => setStepsView("visual")}
+                onClick={() => setJsonMode(false)}
                 data-testid="steps-tab-visual"
                 className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
-                  stepsView === "visual"
+                  !jsonMode
                     ? "bg-surface-overlay text-text"
                     : "bg-transparent text-text-dim hover:text-text cursor-pointer"
                 }`}
@@ -163,10 +155,10 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
                 Visual
               </button>
               <button
-                onClick={() => setStepsView("json")}
+                onClick={() => setJsonMode(true)}
                 data-testid="steps-tab-json"
                 className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
-                  stepsView === "json"
+                  jsonMode
                     ? "bg-surface-overlay text-text"
                     : "bg-transparent text-text-dim hover:text-text cursor-pointer"
                 }`}
@@ -174,46 +166,21 @@ export function ContentFields({ form, promptRows }: { form: TaskFormState; promp
                 <Code2 size={12} />
                 JSON
               </button>
-              {isDesktop && (
-                <button
-                  onClick={() => setStepsView("canvas")}
-                  data-testid="steps-tab-canvas"
-                  className={`flex flex-row items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium rounded border-none transition-colors ${
-                    stepsView === "canvas"
-                      ? "bg-surface-overlay text-text"
-                      : "bg-transparent text-text-dim hover:text-text cursor-pointer"
-                  }`}
-                >
-                  <Network size={12} />
-                  Canvas
-                </button>
-              )}
             </div>
-            {stepsView === "json" && <StepsSchemaModal />}
+            {jsonMode && <StepsSchemaModal />}
           </div>
 
-          {stepsView === "json" && (
+          {jsonMode ? (
             <StepsJsonEditor
               steps={steps!}
               onChange={setSteps}
             />
-          )}
-          {stepsView === "visual" && (
+          ) : (
             <TaskStepEditor
               steps={steps!}
               onChange={setSteps}
               stepStates={existingTask?.parent_task_id ? existingTask?.step_states : undefined}
               readOnly={false}
-            />
-          )}
-          {stepsView === "canvas" && isDesktop && (
-            <PipelineCanvas
-              steps={steps!}
-              layout={layout}
-              tools={allTools ?? []}
-              onChangeSteps={setSteps}
-              onChangeLayout={setLayout}
-              onJumpToJson={() => setStepsView("json")}
             />
           )}
         </>

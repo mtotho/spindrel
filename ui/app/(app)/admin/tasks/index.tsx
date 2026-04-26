@@ -4,7 +4,7 @@ import { RefreshableScrollView } from "@/src/components/shared/RefreshableScroll
 import { usePageRefresh } from "@/src/hooks/usePageRefresh";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal, ListChecks, Cog,
+  ChevronLeft, ChevronRight, Plus, Calendar, CalendarDays, CalendarRange, List, Terminal, ListChecks, Cog, Network,
 } from "lucide-react";
 import { AlertCircle } from "lucide-react";
 import { useRunTaskNow } from "@/src/api/hooks/useTasks";
@@ -24,6 +24,7 @@ import { ScheduleView } from "./ScheduleView";
 import { TaskListView } from "./TaskListView";
 import { TaskDefinitionsView } from "./TaskDefinitionsView";
 import { TaskFilters } from "./TaskFilters";
+import { AutomationsCanvasPage } from "./canvas/AutomationsCanvasPage";
 import {
   type ViewMode, type TaskTypeFilter, type StatusFilter, type EditorState,
   addDays, startOfDay, getTaskTime, passesStatusFilter, parseRecurrenceMs,
@@ -38,6 +39,17 @@ const TYPE_FILTER_SET = new Set<TaskTypeFilter>(["all", "scheduled", "pipeline"]
 const STATUS_FILTER_SET = new Set<StatusFilter>(["active", "all", "cancelled", "failed"]);
 
 export default function TasksScreen() {
+  const [searchParams] = useSearchParams();
+  // Canvas mode is a wholly different surface — short-circuit before the
+  // list view's heavy hook tree fires. The split happens here (above all
+  // hooks) so the two surfaces don't share state.
+  if (searchParams.get("canvas") === "1") {
+    return <AutomationsCanvasPage />;
+  }
+  return <TasksListScreen />;
+}
+
+function TasksListScreen() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Read initial state from URL, fall back to defaults
@@ -364,14 +376,26 @@ export default function TasksScreen() {
         title="Tasks"
         subtitle={!isMobile ? subtitle : undefined}
         right={
-          <button
-            onClick={() => setEditorState({ mode: "create" })}
-            title="New Task"
-            className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-transparent text-accent hover:bg-accent/[0.08] transition-colors"
-          >
-            <Plus size={14} />
-            {!isMobile && "New Task"}
-          </button>
+          <div className="flex flex-row items-center gap-1">
+            {!isMobile && (
+              <button
+                onClick={() => navigate("/admin/automations?canvas=1")}
+                title="Open canvas mode"
+                className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-transparent text-text-dim hover:text-text hover:bg-surface-overlay/45 transition-colors"
+              >
+                <Network size={14} />
+                Canvas
+              </button>
+            )}
+            <button
+              onClick={() => setEditorState({ mode: "create" })}
+              title="New Task"
+              className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-transparent text-accent hover:bg-accent/[0.08] transition-colors"
+            >
+              <Plus size={14} />
+              {!isMobile && "New Task"}
+            </button>
+          </div>
         }
       />
 

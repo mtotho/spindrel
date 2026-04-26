@@ -17,6 +17,10 @@ import { KIOSK_PARAM } from "../../hooks/useKioskMode";
 import { useSpatialOverlayShortcut } from "../../hooks/useSpatialOverlayShortcut";
 import { SpatialCanvasOverlay } from "../spatial-canvas/SpatialCanvasOverlay";
 import { buildRecentHref } from "../../lib/recentPages";
+import {
+  parseChannelSurfaceFromPath,
+  useChannelLastSurface,
+} from "../../stores/channelLastSurface";
 
 export function AppShell() {
   const columns = useResponsiveColumns();
@@ -44,6 +48,14 @@ export function AppShell() {
     const href = buildRecentHref(location.pathname, location.search, location.hash);
     recordPageVisit(href);
   }, [location.pathname, location.search, location.hash, recordPageVisit]);
+
+  // Track per-channel last-visited surface (chat vs dashboard) so the
+  // spatial canvas dive can route back to whichever the user last opened.
+  const setChannelSurface = useChannelLastSurface((s) => s.setSurface);
+  useEffect(() => {
+    const match = parseChannelSurfaceFromPath(location.pathname);
+    if (match) setChannelSurface(match.channelId, match.surface);
+  }, [location.pathname, setChannelSurface]);
 
   // Warn on tab close / refresh when a stream is active
   useEffect(() => {

@@ -62,6 +62,10 @@ import {
 } from "../../lib/channelSessionSurfaces";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import {
+  buildChannelSurfaceRoute,
+  getChannelLastSurface,
+} from "../../stores/channelLastSurface";
+import {
   CAMERA_STORAGE_KEY,
   CONNECTIONS_ENABLED_KEY,
   DEFAULT_CAMERA,
@@ -716,8 +720,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       // Animate-THEN-navigate: route change happens after the transition
       // completes. onAfterDive (overlay close) runs a tick later so the new
       // route paints before the overlay disappears.
+      // Surface routing: dive to whichever surface the user last opened for
+      // this channel (chat OR `/widgets/channel/:id` dashboard). First-ever
+      // dive falls back to chat. The tracker in AppShell records the
+      // surface on every channel-route visit.
+      const surface = getChannelLastSurface(channelId) ?? "chat";
+      const target = buildChannelSurfaceRoute(channelId, surface);
       window.setTimeout(() => {
-        navigate(`/channels/${channelId}`);
+        navigate(target);
         if (onAfterDive) window.setTimeout(onAfterDive, 16);
       }, DIVE_MS);
     },
@@ -1396,9 +1406,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             // placeholder; the next list refresh should clean it up.
             if (!node.pin) return null;
             // Frameless game widgets get a scoped drag activator so empty
-            // areas around the floating asteroid stay canvas-pannable.
+            // areas around the floating asteroid stay canvas-pannable. At
+            // chip/title zoom levels there is no visible grabber, so the
+            // glyph itself must stay draggable through the normal activator.
             const isFramelessGame =
               node.pin.tool_name?.startsWith("core/game_") ?? false;
+            const useScopedGrabber = isFramelessGame && camera.scale >= 0.6;
             return (
               <DraggableNode
                 key={node.id}
@@ -1408,7 +1421,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 diving={diving}
                 lens={lens}
                 lensSettling={lensSettling}
-                activatorMode={isFramelessGame ? "scoped" : "full"}
+                activatorMode={useScopedGrabber ? "scoped" : "full"}
                 onScopedDragStart={() => {
                   setDraggingNodeId(node.id);
                   setActivatedTileId(null);

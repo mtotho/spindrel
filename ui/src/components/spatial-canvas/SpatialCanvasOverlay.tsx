@@ -1,10 +1,7 @@
 import { useLocation } from "react-router-dom";
 import { useUIStore } from "../../stores/ui";
 import { SpatialCanvas } from "./SpatialCanvas";
-
-// Captures channel UUID from a `/channels/:id` route. Group 1 = id, ignoring
-// any trailing path segment (dashboard subroutes etc.). Case-insensitive.
-const CHANNEL_PATH_RE = /^\/channels\/([0-9a-f-]+)/i;
+import { parseChannelSurfaceFromPath } from "../../stores/channelLastSurface";
 
 /**
  * Overlay shell for the spatial canvas. Wraps `<SpatialCanvas />` with the
@@ -27,8 +24,10 @@ export function SpatialCanvasOverlay() {
   // route, fly to that channel's tile instead of restoring the last-saved
   // camera. Read once per mount — overlay close+reopen re-mounts and
   // re-evaluates against the current route.
-  const channelMatch = location.pathname.match(CHANNEL_PATH_RE);
-  const initialFlyToChannelId = channelMatch?.[1] ?? null;
+  // Match either `/channels/:id/...` (chat) or `/widgets/channel/:id` (the
+  // channel's widget dashboard). Both surfaces should fly back to the same
+  // tile when the user beams up.
+  const initialFlyToChannelId = parseChannelSurfaceFromPath(location.pathname)?.channelId ?? null;
   return (
     <div className="absolute inset-0 z-30">
       <SpatialCanvas onAfterDive={close} initialFlyToChannelId={initialFlyToChannelId} />

@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 /**
@@ -41,6 +41,11 @@ export function SpatialContextMenu({
   items,
   onClose,
 }: SpatialContextMenuProps) {
+  // Ref to the menu container — used by the outside-click listener to test
+  // whether a pointerdown landed inside the menu (keep open) or anywhere
+  // else (close).
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -51,10 +56,34 @@ export function SpatialContextMenu({
     function onScroll() {
       onClose();
     }
+    // Outside-click via document-level capture listener. We deliberately do
+    // NOT render a full-viewport scrim — a scrim with `pointer-events: auto`
+    // swallows wheel events (so canvas zoom stops working while the menu is
+    // open) and competes with the menu's own button clicks during the
+    // mouseup→click sequence. This listener fires on the press, doesn't
+    // preventDefault, and lets the underlying gesture (pan, wheel, etc.)
+    // proceed normally after the menu has closed itself.
+    function onPointerDownAnywhere(e: PointerEvent) {
+      const menuEl = menuRef.current;
+      if (menuEl && menuEl.contains(e.target as Node)) return;
+      onClose();
+    }
+    function onWheelAnywhere() {
+      // Wheel-while-menu-open should close the menu so the user's intent
+      // (zoom the canvas) lands without an extra dismiss step. The wheel
+      // event itself isn't preventDefault'd, so the canvas still zooms.
+      onClose();
+    }
     document.addEventListener("keydown", onKey, true);
+    document.addEventListener("pointerdown", onPointerDownAnywhere, true);
+    document.addEventListener("contextmenu", onPointerDownAnywhere, true);
+    document.addEventListener("wheel", onWheelAnywhere, { capture: true, passive: true });
     window.addEventListener("scroll", onScroll, true);
     return () => {
       document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("pointerdown", onPointerDownAnywhere, true);
+      document.removeEventListener("contextmenu", onPointerDownAnywhere, true);
+      document.removeEventListener("wheel", onWheelAnywhere, { capture: true } as EventListenerOptions);
       window.removeEventListener("scroll", onScroll, true);
     };
   }, [onClose]);
@@ -69,20 +98,25 @@ export function SpatialContextMenu({
 
   return createPortal(
     <>
-      {/* Click-outside scrim. Right-click on the scrim also dismisses so a
-          second right-click anywhere closes the menu without re-firing the
-          browser's native menu. */}
       <div
-        onClick={onClose}
+        ref={menuRef}
+        role="menu"
+        // Stop pointer/click events from bubbling through the React tree
+        // into the SpatialCanvas viewport. Without this, the canvas's
+        // `onBgPointerDown` claims the pointer via `setPointerCapture` and
+        // the button's `pointerup`/`click` events never reach the menu —
+        // so menu items appear dead. The menu is in a portal at body level,
+        // but React's synthetic events still propagate through the React
+        // component tree, so this stop is required despite the DOM
+        // separation.
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         onContextMenu={(e) => {
           e.preventDefault();
-          onClose();
+          e.stopPropagation();
         }}
-        className="fixed inset-0"
-        style={{ zIndex: 50000 }}
-      />
-      <div
-        role="menu"
+        onWheel={(e) => e.stopPropagation()}
         className="fixed bg-surface-raised/95 backdrop-blur border border-surface-border rounded-md shadow-lg py-1"
         style={{
           left: clampedX,
@@ -128,3 +162,4 @@ export function SpatialContextMenu({
     document.body,
   );
 }
+

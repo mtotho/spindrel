@@ -2,13 +2,51 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-25 (Pipeline Canvas tab — workflowbuilder.io-style three-pane editor on top of existing pipeline system)
+updated: 2026-04-25 (Canvas redirected: in-modal Canvas tab reverted; new dedicated `?canvas=1` page with sidebar + floating cards)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
 
-## 2026-04-25 — Pipeline Canvas tab (workflowbuilder.io-style three-pane editor)
+## 2026-04-25 — Automations Canvas page (redirected from in-modal tab)
+
+The previous attempt put a Canvas tab inside the existing edit modal — that was the wrong primitive. The user clarified: **the entire add-task experience** should be on a canvas, not a tab inside the modal. New shape:
+
+- `/admin/automations` (no flag) — existing list mode, unchanged. Page header gains a "Canvas" toggle button (next to "+ New Task").
+- `/admin/automations?canvas=1` — `<AutomationsCanvasPage>` mounts. Left rail = `<DefinitionsSidebar>` listing user task definitions; main area = dot-grid empty plane evoking the spatial-canvas vibe. Top-right of the plane has a "List" button (back to list mode) and a "+ New Task" button.
+- `/admin/automations?canvas=1&new=1` — overlays a centered `<ModePickerCard>` on the plane (Prompt / Pipeline). On selection adds `&mode=<picked>`.
+- `/admin/automations?canvas=1&new=1&mode=<prompt|pipeline>` — overlays `<EditorCard>` with the chosen mode pre-seeded (pipeline mode pre-seeds `steps=[]`).
+- `/admin/automations?canvas=1&edit=<taskId>` — overlays `<EditorCard>` for the existing task. Save stays open so the user can keep iterating; X dismisses to the empty plane.
+
+`<EditorCard>` reuses `useTaskFormState` + `<ContentFields>` + `<ExecutionFields>` + `<TriggerFields>` + `<WizardStepIndicator>` — same form components as the modal wizard, so behavior parity is automatic. v1 keeps the modal wizard at `?new=1` (today's flow) intact; canvas mode is opt-in.
+
+### What was reverted
+
+- `TaskFormFields.tsx` three-tab Visual / JSON / Canvas strip → reverted to two-tab Visual / JSON (the in-modal Canvas tab is gone).
+- `ui/src/components/shared/task/PipelineCanvas/` (10 files: `index.tsx`, `Canvas.tsx`, `StepNode.tsx`, `EdgeLayer.tsx`, `NodesLibrary.tsx`, `ConfigPanel.tsx`, `layout.ts` + test, `edges.ts` + test) — deleted. The dedicated step-graph view inside a definition's card on the canvas plane is a future move (when we move beyond sidebar to floating-tile-per-definition).
+- Phase 0 step-editor extraction stays — independent refactor.
+- Phase 1 backend `Task.layout` JSONB column stays — its meaning narrows for now (no per-step positions yet on the canvas page; future home: definition's position on the global plane). Tests stay valid.
+
+### New files
+
+- `ui/app/(app)/admin/tasks/canvas/AutomationsCanvasPage.tsx` — orchestrator, branches on `?new=1` / `?edit=<id>` / `?mode=<picked>`.
+- `ui/app/(app)/admin/tasks/canvas/DefinitionsSidebar.tsx` — left rail (filters out `source=system`).
+- `ui/app/(app)/admin/tasks/canvas/ModePickerCard.tsx` — Prompt / Pipeline picker.
+- `ui/app/(app)/admin/tasks/canvas/EditorCard.tsx` — the form-as-card; tabs are `Content` / `Execution` / `Trigger` via `<WizardStepIndicator>`.
+
+### Routing branch
+
+`ui/app/(app)/admin/tasks/index.tsx` wraps the existing list body in a sub-component (`TasksListScreen`) and the parent `TasksScreen` short-circuits to `<AutomationsCanvasPage>` when `searchParams.get("canvas") === "1"` — keeps rules-of-hooks compliance (no early-return inside the heavy hook tree).
+
+### Parked for next session(s)
+
+- **Definitions on the plane** — render each definition as a draggable card on the plane. Persistence: `Task.layout.canvas_position = {x, y}` (already in the column shape, just not yet wired). Sidebar can stay as a drawer or get hidden once tiles take over.
+- **Pan / zoom on the canvas plane** — reuse `spatialGeometry.ts` (`Camera`, `clampCamera`, `MIN_SCALE`, `MAX_SCALE`). Skipped in v1 since one centered card doesn't need panning.
+- **`/admin/automations/new` as a real route** — today the modal flow is `?new=1`. Promoting it to a route lets `?canvas=1` apply uniformly to both new + edit URLs.
+- **Per-card step-graph view** — the deleted `<PipelineCanvas>` directory was a workflowbuilder.io-style step graph; it can be revived later as an embedded view inside a definition card on the plane.
+- **"Canvas mode" affordance from inside the existing modal** — single button that flips the route. Polish; user explicitly called it optional.
+
+## 2026-04-25 — Pipeline Canvas tab (workflowbuilder.io-style three-pane editor) — REVERTED
 
 Added a third **Canvas** tab to the pipeline editor at `/admin/automations/:taskId`, modeled on workflowbuilder.io. Three panes: Nodes Library (click-to-add palette) | pannable/zoomable Canvas | Config Panel (selected step or edge fields). Same `Task.steps[]` array shape as Visual + JSON tabs; positions persist on a new top-level `Task.layout` JSONB column. The runtime never reads `layout` — it's pure UI state.
 

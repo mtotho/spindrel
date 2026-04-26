@@ -17,10 +17,13 @@ import { channelHue } from "./ChannelTile";
  * Positions in `position_history` are tile *origins* (top-left); we add
  * `world_w/2`, `world_h/2` per-entry to draw the line through tile centers.
  *
- * Color: stable per-node hue. Channels and bots share `channelHue(id)`
- * (same hashing function — bots get a distinct hue from their bot_id).
- * Widget trails fall back to a token-driven dim color since widgets only
- * move via tug.
+ * Bots only. Channels and widgets only ever move because the user dragged
+ * them; replaying that as a trail conflates "the agent decided to go here"
+ * with "I put it here," and the user already remembers the latter. Trails
+ * are an *agent autonomy* signal, so we gate the layer on `node.bot_id`.
+ *
+ * Color: stable per-bot hue via `channelHue(bot_id)` — same hash as
+ * channels but a different entropy bucket, so collisions are visually fine.
  */
 
 type Mode = "hover" | "all";
@@ -45,18 +48,8 @@ interface NodeTrail {
   emphasized: boolean;
 }
 
-function colorForNode(node: SpatialNode): string {
-  if (node.channel_id) {
-    return `hsl(${channelHue(node.channel_id)}, 55%, 58%)`;
-  }
-  if (node.bot_id) {
-    // Reuse the same hash so bot trails have their own stable hue. Distinct
-    // from channel hues because bot_ids are textual not UUIDs — different
-    // entropy bucket — though collisions are visually fine (just a coincidence
-    // of color, no semantic overlap).
-    return `hsl(${channelHue(node.bot_id)}, 50%, 62%)`;
-  }
-  return "rgb(var(--color-text-dim))";
+function colorForBot(botId: string): string {
+  return `hsl(${channelHue(botId)}, 50%, 62%)`;
 }
 
 export function MovementHistoryLayer({
@@ -68,6 +61,8 @@ export function MovementHistoryLayer({
   const trails = useMemo<NodeTrail[]>(() => {
     const out: NodeTrail[] = [];
     for (const node of nodes) {
+      // Bots only — see file header.
+      if (!node.bot_id) continue;
       const history = node.position_history ?? [];
       if (history.length === 0) continue;
       const isHovered = hoveredNodeId === node.id;
@@ -82,7 +77,7 @@ export function MovementHistoryLayer({
       points.push({ x: node.world_x + cx, y: node.world_y + cy });
       out.push({
         nodeId: node.id,
-        color: colorForNode(node),
+        color: colorForBot(node.bot_id),
         points,
         emphasized: mode === "hover" || isHovered,
       });
