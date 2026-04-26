@@ -518,11 +518,10 @@ function CardView({
 }
 
 /**
- * Bottom-right corner resize handle. Live preview via React Query
- * optimistic cache (overwrite the cached node's `world_w/h` on each
- * pointermove tick — re-render is automatic). On pointerup the new size
- * commits via the same `useUpdateSpatialNode` mutation that drag-reposition
- * uses; the mutation's onSettled invalidate keeps everything coherent.
+ * Bottom-right corner resize handle. Live preview writes directly to the
+ * spatial-node shell's DOM size while dragging, then commits one mutation on
+ * pointerup. This keeps resize from invalidating the canvas node query on
+ * every animation frame.
  *
  * Stops pointerdown propagation so dnd-kit doesn't start a tile reposition
  * while the user is grabbing the corner.
@@ -538,31 +537,11 @@ function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
     pointerId: number;
   } | null>(null);
   const pendingSizeRef = useRef<{ w: number; h: number } | null>(null);
-  const resizeRafRef = useRef<number | null>(null);
 
   const findNode = (): SpatialNode | undefined => {
     const nodes = qc.getQueryData<SpatialNode[]>(NODES_KEY) ?? [];
     return nodes.find((n) => n.id === nodeId);
   };
-
-  const flushPendingSize = () => {
-    const pending = pendingSizeRef.current;
-    if (!pending) return;
-    pendingSizeRef.current = null;
-    qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
-      (old ?? []).map((n) =>
-        n.id === nodeId ? { ...n, world_w: pending.w, world_h: pending.h } : n,
-      ),
-    );
-  };
-
-  useEffect(() => {
-    return () => {
-      if (resizeRafRef.current !== null) {
-        window.cancelAnimationFrame(resizeRafRef.current);
-      }
-    };
-  }, []);
 
   return (
     <div
@@ -586,6 +565,7 @@ function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
           h: node.world_h,
           pointerId: e.pointerId,
         };
+        pendingSizeRef.current = { w: node.world_w, h: node.world_h };
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
@@ -594,27 +574,22 @@ function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
         const newW = Math.max(MIN_W, s.w + (e.clientX - s.x) / zoom);
         const newH = Math.max(MIN_H, s.h + (e.clientY - s.y) / zoom);
         pendingSizeRef.current = { w: newW, h: newH };
-        if (resizeRafRef.current === null) {
-          resizeRafRef.current = window.requestAnimationFrame(() => {
-            resizeRafRef.current = null;
-            flushPendingSize();
-          });
+        const shell = e.currentTarget.closest<HTMLElement>("[data-spatial-node-id]");
+        if (shell) {
+          shell.style.width = `${newW}px`;
+          shell.style.height = `${newH}px`;
         }
       }}
       onPointerUp={(e) => {
         const s = startRef.current;
         if (!s || s.pointerId !== e.pointerId) return;
         startRef.current = null;
-        if (resizeRafRef.current !== null) {
-          window.cancelAnimationFrame(resizeRafRef.current);
-          resizeRafRef.current = null;
-        }
-        flushPendingSize();
-        const node = findNode();
-        if (node && (node.world_w !== s.w || node.world_h !== s.h)) {
+        const pending = pendingSizeRef.current;
+        pendingSizeRef.current = null;
+        if (pending && (pending.w !== s.w || pending.h !== s.h)) {
           update.mutate({
             nodeId,
-            body: { world_w: node.world_w, world_h: node.world_h },
+            body: { world_w: pending.w, world_h: pending.h },
           });
         }
         try {

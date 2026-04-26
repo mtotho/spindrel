@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
-import { dotColor } from "./ChannelTile";
+import { dotColor } from "./spatialIdentity";
 import {
   getViewportWorldBbox,
   type Camera,

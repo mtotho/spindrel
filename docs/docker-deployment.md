@@ -1,4 +1,4 @@
-# Running Agent Server in Docker
+# Running Spindrel in Docker
 
 By default the server runs on the host with Python directly. This guide covers running the server itself inside Docker using the **sibling container pattern** — workspace and sandbox containers are peers on the host Docker daemon, not nested.
 

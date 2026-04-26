@@ -204,7 +204,7 @@ async def _channel_activity(
 
 
 def _recency(channel: Channel) -> float:
-    raw = channel.last_message_at or channel.updated_at or channel.created_at
+    raw = getattr(channel, "last_message_at", None) or channel.updated_at or channel.created_at
     if not raw:
         return 0.0
     try:

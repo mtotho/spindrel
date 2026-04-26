@@ -12,14 +12,12 @@ import {
   DndContext,
   MouseSensor,
   TouchSensor,
-  useDraggable,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  LayoutGrid,
   MessageCircle,
   Footprints,
   Plus,
@@ -46,6 +44,7 @@ import {
 } from "../../api/hooks/useWorkspaceSpatial";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUsageBreakdown } from "../../api/hooks/useUsage";
+import { useBots } from "../../api/hooks/useBots";
 import type { Channel } from "../../types/api";
 import { ChannelTile } from "./ChannelTile";
 import { ChannelClusterMarker } from "./ChannelClusterMarker";
@@ -66,7 +65,16 @@ import { SpatialRadialMenu } from "./SpatialRadialMenu";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
-import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
+import { DraggableNode } from "./DraggableNode";
+import { ManualBotNode, BotTile } from "./BotNode";
+import {
+  AddWidgetButton,
+  CanvasStarfield,
+  LensHint,
+  ShortcutChip,
+} from "./SpatialCanvasChrome";
+import { MovementTraceLayer } from "./MovementTraceLayer";
+import { buildWidgetOverviewClusters } from "./widgetOverviewClusters";
 import { ChatSession } from "../chat/ChatSession";
 import { SessionPickerOverlay } from "../chat/SessionPickerOverlay";
 import {
@@ -90,7 +98,6 @@ import {
   BOTS_VISIBLE_KEY,
   TRAILS_MODE_KEY,
   MINIMAP_VISIBLE_KEY,
-  LENS_HINT_SEEN_KEY,
   DIVE_SCALE_THRESHOLD,
   DIVE_DWELL_MS,
   DIVE_VIEWPORT_MARGIN,
@@ -118,10 +125,7 @@ import {
   loadStoredCamera,
   projectFisheye,
   getViewportWorldBbox,
-  intersectBbox,
-  SVG_MAX_DIMENSION_PX,
   type Camera,
-  type LensTransform,
   type WorldBbox,
 } from "./spatialGeometry";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -189,6 +193,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const location = useLocation();
   const { data: nodes } = useSpatialNodes();
   const { data: channels } = useChannels();
+  const { data: bots } = useBots();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
   const { data: definitionsData } = useQuery({
     queryKey: ["spatial-task-definitions"],
@@ -266,6 +271,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     (botId: string): Channel | null => channelByBotId.get(botId) ?? null,
     [channelByBotId],
   );
+
+  const botAvatarById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const bot of bots ?? []) {
+      if (bot.avatar_emoji) m.set(bot.id, bot.avatar_emoji);
+    }
+    return m;
+  }, [bots]);
 
   // Channel dashboards carry an `icon` field already used by the sidebar
   // rail; lift it onto the canvas tile too. Map `channelId → icon name`
@@ -398,7 +411,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   }, []);
 
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
-  const [manualBotDrag, setManualBotDrag] = useState<{
+  const manualBotDragRef = useRef<{
     nodeId: string;
     pointerId: number;
     grabDx: number;
@@ -443,11 +456,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [densityWindow],
   );
   const activityBefore = useMemo(() => new Date().toISOString(), [densityWindow]);
+  const baselineAfter = useMemo(
+    () => isoHoursAgo(DENSITY_WINDOW_HOURS[densityWindow] * 2),
+    [densityWindow],
+  );
+  const baselineBefore = useMemo(
+    () => isoHoursAgo(DENSITY_WINDOW_HOURS[densityWindow]),
+    [densityWindow],
+  );
   const channelActivity = useUsageBreakdown({
     group_by: "channel",
     after: activityAfter,
     before: activityBefore,
   });
+  const baselineChannelActivity = useUsageBreakdown({
+    group_by: "channel",
+    after: baselineAfter,
+    before: baselineBefore,
+  }, { enabled: densityCompare });
   const activityByChannelId = useMemo(() => {
     const m = new Map<string, { tokens: number; calls: number }>();
     for (const group of channelActivity.data?.groups ?? []) {
@@ -1156,7 +1182,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     label: string;
     world: { x: number; y: number; w: number; h: number };
   } | null>(null);
-  const [divePulseProgress, setDivePulseProgress] = useState(0);
 
   useEffect(() => {
     // Mount-time cooldown — defends against any flow that lands the canvas
@@ -1212,26 +1237,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // Dwell timer + smooth progress tween. Restarts whenever the candidate
   // changes (or first appears). Cancels cleanly on candidate clear.
   useEffect(() => {
-    if (!diveCandidate) {
-      setDivePulseProgress(0);
-      return;
-    }
-    let raf: number | null = null;
-    const start = performance.now();
-    const tick = (t: number) => {
-      const elapsed = t - start;
-      const progress = Math.min(1, elapsed / DIVE_DWELL_MS);
-      setDivePulseProgress(progress);
-      if (progress >= 1) {
-        diveToChannel(diveCandidate.channelId, diveCandidate.world);
-        return;
-      }
-      raf = window.requestAnimationFrame(tick);
-    };
-    raf = window.requestAnimationFrame(tick);
-    return () => {
-      if (raf !== null) window.cancelAnimationFrame(raf);
-    };
+    if (!diveCandidate) return;
+    const id = window.setTimeout(() => {
+      diveToChannel(diveCandidate.channelId, diveCandidate.world);
+    }, DIVE_DWELL_MS);
+    return () => window.clearTimeout(id);
   }, [diveCandidate, diveToChannel]);
 
   // Pan + scale the camera to a single channel tile (Cmd+K override target).
@@ -1403,14 +1413,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       e.stopPropagation();
       setDraggingNodeId(node.id);
       setActivatedTileId(null);
-      setManualBotDrag({
+      manualBotDragRef.current = {
         nodeId: node.id,
         pointerId: e.pointerId,
         grabDx: world.x - node.world_x,
         grabDy: world.y - node.world_y,
         currentX: node.world_x,
         currentY: node.world_y,
-      });
+      };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
     [diving, pointerToWorld],
@@ -1418,23 +1428,24 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
 
   const handleBotPointerMove = useCallback(
     (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!manualBotDrag || manualBotDrag.nodeId !== node.id || manualBotDrag.pointerId !== e.pointerId) return;
+      const drag = manualBotDragRef.current;
+      if (!drag || drag.nodeId !== node.id || drag.pointerId !== e.pointerId) return;
       const world = pointerToWorld(e.clientX, e.clientY);
       if (!world) return;
       e.preventDefault();
       e.stopPropagation();
-      setManualBotDrag((drag) =>
-        drag && drag.nodeId === node.id
-          ? { ...drag, currentX: world.x - drag.grabDx, currentY: world.y - drag.grabDy }
-          : drag,
-      );
+      drag.currentX = world.x - drag.grabDx;
+      drag.currentY = world.y - drag.grabDy;
+      e.currentTarget.style.left = `${drag.currentX}px`;
+      e.currentTarget.style.top = `${drag.currentY}px`;
     },
-    [manualBotDrag, pointerToWorld],
+    [pointerToWorld],
   );
 
   const handleBotPointerUp = useCallback(
     (node: SpatialNode, e: ReactPointerEvent<HTMLDivElement>) => {
-      if (!manualBotDrag || manualBotDrag.nodeId !== node.id || manualBotDrag.pointerId !== e.pointerId) return;
+      const drag = manualBotDragRef.current;
+      if (!drag || drag.nodeId !== node.id || drag.pointerId !== e.pointerId) return;
       e.preventDefault();
       e.stopPropagation();
       try {
@@ -1443,15 +1454,18 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         /* already released */
       }
       setDraggingNodeId(null);
-      setManualBotDrag(null);
-      if (manualBotDrag.currentX !== node.world_x || manualBotDrag.currentY !== node.world_y) {
+      manualBotDragRef.current = null;
+      if (drag.currentX !== node.world_x || drag.currentY !== node.world_y) {
         updateNode.mutate({
           nodeId: node.id,
-          body: { world_x: manualBotDrag.currentX, world_y: manualBotDrag.currentY },
+          body: { world_x: drag.currentX, world_y: drag.currentY },
         });
+      } else {
+        e.currentTarget.style.left = `${node.world_x}px`;
+        e.currentTarget.style.top = `${node.world_y}px`;
       }
     },
-    [manualBotDrag, updateNode],
+    [updateNode],
   );
 
   // Viewport bounds in WORLD coordinates, expanded by a 1-viewport margin on
@@ -1956,6 +1970,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               window={densityWindow}
               compare={densityCompare}
               animate={densityAnimate && animationsEnabled}
+              currentGroups={channelActivity.data?.groups ?? []}
+              baselineGroups={baselineChannelActivity.data?.groups ?? []}
               suppressedChannelIds={clusteredChannelIds}
               viewportBbox={viewportBbox}
             />
@@ -2128,6 +2144,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     icon={iconByChannelId.get(channel.id) ?? null}
                     zoom={camera.scale}
                     extraScale={lens?.sizeFactor ?? 1}
+                    botAvatarById={botAvatarById}
                     onDive={() =>
                       diveToChannel(channel.id, {
                         x: node.world_x,
@@ -2144,18 +2161,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               if (!botsVisible) return null;
               const botName = node.bot?.display_name || node.bot?.name || node.bot_id;
               const channel = channelForBot(node.bot_id);
-              const dragPosition = manualBotDrag?.nodeId === node.id
-                ? { x: manualBotDrag.currentX, y: manualBotDrag.currentY }
-                : null;
               return (
                 <ManualBotNode
                   key={node.id}
                   node={node}
                   isDragging={draggingNodeId === node.id}
                   diving={diving}
-                  lens={dragPosition ? null : lens}
+                  lens={draggingNodeId === node.id ? null : lens}
                   lensSettling={lensSettling}
-                  dragPosition={dragPosition}
                   reduced={botsReduced}
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
@@ -2201,11 +2214,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 </ManualBotNode>
               );
             }
-            // Widget node — render via embedded pin payload (P3a). The
-            // live iframe at zoom ≥ 0.6 lands in P3b; for now all zoom
-            // levels are static cards. If `pin` is missing the node points
-            // at a vanished pin row — render nothing rather than a broken
-            // placeholder; the next list refresh should clean it up.
+            // Widget node — render via embedded pin payload. Card zoom hosts
+            // live iframe/native/component bodies when the tile is in the
+            // viewport; far tiers stay lightweight. If `pin` is missing the
+            // node points at a vanished pin row — render nothing rather than
+            // a broken placeholder; the next list refresh should clean it up.
             if (!node.pin) return null;
             // Frameless game widgets get a scoped drag activator so empty
             // areas around the floating asteroid stay canvas-pannable. At
@@ -2258,7 +2271,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       </DndContext>
       <LensHint />
       {diveCandidate && (
-        <DivePulseOverlay channelLabel={diveCandidate.label} progress={divePulseProgress} />
+        <DivePulseOverlay channelLabel={diveCandidate.label} />
       )}
       <div
         className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
@@ -2375,259 +2388,6 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   );
 }
 
-interface WidgetOverviewCluster {
-  id: string;
-  nodes: SpatialNode[];
-  worldX: number;
-  worldY: number;
-}
-
-function buildWidgetOverviewClusters({
-  nodes,
-  camera,
-  excludedNodeIds,
-  enabled,
-  radius = 92,
-}: {
-  nodes: SpatialNode[];
-  camera: Camera;
-  excludedNodeIds: Set<string>;
-  enabled: boolean;
-  radius?: number;
-}): WidgetOverviewCluster[] {
-  if (!enabled) return [];
-  const candidates = nodes
-    .filter((node) => node.pin && !excludedNodeIds.has(node.id))
-    .map((node) => {
-      const cx = node.world_x + node.world_w / 2;
-      const cy = node.world_y + node.world_h / 2;
-      return {
-        node,
-        worldX: cx,
-        worldY: cy,
-        screenX: camera.x + cx * camera.scale,
-        screenY: camera.y + cy * camera.scale,
-      };
-    })
-    .sort((a, b) => a.node.id.localeCompare(b.node.id));
-  const claimed = new Set<string>();
-  const clusters: WidgetOverviewCluster[] = [];
-  for (const seed of candidates) {
-    if (claimed.has(seed.node.id)) continue;
-    const members = candidates.filter((candidate) => {
-      if (claimed.has(candidate.node.id)) return false;
-      const dx = candidate.screenX - seed.screenX;
-      const dy = candidate.screenY - seed.screenY;
-      return Math.hypot(dx, dy) <= radius;
-    });
-    for (const member of members) claimed.add(member.node.id);
-    const worldX = members.reduce((sum, member) => sum + member.worldX, 0) / members.length;
-    const worldY = members.reduce((sum, member) => sum + member.worldY, 0) / members.length;
-    clusters.push({
-      id: `widget-cluster:${members.map((member) => member.node.id).join(":")}`,
-      nodes: members.map((member) => member.node),
-      worldX,
-      worldY,
-    });
-  }
-  return clusters;
-}
-
-function AddWidgetButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onPointerDown={(e) => e.stopPropagation()}
-      title="Add widget to canvas"
-      aria-label="Add widget to canvas"
-      className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-accent text-xs cursor-pointer"
-    >
-      <LayoutGrid size={13} />
-      <span className="hidden sm:inline">Add</span>
-    </button>
-  );
-}
-
-function MovementTraceLayer({ nodes, viewportBbox }: { nodes: SpatialNode[]; viewportBbox?: WorldBbox }) {
-  const now = Date.now();
-  const traces = nodes
-    .map((node) => {
-      const movement = node.last_movement;
-      if (!movement?.from || !movement?.to || !movement.created_at) return null;
-      const created = Date.parse(movement.created_at);
-      if (!Number.isFinite(created)) return null;
-      const age = now - created;
-      const expiresAt = movement.expires_at ? Date.parse(movement.expires_at) : NaN;
-      const ttlMs = Number.isFinite(expiresAt)
-        ? expiresAt - created
-        : Math.max(1, movement.ttl_minutes ?? 30) * 60_000;
-      if (ttlMs <= 0 || age < 0 || age > ttlMs) return null;
-      const opacity = Math.max(0.18, 1 - age / ttlMs);
-      const fromX = movement.from.x + node.world_w / 2;
-      const fromY = movement.from.y + node.world_h / 2;
-      const toX = movement.to.x + node.world_w / 2;
-      const toY = movement.to.y + node.world_h / 2;
-      // Cull traces whose chord+halo bbox falls entirely outside the
-      // viewport. The halo circle around `to` extends roughly node-radius
-      // out, so pad the bbox before testing.
-      if (viewportBbox) {
-        const haloR = Math.max(node.world_w, node.world_h) * 0.7;
-        const tb: WorldBbox = {
-          minX: Math.min(fromX, toX) - haloR,
-          minY: Math.min(fromY, toY) - haloR,
-          maxX: Math.max(fromX, toX) + haloR,
-          maxY: Math.max(fromY, toY) + haloR,
-        };
-        if (tb.minX > viewportBbox.maxX || tb.maxX < viewportBbox.minX
-            || tb.minY > viewportBbox.maxY || tb.maxY < viewportBbox.minY) {
-          return null;
-        }
-      }
-      return { node, fromX, fromY, toX, toY, opacity };
-    })
-    .filter(Boolean) as Array<{
-      node: SpatialNode;
-      fromX: number;
-      fromY: number;
-      toX: number;
-      toY: number;
-      opacity: number;
-    }>;
-  if (traces.length === 0) return null;
-  const xs = traces.flatMap((t) => [t.fromX, t.toX]);
-  const ys = traces.flatMap((t) => [t.fromY, t.toY]);
-  const contentBbox: WorldBbox = {
-    minX: Math.min(...xs) - 80,
-    minY: Math.min(...ys) - 80,
-    maxX: Math.max(...xs) + 80,
-    maxY: Math.max(...ys) + 80,
-  };
-  const drawBbox = viewportBbox ? intersectBbox(contentBbox, viewportBbox) : contentBbox;
-  if (!drawBbox) return null;
-  const minX = drawBbox.minX;
-  const minY = drawBbox.minY;
-  const width = Math.min(drawBbox.maxX - drawBbox.minX, SVG_MAX_DIMENSION_PX);
-  const height = Math.min(drawBbox.maxY - drawBbox.minY, SVG_MAX_DIMENSION_PX);
-  return (
-    <svg
-      className="absolute pointer-events-none overflow-visible"
-      style={{ left: minX, top: minY, width, height }}
-      aria-hidden
-    >
-      <defs>
-        <marker
-          id="spatial-move-arrow"
-          viewBox="0 0 10 10"
-          refX="8"
-          refY="5"
-          markerWidth="5"
-          markerHeight="5"
-          orient="auto-start-reverse"
-        >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="rgb(var(--color-accent))" />
-        </marker>
-      </defs>
-      {traces.map((t) => (
-        <g key={t.node.id} opacity={t.opacity}>
-          <line
-            x1={t.fromX - minX}
-            y1={t.fromY - minY}
-            x2={t.toX - minX}
-            y2={t.toY - minY}
-            stroke="rgb(var(--color-accent))"
-            strokeWidth={2}
-            strokeDasharray="6 5"
-            markerEnd="url(#spatial-move-arrow)"
-          />
-          <circle
-            cx={t.toX - minX}
-            cy={t.toY - minY}
-            r={Math.max(t.node.world_w, t.node.world_h) * 0.7}
-            fill="none"
-            stroke="rgb(var(--color-accent))"
-            strokeWidth={2}
-            strokeOpacity={0.35}
-          />
-        </g>
-      ))}
-    </svg>
-  );
-}
-
-function BotTile({
-  name,
-  botId,
-  avatarEmoji,
-  zoom,
-  reduced,
-  onOpenChat,
-  chatDisabled,
-}: {
-  name: string;
-  botId: string;
-  avatarEmoji: string | null;
-  zoom: number;
-  reduced: boolean;
-  onOpenChat: () => void;
-  chatDisabled: boolean;
-}) {
-  const compact = zoom < 0.55;
-  const avatar = avatarEmoji || "🤖";
-  const markerScale = compact ? Math.max(1, 34 / ((reduced ? 84 : 112) * Math.max(zoom, MIN_SCALE))) : 1;
-  const labelScale = compact ? Math.max(1, 14 / (14 * Math.max(zoom, MIN_SCALE))) : 1;
-  const outerSize = reduced ? 84 : 112;
-  const innerSize = reduced ? 58 : 82;
-  const emojiSize = reduced ? 28 : 38;
-  const labelTop = reduced ? 108 : 132;
-  const chatLeft = reduced ? 138 : 154;
-  const chatTop = reduced ? 90 : 104;
-  return (
-    <div
-      className="relative flex h-full w-full items-center justify-center overflow-visible"
-      title={`${name} (${botId})`}
-    >
-      <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]"
-        style={{ width: outerSize, height: outerSize, scale: markerScale }}
-      />
-      <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center"
-        style={{ width: innerSize, height: innerSize, fontSize: emojiSize, scale: markerScale }}
-      >
-        <span aria-hidden>{avatar}</span>
-      </div>
-      <div
-        className="absolute left-1/2 max-w-[230px] text-center"
-        style={{
-          top: labelTop,
-          transform: `translateX(-50%) scale(${labelScale})`,
-          transformOrigin: "top center",
-        }}
-      >
-        <div className={`truncate rounded-md bg-surface-raised/90 px-2.5 py-1 font-semibold leading-tight text-text shadow-sm ${compact ? "text-[14px]" : "text-[16px]"}`}>
-          {name}
-        </div>
-      </div>
-      <button
-        type="button"
-        disabled={chatDisabled}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenChat();
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-        title={chatDisabled ? "No channel available for this bot" : "Open mini chat"}
-        aria-label={chatDisabled ? "No channel available" : `Open mini chat with ${name}`}
-        className="absolute flex h-8 w-8 items-center justify-center rounded-full border border-surface-border bg-surface text-text-dim hover:text-accent disabled:opacity-40 disabled:hover:text-text-dim"
-        style={{ left: chatLeft, top: chatTop }}
-      >
-        <MessageCircle className="w-3.5 h-3.5" aria-hidden />
-      </button>
-    </div>
-  );
-}
-
 /**
  * Passive landmark at world (0,0). Two faint dashed rings + a center dot —
  * enough to reorient when the user has panned far away or zoomed all the
@@ -2635,98 +2395,6 @@ function BotTile({
  * tile bounds at index 0 will partially overlap the inner ring; the visible
  * arc still reads as "you're near the origin."
  */
-/**
- * Subtle twinkling starfield rendered behind the spatial canvas world.
- * Sits below the dnd / world layers so panning and tile interaction are
- * unaffected; uses `pointer-events-none` to stay out of the way.
- *
- * Star positions are deterministic per-mount (seeded RNG) so the layout
- * is stable across re-renders within a session. Twinkle is a CSS
- * `@keyframes` opacity loop with phase offsets so individual stars
- * pulse out of sync — feels alive without being noisy.
- */
-function CanvasStarfield() {
-  const stars = useMemo(() => {
-    let s = 0xc0ffee;
-    function rand() {
-      s |= 0;
-      s = (s + 0x6d2b79f5) | 0;
-      let t = Math.imul(s ^ (s >>> 15), 1 | s);
-      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    }
-    const out: Array<{ x: number; y: number; r: number; o: number; phase: number; dur: number; warm: number }> = [];
-    for (let i = 0; i < 220; i++) {
-      const tier = rand();
-      out.push({
-        x: rand() * 100,
-        y: rand() * 100,
-        r: tier > 0.97 ? 1.4 : tier > 0.85 ? 0.9 : 0.5,
-        o: tier > 0.97 ? 0.85 : tier > 0.85 ? 0.55 : 0.30,
-        phase: rand() * 8,
-        dur: 4 + rand() * 4,
-        warm: rand(),  // 0..1 — used to pick a color from the theme palette
-      });
-    }
-    return out;
-  }, []);
-  return (
-    <div className="canvas-starfield absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
-      <svg
-        className="absolute inset-0 w-full h-full"
-        viewBox="0 0 100 100"
-        preserveAspectRatio="xMidYMid slice"
-      >
-        {stars.map((s, i) => {
-          // Three subtle blue-spectrum hues that read as "candle-blue starlight"
-          // in light mode and stay luminous in dark mode. Mostly cool with a
-          // few warm whites for variety.
-          const fill =
-            s.warm > 0.92 ? "var(--star-warm)" :
-            s.warm > 0.6  ? "var(--star-blue-mid)" :
-                            "var(--star-blue-deep)";
-          return (
-            <circle
-              key={i}
-              cx={s.x}
-              cy={s.y}
-              r={s.r * 0.05}
-              fill={fill}
-              opacity={s.o}
-              style={{
-                animation: `canvas-star-twinkle ${s.dur}s ease-in-out infinite`,
-                animationDelay: `${s.phase}s`,
-              }}
-            />
-          );
-        })}
-      </svg>
-      <style>{`
-        .canvas-starfield {
-          /* Light mode — bluish "candle-blue" stars over the warm canvas bg */
-          --star-blue-deep: #5a78c8;
-          --star-blue-mid: #88aae0;
-          --star-warm: #c8a878;
-        }
-        :root.dark .canvas-starfield,
-        .dark .canvas-starfield {
-          /* Dark mode — bright luminous stars */
-          --star-blue-deep: #aac4ff;
-          --star-blue-mid: #d8e3ff;
-          --star-warm: #ffe9c0;
-        }
-        @keyframes canvas-star-twinkle {
-          0%, 100% { opacity: 0.25; }
-          50% { opacity: 1; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .canvas-starfield svg circle { animation: none !important; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
 function OriginMarker() {
   return (
     <div
@@ -2746,423 +2414,6 @@ function OriginMarker() {
         className="absolute rounded-full bg-text-dim/40"
         style={{ width: 8, height: 8, left: -4, top: -4 }}
       />
-    </div>
-  );
-}
-
-/**
- * Bottom-left onboarding pill — flashes the "hold Space to focus" gesture
- * exactly once per browser, then never again. localStorage flag
- * `LENS_HINT_SEEN_KEY` records that the user has seen it. The permanent
- * home for keyboard shortcut reference is the `<ShortcutChip />` top-right.
- */
-function LensHint() {
-  const [visible, setVisible] = useState(false);
-  const [opacity, setOpacity] = useState(0);
-  useEffect(() => {
-    let seen = false;
-    try {
-      seen = localStorage.getItem(LENS_HINT_SEEN_KEY) === "1";
-    } catch {
-      /* storage disabled — show every time */
-    }
-    if (seen) return;
-    setVisible(true);
-    // Two-step fade: appear at 95% opacity, then ramp to 0 after 4500ms.
-    const inT = window.setTimeout(() => setOpacity(0.95), 30);
-    const outT = window.setTimeout(() => setOpacity(0), 4500);
-    const removeT = window.setTimeout(() => {
-      setVisible(false);
-      try {
-        localStorage.setItem(LENS_HINT_SEEN_KEY, "1");
-      } catch {
-        /* ignore */
-      }
-    }, 6000);
-    return () => {
-      window.clearTimeout(inT);
-      window.clearTimeout(outT);
-      window.clearTimeout(removeT);
-    };
-  }, []);
-  if (!visible) return null;
-  return (
-    <div
-      className="absolute bottom-4 left-4 z-[2] flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md backdrop-blur border bg-surface-raised/85 border-surface-border text-text-dim text-xs select-none pointer-events-none"
-      style={{ opacity, transition: "opacity 600ms ease-out" }}
-      aria-live="polite"
-    >
-      <kbd className="rounded px-1.5 py-0 font-mono text-[10px] leading-tight border border-surface-border bg-surface-overlay/70 text-text-muted">
-        Space
-      </kbd>
-      <span>hold to focus</span>
-    </div>
-  );
-}
-
-/**
- * Tiny `[⌘ Q]` indicator top-right — opens a popover listing every keyboard
- * shortcut on hover or focus. Discoverability home for the otherwise-hidden
- * shortcuts (Q for radial menu, Space for lens, F for fit-all, etc.).
- */
-function ShortcutChip() {
-  const [open, setOpen] = useState(false);
-  return (
-    <div
-      className="relative"
-      onPointerEnter={() => setOpen(true)}
-      onPointerLeave={() => setOpen(false)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
-    >
-      <button
-        type="button"
-        aria-label="Keyboard shortcuts"
-        className="flex flex-row items-center gap-1 px-2 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-text text-[11px] font-mono cursor-default"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <span>⌘</span>
-        <span>Q</span>
-      </button>
-      {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-[3] flex flex-col gap-1 px-3 py-2.5 rounded-md bg-surface-raised/95 backdrop-blur border border-surface-border text-[11px] text-text-dim min-w-[240px] shadow-lg">
-          <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1">
-            Keyboard
-          </div>
-          <ShortcutRow keys={["Q"]} label="Open command menu" />
-          <ShortcutRow keys={["Space"]} label="Focus lens (hold)" />
-          <ShortcutRow keys={["F"]} label="Fit all to viewport" />
-          <ShortcutRow keys={["+", "−"]} label="Zoom in / out" />
-          <ShortcutRow keys={["Esc"]} label="Close overlay or menu" />
-          <div className="text-[10px] uppercase tracking-wider text-text-muted mt-2 mb-1">
-            Pointer
-          </div>
-          <ShortcutRow keys={["Right-click"]} label="Context menu on tile" />
-          <ShortcutRow keys={["Long-press"]} label="Touch: command menu / drag tile" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ShortcutRow({ keys, label }: { keys: string[]; label: string }) {
-  return (
-    <div className="flex flex-row items-center gap-2">
-      <div className="flex flex-row gap-1">
-        {keys.map((k, i) => (
-          <kbd
-            key={i}
-            className="rounded px-1.5 py-0 font-mono text-[10px] leading-tight border border-surface-border bg-surface-overlay/70 text-text-muted"
-          >
-            {k}
-          </kbd>
-        ))}
-      </div>
-      <span>{label}</span>
-    </div>
-  );
-}
-
-interface DraggableNodeProps {
-  node: SpatialNode;
-  scale: number;
-  isDragging: boolean;
-  diving: boolean;
-  /** Per-tile fisheye projection. Null when the lens is not engaged. */
-  lens: LensTransform | null;
-  /** True for the engage/disengage transition window — apply a CSS
-   *  transition; while the lens is steady-engaged + cursor moving, this is
-   *  false so tiles track the cursor without lag. */
-  lensSettling: boolean;
-  /** Optional hover callback — used by the connection-line layer to
-   *  brighten the line for the currently-hovered widget. */
-  onHoverChange?: (hovered: boolean) => void;
-  /** "full" wraps the children in the dnd-kit activator so the entire
-   *  tile body starts a drag (default — channels, regular widgets).
-   *  "scoped" provides the activator via `DragActivatorContext`; the
-   *  child is responsible for attaching it to a specific element (e.g. a
-   *  grip handle), which lets the rest of the tile fall through to the
-   *  canvas pan. Used by frameless game widgets. */
-  activatorMode?: "full" | "scoped";
-  onScopedDragStart?: () => void;
-  onScopedDragEnd?: () => void;
-  children: React.ReactNode;
-}
-
-interface ManualBotNodeProps {
-  node: SpatialNode;
-  isDragging: boolean;
-  diving: boolean;
-  lens: LensTransform | null;
-  lensSettling: boolean;
-  dragPosition: { x: number; y: number } | null;
-  reduced: boolean;
-  onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerMove: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  onPointerUp: (e: ReactPointerEvent<HTMLDivElement>) => void;
-  /** Single-click action — typically "open mini chat". Wrapped in a
-   *  ~220ms timer so a follow-up click resolves to `onDoubleClick` instead.
-   *  Pass null/undefined to disable. */
-  onClick?: () => void;
-  onDoubleClick: () => void;
-  /** Hover callback — used by the trails layer to reveal this bot's
-   *  comet tail when the user points at it. */
-  onHoverChange?: (hovered: boolean) => void;
-  children: React.ReactNode;
-}
-
-function ManualBotNode({
-  node,
-  isDragging,
-  diving,
-  lens,
-  lensSettling,
-  dragPosition,
-  reduced,
-  onPointerDown,
-  onPointerMove,
-  onPointerUp,
-  onClick,
-  onDoubleClick,
-  onHoverChange,
-  children,
-}: ManualBotNodeProps) {
-  // Click-vs-double-click disambiguation: delay the single-click action so
-  // that a follow-up second click within 220ms cancels it and resolves to
-  // the navigate-to-admin double-click instead.
-  const clickTimerRef = useRef<number | null>(null);
-  const cancelPendingClick = () => {
-    if (clickTimerRef.current !== null) {
-      window.clearTimeout(clickTimerRef.current);
-      clickTimerRef.current = null;
-    }
-  };
-  useEffect(() => () => cancelPendingClick(), []);
-  const lensTransform = lens
-    ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
-    : "";
-  const reduceTransform = reduced ? "scale(0.82)" : "";
-  const transformStack = [lensTransform, reduceTransform].filter(Boolean).join(" ");
-  let transition: string;
-  if (isDragging) {
-    transition = "none";
-  } else if (lensSettling) {
-    transition = `transform ${LENS_SETTLE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-  } else if (lens) {
-    transition = "none";
-  } else {
-    transition = "transform 120ms";
-  }
-  const style: CSSProperties = {
-    position: "absolute",
-    left: dragPosition?.x ?? node.world_x,
-    top: dragPosition?.y ?? node.world_y,
-    width: node.world_w,
-    height: node.world_h,
-    zIndex: isDragging ? 10 : node.z_index,
-    transform: transformStack || undefined,
-    transformOrigin: "center center",
-    transition,
-    touchAction: "none",
-    cursor: diving ? "default" : isDragging ? "grabbing" : "grab",
-    opacity: reduced ? 0.68 : 1,
-  };
-  return (
-    <div
-      style={style}
-      data-tile-kind="bot"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
-      onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
-      onClick={(e) => {
-        if (!onClick || diving || isDragging) return;
-        // Don't fire when the click came from a child that wants its own
-        // behavior (e.g. the inline MessageCircle button calls
-        // stopPropagation, so it never reaches us). The avatar disc is the
-        // bare canvas inside `children` — clicking it lands here.
-        e.stopPropagation();
-        cancelPendingClick();
-        clickTimerRef.current = window.setTimeout(() => {
-          clickTimerRef.current = null;
-          onClick();
-        }, 220);
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        cancelPendingClick();
-        if (!diving && !isDragging) onDoubleClick();
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function DraggableNode({
-  node,
-  scale,
-  isDragging,
-  diving,
-  lens,
-  lensSettling,
-  onHoverChange,
-  activatorMode = "full",
-  onScopedDragStart,
-  onScopedDragEnd,
-  children,
-}: DraggableNodeProps) {
-  const updateNode = useUpdateSpatialNode();
-  const [scopedDrag, setScopedDrag] = useState<{
-    pointerId: number;
-    startX: number;
-    startY: number;
-    dx: number;
-    dy: number;
-  } | null>(null);
-  const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform } = useDraggable({
-    id: node.id,
-    disabled: diving || activatorMode === "scoped",
-  });
-  const handleScopedPointerDown = useCallback(
-    (e: ReactPointerEvent<HTMLElement>) => {
-      if (activatorMode !== "scoped" || diving || e.button !== 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setScopedDrag({
-        pointerId: e.pointerId,
-        startX: e.clientX,
-        startY: e.clientY,
-        dx: 0,
-        dy: 0,
-      });
-      onScopedDragStart?.();
-      e.currentTarget.setPointerCapture(e.pointerId);
-    },
-    [activatorMode, diving, onScopedDragStart],
-  );
-  const handleScopedPointerMove = useCallback(
-    (e: ReactPointerEvent<HTMLElement>) => {
-      if (!scopedDrag || scopedDrag.pointerId !== e.pointerId) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setScopedDrag((drag) =>
-        drag && drag.pointerId === e.pointerId
-          ? { ...drag, dx: e.clientX - drag.startX, dy: e.clientY - drag.startY }
-          : drag,
-      );
-    },
-    [scopedDrag],
-  );
-  const finishScopedDrag = useCallback(
-    (e: ReactPointerEvent<HTMLElement>) => {
-      if (!scopedDrag || scopedDrag.pointerId !== e.pointerId) return;
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        /* already released */
-      }
-      setScopedDrag(null);
-      onScopedDragEnd?.();
-      if (scopedDrag.dx === 0 && scopedDrag.dy === 0) return;
-      updateNode.mutate({
-        nodeId: node.id,
-        body: {
-          world_x: node.world_x + scopedDrag.dx / scale,
-          world_y: node.world_y + scopedDrag.dy / scale,
-        },
-      });
-    },
-    [node.id, node.world_x, node.world_y, onScopedDragEnd, scale, scopedDrag, updateNode],
-  );
-  const activatorBundle: DragActivatorBundle = {
-    setRef: activatorMode === "scoped" ? () => {} : setActivatorNodeRef,
-    // dnd-kit's generated types don't have an index signature; cast through
-    // `unknown` at the boundary so consumers get a stable shape.
-    listeners: (activatorMode === "scoped"
-      ? {
-          onPointerDown: handleScopedPointerDown,
-          onPointerMove: handleScopedPointerMove,
-          onPointerUp: finishScopedDrag,
-          onPointerCancel: finishScopedDrag,
-        }
-      : listeners) as unknown as DragActivatorBundle["listeners"],
-    attributes: (activatorMode === "scoped"
-      ? { role: "button", tabIndex: 0 }
-      : attributes) as unknown as DragActivatorBundle["attributes"],
-  };
-  // dnd-kit returns a screen-pixel translate during drag. The tile lives
-  // inside a parent that's scaled by `camera.scale`, so dividing by scale
-  // makes the tile's screen movement match the cursor 1:1.
-  const dragTranslate = transform
-    ? `translate(${transform.x / scale}px, ${transform.y / scale}px)`
-    : scopedDrag
-    ? `translate(${scopedDrag.dx / scale}px, ${scopedDrag.dy / scale}px)`
-    : "";
-  // Fisheye contribution composes after drag: translate to projected position
-  // (in world coords so it pre-multiplies through the parent's scale), then
-  // shrink around the tile center. Order — drag first, then lens — means the
-  // lens evaluates at the tile's authored position, not the dragged position
-  // (drag is suppressed during lens engage anyway, so they don't collide).
-  const lensTransform = lens
-    ? `translate(${lens.dxWorld}px, ${lens.dyWorld}px) scale(${lens.sizeFactor})`
-    : "";
-  const transformStack = [dragTranslate, lensTransform].filter(Boolean).join(" ");
-  // Transition priority: drag = none (must follow cursor 1:1).
-  // Lens settling = 250ms ease-out (smooth pop-in / pop-out).
-  // Otherwise default 120ms for nudges and post-drag commit.
-  let transition: string;
-  if (isDragging || scopedDrag) {
-    transition = "none";
-  } else if (lensSettling) {
-    transition = `transform ${LENS_SETTLE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`;
-  } else if (lens) {
-    // Lens engaged + steady — track cursor with no transition.
-    transition = "none";
-  } else {
-    transition = "transform 120ms";
-  }
-  const style: CSSProperties = {
-    position: "absolute",
-    left: node.world_x,
-    top: node.world_y,
-    width: node.world_w,
-    height: node.world_h,
-    zIndex: isDragging || scopedDrag ? 10 : node.z_index,
-    transform: transformStack || undefined,
-    transformOrigin: "center center",
-    transition,
-    touchAction: "none",
-    pointerEvents: "none",
-  };
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      onPointerEnter={onHoverChange ? () => onHoverChange(true) : undefined}
-      onPointerLeave={onHoverChange ? () => onHoverChange(false) : undefined}
-    >
-      <DragActivatorContext.Provider value={activatorBundle}>
-        {activatorMode === "full" ? (
-          <div
-            ref={setActivatorNodeRef}
-            style={{ display: "contents", pointerEvents: "auto" }}
-            {...attributes}
-            {...listeners}
-          >
-            {children}
-          </div>
-        ) : (
-          // Scoped mode — child consumes the bundle via `useDragActivator`
-          // and attaches it to a specific element (e.g. a grip handle).
-          // The rest of the tile body stays click-through.
-          children
-        )}
-      </DragActivatorContext.Provider>
     </div>
   );
 }

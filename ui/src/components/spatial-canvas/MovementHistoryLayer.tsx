@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from "react";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
-import { channelHue } from "./ChannelTile";
+import { channelHue } from "./spatialIdentity";
 import {
   SVG_MAX_DIMENSION_PX,
   bboxOverlaps,

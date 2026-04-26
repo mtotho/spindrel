@@ -507,7 +507,19 @@ export default function WidgetsDashboardPage() {
       {!isMobile && (
         <button
           type="button"
-          onClick={() => navigate("/")}
+          onClick={() => {
+            if (channelScopedId) {
+              try {
+                sessionStorage.setItem(
+                  "spatial.beamFromChannel",
+                  JSON.stringify({ channelId: channelScopedId, ts: Date.now() }),
+                );
+              } catch {
+                /* storage disabled — plain navigation still works */
+              }
+            }
+            navigate("/");
+          }}
           className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-surface-border text-text-muted hover:bg-surface-overlay hover:text-accent transition-colors"
           aria-label="Beam to spatial canvas"
           title="Beam to spatial canvas"

@@ -1,9 +1,9 @@
 import { useId, useMemo } from "react";
 import { Hash, Lock, MessageCircle } from "lucide-react";
 import { LucideIconByName } from "../IconPicker";
-import { useBots } from "../../api/hooks/useBots";
 import { useChannelReadStore } from "../../stores/channelRead";
-import type { Channel, BotConfig } from "../../types/api";
+import type { Channel } from "../../types/api";
+import { channelHue } from "./spatialIdentity";
 import {
   planetAtmosphereStops,
   planetBandRects,
@@ -20,15 +20,14 @@ import {
 /**
  * Channel tile with three semantic-zoom levels (P2, redesigned).
  *
- * The card chrome is gone. Each tile is now a soft, hue-tinted **blob**
- * with deterministic per-channel shape (border-radius hashed off the
- * channel id) and a radial gradient backdrop in the channel hue. Identity
- * comes from the color and the shape, not from a generic `# CHANNEL`
- * label.
+ * The card chrome is gone. Each tile is now a deterministic procedural
+ * **planet** with fixed-light-source shading and per-channel surface traits.
+ * Identity comes from the channel hue, planet surface, and accessory, not
+ * from generic card framing.
  *
  *   - **Dot** at zoom < 0.4 — colored disc + counter-scaled name label
  *     below. Reads from far away.
- *   - **Preview** at 0.4 ≤ zoom < 1.0 — blob with name on top, bot
+ *   - **Preview** at 0.4 ≤ zoom < 1.0 — planet with name on top, bot
  *     avatar emoji row + recent-count badge + unread dot at the bottom.
  *   - **Snapshot** at zoom ≥ 1.0 — adds a one-line message preview below
  *     the name (progressive disclosure — the densest tier).
@@ -48,6 +47,9 @@ interface ChannelTileProps {
    *  shrink). Used by counter-scaled labels so they stay readable when the
    *  whole tile has been visually compressed. Defaults to 1. */
   extraScale?: number;
+  /** Bot avatar lookup hoisted by the canvas so each visible channel tile
+   *  does not subscribe to the same bots query independently. */
+  botAvatarById?: Map<string, string>;
   onDive: () => void;
 }
 
@@ -56,44 +58,18 @@ const SNAPSHOT_THRESHOLD = 1.0;
 const OVERVIEW_MIN_DOT_SCREEN_PX = 22;
 const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
 
-export function ChannelTile({ channel, icon, zoom, extraScale = 1, onDive }: ChannelTileProps) {
+export function ChannelTile({ channel, icon, zoom, extraScale = 1, botAvatarById, onDive }: ChannelTileProps) {
   if (zoom < DOT_THRESHOLD)
     return <DotView channel={channel} zoom={zoom} extraScale={extraScale} onDive={onDive} />;
   if (zoom < SNAPSHOT_THRESHOLD)
-    return <PreviewView channel={channel} icon={icon} onDive={onDive} />;
-  return <SnapshotView channel={channel} icon={icon} onDive={onDive} />;
+    return <PreviewView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} />;
+  return <SnapshotView channel={channel} icon={icon} botAvatarById={botAvatarById} onDive={onDive} />;
 }
 
 function ChannelGlyph({ icon, size, active }: { icon: string | null; size: number; active?: boolean }) {
   const className = active ? "text-accent" : "text-text-dim";
   if (icon) return <LucideIconByName name={icon} size={size} className={className} />;
   return <Hash size={size} className={className} />;
-}
-
-/**
- * Stable hash → 0..2^32 per channel id. Used for deterministic hue and
- * deterministic blob shape (border-radius corners).
- */
-function hashId(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) {
-    h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return h;
-}
-
-/**
- * Stable hue per channel id. Same id always lands the same color across
- * reloads / different viewers — no DB column needed for this. Exported so
- * other canvas surfaces (orbital scheduled tiles, density halos, movement
- * trails, minimap) can color themselves to match their source channel.
- */
-export function channelHue(id: string): number {
-  return hashId(id) % 360;
-}
-
-export function dotColor(id: string): string {
-  return `hsl(${channelHue(id)}, 55%, 58%)`;
 }
 
 function channelName(channel: Channel): string {
@@ -271,19 +247,18 @@ function ChannelPlanet({
   );
 }
 
-function botAvatarEmoji(botId: string, bots: BotConfig[] | undefined): string {
-  const bot = bots?.find((b) => b.id === botId);
-  return bot?.avatar_emoji || "🤖";
+function botAvatarEmoji(botId: string, botAvatarById: Map<string, string> | undefined): string {
+  return botAvatarById?.get(botId) || "🤖";
 }
 
 function BotAvatarRow({
   channel,
-  bots,
+  botAvatarById,
   size,
   max,
 }: {
   channel: Channel;
-  bots: BotConfig[] | undefined;
+  botAvatarById: Map<string, string> | undefined;
   size: number;
   max: number;
 }) {
@@ -300,7 +275,7 @@ function BotAvatarRow({
           className="flex items-center justify-center rounded-full bg-accent/[0.10] text-accent"
           style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.6)) }}
         >
-          {botAvatarEmoji(m.bot_id, bots)}
+          {botAvatarEmoji(m.bot_id, botAvatarById)}
         </span>
       ))}
       {overflow > 0 && (
@@ -382,14 +357,15 @@ function DotView({
 function PreviewView({
   channel,
   icon,
+  botAvatarById,
   onDive,
 }: {
   channel: Channel;
   icon: string | null;
+  botAvatarById?: Map<string, string>;
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  const { data: bots } = useBots();
   const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
   const recentCount = channel.recent_message_count_24h ?? 0;
   return (
@@ -406,7 +382,7 @@ function PreviewView({
           {channel.private && <Lock size={11} className="text-text-dim shrink-0" />}
         </div>
         <div className="flex flex-row items-center gap-2 mt-auto">
-          <BotAvatarRow channel={channel} bots={bots} size={18} max={4} />
+          <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={18} max={4} />
           <div className="flex flex-row items-center gap-2 ml-auto">
             <RecentCountBadge count={recentCount} />
             {isUnread && <UnreadDot />}
@@ -420,14 +396,15 @@ function PreviewView({
 function SnapshotView({
   channel,
   icon,
+  botAvatarById,
   onDive,
 }: {
   channel: Channel;
   icon: string | null;
+  botAvatarById?: Map<string, string>;
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  const { data: bots } = useBots();
   const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
   const recentCount = channel.recent_message_count_24h ?? 0;
   const preview = channel.last_message_preview?.trim() || null;
@@ -450,7 +427,7 @@ function SnapshotView({
           </div>
         )}
         <div className="flex flex-row items-center gap-2 mt-auto">
-          <BotAvatarRow channel={channel} bots={bots} size={20} max={4} />
+          <BotAvatarRow channel={channel} botAvatarById={botAvatarById} size={20} max={4} />
           <div className="flex flex-row items-center gap-2 ml-auto">
             <RecentCountBadge count={recentCount} />
             {isUnread && <UnreadDot />}

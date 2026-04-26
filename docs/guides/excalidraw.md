@@ -123,7 +123,7 @@ The pinned card pulls the image by `attachment_id` each time it loads — the at
 
 - **SVG vs PNG.** SVG is the default — small file, crisp at any zoom, suitable for most diagrams. Request PNG explicitly if you need a raster (e.g. to paste into a tool that doesn't speak SVG).
 - **Render budget.** A headless Chrome + mermaid render typically completes in 1–3 seconds for a modest diagram. Very large graphs (100+ nodes) can take longer; break them up.
-- **Resource footprint.** The Node process + headless Chrome briefly run on the agent server while the tool executes. Not a concern for occasional use; in high-volume batch scenarios, consider offloading to a dedicated diagram service.
+- **Resource footprint.** The Node process + headless Chrome briefly run on the Spindrel server while the tool executes. Not a concern for occasional use; in high-volume batch scenarios, consider offloading to a dedicated diagram service.
 
 ---
 

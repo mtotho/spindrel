@@ -150,7 +150,7 @@ WEB_SEARCH_MODE=searxng
 WEB_SEARCH_CONTAINERS=true
 ```
 
-The integration automatically starts SearXNG and Playwright containers and connects them to the agent server network. Managed containers appear in **Admin UI > Docker Stacks** where you can monitor status, view service health, read logs, and start/stop them.
+The integration automatically starts SearXNG and Playwright containers and connects them to Spindrel's network. Managed containers appear in **Admin UI > Docker Stacks** where you can monitor status, view service health, read logs, and start/stop them.
 
 **External instances** (bring your own SearXNG/Playwright):
 
@@ -462,7 +462,7 @@ See [Creating Integrations](integrations/index.md) for the complete guide.
 ## Directory Structure
 
 ```
-agent-server/
+spindrel/
 ├── app/                    # Core server code
 ├── bots/                   # Bot YAML configs (gitignored, user-created)
 ├── skills/                 # Skill markdown files (gitignored, user-created)

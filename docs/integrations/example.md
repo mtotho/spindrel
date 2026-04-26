@@ -35,7 +35,7 @@ Delete `integrations/example/` and restart the server. No other changes needed.
 
 ## Creating an External Integration
 
-You can develop integrations **outside** the agent-server repo and load them via `INTEGRATION_DIRS`.
+You can develop integrations **outside** the Spindrel repo and load them via `INTEGRATION_DIRS`.
 
 ### 1. Create a directory
 
@@ -45,7 +45,7 @@ mkdir -p ~/my-integrations/mygithub
 
 ### 2. Add the `_register.py` shim
 
-Copy this into your integration's root (or import from the agent-server's `integrations/_register.py`):
+Copy this into your integration's root (or import from Spindrel's `integrations/_register.py`):
 
 ```python
 # ~/my-integrations/mygithub/_register.py

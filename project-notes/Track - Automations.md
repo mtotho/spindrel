@@ -44,13 +44,13 @@ This pass folded three things together: replaced the hand-rolled drag/edges with
 
 ### Surface map (the standalone canvas index is retired)
 
-- `/spatial-canvas` — workspace canvas, **the index** for definitions (orbit visible at all zoom tiers).
+- `/canvas` — workspace canvas, **the index** for definitions (orbit visible at all zoom tiers).
 - `/admin/automations?canvas=1&new=1[&mode=prompt|pipeline]` — fullscreen new-task editor (mode picker → xyflow editor).
 - `/admin/automations?canvas=1&edit=<id>` — fullscreen edit-mode editor.
-- `/admin/automations?canvas=1` (no params) — auto-redirects to `/spatial-canvas`.
+- `/admin/automations?canvas=1` (no params) — auto-redirects to `/canvas`.
 - `/admin/automations` (no `?canvas=1`) — table list view stays for power-users.
 
-`AutomationsCanvasPage` is now a thin host for the editor (sidebar + dot-grid index removed). The list-view page header replaces the old "Canvas" button with "Open in spatial canvas" → `/spatial-canvas`.
+`AutomationsCanvasPage` is now a thin host for the editor (sidebar + dot-grid index removed). The list-view page header replaces the old "Canvas" button with "Open in spatial canvas" → `/canvas`.
 
 ### Files
 

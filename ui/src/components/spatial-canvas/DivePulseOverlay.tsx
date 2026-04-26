@@ -11,33 +11,15 @@
  */
 interface DivePulseOverlayProps {
   channelLabel: string;
-  /** 0..1 — how far through the dwell timer we are. Linear ramp. */
-  progress: number;
 }
 
-export function DivePulseOverlay({ channelLabel, progress }: DivePulseOverlayProps) {
-  // Eased progress so the cue lands gently then ramps quickly near commit.
-  const eased = progress * progress;
-  const alpha = Math.max(0, Math.min(0.55, eased * 0.55));
-  const inset = Math.max(2, 8 - eased * 6);
+export function DivePulseOverlay({ channelLabel }: DivePulseOverlayProps) {
   return (
     <div
       aria-hidden
-      className="absolute inset-0 z-[3] pointer-events-none"
-      style={{
-        boxShadow: `inset 0 0 0 ${inset}px rgb(var(--color-accent) / ${alpha.toFixed(3)})`,
-        transition: "box-shadow 80ms linear",
-      }}
+      className="spatial-dive-pulse absolute inset-0 z-[3] pointer-events-none"
     >
-      <div
-        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full text-accent text-sm font-medium"
-        style={{
-          opacity: Math.min(1, eased * 1.5),
-          background: `rgb(var(--color-surface-raised) / ${(0.4 + eased * 0.4).toFixed(2)})`,
-          backdropFilter: "blur(6px)",
-          transition: "opacity 80ms linear, background 80ms linear",
-        }}
-      >
+      <div className="spatial-dive-pulse-label absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-3 py-1.5 rounded-full text-accent text-sm font-medium">
         →&nbsp;{channelLabel}
       </div>
     </div>

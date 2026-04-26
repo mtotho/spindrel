@@ -1,11 +1,11 @@
 # Discord Integration Guide
 
-This guide covers setting up and configuring the Discord integration for the agent server.
+This guide covers setting up and configuring the Discord integration for Spindrel.
 
 ## Prerequisites
 
 - A Discord account with permission to create applications
-- The agent server running (locally or in Docker)
+- Spindrel running (locally or in Docker)
 - An `AGENT_API_KEY` configured in your `.env`
 
 ## Step 1: Create a Discord Application
@@ -53,7 +53,7 @@ AGENT_BASE_URL=http://localhost:8000  # optional, this is the default
 
 ## Step 3: Start the Integration
 
-The Discord bot starts automatically when the agent server detects `DISCORD_TOKEN` in the environment.
+The Discord bot starts automatically when Spindrel detects `DISCORD_TOKEN` in the environment.
 
 ```bash
 # Start everything via docker compose

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { dotColor } from "./ChannelTile";
+import { dotColor } from "./spatialIdentity";
 import type { ChannelCluster } from "./spatialClustering";
 
 const OVERVIEW_MIN_SCALE = 0.03;

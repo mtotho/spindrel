@@ -68,7 +68,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
        └────────┬────────┘
                 │
        ┌────────┴─────────────────────────────────┐
-       │            Agent Server (FastAPI)         │
+       │              Spindrel (FastAPI)           │
        ├──────────────────────────────────────────┤
        │  Context Assembly                         │
        │    skills, memory, workspace, capabilities, │

@@ -1,6 +1,6 @@
 # Slack Integration
 
-The Slack integration runs as a separate process alongside the agent-server. It listens for events via Slack's Socket Mode (no inbound ports) and routes them to the agent-server's `/chat` endpoint.
+The Slack integration runs as a separate process alongside Spindrel. It listens for events via Slack's Socket Mode (no inbound ports) and routes them to Spindrel's `/chat` endpoint.
 
 ## Setup
 
@@ -9,8 +9,8 @@ Add to `.env`:
 ```
 SLACK_BOT_TOKEN=xoxb-...          # Bot token (from OAuth)
 SLACK_APP_TOKEN=xapp-...          # App-level token (for Socket Mode)
-AGENT_API_KEY=same-as-API_KEY     # Auth key for the agent-server
-AGENT_BASE_URL=http://localhost:8000  # Agent-server URL
+AGENT_API_KEY=same-as-API_KEY     # Auth key for Spindrel
+AGENT_BASE_URL=http://localhost:8000  # Spindrel URL
 SLACK_DEFAULT_BOT=default         # Fallback bot when no channel mapping exists
 ```
 

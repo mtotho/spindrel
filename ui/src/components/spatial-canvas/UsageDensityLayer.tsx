@@ -1,8 +1,8 @@
 import { useMemo } from "react";
-import { useUsageBreakdown, type BreakdownGroup } from "../../api/hooks/useUsage";
+import type { BreakdownGroup } from "../../api/hooks/useUsage";
 import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 import { UsageHalo } from "./UsageHalo";
-import { channelHue } from "./ChannelTile";
+import { channelHue } from "./spatialIdentity";
 import type { DensityIntensity, DensityWindow, WorldBbox } from "./spatialGeometry";
 import { bboxOverlaps } from "./spatialGeometry";
 
@@ -41,18 +41,14 @@ interface UsageDensityLayerProps {
   window: DensityWindow;
   compare: boolean;
   animate: boolean;
+  currentGroups: BreakdownGroup[];
+  baselineGroups?: BreakdownGroup[];
   suppressedChannelIds?: Set<string>;
   /** Visible world bbox + overdraw. Halos outside this bbox are not
    *  rendered — keeps the GPU layer count manageable on iOS PWAs at
    *  deep zoom. Optional for tests / non-canvas use. */
   viewportBbox?: WorldBbox;
 }
-
-const WINDOW_HOURS: Record<DensityWindow, number> = {
-  "24h": 24,
-  "7d": 24 * 7,
-  "30d": 24 * 30,
-};
 
 interface IntensityRamp {
   /** World-px halo radius range. */
@@ -85,14 +81,6 @@ const RAMPS: Record<Exclude<DensityIntensity, "off">, IntensityRamp> = {
   },
 };
 
-function isoHoursAgo(hours: number): string {
-  return new Date(Date.now() - hours * 3_600_000).toISOString();
-}
-
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
 /** Map deviation ratio (current/baseline) to a hue: <1 cool, >1 warm. */
 function hueForDeviation(ratio: number): number {
   // log around 1.0 so 2x and 0.5x are equidistant from neutral.
@@ -107,46 +95,30 @@ function hueForDeviation(ratio: number): number {
 export function UsageDensityLayer({
   nodes,
   intensity,
-  window: densityWindow,
+  window: _densityWindow,
   compare,
   animate,
+  currentGroups,
+  baselineGroups = [],
   suppressedChannelIds,
   viewportBbox,
 }: UsageDensityLayerProps) {
-  const after = useMemo(() => isoHoursAgo(WINDOW_HOURS[densityWindow]), [densityWindow]);
-  const before = useMemo(() => nowIso(), [densityWindow]);
-  const baselineAfter = useMemo(
-    () => isoHoursAgo(WINDOW_HOURS[densityWindow] * 2),
-    [densityWindow],
-  );
-  const baselineBefore = useMemo(
-    () => isoHoursAgo(WINDOW_HOURS[densityWindow]),
-    [densityWindow],
-  );
-
-  const current = useUsageBreakdown({ group_by: "channel", after, before });
-  const baseline = useUsageBreakdown({
-    group_by: "channel",
-    after: baselineAfter,
-    before: baselineBefore,
-  }, { enabled: compare });
-
   const groupsByChannel = useMemo(() => {
     const m = new Map<string, BreakdownGroup>();
-    for (const g of current.data?.groups ?? []) {
+    for (const g of currentGroups) {
       if (g.key) m.set(g.key, g);
     }
     return m;
-  }, [current.data]);
+  }, [currentGroups]);
 
   const baselineByChannel = useMemo(() => {
     if (!compare) return new Map<string, BreakdownGroup>();
     const m = new Map<string, BreakdownGroup>();
-    for (const g of baseline.data?.groups ?? []) {
+    for (const g of baselineGroups) {
       if (g.key) m.set(g.key, g);
     }
     return m;
-  }, [baseline.data, compare]);
+  }, [baselineGroups, compare]);
 
   const maxTokens = useMemo(() => {
     let m = 0;
@@ -155,8 +127,6 @@ export function UsageDensityLayer({
     }
     return m;
   }, [groupsByChannel]);
-
-  if (!current.data) return null;
 
   const ramp = RAMPS[intensity];
 

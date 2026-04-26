@@ -489,7 +489,7 @@ async def tool_name(param1: str, param2: int = 10) -> str:
 
 ### Import for External Tools
 
-If your tool lives outside the agent-server repo (in `TOOL_DIRS` or `INTEGRATION_DIRS`), you can still import from `app.tools.registry`:
+If your tool lives outside the Spindrel repo (in `TOOL_DIRS` or `INTEGRATION_DIRS`), you can still import from `app.tools.registry`:
 
 ```python
 from app.tools.registry import register

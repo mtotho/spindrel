@@ -21,8 +21,6 @@ import {
   type Edge,
   type NodeChange,
   type Viewport,
-  useNodesState,
-  useEdgesState,
   useReactFlow,
 } from "@xyflow/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -234,28 +232,50 @@ function CanvasEditorInner(props: CanvasEditorProps) {
     return list;
   }, [form, isCreate, layoutNodes, expanded, tools, updateStep, deleteStep, moveStep, toggleExpand]);
 
-  const [rfNodes, setRfNodes, onNodesChangeRaw] = useNodesState<Node>([]);
-  // Sync derived nodes into local state. xyflow then owns transient drag state.
-  useEffect(() => {
-    setRfNodes(computedNodes);
-  }, [computedNodes, setRfNodes]);
+  // Transient drag overrides — keyed by node id. While a drag is in flight we
+  // apply the live cursor position locally; on drop we commit to layout and
+  // clear the override.
+  const [dragOverrides, setDragOverrides] = useState<Record<string, { x: number; y: number }>>({});
+
+  const rfNodes = useMemo<Node[]>(() => {
+    if (Object.keys(dragOverrides).length === 0) return computedNodes;
+    return computedNodes.map((n) =>
+      dragOverrides[n.id] ? { ...n, position: dragOverrides[n.id] } : n,
+    );
+  }, [computedNodes, dragOverrides]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    onNodesChangeRaw(changes);
+    let pendingOverrides: Record<string, { x: number; y: number } | null> | null = null;
     for (const c of changes) {
-      if (c.type === "position" && c.dragging === false && c.position) {
-        setNodePos(c.id, { x: c.position.x, y: c.position.y });
+      if (c.type === "position" && c.position) {
+        if (!pendingOverrides) pendingOverrides = {};
+        if (c.dragging) {
+          pendingOverrides[c.id] = { x: c.position.x, y: c.position.y };
+        } else {
+          // Drop: commit to layout, then clear the override.
+          setNodePos(c.id, { x: c.position.x, y: c.position.y });
+          pendingOverrides[c.id] = null;
+        }
       }
     }
-  }, [onNodesChangeRaw, setNodePos]);
+    if (pendingOverrides) {
+      const apply = pendingOverrides;
+      setDragOverrides((prev) => {
+        const next = { ...prev };
+        for (const [id, val] of Object.entries(apply)) {
+          if (val === null) delete next[id];
+          else next[id] = val;
+        }
+        return next;
+      });
+    }
+  }, [setNodePos]);
 
-  // Edges
-  const computedEdges = useMemo<Edge[]>(() => {
+  // Edges — derived directly, no local mirror.
+  const rfEdges = useMemo<Edge[]>(() => {
     if (!form.steps) return [];
     return buildEdges(form.steps);
   }, [form.steps]);
-  const [rfEdges, setRfEdges] = useEdgesState<Edge>([]);
-  useEffect(() => { setRfEdges(computedEdges); }, [computedEdges, setRfEdges]);
 
   // Camera persistence
   const onMoveEnd = useCallback((_: unknown, vp: Viewport) => {

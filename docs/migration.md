@@ -174,7 +174,7 @@ DATABASE_URL=postgresql+asyncpg://agent:agent@localhost:5432/agentdb
 docker compose up -d
 ```
 
-This starts everything: Postgres, SearXNG, Playwright, the agent server, and the UI.
+This starts everything: Postgres, SearXNG, Playwright, Spindrel, and the UI.
 
 **Native mode:**
 
@@ -340,7 +340,7 @@ If you had cron jobs on the old machine (e.g., daily backups), set them up again
 ```bash
 crontab -e
 # Add:
-0 2 * * * /path/to/agent-server/scripts/backup.sh >> /var/log/spindrel-backup.log 2>&1
+0 2 * * * /path/to/spindrel/scripts/backup.sh >> /var/log/spindrel-backup.log 2>&1
 ```
 
 On macOS, you can also use launchd instead of cron.

@@ -421,7 +421,7 @@ All known integration boundary violations have been resolved. Key completed item
 
 ## External Integrations (Plugin Model)
 
-Integrations can live **outside** the agent-server repo. Set `INTEGRATION_DIRS` (colon-separated
+Integrations can live **outside** the Spindrel repo. Set `INTEGRATION_DIRS` (colon-separated
 paths) in `.env` to point to directories containing integration folders. Each directory is
 scanned the same way as the in-repo `integrations/` — any subfolder with `router.py`,
 `tools/*.py`, `skills/*.md`, `integration.yaml`, or `process.py` is auto-discovered.
@@ -429,7 +429,7 @@ scanned the same way as the in-repo `integrations/` — any subfolder with `rout
 This enables:
 - **Private integrations** — keep personal/proprietary integrations in a separate repo
 - **Shared plugins** — publish reusable integrations independently
-- **Clean separation** — the agent-server repo ships only core integrations (slack, example)
+- **Clean separation** — the Spindrel repo ships only core integrations (slack, example)
 
 For Docker deployments, mount external integration directories as volumes and set
 `INTEGRATION_DIRS` to the mount path. See [Creating an Integration](index.md) for examples.

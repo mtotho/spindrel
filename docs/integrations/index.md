@@ -3,7 +3,7 @@
 > **For the canonical contract + responsibility boundaries, see [`docs/guides/integrations.md`](../guides/integrations.md).** That page wins when it disagrees with this one. This page is the authoring walkthrough — step-by-step scaffolding, YAML key detail, and real examples.
 
 This guide explains how to create a new integration — a self-contained module that
-connects an external service (GitHub, Slack, webhooks, etc.) to the agent server without
+connects an external service (GitHub, Slack, webhooks, etc.) to Spindrel without
 touching core code.
 
 > **Architecture decisions and design philosophy** → see [Design Philosophy](design.md)
@@ -38,7 +38,7 @@ In Docker, this works automatically — the workspace volume mount covers it.
 
 ## External Integrations (INTEGRATION_DIRS)
 
-Integrations don't have to live inside the agent-server repo. Set `INTEGRATION_DIRS` in
+Integrations don't have to live inside the Spindrel repo. Set `INTEGRATION_DIRS` in
 `.env` to point to one or more directories containing integration folders:
 
 ```bash
@@ -135,7 +135,7 @@ async def my_tool() -> str:
     return '{"result": "ok"}'
 ```
 
-When running inside the agent server, this resolves to the real registry. When
+When running inside Spindrel, this resolves to the real registry. When
 developing an integration **outside** the server (standalone repo, tests, etc.),
 it falls back to a stub that attaches the schema to the function — no server
 dependency needed.
@@ -811,7 +811,7 @@ All keys are optional except `id`. See `integrations/github/integration.yaml` an
 ## Sidecar Docker Stacks
 
 Some integrations ship their own containers — SearXNG for `web_search`, Whisper + Piper
-for `wyoming`, etc. The agent-server manages these stacks for you (start on enable,
+for `wyoming`, etc. Spindrel manages these stacks for you (start on enable,
 stop on disable, logs + status in the admin UI) but the main `docker-compose.yml`
 stays completely ignorant of them. Integrations can be added at any time — including
 by end users dropping a folder into `INTEGRATION_DIRS` — and the agent still reaches
@@ -827,7 +827,7 @@ Two pieces:
 docker_compose:
   file: docker-compose.yml
   # Project name is interpolated with SPINDREL_INSTANCE_ID so multiple
-  # agent-server instances on one Docker daemon (prod + e2e) don't collide.
+  # Spindrel instances on one Docker daemon (prod + e2e) don't collide.
   project_name: "spindrel-${SPINDREL_INSTANCE_ID}-web-search"
   enabled_setting: WEB_SEARCH_CONTAINERS
   config_files: [config/searxng/settings.yml]  # bind-mounted read-only
@@ -870,28 +870,28 @@ attachment and alias survive **every** lifecycle event: agent-initiated start,
 `docker restart`, daemon reboot, crash + `restart: unless-stopped` auto-recovery.
 
 Don't hand-call `docker network connect` from your integration — it looks the same
-at first boot but is lost the moment Docker re-creates the container, and the
-agent-server won't know to re-bridge because your stack is already "running".
+at first boot but is lost the moment Docker re-creates the container, and Spindrel
+won't know to re-bridge because your stack is already "running".
 
 ### What the main compose file needs to expose
 
-Nothing integration-specific. Your integration relies on the agent-server's default
+Nothing integration-specific. Your integration relies on Spindrel's default
 network being named `{COMPOSE_PROJECT_NAME}_default` (standard Docker Compose
 behaviour) and that name propagating into `AGENT_NETWORK_NAME` (auto-detected from
 the container's own network attachments — see `app/config.py::_default_agent_network`).
 Users who customize their deployment only need to set `AGENT_NETWORK_NAME` in their
-agent-server env if auto-detection fails.
+Spindrel env if auto-detection fails.
 
 ---
 
 ## Polling Patterns
 
 For integrations that poll an external service (no inbound webhooks), the recommended
-pattern is a background process that calls the agent server's REST API.
+pattern is a background process that calls Spindrel's REST API.
 
 **Example: Frigate MQTT listener** (`integrations/frigate/mqtt_listener.py`)
 
-The Frigate integration runs an MQTT listener as a sidecar process that fans events out into the agent server via HTTP:
+The Frigate integration runs an MQTT listener as a sidecar process that fans events out into Spindrel via HTTP:
 
 1. Declare the process in `integration.yaml`:
    ```yaml
