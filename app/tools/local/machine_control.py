@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from app.agent.context import current_session_id
-from app.agent.tool_dispatch import ToolResultEnvelope
 from app.db.engine import async_session
 from app.db.models import Session
 from app.services.machine_control import (
@@ -25,7 +24,8 @@ def _components_envelope(
     data: dict,
     refreshable: bool = False,
     refresh_interval_seconds: int | None = None,
-) -> ToolResultEnvelope:
+):
+    from app.agent.tool_dispatch import ToolResultEnvelope
     return ToolResultEnvelope(
         content_type="application/vnd.spindrel.components+json",
         body=json.dumps({

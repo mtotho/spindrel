@@ -1712,7 +1712,7 @@ export default function ChatScreen() {
           isMobile={isMobile}
           contextBudget={headerContextBudget}
           sessionHeaderStats={channelHeaderChromeMode !== "canvas" ? headerSessionStats ?? null : null}
-          sessionId={channelHeaderChromeMode === "session" ? headerPaneSessionId : null}
+          sessionId={channelHeaderChromeMode !== "canvas" ? headerPaneSessionId : null}
           sessionChromeMode={channelHeaderChromeMode}
           sessionChromeTitle={null}
           sessionChromeMeta={channelHeaderChromeMode === "session" ? headerPaneMeta : null}

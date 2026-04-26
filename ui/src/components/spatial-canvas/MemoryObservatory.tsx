@@ -107,6 +107,22 @@ function findingStroke(finding: MemoryObservatoryFinding) {
   return "rgb(var(--color-text-muted))";
 }
 
+function findingReason(finding: MemoryObservatoryFinding) {
+  if (finding.kind === "hot_churn") {
+    return `Flagged because this file took ${finding.write_count} memory writes in the selected window. High churn usually means the bot is repeatedly refining the same fact, log, or preference.`;
+  }
+  if (finding.kind === "hygiene_heavy") {
+    return `Flagged because memory hygiene or skill review repeatedly touched this file. That can mean the content is being corrected, consolidated, or kept unstable by later writes.`;
+  }
+  if (finding.kind === "burst") {
+    return `Flagged because one run touched ${finding.file_count} files with ${finding.write_count} writes. Bursts are useful to inspect when a maintenance run changed more memory than expected.`;
+  }
+  if (finding.kind === "dated_log_scatter") {
+    return `Flagged because this bot wrote across ${finding.file_count} dated memory files. This can be normal logging, but it can also hide important facts across too many daily notes.`;
+  }
+  return `Flagged because this registered bot had no memory writes in the selected window. Quiet memory can be expected for inactive bots, but it is worth checking for bots that should be learning.`;
+}
+
 export function MemoryObservationPanel({
   selection,
   onClose,
@@ -121,7 +137,7 @@ export function MemoryObservationPanel({
   }, [selection]);
   if (!selection) return null;
 
-  const sourceFile = selectionSourceFile(selection);
+  const sourceFile = selection.kind === "finding" ? null : selectionSourceFile(selection);
   const fallback = selectionFallback(selection);
   if (sourceFile) {
     return (
@@ -199,11 +215,49 @@ export function MemoryObservationPanel({
         <p className="line-clamp-4 text-[12px] leading-relaxed text-text-muted">{selection.result.snippet}</p>
       )}
       {selection.kind === "finding" && (
-        <p className="text-[12px] leading-relaxed text-text-muted">{selection.finding.detail}</p>
+        <div className="space-y-3">
+          <p className="text-[12px] leading-relaxed text-text-muted">{selection.finding.detail}</p>
+          <div className="rounded-md border border-surface-border/70 bg-surface-overlay/35 p-3">
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text-dim">Why this was flagged</div>
+            <p className="text-[12px] leading-relaxed text-text-muted">{findingReason(selection.finding)}</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-text-dim">
+            {selection.finding.file_path && (
+              <div className="col-span-2 min-w-0 rounded-md bg-surface-overlay/35 px-2 py-1.5">
+                <span className="block text-[10px] uppercase tracking-wider">File</span>
+                <span className="block truncate text-text-muted">{selection.finding.file_path}</span>
+              </div>
+            )}
+            {selection.finding.write_count > 0 && (
+              <div className="rounded-md bg-surface-overlay/35 px-2 py-1.5">
+                <span className="block text-[10px] uppercase tracking-wider">Writes</span>
+                <span className="text-text-muted">{selection.finding.write_count}</span>
+              </div>
+            )}
+            {selection.finding.file_count > 0 && (
+              <div className="rounded-md bg-surface-overlay/35 px-2 py-1.5">
+                <span className="block text-[10px] uppercase tracking-wider">Files</span>
+                <span className="text-text-muted">{selection.finding.file_count}</span>
+              </div>
+            )}
+            {selection.finding.job_type && (
+              <div className="rounded-md bg-surface-overlay/35 px-2 py-1.5">
+                <span className="block text-[10px] uppercase tracking-wider">Run</span>
+                <span className="text-text-muted">{selection.finding.job_type.replace("_", " ")}</span>
+              </div>
+            )}
+            {selection.finding.last_updated_at && (
+              <div className="rounded-md bg-surface-overlay/35 px-2 py-1.5">
+                <span className="block text-[10px] uppercase tracking-wider">Latest</span>
+                <span className="text-text-muted">{fmtRelative(selection.finding.last_updated_at)}</span>
+              </div>
+            )}
+          </div>
+        </div>
       )}
       <div>
         <ActionButton
-          label="Open Memory Center"
+          label={selection.kind === "finding" && selection.finding.bot_id ? "Open Bot Memory" : "Open Memory Center"}
           size="small"
           variant="secondary"
           icon={<ExternalLink size={13} />}
@@ -261,20 +315,6 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
 
   const inspectFinding = (finding: MemoryObservatoryFinding) => {
     setActiveFindingId(finding.id);
-    if (finding.file_path && finding.bot_id) {
-      const file = data?.hot_files.find((candidate) => candidate.id === `${finding.bot_id}:${finding.file_path}`);
-      if (file) {
-        onInspect({ kind: "file", file });
-        return;
-      }
-    }
-    if (finding.correlation_id) {
-      const event = data?.recent_events.find((candidate) => candidate.correlation_id === finding.correlation_id);
-      if (event) {
-        onInspect({ kind: "event", event });
-        return;
-      }
-    }
     onInspect({ kind: "finding", finding });
   };
 
@@ -553,8 +593,8 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
 
       {showClose && !accessDenied && Boolean(data?.findings?.length) && (
         <div
-          className="absolute flex w-[360px] flex-col gap-2 rounded-md bg-surface-raised/88 p-3 text-[12px] text-text-muted shadow-lg ring-1 ring-surface-border backdrop-blur pointer-events-auto"
-          style={{ left: W / 2 - 590, top: H / 2 + 170 }}
+          className="absolute flex w-[330px] flex-col gap-2 rounded-md bg-surface-raised/88 p-3 text-[12px] text-text-muted shadow-lg ring-1 ring-surface-border backdrop-blur pointer-events-auto"
+          style={{ left: W / 2 - 610, top: H / 2 + 255 }}
           onPointerDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between gap-2">
@@ -564,7 +604,7 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
             </div>
             <span className="text-[10px] text-text-dim">{data?.findings.length ?? 0}</span>
           </div>
-          <div className="flex max-h-48 flex-col gap-1 overflow-auto">
+          <div className="flex max-h-40 flex-col gap-1 overflow-auto">
             {data?.findings.slice(0, 5).map((finding) => {
               const active = activeFindingId === finding.id;
               return (
