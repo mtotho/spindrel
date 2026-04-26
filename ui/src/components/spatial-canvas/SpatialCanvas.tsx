@@ -122,6 +122,12 @@ import {
 const DIVE_MS = 300;
 const TILE_W = 220;
 const TILE_H = 140;
+const CAMERA_IDLE_COMMIT_MS = 140;
+const CAMERA_MOVING_CLASS_MS = 180;
+
+function cameraTransform(camera: Camera): string {
+  return `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
+}
 
 interface SpatialCanvasProps {
   /** Called after the dive animation completes and `router.push` has fired.
@@ -159,25 +165,29 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     return m;
   }, [channels]);
 
+  const channelByBotId = useMemo(() => {
+    const m = new Map<string, Channel>();
+    const ts = (c: Channel): number => {
+      const raw = c.last_message_at ?? c.updated_at ?? c.created_at;
+      return raw ? new Date(raw).getTime() : 0;
+    };
+    const offer = (botId: string | null | undefined, channel: Channel) => {
+      if (!botId) return;
+      const existing = m.get(botId);
+      if (!existing || ts(channel) > ts(existing)) m.set(botId, channel);
+    };
+    for (const channel of channels ?? []) {
+      offer(channel.bot_id, channel);
+      for (const member of channel.member_bots ?? []) {
+        offer(member.bot_id, channel);
+      }
+    }
+    return m;
+  }, [channels]);
+
   const channelForBot = useCallback(
-    (botId: string): Channel | null => {
-      const all = channels ?? [];
-      // "last channel/session you spoke to it in" — pick the most recently
-      // active channel where this bot is the primary or a member, falling
-      // back to alphabetic if `last_message_at` is missing on every match.
-      const matches = all.filter(
-        (c) =>
-          c.bot_id === botId ||
-          (c.member_bots ?? []).some((m) => m.bot_id === botId),
-      );
-      if (matches.length === 0) return null;
-      const ts = (c: Channel): number => {
-        const raw = c.last_message_at ?? c.updated_at ?? c.created_at;
-        return raw ? new Date(raw).getTime() : 0;
-      };
-      return [...matches].sort((a, b) => ts(b) - ts(a))[0];
-    },
-    [channels],
+    (botId: string): Channel | null => channelByBotId.get(botId) ?? null,
+    [channelByBotId],
   );
 
   // Channel dashboards carry an `icon` field already used by the sidebar
@@ -194,8 +204,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   }, [channelDashboards]);
 
   const [camera, setCamera] = useState<Camera>(() => loadStoredCamera());
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef(camera);
-  cameraRef.current = camera;
+  const viewportRectRef = useRef({ left: 0, top: 0, width: 0, height: 0 });
+  const pendingCameraRef = useRef<Camera | null>(null);
+  const cameraRafRef = useRef<number | null>(null);
+  const cameraCommitTimerRef = useRef<number | null>(null);
+  const cameraMovingTimerRef = useRef<number | null>(null);
   const [diving, setDiving] = useState(false);
   // Persist camera on every change EXCEPT during the dive transition. Dive
   // tweens the camera to a tile-fill target right before navigating away;
@@ -203,16 +219,101 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // fully-zoomed-in dive target. Skipping the write while `diving` is true
   // freezes localStorage at the last pan/zoom the user authored, which is
   // what they expect when they return to the canvas.
-  // localStorage writes are synchronous but cheap (sub-ms even at 60fps
-  // pan); no debounce.
   useEffect(() => {
     if (diving) return;
-    try {
-      localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(camera));
-    } catch {
-      /* quota / disabled storage — silently skip */
-    }
+    const id = window.setTimeout(() => {
+      try {
+        localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(camera));
+      } catch {
+        /* quota / disabled storage — silently skip */
+      }
+    }, 180);
+    return () => window.clearTimeout(id);
   }, [camera, diving]);
+
+  const applyCameraTransform = useCallback((next: Camera) => {
+    const world = worldRef.current;
+    if (world) world.style.transform = cameraTransform(next);
+  }, []);
+
+  const markCameraMoving = useCallback(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    viewport.classList.add("spatial-camera-moving");
+    if (cameraMovingTimerRef.current !== null) {
+      window.clearTimeout(cameraMovingTimerRef.current);
+    }
+    cameraMovingTimerRef.current = window.setTimeout(() => {
+      viewport.classList.remove("spatial-camera-moving");
+      cameraMovingTimerRef.current = null;
+    }, CAMERA_MOVING_CLASS_MS);
+  }, []);
+
+  const commitCameraState = useCallback((next: Camera) => {
+    const clamped = clampCamera(next);
+    cameraRef.current = clamped;
+    pendingCameraRef.current = null;
+    applyCameraTransform(clamped);
+    setCamera((curr) =>
+      curr.x === clamped.x && curr.y === clamped.y && curr.scale === clamped.scale
+        ? curr
+        : clamped,
+    );
+  }, [applyCameraTransform]);
+
+  const scheduleCamera = useCallback((next: Camera, commit: "idle" | "immediate" = "idle") => {
+    const clamped = clampCamera(next);
+    cameraRef.current = clamped;
+    pendingCameraRef.current = clamped;
+
+    if (cameraRafRef.current === null) {
+      cameraRafRef.current = window.requestAnimationFrame(() => {
+        cameraRafRef.current = null;
+        const pending = pendingCameraRef.current;
+        if (pending) applyCameraTransform(pending);
+      });
+    }
+
+    if (commit === "immediate") {
+      if (cameraCommitTimerRef.current !== null) {
+        window.clearTimeout(cameraCommitTimerRef.current);
+        cameraCommitTimerRef.current = null;
+      }
+      commitCameraState(clamped);
+      return;
+    }
+
+    markCameraMoving();
+    if (cameraCommitTimerRef.current !== null) {
+      window.clearTimeout(cameraCommitTimerRef.current);
+    }
+    cameraCommitTimerRef.current = window.setTimeout(() => {
+      cameraCommitTimerRef.current = null;
+      commitCameraState(cameraRef.current);
+    }, CAMERA_IDLE_COMMIT_MS);
+  }, [applyCameraTransform, commitCameraState, markCameraMoving]);
+
+  const flushCamera = useCallback(() => {
+    if (cameraCommitTimerRef.current !== null) {
+      window.clearTimeout(cameraCommitTimerRef.current);
+      cameraCommitTimerRef.current = null;
+    }
+    commitCameraState(cameraRef.current);
+  }, [commitCameraState]);
+
+  useEffect(() => {
+    cameraRef.current = camera;
+    applyCameraTransform(camera);
+  }, [camera, applyCameraTransform]);
+
+  useEffect(() => {
+    return () => {
+      if (cameraRafRef.current !== null) window.cancelAnimationFrame(cameraRafRef.current);
+      if (cameraCommitTimerRef.current !== null) window.clearTimeout(cameraCommitTimerRef.current);
+      if (cameraMovingTimerRef.current !== null) window.clearTimeout(cameraMovingTimerRef.current);
+    };
+  }, []);
+
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [manualBotDrag, setManualBotDrag] = useState<{
     nodeId: string;
@@ -305,12 +406,25 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     h: 0,
   });
 
-  const viewportRef = useRef<HTMLDivElement>(null);
+  const updateViewportMetrics = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    viewportRectRef.current = {
+      left: r.left,
+      top: r.top,
+      width: r.width,
+      height: r.height,
+    };
+    setViewportSize((curr) =>
+      curr.w === r.width && curr.h === r.height ? curr : { w: r.width, h: r.height },
+    );
+  }, []);
 
   const pointerToWorld = useCallback((clientX: number, clientY: number) => {
-    const rect = viewportRef.current?.getBoundingClientRect();
+    const rect = viewportRectRef.current;
     const c = cameraRef.current;
-    if (!rect) return null;
+    if (!rect.width || !rect.height) return null;
     return {
       x: (clientX - rect.left - c.x) / c.scale,
       y: (clientY - rect.top - c.y) / c.scale,
@@ -320,15 +434,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
-    const update = () => {
-      const r = el.getBoundingClientRect();
-      setViewportSize({ w: r.width, h: r.height });
-    };
-    update();
-    const ro = new ResizeObserver(update);
+    updateViewportMetrics();
+    const ro = new ResizeObserver(updateViewportMetrics);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [updateViewportMetrics]);
 
   // Esc deactivates the active widget tile.
   useEffect(() => {
@@ -350,6 +460,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [focalScreen, setFocalScreen] = useState<{ x: number; y: number } | null>(null);
   const [lensSettling, setLensSettling] = useState(false);
   const lastCursorRef = useRef<{ x: number; y: number } | null>(null);
+  const pendingFocalRef = useRef<{ x: number; y: number } | null>(null);
+  const focalRafRef = useRef<number | null>(null);
   const lensSettleTimerRef = useRef<number | null>(null);
 
   const lensRadius = useMemo(() => {
@@ -374,14 +486,28 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const el = viewportRef.current;
     if (!el) return;
     const handler = (e: PointerEvent) => {
-      const rect = el.getBoundingClientRect();
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
       const p = { x: e.clientX - rect.left, y: e.clientY - rect.top };
       lastCursorRef.current = p;
-      if (lensEngaged) setFocalScreen(p);
+      if (!lensEngaged) return;
+      pendingFocalRef.current = p;
+      if (focalRafRef.current === null) {
+        focalRafRef.current = window.requestAnimationFrame(() => {
+          focalRafRef.current = null;
+          setFocalScreen(pendingFocalRef.current);
+        });
+      }
     };
     el.addEventListener("pointermove", handler);
     return () => el.removeEventListener("pointermove", handler);
   }, [lensEngaged]);
+
+  useEffect(() => {
+    return () => {
+      if (focalRafRef.current !== null) window.cancelAnimationFrame(focalRafRef.current);
+    };
+  }, []);
 
   // Space hold-to-engage. Guards: input focus, modifiers, repeat, in-flight
   // pan, in-flight tile drag.
@@ -457,63 +583,61 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         pointerId: e.pointerId,
         startX: e.clientX,
         startY: e.clientY,
-        cameraX: camera.x,
-        cameraY: camera.y,
+        cameraX: cameraRef.current.x,
+        cameraY: cameraRef.current.y,
       };
       e.currentTarget.setPointerCapture(e.pointerId);
     },
-    [camera.x, camera.y, diving, activatedTileId, lensEngaged, triggerLensSettle],
+    [diving, activatedTileId, lensEngaged, triggerLensSettle],
   );
 
   const onBgPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panState.current;
     if (!p || p.pointerId !== e.pointerId) return;
-    setCamera((c) =>
-      clampCamera({
-        ...c,
-        x: p.cameraX + (e.clientX - p.startX),
-        y: p.cameraY + (e.clientY - p.startY),
-      }),
-    );
-  }, []);
+    scheduleCamera({
+      ...cameraRef.current,
+      x: p.cameraX + (e.clientX - p.startX),
+      y: p.cameraY + (e.clientY - p.startY),
+    });
+  }, [scheduleCamera]);
 
   const onBgPointerUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
     const p = panState.current;
     if (!p || p.pointerId !== e.pointerId) return;
     panState.current = null;
+    flushCamera();
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch {
       /* already released */
     }
-  }, []);
+  }, [flushCamera]);
 
   // Anchor-zoom helper used by the wheel handler, the keyboard `+` / `-`
   // shortcuts, and any other code path that wants to scale the camera while
   // pinning a screen point. The point `(cx, cy)` is in viewport-local pixels.
   const zoomAroundPoint = useCallback(
     (factor: number, cx: number, cy: number) => {
-      setCamera((c) => {
-        const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
-        const k = newScale / c.scale;
-        return clampCamera({
-          scale: newScale,
-          x: cx - (cx - c.x) * k,
-          y: cy - (cy - c.y) * k,
-        });
+      const c = cameraRef.current;
+      const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, c.scale * factor));
+      const k = newScale / c.scale;
+      scheduleCamera({
+        scale: newScale,
+        x: cx - (cx - c.x) * k,
+        y: cy - (cy - c.y) * k,
       });
     },
-    [],
+    [scheduleCamera],
   );
 
   // Frame all spatial nodes inside the viewport with an 8% margin. Falls
   // back to `DEFAULT_CAMERA` when there's nothing to fit.
   const fitAllNodes = useCallback(() => {
-    const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const rect = viewportRectRef.current;
+    if (!rect.width || !rect.height) return;
     const list = nodes ?? [];
     if (list.length === 0) {
-      setCamera(DEFAULT_CAMERA);
+      scheduleCamera(DEFAULT_CAMERA, "immediate");
       return;
     }
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -538,14 +662,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     );
     const cx = minX + bboxW / 2;
     const cy = minY + bboxH / 2;
-    setCamera(
-      clampCamera({
-        scale: targetScale,
-        x: rect.width / 2 - cx * targetScale,
-        y: rect.height / 2 - cy * targetScale,
-      }),
-    );
-  }, [nodes]);
+    scheduleCamera({
+      scale: targetScale,
+      x: rect.width / 2 - cx * targetScale,
+      y: rect.height / 2 - cy * targetScale,
+    }, "immediate");
+  }, [nodes, scheduleCamera]);
 
   // Manual wheel listener with { passive: false } — React's synthetic onWheel
   // is passive by default, so preventDefault() would be silently ignored and
@@ -556,7 +678,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     function handler(e: WheelEvent) {
       if (diving) return;
       e.preventDefault();
-      const rect = viewport!.getBoundingClientRect();
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
       zoomAroundPoint(
         Math.exp(-e.deltaY * 0.001),
         e.clientX - rect.left,
@@ -590,15 +713,15 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       }
       if (e.key === "+" || e.key === "=") {
         e.preventDefault();
-        const rect = viewportRef.current?.getBoundingClientRect();
-        if (!rect) return;
+        const rect = viewportRectRef.current;
+        if (!rect.width || !rect.height) return;
         zoomAroundPoint(1.2, rect.width / 2, rect.height / 2);
         return;
       }
       if (e.key === "-" || e.key === "_") {
         e.preventDefault();
-        const rect = viewportRef.current?.getBoundingClientRect();
-        if (!rect) return;
+        const rect = viewportRectRef.current;
+        if (!rect.width || !rect.height) return;
         zoomAroundPoint(0.83, rect.width / 2, rect.height / 2);
         return;
       }
@@ -635,7 +758,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       if (e.pointerType !== "touch") return;
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size >= 2 && !pinch) {
-        const rect = viewport!.getBoundingClientRect();
+        const rect = viewportRectRef.current;
+        if (!rect.width || !rect.height) return;
         const { distance, midpointClient } = midpointAndDistance();
         pinch = {
           distance,
@@ -659,7 +783,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (!pinch || pointers.size < 2) return;
       e.preventDefault();
-      const rect = viewport!.getBoundingClientRect();
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
       const { distance, midpointClient } = midpointAndDistance();
       const newMid = {
         x: midpointClient.x - rect.left,
@@ -673,19 +798,20 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       const my = pinch.midpoint.y;
       const dx = newMid.x - mx;
       const dy = newMid.y - my;
-      setCamera(
-        clampCamera({
-          scale: newScale,
-          x: mx - (mx - c.x) * k + dx,
-          y: my - (my - c.y) * k + dy,
-        }),
-      );
+      scheduleCamera({
+        scale: newScale,
+        x: mx - (mx - c.x) * k + dx,
+        y: my - (my - c.y) * k + dy,
+      });
     }
 
     function onUp(e: PointerEvent) {
       if (!pointers.has(e.pointerId)) return;
       pointers.delete(e.pointerId);
-      if (pointers.size < 2) pinch = null;
+      if (pointers.size < 2) {
+        pinch = null;
+        flushCamera();
+      }
     }
 
     viewport.addEventListener("pointerdown", onDown, { capture: true });
@@ -698,12 +824,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       viewport.removeEventListener("pointerup", onUp, { capture: true });
       viewport.removeEventListener("pointercancel", onUp, { capture: true });
     };
-  }, [lensEngaged, triggerLensSettle]);
+  }, [lensEngaged, triggerLensSettle, scheduleCamera, flushCamera]);
 
   const diveToChannel = useCallback(
     (channelId: string, world: { x: number; y: number; w: number; h: number }) => {
-      const rect = viewportRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
       const targetScale = Math.max(rect.width / world.w, rect.height / world.h);
       const targetX = rect.width / 2 - (world.x + world.w / 2) * targetScale;
       const targetY = rect.height / 2 - (world.y + world.h / 2) * targetScale;
@@ -715,7 +841,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       }
       setDiving(true);
       requestAnimationFrame(() => {
-        setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
+        scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
       });
       // Animate-THEN-navigate: route change happens after the transition
       // completes. onAfterDive (overlay close) runs a tick later so the new
@@ -731,7 +857,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         if (onAfterDive) window.setTimeout(onAfterDive, 16);
       }, DIVE_MS);
     },
-    [navigate, onAfterDive, lensEngaged, triggerLensSettle],
+    [navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
   // Pan + scale the camera to a single channel tile (Cmd+K override target).
@@ -742,8 +868,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const flyToChannel = useCallback(
     (channelId: string): boolean => {
       const node = (nodes ?? []).find((n) => n.channel_id === channelId);
-      const rect = viewportRef.current?.getBoundingClientRect();
-      if (!node || !rect) return false;
+      const rect = viewportRectRef.current;
+      if (!node || !rect.width || !rect.height) return false;
       const targetScale = Math.min(
         1.0,
         Math.max(rect.width / (node.world_w * 4), rect.height / (node.world_h * 4)),
@@ -756,10 +882,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         setLensEngaged(false);
         triggerLensSettle();
       }
-      setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
+      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
       return true;
     },
-    [nodes, lensEngaged, triggerLensSettle],
+    [nodes, lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
   // Register the channel-pick override on the palette. While the canvas is
@@ -795,8 +921,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // padding margin. Uses the same scale-derivation trick as `diveToChannel`
   // but without the route change at the end.
   const flyToWell = useCallback(() => {
-    const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const rect = viewportRectRef.current;
+    if (!rect.width || !rect.height) return;
     const wellWidth = WELL_R_MAX * 2.4;
     const wellHeight = WELL_R_MAX * WELL_Y_SQUASH * 2.4;
     const targetScale = Math.min(
@@ -805,8 +931,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     );
     const targetX = rect.width / 2 - WELL_X * targetScale;
     const targetY = rect.height / 2 - WELL_Y * targetScale;
-    setCamera(clampCamera({ x: targetX, y: targetY, scale: targetScale }));
-  }, []);
+    scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+  }, [scheduleCamera]);
 
   // dnd-kit sensor with a modest activation distance so exploratory clicks
   // and tiny pointer drift pan/select space instead of immediately moving a
@@ -1171,7 +1297,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         items.push({
           label: "Recenter",
           icon: <Home size={14} />,
-          onClick: () => setCamera(DEFAULT_CAMERA),
+          onClick: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
         });
         items.push({
           label: "Fit all (F)",
@@ -1209,11 +1335,12 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       trailsMode,
       cycleTrailsMode,
       connectionsEnabled,
+      scheduleCamera,
     ],
   );
 
   const worldStyle: CSSProperties = {
-    transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`,
+    transform: cameraTransform(cameraRef.current),
     transformOrigin: "0 0",
     transition: diving ? `transform ${DIVE_MS}ms cubic-bezier(0.4, 0, 0.2, 1)` : "none",
     willChange: "transform",
@@ -1240,7 +1367,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     >
       <CanvasStarfield />
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="absolute inset-0" style={worldStyle}>
+        <div ref={worldRef} className="absolute inset-0" style={worldStyle}>
           <OriginMarker />
           {densityIntensity !== "off" && (
             <UsageDensityLayer
@@ -1475,7 +1602,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         <AddWidgetButton onClick={() => setLibraryOpen(true)} />
         <TrailsButton mode={trailsMode} onCycle={cycleTrailsMode} />
         <NowButton onClick={flyToWell} />
-        <RecenterButton onClick={() => setCamera(DEFAULT_CAMERA)} />
+        <RecenterButton onClick={() => scheduleCamera(DEFAULT_CAMERA, "immediate")} />
       </div>
       <CanvasLibrarySheet
         open={libraryOpen}
@@ -1488,8 +1615,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             ? { x: pinPositionOverride.x + 160, y: pinPositionOverride.y + 110 }
             : viewportSize.w && viewportSize.h
             ? {
-                x: (viewportSize.w / 2 - camera.x) / camera.scale,
-                y: (viewportSize.h / 2 - camera.y) / camera.scale,
+                x: (viewportSize.w / 2 - cameraRef.current.x) / cameraRef.current.scale,
+                y: (viewportSize.h / 2 - cameraRef.current.y) / cameraRef.current.scale,
               }
             : null
         }

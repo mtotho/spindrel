@@ -490,6 +490,11 @@ textarea::placeholder {
   50%      { transform: scale(1.04); opacity: var(--halo-opacity, 0.7); }
 }
 
+.spatial-camera-moving .spatial-usage-halo,
+.spatial-camera-moving .canvas-starfield svg circle {
+  animation-play-state: paused !important;
+}
+
 @keyframes now-well-spin {
   to { transform: rotate(360deg); }
 }

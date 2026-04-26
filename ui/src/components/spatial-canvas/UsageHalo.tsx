@@ -46,7 +46,7 @@ export function UsageHalo({
   };
   return (
     <div
-      className="absolute pointer-events-auto rounded-full"
+      className="spatial-usage-halo absolute pointer-events-none rounded-full"
       style={style}
       title={title}
       aria-hidden

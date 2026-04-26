@@ -525,11 +525,32 @@ function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
     h: number;
     pointerId: number;
   } | null>(null);
+  const pendingSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const resizeRafRef = useRef<number | null>(null);
 
   const findNode = (): SpatialNode | undefined => {
     const nodes = qc.getQueryData<SpatialNode[]>(NODES_KEY) ?? [];
     return nodes.find((n) => n.id === nodeId);
   };
+
+  const flushPendingSize = () => {
+    const pending = pendingSizeRef.current;
+    if (!pending) return;
+    pendingSizeRef.current = null;
+    qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
+      (old ?? []).map((n) =>
+        n.id === nodeId ? { ...n, world_w: pending.w, world_h: pending.h } : n,
+      ),
+    );
+  };
+
+  useEffect(() => {
+    return () => {
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current);
+      }
+    };
+  }, []);
 
   return (
     <div
@@ -560,16 +581,23 @@ function ResizeHandle({ nodeId, zoom }: { nodeId: string; zoom: number }) {
         if (!s || s.pointerId !== e.pointerId) return;
         const newW = Math.max(MIN_W, s.w + (e.clientX - s.x) / zoom);
         const newH = Math.max(MIN_H, s.h + (e.clientY - s.y) / zoom);
-        qc.setQueryData<SpatialNode[]>(NODES_KEY, (old) =>
-          (old ?? []).map((n) =>
-            n.id === nodeId ? { ...n, world_w: newW, world_h: newH } : n,
-          ),
-        );
+        pendingSizeRef.current = { w: newW, h: newH };
+        if (resizeRafRef.current === null) {
+          resizeRafRef.current = window.requestAnimationFrame(() => {
+            resizeRafRef.current = null;
+            flushPendingSize();
+          });
+        }
       }}
       onPointerUp={(e) => {
         const s = startRef.current;
         if (!s || s.pointerId !== e.pointerId) return;
         startRef.current = null;
+        if (resizeRafRef.current !== null) {
+          window.cancelAnimationFrame(resizeRafRef.current);
+          resizeRafRef.current = null;
+        }
+        flushPendingSize();
         const node = findNode();
         if (node && (node.world_w !== s.w || node.world_h !== s.h)) {
           update.mutate({

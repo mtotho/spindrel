@@ -215,7 +215,18 @@ function isErrorEnvelope(env: ToolResultEnvelope | undefined): boolean {
   if (!body) return false;
   try {
     const parsed = JSON.parse(body);
-    return typeof parsed === "object" && parsed !== null && "error" in parsed;
+    if (typeof parsed !== "object" || parsed === null) return false;
+    // `ok: true` is the explicit success signal; never treat such results
+    // as errors regardless of an empty `error` slot.
+    if (parsed.ok === true) return false;
+    // An `error` key only counts as an error when its value is non-empty.
+    // Many tool results include `"error": null` on the happy path; those
+    // are NOT errors. Same for empty strings and empty objects.
+    const err = parsed.error;
+    if (err === null || err === undefined) return false;
+    if (typeof err === "string" && err.trim().length === 0) return false;
+    if (typeof err === "object" && Object.keys(err as object).length === 0) return false;
+    return "error" in parsed;
   } catch {
     return false;
   }

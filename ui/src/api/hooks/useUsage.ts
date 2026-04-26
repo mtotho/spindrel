@@ -227,11 +227,15 @@ export function useUsageLogs(params: UsageParams & { page?: number; page_size?: 
   });
 }
 
-export function useUsageBreakdown(params: UsageParams & { group_by?: string }) {
+export function useUsageBreakdown(
+  params: UsageParams & { group_by?: string },
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["usage-breakdown", params],
     queryFn: () =>
       apiFetch<UsageBreakdownResponse>(`/api/v1/admin/usage/breakdown${buildQS(params)}`),
+    enabled: options?.enabled,
   });
 }
 

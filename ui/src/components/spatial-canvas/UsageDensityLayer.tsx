@@ -117,14 +117,11 @@ export function UsageDensityLayer({
   );
 
   const current = useUsageBreakdown({ group_by: "channel", after, before });
-  // Always fetch the baseline window — at workspace scale (≤ 30 channels)
-  // the extra request is cheap, and it means flipping compare-mode on shows
-  // results immediately instead of after a cold fetch.
   const baseline = useUsageBreakdown({
     group_by: "channel",
     after: baselineAfter,
     before: baselineBefore,
-  });
+  }, { enabled: compare });
 
   const groupsByChannel = useMemo(() => {
     const m = new Map<string, BreakdownGroup>();
