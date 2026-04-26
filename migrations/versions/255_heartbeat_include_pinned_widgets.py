@@ -1,6 +1,6 @@
 """heartbeat include pinned widgets toggle
 
-Revision ID: 255_heartbeat_include_pinned_widgets
+Revision ID: 255_hb_include_pinned
 Revises: 254_bot_harness_fields
 Create Date: 2026-04-26 16:00:00.000000
 
@@ -15,7 +15,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "255_heartbeat_include_pinned_widgets"
+revision = "255_hb_include_pinned"
 down_revision = "254_bot_harness_fields"
 branch_labels = None
 depends_on = None
