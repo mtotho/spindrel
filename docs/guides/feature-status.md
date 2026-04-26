@@ -52,11 +52,11 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 
 | Feature | Status | Confidence | What it means today |
 |---|---|---|---|
-| Multi-bot server | `working` | `high` | You can run multiple bots with different models, system prompts, tool policies, and capabilities. |
+| Multi-bot server | `working` | `high` | You can run multiple bots with different models, system prompts, tool policies, and skill enrollment. |
 | Channels by topic/project | `working` | `high` | Each topic lives in its own persistent channel with its own bot binding, files, state, and history. |
 | Multi-user support | `working (beta)` | `medium` | Multi-user support exists and is suitable for close friends/family style use, but this is not pitched as full multi-tenant SaaS isolation. |
-| Auto-discovery of tools/skills/capabilities | `working` | `medium` | Core product bet and actively working, but still likely to benefit from model/retrieval tuning. |
-| Capability gating / approval-aware discovery | `working` | `medium` | Tool/capability discovery respects availability and approval constraints instead of blindly exposing everything. |
+| Auto-discovery of tools and skills | `working` | `medium` | Core product bet and actively working, but still likely to benefit from model/retrieval tuning. |
+| Approval-aware tool gating | `working` | `medium` | Tool discovery respects availability and approval constraints instead of blindly exposing everything. |
 | Tool approval flow | `working` | `medium` | Approval queues, inline approval states, and integration-aware approval handling are real parts of the product, even if some policy UX is still rough. |
 | Parallel tool execution / sub-agents | `working` | `medium` | Parallel sub-agent execution exists and the sub-agent system is a completed track. |
 | LLM fallbacks + retries | `working` | `high` | Retry, cooldown skip, fallback model routing, and rate-limit waits are part of the normal stack and are believed to be working well. |
@@ -67,7 +67,7 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 
 | Feature | Status | Confidence | What it means today |
 |---|---|---|---|
-| Skill discovery / retrieval | `working` | `medium` | Skills are ranked and retrieved at runtime as part of the same discovery story as tools/capabilities. |
+| Skill discovery / retrieval | `working` | `medium` | Skills are ranked and retrieved at runtime as part of the same discovery story as tools. |
 | Agent self-authored skills | `working` | `medium` | Bots can create skills for themselves via `manage_bot_skill`. |
 | Automatic dreaming / skill review | `working (beta)` | `low` | Maintenance + Skill Review jobs are real and seem to be working, but there has not been enough evaluation time or long-run evidence yet to call them well-proven. |
 | Learning from corrections / repeated lookup / reflection | `working` | `medium` | The learning nudges are real and wired into the self-improving-agent loop. |
@@ -185,11 +185,12 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Easy command-line setup | `working` | `high` | `setup.sh` + Docker-based bootstrap are real strengths. |
 | Docker-first hosting story | `working` | `high` | Running in Docker is the normal path. |
 
-## Explicitly deprecated
+## Removed
 
-| Feature | Status | Confidence | What it means today |
-|---|---|---|---|
-| Workflows | `deprecated` | `high` | Superseded by task pipelines. Retained only for compatibility/history. |
+| Feature | What replaced it |
+|---|---|
+| Workflows (`Workflow` model + `manage_workflow` tool + visual editor) | [Pipelines](pipelines.md). The old workflow surface is gone — admin UI hidden, YAML directory no longer loaded, bot tool removed. |
+| Capabilities / carapaces (composition pipeline) | Skills + the regular tool/skill RAG. There is no separate capability bundle to activate or compose. |
 
 ## Notes
 

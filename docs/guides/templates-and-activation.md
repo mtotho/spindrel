@@ -1,91 +1,80 @@
-# Workspace Templates & Activation
+# Workspace Templates & Integration Activation
 
-![Workspace files explorer](../images/workspace-files.png)
+Two optional layers can shape a channel beyond the bot + chat default:
 
-When you create a channel in Spindrel, it starts as a conversation with a bot plus an optional workspace. Templates and integration activation are secondary setup tools, not the center of the product.
+1. **Integration activation** — Enables an integration on a channel and exposes its declared tools to the bot there.
+2. **Workspace schema template** — Defines the file structure (`.md` files, headings, intent) the bot scaffolds when it writes to the channel workspace.
 
----
+Neither is required. Most channels work fine with no template and no activated integration — just the bot, its enrolled skills, and whatever workspace files it builds up over time.
 
-## How It Works
-
-Two optional layers can shape a channel:
-
-1. **Integration activation** — Enables an integration on a channel, automatically injecting its tools, skills, and behavioral instructions (via capabilities). One click, no manual tool configuration.
-
-2. **Workspace template** — Defines the file structure for the channel's workspace (which `.md` files to create, their headings, their purpose). Templates are independent of activation — you can use a template without activating anything, or activate without a template.
-
-You do not need either of these to get value from Spindrel. Many channels work well with:
-
-- no template at all
-- no activated integration at all
-- just the bot, its normal capabilities, and the workspace files it creates over time
+There is **no separate capability bundle**. The old "carapace / capability" composition layer was removed; integrations expose tools through their activation manifest, and any related domain knowledge lives as normal skills or prompt templates that the regular skill RAG pulls in on demand.
 
 ---
 
 ## Activating an Integration
 
-### From the Channel Settings
+### From Channel Settings
 
-1. Open a channel and go to the **Integrations** tab
-2. You'll see available integrations with activation status
-3. Click **Activate** on the integration you want
-4. The integration's capability is injected — tools, skills, and system prompt guidance are now active
+1. Open a channel → **Integrations** tab
+2. Available integrations are listed with activation status
+3. Click **Activate**
 
 ### What Activation Does
 
-When you activate an integration, its **activation manifest** kicks in:
+Activation flips `ChannelIntegration.activated = true` for that channel and integration. From then on:
 
-- **Capabilities injected** — The integration's capability bundle(s) are added to the bot's context for this channel. This brings in tools, skills, and a system prompt fragment that teaches the bot how to use them.
-- **No manual tool config** — You don't need to add individual tools to the bot's config. The capability bundles everything.
-- **Per-channel** — Activation is scoped to the channel. Other channels using the same bot are unaffected.
+- **Declared tools become available** on that channel — every tool the integration registers via its activation manifest is added to the bot's tool surface.
+- **Integration skills stay in the regular RAG pool** — they're discovered and pulled in by the same skill system that loads `skills/*.md`. Nothing is force-injected per channel.
+- **No manual tool config** — you don't add individual tools to the bot's YAML. The integration declares what it provides.
+- **Per-channel scope** — activation only affects this channel. Other channels using the same bot are unaffected.
 
 ### Deactivating
 
-Click **Deactivate** in the Integrations tab. The capability is removed and the bot loses those capabilities on this channel. Workspace files are not deleted.
+Click **Deactivate** in the Integrations tab. The integration's tools are removed from this channel; workspace files are not touched.
 
 ---
 
-## Workspace Templates
+## Workspace Schema Templates
 
-Templates define the file structure for a channel's workspace. When a bot has `workspace.enabled: true`, the channel workspace is a directory of `.md` files that the bot reads and writes during conversations.
+Workspace templates define the file structure for a channel's workspace. When a bot has `workspace.enabled: true`, the channel workspace is a directory of `.md` files the bot reads and writes during conversations.
 
 ### Do I need a template?
 
-**Usually no.** Templates are useful when you want a predictable starting shape, but they are optional. The file-backed workspace is the core feature; the template is just a starting scaffold.
+**Usually no.** Templates give a predictable starting shape, but they're optional. The file-backed workspace is the core feature; the template is just a starting scaffold.
 
 Templates are useful when:
-- You want a **specific file structure** for a non-integration workflow (e.g., a research project)
-- You want to **override** the integration's built-in file organization
+- You want a **specific file structure** for a recurring project type (research, devops, gamedev)
 - You want **consistency** across multiple channels doing similar work
+- You want to **override** the default file organization the bot would otherwise pick
 
-### Picking a Template (optional)
+### Picking a Template
 
-1. Open a channel and go to the **Workspace** tab
+1. Open a channel → **Workspace** tab
 2. Expand **Advanced Workspace Settings**
-3. In the **Organization Template** section, link a template
-4. The bot will use this structure when creating workspace files
+3. In **Organization Template**, link a template
+4. The bot uses this structure when creating workspace files
 
 ### Built-in Templates
 
-Spindrel ships templates for common workflows:
+Spindrel ships templates for common project shapes:
 
 | Template | Best for | Key files |
 |----------|----------|-----------|
-| Software Development | Code projects with task tracking | tasks.md, architecture.md, decisions.md |
-| Research / Analysis | Investigation and analysis | findings.md, sources.md, questions.md |
-| Creative Project | Writing, design, content | brief.md, concepts.md, feedback.md |
-| General Project | Lightweight catch-all | overview.md, notes.md, tasks.md |
-| Project Management Hub | Project coordination | status.md, projects.md, reports.md |
-| Software Testing / QA | Test planning and execution | test-plan.md, bugs.md, coverage.md |
-| Media Management | Media library and requests | requests.md, library.md, issues.md |
-| Home Automation | Device inventory and events | devices.md, automations.md, events.md |
-| DevOps | Repository and deployment tracking | repos.md, prs.md, deployments.md |
+| Software Development | Code projects with task tracking | `tasks.md`, `architecture.md`, `decisions.md` |
+| Research / Analysis | Investigation and analysis | `findings.md`, `sources.md`, `questions.md` |
+| Creative Project | Writing, design, content | `brief.md`, `concepts.md`, `feedback.md` |
+| General Project | Lightweight catch-all | `overview.md`, `notes.md`, `tasks.md` |
+| Project Management Hub | Project coordination | `status.md`, `projects.md`, `reports.md` |
+| Software Testing / QA | Test planning and execution | `test-plan.md`, `bugs.md`, `coverage.md` |
+| Media Management | Media library and requests | `requests.md`, `library.md`, `issues.md` |
+| Home Automation | Device inventory and events | `devices.md`, `automations.md`, `events.md` |
+| DevOps | Repository and deployment tracking | `repos.md`, `prs.md`, `deployments.md` |
 
 ### Custom Templates
 
-Create templates in two ways:
+Two ways to add your own:
 
-**From a file** — Add a `.md` file to `prompts/` (or `integrations/*/prompts/`):
+**From a file** — Add a `.md` to `prompts/` (or `integrations/*/prompts/`):
 
 ```yaml
 ---
@@ -105,36 +94,34 @@ Kanban board with columns: Backlog, In Progress, Testing, Done
 
 Restart the server — the template is auto-synced.
 
-**From the UI** — In Admin > Templates, create a new template with a name, description, and tags.
+**From the UI** — Admin → Templates → New, with a name, description, and tags.
 
 ---
 
-## Recommended Workflow
-
-### Setting Up a New Project Channel
+## Recommended Setup Flow
 
 1. **Create a channel** — Give it a name and assign a bot
-2. **Enable the workspace** — In the Workspace tab, toggle workspace on (if not enabled by default)
-3. **Optionally activate an integration** — Only if this channel really needs one
-4. **Start chatting** — Ask the bot to create the files and structure you want. If a template or integration is present, it will use them. If not, it can still build the workspace incrementally.
+2. **Enable the workspace** if not already on (channel → Workspace tab)
+3. **Optionally activate an integration** — only if this channel really needs one
+4. **Optionally pick a workspace template** — only if you want a specific starting structure
+5. **Start chatting** — the bot will scaffold workspace files as it goes, using the template if one is set and the integration's tools if one is activated
 
-That's it. Template selection and activation are both optional.
+Both template selection and activation are optional.
 
-### What You Get
+---
 
-After activation:
+## What You Get After Activation
 
-- **Tools** — The bot can create task cards, move items between columns, update status, manage plans (whatever the integration provides)
-- **Skills** — The bot has domain knowledge about the integration's workflows (e.g., how to run a standup, how to triage bugs)
-- **File organization** — The capability teaches the bot how to structure workspace files for this integration
+- **Tools** — Whatever the integration registers (create cards, control devices, run searches, …)
+- **Skills via RAG** — The regular skill system picks up integration-shipped skill packs and pulls them in when relevant; you don't have to enroll them manually per channel
 - **Context injection** — Active `.md` files in the workspace root are automatically injected into every conversation, keeping the bot aware of project state
 
 ### Checking What's Active
 
-In the **Integrations** tab, you can see:
-- Which integrations are activated
-- What tools, skills, and system prompt fragments are injected
-- Links to the capability detail pages for full inspection
+In the **Integrations** tab you can see:
+- Which integrations are activated on this channel
+- What tools each one exposes
+- Links into the integration detail page for full inspection
 
 ---
 
@@ -142,6 +129,6 @@ In the **Integrations** tab, you can see:
 
 If you're building an integration and want it to support activation, see [Activation & Workspace Templates](../integrations/activation-and-templates.md) for the developer guide covering:
 
-- The `activation` block in `setup.py`
-- Capability injection mechanics
-- Creating workspace schema templates
+- The `activation:` block in `integration.yaml`
+- How declared tools become channel-scoped
+- Creating workspace schema templates that complement the integration

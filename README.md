@@ -10,24 +10,23 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 
 - **Any LLM provider, mix and match** — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, vLLM, or any OpenAI-compatible endpoint. Assign different providers per bot. Automatic retry with exponential backoff and fallback models.
 - **ChatGPT Subscription provider** — Sign in with ChatGPT OAuth device-code flow instead of an API key. Mix plan-billing providers with API-key providers across bots.
-- **Capabilities (auto-discovered expertise)** — Composable bundles of tools, skills, and behavioral instructions. Bots discover and activate relevant capabilities at runtime — or pin specific ones to always include. Capabilities compose via `includes` for layered expertise.
+- **Skill-based expertise (auto-discovered)** — Skills are markdown documents that bots discover and pull in at runtime via RAG. Drop a `.md` into `skills/` (or a foldered skill pack with `index.md` + child docs) and any bot can ground itself in that knowledge — no manual wiring per bot. Bots can also author their own skills with `manage_bot_skill`, so they get smarter over time.
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
-- **Channel workspaces** — Per-channel file stores on disk. Optional workspace templates can give the bot a starting structure, but the core model is file-backed memory, not template lock-in.
+- **Channel workspaces** — Per-channel file stores on disk. Optional workspace schema templates can give the bot a starting structure, but the core model is file-backed memory, not template lock-in.
 - **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Chat state rehydrates on reconnect, and task runs render as dedicated sub-sessions with their own transcripts.
-- **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation.
+- **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation. Pipelines replace the older workflow system.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
-- **Spatial canvas** — Workspace-scope infinite plane on the desktop home. Channels auto-populate as draggable tiles; widgets are opt-in. Semantic zoom (dot → preview → live iframe), fisheye lens, and a `Now Well` with scheduled work in orbit. `Ctrl+Shift+Space` toggles it as an overlay from anywhere.
+- **Spatial canvas** — `Ctrl+Shift+Space` toggles a workspace-scope infinite plane on the desktop home. Channels auto-populate as draggable tiles; widgets are opt-in. Semantic zoom (dot → preview → live iframe), fisheye lens, and a `Now Well` with scheduled work in orbit.
 - **Programmatic tool calling** — `run_script` lets bots orchestrate many tool calls in one turn when plain chat loops would be too noisy or expensive.
-- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace, Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
+- **Integration framework** — Pluggable integrations with auto-discovery. Shipped: Slack, GitHub, Discord, Frigate, Home Assistant, Excalidraw, Browser Live, Arr, Claude Code, BlueBubbles, Google Workspace (Drive), Wyoming, Web Search, OpenWeather, Firecrawl, VS Code, and more. Extend with your own.
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
 - **Sub-agents + delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, with built-in presets, depth limits, and parallel execution.
 - **Command execution** — Host-side subprocess execution via `exec_tool`, plus optional Docker sandboxes when you want a controlled execution environment.
 - **PWA + push notifications** — Install the web app and let bots send explicit push notifications to subscribed devices.
-- **Self-improving agents** — Bots can author their own skills at runtime using `manage_bot_skill`. Skills enter the RAG pipeline and are semantically retrieved in future sessions — bots get smarter over time.
-- **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools, capabilities, and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
+- **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
 
 ## Quick Start
 
@@ -50,12 +49,12 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 |---|---|
 | ![Chat main](docs/images/chat-main.png) | ![Providers settings](docs/images/providers-settings.png) |
 | Chat session with widgets, sub-sessions, and the current sidebar/OmniPanel UI | Provider configuration with built-in fallback and per-bot routing |
-| ![Channel dashboard](docs/images/channel-widget-dashboard-edit-layout-1.png) | ![Channel side panels](docs/images/channel-chat-screen-side-panels-1.png) |
-| Channel dashboard edit mode with widget layout controls | Channel chat with current side-panel / OmniPanel layout |
+| ![Widget dashboard](docs/images/widget-dashboard.png) | ![Pipeline live](docs/images/chat-pipeline-live.png) |
+| Channel widget dashboard with HA / pipeline / standing-order tiles | A pipeline run rendered as a sub-session with live step status |
 | ![Spatial canvas](docs/images/spatial-overview-1.png) | ![Spatial canvas — widget zoom](docs/images/spatial-zoom-widgets.png) |
 | Workspace-scope spatial canvas — every channel as a draggable tile, Now Well below | Zoomed-in view: live widget tiles around the channel they belong to |
-| ![Home Assistant widget](docs/images/channel-widget-home-assistant-chat-1.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
-| Home Assistant widget rendered inline in chat | Token usage, daily spend, and budget forecast |
+| ![HTML widget hero](docs/images/html-widget-hero.png) | ![Usage and forecast](docs/images/usage-and-forecast.png) |
+| Bot-authored interactive HTML widget with bot-scoped auth | Token usage, daily spend, and budget forecast |
 
 ## Architecture
 

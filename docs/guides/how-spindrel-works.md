@@ -119,7 +119,13 @@ Pipelines are reusable multi-step automations stored as `Task` rows. A pipeline 
 
 When a pipeline runs inside a channel, it renders as a **chat-native sub-session**: a modal or docked transcript showing every step's LLM thinking, tool widgets, Markdown, and JSON as real messages on a dedicated session. The parent channel gets a compact anchor card pointing at the run. Pipelines can be scheduled per-channel via `channel_pipeline_subscriptions` or triggered from a heartbeat via `pipeline_id`.
 
-Pipelines replace the older workflows system, which is deprecated. See the [Pipelines guide](pipelines.md).
+Pipelines replace the older workflows system, which has been removed. See the [Pipelines guide](pipelines.md).
+
+---
+
+## Spatial Canvas
+
+On desktop, `Ctrl+Shift+Space` toggles a workspace-scope **spatial canvas** as an overlay from any route. Channels auto-populate as draggable tiles seeded by phyllotaxis; widgets are opt-in via "Pin to workspace canvas"; participating bots appear as larger emoji actor nodes with their own channel-scoped spatial policy. Semantic zoom takes you cluster-dot → preview → live iframe, with a fisheye lens, activity pulses, and a `Now Well` keeping scheduled work in orbit. Mobile keeps the existing `HomeChannelsList`. See [Spatial Canvas](spatial-canvas.md).
 
 ---
 
@@ -151,6 +157,7 @@ See [Context Management](context-management.md) for the canonical guide to repla
 | **Workspace** | Single rooted file store, organized by bot and channel | `WORKSPACE_HOST_DIR` on disk |
 | **Pipeline** | Multi-step automation stored as a Task row | Admin > Tasks |
 | **Sub-session** | Chat-native transcript for a running pipeline | Channel modal / dock |
+| **Spatial canvas** | Workspace-scope infinite plane on desktop home (`Ctrl+Shift+Space`) | UI overlay, `workspace_spatial_nodes` table |
 
 ---
 

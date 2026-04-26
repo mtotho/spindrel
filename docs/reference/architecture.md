@@ -71,19 +71,25 @@ provide a root skill (`index.md`) plus child skills addressable by path ID.
 
 ## Integration Activation
 
-Integrations can declare an **activation manifest** in their `setup.py` that specifies which tools to expose when the integration is activated on a channel.
+Integrations can declare an **activation manifest** in their `integration.yaml` that specifies what they expose when activated on a channel.
 
-```python
-# integrations/mission_control/setup.py
-"activation": {
-    "tools": ["create_task_card", "move_task_card"],
-    "requires_workspace": True,
-}
+```yaml
+# integrations/github/integration.yaml
+activation:
+  requires_workspace: false
+  description: "GitHub repository management — PR reviews, issue tracking, …"
+
+provides:
+  - target
+  - renderer
+  - router
+  - tools
+  - skills
 ```
 
 During context assembly, the system checks each channel's active integrations and makes their
 declared tools available on that channel. Integration-shipped skills remain normal skills and
-can be enrolled or fetched through the regular skill system.
+are retrieved through the regular skill RAG. There is no separate capability/carapace layer.
 
 **Workspace file organization:** integration guidance should live in normal skills and prompt
 templates. Templates are optional and remain available for more structured workspace layouts.
@@ -114,7 +120,9 @@ separate workflow system. Pipelines support `exec`, `tool`, `agent`, `user_promp
   per-channel subscriptions
 - **UI model:** the parent channel gets an anchor card; the run itself renders as a sub-session
   modal or docked transcript
-- **Legacy note:** old workflows are deprecated and retained only for historical compatibility
+
+The older `Workflow` model and `manage_workflow` tool have been removed; pipelines are the only
+multi-step automation primitive going forward.
 
 ## Configuration Layers
 

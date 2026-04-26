@@ -224,7 +224,7 @@ client_tools:
 
 ## Deferred Execution
 
-Both `delegate_to_exec` and workflow exec steps support **deferred mode** — the command runs as a background task and results are posted back to the channel when complete.
+Both `delegate_to_exec` and pipeline `exec` steps support **deferred mode** — the command runs as a background task and results are posted back to the channel when complete.
 
 ### Bot YAML
 
@@ -248,9 +248,9 @@ The bot calls `delegate_to_exec` with `mode: "deferred"`:
 
 The command is enqueued as a Task, executed by the task worker (polls every 5s), and results dispatched to the channel. The bot doesn't block waiting — it can continue the conversation.
 
-### Workflow Exec Steps
+### Pipeline Exec Steps
 
-Workflows can also run commands as steps:
+Pipelines can also run commands as steps:
 
 ```yaml
 steps:
@@ -260,7 +260,7 @@ steps:
     description: Check disk usage
 ```
 
-See the [Workflows guide](workflows.md) for details.
+See the [Pipelines guide](pipelines.md) for details.
 
 ---
 

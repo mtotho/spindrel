@@ -22,9 +22,21 @@ import {
  * visually with the canvas itself. A small × dismisses; the main `Map`
  * chrome toggle restores it.
  */
-const MINIMAP_W = 200;
-const MINIMAP_H = 140;
+const MINIMAP_W_LG = 200;
+const MINIMAP_H_LG = 140;
+const MINIMAP_W_SM = 140;
+const MINIMAP_H_SM = 100;
+const MINIMAP_HIDE_BELOW_PX = 400;
+const MINIMAP_SM_BREAKPOINT_PX = 640;
 const MINIMAP_PAD_RATIO = 0.1;
+
+function pickMinimapSize(viewportW: number): { w: number; h: number } | null {
+  if (viewportW > 0 && viewportW < MINIMAP_HIDE_BELOW_PX) return null;
+  if (viewportW > 0 && viewportW < MINIMAP_SM_BREAKPOINT_PX) {
+    return { w: MINIMAP_W_SM, h: MINIMAP_H_SM };
+  }
+  return { w: MINIMAP_W_LG, h: MINIMAP_H_LG };
+}
 // Fall-back world bbox when there is no content to fit. Keeps the click-math
 // well-defined and gives the viewport rect somewhere sensible to live.
 const FALLBACK_WORLD_HALF = 1500;
@@ -43,16 +55,20 @@ export function Minimap({ camera, viewport, nodes, onJumpTo, onClose }: MinimapP
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const [hovered, setHovered] = useState(false);
 
-  const fit = useMemo(() => computeFit(nodes, viewport, camera), [nodes, viewport, camera]);
+  const dim = pickMinimapSize(viewport.w);
+  const fit = useMemo(
+    () => (dim ? computeFit(nodes, viewport, camera, dim) : null),
+    [nodes, viewport, camera, dim],
+  );
 
+  if (!dim || !fit) return null;
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     const btn = buttonRef.current;
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     const localY = e.clientY - rect.top;
-    // Reject clicks on the dismiss × overlay (handled by its own onClick).
-    if (localX < 0 || localY < 0 || localX > MINIMAP_W || localY > MINIMAP_H) return;
+    if (localX < 0 || localY < 0 || localX > dim.w || localY > dim.h) return;
     const wx = (localX - fit.offsetX) / fit.scale + fit.bbox.minX;
     const wy = (localY - fit.offsetY) / fit.scale + fit.bbox.minY;
     onJumpTo(wx, wy);
@@ -76,16 +92,16 @@ export function Minimap({ camera, viewport, nodes, onJumpTo, onClose }: MinimapP
         onPointerDown={(e) => e.stopPropagation()}
         onWheel={(e) => e.stopPropagation()}
         className="block bg-surface-raised/60 backdrop-blur border border-surface-border/60 rounded-lg overflow-hidden cursor-crosshair"
-        style={{ width: MINIMAP_W, height: MINIMAP_H }}
+        style={{ width: dim.w, height: dim.h }}
       >
         <svg
-          width={MINIMAP_W}
-          height={MINIMAP_H}
-          viewBox={`0 0 ${MINIMAP_W} ${MINIMAP_H}`}
+          width={dim.w}
+          height={dim.h}
+          viewBox={`0 0 ${dim.w} ${dim.h}`}
           style={{ pointerEvents: "none", display: "block" }}
         >
           <MinimapContent nodes={nodes} fit={fit} />
-          <MinimapViewportRect camera={camera} viewport={viewport} fit={fit} />
+          <MinimapViewportRect camera={camera} viewport={viewport} fit={fit} dim={dim} />
         </svg>
       </button>
       <button
@@ -116,21 +132,20 @@ function computeFit(
   nodes: SpatialNode[],
   viewport: { w: number; h: number },
   camera: Camera,
+  dim: { w: number; h: number },
 ): FitMath {
   const bbox = boundsOfNodes(nodes, camera, viewport);
   const worldW = Math.max(1, bbox.maxX - bbox.minX);
   const worldH = Math.max(1, bbox.maxY - bbox.minY);
-  const padW = MINIMAP_W * (1 - MINIMAP_PAD_RATIO * 2);
-  const padH = MINIMAP_H * (1 - MINIMAP_PAD_RATIO * 2);
+  const padW = dim.w * (1 - MINIMAP_PAD_RATIO * 2);
+  const padH = dim.h * (1 - MINIMAP_PAD_RATIO * 2);
   const sx = padW / worldW;
   const sy = padH / worldH;
   const scale = Math.min(sx, sy);
-  // Centered fit: leftover space split equally on both axes so the world
-  // sits in the middle of the minimap regardless of aspect ratio.
   const fitW = worldW * scale;
   const fitH = worldH * scale;
-  const offsetX = (MINIMAP_W - fitW) / 2;
-  const offsetY = (MINIMAP_H - fitH) / 2;
+  const offsetX = (dim.w - fitW) / 2;
+  const offsetY = (dim.h - fitH) / 2;
   return { bbox, scale, offsetX, offsetY };
 }
 
@@ -239,10 +254,12 @@ function MinimapViewportRect({
   camera,
   viewport,
   fit,
+  dim,
 }: {
   camera: Camera;
   viewport: { w: number; h: number };
   fit: FitMath;
+  dim: { w: number; h: number };
 }) {
   if (!viewport.w || !viewport.h) return null;
   const vp = getViewportWorldBbox(camera, viewport, 0);
@@ -250,13 +267,10 @@ function MinimapViewportRect({
   const tly = (vp.minY - fit.bbox.minY) * fit.scale + fit.offsetY;
   const brx = (vp.maxX - fit.bbox.minX) * fit.scale + fit.offsetX;
   const bry = (vp.maxY - fit.bbox.minY) * fit.scale + fit.offsetY;
-  // Clamp to minimap bounds so the rect doesn't escape the chrome when the
-  // camera flies past content (auto-fit math already grows the bbox to
-  // include the viewport, but rounding can leak a fraction of a pixel).
   const x = Math.max(0, tlx);
   const y = Math.max(0, tly);
-  const w = Math.max(2, Math.min(MINIMAP_W, brx) - x);
-  const h = Math.max(2, Math.min(MINIMAP_H, bry) - y);
+  const w = Math.max(2, Math.min(dim.w, brx) - x);
+  const h = Math.max(2, Math.min(dim.h, bry) - y);
   return (
     <rect
       x={x}

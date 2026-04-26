@@ -1,29 +1,236 @@
 {
   "meta": {
-    "title": "B3 smoke",
-    "slug": "smoke-playwright",
+    "title": "Spindrel quickstart",
+    "slug": "quickstart",
     "resolution": [
-      1280,
-      720
+      1920,
+      1080
     ],
-    "fps": 24,
-    "transition": "cut",
-    "transition_duration": 0.0,
-    "watermark": null,
+    "fps": 30,
+    "transition": "crossfade",
+    "transition_duration": 0.8,
+    "watermark": {
+      "text": "spindrel.dev",
+      "opacity": 0.45
+    },
     "caption_style": {
       "position": "bottom",
-      "font_size": 32,
-      "padding": 40,
+      "font_size": 38,
+      "padding": 56,
       "bg_opacity": 0.6
     }
   },
   "scenes": [
     {
-      "id": "demo",
+      "id": "title-intro",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "What is Spindrel?"
+    },
+    {
+      "id": "hero_spatial",
       "kind": "video",
-      "duration": 5.0,
-      "asset_url": "demo.mp4",
-      "caption": "example.com \u2014 first playwright recording scene",
+      "duration": 9.0,
+      "asset_url": "hero_spatial.mp4",
+      "caption": "Your workspace, as a place \u2014 every channel, every widget, every scheduled job.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-first_channel",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "One channel, one bot"
+    },
+    {
+      "id": "channel_chat",
+      "kind": "still",
+      "duration": 8.0,
+      "asset_url": "channel_chat.png",
+      "caption": "Each channel is a persistent conversation with its own bot, widgets, and workspace files.",
+      "ken_burns": {
+        "start": [
+          1.04,
+          0.5,
+          0.4
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-dashboards",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Dashboards from tool results"
+    },
+    {
+      "id": "widget_dashboard",
+      "kind": "still",
+      "duration": 9.0,
+      "asset_url": "widget_dashboard.png",
+      "caption": "Pin tool results as live widgets \u2014 build per-channel dashboards out of the things your bot already runs.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.35,
+          0.5
+        ],
+        "end": [
+          1.05,
+          0.65,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "doc_widget_system",
+      "kind": "doc_callout",
+      "duration": 6.0,
+      "asset_url": "doc_widget_system.png",
+      "caption": "The widget system \u2014 pin tool results, build dashboards from them.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.18,
+          0.5,
+          0.12097800925925926
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "title-pipelines",
+      "kind": "title_card",
+      "duration": 1.4,
+      "asset_url": null,
+      "caption": null,
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.5
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.5
+        ]
+      },
+      "fit": "cover",
+      "title": "Pipelines that stream progress"
+    },
+    {
+      "id": "pipeline_live",
+      "kind": "still",
+      "duration": 9.0,
+      "asset_url": "pipeline_live.png",
+      "caption": "Pipelines chain steps \u2014 gather, summarize, post \u2014 streaming progress into the chat.",
+      "ken_burns": {
+        "start": [
+          1.06,
+          0.5,
+          0.3
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.55
+        ]
+      },
+      "fit": "cover"
+    },
+    {
+      "id": "doc_index_hero",
+      "kind": "doc_hero",
+      "duration": 9.0,
+      "asset_url": "doc_index_hero.png",
+      "caption": "Every feature has a guide \u2014 same site, same tokens, one source of truth.",
+      "ken_burns": {
+        "start": [
+          1.0,
+          0.5,
+          0.05
+        ],
+        "end": [
+          1.0,
+          0.5,
+          0.95
+        ]
+      },
+      "fit": "width"
+    },
+    {
+      "id": "outro_card",
+      "kind": "still",
+      "duration": 6.0,
+      "asset_url": "outro_card.png",
+      "caption": null,
       "ken_burns": {
         "start": [
           1.0,

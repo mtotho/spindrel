@@ -4,6 +4,13 @@ import { LucideIconByName } from "../IconPicker";
 import { useBots } from "../../api/hooks/useBots";
 import { useChannelReadStore } from "../../stores/channelRead";
 import type { Channel, BotConfig } from "../../types/api";
+import {
+  bodyGradientPrimaryOnly,
+  bodyGradients,
+  bodyParticles,
+  widerOrganicBorderRadius,
+  type CosmicIntensity,
+} from "./cosmicBody";
 
 /**
  * Channel tile with three semantic-zoom levels (P2, redesigned).
@@ -84,46 +91,68 @@ export function dotColor(id: string): string {
   return `hsl(${channelHue(id)}, 55%, 58%)`;
 }
 
-/**
- * Per-channel deterministic border-radius — eight percentages (4 corners ×
- * 2 axes) hashed off the id. Each percentage lands in 38–62% so the shape
- * stays "blob-like" rather than collapsing to a circle or stretching to an
- * extreme. Stable across reloads. CSS-only — zero render cost vs. SVG
- * filters.
- */
-function organicBorderRadius(id: string): string {
-  const seed = hashId(id);
-  const r = (i: number) => 38 + ((seed >> (i * 4)) & 0xF) * (24 / 15);
-  return (
-    `${r(0)}% ${r(1)}% ${r(2)}% ${r(3)}%` +
-    ` / ${r(4)}% ${r(5)}% ${r(6)}% ${r(7)}%`
-  );
-}
-
 function channelName(channel: Channel): string {
   return channel.display_name || channel.name;
 }
 
-function ChannelBlob({ channelId, intensity = "normal" }: {
+/**
+ * Cosmic-body backdrop for the tile body. Composes four layers:
+ *
+ *   1. Outer silhouette  (`widerOrganicBorderRadius`, 15..85% with asymmetry)
+ *   2. Multi-gradient body (centered core + off-center bright eye + dust)
+ *   3. Soft inset glow on the silhouette edge (kept from the previous tile)
+ *   4. Star particles overlay (faint dots, snapshot/preview tiers only)
+ *
+ * `tier = "dot"` collapses to a single cheap radial fill — the dot is
+ * visually small enough that internal structure is invisible anyway.
+ */
+function ChannelBlob({
+  channelId,
+  intensity = "normal",
+  tier,
+}: {
   channelId: string;
-  intensity?: "soft" | "normal" | "warm";
+  intensity?: CosmicIntensity;
+  tier: "dot" | "preview" | "snapshot";
 }) {
-  const radius = useMemo(() => organicBorderRadius(channelId), [channelId]);
+  const radius = useMemo(() => widerOrganicBorderRadius(channelId), [channelId]);
   const hue = channelHue(channelId);
-  // Three intensity tiers map to alpha ramps. "warm" used when the channel
-  // has unread activity to nudge attention without re-introducing chrome.
-  const inner = intensity === "warm" ? 0.22 : intensity === "soft" ? 0.08 : 0.14;
-  const mid = intensity === "warm" ? 0.12 : intensity === "soft" ? 0.04 : 0.08;
+  const background = useMemo(
+    () =>
+      tier === "dot"
+        ? bodyGradientPrimaryOnly(hue, intensity)
+        : bodyGradients(channelId, hue, intensity),
+    [channelId, hue, intensity, tier],
+  );
+  const particles = useMemo(() => {
+    if (tier === "dot") return [];
+    return bodyParticles(channelId, tier === "snapshot" ? 10 : 6);
+  }, [channelId, tier]);
+  const glowAlpha =
+    intensity === "warm" ? 0.22 : intensity === "soft" ? 0.06 : 0.12;
   return (
     <div
       aria-hidden
-      className="absolute inset-0 pointer-events-none"
+      className="absolute inset-0 pointer-events-none overflow-hidden"
       style={{
         borderRadius: radius,
-        background: `radial-gradient(ellipse at 50% 50%, hsla(${hue}, 60%, 60%, ${inner}) 0%, hsla(${hue}, 60%, 55%, ${mid}) 55%, transparent 100%)`,
-        boxShadow: `inset 0 0 24px hsla(${hue}, 60%, 65%, ${mid * 0.6})`,
+        backgroundImage: background,
+        boxShadow: `inset 0 0 28px hsla(${hue}, 60%, 65%, ${glowAlpha.toFixed(3)})`,
       }}
-    />
+    >
+      {particles.map((p, i) => (
+        <span
+          key={i}
+          className="absolute rounded-full bg-text/40"
+          style={{
+            left: `${p.x}%`,
+            top: `${p.y}%`,
+            width: p.size,
+            height: p.size,
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -204,7 +233,7 @@ function DotView({
   const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
   const dotScale = Math.min(5.2, Math.max(1, OVERVIEW_MIN_DOT_SCREEN_PX / (88 * effectiveScale)));
   const labelScale = Math.min(12, Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale)));
-  const radius = useMemo(() => organicBorderRadius(channel.id), [channel.id]);
+  const radius = useMemo(() => widerOrganicBorderRadius(channel.id), [channel.id]);
   return (
     <div
       data-tile-kind="channel"
@@ -255,7 +284,7 @@ function PreviewView({
       onDoubleClick={onDive}
       className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
-      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} />
+      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="preview" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-3">
         <div className="flex flex-row items-center gap-1.5 min-w-0">
           <ChannelGlyph icon={icon} size={14} />
@@ -294,7 +323,7 @@ function SnapshotView({
       onDoubleClick={onDive}
       className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
-      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} />
+      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="snapshot" />
       <div className="absolute inset-0 flex flex-col gap-1.5 p-4">
         <div className="flex flex-row items-center gap-2 min-w-0">
           <ChannelGlyph icon={icon} size={16} />

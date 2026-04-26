@@ -40,7 +40,6 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [E2E Testing](e2e-testing.md) | End-to-end test conventions |
 | [Excalidraw](excalidraw.md) | Hand-drawn diagram tools |
 | [Feature Status](feature-status.md) | Working feature inventory |
-| [Gmail](gmail.md) | Gmail integration specifics |
 | [Heartbeats](heartbeats.md) | Heartbeat / liveness model |
 | [Home Assistant](homeassistant.md) | HA integration + machine control |
 | [How Spindrel Works](how-spindrel-works.md) | High-level architectural overview |
@@ -65,7 +64,6 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [Usage and Billing](usage-and-billing.md) | Token / cost attribution |
 | [Webhooks](webhooks.md) | Lifecycle webhook forwarding |
 | [Widget Dashboards](widget-dashboards.md) | Channel dashboards + OmniPanel |
-| [Workflows](workflows.md) | Deprecated — superseded by task pipelines |
 
 ## Where else to look
 

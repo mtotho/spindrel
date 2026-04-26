@@ -3,7 +3,7 @@
 > **For the canonical contract + responsibility boundaries, see [`docs/guides/integrations.md`](../guides/integrations.md).** That page wins when it disagrees with this one. This page is the authoring walkthrough — step-by-step scaffolding, YAML key detail, and real examples.
 
 This guide explains how to create a new integration — a self-contained module that
-connects an external service (GitHub, Gmail, webhooks, etc.) to the agent server without
+connects an external service (GitHub, Slack, webhooks, etc.) to the agent server without
 touching core code.
 
 > **Architecture decisions and design philosophy** → see [Design Philosophy](design.md)
@@ -106,7 +106,7 @@ integrations/
 | `config.py` | No (imported by your code) | Integration-specific settings with DB-backed `get_value()` accessors |
 | `tools/*.py` | Yes — auto-discovered | Agent tools (underscore-prefixed files skipped) |
 | `skills/*.md` | Yes — synced at startup | Skill documents ingested into the skill system |
-| `setup.py` | *(legacy, deprecated)* | Old metadata format — use `integration.yaml` instead |
+| `setup.py` | *(no longer loaded)* | Legacy metadata format. All declarations live in `integration.yaml` now. |
 
 ---
 
@@ -889,33 +889,33 @@ agent-server env if auto-detection fails.
 For integrations that poll an external service (no inbound webhooks), the recommended
 pattern is a background process that calls the agent server's REST API.
 
-**Example: Gmail poller** (`integrations/gmail/poller.py`)
+**Example: Frigate MQTT listener** (`integrations/frigate/mqtt_listener.py`)
 
-The Gmail integration polls IMAP on an interval and injects messages via HTTP:
+The Frigate integration runs an MQTT listener as a sidecar process that fans events out into the agent server via HTTP:
 
 1. Declare the process in `integration.yaml`:
    ```yaml
    process:
-     cmd: ["python", "integrations/gmail/poller.py"]
-     description: "Gmail IMAP poller"
-     required_env: ["GMAIL_EMAIL", "GMAIL_APP_PASSWORD"]
+     cmd: ["python", "integrations/frigate/mqtt_listener.py"]
+     description: "Frigate MQTT event listener"
+     required_env: ["FRIGATE_MQTT_BROKER"]
    ```
 
-2. The poller loop fetches new items, then calls:
+2. The listener subscribes to MQTT topics, then calls:
    ```python
-   POST /api/v1/sessions/{session_id}/messages
-   {"content": "New email from ...", "source": "gmail", "run_agent": true}
+   POST /integrations/frigate/webhook
+   {"camera": "front-door", "label": "person", "score": 0.87, ...}
    ```
 
 3. Emit events for task triggers:
    ```python
    from integrations.sdk import emit_integration_event
-   emit_integration_event("gmail", "new_email", {"subject": "...", "from": "..."})
+   emit_integration_event("frigate", "object_detected", {"camera": "front-door", "label": "person"})
    ```
 
-This pattern provides process isolation (poller crash doesn't affect the server),
-works with external integrations (no `app/` imports needed in the poller), and
-scales naturally (run multiple pollers for different accounts).
+This pattern provides process isolation (listener crash doesn't affect the server),
+works with external integrations (no `app/` imports needed in the sidecar), and
+scales naturally (run multiple listeners for different sources).
 
 **Cooldowns**: `emit_integration_event` has per-category defaults to prevent spam:
 - `webhook`: 0s (every event fires)
@@ -927,59 +927,37 @@ Override via `cooldown=0` parameter if you need every event.
 
 ---
 
-## Setup Manifest (`setup.py`) *(legacy, deprecated)*
+## Manifest Field Detail
 
-> **Use `integration.yaml` instead.** `setup.py` is the legacy metadata format. Existing
-> integrations are being migrated to YAML. New integrations should not use `setup.py`.
+The reference at [integration.yaml Reference](#integrationyaml-reference) above shows the canonical shape. This section adds field-level detail for the entries with non-trivial structure (`settings`, `webhook`, `sidebar_section`, `dashboard_modules`, `tool_widgets`, `activation`).
 
-Each integration can provide a `setup.py` file with a `SETUP` dict that declares
-configuration, UI components, and capabilities. The admin UI reads this to render
-integration settings, sidebar navigation, and dashboard modules.
+> **Note:** the legacy `setup.py` / `SETUP` dict format is no longer loaded. Anything previously declared there now lives in `integration.yaml` under the equivalent key.
 
-### Basic structure
+### `settings` — UI-configurable env vars
 
-```python
-# integrations/myintegration/setup.py
+Declare the env vars your integration needs. The admin UI renders a settings form with set/unset status indicators.
 
-SETUP = {
-    "env_vars": [...],
-    "webhook": {...},
-    "sidebar_section": {...},
-    "dashboard_modules": [...],
-}
-```
-
-All fields are optional. The admin integration page auto-discovers `setup.py` and
-uses it to render the configuration UI.
-
-### `env_vars` — Environment variables
-
-Declare the env vars your integration needs. The admin UI renders a settings form
-with set/unset status indicators.
-
-```python
-"env_vars": [
-    {
-        "key": "MY_API_TOKEN",
-        "required": True,
-        "secret": True,
-        "description": "API token for the external service",
-    },
-    {
-        "key": "MY_PORT",
-        "required": False,
-        "description": "Port for the listener",
-        "default": "8080",
-    },
-],
+```yaml
+settings:
+  - key: MY_API_TOKEN
+    type: string
+    label: "API token for the external service"
+    required: true
+    secret: true
+  - key: MY_PORT
+    type: number
+    label: "Port for the listener"
+    required: false
+    default: "8080"
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `key` | `str` | Environment variable name |
-| `required` | `bool` | Whether the integration needs this to function |
-| `secret` | `bool` | If true, value is masked in the UI (optional, default false) |
-| `description` | `str` | Human-readable explanation |
+| `type` | `str` | `string` (default), `number`, `boolean`, `multiselect` |
+| `label` | `str` | Human-readable explanation shown in the UI |
+| `required` | `bool` | Whether the integration shows as "Not Configured" without it |
+| `secret` | `bool` | Mask value in UI and encrypt at rest (optional, default false) |
 | `default` | `str` | Default value if not set (optional) |
 
 Values are resolved in order: DB setting → environment variable → default.
@@ -989,11 +967,10 @@ Values are resolved in order: DB setting → environment variable → default.
 If your integration receives webhooks, declare the endpoint so the admin UI can
 display the full URL for users to configure in external services.
 
-```python
-"webhook": {
-    "path": "/integrations/myintegration/webhook",
-    "description": "Receives events from the external service",
-},
+```yaml
+webhook:
+  path: /integrations/myintegration/webhook
+  description: "Receives events from the external service"
 ```
 
 ### `sidebar_section` — Sidebar navigation
@@ -1002,19 +979,17 @@ Integrations can add a navigation section to the main sidebar. The UI fetches
 declared sections from `GET /api/v1/admin/integrations/sidebar-sections` and
 renders them dynamically.
 
-```python
-"sidebar_section": {
-    "id": "my-dashboard",                  # unique section ID
-    "title": "MY DASHBOARD",               # sidebar header text
-    "icon": "LayoutDashboard",             # lucide-react icon name
-    "items": [
-        {"label": "Overview",  "href": "/my-dashboard",          "icon": "LayoutDashboard"},
-        {"label": "Reports",   "href": "/my-dashboard/reports",  "icon": "BarChart3"},
-        {"label": "Settings",  "href": "/my-dashboard/settings", "icon": "Settings"},
-    ],
-    "readiness_endpoint": "/api/v1/my-dashboard/readiness",  # optional
-    "readiness_field": "overview",                            # optional
-},
+```yaml
+sidebar_section:
+  id: my-dashboard                       # unique section ID
+  title: MY DASHBOARD                    # sidebar header text
+  icon: LayoutDashboard                  # lucide-react icon name
+  items:
+    - { label: Overview, href: /my-dashboard,          icon: LayoutDashboard }
+    - { label: Reports,  href: /my-dashboard/reports,  icon: BarChart3 }
+    - { label: Settings, href: /my-dashboard/settings, icon: Settings }
+  readiness_endpoint: /api/v1/my-dashboard/readiness   # optional
+  readiness_field: overview                            # optional
 ```
 
 | Field | Type | Description |
@@ -1050,15 +1025,12 @@ integration's settings page).
 Integrations can register custom modules that appear on the Mission Control
 dashboard (or any integration-owned dashboard).
 
-```python
-"dashboard_modules": [
-    {
-        "id": "analytics",
-        "label": "Analytics",
-        "icon": "BarChart3",
-        "description": "Usage analytics and trends",
-    },
-],
+```yaml
+dashboard_modules:
+  - id: analytics
+    label: Analytics
+    icon: BarChart3
+    description: "Usage analytics and trends"
 ```
 
 | Field | Type | Description |
@@ -1229,12 +1201,9 @@ See `integrations/openweather/integration.yaml` for the full per-pin config +
 tiles + hover-reveal pattern, and `integrations/homeassistant/integration.yaml`
 for the shared `state_poll` + code transform + display_label pattern.
 
-### `activation` — Integration activation + template compatibility
+### `activation` — Integration activation
 
-Integrations can declare an activation manifest that auto-injects capabilities and
-declares template compatibility. See [Activation & Templates](activation-and-templates.md)
-for the full guide on capability injection, workspace template compatibility, versioning,
-and how to create compatible templates.
+Integrations declare an activation manifest that exposes the integration's tools to a channel when the user activates it. There is no separate capability bundle — declared tools become available, and integration-shipped skills enter the normal skill RAG pool. See [Activation & Templates](activation-and-templates.md) for the full guide on activation, workspace template compatibility, and versioning.
 
 ---
 

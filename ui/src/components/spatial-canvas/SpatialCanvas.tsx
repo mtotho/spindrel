@@ -10,7 +10,8 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import {
   DndContext,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useDraggable,
   useSensor,
   useSensors,
@@ -55,6 +56,8 @@ import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
+import { SpatialRadialMenu } from "./SpatialRadialMenu";
+import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
 import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
@@ -81,6 +84,10 @@ import {
   BOTS_VISIBLE_KEY,
   TRAILS_MODE_KEY,
   MINIMAP_VISIBLE_KEY,
+  LENS_HINT_SEEN_KEY,
+  DIVE_SCALE_THRESHOLD,
+  DIVE_DWELL_MS,
+  DIVE_VIEWPORT_MARGIN,
   LENS_NATIVE_FRACTION,
   LENS_SETTLE_MS,
   MAX_SCALE,
@@ -417,6 +424,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
   const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
   const [minimapVisible, setMinimapVisible] = useState<boolean>(loadMinimapVisible);
+  // Radial command menu (Q-key or long-press background). Single anchor in
+  // screen-space coords; null when closed. Top-of-document keyboard handler
+  // sets it; long-press timer in the touch path also sets it.
+  const [radialAnchor, setRadialAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Last-known cursor position for the Q keybind — the keybind has no event
+  // location (keyboard, not pointer), so we keep a passive ref updated by
+  // pointermove on the viewport. Falls back to viewport center.
+  const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
   // Right-click context menu — single instance at a time. `worldXY` is set
   // when the user right-clicks on the empty background so "Add widget here"
   // can drop the new pin at the click position rather than camera center.
@@ -791,10 +806,77 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         zoomAroundPoint(0.83, rect.width / 2, rect.height / 2);
         return;
       }
+      if (e.key === "q" || e.key === "Q") {
+        if (e.repeat || e.shiftKey) return;
+        e.preventDefault();
+        const rect = viewportRectRef.current;
+        const fallback = {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+        setRadialAnchor((curr) => (curr ? null : cursorPosRef.current ?? fallback));
+        return;
+      }
     }
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [diving, draggingNodeId, fitAllNodes, zoomAroundPoint]);
+
+  // Passive cursor tracker for the Q keybind anchor. Lives outside the
+  // pointer-handling paths so it never interferes with pan/drag.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      cursorPosRef.current = { x: e.clientX, y: e.clientY };
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
+  }, []);
+
+  // Touch long-press on canvas background → radial menu. Only fires when
+  // the press lands on the viewport background (not on a tile / chrome) and
+  // doesn't move > 8px during the 350ms hold. Tile long-press is owned by
+  // dnd-kit's TouchSensor — separable because the events fire on different
+  // elements.
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    let timer: number | null = null;
+    let startX = 0;
+    let startY = 0;
+    const cancel = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return;
+      const target = e.target as HTMLElement | null;
+      if (target && target.closest("[data-tile-kind]")) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      cancel();
+      timer = window.setTimeout(() => {
+        setRadialAnchor({ x: startX, y: startY });
+        timer = null;
+      }, 350);
+    };
+    const onMove = (e: PointerEvent) => {
+      if (timer === null) return;
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 8) cancel();
+    };
+    viewport.addEventListener("pointerdown", onDown);
+    viewport.addEventListener("pointermove", onMove);
+    viewport.addEventListener("pointerup", cancel);
+    viewport.addEventListener("pointercancel", cancel);
+    return () => {
+      cancel();
+      viewport.removeEventListener("pointerdown", onDown);
+      viewport.removeEventListener("pointermove", onMove);
+      viewport.removeEventListener("pointerup", cancel);
+      viewport.removeEventListener("pointercancel", cancel);
+    };
+  }, []);
 
   // Two-finger pinch zoom (mobile / trackpad). Captures all touch pointers on
   // the viewport regardless of whether they land on tiles or background, so a
@@ -926,6 +1008,88 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
+  // Push-through dive — sustained zoom into a channel tile triggers the same
+  // dive flow as double-click. Trigger condition (re-evaluated on every
+  // camera commit): scale >= DIVE_SCALE_THRESHOLD AND viewport center in
+  // the bounding box of exactly one channel tile (with margin). Dwell timer
+  // gives the user 450ms to back off — vignette + crosshair tighten as the
+  // timer progresses.
+  const [diveCandidate, setDiveCandidate] = useState<{
+    nodeId: string;
+    channelId: string;
+    label: string;
+    world: { x: number; y: number; w: number; h: number };
+  } | null>(null);
+  const [divePulseProgress, setDivePulseProgress] = useState(0);
+
+  useEffect(() => {
+    if (diving || draggingNodeId) {
+      setDiveCandidate(null);
+      return;
+    }
+    if (camera.scale < DIVE_SCALE_THRESHOLD) {
+      setDiveCandidate(null);
+      return;
+    }
+    const rect = viewportRectRef.current;
+    if (!rect.width || !rect.height) return;
+    // Viewport center → world coords.
+    const cx = (rect.width / 2 - camera.x) / camera.scale;
+    const cy = (rect.height / 2 - camera.y) / camera.scale;
+    let found: typeof diveCandidate = null;
+    for (const n of nodes ?? []) {
+      if (!n.channel_id) continue;
+      const padX = n.world_w * DIVE_VIEWPORT_MARGIN;
+      const padY = n.world_h * DIVE_VIEWPORT_MARGIN;
+      if (
+        cx >= n.world_x - padX
+        && cx <= n.world_x + n.world_w + padX
+        && cy >= n.world_y - padY
+        && cy <= n.world_y + n.world_h + padY
+      ) {
+        const channel = channelsById.get(n.channel_id);
+        const label = channel ? channel.display_name || channel.name : "channel";
+        found = {
+          nodeId: n.id,
+          channelId: n.channel_id,
+          label,
+          world: { x: n.world_x, y: n.world_y, w: n.world_w, h: n.world_h },
+        };
+        break;
+      }
+    }
+    setDiveCandidate((curr) => {
+      if (!found) return null;
+      if (curr && curr.nodeId === found.nodeId) return curr;
+      return found;
+    });
+  }, [camera, nodes, channelsById, diving, draggingNodeId]);
+
+  // Dwell timer + smooth progress tween. Restarts whenever the candidate
+  // changes (or first appears). Cancels cleanly on candidate clear.
+  useEffect(() => {
+    if (!diveCandidate) {
+      setDivePulseProgress(0);
+      return;
+    }
+    let raf: number | null = null;
+    const start = performance.now();
+    const tick = (t: number) => {
+      const elapsed = t - start;
+      const progress = Math.min(1, elapsed / DIVE_DWELL_MS);
+      setDivePulseProgress(progress);
+      if (progress >= 1) {
+        diveToChannel(diveCandidate.channelId, diveCandidate.world);
+        return;
+      }
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+    return () => {
+      if (raf !== null) window.cancelAnimationFrame(raf);
+    };
+  }, [diveCandidate, diveToChannel]);
+
   // Pan + scale the camera to a single channel tile (Cmd+K override target).
   // Same scale-derivation pattern as `diveToChannel` but capped at scale 1.0
   // so the user lands at the channel's "preview" zoom — readable but not
@@ -1049,8 +1213,16 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // dnd-kit sensor with a modest activation distance so exploratory clicks
   // and tiny pointer drift pan/select space instead of immediately moving a
   // nearby tile.
+  // Split sensors so mouse vs touch can have different activation gates.
+  // Mouse: 8px movement = drag (current behavior).
+  // Touch: 350ms long-press, max 8px wobble during the press = drag arms.
+  // This stops accidental tile drags during a finger-swipe pan on mobile —
+  // the user must intentionally hold a tile to start moving it. Keeps the
+  // background-long-press radial menu unaffected because that listener is
+  // scoped to the viewport background (not delegated through dnd-kit).
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 350, tolerance: 8 } }),
   );
 
   const handleDragStart = useCallback((e: DragStartEvent) => {
@@ -1859,30 +2031,56 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
           })}
         </div>
       </DndContext>
-      <LensHint engaged={lensEngaged} />
-      <UsageDensityChrome
-        intensity={densityIntensity}
-        onCycleIntensity={cycleDensityIntensity}
-        window={densityWindow}
-        onWindowChange={setDensityWindow}
-        compare={densityCompare}
-        onCompareChange={setDensityCompare}
-        animate={densityAnimate}
-        onAnimateChange={setDensityAnimate}
-        connectionsEnabled={connectionsEnabled}
-        onConnectionsToggle={() => setConnectionsEnabled((v) => !v)}
-        botsVisible={botsVisible}
-        onBotsVisibleChange={setBotsVisible}
-        botsReduced={botsReduced}
-        onBotsReducedChange={setBotsReduced}
-      />
-      <div className="absolute bottom-4 right-4 z-[2] flex flex-row items-center gap-2">
+      <LensHint />
+      {diveCandidate && (
+        <DivePulseOverlay channelLabel={diveCandidate.label} progress={divePulseProgress} />
+      )}
+      <div
+        className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
         <AddWidgetButton onClick={() => setLibraryOpen(true)} />
-        <TrailsButton mode={trailsMode} onCycle={cycleTrailsMode} />
-        <MapButton visible={minimapVisible} onToggle={() => setMinimapVisible((v) => !v)} />
-        <NowButton onClick={flyToWell} />
-        <RecenterButton onClick={() => scheduleCamera(DEFAULT_CAMERA, "immediate")} />
+        <UsageDensityChrome
+          intensity={densityIntensity}
+          onCycleIntensity={cycleDensityIntensity}
+          window={densityWindow}
+          onWindowChange={setDensityWindow}
+          compare={densityCompare}
+          onCompareChange={setDensityCompare}
+          animate={densityAnimate}
+          onAnimateChange={setDensityAnimate}
+          connectionsEnabled={connectionsEnabled}
+          onConnectionsToggle={() => setConnectionsEnabled((v) => !v)}
+          botsVisible={botsVisible}
+          onBotsVisibleChange={setBotsVisible}
+          botsReduced={botsReduced}
+          onBotsReducedChange={setBotsReduced}
+        />
+        <ShortcutChip />
       </div>
+      {radialAnchor && (
+        <SpatialRadialMenu
+          anchor={radialAnchor}
+          state={{
+            activity: densityIntensity,
+            trails: trailsMode,
+            lines: connectionsEnabled,
+            map: minimapVisible,
+            bots: botsVisible,
+          }}
+          actions={{
+            recenter: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
+            fitAll: () => fitAllNodes(),
+            flyToNow: () => flyToWell(),
+            cycleActivity: () => cycleDensityIntensity(),
+            cycleTrails: () => cycleTrailsMode(),
+            toggleLines: () => setConnectionsEnabled((v) => !v),
+            toggleMap: () => setMinimapVisible((v) => !v),
+            toggleBots: () => setBotsVisible((v) => !v),
+          }}
+          onClose={() => setRadialAnchor(null)}
+        />
+      )}
       {minimapVisible && (
         <Minimap
           camera={camera}
@@ -2021,69 +2219,7 @@ function AddWidgetButton({ onClick }: { onClick: () => void }) {
       className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-accent text-xs cursor-pointer"
     >
       <LayoutGrid size={13} />
-      <span>Add</span>
-    </button>
-  );
-}
-
-function TrailsButton({ mode, onCycle }: { mode: TrailsMode; onCycle: () => void }) {
-  // Three states: off / hover / all. Visual: dim icon when off, normal when
-  // hover-only (the default), accent-colored when always-on. Title text
-  // explains the cycle so the affordance is discoverable.
-  const colorClass =
-    mode === "off"
-      ? "text-text-dim/40"
-      : mode === "all"
-      ? "text-accent"
-      : "text-text-dim hover:text-accent";
-  const labelText =
-    mode === "off" ? "Trails: off" : mode === "all" ? "Trails: all" : "Trails: hover";
-  return (
-    <button
-      type="button"
-      onClick={onCycle}
-      onPointerDown={(e) => e.stopPropagation()}
-      title={`Movement trails — ${mode}. Click to cycle (off → hover → all).`}
-      aria-label={labelText}
-      className={`flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-xs cursor-pointer ${colorClass}`}
-    >
-      <Footprints size={13} />
-      <span>Trails</span>
-    </button>
-  );
-}
-
-function NowButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      onPointerDown={(e) => e.stopPropagation()}
-      title="Fly to Now Well (scheduled work)"
-      aria-label="Fly to Now Well"
-      className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-accent text-xs cursor-pointer"
-    >
-      <span className="text-sm leading-none">◎</span>
-      <span>Now</span>
-    </button>
-  );
-}
-
-function MapButton({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      onPointerDown={(e) => e.stopPropagation()}
-      title={visible ? "Hide minimap" : "Show minimap"}
-      aria-label={visible ? "Hide minimap" : "Show minimap"}
-      aria-pressed={visible}
-      className={`flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-xs cursor-pointer ${
-        visible ? "text-accent" : "text-text-dim/60 hover:text-text-dim"
-      }`}
-    >
-      <Locate size={13} />
-      <span>Map</span>
+      <span className="hidden sm:inline">Add</span>
     </button>
   );
 }
@@ -2390,47 +2526,115 @@ function OriginMarker() {
 }
 
 /**
- * Bottom-left hint pill — surfaces the otherwise-invisible "hold Space to
- * focus" gesture. Switches to an active state while the user is holding so
- * they can confirm the lens is actually engaged. Static (doesn't auto-hide)
- * because there's no other surface advertising the gesture.
+ * Bottom-left onboarding pill — flashes the "hold Space to focus" gesture
+ * exactly once per browser, then never again. localStorage flag
+ * `LENS_HINT_SEEN_KEY` records that the user has seen it. The permanent
+ * home for keyboard shortcut reference is the `<ShortcutChip />` top-right.
  */
-function LensHint({ engaged }: { engaged: boolean }) {
-  const base =
-    "absolute bottom-4 left-4 z-[2] flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md backdrop-blur border text-xs select-none pointer-events-none";
-  const idle =
-    "bg-surface-raised/85 border-surface-border text-text-dim";
-  const active =
-    "bg-accent/15 border-accent/60 text-accent";
+function LensHint() {
+  const [visible, setVisible] = useState(false);
+  const [opacity, setOpacity] = useState(0);
+  useEffect(() => {
+    let seen = false;
+    try {
+      seen = localStorage.getItem(LENS_HINT_SEEN_KEY) === "1";
+    } catch {
+      /* storage disabled — show every time */
+    }
+    if (seen) return;
+    setVisible(true);
+    // Two-step fade: appear at 95% opacity, then ramp to 0 after 4500ms.
+    const inT = window.setTimeout(() => setOpacity(0.95), 30);
+    const outT = window.setTimeout(() => setOpacity(0), 4500);
+    const removeT = window.setTimeout(() => {
+      setVisible(false);
+      try {
+        localStorage.setItem(LENS_HINT_SEEN_KEY, "1");
+      } catch {
+        /* ignore */
+      }
+    }, 6000);
+    return () => {
+      window.clearTimeout(inT);
+      window.clearTimeout(outT);
+      window.clearTimeout(removeT);
+    };
+  }, []);
+  if (!visible) return null;
   return (
-    <div className={`${base} ${engaged ? active : idle}`} aria-live="polite">
-      <kbd
-        className={`rounded px-1.5 py-0 font-mono text-[10px] leading-tight ${
-          engaged
-            ? "border border-accent/40 bg-accent/[0.08] text-accent"
-            : "border border-surface-border bg-surface-overlay/70 text-text-muted"
-        }`}
-      >
+    <div
+      className="absolute bottom-4 left-4 z-[2] flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md backdrop-blur border bg-surface-raised/85 border-surface-border text-text-dim text-xs select-none pointer-events-none"
+      style={{ opacity, transition: "opacity 600ms ease-out" }}
+      aria-live="polite"
+    >
+      <kbd className="rounded px-1.5 py-0 font-mono text-[10px] leading-tight border border-surface-border bg-surface-overlay/70 text-text-muted">
         Space
       </kbd>
-      <span>{engaged ? "focusing" : "hold to focus"}</span>
+      <span>hold to focus</span>
     </div>
   );
 }
 
-function RecenterButton({ onClick }: { onClick: () => void }) {
+/**
+ * Tiny `[⌘ Q]` indicator top-right — opens a popover listing every keyboard
+ * shortcut on hover or focus. Discoverability home for the otherwise-hidden
+ * shortcuts (Q for radial menu, Space for lens, F for fit-all, etc.).
+ */
+function ShortcutChip() {
+  const [open, setOpen] = useState(false);
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      onPointerDown={(e) => e.stopPropagation()}
-      title="Recenter (return to origin)"
-      aria-label="Recenter canvas"
-      className="flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-text text-xs cursor-pointer"
+    <div
+      className="relative"
+      onPointerEnter={() => setOpen(true)}
+      onPointerLeave={() => setOpen(false)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
     >
-      <span className="text-sm leading-none">⌂</span>
-      <span>Recenter</span>
-    </button>
+      <button
+        type="button"
+        aria-label="Keyboard shortcuts"
+        className="flex flex-row items-center gap-1 px-2 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-text-dim hover:text-text text-[11px] font-mono cursor-default"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <span>⌘</span>
+        <span>Q</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+6px)] z-[3] flex flex-col gap-1 px-3 py-2.5 rounded-md bg-surface-raised/95 backdrop-blur border border-surface-border text-[11px] text-text-dim min-w-[240px] shadow-lg">
+          <div className="text-[10px] uppercase tracking-wider text-text-muted mb-1">
+            Keyboard
+          </div>
+          <ShortcutRow keys={["Q"]} label="Open command menu" />
+          <ShortcutRow keys={["Space"]} label="Focus lens (hold)" />
+          <ShortcutRow keys={["F"]} label="Fit all to viewport" />
+          <ShortcutRow keys={["+", "−"]} label="Zoom in / out" />
+          <ShortcutRow keys={["Esc"]} label="Close overlay or menu" />
+          <div className="text-[10px] uppercase tracking-wider text-text-muted mt-2 mb-1">
+            Pointer
+          </div>
+          <ShortcutRow keys={["Right-click"]} label="Context menu on tile" />
+          <ShortcutRow keys={["Long-press"]} label="Touch: command menu / drag tile" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShortcutRow({ keys, label }: { keys: string[]; label: string }) {
+  return (
+    <div className="flex flex-row items-center gap-2">
+      <div className="flex flex-row gap-1">
+        {keys.map((k, i) => (
+          <kbd
+            key={i}
+            className="rounded px-1.5 py-0 font-mono text-[10px] leading-tight border border-surface-border bg-surface-overlay/70 text-text-muted"
+          >
+            {k}
+          </kbd>
+        ))}
+      </div>
+      <span>{label}</span>
+    </div>
   );
 }
 

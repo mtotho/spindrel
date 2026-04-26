@@ -2,7 +2,17 @@
 
 ![Tools admin — every registered tool grouped by source (local / integration / MCP)](../images/tools-library.png)
 
-This guide covers creating your own tools, managing a personal extensions repo, and loading external capabilities and tools into Spindrel.
+This guide covers creating your own tools and managing a personal extensions repo of tools and skills.
+
+There are three escalation tiers, and you should pick the lowest one that does what you need:
+
+| Tier | Where the file lives | When to use |
+|---|---|---|
+| **Drop-in tool** | `tools/` at the repo root (or any directory in `TOOL_DIRS`) | One file, no settings UI, no skills bundled. The shortest path. |
+| **Personal extensions repo** | `INTEGRATION_DIRS=/path/to/repo`, with each subdir an integration that ships `tools/`, `skills/`, and an `integration.yaml` | You want admin-UI settings, you're packaging multiple tools + skills together, or you want to share the bundle. |
+| **Full integration** | Same layout as a personal extension, plus `router.py` / dispatcher / process / hooks | Webhooks, background processes, custom UI surfaces. See [Creating Integrations](../integrations/index.md). |
+
+> **Note on `setup.py`:** the legacy `setup.py` / `SETUP` dict format is no longer loaded. New extensions and integrations declare everything in `integration.yaml`.
 
 ---
 
@@ -92,7 +102,7 @@ async def get_weather(city: str, units: str = "imperial") -> str:
     })
 ```
 
-This quick-start approach uses `os.getenv()` — simple and works if you set values in `.env`. For UI-configurable settings, see the [Personal Extensions Repo](#personal-extensions-repo) section below which uses `setup.py` + the `_setting()` helper.
+This quick-start approach uses `os.getenv()` — simple and works if you set values in `.env`. For UI-configurable settings, see the [Personal Extensions Repo](#personal-extensions-repo) section below — that path uses an `integration.yaml` `settings:` block plus the `get_settings()` helper.
 
 Restart the server and the tool is available to any bot.
 
@@ -152,7 +162,7 @@ The recommended way to manage your own tools and skills is to create a separate 
 my-spindrel-extensions/
 ├── .gitignore
 └── my-tools/                    ← this becomes an integration named "my-tools"
-    ├── setup.py                 ← declares settings (shows up in Admin > Integrations)
+    ├── integration.yaml         ← declares id, settings, deps (shows up in Admin > Integrations)
     ├── tools/
     │   └── weather.py           ← auto-discovered tool
     └── skills/
@@ -160,7 +170,7 @@ my-spindrel-extensions/
         └── smart-home.md        ← integration-shipped domain skill
 ```
 
-`INTEGRATION_DIRS` points to the **parent** directory (`my-spindrel-extensions/`). Each subdirectory inside it becomes a discoverable integration.
+`INTEGRATION_DIRS` points to the **parent** directory (`my-spindrel-extensions/`). Each subdirectory inside it becomes a discoverable integration. The integration's `id` comes from the directory name unless overridden in `integration.yaml`.
 
 ### 2. Create every file
 
@@ -288,10 +298,10 @@ description: Smart-home device control patterns, routines, and troubleshooting.
 - Automation not firing: check conditions, time ranges, entity IDs
 ```
 
-!!! tip "Shipped Home Assistant capability"
-    Spindrel ships Home Assistant tooling plus related skills already. Enable the Home Assistant integration on the channel and make sure the relevant tools or MCP servers are available before building your own version.
+!!! tip "Shipped Home Assistant integration"
+    Spindrel already ships a Home Assistant integration with tools, widgets, and a skill pack. Enable it on the channel and confirm the relevant tools or MCP servers are available before building your own version.
 
-**`my-tools/skills/cooking-tips.md`** — A standalone skill (not part of a capability).
+**`my-tools/skills/cooking-tips.md`** — A standalone skill.
 
 ```markdown
 # Cooking Tips
@@ -332,25 +342,29 @@ Add the key to Spindrel's main `.env` and restart:
 OPENWEATHERMAP_API_KEY=your-key-here
 ```
 
-Tools using `os.getenv()` pick it up automatically. No `setup.py` needed. This is the simplest approach if you're the only user.
+Tools using `os.getenv()` pick it up automatically. No `integration.yaml` needed. This is the simplest approach if you're the only user.
 
 **Option B: Admin UI (no file editing)**
 
-Add a `setup.py` to your extension to declare what settings it needs:
+Add an `integration.yaml` to your extension to declare what settings it needs:
 
-```python
-# my-tools/setup.py
-SETUP = {
-    "icon": "Wrench",
-    "env_vars": [
-        {
-            "key": "OPENWEATHERMAP_API_KEY",
-            "required": False,
-            "description": "API key from openweathermap.org (free tier works)",
-            "secret": True,
-        },
-    ],
-}
+```yaml
+# my-tools/integration.yaml
+id: my-tools
+name: My Tools
+icon: Wrench
+version: "1.0"
+
+settings:
+  - key: OPENWEATHERMAP_API_KEY
+    type: string
+    label: "API key from openweathermap.org (free tier works)"
+    required: false
+    secret: true
+
+provides:
+  - tools
+  - skills
 ```
 
 Your extension gets a settings panel in **Admin > Integrations** where you can set API keys from the UI. Secrets are encrypted at rest.
@@ -370,7 +384,7 @@ async def my_tool() -> str:
 
 `get_settings()` is called at module level and automatically knows which integration the tool belongs to. It checks DB (admin UI values) first, then falls back to `os.environ` (`.env` values). Both configuration methods work simultaneously — DB takes priority.
 
-**Which should I use?** If you're the only user and comfortable editing `.env`, Option A is fine. If you want a settings UI, want secrets encrypted, or are sharing the extension with others, add the `setup.py` (Option B).
+**Which should I use?** If you're the only user and comfortable editing `.env`, Option A is fine. If you want a settings UI, want secrets encrypted, or are sharing the extension with others, add the `integration.yaml` (Option B).
 
 ### 5. Use it
 
@@ -404,20 +418,22 @@ Colon-separate paths to load from multiple locations:
 INTEGRATION_DIRS=/home/you/personal-extensions:/home/you/work-extensions
 ```
 
-### setup.py Reference
+### `integration.yaml` Reference
 
-The `SETUP` dict controls what appears in the Admin UI for your extension.
+The YAML manifest controls what appears in the Admin UI for your extension.
 
-**`env_vars` fields:**
+**`settings:` entries** (one per UI-configurable env var):
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `key` | string | Environment variable name |
+| `type` | string | `string`, `number`, `bool`, or `multiselect`. Default `string`. |
+| `label` | string | Help text shown in the settings UI |
 | `required` | bool | Whether the integration shows as "Not Configured" without it |
-| `description` | string | Help text shown in the settings UI |
 | `secret` | bool | If `true`, value is masked in the UI and encrypted at rest |
+| `default` | any | Default value if neither DB nor env override |
 
-**Other optional `SETUP` fields:** `icon`, `webhook`, `binding`, `sidebar_section`, `dashboard_modules`, `activation`. See [Creating Integrations](../integrations/index.md) for the full manifest reference.
+**Other optional top-level fields:** `icon`, `description`, `webhook`, `binding`, `events`, `capabilities`, `provides`, `dependencies`, `tool_widgets`, `activation`, `process`. See [Creating Integrations](../integrations/index.md) for the full manifest reference.
 
 > **Tip:** Check **Admin > Integrations** to see your extension and **Admin > Skills** to see discovered skills and folder groupings.
 
@@ -431,11 +447,11 @@ The short version: add any of these optional files to your extension directory:
 
 | File | What it adds |
 |------|-------------|
-| `setup.py` | Env var declarations, sidebar section, dashboard modules |
+| `integration.yaml` | Manifest: id, settings, deps, capabilities, binding, events, activation |
 | `router.py` | HTTP endpoints (webhooks, config API) |
-| `dispatcher.py` | Result delivery to external services |
+| `renderer.py` | Result delivery to external services (transports / dispatchers) |
 | `hooks.py` | Lifecycle event handlers |
-| `process.py` | Background process (auto-started) |
+| `process.py` | Background process (auto-started, declared in `integration.yaml: process:`) |
 
 ---
 

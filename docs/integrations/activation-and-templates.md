@@ -43,30 +43,39 @@ Created via the admin UI template editor.
 
 ---
 
-## Worked Example — Mission Control
+## Worked Example — GitHub
 
-### 1. Activation manifest (`integrations/mission_control/setup.py`)
+### 1. Activation manifest (`integrations/github/integration.yaml`)
 
-```python
-SETUP = {
-    "version": "1.0",
-    "activation": {
-        "tools": ["create_task_card", "move_task_card"],
-        "requires_workspace": True,
-    },
-}
+```yaml
+id: github
+name: GitHub
+version: "1.0"
+
+activation:
+  requires_workspace: false
+  description: "GitHub repository management — PR reviews, issue tracking, code push events, and release monitoring"
+
+provides:
+  - target
+  - renderer
+  - router
+  - tools
+  - skills
 ```
+
+`provides` lists what the integration ships. Tools listed under `provides: [tools]` are auto-discovered from `integrations/github/tools/`; skills come from `integrations/github/skills/`. There is no separate capability bundle — declared tools are exposed when the channel activates the integration, and skills enter the normal skill RAG pool.
 
 ### 2. Integration assets
 
-Mission Control ships its tools directly, plus normal skills and prompt/template content that teach the bot both the MC protocol and the workspace file organization.
+GitHub ships its tools directly (PR ops, issue ops, release ops), plus normal skill packs that teach the bot the GitHub conventions. Skills are retrieved on demand via RAG, not pinned per channel.
 
 ### 3. User flow
 
-1. User activates Mission Control on a channel
-2. Tool activation adds MC tools automatically
-3. Bot knows how to create task boards, manage plans, and organize workspace files — no template selection needed
-4. Power users can optionally link a template in advanced settings to override the default file organization
+1. User activates GitHub on a channel
+2. The integration's declared tools become available on that channel
+3. The skill pack surfaces in RAG when the bot is reasoning about repos or PRs
+4. Power users can optionally link a workspace schema template (e.g. DevOps) in advanced settings to override the default file organization
 
 ---
 
@@ -95,7 +104,7 @@ Mission Control ships its tools directly, plus normal skills and prompt/template
 ## Integration Versioning
 
 - **Purpose:** Human-readable identifier for integration revisions
-- **Declared in:** `SETUP["version"]` in `setup.py`
+- **Declared in:** top-level `version:` field in `integration.yaml`
 - **Exposed via:** Available integrations API (`version` field) and admin UI
 - **Convention:** `"MAJOR.MINOR"` — no semver enforcement, no runtime compatibility checks
 - **Used for:** UI display, documentation, debugging

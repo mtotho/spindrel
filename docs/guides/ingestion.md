@@ -223,7 +223,7 @@ Each integration gets its own SQLite database (e.g. `~/.agent-workspaces/.ingest
 
 ### Bot Tool: `query_feed_store`
 
-Bots can query feed stores directly using the `query_feed_store` tool. This is available when the `gmail-feeds` or `mission-control` capability is active.
+Bots can query feed stores directly using the `query_feed_store` tool. It's available wherever the ingestion or mission-control integrations expose tools on the channel.
 
 | Action | Description |
 |---|---|
@@ -258,18 +258,6 @@ sqlite3 ~/.agent-workspaces/.ingestion/myfeed.db \
 
 # Purge old quarantine entries (done programmatically via store.purge_quarantine())
 ```
-
-### Email Triage Template
-
-The Gmail integration ships an **Email Triage & Digest** workspace template (`email-digest`) that teaches bots a structured triage protocol:
-
-- **Triage categories**: Urgent, Action Required, Projects/Threads, FYI, Low Priority
-- **Workspace files**: `triage.md` (categorized log), `actions.md` (extracted action items), `digest.md` (summary), `feeds.md` (rules)
-- **Action extraction**: Automatic detection of deadlines, reply requests, approvals, assignments
-- **MC integration**: Creates task cards from actionable emails, logs triage to timeline
-- **Heartbeat-ready**: Template includes suggested heartbeat config for automated digest generation
-
-Activate Gmail on a channel and select the "Email Triage & Digest" template to get the full protocol.
 
 ## Admin UI
 
@@ -324,12 +312,8 @@ finally:
     store.close()
 ```
 
-If your feed holds a connection (like IMAP), add a `_disconnect()` method and call it in the `finally` block too. See `integrations/gmail/feed.py` for an example.
+If your feed holds a connection (like IMAP), add a `_disconnect()` method and call it in the `finally` block too.
 
 ## Existing Integrations
 
-| Integration | Feed class | Source |
-|---|---|---|
-| Gmail | `GmailFeed` | IMAP polling with cursor-based resume |
-
-See [Gmail Integration Guide](gmail.md) for the full setup walkthrough.
+The ingestion framework is general-purpose. New feeds (RSS, webhook, queue listeners) drop in by subclassing `ContentFeed` and registering through the integration's `setup` hook.

@@ -49,7 +49,7 @@ The JSON body has this structure:
 | `context.session_id` | string\|null | Active session UUID |
 | `context.channel_id` | string\|null | Channel UUID |
 | `context.client_id` | string\|null | Integration client ID (e.g. `slack:C01234567`) |
-| `context.correlation_id` | string\|null | Task/workflow correlation ID |
+| `context.correlation_id` | string\|null | Task / pipeline run correlation ID |
 | `data` | object | Event-specific fields (see below) |
 
 ## Signature Verification
@@ -98,7 +98,6 @@ function verifySignature(body, secret, signatureHeader) {
 | `after_tool_call` | After a tool completes | `tool_name`, `tool_args`, `duration_ms` |
 | `after_response` | After agent produces final response | `response_length`, `tool_calls_made` (or `error: true` on failure) |
 | `after_task_complete` | After a scheduled/deferred task finishes | `task_id`, `task_type`, `status` |
-| `after_workflow_step` | After a workflow step completes | `workflow_id`, `run_id`, `step_index` |
 | `before_transcription` | Before audio transcription | `audio_format`, `audio_size_bytes` |
 
 ## Retry Behavior

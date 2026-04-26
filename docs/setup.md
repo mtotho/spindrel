@@ -40,18 +40,6 @@ The setup wizard is an interactive TUI that checks these prerequisites, then wal
 4. **Web search backend** — SearXNG (built-in or external), DuckDuckGo, or disabled
 5. **API authentication** — Auto-generate a random key or enter your own
 
-![Setup wizard — provider selection](images/setup-1.png)
-*The setup wizard checks prerequisites and lets you pick an LLM provider.*
-
-![Model selection](images/setup-3-modelname.png)
-*Choose a default model (provider-specific list with custom option).*
-
-![Web search configuration](images/setup-4-websearch-select.png)
-*Configure web search — SearXNG (self-hosted), DuckDuckGo, or disabled.*
-
-![Starting services](images/setup-5-start.png)
-*The wizard generates `.env` and starts Docker services.*
-
 The wizard generates `.env` and a `provider-seed.yaml` file. On first server boot, the seed file is consumed to create a typed provider in the database — giving you full driver features (model management, connection testing, model pull/delete for Ollama). The whole process takes about 60 seconds.
 
 ### After setup
@@ -371,22 +359,23 @@ Integration processes (Slack bot, Frigate listener, etc.) auto-start when their 
 
 ### Activating on a Channel
 
-Once an integration is enabled, you can **activate** it on individual channels to inject its tools, skills, and behavioral instructions automatically:
+Once an integration is enabled, you can **activate** it on individual channels to expose its tools to the bot on that channel:
 
 1. Open a channel and go to the **Integrations** tab
 2. Click **Activate** on the integration
-3. The integration's capability is injected — the bot gains new capabilities for this channel only
+3. The integration's tools become available on that channel; integration-shipped skills remain in the normal skill RAG pool
 
-For example, activating Home Assistant gives the bot device-control tools, widget templates,
-and smart-home skills without manually wiring them onto the bot.
+There is no separate "capability bundle" — activation flips a per-channel flag and the integration's declared tools are exposed. Any related guidance lives in normal skills or prompt templates and is retrieved via the regular skill system.
 
-### Workspace Templates
+For example, activating Home Assistant gives the bot device-control tools and widget templates on that channel only; the HA skill pack teaches it the entity-targeting grammar via RAG whenever it's a likely match.
 
-Integrations can ship workspace templates that define file structures compatible with their tools. After activating an integration:
+### Workspace Schema Templates
+
+Workspace schema templates define file structures (`tasks.md`, `status.md`, …) for a channel's workspace. They are optional and independent of integration activation.
 
 1. Go to the channel's **Workspace** tab
-2. Compatible templates appear under **Suggested schemas** with a green badge
-3. Pick one — the bot now knows how to organize workspace files in the right format
+2. Expand **Advanced Workspace Settings** and link a template under **Organization Template**
+3. The bot uses that structure when creating workspace files
 
 See the [Templates & Activation guide](guides/templates-and-activation.md) for the full walkthrough.
 
@@ -482,7 +471,6 @@ agent-server/
 │   ├── slack/             # Slack integration
 │   ├── github/            # GitHub webhooks
 │   ├── discord/           # Discord integration
-│   ├── gmail/             # Gmail IMAP polling
 │   ├── frigate/           # Frigate NVR
 │   ├── browser_live/      # Real-browser automation via paired Chrome extension
 │   ├── local_companion/   # Paired local-machine shell control via session leases

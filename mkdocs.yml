@@ -76,7 +76,6 @@ nav:
     - Lifecycle Webhooks: guides/webhooks.md
     - Agent Client: guides/clients.md
     - E2E Testing: guides/e2e-testing.md
-    - Workflows (deprecated): guides/workflows.md
   - Integrations:
     - Creating an Integration: integrations/index.md
     - Example Integration: integrations/example.md

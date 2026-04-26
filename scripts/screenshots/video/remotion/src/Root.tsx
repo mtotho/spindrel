@@ -26,9 +26,22 @@ const FALLBACK_PROPS: StoryboardProps = {
 
 const calcDurationInFrames = (props: StoryboardProps): number => {
   const fps = props.meta.fps;
-  const total = props.scenes.reduce((sum, s) => sum + s.duration, 0);
+  // Crossfades overlap with the prior scene by transitionFrames (mirrors
+  // the cursor logic in Quickstart.tsx). Without subtracting the overlap
+  // the Composition runs past the last scene's end and trails on black.
+  const transitionFrames = Math.round(
+    (props.meta.transition === "crossfade"
+      ? props.meta.transition_duration
+      : 0) * fps,
+  );
+  const sumFrames = props.scenes.reduce(
+    (sum, s) => sum + Math.max(1, Math.round(s.duration * fps)),
+    0,
+  );
+  const overlapCount = Math.max(0, props.scenes.length - 1);
+  const total = sumFrames - overlapCount * transitionFrames;
   // At least 1 frame so Composition stays valid when an empty inputProps is rendered in studio.
-  return Math.max(1, Math.round(total * fps));
+  return Math.max(1, total);
 };
 
 export const Root: React.FC = () => {

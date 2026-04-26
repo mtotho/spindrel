@@ -46,7 +46,7 @@ Tool results become **live, interactive control surfaces**. Pin them to a **chan
 
 ### Task Pipelines + Sub-Sessions
 
-Reusable multi-step automations defined as `Task` rows: `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps with conditions, parameters, approval gates, and cross-bot delegation. Pipeline runs render as a **chat-native sub-session** — a modal or docked transcript showing every step's LLM thinking, tool widgets, and output. Bind pipelines to a channel with per-channel cron schedules. Five built-in bot audit pipelines (`analyze_discovery`, `analyze_skill_quality`, `analyze_memory_quality`, `analyze_tool_usage`, `analyze_costs`) let bots self-tune.
+Reusable multi-step automations defined as `Task` rows: `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps with conditions, parameters, approval gates, and cross-bot delegation. Pipeline runs render as a **chat-native sub-session** — a modal or docked transcript showing every step's LLM thinking, tool widgets, and output. Bind pipelines to a channel with per-channel cron schedules. The `analyze_discovery` audit pipeline lets bots self-inspect their own tool/skill discovery quality.
 
 ### Workspace Memory + Conversation Continuity
 

@@ -28,6 +28,16 @@ export const BOTS_VISIBLE_KEY = "spatial.bots.visible";
 export const BOTS_REDUCED_KEY = "spatial.bots.reduced";
 export const TRAILS_MODE_KEY = "spatial.trails.mode";
 export const MINIMAP_VISIBLE_KEY = "spatial.minimap.visible";
+export const LENS_HINT_SEEN_KEY = "spatial.onboarding.lensHintSeen";
+
+// Push-through dive — tunables for the continuous-zoom-into-channel gesture.
+// User keeps zooming in on a channel tile; once `camera.scale` crosses
+// `DIVE_SCALE_THRESHOLD` AND the viewport center sits inside the tile's
+// padded bbox, a `DIVE_DWELL_MS`-long timer arms the dive. Cancel by
+// zooming out, panning the center off the tile, or starting a drag.
+export const DIVE_SCALE_THRESHOLD = MAX_SCALE * 0.85;
+export const DIVE_DWELL_MS = 450;
+export const DIVE_VIEWPORT_MARGIN = 0.2;
 
 export type TrailsMode = "off" | "hover" | "all";
 

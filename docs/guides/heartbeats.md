@@ -151,19 +151,6 @@ repetition_detection: true|false
 
 ---
 
-## Workflow Triggers (deprecated)
-
-Heartbeats can trigger a **workflow** on schedule by setting `workflow_id` on the heartbeat config:
-
-```
-workflow_id: daily-report
-workflow_session_mode: isolated
-interval_minutes: 1440           # Once per day
-```
-
-!!! warning "Deprecated"
-    Workflows are deprecated — see [Pipelines](pipelines.md). The `workflow_id` field is retained so legacy heartbeats keep working, but new automations should launch a pipeline from the heartbeat prompt instead (see below).
-
 ## Launching Pipelines from Heartbeats
 
 To run a pipeline on schedule, keep the heartbeat in prompt mode and have the bot call `run_pipeline` from its prompt:
@@ -174,7 +161,7 @@ prompt: |
   Use run_pipeline(pipeline_id="daily-report", channel_id=<this channel>).
 ```
 
-Benefits over the legacy `workflow_id` field:
+Why heartbeat-prompts-launch-pipelines is the model:
 
 - Pipeline runs render as a **sub-session** transcript in the channel with a compact anchor card — every step's LLM thinking and tool widget is visible.
 - The heartbeat prompt can decide conditionally whether to launch the pipeline (e.g., only if a condition is met).
@@ -223,8 +210,6 @@ This gives the bot situational awareness without consuming prompt space. The met
 | `execution_policy` | object | Medium depth | Tool-surface and LLM-loop budget controls for autonomous heartbeat runs |
 | `previous_result_max_chars` | int | 500 | How much of last result to inject |
 | `repetition_detection` | bool | — | Override global repetition detection |
-| `workflow_id` | string | — | Trigger a (deprecated) workflow instead of a prompt. For pipelines, use `prompt` + `run_pipeline`. |
-| `workflow_session_mode` | string | — | `"shared"` or `"isolated"` — applies when `workflow_id` is set. |
 
 ### Environment Variables (global)
 

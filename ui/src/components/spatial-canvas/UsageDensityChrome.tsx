@@ -100,7 +100,7 @@ export function UsageDensityChrome({
 
   return (
     <div
-      className="absolute top-4 right-4 z-[2] flex flex-row items-stretch gap-2"
+      className="flex flex-row items-stretch gap-2"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <button
@@ -111,7 +111,7 @@ export function UsageDensityChrome({
         className={`flex flex-row items-center gap-0.5 px-2.5 py-1.5 rounded-md backdrop-blur border text-xs cursor-pointer ${activityClass}`}
       >
         <IntensityPips intensity={intensity} />
-        <span>{INTENSITY_LABEL[intensity]}</span>
+        <span className="hidden sm:inline">{INTENSITY_LABEL[intensity]}</span>
       </button>
       <button
         type="button"
@@ -121,7 +121,7 @@ export function UsageDensityChrome({
         className={`flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md backdrop-blur border text-xs cursor-pointer ${linesClass}`}
       >
         <span className="text-sm leading-none">↬</span>
-        <span>Lines</span>
+        <span className="hidden sm:inline">Lines</span>
       </button>
       <div className="relative" ref={popoverRef}>
         <button
