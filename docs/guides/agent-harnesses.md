@@ -112,5 +112,5 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 ## What's coming
 
 - **Phase 2:** Workspace list on `/admin/harnesses` (per-bot last session id + cost), "open in shell" hint, bot-editor "Create workspace dir" button.
-- **Phase 3:** Per-channel plan-mode toggle (`permission_mode="plan"`); permission-request routing into Spindrel's approvals UI via the SDK's `can_use_tool` callback.
+- **Phase 3:** Per-channel plan-mode toggle (`permission_mode="plan"`); permission-request routing into Spindrel's approvals UI. Today every harness wires its own auto-approve hook (Claude SDK uses `can_use_tool`, Codex will have its analogous "ask before tool" plug). Phase 3 introduces a `HarnessApprovalRequest` event on the channel bus and a per-harness adapter that resolves the SDK's allow/deny via Spindrel approval cards — designed against both Claude and Codex APIs from day one so we don't bake in Claude-isms.
 - **Phase 4:** Codex driver. Either via the `codex-app-server-sdk` Python package once it lands on PyPI, or via subprocess to the `codex` CLI sooner — the protocol accepts both.

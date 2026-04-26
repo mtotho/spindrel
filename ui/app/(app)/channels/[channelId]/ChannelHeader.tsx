@@ -18,7 +18,7 @@ import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeader
 export interface ChannelHeaderProps {
   channelId: string;
   displayName: string;
-  bot: { id?: string; name?: string; model?: string } | undefined;
+  bot: { id?: string; name?: string; model?: string; harness_runtime?: string | null } | undefined;
   channelModelOverride: string | undefined;
   columns: "single" | "double" | "triple";
   goBack: () => void;
@@ -221,7 +221,7 @@ export function ChannelHeader({
   const canvasTitle = showCanvasState && typeof canvasSessionCount === "number"
     ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
     : null;
-  const tokenUsageBit = resolvedMetrics.hasAnyTokenUsage ? (
+  const tokenUsageBit = resolvedMetrics.hasAnyTokenUsage && !bot?.harness_runtime ? (
     <span
       key="tokens"
       onClick={onContextBudgetClick}
@@ -258,12 +258,15 @@ export function ChannelHeader({
         {headerSessionChrome.subtitleIdentity ?? "session"}
       </span>
     ) : null,
-    typeof resolvedMetrics.turnsInContext === "number" ? (
+    // Spindrel-side context stats describe OUR RAG loop's window. Harness
+    // bots delegate context management to the external runtime — these
+    // numbers don't apply, so suppress them.
+    !bot?.harness_runtime && typeof resolvedMetrics.turnsInContext === "number" ? (
       <span key="turns-in-context" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
         {resolvedMetrics.turnsInContext} turn{resolvedMetrics.turnsInContext === 1 ? "" : "s"} in ctx
       </span>
     ) : null,
-    typeof resolvedMetrics.turnsUntilCompaction === "number" ? (
+    !bot?.harness_runtime && typeof resolvedMetrics.turnsUntilCompaction === "number" ? (
       <span key="turns-until-compaction" className="shrink-0" style={{ fontSize: 10, color: t.textDim }}>
         {resolvedMetrics.turnsUntilCompaction} until compact
       </span>

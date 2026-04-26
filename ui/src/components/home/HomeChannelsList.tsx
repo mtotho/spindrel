@@ -248,20 +248,22 @@ export function HomeChannelsList() {
         subtitle="Select a channel to start chatting"
         right={
           <div style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
-            <Link
-              to={"/canvas"}
-              title="Open spatial canvas (preview)"
-              style={{ textDecoration: "none" } as any}
-            >
-              <div style={{
-                display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
-                border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
-                padding: "8px 12px", cursor: "pointer", color: t.textDim,
-              }}>
-                <LayoutGrid size={14} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>Canvas</span>
-              </div>
-            </Link>
+            {columns !== "single" && (
+              <Link
+                to={"/canvas"}
+                title="Open spatial canvas (preview)"
+                style={{ textDecoration: "none" } as any}
+              >
+                <div style={{
+                  display: "flex", flexDirection: "row", alignItems: "center", gap: 6,
+                  border: `1px solid ${t.surfaceBorder}`, borderRadius: 8,
+                  padding: "8px 12px", cursor: "pointer", color: t.textDim,
+                }}>
+                  <LayoutGrid size={14} />
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>Canvas</span>
+                </div>
+              </Link>
+            )}
             <Link to={"/channels/new"} style={{ textDecoration: "none" } as any}>
               <div style={{
                 display: "flex", flexDirection: "row", alignItems: "center", gap: 6,

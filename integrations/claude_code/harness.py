@@ -81,6 +81,7 @@ class ClaudeCodeRuntime:
         from claude_agent_sdk import (  # type: ignore
             ClaudeAgentOptions,
             ClaudeSDKClient,
+            PermissionResultAllow,
         )
 
         if not os.path.isdir(workdir):
@@ -93,6 +94,7 @@ class ClaudeCodeRuntime:
             "cwd": workdir,
             "allowed_tools": list(DEFAULT_ALLOWED_TOOLS),
             "permission_mode": "acceptEdits",
+            "can_use_tool": _make_auto_approve(emit, PermissionResultAllow),
         }
         if session_id:
             options_kwargs["resume"] = session_id
@@ -152,6 +154,45 @@ class ClaudeCodeRuntime:
             ),
             suggested_command="claude login",
         )
+
+
+def _make_auto_approve(emit: ChannelEventEmitter, allow_cls: Any) -> Any:
+    """Build a ``can_use_tool`` callback that auto-approves everything.
+
+    Without this the SDK hangs forever on tools outside ``allowed_tools``
+    (e.g. ``ExitPlanMode``) waiting for a TUI prompt that doesn't exist in
+    our headless container. ``allow_cls`` is the SDK's ``PermissionResultAllow``
+    class — passed in so this helper stays testable without importing the SDK
+    at module load.
+
+    Phase 3 replaces this with a real approvals UI. Until then each
+    auto-approval shows up in the channel's tool feed as an ``auto-approved``
+    entry so the operator can see what was waved through.
+
+    NOTE for Codex harness: each harness owns its own approvals hook. Codex's
+    loop has an analogous "ask before tool" plug; the auto-approve pattern
+    is the same, the API is harness-specific. Keep this helper colocated with
+    the harness that uses it until a real approvals abstraction lands.
+    """
+
+    async def _auto_approve(
+        tool_name: str, _input: dict[str, Any], context: Any
+    ) -> Any:
+        call_id = getattr(context, "tool_use_id", None) or f"auto:{tool_name}"
+        emit.tool_start(
+            tool_name="auto-approved",
+            tool_call_id=call_id,
+            arguments={"tool": tool_name},
+        )
+        emit.tool_result(
+            tool_name="auto-approved",
+            tool_call_id=call_id,
+            result_summary=f"Auto-approved {tool_name} (Phase 3 will add real approvals UI)",
+            is_error=False,
+        )
+        return allow_cls()
+
+    return _auto_approve
 
 
 def _bridge_message(

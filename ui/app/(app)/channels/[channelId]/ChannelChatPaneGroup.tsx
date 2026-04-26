@@ -3,6 +3,8 @@ import { ArrowLeft, ArrowRight, Maximize2, Minus, MoreHorizontal, Rows3, X as Cl
 import { ChatSession } from "@/src/components/chat/ChatSession";
 import { useRenameSession } from "@/src/api/hooks/useChannelSessions";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
+import { useBot } from "@/src/api/hooks/useBots";
+import { useChannel } from "@/src/api/hooks/useChannels";
 import {
   buildChannelSessionChatSource,
   buildScratchChatSource,
@@ -126,8 +128,14 @@ function PaneHeader({
   const rename = useRenameSession();
   const sessionId = sessionIdForPane(pane, activeSessionId);
   const { data: sessionStats } = useSessionHeaderStats(channelId, sessionId);
+  const { data: channel } = useChannel(channelId);
+  const { data: paneBot } = useBot(channel?.bot_id);
+  const isHarnessBot = !!paneBot?.harness_runtime;
   const header = labelForPane(pane, catalog);
-  const contextStats = formatPaneContextStats(sessionStats);
+  // Spindrel-side context stats (turns until compact, prompt tokens) are
+  // about OUR RAG loop's window. Harness bots delegate context management
+  // to the external runtime — these numbers don't apply.
+  const contextStats = isHarnessBot ? null : formatPaneContextStats(sessionStats);
   const tooltip = [header.title, header.meta, contextStats].filter(Boolean).join(" · ");
 
   const commitRename = () => {

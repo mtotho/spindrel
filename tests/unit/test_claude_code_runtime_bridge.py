@@ -25,7 +25,7 @@ from claude_agent_sdk import (  # noqa: E402
     UserMessage,
 )
 
-from integrations.claude_code.harness import _bridge_message  # noqa: E402
+from integrations.claude_code.harness import _bridge_message, _make_auto_approve  # noqa: E402
 
 
 class _RecordingEmitter:
@@ -264,3 +264,51 @@ def test_mixed_assistant_blocks_in_one_message():
     assert kinds == ["thinking", "token", "tool_start"]
     assert final_text_parts == ["Reading the file..."]
     assert tool_name_by_use_id == {"tu_3": "Read"}
+
+
+# ----------------------------------------------------------------------------
+# Auto-approve callback (Phase 3 stand-in for real approvals UI)
+# ----------------------------------------------------------------------------
+
+
+class _StubAllow:
+    """Stand-in for ``PermissionResultAllow`` so the test stays SDK-free."""
+
+    def __init__(self) -> None:
+        self.behavior = "allow"
+
+
+class _StubContext:
+    def __init__(self, tool_use_id: str | None = None) -> None:
+        self.tool_use_id = tool_use_id
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_returns_allow_and_emits_audit_pair():
+    """Each auto-approval emits a tool_start/tool_result pair so it shows in chat."""
+    emitter = _RecordingEmitter()
+    cb = _make_auto_approve(emitter, _StubAllow)
+
+    result = await cb("ExitPlanMode", {"plan": "x"}, _StubContext(tool_use_id="tu_99"))
+
+    assert isinstance(result, _StubAllow)
+    assert result.behavior == "allow"
+    kinds = [c[0] for c in emitter.calls]
+    assert kinds == ["tool_start", "tool_result"]
+    assert emitter.calls[0][1]["tool_name"] == "auto-approved"
+    assert emitter.calls[0][1]["arguments"] == {"tool": "ExitPlanMode"}
+    assert emitter.calls[0][1]["tool_call_id"] == "tu_99"
+    assert "ExitPlanMode" in emitter.calls[1][1]["result_summary"]
+    assert emitter.calls[1][1]["is_error"] is False
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_synthesizes_call_id_when_context_lacks_one():
+    """A missing ``tool_use_id`` falls back to a stable ``auto:<tool>`` token."""
+    emitter = _RecordingEmitter()
+    cb = _make_auto_approve(emitter, _StubAllow)
+
+    await cb("ExitPlanMode", {}, _StubContext(tool_use_id=None))
+
+    assert emitter.calls[0][1]["tool_call_id"] == "auto:ExitPlanMode"
+    assert emitter.calls[1][1]["tool_call_id"] == "auto:ExitPlanMode"

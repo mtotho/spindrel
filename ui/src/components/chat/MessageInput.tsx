@@ -328,7 +328,11 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
     : "Type / for commands or enter a message...";
-  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode;
+  // Spindrel's plan mode is part of the RAG loop; harness bots have their
+  // own plan mode (Claude Code's ExitPlanMode tool) that the runtime owns.
+  // Surfacing the Spindrel pill on a harness bot just confuses things —
+  // pressing it would do nothing for the harness path.
+  const canShowPlanControl = canTogglePlanMode && !!onTogglePlanMode && !hideModelOverride;
   const planControlState = getComposerPlanControlState({
     planMode,
     hasPlan,
@@ -838,14 +842,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
               <div style={{ flex: 1 }} />
 
               {/* Harness cost pill — desktop only. Replaces the configOverhead bar
-                  for harness bots; shows cumulative session cost so far. */}
+                  for harness bots; shows cumulative session cost so far.
+                  The number is what the SDK reports as if usage were billed
+                  per-token. If the host CLI is signed in via a Claude
+                  subscription (Pro/Max), nothing is actually charged — the
+                  tilde and tooltip flag this. */}
               {!isTerminalMode && !isMobile && hideModelOverride && harnessCostTotal != null && harnessCostTotal > 0 && (
                 <div
-                  title={`Cumulative cost for this Claude Code session: $${harnessCostTotal.toFixed(4)}`}
+                  title={`SDK-reported usage cost (~$${harnessCostTotal.toFixed(4)}). If this host's CLI is signed in via a Claude subscription, this amount is NOT billed — your subscription covers it.`}
                   className="rounded bg-surface-overlay/40 px-1.5 py-0.5 font-mono text-[10px] text-text-dim"
                   style={{ flexShrink: 0, lineHeight: "16px" }}
                 >
-                  ${harnessCostTotal.toFixed(harnessCostTotal < 0.01 ? 4 : 2)}
+                  ~${harnessCostTotal.toFixed(harnessCostTotal < 0.01 ? 4 : 2)}
                 </div>
               )}
 
