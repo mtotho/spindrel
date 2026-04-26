@@ -832,6 +832,12 @@ class Bot(Base):
     history_mode: Mapped[str | None] = mapped_column(Text, nullable=True, server_default=text("'file'"))
     context_pruning: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     source_type: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'manual'"))  # "system"|"file"|"manual"
+    # Agent harness — when set, turn_worker dispatches the turn to the named
+    # external runtime (Claude Code today, Codex later) instead of the RAG loop.
+    # Migration: 254_bot_harness_fields.
+    harness_runtime: Mapped[str | None] = mapped_column(Text, nullable=True)
+    harness_workdir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    harness_session_state: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 

@@ -14,14 +14,14 @@ The point: manage Claude Code sessions in your browser, alongside your Spindrel 
 
     *Old SSH workflow* (still works if you prefer): `docker exec -it spindrel claude login`.
 
-3. **Workspace root mount.** Per-bot workspaces live under one directory tree, by default `/data/harness/`. The harnesses page detects when this path isn't mounted and shows a banner with the docker-compose snippet to paste. Add it once and run `docker compose up -d`; the banner disappears.
+3. **Workspaces — nothing new to mount.** A harness bot reuses the bot's existing Spindrel workspace (the same `WORKSPACE_HOST_DIR` mount every other bot uses, default `~/.spindrel-workspaces/<bot_id>/`). No second mount, no parallel directory tree. The bot editor's *Workspace path (override)* field is for the rare case where you want to point the harness at a different directory — e.g. an existing repo on the host or a directory shared across multiple harness bots.
 
 4. **Create a harness bot and seed its workspace.** `/admin/bots` → New bot. In the **Identity** group, set:
 
     - **Runtime:** `Claude Code`
-    - **Workspace path:** `/data/harness/my-project`
+    - **Workspace path (override):** leave blank — the bot uses its standard Spindrel workspace.
 
-    Then click **Create workspace dir** (mkdir from the in-app terminal) and **Clone a repo** (opens a terminal in the workspace; type `git clone <url> .`). The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there.
+    Then click **Open shell** (drops you into the bot's workspace) and `git clone <url> .` your repo there. The harness sees that directory as its cwd — drop your `CLAUDE.md`, `AGENTS.md`, vault excerpts, sibling repos in there alongside the repo.
 
     Other fields (model, system prompt, skills, tools, memory) are inert when a runtime is set — the harness owns them.
 

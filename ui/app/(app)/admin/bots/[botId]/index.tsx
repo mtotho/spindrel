@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Bot, Brain, FileText, FolderPlus, GitBranch, MessageSquare, Save, Shield, Terminal, Trash2, Wrench, Zap } from "lucide-react";
+import { AlertTriangle, Bot, Brain, FileText, GitBranch, MessageSquare, Save, Shield, Terminal, Trash2, Wrench, Zap } from "lucide-react";
 
 import { ApiError } from "@/src/api/client";
 import { useBotEditorData, useCreateBot, useDeleteBot, useUpdateBot } from "@/src/api/hooks/useBots";
@@ -226,11 +226,11 @@ function IdentitySection({ draft, editorData, isNew, update }: {
             </FormRow>
           </Col>
           <Col>
-            <FormRow label="Workspace path" description="Absolute path on the Spindrel host. The harness runs with this as its cwd.">
+            <FormRow label="Workspace path (override)" description="Leave blank to use this bot's existing workspace. Set an absolute path to point the harness at a different directory (e.g. share one repo across multiple harness bots).">
               <TextInput
                 value={draft.harness_workdir ?? ""}
                 onChangeText={(v) => update({ harness_workdir: v || null })}
-                placeholder="/data/harness/my-workspace"
+                placeholder="(default: bot workspace)"
                 disabled={!draft.harness_runtime}
               />
             </FormRow>
@@ -249,22 +249,9 @@ function IdentitySection({ draft, editorData, isNew, update }: {
                 icon={<Terminal size={13} />}
                 onPress={() => openTerminal({
                   title: "Workspace shell",
-                  subtitle: draft.harness_workdir ?? "(workspace path not set)",
+                  subtitle: draft.harness_workdir ?? "(default bot workspace — cd from inside)",
                   cwd: draft.harness_workdir ?? undefined,
                 })}
-                disabled={!draft.harness_workdir}
-              />
-              <ActionButton
-                label="Create workspace dir"
-                variant="ghost"
-                size="small"
-                icon={<FolderPlus size={13} />}
-                onPress={() => openTerminal({
-                  title: "Create workspace directory",
-                  subtitle: `mkdir -p ${draft.harness_workdir}`,
-                  seedCommand: `mkdir -p ${draft.harness_workdir} && cd ${draft.harness_workdir} && pwd`,
-                })}
-                disabled={!draft.harness_workdir}
               />
               <ActionButton
                 label="Clone a repo"
@@ -273,10 +260,9 @@ function IdentitySection({ draft, editorData, isNew, update }: {
                 icon={<GitBranch size={13} />}
                 onPress={() => openTerminal({
                   title: "Clone a repo into workspace",
-                  subtitle: `cd ${draft.harness_workdir} — type 'git clone <url> .'`,
+                  subtitle: "type 'git clone <url> .'",
                   cwd: draft.harness_workdir ?? undefined,
                 })}
-                disabled={!draft.harness_workdir}
               />
             </div>
           </>

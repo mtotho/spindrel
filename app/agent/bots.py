@@ -251,6 +251,15 @@ class BotConfig:
     system_prompt_write_protected: bool = False
     # Source type: "system" (app/data/system_bots/), "file" (bots/), "manual" (API-created)
     source_type: str = "manual"
+    # Agent harness — when set, turn_worker dispatches the turn to the named
+    # external runtime (Claude Code today, Codex later) instead of the RAG loop.
+    # `harness_workdir` is the absolute path the runtime runs against; when None
+    # it falls back to the bot's existing workspace (workspace_service root).
+    # `harness_session_state` carries {session_id, last_seen_at, cost_total} for
+    # resume across turns.
+    harness_runtime: str | None = None
+    harness_workdir: str | None = None
+    harness_session_state: dict | None = None
     # Cached for three-tier indexing resolution (populated by load_bots)
     _workspace_raw: dict = field(default_factory=dict)
     _ws_indexing_config: dict | None = None
@@ -501,6 +510,9 @@ def _bot_row_to_config(row: BotRow) -> BotConfig:
         system_prompt_write_protected=getattr(row, "system_prompt_write_protected", False),
         source_type=getattr(row, "source_type", "manual"),
         shared_workspace_cwd=getattr(row, "_sw_cwd_override", None),
+        harness_runtime=getattr(row, "harness_runtime", None),
+        harness_workdir=getattr(row, "harness_workdir", None),
+        harness_session_state=getattr(row, "harness_session_state", None),
         _workspace_raw=ws_raw,
     )
 
@@ -590,6 +602,9 @@ def _yaml_data_to_row_dict(data: dict) -> dict:
         "skill_review_model_provider_id": data.get("skill_review_model_provider_id"),
         "skill_review_target_hour": data.get("skill_review_target_hour"),
         "skill_review_extra_instructions": data.get("skill_review_extra_instructions"),
+        "harness_runtime": data.get("harness_runtime"),
+        "harness_workdir": data.get("harness_workdir"),
+        "harness_session_state": data.get("harness_session_state"),
         "created_at": datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
     }

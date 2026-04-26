@@ -108,9 +108,18 @@ async def _run_harness_turn(
     success.
     """
     runtime = get_runtime(bot.harness_runtime)  # type: ignore[arg-type]
+    # Default to the bot's existing workspace dir when an explicit harness
+    # workdir isn't set. Spindrel already provisions a per-bot workspace
+    # mounted at WORKSPACE_HOST_DIR and ensures the host dir exists; harness
+    # bots reuse that instead of inventing a parallel mount.
     workdir = bot.harness_workdir
     if not workdir:
-        return "", "harness_workdir is not set on this bot"
+        from app.services.workspace import workspace_service
+
+        try:
+            workdir = workspace_service.ensure_host_dir(bot.id, bot)
+        except Exception as exc:
+            return "", f"could not resolve workspace for bot: {exc}"
 
     prior_state = bot.harness_session_state or {}
     prior_session_id = prior_state.get("session_id") if isinstance(prior_state, dict) else None
