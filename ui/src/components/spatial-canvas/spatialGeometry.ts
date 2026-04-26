@@ -145,6 +145,13 @@ export const WELL_RINGS: { minutes: number; label: string; major?: boolean }[] =
 ];
 export const WELL_R_MIN = 110;
 export const WELL_R_MAX = 650;
+
+/**
+ * DEFINITIONS_R — radius of the static outer ring where task definitions
+ * orbit the Now Well. Sits just past `WELL_R_MAX` so it visually trails
+ * the time-band rings without overlapping the 1w marker.
+ */
+export const DEFINITIONS_R = WELL_R_MAX * 1.42;
 export const WELL_MAX_HORIZON_MIN = 60 * 24 * 7;
 const WELL_RADIUS_STOPS: { minutes: number; radius: number }[] = [
   { minutes: 0, radius: WELL_R_MIN },

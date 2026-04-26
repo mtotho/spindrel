@@ -379,12 +379,12 @@ function TasksListScreen() {
           <div className="flex flex-row items-center gap-1">
             {!isMobile && (
               <button
-                onClick={() => navigate("/admin/automations?canvas=1")}
-                title="Open canvas mode"
+                onClick={() => navigate("/spatial-canvas")}
+                title="Open in spatial canvas"
                 className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-transparent text-text-dim hover:text-text hover:bg-surface-overlay/45 transition-colors"
               >
                 <Network size={14} />
-                Canvas
+                Open in spatial canvas
               </button>
             )}
             <button

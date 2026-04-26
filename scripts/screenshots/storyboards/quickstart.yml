@@ -27,6 +27,10 @@ sections:
     title: "What is Spindrel?"
     scenes: [hero_spatial]
 
+  - id: scheduled_work
+    title: "Scheduled work, on a clock"
+    scenes: [heartbeat_fire]
+
   - id: first_channel
     title: "One channel, one bot"
     scenes: [channel_chat]
@@ -73,6 +77,58 @@ scenes:
       # actually read the orbits before the cut.
       - click: "css=[aria-label=\"Fly to Now Well\"]"
       - wait_ms: 3500
+
+  - id: heartbeat_fire
+    kind: playwright
+    duration: 11
+    color_scheme: dark
+    caption: "Heartbeats orbit the Now Well — when the clock arrives, they fire."
+    # Live recording. Stages the spatial canvas, fast-forwards one heartbeat's
+    # scheduled_at to ~4s in the future via the page-exposed React Query
+    # client, then holds while the fire-pulse animation plays out. The
+    # synthetic-imminent injection avoids waiting for a real :00 boundary
+    # — the visual is what we're after, not the server-side fire.
+    actions:
+      - goto: "/"
+      - wait_for: "css=[data-spatial-canvas=\"true\"]"
+        state: visible
+      - wait_ms: 1500
+      # Fly to Now Well so the orbit ring fills the frame.
+      - click: "css=[aria-label=\"Fly to Now Well\"]"
+      - wait_ms: 2000
+      # Inject an imminent heartbeat into the upcoming-activity cache. The
+      # canvas's fire-pulse detector triggers when scheduled_at <= tickedNow,
+      # so a ~4.5s offset gives the diamond a beat to orbit before the pulse.
+      - js: |
+          (() => {
+            const qc = window.__spindrelQueryClient;
+            if (!qc) { console.warn('queryClient not exposed'); return; }
+            const key = ['spatial-upcoming-activity', 50, undefined];
+            const current = qc.getQueryData(key) || { items: [] };
+            const items = Array.isArray(current.items) ? [...current.items] : [];
+            // Prefer an existing heartbeat — preserves real bot/channel ids
+            // so the tile colors and orbit angle stay deterministic.
+            let idx = items.findIndex(it => it.type === 'heartbeat');
+            if (idx < 0) idx = 0;
+            const at = new Date(Date.now() + 4500).toISOString();
+            if (items[idx]) {
+              items[idx] = { ...items[idx], scheduled_at: at };
+            } else {
+              items.push({
+                type: 'heartbeat',
+                scheduled_at: at,
+                bot_id: '00000000-0000-0000-0000-000000000000',
+                bot_name: 'demo',
+                channel_id: null,
+                channel_name: null,
+                title: 'Demo heartbeat',
+                interval_minutes: 1,
+              });
+            }
+            qc.setQueryData(key, { items });
+          })()
+      # Hold long enough for: drift inward (~2s) + pulse (~1.4s) + settle (~2s).
+      - wait_ms: 5500
 
   - id: channel_chat
     kind: still

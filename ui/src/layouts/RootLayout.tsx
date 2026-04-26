@@ -15,6 +15,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// Expose queryClient on window for screenshot/video recording scripts.
+// Lets stage drivers seed synthetic data (e.g. an imminent UpcomingItem)
+// for demo flythroughs without round-tripping through real backend state.
+if (typeof window !== "undefined") {
+  (window as unknown as { __spindrelQueryClient?: QueryClient }).__spindrelQueryClient =
+    queryClient;
+}
+
 /** Apply or remove the `dark` class on <html> so CSS variables switch. */
 function useApplyThemeClass() {
   const mode = useThemeStore((s) => s.mode);

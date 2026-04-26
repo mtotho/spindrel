@@ -1,0 +1,89 @@
+/**
+ * Bridge xyflow (React Flow) CSS variables onto Spindrel design tokens.
+ * Scoped under .spindrel-canvas so we don't pollute global xyflow defaults.
+ */
+.spindrel-canvas {
+  /* Background */
+  --xy-background-color-default: rgb(var(--color-surface));
+  --xy-background-pattern-color-default: rgb(var(--color-text-dim) / 0.18);
+  --xy-background-pattern-dots-color-default: rgb(var(--color-text-dim) / 0.18);
+
+  /* Nodes (we mostly render our own custom nodes; these style any default fallback) */
+  --xy-node-background-color-default: rgb(var(--color-surface));
+  --xy-node-color-default: rgb(var(--color-text));
+  --xy-node-border-default: 1px solid rgb(var(--color-surface-border));
+  --xy-node-boxshadow-default: 0 4px 16px rgba(0, 0, 0, 0.18);
+  --xy-node-border-radius-default: 12px;
+
+  /* Edges */
+  --xy-edge-stroke-default: rgb(var(--color-text-dim) / 0.55);
+  --xy-edge-stroke-selected-default: rgb(var(--color-accent));
+  --xy-edge-stroke-width-default: 2;
+
+  /* Handles */
+  --xy-handle-background-color-default: rgb(var(--color-surface-border));
+  --xy-handle-border-color-default: rgb(var(--color-surface-border));
+
+  /* Selection rectangle (marquee) */
+  --xy-selection-background-color-default: rgb(var(--color-accent) / 0.08);
+  --xy-selection-border-default: 1px dashed rgb(var(--color-accent) / 0.45);
+
+  /* Controls (bottom-left zoom buttons) */
+  --xy-controls-button-background-color-default: rgb(var(--color-surface-raised));
+  --xy-controls-button-background-color-hover-default: rgb(var(--color-surface-overlay));
+  --xy-controls-button-color-default: rgb(var(--color-text-dim));
+  --xy-controls-button-color-hover-default: rgb(var(--color-text));
+  --xy-controls-button-border-color-default: rgb(var(--color-surface-border));
+
+  /* Minimap */
+  --xy-minimap-background-color-default: rgb(var(--color-surface-raised) / 0.85);
+  --xy-minimap-mask-background-color-default: rgb(var(--color-text-dim) / 0.18);
+  --xy-minimap-mask-stroke-color-default: rgb(var(--color-accent) / 0.45);
+  --xy-minimap-mask-stroke-width-default: 2;
+  --xy-minimap-node-background-color-default: rgb(var(--color-surface-overlay));
+  --xy-minimap-node-stroke-color-default: rgb(var(--color-surface-border));
+
+  /* Resize controls */
+  --xy-resize-background-color-default: rgb(var(--color-accent));
+}
+
+/* Round and theme the controls panel chrome */
+.spindrel-canvas .react-flow__controls {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgb(var(--color-surface-border));
+}
+
+.spindrel-canvas .react-flow__minimap {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgb(var(--color-surface-border));
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+}
+
+/* Hide the default node outline on selection — we use a Tailwind ring */
+.spindrel-canvas .react-flow__node {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.spindrel-canvas .react-flow__node.selected {
+  outline: none;
+}
+
+/* Edge selection — draw a halo behind the path */
+.spindrel-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgb(var(--color-accent));
+  stroke-width: 3;
+}
+
+/* Attribution: keep but mute */
+.spindrel-canvas .react-flow__attribution {
+  background: transparent;
+  font-size: 9px;
+  opacity: 0.5;
+}
+.spindrel-canvas .react-flow__attribution a {
+  color: rgb(var(--color-text-dim));
+}

@@ -34,6 +34,8 @@ import {
   Locate,
   Move,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "../../api/client";
 import { useChannels } from "../../api/hooks/useChannels";
 import { useDashboards, channelIdFromSlug } from "../../stores/dashboards";
 import {
@@ -51,6 +53,10 @@ import { WidgetTile } from "./WidgetTile";
 import { WidgetClusterMarker } from "./WidgetClusterMarker";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
+import { TaskDefinitionTile } from "./TaskDefinitionTile";
+import { definitionOrbit } from "./spatialDefinitionsOrbit";
+import type { TasksResponse } from "../shared/TaskConstants";
+import { UpcomingFirePulse } from "./UpcomingFirePulse";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
@@ -123,7 +129,9 @@ import { useReducedMotion } from "../../hooks/useReducedMotion";
 import {
   upcomingOrbitBucket,
   upcomingOrbit,
+  upcomingIdentityKey,
   upcomingReactKey,
+  upcomingTileColor,
 } from "./spatialActivity";
 import {
   CHANNEL_CLUSTER_ENTER_SCALE,
@@ -182,18 +190,51 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const { data: nodes } = useSpatialNodes();
   const { data: channels } = useChannels();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
+  const { data: definitionsData } = useQuery({
+    queryKey: ["spatial-task-definitions"],
+    queryFn: () => apiFetch<TasksResponse>("/api/v1/admin/tasks?limit=200&definitions_only=true"),
+    staleTime: 30_000,
+  });
+  const taskDefinitions = useMemo(
+    () => (definitionsData?.tasks ?? []).filter((t) => t.source !== "system"),
+    [definitionsData],
+  );
   const updateNode = useUpdateSpatialNode();
   const deleteNode = useDeleteSpatialNode();
 
   // Live tick for the Now Well + orbital tile positions. Server data is
-  // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii decay
-  // continuously toward the well between fetches — a 5s client tick keeps
-  // motion smooth without spamming the network.
+  // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii
+  // decay continuously toward the well between fetches. Cadence:
+  //   • 5s default — quiet canvas, no imminent fires.
+  //   • 1s when an item is < 60s out — fast enough to show the diamond's
+  //     final approach inward and align with the fire-pulse detector below.
   const [tickedNow, setTickedNow] = useState(() => Date.now());
+  const hasImminentRef = useRef(false);
   useEffect(() => {
-    const id = window.setInterval(() => setTickedNow(Date.now()), 5_000);
+    hasImminentRef.current = (upcomingItems ?? []).some((it) => {
+      const t = Date.parse(it.scheduled_at);
+      return !Number.isNaN(t) && t - Date.now() < 60_000;
+    });
+  }, [upcomingItems]);
+  useEffect(() => {
+    let intervalMs = hasImminentRef.current ? 1_000 : 5_000;
+    let id = window.setInterval(tick, intervalMs);
+    function tick() {
+      const now = Date.now();
+      setTickedNow(now);
+      const wantFast = (upcomingItems ?? []).some((it) => {
+        const t = Date.parse(it.scheduled_at);
+        return !Number.isNaN(t) && t - now < 60_000;
+      });
+      const target = wantFast ? 1_000 : 5_000;
+      if (target !== intervalMs) {
+        window.clearInterval(id);
+        intervalMs = target;
+        id = window.setInterval(tick, intervalMs);
+      }
+    }
     return () => window.clearInterval(id);
-  }, []);
+  }, [upcomingItems]);
 
   const channelsById = useMemo(() => {
     const m = new Map<string, Channel>();
@@ -1008,6 +1049,41 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera],
   );
 
+  /**
+   * diveToTaskDefinition — mirrors `diveToChannel` for an outer-ring
+   * task definition tile. Camera flies toward the orbit point; route
+   * swaps to the canvas editor for that task with a sidebar-collapsed
+   * layout.
+   */
+  const diveToTaskDefinition = useCallback(
+    (taskId: string) => {
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
+      const def = taskDefinitions.find((t) => t.id === taskId);
+      if (!def) return;
+      const idx = taskDefinitions.findIndex((t) => t.id === taskId);
+      const orbit = definitionOrbit(taskId, taskDefinitions.length, idx);
+      // Aim the camera so the orbit point sits in the viewport center
+      // at near-max zoom; the editor pop-in covers the rest visually.
+      const targetScale = MAX_SCALE * 0.95;
+      const targetX = rect.width / 2 - orbit.x * targetScale;
+      const targetY = rect.height / 2 - orbit.y * targetScale;
+      if (lensEngaged) {
+        setLensEngaged(false);
+        triggerLensSettle();
+      }
+      setDiving(true);
+      requestAnimationFrame(() => {
+        scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+      });
+      window.setTimeout(() => {
+        navigate(`/admin/automations?canvas=1&edit=${encodeURIComponent(taskId)}`);
+        if (onAfterDive) window.setTimeout(onAfterDive, 16);
+      }, DIVE_MS);
+    },
+    [taskDefinitions, navigate, onAfterDive, lensEngaged, triggerLensSettle, scheduleCamera],
+  );
+
   // Push-through dive — sustained zoom into a channel tile triggers the same
   // dive flow as double-click. Trigger condition (re-evaluated on every
   // camera commit): scale >= DIVE_SCALE_THRESHOLD AND viewport center in
@@ -1420,6 +1496,53 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     [nodes, camera, satellitedWidgetNodeIds, channelClusterMode],
   );
 
+  // Fire-pulse tracking — when an upcoming item's scheduled_at crosses
+  // tickedNow we render a one-shot expanding ring at its last orbit position.
+  // The 5s tickedNow cadence means pulses can land up to ~5s late, but a
+  // dedicated 700ms fast-tick spins up only while imminent items exist so
+  // the visual lands within ~1s of the actual fire.
+  const firedKeysRef = useRef<Set<string>>(new Set());
+  const [firePulses, setFirePulses] = useState<
+    Array<{ id: string; x: number; y: number; color: string }>
+  >([]);
+  const [pulseTick, setPulseTick] = useState(() => Date.now());
+  useEffect(() => {
+    const items = upcomingItems ?? [];
+    const hasImminent = items.some((it) => {
+      const t = Date.parse(it.scheduled_at);
+      return !Number.isNaN(t) && t - Date.now() < 30_000;
+    });
+    if (!hasImminent) return;
+    const id = window.setInterval(() => setPulseTick(Date.now()), 700);
+    return () => window.clearInterval(id);
+  }, [upcomingItems]);
+  useEffect(() => {
+    const now = pulseTick;
+    const items = upcomingItems ?? [];
+    const newPulses: Array<{ id: string; x: number; y: number; color: string }> = [];
+    for (const item of items) {
+      const t = Date.parse(item.scheduled_at);
+      if (Number.isNaN(t)) continue;
+      if (t > now) continue;
+      const key = upcomingIdentityKey(item) + ":" + item.scheduled_at;
+      if (firedKeysRef.current.has(key)) continue;
+      firedKeysRef.current.add(key);
+      const orbit = upcomingOrbit(item, t);
+      newPulses.push({
+        id: key + ":" + Math.random().toString(36).slice(2, 8),
+        x: orbit.x,
+        y: orbit.y,
+        color: upcomingTileColor(item),
+      });
+    }
+    if (newPulses.length) {
+      setFirePulses((prev) => [...prev, ...newPulses]);
+    }
+  }, [upcomingItems, pulseTick]);
+  const dismissPulse = useCallback((id: string) => {
+    setFirePulses((prev) => prev.filter((p) => p.id !== id));
+  }, []);
+
   const upcomingSpreadByKey = useMemo(() => {
     const buckets = new Map<string, string[]>();
     for (const item of upcomingItems ?? []) {
@@ -1809,6 +1932,40 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 spread={spread}
                 extraScale={lens?.sizeFactor ?? 1}
                 lens={lens}
+              />
+            );
+          })}
+          {!channelClusterMode && taskDefinitions.map((task, idx) => {
+            const orbit = definitionOrbit(task.id, taskDefinitions.length, idx);
+            const lens =
+              lensEngaged && focalScreen
+                ? projectFisheye(orbit.x, orbit.y, camera, focalScreen, lensRadius)
+                : null;
+            return (
+              <TaskDefinitionTile
+                key={task.id}
+                task={task}
+                zoom={camera.scale}
+                worldX={orbit.x}
+                worldY={orbit.y}
+                lens={lens}
+                onDive={diveToTaskDefinition}
+              />
+            );
+          })}
+          {!channelClusterMode && firePulses.map((pulse) => {
+            const lens =
+              lensEngaged && focalScreen
+                ? projectFisheye(pulse.x, pulse.y, camera, focalScreen, lensRadius)
+                : null;
+            return (
+              <UpcomingFirePulse
+                key={pulse.id}
+                x={pulse.x}
+                y={pulse.y}
+                color={pulse.color}
+                lens={lens}
+                onDone={() => dismissPulse(pulse.id)}
               />
             );
           })}

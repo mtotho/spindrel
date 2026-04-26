@@ -2,11 +2,72 @@
 tags: [agent-server, track, automations]
 status: active
 created: 2026-04-15
-updated: 2026-04-25 (Canvas redirected: in-modal Canvas tab reverted; new dedicated `?canvas=1` page with sidebar + floating cards)
+updated: 2026-04-26 (Canvas adopted xyflow; workspace spatial canvas now hosts the definitions orbit; sidebar retired)
 ---
 # Track — Automations (Task Pipelines)
 
 Task pipelines are the automation primitive — multi-step sequences (shell → tool → LLM) stored inline on the Task model. Decision documented in [[Architecture Decisions#Task Pipelines as Automation Primitive]].
+
+## 2026-04-26 — Canvas xyflow rebuild + workspace orbit
+
+This pass folded three things together: replaced the hand-rolled drag/edges with **xyflow (React Flow v12)**; pulled task definitions onto the **main spatial canvas** as an outer-ring orbit around the Now Well that zoom-dives into the editor; tightened dark-mode contrast on the mode picker.
+
+### Library survey (recorded for future picks)
+
+- **`@xyflow/react` (React Flow v12)** — adopted. MIT, ~50 KB gz. Pan/zoom, controlled positions, edges with handles, snap-to-grid, multi-select + marquee, CSS-var theming via `--xy-*`. Bridge file at `ui/app/(app)/admin/tasks/canvas/CanvasTheme.css` maps `--xy-*` onto Spindrel `--color-*` tokens.
+- **`motion` (Motion One)** — installed (~5 KB gz) for future tile expand/collapse animations. Not yet exercised in this pass.
+- **Excalidraw** — sketch-feel editor; lower fit for structured node graphs. Skipped.
+- **Rete.js / LiteGraph** — graph engines that don't compose cleanly with React. Skipped.
+- **Claude Code skill packs / Tailwind plugins** — none required for this pass; revisit if a specific pain point surfaces.
+
+### Editor surface
+
+- `ui/app/(app)/admin/tasks/canvas/CanvasEditor.tsx` is now a thin `<ReactFlow>` wrapper. Custom node types: `task` (TaskNode) + `step` (StepNode). Edges classified as `anchor` / `sequential` / `conditional` / `secondary` (`edges.ts`, `CanvasEdges.tsx`).
+- Edge classification mirrors the rev-2 spec: sequential primary edge from `steps[idx-1]→steps[idx]`; secondary dotted edge from non-immediate `when.step` referent; simple/complex condition shapes get readable badges or a "conditional" pill with raw-JSON tooltip respectively. Conditions never reshape on save — round-trip pin still applies.
+- StepNode wraps the existing `StepCard` (already extracted under `step-editor/`) inline when expanded; collapsed shows icon + type + label + summary.
+- TaskNode mounts ContentFields / ExecutionFields / TriggerFields inside section tabs. ContentFields gained a `hideStepEditor` prop so pipeline-mode shows a "steps live as tiles" hint instead of inlining the linear editor.
+- Snap-to-grid on at 16 px. Min/max zoom 0.4–1.5. Background dots at 24 px. Minimap toggle. Pan via middle/right mouse + scroll-wheel pan (left button reserved for box selection).
+- Click empty canvas (double-click) → adds a step at click point. Floating "+ Add Step" button does the same at viewport center.
+
+### Dirty gate (Esc + Close, both protected)
+
+- `ui/app/(app)/admin/tasks/canvas/useDirtyGate.ts` snapshots the form payload on initial load and compares it against the current state; `isDirty` is the deep diff. Save updates the baseline via `markClean()`.
+- Esc and Close button both call `dirty.guard()` which short-circuits to `true` when clean, or shows `window.confirm("Discard unsaved changes?")` when dirty.
+- "Unsaved" pill in the action bar surfaces dirty state visibly so the user is never surprised.
+
+### Workspace spatial-canvas integration
+
+- `spatialGeometry.ts` — added `DEFINITIONS_R = WELL_R_MAX * 1.42` (static outer-ring radius outside the 1w time-band ring).
+- `spatialDefinitionsOrbit.ts` — angle math sibling of `spatialActivity.ts`. Hash-based deterministic angular slot per `task.id` + an even-spread mode (count + index) for tidy distribution when N is small.
+- `TaskDefinitionTile.tsx` — three semantic-zoom tiers (far dot, mid glyph, close full card with step-count + trigger chip), mirrors `UpcomingTile`. Lens (fisheye) projection respected.
+- `SpatialCanvas.tsx` — adds `useQuery({ queryKey: ["spatial-task-definitions"] })` against `/api/v1/admin/tasks?definitions_only=true` (filters `source === "system"`), renders one TaskDefinitionTile per non-system definition, and provides `diveToTaskDefinition(taskId)` mirroring `diveToChannel`: camera flies, scale ramps to ~`MAX_SCALE * 0.95`, then `navigate("/admin/automations?canvas=1&edit=<id>")`.
+
+### Surface map (the standalone canvas index is retired)
+
+- `/spatial-canvas` — workspace canvas, **the index** for definitions (orbit visible at all zoom tiers).
+- `/admin/automations?canvas=1&new=1[&mode=prompt|pipeline]` — fullscreen new-task editor (mode picker → xyflow editor).
+- `/admin/automations?canvas=1&edit=<id>` — fullscreen edit-mode editor.
+- `/admin/automations?canvas=1` (no params) — auto-redirects to `/spatial-canvas`.
+- `/admin/automations` (no `?canvas=1`) — table list view stays for power-users.
+
+`AutomationsCanvasPage` is now a thin host for the editor (sidebar + dot-grid index removed). The list-view page header replaces the old "Canvas" button with "Open in spatial canvas" → `/spatial-canvas`.
+
+### Files
+
+- New: `CanvasEditor.tsx` (rewritten on xyflow), `TaskNode.tsx`, `StepNode.tsx`, `CanvasEdges.tsx`, `edges.ts`, `useDirtyGate.ts`, `CanvasTheme.css`, `TaskDefinitionTile.tsx`, `spatialDefinitionsOrbit.ts`.
+- Modified: `ModePickerCard.tsx` (dark-mode contrast — explicit text-text on header, text-text-muted on body, opaque inner card backgrounds), `AutomationsCanvasPage.tsx` (slimmed to editor host with redirect for empty `?canvas=1`), `TaskFormFields.tsx` (`hideStepEditor` prop on ContentFields), `SpatialCanvas.tsx` (orbit + dive), `spatialGeometry.ts` (`DEFINITIONS_R`).
+- Deleted: `TaskTile.tsx`, `StepTile.tsx`, `useDraggableTile.ts`, `DefinitionsSidebar.tsx`.
+- Dependencies added: `@xyflow/react`, `motion`.
+
+### Parked
+
+- Pin a task definition as a draggable workspace-canvas widget tile (separate Phase-3 idea; orbit is the primary surface).
+- Pipeline-definition orbit using *recency-of-last-run* as radius (Phase-3 future per the original Phase 3 sketch).
+- Drag-from-palette in the editor (click-to-add + Add-Step button stay primary).
+- Foreach sub-canvas drill-down (sub-steps editable in JSON view).
+- Combinator-tree builder (round-trip + JSON edit only).
+- Mobile < 768 px (canvas remains desktop-only).
+- Motion One animations on tile expand/collapse + editor pop-in (lib installed; not exercised yet).
 
 ## 2026-04-25 — Automations Canvas page (redirected from in-modal tab)
 

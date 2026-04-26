@@ -1,24 +1,60 @@
 /**
- * CanvasEditor — tile-based task editor on the canvas plane.
+ * CanvasEditor — xyflow-powered task editor.
  *
- * Replaces the floating modal-shaped EditorCard. Each piece is a draggable
- * tile: one TaskTile for task-level config, one StepTile per pipeline step
- * (pipeline mode only). Save / delete / add-step controls float at the edges.
+ * One TaskNode for task-level config, one StepNode per pipeline step
+ * (pipeline mode only). Pan/zoom, snap-to-grid, multi-select, marquee,
+ * minimap, and undo/redo are provided by React Flow v12. Save/Delete
+ * remain top-right actions; positions persist via `Task.layout.nodes`.
  */
-import { useCallback, useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Save, Trash2, X } from "lucide-react";
-import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState";
-import type { StepDef, TaskLayout } from "@/src/api/hooks/useTasks";
-import { TaskTile } from "./TaskTile";
-import { StepTile } from "./StepTile";
+import "@xyflow/react/dist/style.css";
+import "./CanvasTheme.css";
 
-const TASK_TILE_ID = "__task__";
-const TASK_TILE_X = 32;
-const TASK_TILE_Y = 32;
-const STEP_COL_X = 480;
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  Background,
+  BackgroundVariant,
+  Controls,
+  MiniMap,
+  type Node,
+  type Edge,
+  type NodeChange,
+  type Viewport,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+} from "@xyflow/react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Plus, Save, Trash2, X, Map as MapIcon } from "lucide-react";
+import { useTools } from "@/src/api/hooks/useTools";
+import { useTaskFormState } from "@/src/components/shared/task/useTaskFormState";
+import { emptyStep } from "@/src/components/shared/task/TaskStepEditorModel";
+import type { StepDef, TaskLayout } from "@/src/api/hooks/useTasks";
+import { TaskNode } from "./TaskNode";
+import { StepNode } from "./StepNode";
+import {
+  AnchorEdge,
+  ConditionalEdge,
+  SecondaryEdge,
+  SequentialEdge,
+} from "./CanvasEdges";
+import { buildEdges, TASK_NODE_ID_CONST } from "./edges";
+import { useDirtyGate } from "./useDirtyGate";
+
+const TASK_NODE_X = 32;
+const TASK_NODE_Y = 32;
+const STEP_COL_X = 520;
 const STEP_ROW_Y0 = 32;
 const STEP_ROW_DY = 220;
+
+const NODE_TYPES = { task: TaskNode, step: StepNode };
+const EDGE_TYPES = {
+  anchor: AnchorEdge,
+  sequential: SequentialEdge,
+  conditional: ConditionalEdge,
+  secondary: SecondaryEdge,
+};
 
 interface CommonProps {
   onClose: () => void;
@@ -36,9 +72,19 @@ interface EditProps extends CommonProps {
 type CanvasEditorProps = CreateProps | EditProps;
 
 export function CanvasEditor(props: CanvasEditorProps) {
+  return (
+    <ReactFlowProvider>
+      <CanvasEditorInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasEditorInner(props: CanvasEditorProps) {
   const qc = useQueryClient();
   const isCreate = props.mode === "create";
   const taskId = props.mode === "edit" ? props.taskId : undefined;
+  const { data: allTools } = useTools();
+  const tools = allTools ?? [];
 
   const form = useTaskFormState({
     mode: props.mode,
@@ -48,6 +94,8 @@ export function CanvasEditor(props: CanvasEditorProps) {
       props.onSaved(createdId);
     },
   });
+
+  const dirty = useDirtyGate(form, isCreate);
 
   // Pre-seed steps for pipeline create-mode
   const initialMode = props.mode === "create" ? props.initialMode : null;
@@ -59,8 +107,8 @@ export function CanvasEditor(props: CanvasEditorProps) {
     form.setSteps([]);
   }, [isCreate, initialMode, form.botId, form.steps, form]);
 
-  const layout = form.layout || {};
-  const nodes = layout.nodes || {};
+  const layout: TaskLayout = form.layout || {};
+  const layoutNodes = layout.nodes || {};
   const setLayout = form.setLayout;
 
   const setNodePos = useCallback((id: string, pos: { x: number; y: number }) => {
@@ -70,19 +118,17 @@ export function CanvasEditor(props: CanvasEditorProps) {
     }));
   }, [setLayout]);
 
-  // Auto-place tiles that don't yet have a saved position. Run once per
-  // mount and again whenever the step-set changes; gated by a ref so we
-  // don't fight the user's drags.
+  // Auto-place tiles that lack a saved position
   const placedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     const additions: Record<string, { x: number; y: number }> = {};
-    if (!nodes[TASK_TILE_ID] && !placedRef.current.has(TASK_TILE_ID)) {
-      additions[TASK_TILE_ID] = { x: TASK_TILE_X, y: TASK_TILE_Y };
-      placedRef.current.add(TASK_TILE_ID);
+    if (!layoutNodes[TASK_NODE_ID_CONST] && !placedRef.current.has(TASK_NODE_ID_CONST)) {
+      additions[TASK_NODE_ID_CONST] = { x: TASK_NODE_X, y: TASK_NODE_Y };
+      placedRef.current.add(TASK_NODE_ID_CONST);
     }
     if (form.steps) {
       form.steps.forEach((s, i) => {
-        if (!nodes[s.id] && !placedRef.current.has(s.id)) {
+        if (!layoutNodes[s.id] && !placedRef.current.has(s.id)) {
           additions[s.id] = { x: STEP_COL_X, y: STEP_ROW_Y0 + i * STEP_ROW_DY };
           placedRef.current.add(s.id);
         }
@@ -94,41 +140,142 @@ export function CanvasEditor(props: CanvasEditorProps) {
         nodes: { ...(prev?.nodes || {}), ...additions },
       }));
     }
-  }, [form.steps, nodes, setLayout]);
+  }, [form.steps, layoutNodes, setLayout]);
 
-  const addStep = () => {
+  // Per-step expansion state
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleExpand = useCallback((id: string) => {
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
+
+  // Step manipulation
+  const addStep = useCallback(() => {
     const existing = form.steps || [];
     const ids = new Set(existing.map((s) => s.id));
     let n = existing.length + 1;
     let id = `step_${n}`;
     while (ids.has(id)) { n += 1; id = `step_${n}`; }
-    const newStep: StepDef = { id, type: "tool", on_failure: "abort" };
-    form.setSteps([...existing, newStep]);
-  };
+    const fresh: StepDef = { ...emptyStep("tool"), id };
+    form.setSteps([...existing, fresh]);
+  }, [form]);
 
-  const deleteStep = (id: string) => {
+  const deleteStep = useCallback((id: string) => {
     if (!form.steps) return;
     form.setSteps(form.steps.filter((s) => s.id !== id));
-  };
+    setLayout((prev: TaskLayout) => {
+      const next = { ...(prev?.nodes || {}) };
+      delete next[id];
+      return { ...prev, nodes: next };
+    });
+  }, [form, setLayout]);
 
-  const updateStep = (id: string, patch: Partial<StepDef>) => {
+  const updateStep = useCallback((index: number, updated: StepDef) => {
     if (!form.steps) return;
-    form.setSteps(form.steps.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-    // If the step's id was renamed, carry its layout entry along.
-    if (patch.id && patch.id !== id) {
-      const oldPos = (form.layout?.nodes || {})[id];
-      if (oldPos) {
-        setLayout((prev: TaskLayout) => {
-          const next = { ...(prev?.nodes || {}) };
-          next[patch.id!] = oldPos;
-          delete next[id];
-          return { ...prev, nodes: next };
+    const oldId = form.steps[index]?.id;
+    const next = [...form.steps];
+    next[index] = updated;
+    form.setSteps(next);
+    if (oldId && updated.id && oldId !== updated.id) {
+      setLayout((prev: TaskLayout) => {
+        const ns = { ...(prev?.nodes || {}) };
+        if (ns[oldId]) {
+          ns[updated.id] = ns[oldId];
+          delete ns[oldId];
+        }
+        return { ...prev, nodes: ns };
+      });
+    }
+  }, [form, setLayout]);
+
+  const moveStep = useCallback((index: number, dir: -1 | 1) => {
+    if (!form.steps) return;
+    const target = index + dir;
+    if (target < 0 || target >= form.steps.length) return;
+    const next = [...form.steps];
+    [next[index], next[target]] = [next[target], next[index]];
+    form.setSteps(next);
+  }, [form]);
+
+  // Build the xyflow nodes from form state. We sync these to local
+  // useNodesState so xyflow can manage drag + selection.
+  const computedNodes = useMemo<Node[]>(() => {
+    const list: Node[] = [];
+    const taskPos = layoutNodes[TASK_NODE_ID_CONST] || { x: TASK_NODE_X, y: TASK_NODE_Y };
+    list.push({
+      id: TASK_NODE_ID_CONST,
+      type: "task",
+      position: taskPos,
+      data: { form, isCreate },
+      selectable: true,
+      deletable: false,
+    });
+    if (form.steps) {
+      form.steps.forEach((step, idx) => {
+        const pos = layoutNodes[step.id] || { x: STEP_COL_X, y: STEP_ROW_Y0 + idx * STEP_ROW_DY };
+        list.push({
+          id: step.id,
+          type: "step",
+          position: pos,
+          data: {
+            step,
+            stepIndex: idx,
+            steps: form.steps!,
+            stepState: form.existingTask?.parent_task_id ? form.existingTask?.step_states?.[idx] : undefined,
+            tools,
+            expanded: !!expanded[step.id],
+            onChange: (u: StepDef) => updateStep(idx, u),
+            onDelete: () => deleteStep(step.id),
+            onMove: (dir: -1 | 1) => moveStep(idx, dir),
+            onToggleExpand: () => toggleExpand(step.id),
+          },
         });
+      });
+    }
+    return list;
+  }, [form, isCreate, layoutNodes, expanded, tools, updateStep, deleteStep, moveStep, toggleExpand]);
+
+  const [rfNodes, setRfNodes, onNodesChangeRaw] = useNodesState<Node>([]);
+  // Sync derived nodes into local state. xyflow then owns transient drag state.
+  useEffect(() => {
+    setRfNodes(computedNodes);
+  }, [computedNodes, setRfNodes]);
+
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    onNodesChangeRaw(changes);
+    for (const c of changes) {
+      if (c.type === "position" && c.dragging === false && c.position) {
+        setNodePos(c.id, { x: c.position.x, y: c.position.y });
       }
     }
-  };
+  }, [onNodesChangeRaw, setNodePos]);
 
-  const handleDelete = async () => {
+  // Edges
+  const computedEdges = useMemo<Edge[]>(() => {
+    if (!form.steps) return [];
+    return buildEdges(form.steps);
+  }, [form.steps]);
+  const [rfEdges, setRfEdges] = useEdgesState<Edge>([]);
+  useEffect(() => { setRfEdges(computedEdges); }, [computedEdges, setRfEdges]);
+
+  // Camera persistence
+  const onMoveEnd = useCallback((_: unknown, vp: Viewport) => {
+    setLayout((prev: TaskLayout) => ({ ...prev, camera: { x: vp.x, y: vp.y, scale: vp.zoom } }));
+  }, [setLayout]);
+
+  const initialViewport = useMemo<Viewport>(() => {
+    const cam = layout.camera;
+    if (cam) return { x: cam.x, y: cam.y, zoom: cam.scale };
+    return { x: 0, y: 0, zoom: 0.95 };
+  }, [layout.camera]);
+
+  // Save flow updates dirty baseline
+  const handleSave = useCallback(async () => {
+    await form.handleSave();
+    dirty.markClean();
+  }, [form, dirty]);
+
+  // Delete confirm
+  const handleDelete = useCallback(async () => {
     if (props.mode !== "edit") return;
     const ok = typeof window !== "undefined" && window.confirm("Delete this task?");
     if (!ok) return;
@@ -139,7 +286,47 @@ export function CanvasEditor(props: CanvasEditorProps) {
     } catch {
       /* surfaced via form.error */
     }
-  };
+  }, [form, qc, props]);
+
+  // Esc → guard then close
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (!dirty.guard()) {
+        e.preventDefault();
+        return;
+      }
+      props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dirty, props]);
+
+  const guardedClose = useCallback(() => {
+    if (dirty.guard()) props.onClose();
+  }, [dirty, props]);
+
+  // Double-click empty canvas → add a step at click point (pipeline mode only)
+  const flowApi = useReactFlow();
+  const onPaneClick = useCallback((e: React.MouseEvent) => {
+    if (!form.stepsMode) return;
+    if (!e.detail || e.detail < 2) return;
+    const point = flowApi.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    const existing = form.steps || [];
+    const ids = new Set(existing.map((s) => s.id));
+    let n = existing.length + 1;
+    let id = `step_${n}`;
+    while (ids.has(id)) { n += 1; id = `step_${n}`; }
+    const fresh: StepDef = { ...emptyStep("tool"), id };
+    form.setSteps([...existing, fresh]);
+    setLayout((prev: TaskLayout) => ({
+      ...prev,
+      nodes: { ...(prev?.nodes || {}), [id]: { x: point.x, y: point.y } },
+    }));
+    placedRef.current.add(id);
+  }, [form, flowApi, setLayout]);
+
+  const [minimapVisible, setMinimapVisible] = useState(true);
 
   if (!isCreate && form.loadingTask) {
     return (
@@ -150,18 +337,62 @@ export function CanvasEditor(props: CanvasEditorProps) {
   }
 
   return (
-    <>
+    <div className="spindrel-canvas absolute inset-0 z-[1] bg-surface">
+      <ReactFlow
+        nodes={rfNodes}
+        edges={rfEdges}
+        nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
+        defaultViewport={initialViewport}
+        minZoom={0.4}
+        maxZoom={1.5}
+        snapToGrid
+        snapGrid={[16, 16]}
+        onNodesChange={onNodesChange}
+        onMoveEnd={onMoveEnd}
+        onPaneClick={onPaneClick}
+        nodesConnectable={false}
+        deleteKeyCode={null}
+        selectionOnDrag
+        panOnDrag={[1, 2]}
+        panOnScroll
+      >
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.4} />
+        <Controls position="bottom-left" showInteractive={false} />
+        {minimapVisible && (
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            nodeStrokeWidth={1}
+            nodeColor={(n) => (n.type === "task" ? "rgb(var(--color-accent))" : "rgb(var(--color-text-dim))")}
+          />
+        )}
+      </ReactFlow>
+
       {/* Floating action bar — top-right */}
       <div className="absolute top-3 right-3 z-30 flex flex-row items-center gap-2 pointer-events-auto">
+        {dirty.isDirty && !form.saving && (
+          <span className="px-2 py-1 rounded-md bg-warning-muted/15 text-warning-muted text-[10.5px] font-semibold uppercase tracking-wider">
+            Unsaved
+          </span>
+        )}
         {form.error && (
-          <div className="px-3 py-1.5 rounded-md bg-danger/[0.08] text-danger text-xs max-w-[280px] truncate">
+          <div className="px-3 py-1.5 rounded-md bg-danger/15 text-danger text-xs max-w-[280px] truncate">
             {form.error.message || "Error"}
           </div>
         )}
         <button
-          onClick={props.onClose}
-          title="Close editor"
-          className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-surface-raised/70 text-text-dim hover:text-text hover:bg-surface-raised transition-colors backdrop-blur"
+          onClick={() => setMinimapVisible((v) => !v)}
+          title={minimapVisible ? "Hide minimap" : "Show minimap"}
+          className="flex items-center justify-center w-7 h-7 rounded-md bg-surface-raised border border-surface-border text-text-dim hover:text-text hover:bg-surface-overlay cursor-pointer transition-colors"
+        >
+          <MapIcon size={13} />
+        </button>
+        <button
+          onClick={guardedClose}
+          title="Close editor (Esc)"
+          className="flex flex-row items-center gap-1.5 px-3 py-[6px] text-xs font-semibold border border-surface-border bg-surface-raised text-text hover:bg-surface-overlay cursor-pointer rounded-md transition-colors"
         >
           <X size={14} />
           Close
@@ -170,17 +401,17 @@ export function CanvasEditor(props: CanvasEditorProps) {
           <button
             onClick={handleDelete}
             title="Delete task"
-            className="flex items-center justify-center w-7 h-7 rounded-md bg-surface-raised/70 text-text-dim hover:text-danger hover:bg-danger/[0.08] border-none cursor-pointer transition-colors backdrop-blur"
+            className="flex items-center justify-center w-7 h-7 rounded-md bg-surface-raised border border-surface-border text-text-dim hover:text-danger hover:bg-danger/10 cursor-pointer transition-colors"
           >
             <Trash2 size={14} />
           </button>
         )}
         <button
-          onClick={form.handleSave}
+          onClick={handleSave}
           disabled={form.saving || !form.canSave}
-          className={`flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none rounded-md transition-colors ${
+          className={`flex flex-row items-center gap-1.5 px-3 py-[6px] text-xs font-semibold border-none rounded-md transition-colors ${
             form.canSave && !form.saving
-              ? "bg-accent/15 text-accent hover:bg-accent/25 cursor-pointer"
+              ? "bg-accent text-white hover:bg-accent/90 cursor-pointer"
               : "bg-surface-border text-text-dim cursor-not-allowed"
           }`}
         >
@@ -193,35 +424,13 @@ export function CanvasEditor(props: CanvasEditorProps) {
       {form.stepsMode && (
         <button
           onClick={addStep}
-          title="Add step"
+          title="Add step (or double-click empty canvas)"
           className="absolute bottom-4 right-4 z-30 flex flex-row items-center gap-1.5 px-4 py-2 rounded-full bg-accent text-white text-xs font-semibold border-none cursor-pointer shadow-lg hover:bg-accent/90 transition-colors"
         >
           <Plus size={14} />
           Add Step
         </button>
       )}
-
-      {/* Task tile */}
-      <TaskTile
-        form={form}
-        position={nodes[TASK_TILE_ID] || { x: TASK_TILE_X, y: TASK_TILE_Y }}
-        onPositionChange={(pos) => setNodePos(TASK_TILE_ID, pos)}
-        isCreate={isCreate}
-      />
-
-      {/* Step tiles (pipeline mode) */}
-      {form.stepsMode && form.steps && form.steps.map((step, idx) => (
-        <StepTile
-          key={step.id}
-          step={step}
-          index={idx}
-          form={form}
-          position={nodes[step.id] || { x: STEP_COL_X, y: STEP_ROW_Y0 + idx * STEP_ROW_DY }}
-          onPositionChange={(pos) => setNodePos(step.id, pos)}
-          onUpdate={(patch) => updateStep(step.id, patch)}
-          onDelete={() => deleteStep(step.id)}
-        />
-      ))}
-    </>
+    </div>
   );
 }
