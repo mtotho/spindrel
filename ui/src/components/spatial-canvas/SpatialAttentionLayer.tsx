@@ -200,7 +200,7 @@ function SpatialAttentionDrawer({
           type="button"
           className="inline-flex items-center gap-2 rounded-md px-3 py-2 text-text-muted hover:bg-surface-overlay hover:text-text"
           disabled={resolve.isPending || responded.isPending}
-          onClick={() => resolve.mutate(item.id)}
+          onClick={() => resolve.mutate(item.id, { onSuccess: onClose })}
         >
           Resolve
         </button>

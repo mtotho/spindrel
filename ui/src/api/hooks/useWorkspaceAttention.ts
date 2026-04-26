@@ -42,6 +42,23 @@ interface AttentionItemResponse {
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
 
+export function reconcileAttentionItems(
+  items: WorkspaceAttentionItem[] | undefined,
+  updated: WorkspaceAttentionItem,
+): WorkspaceAttentionItem[] | undefined {
+  if (!items) return items;
+  if (updated.status === "resolved") {
+    return items.filter((item) => item.id !== updated.id);
+  }
+  let found = false;
+  const next = items.map((item) => {
+    if (item.id !== updated.id) return item;
+    found = true;
+    return updated;
+  });
+  return found ? next : items;
+}
+
 export function useWorkspaceAttention(channelId?: string | null) {
   return useQuery({
     queryKey: channelId ? [...WORKSPACE_ATTENTION_KEY, channelId] : WORKSPACE_ATTENTION_KEY,
@@ -62,6 +79,12 @@ function useAttentionAction(path: (id: string) => string) {
     mutationFn: async (id: string) => {
       const res = await apiFetch<AttentionItemResponse>(path(id), { method: "POST" });
       return res.item;
+    },
+    onSuccess: (item) => {
+      qc.setQueriesData<WorkspaceAttentionItem[]>(
+        { queryKey: WORKSPACE_ATTENTION_KEY },
+        (items) => reconcileAttentionItems(items, item),
+      );
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
