@@ -6,7 +6,8 @@ contract that turn_worker correctly:
   - calls runtime.start_turn with the right kwargs,
   - persists the assistant message with `metadata.harness`,
   - publishes TURN_STARTED + TURN_ENDED on the bus,
-  - writes harness_session_state back to the bots row for resume.
+  - resumes per-Spindrel-session by reading the prior session_id off the
+    most recent assistant message's metadata.harness (NOT off the bot row).
 """
 from __future__ import annotations
 
@@ -218,9 +219,12 @@ class TestHarnessDispatch:
         assert meta["harness"]["session_id"] == "sess_xyz"
         assert meta["harness"]["cost_usd"] == 0.0042
 
-    async def test_session_state_written_back_for_resume(
+    async def test_bot_row_session_state_NOT_written_back(
         self, db_session, harness_setup,
     ):
+        """Resume state lives on the assistant message metadata; the bot
+        row's `harness_session_state` is intentionally never written so the
+        same harness bot in two channels stays isolated."""
         handle = harness_setup
         runtime = _FakeRuntime()
 
@@ -228,34 +232,79 @@ class TestHarnessDispatch:
 
         bot_row = await db_session.get(BotRow, HARNESS_BOT_CFG.id)
         await db_session.refresh(bot_row)
-        assert bot_row.harness_session_state is not None
-        assert bot_row.harness_session_state["session_id"] == "sess_xyz"
-        assert bot_row.harness_session_state["cost_total"] == 0.0042
+        assert bot_row.harness_session_state in (None, {})
 
-    async def test_resume_passes_prior_session_id_to_driver(
+    async def test_resume_reads_prior_session_id_from_message_metadata(
         self, db_session, harness_setup,
     ):
+        """First turn: empty session, no prior id. Seed a fake prior assistant
+        message carrying metadata.harness.session_id and run again — the
+        driver should receive that id as resume."""
         handle = harness_setup
-        # Seed a prior session_id on the bot.
-        bot_row = await db_session.get(BotRow, HARNESS_BOT_CFG.id)
-        bot_row.harness_session_state = {"session_id": "prior_session", "cost_total": 0.01}
+
+        # Seed a prior assistant message in THIS spindrel session with a
+        # harness session_id. Mirrors what persist_turn would write.
+        prior_msg = MessageRow(
+            id=uuid.uuid4(),
+            session_id=handle.session_id,
+            role="assistant",
+            content="prior reply",
+            metadata_={"harness": {
+                "runtime": "claude-code",
+                "session_id": "prior_session_from_msg",
+                "cost_usd": 0.005,
+            }},
+            created_at=datetime.now(timezone.utc),
+        )
+        db_session.add(prior_msg)
         await db_session.commit()
 
-        bot_cfg_with_state = BotConfig(
-            id=HARNESS_BOT_CFG.id,
-            name=HARNESS_BOT_CFG.name,
-            model="",
-            system_prompt="",
-            memory=MemoryConfig(enabled=False),
-            harness_runtime="claude-code",
-            harness_workdir="/tmp/test-workspace",
-            harness_session_state={"session_id": "prior_session", "cost_total": 0.01},
+        runtime = _FakeRuntime()
+        await _drive_harness_turn(handle, fake_runtime=runtime)
+
+        assert runtime.captured["session_id"] == "prior_session_from_msg"
+
+    async def test_per_session_isolation_two_sessions_dont_share_resume(
+        self, db_session, harness_setup, engine,
+    ):
+        """Two Spindrel sessions for the same harness bot must NOT share a
+        resume id. The pre-fix behavior keyed on bot.id and trampled.
+        """
+        handle_a = harness_setup
+        # Build a SECOND session against the same bot/channel.
+        session_b = SessionRow(
+            id=uuid.uuid4(),
+            client_id="test-client-b",
+            bot_id=HARNESS_BOT_CFG.id,
+            channel_id=handle_a.channel_id,
+            created_at=datetime.now(timezone.utc),
+            last_active=datetime.now(timezone.utc),
+        )
+        db_session.add(session_b)
+        # Seed prior harness assistant message ONLY in session A.
+        db_session.add(MessageRow(
+            id=uuid.uuid4(),
+            session_id=handle_a.session_id,
+            role="assistant",
+            content="A's prior reply",
+            metadata_={"harness": {"runtime": "claude-code", "session_id": "sid_A_only"}},
+            created_at=datetime.now(timezone.utc),
+        ))
+        await db_session.commit()
+        session_locks.acquire(session_b.id)
+        handle_b = TurnHandle(
+            session_id=session_b.id,
+            channel_id=handle_a.channel_id,
+            turn_id=uuid.uuid4(),
         )
 
+        # Run a turn in session B. It must NOT inherit session A's resume id.
         runtime = _FakeRuntime()
-        await _drive_harness_turn(handle, fake_runtime=runtime, bot_cfg=bot_cfg_with_state)
-
-        assert runtime.captured["session_id"] == "prior_session"
+        await _drive_harness_turn(handle_b, fake_runtime=runtime)
+        assert runtime.captured["session_id"] is None, (
+            "Session B should not have inherited session A's resume id — "
+            "per-session isolation is broken."
+        )
 
     async def test_when_harness_raises_then_failure_message_persisted_and_turn_ended_has_error(
         self, db_session, harness_setup,

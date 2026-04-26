@@ -1480,6 +1480,12 @@ export default function ChatScreen() {
     onModelOverrideChange: handleModelOverrideChange,
     defaultModel: channel?.model_override || bot?.model,
     hideModelOverride: !!bot?.harness_runtime,
+    harnessCostTotal: bot?.harness_runtime
+      ? invertedData.reduce((sum, m) => {
+          const c = (m.metadata as { harness?: { cost_usd?: number } } | undefined)?.harness?.cost_usd;
+          return typeof c === "number" ? sum + c : sum;
+        }, 0)
+      : null,
     currentBotId: channel?.bot_id,
     isMultiBot: (channel?.member_bots?.length ?? 0) > 0,
     channelId,

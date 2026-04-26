@@ -272,14 +272,6 @@ function IdentitySection({ draft, editorData, isNew, update }: {
             </div>
           </>
         )}
-        {draft.harness_runtime && draft.harness_session_state && typeof draft.harness_session_state === "object" && (draft.harness_session_state as any).session_id && (
-          <div className="text-[12px] text-text-dim">
-            Last harness session: <code className="rounded bg-surface-overlay/40 px-1 py-0.5 text-[11px]">{(draft.harness_session_state as any).session_id}</code>
-            {typeof (draft.harness_session_state as any).cost_total === "number" && (
-              <> · cost so far: ${((draft.harness_session_state as any).cost_total).toFixed(4)}</>
-            )}
-          </div>
-        )}
       </SectionFrame>
       <TerminalDrawer
         open={termOpen}

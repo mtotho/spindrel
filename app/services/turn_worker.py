@@ -102,12 +102,28 @@ async def _run_harness_turn(
     Persistence: builds a synthetic assistant message tagged with
     ``_harness`` metadata, hands it to ``persist_turn`` (which strips the
     underscore-prefixed key into ``Message.metadata.harness``). The next
-    turn reads ``bot.harness_session_state["session_id"]`` to resume.
+    turn reads the resume id from the most recent assistant message in
+    THIS Spindrel session — keying per-session, not per-bot, so two
+    channels using the same harness bot don't trample each other.
 
     Returns ``(response_text, error_text)``. ``error_text`` is None on
     success.
     """
-    runtime = get_runtime(bot.harness_runtime)  # type: ignore[arg-type]
+    try:
+        runtime = get_runtime(bot.harness_runtime)  # type: ignore[arg-type]
+    except KeyError:
+        msg = (
+            f"Harness runtime '{bot.harness_runtime}' is not registered. "
+            f"The integration may be inactive or its Python deps may be missing — "
+            f"open /admin/integrations and click 'Reinstall (upgrade)'."
+        )
+        return await _persist_harness_failure(
+            channel_id=channel_id, session_id=session_id, turn_id=turn_id,
+            bot=bot, user_message=user_message, correlation_id=correlation_id,
+            msg_metadata=msg_metadata, pre_user_msg_id=pre_user_msg_id,
+            suppress_outbox=suppress_outbox, error_text=msg,
+            prior_session_id=None,
+        )
     # Default to the bot's existing workspace dir when an explicit harness
     # workdir isn't set. Spindrel already provisions a per-bot workspace
     # mounted at WORKSPACE_HOST_DIR and ensures the host dir exists; harness
@@ -121,8 +137,7 @@ async def _run_harness_turn(
         except Exception as exc:
             return "", f"could not resolve workspace for bot: {exc}"
 
-    prior_state = bot.harness_session_state or {}
-    prior_session_id = prior_state.get("session_id") if isinstance(prior_state, dict) else None
+    prior_session_id = await _load_prior_harness_session_id(session_id)
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -209,51 +224,101 @@ async def _run_harness_turn(
         )
         return result.final_text, "persist_turn failed"
 
-    # Persist resume state so the next turn re-enters the same SDK session.
-    try:
-        await _update_harness_session_state(bot.id, result)
-        # Mutate the in-memory BotConfig so subsequent same-process turns
-        # see the updated state without a DB round-trip.
-        bot.harness_session_state = {
-            "session_id": result.session_id,
-            "last_seen_at": datetime.now(timezone.utc).isoformat(),
-            "cost_total": (
-                (prior_state.get("cost_total") or 0.0)
-                + (result.cost_usd or 0.0)
-            ) if isinstance(prior_state, dict) else (result.cost_usd or 0.0),
-        }
-    except Exception:
-        logger.warning(
-            "harness '%s': failed to persist session state for bot %s",
-            bot.harness_runtime, bot.id, exc_info=True,
-        )
+    # No bookkeeping write-back: resume state lives ON the persisted assistant
+    # message (`metadata.harness.session_id`), and per-session cumulative cost
+    # is computed from the same metadata when the UI asks for it. The bot row's
+    # `harness_session_state` column is intentionally ignored — it was a single
+    # global pointer that broke the moment the same harness bot was used in two
+    # channels. See `_load_prior_harness_session_id`.
 
     return result.final_text, None
 
 
-async def _update_harness_session_state(bot_id: str, result) -> None:
-    """Write the harness session_id + cost back to the bots row."""
-    from sqlalchemy import select, update
-    from app.db.models import Bot as BotRow
+async def _load_prior_harness_session_id(session_id: uuid.UUID) -> str | None:
+    """Most recent assistant message in this Spindrel session whose metadata
+    carries a harness session_id. Returns None on first-turn or sessions
+    that have no harness history.
+
+    The query is cheap (indexed by session_id, ordered by created_at desc,
+    limited). We scan up to 50 rows so a sequence of `_turn_error` messages
+    without `session_id` doesn't mask the real prior id.
+    """
+    from sqlalchemy import select
+    from app.db.models import Message as MessageRow
 
     async with async_session() as db:
-        existing = (
-            await db.execute(select(BotRow).where(BotRow.id == bot_id))
-        ).scalar_one_or_none()
-        if existing is None:
-            return
-        prior = existing.harness_session_state or {}
-        new_state = {
-            "session_id": result.session_id,
-            "last_seen_at": datetime.now(timezone.utc).isoformat(),
-            "cost_total": (prior.get("cost_total") or 0.0) + (result.cost_usd or 0.0),
-        }
-        await db.execute(
-            update(BotRow)
-            .where(BotRow.id == bot_id)
-            .values(harness_session_state=new_state)
+        rows = (
+            await db.execute(
+                select(MessageRow.metadata_)
+                .where(MessageRow.session_id == session_id)
+                .where(MessageRow.role == "assistant")
+                .order_by(MessageRow.created_at.desc())
+                .limit(50)
+            )
+        ).scalars().all()
+    for meta in rows:
+        if not isinstance(meta, dict):
+            continue
+        harness = meta.get("harness")
+        if not isinstance(harness, dict):
+            continue
+        sid = harness.get("session_id")
+        if sid:
+            return str(sid)
+    return None
+
+
+async def _persist_harness_failure(
+    *,
+    channel_id: uuid.UUID | None,
+    session_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    bot: BotConfig,
+    user_message: str,
+    correlation_id: uuid.UUID,
+    msg_metadata: dict | None,
+    pre_user_msg_id: uuid.UUID | None,
+    suppress_outbox: bool,
+    error_text: str,
+    prior_session_id: str | None,
+) -> tuple[str, str]:
+    """Persist a turn-error assistant row when the harness can't run at all.
+
+    Mirrors the in-flight error path used when ``runtime.start_turn`` raises;
+    factored out so the up-front ``get_runtime`` failure can use the same
+    persistence shape and the user actually SEES what went wrong in chat.
+    """
+    synthetic_messages: list[dict] = [
+        {"role": "user", "content": user_message},
+        {
+            "role": "assistant",
+            "content": _build_turn_failure_message(error_text, ""),
+            "_turn_error": True,
+            "_turn_error_message": error_text,
+            "_harness": {
+                "runtime": bot.harness_runtime,
+                "session_id": prior_session_id,
+                "error": error_text,
+            },
+        },
+    ]
+    try:
+        async with async_session() as db:
+            await persist_turn(
+                db, session_id, bot, synthetic_messages, from_index=0,
+                correlation_id=correlation_id,
+                msg_metadata=msg_metadata,
+                channel_id=channel_id,
+                pre_user_msg_id=pre_user_msg_id,
+                suppress_outbox=suppress_outbox,
+            )
+    except Exception:
+        logger.exception(
+            "harness '%s': failed to persist pre-flight error row for session %s",
+            bot.harness_runtime, session_id,
         )
-        await db.commit()
+    logger.error("harness pre-flight failure for bot %s: %s", bot.id, error_text)
+    return "", error_text
 
 
 async def run_turn(

@@ -70,6 +70,10 @@ interface Props {
   /** Hide the inline model-override pill. Set for harness bots — the
    *  external runtime owns its own model selection. */
   hideModelOverride?: boolean;
+  /** Cumulative cost (USD) for the current harness session, computed by
+   *  the caller from per-message metadata. Renders as a small pill in the
+   *  composer's status row when present. */
+  harnessCostTotal?: number | null;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -90,7 +94,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -833,8 +837,22 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
 
               <div style={{ flex: 1 }} />
 
-              {/* Config overhead indicator — desktop only. Tucks before the model pill. */}
-              {!isTerminalMode && !isMobile && configOverhead != null && configOverhead >= 0.2 && (
+              {/* Harness cost pill — desktop only. Replaces the configOverhead bar
+                  for harness bots; shows cumulative session cost so far. */}
+              {!isTerminalMode && !isMobile && hideModelOverride && harnessCostTotal != null && harnessCostTotal > 0 && (
+                <div
+                  title={`Cumulative cost for this Claude Code session: $${harnessCostTotal.toFixed(4)}`}
+                  className="rounded bg-surface-overlay/40 px-1.5 py-0.5 font-mono text-[10px] text-text-dim"
+                  style={{ flexShrink: 0, lineHeight: "16px" }}
+                >
+                  ${harnessCostTotal.toFixed(harnessCostTotal < 0.01 ? 4 : 2)}
+                </div>
+              )}
+
+              {/* Config overhead indicator — desktop only. Tucks before the model pill.
+                  Hidden for harness bots: their context divisor is the harness model,
+                  not bot.model, so the % is meaningless. */}
+              {!isTerminalMode && !isMobile && !hideModelOverride && configOverhead != null && configOverhead >= 0.2 && (
                 <button
                   onClick={onConfigOverheadClick}
                   title={`Config overhead: ${Math.round(configOverhead * 100)}% of context window used by tools, skills, and prompts`}
