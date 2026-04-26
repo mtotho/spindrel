@@ -148,10 +148,16 @@ export default function ChannelSettingsScreen() {
 
   // Check if the channel's bot is in a workspace
   const currentBot = bots?.find((b: any) => b.id === settings?.bot_id);
+  const isHarnessChannel = !!currentBot?.harness_runtime;
   const resolvedWorkspaceId = settings?.resolved_workspace_id ?? currentBot?.shared_workspace_id;
   const hasWorkspace = !!resolvedWorkspaceId;
 
-  const visibleTabs = ALL_TABS.filter((tb) => !tb.adminOnly || isAdmin);
+  const hiddenHarnessTabs = new Set(["knowledge", "memory", "context"]);
+  const visibleTabs = ALL_TABS.filter((tb) => {
+    if (tb.adminOnly && !isAdmin) return false;
+    if (isHarnessChannel && hiddenHarnessTabs.has(tb.key)) return false;
+    return true;
+  });
   const tabKeys = visibleTabs.map((tab) => tab.key);
   const [tab, setTab] = useHashTab("channel", tabKeys);
   const [form, setForm] = useState<Partial<ChannelSettings>>({});
@@ -458,8 +464,11 @@ export default function ChannelSettingsScreen() {
               settings={settings}
               workspaceId={currentBot?.shared_workspace_id}
               channelId={channelId!}
+              currentBot={currentBot}
             />
-            <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />
+            {!isHarnessChannel && (
+              <ToolsOverrideTab channelId={channelId!} botId={channel?.bot_id} />
+            )}
           </>
         )}
         {tab === "presentation" && (

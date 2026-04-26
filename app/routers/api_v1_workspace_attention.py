@@ -4,20 +4,23 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db, require_scopes
 from app.domain.errors import NotFoundError, ValidationError
 from app.services.workspace_attention import (
     acknowledge_attention_item,
+    assign_attention_item,
     actor_label,
+    create_user_attention_item,
     get_attention_item,
     list_attention_items,
     mark_attention_responded,
     resolve_attention_item,
     serialize_attention_item,
     serialize_attention_items,
+    unassign_attention_item,
 )
 
 
@@ -26,6 +29,50 @@ router = APIRouter(prefix="/workspace/attention", tags=["workspace-attention"])
 
 class AttentionStatusRequest(BaseModel):
     message_id: uuid.UUID | None = None
+
+
+class AttentionCreateRequest(BaseModel):
+    channel_id: uuid.UUID | None = None
+    target_kind: str = "channel"
+    target_id: str | None = None
+    title: str
+    message: str = ""
+    severity: str = "warning"
+    requires_response: bool = True
+    next_steps: list[str] = Field(default_factory=list)
+
+
+class AttentionAssignRequest(BaseModel):
+    bot_id: str
+    mode: str = "next_heartbeat"
+    instructions: str | None = None
+
+
+@router.post("")
+async def create_attention_item_route(
+    body: AttentionCreateRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        target_id = body.target_id or (str(body.channel_id) if body.channel_id and body.target_kind == "channel" else None)
+        if not target_id:
+            raise ValidationError("target_id is required unless target_kind is channel and channel_id is set.")
+        item = await create_user_attention_item(
+            db,
+            actor=actor_label(auth) or "user",
+            channel_id=body.channel_id,
+            target_kind=body.target_kind,
+            target_id=target_id,
+            title=body.title,
+            message=body.message,
+            severity=body.severity,
+            requires_response=body.requires_response,
+            next_steps=body.next_steps,
+        )
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"item": await serialize_attention_item(db, item)}
 
 
 @router.get("")
@@ -105,4 +152,40 @@ async def resolve_attention(
         raise HTTPException(404, str(e)) from e
     except ValidationError as e:
         raise HTTPException(400, str(e)) from e
+    return {"item": await serialize_attention_item(db, item)}
+
+
+@router.post("/{item_id}/assign")
+async def assign_attention(
+    item_id: uuid.UUID,
+    body: AttentionAssignRequest,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        item = await assign_attention_item(
+            db,
+            item_id,
+            bot_id=body.bot_id,
+            mode=body.mode,
+            instructions=body.instructions,
+            assigned_by=actor_label(auth),
+        )
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"item": await serialize_attention_item(db, item)}
+
+
+@router.post("/{item_id}/unassign")
+async def unassign_attention(
+    item_id: uuid.UUID,
+    auth=Depends(require_scopes("channels:write")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        item = await unassign_attention_item(db, item_id, actor=actor_label(auth))
+    except NotFoundError as e:
+        raise HTTPException(404, str(e)) from e
     return {"item": await serialize_attention_item(db, item)}

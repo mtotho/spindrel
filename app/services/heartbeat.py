@@ -689,6 +689,18 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # This keeps RAG retrieval clean — skills, tools, and memory are retrieved based
         # on the actual heartbeat prompt, not the metadata noise.
         heartbeat_preamble = metadata_header
+        try:
+            from app.services.workspace_attention import build_attention_assignment_block
+            assignment_block = await build_attention_assignment_block(db, channel_id=channel.id, bot_id=channel.bot_id)
+            if assignment_block:
+                heartbeat_preamble = "\n\n".join(part for part in [heartbeat_preamble, assignment_block] if part)
+                from app.tools.local.workspace_attention import REPORT_ATTENTION_ASSIGNMENT_SCHEMA
+                if injected_tools is None:
+                    injected_tools = []
+                if not any(t.get("function", {}).get("name") == "report_attention_assignment" for t in injected_tools):
+                    injected_tools.append(REPORT_ATTENTION_ASSIGNMENT_SCHEMA)
+        except Exception:
+            logger.debug("Heartbeat %s: failed to inject attention assignments", hb.id, exc_info=True)
         if pinned_widget_preamble:
             heartbeat_preamble = "\n\n".join(part for part in [heartbeat_preamble, pinned_widget_preamble] if part)
 
@@ -741,6 +753,63 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
     correlation_id = uuid.uuid4()
     result_text = None
     error_text = None
+    try:
+        from app.agent.bots import get_bot as _get_bot_for_harness
+
+        _hb_bot = _get_bot_for_harness(bot_id)
+    except Exception:
+        _hb_bot = None
+    if _hb_bot is not None and getattr(_hb_bot, "harness_runtime", None):
+        try:
+            if session_id is None:
+                raise RuntimeError("Harness heartbeat has no primary session to receive context hint")
+            from app.services.agent_harnesses.session_state import add_context_hint
+
+            hint_text = "\n\n".join(
+                part
+                for part in [
+                    heartbeat_preamble,
+                    "TASK PROMPT:\n" + prompt.strip(),
+                ]
+                if part and part.strip()
+            )
+            async with async_session() as db:
+                await add_context_hint(
+                    db,
+                    session_id,
+                    kind="heartbeat",
+                    text=hint_text,
+                    source=f"heartbeat:{hb.id}",
+                    consume_after_next_turn=True,
+                )
+            result_text = (
+                "Stored scheduled heartbeat context as a one-shot harness hint "
+                "for the next user-driven turn."
+            )
+        except Exception as exc:
+            logger.exception("Heartbeat %s harness hint injection failed", hb.id)
+            error_text = str(exc)[:4000]
+
+        async with async_session() as db:
+            run_rec = await db.get(HeartbeatRun, run_id)
+            if run_rec:
+                run_rec.completed_at = datetime.now(timezone.utc)
+                run_rec.result = result_text
+                run_rec.error = error_text
+                run_rec.correlation_id = correlation_id
+                run_rec.status = "complete" if error_text is None else "failed"
+                run_rec.repetition_detected = _repetition_detected
+
+            heartbeat = await db.get(ChannelHeartbeat, hb.id)
+            if heartbeat:
+                heartbeat.last_result = result_text
+                heartbeat.last_error = error_text
+                heartbeat.run_count = (heartbeat.run_count or 0) + 1
+                heartbeat.updated_at = datetime.now(timezone.utc)
+
+            await db.commit()
+        return
+
     try:
         from app.agent.loop import run
         from app.agent.bots import get_bot

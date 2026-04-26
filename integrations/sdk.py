@@ -294,6 +294,7 @@ from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
 from app.services.agent_harnesses.base import (  # noqa: E402, F401
     AuthStatus,
     ChannelEventEmitter,
+    HarnessContextHint,
     HarnessRuntime,
     HarnessSlashCommandPolicy,
     RuntimeCapabilities,
@@ -312,6 +313,19 @@ from app.services.agent_harnesses.settings import (  # noqa: E402, F401
     HarnessSettings,
     load_session_settings,
     patch_session_settings,
+)
+from app.services.agent_harnesses.session_state import (  # noqa: E402, F401
+    HarnessStatus,
+    add_context_hint,
+    clear_consumed_context_hints,
+    compact_harness_session,
+    load_context_hints,
+    load_latest_harness_metadata,
+)
+from app.services.agent_harnesses.tools import (  # noqa: E402, F401
+    HarnessToolSpec,
+    execute_harness_spindrel_tool,
+    list_harness_spindrel_tools,
 )
 
 # ---------------------------------------------------------------------------

@@ -680,6 +680,7 @@ export function AgentTabSections({
   settings,
   workspaceId,
   channelId,
+  currentBot,
 }: {
   form: Partial<ChannelSettings>;
   patch: <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => void;
@@ -687,7 +688,30 @@ export function AgentTabSections({
   settings: ChannelSettings;
   workspaceId?: string | null;
   channelId: string;
+  currentBot?: any;
 }) {
+  const harnessRuntime = currentBot?.harness_runtime as string | undefined;
+  if (harnessRuntime) {
+    return (
+      <>
+        <AgentIdentitySection form={form} patch={patch} bots={bots} settings={settings} />
+        <Section
+          title="Harness Runtime"
+          description="This channel's primary bot runs an external agent harness. Session-scoped runtime controls live in the chat header."
+        >
+          <div className="rounded-md bg-surface-overlay p-3 text-xs text-text-muted">
+            <div className="font-semibold text-text mb-1">
+              {currentBot?.name || settings.bot_id || "Harness bot"} · {harnessRuntime}
+            </div>
+            <div className="leading-snug">
+              Model, approval mode, native resume, and compact state are bound to the current session, not the channel's primary pointer. Normal-loop prompt, model override, passive memory, RAG, and tool enrollment controls are hidden here until harness-native equivalents are implemented.
+            </div>
+          </div>
+        </Section>
+        <MessageRoutingSection form={form} patch={patch} />
+      </>
+    );
+  }
   return (
     <>
       <AgentIdentitySection form={form} patch={patch} bots={bots} settings={settings} />

@@ -164,6 +164,13 @@ async def _fire_task_complete(task: Task, status: str) -> None:
                 task.id, cb["pipeline_task_id"], cb["pipeline_step_index"],
             )
 
+    if cb.get("attention_assignment"):
+        try:
+            from app.services.workspace_attention import on_attention_assignment_task_complete
+            await on_attention_assignment_task_complete(task.id, status)
+        except Exception:
+            logger.exception("Attention assignment completion failed for task %s", task.id)
+
     # Fire generic hook broadcast for non-workflow listeners (integrations, etc.)
     try:
         from app.agent.hooks import HookContext, fire_hook

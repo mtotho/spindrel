@@ -16,6 +16,7 @@ import {
   useSessionApprovalMode,
   useSetSessionApprovalMode,
   useSessionHarnessSettings,
+  useSessionHarnessStatus,
   useSetSessionHarnessSettings,
   type HarnessApprovalMode,
 } from "@/src/api/hooks/useApprovals";
@@ -158,6 +159,7 @@ export function ChannelHeader({
   // content inline, so channel-route mobile users get one surface with nav
   // + widgets + files all reachable from a single tap.
   const setMobileDrawerOpen = useUIStore((s) => s.setMobileDrawerOpen);
+  const openAttentionHub = useUIStore((s) => s.openAttentionHub);
   // Mobile-only: the top-right widget button toggles the same drawer but
   // force-pins it to the Widgets tab. Hamburger still opens wherever the
   // user last explicitly navigated (persisted `omniPanelTab`), so the two
@@ -489,13 +491,15 @@ export function ChannelHeader({
             </span>
           )}
           {attentionCount > 0 && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning"
+            <button
+              type="button"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning hover:bg-warning/15"
               title={`${attentionCount} active Attention Beacon${attentionCount === 1 ? "" : "s"}`}
+              onClick={openAttentionHub}
             >
               <AlertTriangle size={10} />
               {attentionCount}
-            </span>
+            </button>
           )}
           {channelData?.config?.effort_override && channelData.config.effort_override !== "off" && (
             <span
@@ -812,6 +816,7 @@ function HarnessHeaderChrome({
             />
           )}
           <HarnessApprovalModePill sessionId={sessionId} t={t} />
+          <HarnessStatusPill sessionId={sessionId} t={t} />
         </>
       )}
       {sessionId && !caps && (
@@ -821,6 +826,56 @@ function HarnessHeaderChrome({
       )}
     </>
   );
+}
+
+function HarnessStatusPill({
+  sessionId,
+  t,
+}: {
+  sessionId: string;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data } = useSessionHarnessStatus(sessionId);
+  if (!data) return null;
+  const resume = data.harness_session_id
+    ? data.harness_session_id.slice(0, 8)
+    : "new";
+  const usageLabel = formatHarnessUsage(data.usage);
+  const hints = data.pending_hint_count > 0 ? ` · ${data.pending_hint_count} hint${data.pending_hint_count === 1 ? "" : "s"}` : "";
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] shrink-0 max-w-[14rem] truncate"
+      style={{
+        backgroundColor: t.surfaceOverlay,
+        color: data.pending_hint_count > 0 ? t.warningMuted : t.textMuted,
+        fontFamily: "'Menlo', monospace",
+      }}
+      title={`${data.context_note} Resume: ${data.harness_session_id || "none"}. Last turn: ${data.last_turn_at || "none"}. Usage: ${usageLabel || "unknown"}.`}
+    >
+      ctx {usageLabel ?? resume}{hints}
+    </span>
+  );
+}
+
+function formatHarnessUsage(usage: Record<string, unknown> | null): string | null {
+  if (!usage) return null;
+  const keys = [
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+  ];
+  let total = 0;
+  for (const key of keys) {
+    const value = usage[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      total += value;
+    }
+  }
+  if (total <= 0) return null;
+  if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M tok`;
+  if (total >= 1_000) return `${Math.round(total / 100) / 10}k tok`;
+  return `${total} tok`;
 }
 
 function HarnessApprovalModePill({

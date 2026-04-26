@@ -4,7 +4,7 @@ An **external agent harness** lets you run a coding-agent session from Spindrel'
 
 The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
 
-There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel prompt, tools, skills, memory, and KB injection are bypassed for that turn. Harness model/effort controls are runtime-owned and stored per session under `Session.metadata["harness_settings"]`.
+There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel prompt, skills, memory, and KB injection are bypassed for that turn. Harness model/effort controls are runtime-owned and stored per session under `Session.metadata["harness_settings"]`. A narrow host bridge can add one-shot context hints and selected Spindrel tools back into the harness without turning it into a normal Spindrel loop.
 
 ## Quick start
 
@@ -66,7 +66,7 @@ This writes credentials inside the container's filesystem only. They're lost on 
 
 These are deliberate v1 boundaries, not oversights:
 
-- **No Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged. Later bridge work should expose selected Spindrel tools/skills through the normal policy/approval/trace paths instead of direct runtime imports.
+- **No Spindrel skills, KB, memory, or capability injection yet.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged. Later skill bridge work should expose selected Spindrel skills through export or search/get tools instead of direct runtime imports.
 - **No widgets / no tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. No `emit_html_widget`, no standing orders, no dashboard pins.
 - **Native harness tools are not Spindrel tools.** Harness approval modes can route native SDK permission prompts into Spindrel approval cards, but approved native calls still execute in the harness, not through Spindrel's `ToolCall` dispatcher.
 - **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
@@ -95,6 +95,29 @@ Each runtime exposes a `RuntimeCapabilities` contract through `GET /api/v1/runti
 - `slash_policy.allowed_command_ids` filters `/api/v1/slash-commands?bot_id=...` and `/help`.
 
 Per-session values are read and patched via `GET/POST /api/v1/sessions/{id}/harness-settings`. Missing patch keys mean no change; JSON `null` clears a value.
+
+## Native status, compact, and host hints
+
+Harness sessions now expose lightweight native state through `GET /api/v1/sessions/{id}/harness-status` and `/context`:
+
+- selected harness model/effort and approval mode;
+- latest native harness resume id;
+- pending one-shot host hints;
+- last turn timestamp, compact reset timestamp, and last usage/cost metadata when available.
+
+This is not a full Spindrel context budget. The native provider owns its own context window. Spindrel can only report the metadata it sees at the host boundary unless a runtime later exposes token-window telemetry.
+
+`/compact` is harness-aware. It does **not** run normal Spindrel transcript compaction. Instead it builds a continuity summary from recent session messages, stores a native resume reset marker on `Session.metadata`, and queues the summary as a one-shot host hint. The next harness turn starts without the old native resume id and receives that summary at the top of the prompt.
+
+Scheduled heartbeats on harness channels also use one-shot host hints. They do not launch the normal Spindrel loop. The heartbeat preamble and task prompt are queued onto the channel's primary session so the next user-driven harness turn can see the scheduled context. Scratch/split fanout is intentionally not automatic yet.
+
+## Spindrel tool bridge
+
+Claude Code can receive selected Spindrel tools through a best-effort in-process MCP bridge when the installed Claude Agent SDK exposes the required helpers. The bridge is dynamic: it resolves the effective bot/channel tool set the same way the normal loop does, excludes browser-client tools, and converts local/MCP schemas into harness-visible tool definitions.
+
+Calls route back through `dispatch_tool_call`, not directly into Python functions. That means existing Spindrel policy, approval rows, audit/trace records, secret redaction, and result summarization remain in force. If the installed SDK does not provide the in-process MCP helper surface, the adapter disables the bridge for that turn and native Claude tools continue to work.
+
+The bridge is still early. Smoke-test SDK helper names on the deployed harness image before relying on it for production mutating tools.
 
 ## Adding context
 

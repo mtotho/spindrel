@@ -574,6 +574,24 @@ async def _compact_session(
         raise LookupError("Session not found")
 
     bot = get_bot(session.bot_id)
+    if getattr(bot, "harness_runtime", None):
+        from app.services.agent_harnesses.session_state import compact_harness_session
+
+        summary = await compact_harness_session(db, session_id)
+        payload = SideEffectPayload(
+            effect="compact",
+            scope_kind=scope_kind,
+            scope_id=str(scope_id),
+            title="Harness session compacted",
+            detail=(
+                "Native resume will restart on the next turn; Spindrel queued a "
+                f"{len(summary):,}-character continuity summary as a one-shot hint."
+            ),
+            status="started",
+            message_id=None,
+        )
+        return _side_effect_result(payload, command_id="compact")
+
     request = await request_manual_compaction(session_id, bot, db)
     status: Literal["queued", "started"] = (
         "queued" if request.get("status") == "queued" else "started"
@@ -737,9 +755,62 @@ async def _resolve_current_session(ctx: SlashCommandContext) -> Session:
 async def _context_handler(ctx: SlashCommandContext) -> SlashCommandResult:
     if ctx.surface == "channel":
         session = await _resolve_current_session(ctx)
-        return await _build_session_context_summary(session.id, ctx.db)
-    assert ctx.session_id is not None
-    return await _build_session_context_summary(ctx.session_id, ctx.db)
+    else:
+        session = ctx.session
+        if session is None and ctx.session_id is not None:
+            session = await ctx.db.get(Session, ctx.session_id)
+    if session is None:
+        raise LookupError("Session not found")
+    from app.agent.bots import get_bot
+
+    bot = get_bot(session.bot_id)
+    if getattr(bot, "harness_runtime", None):
+        from app.services.agent_harnesses.approvals import load_session_mode
+        from app.services.agent_harnesses.session_state import (
+            HARNESS_RESUME_RESET_AT_KEY,
+            load_context_hints,
+            load_latest_harness_metadata,
+        )
+        from app.services.agent_harnesses.settings import load_session_settings
+
+        settings = await load_session_settings(ctx.db, session.id)
+        mode = await load_session_mode(ctx.db, session.id)
+        hints = await load_context_hints(ctx.db, session.id)
+        harness_meta, last_turn_at = await load_latest_harness_metadata(ctx.db, session.id)
+        reset_at = (session.metadata_ or {}).get(HARNESS_RESUME_RESET_AT_KEY)
+        lines = [
+            f"Harness: {bot.harness_runtime}",
+            f"Model: {settings.model or 'runtime default'}",
+            f"Approval mode: {mode}",
+            f"Native resume id: {(harness_meta or {}).get('session_id') or 'none'}",
+            f"Pending host hints: {len(hints)}",
+        ]
+        if last_turn_at:
+            lines.append(f"Last harness turn: {last_turn_at.isoformat()}")
+        if isinstance(reset_at, str):
+            lines.append(f"Last compact reset: {reset_at}")
+        usage = (harness_meta or {}).get("usage") if harness_meta else None
+        if usage:
+            lines.append(f"Last usage: {usage}")
+        return SlashCommandResult(
+            command_id="context",
+            result_type="harness_context_summary",
+            payload={
+                "session_id": str(session.id),
+                "bot_id": bot.id,
+                "runtime": bot.harness_runtime,
+                "model": settings.model,
+                "effort": settings.effort,
+                "permission_mode": mode,
+                "harness_session_id": (harness_meta or {}).get("session_id") if harness_meta else None,
+                "pending_hint_count": len(hints),
+                "last_turn_at": last_turn_at.isoformat() if last_turn_at else None,
+                "last_compacted_at": reset_at if isinstance(reset_at, str) else None,
+                "usage": usage,
+            },
+            fallback_text="\n".join(lines),
+        )
+    return await _build_session_context_summary(session.id, ctx.db)
 
 
 async def _stop_handler(ctx: SlashCommandContext) -> SlashCommandResult:

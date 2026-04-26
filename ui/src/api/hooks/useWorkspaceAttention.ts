@@ -3,8 +3,10 @@ import { apiFetch } from "../client";
 
 export type AttentionSeverity = "info" | "warning" | "error" | "critical";
 export type AttentionStatus = "open" | "acknowledged" | "responded" | "resolved";
-export type AttentionSourceType = "bot" | "system";
+export type AttentionSourceType = "bot" | "system" | "user";
 export type AttentionTargetKind = "channel" | "bot" | "widget" | "system";
+export type AttentionAssignmentMode = "next_heartbeat" | "run_now";
+export type AttentionAssignmentStatus = "assigned" | "running" | "reported" | "cancelled";
 
 export interface WorkspaceAttentionItem {
   id: string;
@@ -26,6 +28,16 @@ export interface WorkspaceAttentionItem {
   evidence: Record<string, unknown>;
   latest_correlation_id?: string | null;
   response_message_id?: string | null;
+  assigned_bot_id?: string | null;
+  assignment_mode?: AttentionAssignmentMode | null;
+  assignment_status?: AttentionAssignmentStatus | null;
+  assignment_instructions?: string | null;
+  assigned_by?: string | null;
+  assigned_at?: string | null;
+  assignment_task_id?: string | null;
+  assignment_report?: string | null;
+  assignment_reported_by?: string | null;
+  assignment_reported_at?: string | null;
   first_seen_at?: string | null;
   last_seen_at?: string | null;
   responded_at?: string | null;
@@ -38,6 +50,24 @@ interface AttentionResponse {
 
 interface AttentionItemResponse {
   item: WorkspaceAttentionItem;
+}
+
+export interface CreateAttentionInput {
+  channel_id?: string | null;
+  target_kind: AttentionTargetKind;
+  target_id?: string | null;
+  title: string;
+  message: string;
+  severity: AttentionSeverity;
+  requires_response: boolean;
+  next_steps?: string[];
+}
+
+export interface AssignAttentionInput {
+  itemId: string;
+  bot_id: string;
+  mode: AttentionAssignmentMode;
+  instructions?: string | null;
 }
 
 export const WORKSPACE_ATTENTION_KEY = ["workspace-attention"] as const;
@@ -102,4 +132,54 @@ export function useResolveAttentionItem() {
 
 export function useMarkAttentionResponded() {
   return useAttentionAction((id) => `/api/v1/workspace/attention/${id}/responded`);
+}
+
+export function useCreateAttentionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: CreateAttentionInput) => {
+      const res = await apiFetch<AttentionItemResponse>("/api/v1/workspace/attention", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return res.item;
+    },
+    onSuccess: (item) => {
+      qc.setQueriesData<WorkspaceAttentionItem[]>(
+        { queryKey: WORKSPACE_ATTENTION_KEY },
+        (items) => items ? [item, ...items] : items,
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+    },
+  });
+}
+
+export function useAssignAttentionItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ itemId, ...body }: AssignAttentionInput) => {
+      const res = await apiFetch<AttentionItemResponse>(`/api/v1/workspace/attention/${itemId}/assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return res.item;
+    },
+    onSuccess: (item) => {
+      qc.setQueriesData<WorkspaceAttentionItem[]>(
+        { queryKey: WORKSPACE_ATTENTION_KEY },
+        (items) => reconcileAttentionItems(items, item),
+      );
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: WORKSPACE_ATTENTION_KEY });
+    },
+  });
+}
+
+export function useUnassignAttentionItem() {
+  return useAttentionAction((id) => `/api/v1/workspace/attention/${id}/unassign`);
 }

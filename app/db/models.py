@@ -613,6 +613,16 @@ class WorkspaceAttentionItem(Base):
     response_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     responded_by: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_bot_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    assignment_task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    assignment_report: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_reported_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_reported_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
     first_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     last_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
     responded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
@@ -621,12 +631,16 @@ class WorkspaceAttentionItem(Base):
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
 
     __table_args__ = (
-        CheckConstraint("source_type IN ('bot', 'system')", name="ck_workspace_attention_source_type"),
+        CheckConstraint("source_type IN ('bot', 'system', 'user')", name="ck_workspace_attention_source_type"),
         CheckConstraint("target_kind IN ('channel', 'bot', 'widget', 'system')", name="ck_workspace_attention_target_kind"),
         CheckConstraint("severity IN ('info', 'warning', 'error', 'critical')", name="ck_workspace_attention_severity"),
         CheckConstraint("status IN ('open', 'acknowledged', 'responded', 'resolved')", name="ck_workspace_attention_status"),
+        CheckConstraint("assignment_mode IS NULL OR assignment_mode IN ('next_heartbeat', 'run_now')", name="ck_workspace_attention_assignment_mode"),
+        CheckConstraint("assignment_status IS NULL OR assignment_status IN ('assigned', 'running', 'reported', 'cancelled')", name="ck_workspace_attention_assignment_status"),
         Index("ix_workspace_attention_status_last_seen", "status", "last_seen_at"),
         Index("ix_workspace_attention_channel_status", "channel_id", "status"),
+        Index("ix_workspace_attention_assigned_bot", "assigned_bot_id", "assignment_status"),
+        Index("ix_workspace_attention_assignment_task", "assignment_task_id"),
         Index("ix_workspace_attention_latest_correlation", "latest_correlation_id"),
         Index(
             "uq_workspace_attention_active_dedupe",

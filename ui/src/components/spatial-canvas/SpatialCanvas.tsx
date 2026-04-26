@@ -31,6 +31,7 @@ import {
   Trash2,
   Locate,
   Move,
+  Radar,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "../../api/client";
@@ -63,7 +64,7 @@ import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
-import { SpatialAttentionLayer } from "./SpatialAttentionLayer";
+import { SpatialAttentionBadgeStack, SpatialAttentionLayer } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -130,6 +131,8 @@ import {
   WELL_Y_SQUASH,
   MEMORY_OBSERVATORY_X,
   MEMORY_OBSERVATORY_Y,
+  ATTENTION_HUB_X,
+  ATTENTION_HUB_Y,
   type DensityIntensity,
   type DensityWindow,
   type TrailsMode,
@@ -217,6 +220,9 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const { data: nodes } = useSpatialNodes();
   const { data: attentionItems } = useWorkspaceAttention();
   const markAttentionResponded = useMarkAttentionResponded();
+  const openAttentionHub = useUIStore((s) => s.openAttentionHub);
+  const attentionHubOpen = useUIStore((s) => s.attentionHubOpen);
+  const closeAttentionHub = useUIStore((s) => s.closeAttentionHub);
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
@@ -278,6 +284,26 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     for (const c of channels ?? []) m.set(c.id, c);
     return m;
   }, [channels]);
+
+  const attentionByNodeId = useMemo(() => {
+    const byNode = new Map<string, WorkspaceAttentionItem[]>();
+    const list = attentionItems ?? [];
+    for (const item of list) {
+      if (item.status === "resolved") continue;
+      const node = (nodes ?? []).find((candidate) => {
+        if (item.target_node_id) return candidate.id === item.target_node_id;
+        if (item.target_kind === "channel") return candidate.channel_id === item.target_id;
+        if (item.target_kind === "bot") return candidate.bot_id === item.target_id;
+        if (item.target_kind === "widget") return candidate.widget_pin_id === item.target_id;
+        return false;
+      });
+      if (!node) continue;
+      const bucket = byNode.get(node.id) ?? [];
+      bucket.push(item);
+      byNode.set(node.id, bucket);
+    }
+    return byNode;
+  }, [attentionItems, nodes]);
 
   const channelByBotId = useMemo(() => {
     const m = new Map<string, Channel>();
@@ -1471,6 +1497,16 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         icon: Target,
         onClick: flyToWell,
       },
+      {
+        id: "attention-hub",
+        label: "Attention Hub",
+        shortLabel: "Attention",
+        worldX: ATTENTION_HUB_X,
+        worldY: ATTENTION_HUB_Y,
+        colorClass: "border-rose-300/40 text-rose-100 hover:border-rose-200/70",
+        icon: Radar,
+        onClick: openAttentionHub,
+      },
     ];
 
     for (const node of nodes ?? []) {
@@ -1520,6 +1556,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     botsVisible,
     flyToMemoryObservatory,
     flyToWell,
+    openAttentionHub,
     flyToChannel,
     flyToNodeById,
   ]);
@@ -1559,6 +1596,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
         category: "Canvas",
         icon: Brain,
         onSelect: () => flyToMemoryObservatory(),
+      },
+      {
+        id: "canvas-open-attention-hub",
+        label: "Canvas: Open Attention Hub",
+        category: "Canvas",
+        icon: Radar,
+        onSelect: () => openAttentionHub(),
       },
       {
         id: "canvas-cycle-activity",
@@ -1610,6 +1654,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     fitAllNodes,
     flyToWell,
     flyToMemoryObservatory,
+    openAttentionHub,
     cycleDensityIntensity,
     cycleTrailsMode,
     densityIntensity,
@@ -2386,6 +2431,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               onInspect={setMemorySelection}
             />
           </div>
+          <AttentionHubLandmark
+            activeCount={(attentionItems ?? []).filter((item) => item.status !== "resolved").length}
+            zoom={ambientZoom}
+            onOpen={openAttentionHub}
+          />
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
             const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
@@ -2471,6 +2521,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     })
                   }
                 />
+                <SpatialAttentionBadgeStack
+                  items={cluster.members.flatMap((member) => attentionByNodeId.get(member.node.id) ?? [])}
+                  scale={camera.scale}
+                  onSelect={(item) => setSelectedAttentionId(item.id)}
+                />
               </div>
             );
           })}
@@ -2490,6 +2545,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 count={cluster.nodes.length}
                 zoom={interactiveZoom}
                 opacity={widgetOverviewOpacity}
+              />
+              <SpatialAttentionBadgeStack
+                items={cluster.nodes.flatMap((node) => attentionByNodeId.get(node.id) ?? [])}
+                scale={camera.scale}
+                onSelect={(item) => setSelectedAttentionId(item.id)}
               />
             </div>
           ))}
@@ -2520,6 +2580,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   diving={diving}
                   lens={lens}
                   lensSettling={lensSettling}
+                  attentionItems={attentionByNodeId.get(node.id)}
+                  onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                   onHoverChange={(hovered) =>
                     setHoveredNodeId((curr) => {
                       if (hovered) return node.id;
@@ -2553,11 +2615,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 <ManualBotNode
                   key={node.id}
                   node={node}
+                  scale={camera.scale}
                   isDragging={draggingNodeId === node.id}
                   diving={diving}
                   lens={draggingNodeId === node.id ? null : lens}
                   lensSettling={lensSettling}
                   reduced={botsReduced}
+                  attentionItems={attentionByNodeId.get(node.id)}
+                  onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                   onPointerDown={(e) => handleBotPointerDown(node, e)}
                   onPointerMove={(e) => handleBotPointerMove(node, e)}
                   onPointerUp={(e) => handleBotPointerUp(node, e)}
@@ -2624,6 +2689,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                 diving={diving}
                 lens={lens}
                 lensSettling={lensSettling}
+                attentionItems={attentionByNodeId.get(node.id)}
+                onAttentionSelect={(item) => setSelectedAttentionId(item.id)}
                 activatorMode={useScopedGrabber ? "scoped" : "full"}
                 onScopedDragStart={() => {
                   setDraggingNodeId(node.id);
@@ -2667,11 +2734,10 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       />
       <SpatialAttentionLayer
         items={attentionItems ?? []}
-        nodes={nodes ?? []}
-        scale={camera.scale}
-        worldTransform={cameraTransform(camera)}
         selectedId={selectedAttentionId}
+        hubOpen={attentionHubOpen}
         onSelect={(item) => setSelectedAttentionId(item?.id ?? null)}
+        onCloseHub={closeAttentionHub}
         onReply={handleAttentionReply}
       />
       {landmarkBeaconsVisible && (
@@ -2806,5 +2872,32 @@ function OriginMarker() {
         style={{ width: 8, height: 8, left: -4, top: -4 }}
       />
     </div>
+  );
+}
+
+function AttentionHubLandmark({ activeCount, zoom, onOpen }: { activeCount: number; zoom: number; onOpen: () => void }) {
+  const compact = zoom < 0.45;
+  return (
+    <button
+      type="button"
+      className="absolute flex flex-col items-center justify-center rounded-full border border-warning/35 bg-surface-raised/80 text-text shadow-[0_0_40px_rgb(var(--color-warning)/0.16)] backdrop-blur hover:border-warning/70"
+      style={{
+        left: ATTENTION_HUB_X - 74,
+        top: ATTENTION_HUB_Y - 74,
+        width: 148,
+        height: 148,
+        zIndex: 4,
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        onOpen();
+      }}
+      title="Open Attention Hub"
+    >
+      <Radar className="mb-2 text-warning" size={compact ? 34 : 42} />
+      {!compact && <span className="text-sm font-semibold">Attention Hub</span>}
+      <span className="mt-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] text-warning">{activeCount} active</span>
+    </button>
   );
 }

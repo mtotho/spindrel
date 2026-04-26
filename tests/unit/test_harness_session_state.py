@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+import pytest
+
+from app.db.models import Message, Session as SessionRow
+from app.services.agent_harnesses.session_state import (
+    HARNESS_CONTEXT_HINTS_KEY,
+    compact_harness_session,
+    load_context_hints,
+    load_latest_harness_metadata,
+    set_resume_reset,
+)
+from tests.factories import build_bot, build_channel
+
+pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture
+async def harness_session(db_session):
+    bot = build_bot(id="harness-state-bot", name="Harness State", model="x")
+    bot.harness_runtime = "claude-code"
+    db_session.add(bot)
+    channel = build_channel(bot_id=bot.id)
+    db_session.add(channel)
+    session = SessionRow(
+        id=uuid.uuid4(),
+        client_id="harness-state-client",
+        bot_id=bot.id,
+        channel_id=channel.id,
+        created_at=datetime.now(timezone.utc),
+        last_active=datetime.now(timezone.utc),
+    )
+    db_session.add(session)
+    await db_session.commit()
+    return session
+
+
+async def test_compact_harness_session_adds_summary_hint(harness_session, db_session):
+    db_session.add(
+        Message(
+            session_id=harness_session.id,
+            role="user",
+            content="Remember the deployment gotcha.",
+            metadata_={},
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    summary = await compact_harness_session(db_session, harness_session.id)
+
+    assert "deployment gotcha" in summary
+    hints = await load_context_hints(db_session, harness_session.id)
+    assert len(hints) == 1
+    assert hints[0].kind == "compact_summary"
+    assert "deployment gotcha" in hints[0].text
+    await db_session.refresh(harness_session)
+    assert HARNESS_CONTEXT_HINTS_KEY in (harness_session.metadata_ or {})
+
+
+async def test_resume_reset_hides_older_harness_resume(harness_session, db_session):
+    old_message = Message(
+        session_id=harness_session.id,
+        role="assistant",
+        content="old",
+        metadata_={"harness": {"runtime": "claude-code", "session_id": "old-native"}},
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(old_message)
+    await db_session.commit()
+
+    await set_resume_reset(db_session, harness_session.id, summary="reset")
+    meta, _ = await load_latest_harness_metadata(db_session, harness_session.id)
+    assert meta is None
+
+    db_session.add(
+        Message(
+            session_id=harness_session.id,
+            role="assistant",
+            content="new",
+            metadata_={"harness": {"runtime": "claude-code", "session_id": "new-native"}},
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    await db_session.commit()
+
+    meta, _ = await load_latest_harness_metadata(db_session, harness_session.id)
+    assert meta and meta["session_id"] == "new-native"

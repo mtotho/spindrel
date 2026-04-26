@@ -923,6 +923,64 @@ async def get_harness_settings(
     )
 
 
+class HarnessStatusOut(BaseModel):
+    runtime: str | None = None
+    harness_session_id: str | None = None
+    model: str | None = None
+    effort: str | None = None
+    permission_mode: str | None = None
+    pending_hint_count: int = 0
+    last_compacted_at: str | None = None
+    last_turn_at: str | None = None
+    usage: dict[str, Any] | None = None
+    cost_usd: float | None = None
+    context_note: str
+
+
+@router.get("/{session_id}/harness-status", response_model=HarnessStatusOut)
+async def get_harness_status(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("approvals:read")),
+):
+    """Return lightweight native-harness state for the current session surface."""
+    from app.services.agent_harnesses.approvals import load_session_mode
+    from app.services.agent_harnesses.session_state import (
+        HARNESS_RESUME_RESET_AT_KEY,
+        load_context_hints,
+        load_latest_harness_metadata,
+    )
+    from app.services.agent_harnesses.settings import load_session_settings
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    mode = await load_session_mode(db, session_id)
+    settings = await load_session_settings(db, session_id)
+    hints = await load_context_hints(db, session_id)
+    harness_meta, last_turn_at = await load_latest_harness_metadata(db, session_id)
+    meta = session.metadata_ or {}
+    return HarnessStatusOut(
+        runtime=(harness_meta or {}).get("runtime") if harness_meta else None,
+        harness_session_id=(harness_meta or {}).get("session_id") if harness_meta else None,
+        model=settings.model,
+        effort=settings.effort,
+        permission_mode=mode,
+        pending_hint_count=len(hints),
+        last_compacted_at=meta.get(HARNESS_RESUME_RESET_AT_KEY)
+        if isinstance(meta.get(HARNESS_RESUME_RESET_AT_KEY), str)
+        else None,
+        last_turn_at=last_turn_at.isoformat() if last_turn_at else None,
+        usage=(harness_meta or {}).get("usage") if harness_meta else None,
+        cost_usd=(harness_meta or {}).get("cost_usd") if harness_meta else None,
+        context_note=(
+            "Native harness context is provider-managed; Spindrel tracks resume id, "
+            "compact resets, and pending host hints for this session."
+        ),
+    )
+
+
 @router.post("/{session_id}/harness-settings", response_model=HarnessSettingsOut)
 async def set_harness_settings(
     session_id: uuid.UUID,

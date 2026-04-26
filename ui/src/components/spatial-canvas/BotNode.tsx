@@ -12,9 +12,12 @@ import {
   MIN_SCALE,
   type LensTransform,
 } from "./spatialGeometry";
+import { SpatialAttentionBadgeStack } from "./SpatialAttentionLayer";
+import type { WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 
 interface ManualBotNodeProps {
   node: SpatialNode;
+  scale: number;
   isDragging: boolean;
   diving: boolean;
   lens: LensTransform | null;
@@ -26,11 +29,14 @@ interface ManualBotNodeProps {
   onClick?: () => void;
   onDoubleClick: () => void;
   onHoverChange?: (hovered: boolean) => void;
+  attentionItems?: WorkspaceAttentionItem[];
+  onAttentionSelect?: (item: WorkspaceAttentionItem) => void;
   children: ReactNode;
 }
 
 export function ManualBotNode({
   node,
+  scale,
   isDragging,
   diving,
   lens,
@@ -42,6 +48,8 @@ export function ManualBotNode({
   onClick,
   onDoubleClick,
   onHoverChange,
+  attentionItems,
+  onAttentionSelect,
   children,
 }: ManualBotNodeProps) {
   const clickTimerRef = useRef<number | null>(null);
@@ -108,6 +116,13 @@ export function ManualBotNode({
       }}
     >
       {children}
+      {attentionItems && attentionItems.length > 0 && onAttentionSelect && (
+        <SpatialAttentionBadgeStack
+          items={attentionItems}
+          scale={scale * (lens?.sizeFactor ?? 1) * (reduced ? 0.82 : 1)}
+          onSelect={onAttentionSelect}
+        />
+      )}
     </div>
   );
 }

@@ -148,11 +148,16 @@ async def _run_harness_turn(
         revoke_turn_bypass,
     )
     from app.services.agent_harnesses.base import TurnContext
+    from app.services.agent_harnesses.session_state import (
+        clear_consumed_context_hints,
+        load_context_hints,
+    )
     from app.services.agent_harnesses.settings import load_session_settings
 
     async with async_session() as db:
         permission_mode = await load_session_mode(db, session_id)
         harness_settings = await load_session_settings(db, session_id)
+        context_hints = await load_context_hints(db, session_id)
 
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
@@ -173,9 +178,11 @@ async def _run_harness_turn(
         model=harness_settings.model,
         effort=harness_settings.effort,
         runtime_settings=harness_settings.runtime_settings,
+        context_hints=context_hints,
     )
 
     error_text: str | None = None
+    runtime_accepted_turn = False
     try:
         try:
             result = await runtime.start_turn(
@@ -183,6 +190,7 @@ async def _run_harness_turn(
                 prompt=user_message,
                 emit=emitter,
             )
+            runtime_accepted_turn = True
         finally:
             # Per-turn bypass grants ("Approve all this turn") are scoped to
             # this turn ONLY. Always revoke — covers success, error, cancel.
@@ -230,6 +238,16 @@ async def _run_harness_turn(
     from app.services.secret_registry import redact as _redact_secrets
 
     final_text = _redact_secrets(result.final_text)
+    if runtime_accepted_turn and context_hints:
+        try:
+            async with async_session() as db:
+                await clear_consumed_context_hints(db, session_id)
+        except Exception:
+            logger.exception(
+                "harness '%s': failed to clear consumed context hints for session %s",
+                bot.harness_runtime,
+                session_id,
+            )
     synthetic_messages = [{
         "role": "user",
         "content": user_message,
@@ -281,18 +299,27 @@ async def _load_prior_harness_session_id(session_id: uuid.UUID) -> str | None:
     """
     from sqlalchemy import select
     from app.db.models import Message as MessageRow
+    from app.services.agent_harnesses.session_state import load_resume_reset_at
 
     async with async_session() as db:
+        reset_at = await load_resume_reset_at(db, session_id)
         rows = (
             await db.execute(
-                select(MessageRow.metadata_)
+                select(MessageRow.metadata_, MessageRow.created_at)
                 .where(MessageRow.session_id == session_id)
                 .where(MessageRow.role == "assistant")
                 .order_by(MessageRow.created_at.desc())
                 .limit(50)
             )
-        ).scalars().all()
-    for meta in rows:
+        ).all()
+    for meta, created_at in rows:
+        if reset_at is not None and created_at is not None:
+            try:
+                if created_at <= reset_at:
+                    continue
+            except TypeError:
+                if created_at.replace(tzinfo=timezone.utc) <= reset_at:
+                    continue
         if not isinstance(meta, dict):
             continue
         harness = meta.get("harness")

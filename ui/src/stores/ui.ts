@@ -118,6 +118,7 @@ interface UIState {
   sidebarCollapsed: boolean;
   sidebarWidth: number;
   paletteOpen: boolean;
+  attentionHubOpen: boolean;
   /** Spatial Canvas overlay (P1.0 spike). Transient — not persisted. The
    *  canvas mounts above the route Outlet without unmounting it, so any
    *  active SSE streams / channel state survive open/close. */
@@ -148,6 +149,8 @@ interface UIState {
   setSidebarWidth: (width: number) => void;
   openPalette: () => void;
   closePalette: () => void;
+  openAttentionHub: () => void;
+  closeAttentionHub: () => void;
   openSpatialOverlay: () => void;
   closeSpatialOverlay: () => void;
   toggleSpatialOverlay: () => void;
@@ -194,6 +197,7 @@ export const useUIStore = create<UIState>()(
       sidebarCollapsed: false,
       sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
       paletteOpen: false,
+      attentionHubOpen: false,
       spatialOverlayOpen: false,
       detailPanel: { type: null, id: null },
       hiddenSidebarSections: [],
@@ -212,6 +216,8 @@ export const useUIStore = create<UIState>()(
         }),
       openPalette: () => set({ paletteOpen: true }),
       closePalette: () => set({ paletteOpen: false }),
+      openAttentionHub: () => set({ attentionHubOpen: true }),
+      closeAttentionHub: () => set({ attentionHubOpen: false }),
       openSpatialOverlay: () => set({ spatialOverlayOpen: true }),
       closeSpatialOverlay: () => set({ spatialOverlayOpen: false }),
       toggleSpatialOverlay: () =>

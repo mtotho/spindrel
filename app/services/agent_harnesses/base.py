@@ -206,6 +206,24 @@ DbSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 
 @dataclass(frozen=True)
+class HarnessContextHint:
+    """Ephemeral host-provided context for the next harness turn.
+
+    Harnesses own their native transcript, so Spindrel cannot splice context
+    sections into a provider-managed prompt the way the normal loop does. This
+    is the small portable shape we thread into runtime adapters for one-shot
+    host hints such as heartbeat summaries, compact continuity summaries, and
+    future memory recalls.
+    """
+
+    kind: str
+    text: str
+    created_at: str
+    source: str | None = None
+    consume_after_next_turn: bool = True
+
+
+@dataclass(frozen=True)
 class TurnContext:
     """Everything a harness driver needs to run one turn against the SDK.
 
@@ -247,6 +265,9 @@ class TurnContext:
     """Opaque per-runtime settings bag for knobs that don't fit the generic
     model/effort shape. Each runtime adapter owns the schema; the host stores
     and threads the dict without inspection."""
+    context_hints: tuple[HarnessContextHint, ...] = ()
+    """One-shot host context hints to prepend/inject into this harness turn.
+    The turn worker clears consumed hints after the runtime accepts the turn."""
 
 
 @dataclass(frozen=True)

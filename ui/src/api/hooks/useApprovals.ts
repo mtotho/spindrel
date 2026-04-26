@@ -224,6 +224,33 @@ export function useSetSessionHarnessSettings() {
   });
 }
 
+export interface HarnessStatus {
+  runtime: string | null;
+  harness_session_id: string | null;
+  model: string | null;
+  effort: string | null;
+  permission_mode: string | null;
+  pending_hint_count: number;
+  last_compacted_at: string | null;
+  last_turn_at: string | null;
+  usage: Record<string, unknown> | null;
+  cost_usd: number | null;
+  context_note: string;
+}
+
+export function useSessionHarnessStatus(
+  sessionId: string | null | undefined,
+) {
+  return useQuery({
+    queryKey: ["session-harness-status", sessionId],
+    queryFn: () =>
+      apiFetch<HarnessStatus>(
+        `/api/v1/sessions/${sessionId}/harness-status`,
+      ),
+    enabled: !!sessionId,
+  });
+}
+
 export function useChannelPendingApprovals(channelId: string | undefined) {
   // No polling: the channel SSE stream (``approval_requested`` /
   // ``approval_resolved``) invalidates this key — see

@@ -25,6 +25,7 @@ from app.db.models import (
     ChannelHeartbeat,
     HeartbeatRun,
     Session,
+    Task,
     ToolCall,
     TraceEvent,
     WidgetDashboardPin,
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 ACTIVE_STATUSES = ("open", "acknowledged", "responded")
 VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 VALID_TARGET_KINDS = {"channel", "bot", "widget", "system"}
+VALID_ASSIGNMENT_MODES = {"next_heartbeat", "run_now"}
 STRUCTURED_ERROR_DETECTOR_ID = "system:structured-errors"
 
 
@@ -127,8 +129,8 @@ async def place_attention_item(
     evidence: dict | None = None,
     latest_correlation_id: uuid.UUID | None = None,
 ) -> WorkspaceAttentionItem:
-    if source_type not in {"bot", "system"}:
-        raise ValidationError("source_type must be 'bot' or 'system'")
+    if source_type not in {"bot", "system", "user"}:
+        raise ValidationError("source_type must be 'bot', 'system', or 'user'")
     if target_kind not in VALID_TARGET_KINDS:
         raise ValidationError(f"target_kind must be one of {sorted(VALID_TARGET_KINDS)}")
     if severity not in VALID_SEVERITIES:
@@ -258,6 +260,194 @@ async def resolve_attention_item(
     return item
 
 
+async def create_user_attention_item(
+    db: AsyncSession,
+    *,
+    actor: str,
+    channel_id: uuid.UUID | None,
+    target_kind: str,
+    target_id: str,
+    title: str,
+    message: str = "",
+    severity: str = "warning",
+    requires_response: bool = True,
+    next_steps: list[str] | None = None,
+) -> WorkspaceAttentionItem:
+    return await place_attention_item(
+        db,
+        source_type="user",
+        source_id=actor,
+        channel_id=channel_id,
+        target_kind=target_kind,
+        target_id=target_id,
+        title=title,
+        message=message,
+        severity=severity,
+        requires_response=requires_response,
+        next_steps=next_steps or [],
+        dedupe_key=f"user:{uuid.uuid4()}",
+    )
+
+
+def _assignment_prompt(item: WorkspaceAttentionItem, instructions: str | None) -> str:
+    steps = "\n".join(f"- {step}" for step in (item.next_steps or [])) or "- Investigate the item and report concise findings."
+    extra = (instructions or "").strip()
+    return (
+        "[ATTENTION ASSIGNMENT]\n"
+        f"Attention item id: {item.id}\n"
+        f"Title: {item.title}\n"
+        f"Severity: {item.severity}\n"
+        f"Target: {item.target_kind}:{item.target_id}\n\n"
+        f"Message:\n{item.message or '(none)'}\n\n"
+        f"Requested next steps:\n{steps}\n\n"
+        f"Assignment instructions:\n{extra or 'Investigate and report findings only. Do not execute fixes as part of this assignment.'}\n\n"
+        "Use report_attention_assignment with this attention item id and your findings. "
+        "Your final response should be the same concise findings for channel visibility."
+    )
+
+
+async def assign_attention_item(
+    db: AsyncSession,
+    item_id: uuid.UUID,
+    *,
+    bot_id: str,
+    mode: str,
+    instructions: str | None = None,
+    assigned_by: str | None = None,
+) -> WorkspaceAttentionItem:
+    if mode not in VALID_ASSIGNMENT_MODES:
+        raise ValidationError("assignment mode must be 'next_heartbeat' or 'run_now'")
+    item = await get_attention_item(db, item_id)
+    if item.status == "resolved":
+        raise ValidationError("Cannot assign a resolved attention item.")
+    try:
+        from app.agent.bots import get_bot
+        get_bot(bot_id)
+    except Exception as exc:  # noqa: BLE001 - normalize registry errors for API callers
+        raise ValidationError(f"Unknown bot: {bot_id}") from exc
+
+    now = _now()
+    item.assigned_bot_id = bot_id
+    item.assignment_mode = mode
+    item.assignment_status = "assigned"
+    item.assignment_instructions = (instructions or "").strip() or None
+    item.assigned_by = assigned_by
+    item.assigned_at = now
+    item.assignment_report = None
+    item.assignment_reported_by = None
+    item.assignment_reported_at = None
+    item.updated_at = now
+    item.requires_response = True
+
+    if mode == "run_now":
+        channel = await db.get(Channel, item.channel_id) if item.channel_id else None
+        task = Task(
+            bot_id=bot_id,
+            client_id=channel.client_id if channel else None,
+            session_id=channel.active_session_id if channel else None,
+            channel_id=item.channel_id,
+            prompt=_assignment_prompt(item, instructions),
+            title=f"Attention: {item.title}",
+            status="pending",
+            task_type="attention_assignment",
+            dispatch_type="none",
+            dispatch_config={},
+            callback_config={"attention_assignment": True, "attention_item_id": str(item.id)},
+            execution_config={
+                "history_mode": "none",
+                "tools": ["report_attention_assignment"],
+                "system_preamble": "You are handling an Attention assignment. Investigate and report findings only; do not execute fixes as assignment semantics.",
+            },
+            created_at=now,
+        )
+        db.add(task)
+        await db.flush()
+        item.assignment_task_id = task.id
+        item.assignment_status = "running"
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def unassign_attention_item(
+    db: AsyncSession,
+    item_id: uuid.UUID,
+    *,
+    actor: str | None = None,
+) -> WorkspaceAttentionItem:
+    item = await get_attention_item(db, item_id)
+    item.assigned_bot_id = None
+    item.assignment_mode = None
+    item.assignment_status = None
+    item.assignment_instructions = None
+    item.assignment_task_id = None
+    item.assigned_by = actor
+    item.updated_at = _now()
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def report_attention_assignment(
+    db: AsyncSession,
+    item_id: uuid.UUID,
+    *,
+    bot_id: str,
+    findings: str,
+    task_id: uuid.UUID | None = None,
+) -> WorkspaceAttentionItem:
+    item = await get_attention_item(db, item_id)
+    if item.assigned_bot_id != bot_id:
+        raise ValidationError("Only the assigned bot can report on this Attention Item.")
+    findings = (findings or "").strip()
+    if not findings:
+        raise ValidationError("findings are required.")
+    now = _now()
+    item.assignment_report = findings[:8000]
+    item.assignment_reported_by = bot_id
+    item.assignment_reported_at = now
+    item.assignment_status = "reported"
+    item.assignment_task_id = task_id or item.assignment_task_id
+    if item.status != "resolved":
+        item.status = "responded"
+        item.responded_at = item.responded_at or now
+        item.responded_by = f"bot:{bot_id}"
+    item.updated_at = now
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def on_attention_assignment_task_complete(task_id: uuid.UUID, status: str) -> None:
+    async with async_session() as db:
+        task = await db.get(Task, task_id)
+        if task is None:
+            return
+        cb = task.callback_config or {}
+        if not cb.get("attention_assignment"):
+            return
+        item_id = cb.get("attention_item_id")
+        if not item_id:
+            return
+        try:
+            parsed = uuid.UUID(str(item_id))
+        except (TypeError, ValueError):
+            return
+        item = await db.get(WorkspaceAttentionItem, parsed)
+        if item is None or item.assignment_status == "reported":
+            return
+        if status == "complete" and task.result:
+            await report_attention_assignment(db, parsed, bot_id=task.bot_id, findings=task.result, task_id=task.id)
+        elif status != "complete":
+            item.assignment_status = "assigned" if item.assignment_mode == "next_heartbeat" else "cancelled"
+            item.assignment_report = task.error or f"Assignment task ended with status {status}."
+            item.assignment_reported_at = _now()
+            item.assignment_reported_by = f"task:{task.id}"
+            item.updated_at = _now()
+            await db.commit()
+
+
 async def resolve_attention_item_by_bot_key(
     db: AsyncSession,
     *,
@@ -300,7 +490,7 @@ async def list_attention_items(
     if channel_id:
         clauses.append(WorkspaceAttentionItem.channel_id == channel_id)
     if not _is_admin_auth(auth):
-        clauses.append(WorkspaceAttentionItem.source_type == "bot")
+        clauses.append(WorkspaceAttentionItem.source_type.in_(("bot", "user")))
     stmt = select(WorkspaceAttentionItem).where(*clauses).order_by(
         desc(WorkspaceAttentionItem.status == "open"),
         desc(WorkspaceAttentionItem.last_seen_at),
@@ -355,6 +545,16 @@ async def serialize_attention_item(db: AsyncSession, item: WorkspaceAttentionIte
         "evidence": item.evidence or {},
         "latest_correlation_id": str(item.latest_correlation_id) if item.latest_correlation_id else None,
         "response_message_id": str(item.response_message_id) if item.response_message_id else None,
+        "assigned_bot_id": item.assigned_bot_id,
+        "assignment_mode": item.assignment_mode,
+        "assignment_status": item.assignment_status,
+        "assignment_instructions": item.assignment_instructions,
+        "assigned_by": item.assigned_by,
+        "assigned_at": item.assigned_at.isoformat() if item.assigned_at else None,
+        "assignment_task_id": str(item.assignment_task_id) if item.assignment_task_id else None,
+        "assignment_report": item.assignment_report,
+        "assignment_reported_by": item.assignment_reported_by,
+        "assignment_reported_at": item.assignment_reported_at.isoformat() if item.assignment_reported_at else None,
         "first_seen_at": item.first_seen_at.isoformat() if item.first_seen_at else None,
         "last_seen_at": item.last_seen_at.isoformat() if item.last_seen_at else None,
         "responded_at": item.responded_at.isoformat() if item.responded_at else None,
@@ -398,6 +598,41 @@ async def list_bot_neighborhood_attention(
         }
         for item in items
     ]
+
+
+async def build_attention_assignment_block(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+) -> str | None:
+    items = (await db.execute(
+        select(WorkspaceAttentionItem).where(
+            WorkspaceAttentionItem.channel_id == channel_id,
+            WorkspaceAttentionItem.assigned_bot_id == bot_id,
+            WorkspaceAttentionItem.assignment_mode == "next_heartbeat",
+            WorkspaceAttentionItem.assignment_status.in_(("assigned", "running")),
+            WorkspaceAttentionItem.status.in_(ACTIVE_STATUSES),
+        ).order_by(desc(WorkspaceAttentionItem.assigned_at)).limit(5)
+    )).scalars().all()
+    if not items:
+        return None
+    lines = [
+        "[attention assignments]",
+        "You have Attention Items assigned to investigate. Report findings only; do not execute fixes as assignment semantics.",
+        "Use report_attention_assignment with the item id and findings.",
+    ]
+    for item in items:
+        steps = "; ".join(item.next_steps or [])
+        lines.append(
+            f"- id={item.id} severity={item.severity} title={item.title!r} "
+            f"target={item.target_kind}:{item.target_id} message={item.message!r}"
+        )
+        if item.assignment_instructions:
+            lines.append(f"  instructions: {item.assignment_instructions}")
+        if steps:
+            lines.append(f"  next_steps: {steps}")
+    return "\n".join(lines)
 
 
 def _error_signature(text: str) -> str:
