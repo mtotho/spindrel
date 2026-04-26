@@ -41,7 +41,7 @@ This track covers the stable host contract used by Claude Code today and Codex l
 | 1 | Claude Code web harness baseline | shipped | Remote Claude Code sessions from the web UI, workspace reuse, auth-status surface, terminal login, resume/cost persistence. |
 | 2 | Resume + broad auto-approval cleanup | shipped | Per-session resume keying and auto-approve `can_use_tool` shim to avoid SDK permission stalls. |
 | 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
-| 4 | Harness control surface | planning | Runtime capabilities, per-session model/effort/settings endpoints, header/composer dropdowns, harness-aware `/model` and `/effort`, filtered slash-command UX. |
+| 4 | Harness control surface | shipped | `RuntimeCapabilities` Protocol; per-session `harness_settings` (model/effort/runtime_settings); `GET /runtimes/{name}/capabilities`; `GET/POST /sessions/{id}/harness-settings`; header model + effort pills (per-session, alongside Phase 3 approval-mode pill); harness-aware `/model` (resolves `channel.active_session_id` from channel surface) and `/effort` (friendly no-op when runtime declares no effort knob — never mutates `channel.config`); `?bot_id=` filter on `/api/v1/slash-commands` and `/help`. Shipped 2026-04-26. |
 | 5 | Codex runtime | planned | Implement Codex against the same `TurnContext`, approval, settings, and runtime-capability contracts. |
 | 6 | Spindrel tool bridge | planned | Adapter/MCP layer that exposes selected Spindrel tools to harnesses while preserving dispatch, policy, approval, traces, and result envelopes. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
@@ -70,20 +70,29 @@ Open implementation checks:
 - Bypass-mode audit events should use a transcript shape the UI reducer actually keeps.
 - Any background event publish should use primitive snapshots, not ORM objects crossing awaits.
 
-## Phase 4 - Controls + Slash Commands
+## Phase 4 - Controls + Slash Commands — shipped 2026-04-26
 
-Harness channels should expose runtime-native controls rather than hiding model controls entirely.
+What landed:
 
-Planned contract:
+- `RuntimeCapabilities` + `HarnessSlashCommandPolicy` dataclasses on `app/services/agent_harnesses/base.py`; new `HarnessRuntime.capabilities()` Protocol method; both re-exported through `integrations.sdk`.
+- Per-session `harness_settings` storage in `app/services/agent_harnesses/settings.py` — `load_session_settings`, `patch_session_settings` (PATCH semantics: missing key = no change, JSON `null` = clear, value = set; 256-char `model` guard).
+- `TurnContext` extended with `model`, `effort`, `runtime_settings`. Claude adapter threads `ctx.model` → `ClaudeAgentOptions(model=...)`; effort/runtime_settings reserved for future runtimes.
+- REST endpoints `GET/POST /api/v1/sessions/{id}/harness-settings` (`approvals:read` / `approvals:write` scopes — same tier as approval-mode; explicitly noted as v1 expedience that may move to a dedicated `harness:write` later) + `GET /api/v1/runtimes/{name}/capabilities` (user auth).
+- Header chrome: `HarnessHeaderChrome` now renders model pill (freeform popover when `model_is_freeform`, dropdown cycle when `supported_models` set) + effort pill (only when `effort_values.length > 0`) + Phase 3 approval-mode pill. All target the surface's own `sessionId`.
+- Slash commands: `/model` server-handled (drop `local_only=True`); harness path resolves `channel.active_session_id` from a channel-surface POST so the composer's `/model X` works; `/effort` harness branch returns a friendly no-op when runtime declares no effort knob and **never** writes `channel.config['effort_override']`; `/help` and the catalog endpoint share one bot-id-aware filter via `useSlashCommandList(botId)` plumbed through 5 callers.
+- Claude allowlist (conservative): `help, rename, stop, style, theme, clear, sessions, scratch, split, focus, model`. Excluded: `compact, plan, context, find, effort, skills` (Spindrel-loop or runtime-conflicting semantics).
 
-- Add runtime capabilities such as display name, configurable controls, supported model suggestions, effort values, approval modes, and slash-command policy.
-- Store per-session harness settings under `Session.metadata["harness_settings"]`, with channel-level defaults deferred.
-- Extend `TurnContext` with resolved harness model, effort, and opaque runtime settings.
-- Claude maps settings to `ClaudeAgentOptions(model=..., effort=...)`; Codex maps the same host settings to its own adapter later.
-- Replace the current `hideModelOverride` behavior with harness-aware model and effort pills/dropdowns.
-- Filter slash commands for harness sessions. Keep broadly useful commands such as `/help`, `/rename`, `/stop`, `/style`, `/theme`, `/clear`, `/scratch`, `/sessions`, `/split`, and `/focus`; hide misleading normal-agent commands that imply Spindrel context/tool control.
-- Make `/model`, `/effort`, and `/approval-mode` session-scoped and harness-aware when the active bot has a harness runtime.
-- Fix `/help` so it reflects the filtered command catalog for the current surface/runtime.
+Tests:
+
+- `tests/unit/test_harness_settings.py` — load/patch round-trip, null-clears, oversized-model guard, partial patches.
+- `tests/unit/test_runtime_capabilities.py` — Claude capabilities shape, slash-policy intersection helper.
+- `tests/unit/test_slash_commands_harness.py` — harness `/effort low` does NOT mutate `channel.config`, harness `/model` writes `harness_settings`, channel-surface fallback to `active_session_id`, non-harness `/model` writes `channel.model_override`, harness-filtered `/help`, catalog endpoint intersection.
+- `tests/integration/test_harness_settings_endpoints.py` — auth scopes, `_authorize_session_read` boundary, length guard, capabilities endpoint shape.
+
+Known follow-ups (not blocking shipped):
+
+- `tests/integration/test_turn_worker_harness_branch.py` — two persistence tests (`test_when_harness_succeeds_then_assistant_message_persisted_*`) fail on the committed baseline pre-Phase 4. Pre-existing; unrelated to this work.
+- Per-runtime SDK kwarg shape (`ClaudeAgentOptions(model=...)`) is verified by smoke run only — if the SDK renames the kwarg, fix is local to `integrations/claude_code/harness.py`.
 
 ## Later - Tool Bridge
 

@@ -231,8 +231,8 @@ async def test_harness_help_lists_only_allowed_commands(db_session):
         args=[],
     )
     labels = {c["label"] for c in result.payload["top_categories"]}
-    # Allowlist for stub: {help, stop, rename}
-    assert labels == {"/help", "/stop", "/rename"}
+    # Allowlist for stub: {help, stop, rename, model}
+    assert labels == {"/help", "/stop", "/rename", "/model"}
 
 
 async def test_normal_help_lists_full_surface(db_session):
@@ -262,12 +262,12 @@ async def test_catalog_with_bot_id_intersects(db_session):
 
     catalog = await list_supported_slash_commands(db=db_session, bot_id=bot.id)
     ids = {c["id"] for c in catalog}
-    assert ids == {"help", "stop", "rename"}
+    assert ids == {"help", "stop", "rename", "model"}
 
 
 async def test_catalog_without_bot_id_returns_full(db_session):
     catalog = await list_supported_slash_commands()
     ids = {c["id"] for c in catalog}
     # Sanity: full catalog has more than the stub allowlist.
-    assert len(ids) > 3
-    assert {"help", "stop", "rename", "find", "effort"} <= ids
+    assert len(ids) > 4
+    assert {"help", "stop", "rename", "find", "effort", "model"} <= ids

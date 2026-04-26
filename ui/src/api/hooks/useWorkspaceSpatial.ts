@@ -75,6 +75,7 @@ export interface SpatialBotPolicy {
   nearest_neighbor_floor: number;
   allow_moving_spatial_objects: boolean;
   allow_spatial_widget_management: boolean;
+  allow_attention_beacons: boolean;
   allow_map_view: boolean;
   tug_radius_steps: number;
   max_tug_steps_per_turn: number;

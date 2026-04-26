@@ -577,6 +577,72 @@ class TraceEvent(Base):
     )
 
 
+class WorkspaceAttentionItem(Base):
+    """Shared attention/work-intake item surfaced as a canvas Beacon.
+
+    Attention items are domain state. The Spatial Canvas may render them as
+    Beacons, but their lifecycle, dedupe, evidence, and future assignment
+    semantics live here rather than in ``workspace_spatial_nodes``.
+    """
+
+    __tablename__ = "workspace_attention_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True,
+        default=uuid.uuid4, server_default=text("gen_random_uuid()"),
+    )
+    source_type: Mapped[str] = mapped_column(Text, nullable=False)
+    source_id: Mapped[str] = mapped_column(Text, nullable=False)
+    channel_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("channels.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    target_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'warning'"))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    next_steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list)
+    requires_response: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'open'"))
+    occurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    evidence: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), default=dict)
+    latest_correlation_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    response_message_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    responded_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    last_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    responded_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), server_default=text("now()"))
+
+    __table_args__ = (
+        CheckConstraint("source_type IN ('bot', 'system')", name="ck_workspace_attention_source_type"),
+        CheckConstraint("target_kind IN ('channel', 'bot', 'widget', 'system')", name="ck_workspace_attention_target_kind"),
+        CheckConstraint("severity IN ('info', 'warning', 'error', 'critical')", name="ck_workspace_attention_severity"),
+        CheckConstraint("status IN ('open', 'acknowledged', 'responded', 'resolved')", name="ck_workspace_attention_status"),
+        Index("ix_workspace_attention_status_last_seen", "status", "last_seen_at"),
+        Index("ix_workspace_attention_channel_status", "channel_id", "status"),
+        Index("ix_workspace_attention_latest_correlation", "latest_correlation_id"),
+        Index(
+            "uq_workspace_attention_active_dedupe",
+            "source_type",
+            "source_id",
+            "channel_id",
+            "target_kind",
+            "target_id",
+            "dedupe_key",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'acknowledged', 'responded')"),
+            sqlite_where=text("status IN ('open', 'acknowledged', 'responded')"),
+        ),
+    )
+
+
 class UsageLimit(Base):
     __tablename__ = "usage_limits"
 

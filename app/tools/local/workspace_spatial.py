@@ -198,6 +198,62 @@ _REMOVE_WIDGET_SCHEMA = {
     },
 }
 
+_PLACE_ATTENTION_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "place_attention_beacon",
+        "description": (
+            "Place or refresh an Attention Beacon on the Spatial Canvas for "
+            "a condition that needs human attention. Use stable dedupe_key "
+            "values so repeated heartbeats update one beacon instead of "
+            "creating duplicates."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "message": {"type": "string"},
+                "severity": {
+                    "type": "string",
+                    "enum": ["info", "warning", "error", "critical"],
+                },
+                "requires_response": {"type": "boolean"},
+                "next_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "target_kind": {
+                    "type": "string",
+                    "enum": ["channel", "bot", "widget", "system"],
+                },
+                "target_id": {"type": "string"},
+                "dedupe_key": {"type": "string"},
+                "evidence": {"type": "object"},
+            },
+            "required": ["title", "message"],
+        },
+    },
+}
+
+_RESOLVE_ATTENTION_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "resolve_attention_beacon",
+        "description": (
+            "Resolve one of your own open Attention Beacons. Use item_id from "
+            "describe_canvas_neighborhood, or a stable dedupe_key you used "
+            "when placing it."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "item_id": {"type": "string"},
+                "dedupe_key": {"type": "string"},
+            },
+        },
+    },
+}
+
 
 def _scope() -> tuple[str | None, uuid.UUID | None, str | None]:
     bot_id = current_bot_id.get()
@@ -371,6 +427,15 @@ async def _ensure_widget_management(db, channel_id: uuid.UUID, bot_id: str) -> d
     policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
     if not policy["enabled"] or not policy["allow_spatial_widget_management"]:
         raise ValidationError("Spatial widget management is not enabled for this bot in this channel.")
+    return policy
+
+
+async def _ensure_attention_beacons(db, channel_id: uuid.UUID, bot_id: str) -> dict[str, Any]:
+    from app.services.workspace_spatial import get_channel_bot_spatial_policy
+
+    policy = await get_channel_bot_spatial_policy(db, channel_id, bot_id)
+    if not policy["enabled"] or not policy.get("allow_attention_beacons"):
+        raise ValidationError("Attention Beacons are not enabled for this bot in this channel.")
     return policy
 
 
@@ -553,3 +618,75 @@ async def remove_spatial_widget(target_node_id: str) -> str:
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
     return json.dumps({"removed_node_id": str(node_id), "removed_pin_id": str(pin.id)})
+
+
+@register(_PLACE_ATTENTION_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+async def place_attention_beacon(
+    title: str,
+    message: str,
+    severity: str = "warning",
+    requires_response: bool = False,
+    next_steps: list[str] | None = None,
+    target_kind: str | None = None,
+    target_id: str | None = None,
+    dedupe_key: str | None = None,
+    evidence: dict[str, Any] | None = None,
+) -> str:
+    bot_id, channel_id, err = _scope()
+    if err:
+        return json.dumps({"error": err})
+    assert bot_id and channel_id
+    async with async_session() as db:
+        try:
+            await _ensure_attention_beacons(db, channel_id, bot_id)
+            kind = target_kind or "channel"
+            tid = target_id or str(channel_id)
+            from app.services.workspace_attention import place_attention_item, serialize_attention_item
+            item = await place_attention_item(
+                db,
+                source_type="bot",
+                source_id=bot_id,
+                channel_id=channel_id,
+                target_kind=kind,
+                target_id=tid,
+                title=title,
+                message=message,
+                severity=severity,
+                requires_response=requires_response,
+                next_steps=next_steps or [],
+                dedupe_key=dedupe_key,
+                evidence=evidence or {},
+            )
+            payload = await serialize_attention_item(db, item)
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps({"item": payload}, default=str)
+
+
+@register(_RESOLVE_ATTENTION_SCHEMA, safety_tier="mutating", requires_bot_context=True, requires_channel_context=True)
+async def resolve_attention_beacon(item_id: str | None = None, dedupe_key: str | None = None) -> str:
+    bot_id, channel_id, err = _scope()
+    if err:
+        return json.dumps({"error": err})
+    assert bot_id and channel_id
+    parsed_id: uuid.UUID | None = None
+    if item_id:
+        try:
+            parsed_id = uuid.UUID(item_id)
+        except (TypeError, ValueError):
+            return json.dumps({"error": f"Invalid item_id: {item_id!r}"})
+    async with async_session() as db:
+        try:
+            await _ensure_attention_beacons(db, channel_id, bot_id)
+            from app.services.workspace_attention import resolve_attention_item_by_bot_key, serialize_attention_item
+            item = await resolve_attention_item_by_bot_key(
+                db,
+                bot_id=bot_id,
+                channel_id=channel_id,
+                item_id=parsed_id,
+                dedupe_key=dedupe_key,
+            )
+            payload = await serialize_attention_item(db, item)
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps({"item": payload}, default=str)

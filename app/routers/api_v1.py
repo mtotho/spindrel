@@ -26,6 +26,7 @@ from app.routers.api_v1_widget_auth import router as widget_auth_router
 from app.routers.api_v1_widget_debug import router as widget_debug_router
 from app.routers.api_v1_tools import router as tools_router
 from app.routers.api_v1_widgets import router as dashboard_router
+from app.routers.api_v1_workspace_attention import router as workspace_attention_router
 from app.routers.api_v1_workspace_spatial import router as workspace_spatial_router
 from app.routers.api_v1_push import router as push_router, presence_router
 from app.routers.api_v1_favicon import router as favicon_router
@@ -60,6 +61,7 @@ router.include_router(widget_auth_router)
 router.include_router(widget_debug_router)
 router.include_router(tools_router)
 router.include_router(dashboard_router)
+router.include_router(workspace_attention_router)
 router.include_router(workspace_spatial_router)
 router.include_router(push_router)
 router.include_router(presence_router)

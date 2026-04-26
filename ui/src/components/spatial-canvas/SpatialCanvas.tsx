@@ -42,6 +42,7 @@ import {
   useDeleteSpatialNode,
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
+import { useWorkspaceAttention, useMarkAttentionResponded, type WorkspaceAttentionItem } from "../../api/hooks/useWorkspaceAttention";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
 import { useUsageBreakdown } from "../../api/hooks/useUsage";
 import { useBots } from "../../api/hooks/useBots";
@@ -62,6 +63,7 @@ import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
 import { Minimap } from "./Minimap";
 import { SpatialEdgeBeacons } from "./SpatialEdgeBeacons";
+import { SpatialAttentionLayer } from "./SpatialAttentionLayer";
 import { DivePulseOverlay } from "./DivePulseOverlay";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
@@ -87,6 +89,7 @@ import {
   type ChannelSessionSurface,
 } from "../../lib/channelSessionSurfaces";
 import { useUIStore } from "../../stores/ui";
+import { useDraftsStore } from "../../stores/drafts";
 import { usePaletteOverrides } from "../../stores/paletteOverrides";
 import { usePaletteActions } from "../../stores/paletteActions";
 import {
@@ -212,6 +215,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const navigate = useNavigate();
   const location = useLocation();
   const { data: nodes } = useSpatialNodes();
+  const { data: attentionItems } = useWorkspaceAttention();
+  const markAttentionResponded = useMarkAttentionResponded();
   const { data: channels } = useChannels();
   const { data: bots } = useBots();
   const { data: upcomingItems } = useSpatialUpcomingActivity(50);
@@ -306,6 +311,27 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     }
     return m;
   }, [bots]);
+
+  const handleAttentionReply = useCallback((item: WorkspaceAttentionItem) => {
+    if (!item.channel_id) return;
+    const channel = channelsById.get(item.channel_id);
+    if (!channel) return;
+    const draft = [
+      `Re: ${item.title}`,
+      "",
+      item.message,
+      "",
+      "My response:",
+    ].join("\n");
+    useDraftsStore.getState().setDraftText(item.channel_id, draft);
+    markAttentionResponded.mutate(item.id);
+    setOpenBotChat({
+      botId: channel.bot_id,
+      botName: "Attention",
+      channelId: channel.id,
+      channelName: channel.name,
+    });
+  }, [channelsById, markAttentionResponded]);
 
   // Channel dashboards carry an `icon` field already used by the sidebar
   // rail; lift it onto the canvas tile too. Map `channelId → icon name`
@@ -463,6 +489,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     channelId: string;
     channelName: string;
   } | null>(null);
+  const [selectedAttentionId, setSelectedAttentionId] = useState<string | null>(null);
   const [memorySelection, setMemorySelection] = useState<MemoryObservationSelection | null>(null);
   const [sessionPickerOpen, setSessionPickerOpen] = useState(false);
 
@@ -2637,6 +2664,15 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       <MemoryObservationPanel
         selection={memorySelection}
         onClose={() => setMemorySelection(null)}
+      />
+      <SpatialAttentionLayer
+        items={attentionItems ?? []}
+        nodes={nodes ?? []}
+        scale={camera.scale}
+        worldTransform={cameraTransform(camera)}
+        selectedId={selectedAttentionId}
+        onSelect={(item) => setSelectedAttentionId(item?.id ?? null)}
+        onReply={handleAttentionReply}
       />
       {landmarkBeaconsVisible && (
         <SpatialEdgeBeacons

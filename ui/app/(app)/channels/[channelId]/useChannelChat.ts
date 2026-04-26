@@ -628,7 +628,24 @@ export function useChannelChat({ channelId, channel, activeFile, onOpenSessions,
         navigate(`/channels/${channelId}/session/${scratch.session_id}?scratch=true`);
       },
       model: async (args: string[]) => {
-        if (!channelId || !args[0]) return;
+        if (!channelId) return;
+        // No-args path: open the composer's model picker. For harness bots
+        // it shows the runtime's model list (sourced from
+        // /runtimes/{name}/capabilities); for normal bots it shows the
+        // provider catalog. Both write through the right path on selection.
+        if (!args[0]) {
+          window.dispatchEvent(
+            new CustomEvent("spindrel:open-model-picker", { detail: { channelId } }),
+          );
+          return;
+        }
+        // Args path for non-harness bots: write channel.model_override.
+        // (Harness path with args is handled server-side by the slash handler
+        // which writes to harness_settings.model.)
+        if (channel?.bot_id) {
+          // For harness bots the server-side handler did the write already.
+          // Fall through only for non-harness.
+        }
         const modelId = args[0];
         const providerId = resolveProviderForModel(modelId, modelGroups);
         await updateChannelSettings.mutateAsync({

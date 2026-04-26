@@ -366,3 +366,15 @@ class HarnessRuntime(Protocol):
         opaquely — runtime-specific names live here, never in ``app/``.
         """
         ...
+
+    async def list_models(self) -> tuple[str, ...]:
+        """Models this runtime can drive right now.
+
+        Distinct from ``capabilities().supported_models``: that field is a
+        UI hint (curated short list, may be empty for freeform runtimes);
+        this method is the *live* list — the runtime can introspect the
+        SDK, the underlying CLI, or its own catalog. The capabilities
+        endpoint calls this on demand and returns the result as
+        ``available_models``. Default: empty.
+        """
+        return ()

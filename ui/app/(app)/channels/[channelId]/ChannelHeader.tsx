@@ -5,6 +5,7 @@ import {
   Cog, PanelRight, Sparkles, StickyNote,
   X as CloseIcon,
   User as UserIcon, MoreHorizontal,
+  AlertTriangle,
 } from "lucide-react";
 import { useThemeTokens } from "@/src/theme/tokens";
 import { useUIStore } from "@/src/stores/ui";
@@ -19,6 +20,7 @@ import {
   type HarnessApprovalMode,
 } from "@/src/api/hooks/useApprovals";
 import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
+import { useWorkspaceAttention } from "@/src/api/hooks/useWorkspaceAttention";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
@@ -167,6 +169,7 @@ export function ChannelHeader({
   const widgetsDrawerActive = isMobile && drawerOpen && drawerTab === "widgets";
 
   const { data: channelData } = useChannel(channelId);
+  const { data: attentionItems } = useWorkspaceAttention(channelId);
   const { data: scratchHistory } = useScratchHistory(scratchFullpageMode ? channelId : null);
   const { data: currentScratchSession } = useScratchSession(
     scratchFullpageMode && bot?.id ? channelId : null,
@@ -247,6 +250,7 @@ export function ChannelHeader({
     ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
     : modeLabel;
   const showModeBadge = !isSystemChannel && (!isMobile || showScratchState || showCanvasState);
+  const attentionCount = (attentionItems ?? []).filter((item) => item.status !== "resolved").length;
   const canvasTitle = showCanvasState && typeof canvasSessionCount === "number"
     ? `${canvasSessionCount} session${canvasSessionCount === 1 ? "" : "s"}`
     : null;
@@ -482,6 +486,15 @@ export function ChannelHeader({
             >
               <UserIcon size={10} />
               {ownerName ?? "owner"}
+            </span>
+          )}
+          {attentionCount > 0 && (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning"
+              title={`${attentionCount} active Attention Beacon${attentionCount === 1 ? "" : "s"}`}
+            >
+              <AlertTriangle size={10} />
+              {attentionCount}
             </span>
           )}
           {channelData?.config?.effort_override && channelData.config.effort_override !== "off" && (

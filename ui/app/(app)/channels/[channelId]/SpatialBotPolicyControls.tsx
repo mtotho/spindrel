@@ -87,6 +87,12 @@ export function SpatialPolicyCard({
               onChange={(allow_spatial_widget_management) => patch({ allow_spatial_widget_management })}
             />
           </FormRow>
+          <FormRow label="Allow Attention Beacons" description="Lets the bot raise and resolve human-visible attention beacons during heartbeat runs.">
+            <Toggle
+              value={p.allow_attention_beacons}
+              onChange={(allow_attention_beacons) => patch({ allow_attention_beacons })}
+            />
+          </FormRow>
           <FormRow label="Allow nearby inspection" description="Read-only summaries for nearby channels, bots, and widgets.">
             <Toggle value={p.allow_nearby_inspect} onChange={(allow_nearby_inspect) => patch({ allow_nearby_inspect })} />
           </FormRow>

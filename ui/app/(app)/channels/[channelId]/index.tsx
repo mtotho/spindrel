@@ -23,6 +23,11 @@ import { useThemeTokens } from "@/src/theme/tokens";
 import { useChannel, useChannelContextBudget, useChannelConfigOverhead } from "@/src/api/hooks/useChannels";
 import { useSessionHeaderStats } from "@/src/api/hooks/useSessionHeaderStats";
 import { useBot } from "@/src/api/hooks/useBots";
+import {
+  useSessionHarnessSettings,
+  useSetSessionHarnessSettings,
+} from "@/src/api/hooks/useApprovals";
+import { useRuntimeCapabilities } from "@/src/api/hooks/useRuntimes";
 import { useSystemStatus } from "@/src/api/hooks/useSystemStatus";
 import { useAuthStore } from "@/src/stores/auth";
 import { useFileBrowserStore } from "@/src/stores/fileBrowser";
@@ -213,6 +218,13 @@ export default function ChatScreen() {
 
   const { data: channel, isLoading: channelLoading } = useChannel(channelId);
   const { data: bot } = useBot(channel?.bot_id);
+
+  // Harness composer model picker — only fetches when bot is a harness.
+  const { data: harnessCaps } = useRuntimeCapabilities(bot?.harness_runtime ?? null);
+  const { data: harnessSettings } = useSessionHarnessSettings(
+    bot?.harness_runtime ? channel?.active_session_id ?? null : null,
+  );
+  const setHarnessSettings = useSetSessionHarnessSettings();
   const { data: systemStatus } = useSystemStatus();
   const { data: configOverheadData } = useChannelConfigOverhead(channelId);
   // Host-side broker so pinned widgets reuse the channel's SSE connection
@@ -1479,7 +1491,19 @@ export default function ChatScreen() {
     modelProviderIdOverride: turnProviderIdOverride,
     onModelOverrideChange: handleModelOverrideChange,
     defaultModel: channel?.model_override || bot?.model,
-    hideModelOverride: !!bot?.harness_runtime,
+    // Phase 4: drop the harness gate. Composer pill now swaps to a
+    // harness-aware picker when bot.harness_runtime is set (writes go to
+    // POST /sessions/{id}/harness-settings instead of channel.model_override).
+    hideModelOverride: false,
+    harnessRuntime: bot?.harness_runtime ?? null,
+    harnessAvailableModels: harnessCaps?.available_models ?? [],
+    harnessCurrentModel: harnessSettings?.model ?? null,
+    onHarnessModelChange: (model: string | null) => {
+      const sid = channel?.active_session_id;
+      if (!sid) return;
+      setHarnessSettings.mutate({ sessionId: sid, patch: { model } });
+    },
+    harnessModelMutating: setHarnessSettings.isPending,
     harnessCostTotal: bot?.harness_runtime
       ? invertedData.reduce((sum, m) => {
           const c = (m.metadata as { harness?: { cost_usd?: number } } | undefined)?.harness?.cost_usd;

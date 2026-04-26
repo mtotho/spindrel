@@ -9,6 +9,8 @@ export interface RuntimeCapabilities {
   name: string;
   display_name: string;
   supported_models: string[];
+  /** Live list from the runtime adapter — what the picker should show. */
+  available_models: string[];
   model_is_freeform: boolean;
   effort_values: string[];
   approval_modes: string[];

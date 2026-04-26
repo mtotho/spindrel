@@ -30,6 +30,9 @@ class RuntimeCapabilitiesOut(BaseModel):
     name: str
     display_name: str
     supported_models: list[str]
+    # Live list from runtime.list_models(). Distinct from supported_models
+    # (curated UI hint) — this is the authoritative set the picker shows.
+    available_models: list[str]
     model_is_freeform: bool
     effort_values: list[str]
     approval_modes: list[str]
@@ -52,10 +55,20 @@ async def get_runtime_capabilities(
             detail=f"runtime {name!r} does not expose capabilities",
         )
     caps = runtime.capabilities()
+    available_models: list[str] = []
+    if hasattr(runtime, "list_models"):
+        try:
+            available_models = list(await runtime.list_models())
+        except Exception:
+            # Don't 500 the endpoint if a runtime adapter's list_models
+            # raises (e.g. SDK call fails). Fall back to the curated
+            # supported_models hint and let the UI render that.
+            available_models = list(caps.supported_models)
     return RuntimeCapabilitiesOut(
         name=name,
         display_name=caps.display_name,
         supported_models=list(caps.supported_models),
+        available_models=available_models,
         model_is_freeform=caps.model_is_freeform,
         effort_values=list(caps.effort_values),
         approval_modes=list(caps.approval_modes),

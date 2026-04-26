@@ -67,13 +67,27 @@ interface Props {
   canTogglePlanMode?: boolean;
   onTogglePlanMode?: () => void;
   onApprovePlan?: () => void;
-  /** Hide the inline model-override pill. Set for harness bots — the
-   *  external runtime owns its own model selection. */
+  /** Hide the inline model-override pill. Used for non-harness scratch
+   *  surfaces that intentionally suppress channel-level overrides. */
   hideModelOverride?: boolean;
   /** Cumulative cost (USD) for the current harness session, computed by
    *  the caller from per-message metadata. Renders as a small pill in the
    *  composer's status row when present. */
   harnessCostTotal?: number | null;
+  /** When set, the composer is hosting a harness bot. The model pill swaps
+   *  to show the harness session's per-session model and opens a picker
+   *  that writes through to ``POST /sessions/{id}/harness-settings``
+   *  instead of the channel model_override path. */
+  harnessRuntime?: string | null;
+  /** Curated list of harness model ids to show in the picker. Comes from
+   *  the runtime adapter via ``GET /runtimes/{name}/capabilities``. */
+  harnessAvailableModels?: string[];
+  /** Current per-session harness model (or null = runtime default). */
+  harnessCurrentModel?: string | null;
+  /** Persist the user's pick to ``harness_settings.model``. ``null`` clears. */
+  onHarnessModelChange?: (model: string | null) => void;
+  /** Whether harness-side model writes are in flight (disables the picker). */
+  harnessModelMutating?: boolean;
 }
 
 /** Short non-blocking haptic buzz. No-op on iOS Safari (vibrate is
@@ -94,7 +108,7 @@ function draftFilesToPending(draftFiles: DraftFile[]): PendingFile[] {
   });
 }
 
-export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null }: Props) {
+export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCancel, modelOverride, modelProviderIdOverride, onModelOverrideChange, defaultModel, currentBotId, isMultiBot, channelId, onSlashCommand, slashSurface = "channel", availableSlashCommands, isQueued, queuedMessageText, onCancelQueue, onEditQueue, onSendNow, configOverhead, onConfigOverheadClick, compact: compactLayout = false, chatMode = "default", planMode = null, hasPlan = false, planBusy = false, canTogglePlanMode = false, onTogglePlanMode, onApprovePlan, hideModelOverride = false, harnessCostTotal = null, harnessRuntime = null, harnessAvailableModels, harnessCurrentModel = null, onHarnessModelChange, harnessModelMutating = false }: Props) {
   const columns = useResponsiveColumns();
   const isMobile = columns === "single";
   const t = useThemeTokens();
@@ -138,6 +152,18 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
     }
   }, [channelId, pendingFiles, setDraftFiles]);
   const [showModelPicker, setShowModelPicker] = useState(false);
+  // External openers (typed `/model` with no args, header pill mirror, etc.)
+  // can request the picker open via a custom event scoped to this channel.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ channelId?: string }>).detail;
+      if (!detail?.channelId || detail.channelId === channelId) {
+        setShowModelPicker(true);
+      }
+    };
+    window.addEventListener("spindrel:open-model-picker", handler);
+    return () => window.removeEventListener("spindrel:open-model-picker", handler);
+  }, [channelId]);
   const [showPlanMenu, setShowPlanMenu] = useState(false);
   const modelPickerRef = useRef<HTMLDivElement>(null);
   const planControlRef = useRef<HTMLDivElement>(null);
@@ -320,12 +346,20 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
   const isTerminalMode = chatMode === "terminal";
   const terminalBorder = `${t.surfaceBorder}cc`;
   const addMenuVisible = !isTerminalMode || !collapsed;
-  const modelPillVisible = onModelOverrideChange && !isTerminalMode && !hideModelOverride;
+  const isHarness = !!harnessRuntime;
+  // Harness pill is always visible (header pill is canonical, but the
+  // composer pill is the muscle-memory surface for typed `/model` users).
+  // Non-harness pill respects the existing hideModelOverride opt-out.
+  const modelPillVisible = isHarness
+    ? true
+    : (onModelOverrideChange && !isTerminalMode && !hideModelOverride);
   const terminalHint = text.trim().startsWith("/") ? "command" : "message";
-  const hasOverride = !!modelOverride;
-  const effectiveName = modelOverride
-    ? modelOverride.split("/").pop()
-    : defaultModel?.split("/").pop();
+  const hasOverride = isHarness ? !!harnessCurrentModel : !!modelOverride;
+  const effectiveName = isHarness
+    ? (harnessCurrentModel ?? defaultModel?.split("/").pop() ?? null)
+    : (modelOverride
+        ? modelOverride.split("/").pop()
+        : defaultModel?.split("/").pop());
   const canRenderModelLabel = !!effectiveName;
   const terminalPlaceholder = compactLayout
     ? "Type / or enter a message..."
@@ -910,7 +944,14 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                         </span>
                         {hasOverride && (
                           <span
-                            onClick={(e) => { e.stopPropagation(); onModelOverrideChange(undefined, null); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isHarness) {
+                                onHarnessModelChange?.(null);
+                              } else {
+                                onModelOverrideChange?.(undefined, null);
+                              }
+                            }}
                             style={{ marginLeft: 2, cursor: "pointer", fontSize: 12, lineHeight: 1 }}
                           >
                             ✕
@@ -938,36 +979,51 @@ export function MessageInput({ onSend, onSendAudio, disabled, isStreaming, onCan
                             style={{ position: "fixed", inset: 0, zIndex: 50000 }}
                           />
                           <div style={{ position: "fixed", bottom: dropdownBottom, right: dropdownRight, zIndex: 50001, width: 320 }}>
-                            <LlmModelDropdownContent
-                              value={modelOverride ?? ""}
-                              selectedProviderId={modelProviderIdOverride}
-                              onSelect={(m, pid) => {
-                                onModelOverrideChange(m || undefined, pid);
-                                setShowModelPicker(false);
-                              }}
-                            />
-                            {hasOverride && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  onModelOverrideChange(undefined, null);
+                            {isHarness ? (
+                              <HarnessModelPickerContent
+                                t={t}
+                                models={harnessAvailableModels ?? []}
+                                current={harnessCurrentModel ?? null}
+                                disabled={harnessModelMutating}
+                                onSelect={(m) => {
+                                  onHarnessModelChange?.(m);
                                   setShowModelPicker(false);
                                 }}
-                                style={{
-                                  marginTop: 6,
-                                  width: "100%",
-                                  background: t.surfaceRaised,
-                                  border: `1px solid ${t.surfaceBorder}`,
-                                  borderRadius: 8,
-                                  padding: "8px 12px",
-                                  color: t.textMuted,
-                                  fontSize: 12,
-                                  cursor: "pointer",
-                                  textAlign: "left",
-                                }}
-                              >
-                                Clear override — inherit {defaultModel ?? "default"}
-                              </button>
+                              />
+                            ) : (
+                              <>
+                                <LlmModelDropdownContent
+                                  value={modelOverride ?? ""}
+                                  selectedProviderId={modelProviderIdOverride}
+                                  onSelect={(m, pid) => {
+                                    onModelOverrideChange?.(m || undefined, pid);
+                                    setShowModelPicker(false);
+                                  }}
+                                />
+                                {hasOverride && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onModelOverrideChange?.(undefined, null);
+                                      setShowModelPicker(false);
+                                    }}
+                                    style={{
+                                      marginTop: 6,
+                                      width: "100%",
+                                      background: t.surfaceRaised,
+                                      border: `1px solid ${t.surfaceBorder}`,
+                                      borderRadius: 8,
+                                      padding: "8px 12px",
+                                      color: t.textMuted,
+                                      fontSize: 12,
+                                      cursor: "pointer",
+                                      textAlign: "left",
+                                    }}
+                                  >
+                                    Clear override — inherit {defaultModel ?? "default"}
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </>,
@@ -1175,4 +1231,100 @@ function planToneColors(t: ReturnType<typeof useThemeTokens>, tone: ComposerPlan
         icon: t.textDim,
       };
   }
+}
+
+/** Harness model picker — same popover shell as the LLM picker, but the
+ *  list comes from the runtime adapter (``GET /runtimes/{name}/capabilities``)
+ *  and selection writes to ``harness_settings.model`` rather than
+ *  ``channel.model_override``. Selecting "Default" clears the override. */
+function HarnessModelPickerContent({
+  t,
+  models,
+  current,
+  disabled,
+  onSelect,
+}: {
+  t: ReturnType<typeof useThemeTokens>;
+  models: string[];
+  current: string | null;
+  disabled: boolean;
+  onSelect: (model: string | null) => void;
+}) {
+  return (
+    <div
+      style={{
+        background: t.surfaceRaised,
+        border: `1px solid ${t.surfaceBorder}`,
+        borderRadius: 8,
+        padding: 6,
+        maxHeight: 360,
+        overflowY: "auto",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          color: t.textDim,
+          padding: "6px 8px 4px",
+        }}
+      >
+        Harness model
+      </div>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => onSelect(null)}
+        style={{
+          display: "block",
+          width: "100%",
+          textAlign: "left",
+          background: current === null ? t.surfaceOverlay : "transparent",
+          color: t.textMuted,
+          border: "none",
+          borderRadius: 6,
+          padding: "8px 10px",
+          fontSize: 12,
+          cursor: disabled ? "default" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        Default — runtime picks
+      </button>
+      {models.map((m) => {
+        const selected = m === current;
+        return (
+          <button
+            key={m}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(m)}
+            style={{
+              display: "block",
+              width: "100%",
+              textAlign: "left",
+              background: selected ? t.purpleSubtle : "transparent",
+              color: selected ? t.purple : t.text,
+              border: "none",
+              borderRadius: 6,
+              padding: "8px 10px",
+              fontSize: 12,
+              fontFamily: "'Menlo', monospace",
+              cursor: disabled ? "default" : "pointer",
+              opacity: disabled ? 0.6 : 1,
+            }}
+          >
+            {m}
+          </button>
+        );
+      })}
+      {models.length === 0 && (
+        <div style={{ padding: "8px 10px", fontSize: 11, color: t.textDim }}>
+          No model list reported by the runtime adapter.
+        </div>
+      )}
+    </div>
+  );
 }

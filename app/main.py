@@ -731,6 +731,8 @@ async def lifespan(application: FastAPI):
     except Exception:
         logger.exception("outbox: stale IN_FLIGHT recovery failed (drainer will continue)")
     _workers.append(safe_create_task(outbox_drainer_worker(), name="outbox_drainer"))
+    from app.services.workspace_attention import structured_attention_worker
+    _workers.append(safe_create_task(structured_attention_worker(), name="workspace_attention"))
 
     # Heartbeat startup recovery — same crash-gap shape as outbox: a
     # HeartbeatRun row flipped to ``status='running'`` that never reached

@@ -84,6 +84,7 @@ DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "nearest_neighbor_floor": 3,
     "allow_moving_spatial_objects": False,
     "allow_spatial_widget_management": False,
+    "allow_attention_beacons": False,
     "allow_map_view": False,
     "tug_radius_steps": 2,
     "max_tug_steps_per_turn": 1,
@@ -1048,8 +1049,22 @@ async def build_canvas_neighborhood(
         "policy": policy,
         "bot": serialize_node(bot_node),
         "neighbors": nearby,
-        "hot_alerts": [],
+        "hot_alerts": await _attention_hot_alerts(db, channel_id=channel_id, bot_id=bot_id),
     }
+
+
+async def _attention_hot_alerts(
+    db: AsyncSession,
+    *,
+    channel_id: uuid.UUID,
+    bot_id: str,
+) -> list[dict[str, Any]]:
+    try:
+        from app.services.workspace_attention import list_bot_neighborhood_attention
+        return await list_bot_neighborhood_attention(db, channel_id=channel_id, bot_id=bot_id)
+    except Exception:
+        logger.debug("Failed to load spatial attention alerts", exc_info=True)
+        return []
 
 
 async def build_canvas_neighborhood_block(
@@ -1084,6 +1099,8 @@ async def build_canvas_neighborhood_block(
         lines.append("You may use view_spatial_canvas for read-only whole-map viewport summaries and focus targets.")
     if policy["allow_spatial_widget_management"]:
         lines.append("You may use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own.")
+    if policy.get("allow_attention_beacons"):
+        lines.append("You may use place_attention_beacon for human-visible warnings and resolve_attention_beacon for your own resolved beacons.")
     lines.append(
         f"If memory/file tools are available, keep current spatial memory in bot workspace "
         f"/workspace/bots/{bot_id}/memory/reference/spatial.md "
@@ -1111,6 +1128,19 @@ async def build_canvas_neighborhood_block(
             f"center_dist={row['distance']} edge_gap={row['edge_distance']}{flag_text}"
         )
     if not neighborhood["neighbors"]:
+        lines.append("  - none")
+    alerts = neighborhood.get("hot_alerts") or []
+    lines.append("")
+    lines.append("attention beacons:")
+    if alerts:
+        for alert in alerts[:8]:
+            own = " own" if alert.get("own") else ""
+            response = " requires-response" if alert.get("requires_response") else ""
+            lines.append(
+                f"  - {alert['title']} id={alert['id']} severity={alert['severity']} "
+                f"status={alert['status']} target={alert['target_kind']}:{alert['target_id']}{own}{response}"
+            )
+    else:
         lines.append("  - none")
     return "\n".join(lines)
 

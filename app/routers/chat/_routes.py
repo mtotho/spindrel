@@ -478,6 +478,23 @@ async def _enqueue_chat_turn(
             status_code=202,
         )
 
+    _attention_item_id = (req.msg_metadata or {}).get("attention_item_id")
+    if _attention_item_id:
+        try:
+            from app.services.workspace_attention import actor_label, mark_attention_responded
+            await mark_attention_responded(
+                db,
+                uuid.UUID(str(_attention_item_id)),
+                response_message_id=pre_user_msg_id,
+                responded_by=actor_label(user),
+            )
+        except Exception:
+            logger.warning(
+                "Failed to mark attention item responded: %s",
+                _attention_item_id,
+                exc_info=True,
+            )
+
     return JSONResponse(
         {
             "session_id": str(handle.session_id),

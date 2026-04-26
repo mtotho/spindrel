@@ -92,6 +92,7 @@ class SpatialBotPolicyRequest(BaseModel):
     nearest_neighbor_floor: int | None = None
     allow_moving_spatial_objects: bool | None = None
     allow_spatial_widget_management: bool | None = None
+    allow_attention_beacons: bool | None = None
     allow_map_view: bool | None = None
     tug_radius_steps: int | None = None
     max_tug_steps_per_turn: int | None = None

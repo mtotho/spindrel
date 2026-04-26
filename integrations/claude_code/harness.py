@@ -81,6 +81,19 @@ _CLAUDE_GENERIC_SLASH_ALLOWED: frozenset[str] = frozenset({
 })
 
 
+# Curated list of Claude model aliases the SDK CLI accepts. Ordered most
+# capable → least. Snapshot — refresh by restarting the server after a
+# CLI/SDK upgrade. The header pill + the harness `/model` picker both
+# display this list; freeform text input still works for unknown ids.
+_CLAUDE_KNOWN_MODELS: tuple[str, ...] = (
+    "claude-opus-4-7",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+)
+
+
 def _credential_path() -> str:
     """Resolve the on-disk credential path the CLI writes after `claude login`.
 
@@ -120,10 +133,10 @@ class ClaudeCodeRuntime:
     def capabilities(self) -> RuntimeCapabilities:
         return RuntimeCapabilities(
             display_name="Claude Code",
-            # Freeform v1 — no baked model ids. The Claude Agent SDK accepts
-            # whatever the underlying CLI accepts; we let the runtime surface
-            # SDK errors rather than gatekeeping a curated list that'll drift.
-            supported_models=(),
+            # Freeform input is allowed (SDK accepts any string the CLI
+            # accepts), but list_models() returns the curated set the UI
+            # picker shows by default.
+            supported_models=_CLAUDE_KNOWN_MODELS,
             model_is_freeform=True,
             # Claude Code SDK has no effort knob today. Typed /effort still
             # routes to the harness handler, which returns a friendly no-op.
@@ -133,6 +146,13 @@ class ClaudeCodeRuntime:
                 allowed_command_ids=_CLAUDE_GENERIC_SLASH_ALLOWED,
             ),
         )
+
+    async def list_models(self) -> tuple[str, ...]:
+        # Curated list of currently-known Claude model aliases the SDK CLI
+        # accepts. This is a snapshot — restart the server to refresh after
+        # a CLI/SDK upgrade. If the Claude Agent SDK ever exposes a
+        # programmatic catalog, swap this for an SDK call.
+        return _CLAUDE_KNOWN_MODELS
 
     async def start_turn(
         self,
