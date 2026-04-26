@@ -367,7 +367,14 @@ _INVOKE_WIDGET_ACTION_SCHEMA = {
             "Use `describe_dashboard` first to inspect each pin's `available_actions` "
             "and copy the declared arg schema instead of guessing payloads. This is "
             "the unified bot-facing action surface for HTML widget handlers and "
-            "first-party native app widgets."
+            "first-party native app widgets.\n\n"
+            "All action-specific fields go INSIDE the `args` object — e.g. for an "
+            "`append` action that takes `text`, call "
+            "`invoke_widget_action(pin_id=..., action='append', args={'text': '...'})`, "
+            "NOT `invoke_widget_action(pin_id=..., action='append', text='...')`. "
+            "Top-level keys other than pin_id/widget_instance_id/action/args are "
+            "tolerated for forgiveness and folded into args, but the schema-correct "
+            "form is the explicit `args` object."
         ),
         "parameters": {
             "type": "object",
@@ -386,7 +393,10 @@ _INVOKE_WIDGET_ACTION_SCHEMA = {
                 },
                 "args": {
                     "type": "object",
-                    "description": "Arguments matching the action's declared schema.",
+                    "description": (
+                        "Arguments matching the action's declared schema. "
+                        "EVERY action-specific field goes here — never as a top-level kwarg."
+                    ),
                 },
             },
             "required": ["action"],
@@ -1511,12 +1521,29 @@ async def invoke_widget_action(
     pin_id: str | None = None,
     widget_instance_id: str | None = None,
     args: dict[str, Any] | None = None,
+    **extra_kwargs: Any,
 ) -> str:
+    """Forgiving wrapper around the widget action dispatcher.
+
+    The schema declares all action-specific fields belong inside ``args``,
+    but bots routinely flatten them to top-level kwargs (e.g.
+    ``invoke_widget_action(action='append', text='...')`` instead of
+    ``args={'text': '...'}``). Rather than crashing with TypeError on the
+    unknown kwarg, fold any extras into ``args`` so the call still
+    succeeds. Schema validation downstream still rejects payloads the
+    action doesn't actually accept.
+    """
     from app.db.engine import async_session
     from app.services.dashboard_pins import get_pin
     from app.services.native_app_widgets import get_native_widget_instance_for_pin, get_widget_instance
     from app.services.widget_handler_tools import list_widget_handler_tools
     from app.services.widget_py import invoke_action as invoke_widget_handler
+
+    if extra_kwargs:
+        merged = dict(args or {})
+        for key, value in extra_kwargs.items():
+            merged.setdefault(key, value)
+        args = merged
 
     if not pin_id and not widget_instance_id:
         return json.dumps({

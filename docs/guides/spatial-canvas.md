@@ -20,11 +20,15 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
 
 ## Pan and zoom
 
+![Mid-zoom view — channel cluster with density halos visible](../images/spatial-zoom-out-01.png)
+
 - **Pan** — click-and-drag on the background.
 - **Zoom** — wheel anywhere on the canvas. Holding the cursor over a widget tile zooms the canvas, not the widget (until the tile is "activated"; see [Widget tiles](#widget-tiles)).
 - **Recenter** — the `Recenter` button in the bottom-right chrome flies the camera back to the seeded center.
 - **Fly to a channel** — `Cmd+K` and pick a channel. When the canvas is mounted, channel-pick navigates by flying the camera to that tile instead of route-changing.
 - **Fly to the Now Well** — the `Now` button next to `Recenter` frames the well (see [Now Well](#now-well-and-orbital-scheduled-tasks)).
+
+![Wider constellation showing channels and the Now Well's nebula glow](../images/spatial-zoom-out-02.png)
 
 ## Channel tiles
 
@@ -63,6 +67,8 @@ Widget tiles also have three semantic-zoom levels:
 | `≥ 0.6` | **Live iframe.** The widget mounts inside the canvas with full interactivity. |
 
 ![Widget tiles zoomed in — Notes, Test Tracks, Todo around a channel](../images/spatial-zoom-widgets.png)
+
+![Channel close-up with widget cards floating around it](../images/spatial-zoom-out-in-01.png)
 
 **Iframe gesture handling.** A live widget would normally swallow wheel and click events. The canvas covers the iframe with a transparent shield until you click into the tile to activate it. Once activated, wheel and click reach the iframe; pan/zoom of the canvas pauses inside the tile. `Esc` or clicking the canvas background deactivates.
 
@@ -109,6 +115,8 @@ The lens is render-only — no DB writes, no persisted state changes — so it i
 ## Now Well and orbital scheduled tasks
 
 ![The Now Well — concentric ellipses with two scheduled-task diamonds in orbit](../images/spatial-blackhole.png)
+
+![Now Well close-up — orbit ring labels (1m / 5m / 10m / 30m / 1h…) and labeled diamonds for upcoming heartbeats and dreaming jobs](../images/spatial-zoom-well-01.png)
 
 A landmark sits below the channel constellation: the **Now Well**, a stack of quiet concentric squashed ellipses with a black inner gradient, soft blue/violet haze, and a live `now · HH:MM` clock. It reads as an isometric hole in the floor. The 1-week horizon uses granular time bands (`15m`, `1h`, `6h`, `12h`, `1d`, `2d`, `3d`, `5d`, `1w`) so multi-day work does not collapse into one crowded ring.
 

@@ -113,7 +113,7 @@ function HeartbeatTabLoading({
             <StatusBadge label="Loading" variant="neutral" />
           </div>
         }
-        description="Heartbeat schedules background runs for this channel. Configuration saves automatically."
+        description="Heartbeat schedules background runs for this channel."
         action={
           <span className="block h-[34px] w-16 rounded-md bg-surface-overlay/35" aria-hidden />
         }
@@ -281,7 +281,6 @@ export function HeartbeatTab({
   const hbFormRef = useRef<any>(null);
   const hbDirtyRef = useRef(false);
   const hbSavePendingRef = useRef(false);
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch templates to render linked template content
   const { data: allTemplates } = usePromptTemplates();
@@ -301,7 +300,7 @@ export function HeartbeatTab({
     if (!shouldApplyServerDraft({
       dirty: hbDirtyRef.current,
       pending: hbSavePendingRef.current,
-      hasScheduledSave: saveTimeoutRef.current != null,
+      hasScheduledSave: false,
     })) {
       return;
     }
@@ -329,6 +328,7 @@ export function HeartbeatTab({
         skip_tool_approval: data.config.skip_tool_approval ?? false,
         append_spatial_prompt: data.config.append_spatial_prompt ?? false,
         append_spatial_map_overview: data.config.append_spatial_map_overview ?? false,
+        include_pinned_widgets: data.config.include_pinned_widgets ?? false,
         execution_policy: normalizeExecutionPolicy(
           data.config.execution_policy,
           data.default_execution_policy,
@@ -364,6 +364,7 @@ export function HeartbeatTab({
         skip_tool_approval: false,
         append_spatial_prompt: false,
         append_spatial_map_overview: false,
+        include_pinned_widgets: false,
         execution_policy: normalizeExecutionPolicy(
           null,
           data.default_execution_policy,
@@ -402,44 +403,107 @@ export function HeartbeatTab({
         setHbLastSavedAt(Date.now());
       }
     },
-    onSettled: () => {
-      hbSavePendingRef.current = false;
-    },
   });
 
   const saveMutationRef = useRef(saveMutation);
   saveMutationRef.current = saveMutation;
 
-  const scheduleSave = useCallback(() => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      saveTimeoutRef.current = null;
-      if (!hbFormRef.current) return;
-      const draft = hbFormRef.current;
-      hbSavePendingRef.current = true;
-      try {
-        await saveMutationRef.current.mutateAsync(draft);
-      } catch {
-        hbSavePendingRef.current = false;
-        // Error state is surfaced via saveMutation.isError / header pill.
-      }
-    }, 800);
-  }, []);
-
   const updateHbForm = useCallback((updater: (prev: any) => any) => {
-    let nextForm: any = null;
-    setHbForm((prev: any) => {
-      nextForm = updater(prev);
-      return nextForm;
-    });
+    const current = hbFormRef.current;
+    const nextForm = updater(current);
     if (!nextForm) return;
     hbFormRef.current = nextForm;
+    setHbForm(nextForm);
     hbDirtyRef.current = true;
     setHbDirty(true);
     setHbLastSavedAt(null);
     saveMutationRef.current.reset();
-    scheduleSave();
-  }, [scheduleSave]);
+  }, []);
+
+  const saveHeartbeat = useCallback(async () => {
+    if (!hbFormRef.current) return;
+    const draft = hbFormRef.current;
+    hbSavePendingRef.current = true;
+    try {
+      await saveMutationRef.current.mutateAsync(draft);
+    } catch {
+      // Error state is surfaced via saveMutation.isError / header pill.
+    } finally {
+      hbSavePendingRef.current = false;
+    }
+  }, []);
+
+  const revertHeartbeat = useCallback(() => {
+    if (!data) return;
+    const source = data.config;
+    const nextForm = source ? {
+      interval_minutes: source.interval_minutes ?? 60,
+      model: source.model ?? "",
+      model_provider_id: source.model_provider_id ?? "",
+      fallback_models: source.fallback_models ?? [],
+      prompt: source.prompt ?? "",
+      dispatch_results: source.dispatch_results ?? true,
+      dispatch_mode: source.dispatch_mode ?? "always",
+      trigger_response: source.trigger_response ?? false,
+      prompt_template_id: source.prompt_template_id ?? null,
+      workspace_file_path: source.workspace_file_path ?? null,
+      workspace_id: source.workspace_id ?? null,
+      max_run_seconds: source.max_run_seconds ?? null,
+      previous_result_max_chars: source.previous_result_max_chars ?? null,
+      repetition_detection: source.repetition_detection ?? null,
+      quiet_start: source.quiet_start ?? "",
+      quiet_end: source.quiet_end ?? "",
+      timezone: source.timezone ?? "",
+      workflow_id: source.workflow_id ?? null,
+      workflow_session_mode: source.workflow_session_mode ?? null,
+      skip_tool_approval: source.skip_tool_approval ?? false,
+      append_spatial_prompt: source.append_spatial_prompt ?? false,
+      append_spatial_map_overview: source.append_spatial_map_overview ?? false,
+      include_pinned_widgets: source.include_pinned_widgets ?? false,
+      execution_policy: normalizeExecutionPolicy(
+        source.execution_policy,
+        data.default_execution_policy,
+        data.execution_policy_presets,
+      ),
+    } : {
+      interval_minutes: 60,
+      model: "",
+      model_provider_id: "",
+      fallback_models: [],
+      prompt: "",
+      dispatch_results: true,
+      dispatch_mode: "always",
+      trigger_response: false,
+      prompt_template_id: null,
+      workspace_file_path: null,
+      workspace_id: null,
+      max_run_seconds: null,
+      previous_result_max_chars: null,
+      repetition_detection: null,
+      quiet_start: "",
+      quiet_end: "",
+      timezone: "",
+      workflow_id: null,
+      workflow_session_mode: null,
+      skip_tool_approval: false,
+      append_spatial_prompt: false,
+      append_spatial_map_overview: false,
+      include_pinned_widgets: false,
+      execution_policy: normalizeExecutionPolicy(
+        null,
+        data.default_execution_policy,
+        data.execution_policy_presets,
+      ),
+    };
+    setHbForm(nextForm);
+    hbFormRef.current = nextForm;
+    hbDirtyRef.current = false;
+    setHbDirty(false);
+    setHbLastSavedAt(null);
+    setCustomizedFromTemplateId(null);
+    setTemplatePreviewExpanded(false);
+    saveMutationRef.current.reset();
+  }, [data]);
 
   const updateExecutionPreset = useCallback((preset: string) => {
     updateHbForm((f: any) => {
@@ -503,18 +567,6 @@ export function HeartbeatTab({
     toggleMutation.isPending,
   ]);
 
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-        if (hbDirtyRef.current && hbFormRef.current) {
-          saveMutationRef.current.mutate(hbFormRef.current);
-        }
-      }
-    };
-  }, []);
-
   const [hbFired, setHbFired] = useState(false);
   const fireMutation = useMutation({
     mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/fire`, { method: "POST" }),
@@ -568,10 +620,11 @@ export function HeartbeatTab({
           <div className="flex flex-wrap items-center gap-2">
             <span>Heartbeat</span>
             <StatusBadge label={enabled ? "Enabled" : "Disabled"} variant={enabled ? "success" : "neutral"} />
+            {hbDirty && <StatusBadge label="Unsaved" variant="warning" />}
           </div>
         }
         description={enabled
-          ? "Heartbeat schedules background runs for this channel. Configuration saves automatically."
+          ? "Heartbeat schedules background runs for this channel."
           : "Heartbeat is disabled. You can still configure it here, then enable it when the schedule is ready."}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -579,6 +632,19 @@ export function HeartbeatTab({
               label={runNowLabel}
               onClick={() => fireMutation.mutate()}
               disabled={!hasAction || fireMutation.isPending || !!hbFirePollStartedAt}
+            />
+            <ActionButton
+              label="Revert"
+              onPress={revertHeartbeat}
+              variant="secondary"
+              size="small"
+              disabled={!hbDirty || saveMutation.isPending}
+            />
+            <ActionButton
+              label={saveMutation.isPending ? "Saving..." : "Save"}
+              onPress={saveHeartbeat}
+              size="small"
+              disabled={!hbDirty || saveMutation.isPending}
             />
             <ActionButton
               label={toggleMutation.isPending ? "Updating..." : enabled ? "Disable" : "Enable"}
@@ -653,6 +719,12 @@ export function HeartbeatTab({
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, append_spatial_map_overview: v }))}
                 label="Include map overview"
                 description="Injects a compact far-zoom canvas summary for bots with map-view permission."
+              />
+              <Toggle
+                value={hbForm.include_pinned_widgets ?? false}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, include_pinned_widgets: v }))}
+                label="Include pinned dashboard widgets"
+                description="Inject the channel's pinned dashboard widgets (notes, todos, standing orders, etc.) into the heartbeat preamble so the bot can see and act on their current state. Off by default — chat already has its own switch under Agent → Behavior."
               />
               {spatialBots.length > 0 && (
                 <div className="flex flex-col gap-2">

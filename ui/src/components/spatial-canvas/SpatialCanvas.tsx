@@ -125,6 +125,7 @@ import {
   loadStoredCamera,
   projectFisheye,
   getViewportWorldBbox,
+  bboxOverlaps,
   type Camera,
   type WorldBbox,
 } from "./spatialGeometry";
@@ -161,7 +162,7 @@ const DIVE_MS = 300;
 const TILE_W = 220;
 const TILE_H = 140;
 const CAMERA_IDLE_COMMIT_MS = 140;
-const CAMERA_MOVING_CLASS_MS = 180;
+const CAMERA_MOVING_CLASS_MS = 520;
 
 function cameraTransform(camera: Camera): string {
   return `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
@@ -206,6 +207,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   );
   const updateNode = useUpdateSpatialNode();
   const deleteNode = useDeleteSpatialNode();
+
+  // Snapshot of the live node list — read by the window-exposed recording
+  // hook without forcing a re-run when nodes refetch.
+  const nodesRef = useRef<typeof nodes>(nodes);
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
 
   // Live tick for the Now Well + orbital tile positions. Server data is
   // 60s-fresh (`useSpatialUpcomingActivity` refetchInterval), but tile radii
@@ -302,6 +310,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const cameraRafRef = useRef<number | null>(null);
   const cameraCommitTimerRef = useRef<number | null>(null);
   const cameraMovingTimerRef = useRef<number | null>(null);
+  const [cameraMoving, setCameraMoving] = useState(false);
   const [diving, setDiving] = useState(false);
   // Mount timestamp — gates push-through dive detection for the first 1.5s
   // after the canvas remounts. Belt-and-suspenders against any flow that
@@ -336,11 +345,13 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     const viewport = viewportRef.current;
     if (!viewport) return;
     viewport.classList.add("spatial-camera-moving");
+    setCameraMoving(true);
     if (cameraMovingTimerRef.current !== null) {
       window.clearTimeout(cameraMovingTimerRef.current);
     }
     cameraMovingTimerRef.current = window.setTimeout(() => {
       viewport.classList.remove("spatial-camera-moving");
+      setCameraMoving(false);
       cameraMovingTimerRef.current = null;
     }, CAMERA_MOVING_CLASS_MS);
   }, []);
@@ -1338,6 +1349,71 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
   }, [scheduleCamera]);
 
+  // Expose canvas actions on window for screenshot/video recording. The
+  // radial menu is the in-product surface; recordings need a stable hook
+  // that doesn't depend on portal-mount timing or keyboard focus state.
+  // `panTo` interpolates with requestAnimationFrame so video pans look
+  // cinematic instead of jumpy — the inline-style world transform has no
+  // CSS transition, so the tween has to live here.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let panRaf = 0;
+    const cancelPan = () => {
+      if (panRaf) {
+        window.cancelAnimationFrame(panRaf);
+        panRaf = 0;
+      }
+    };
+    const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+    const panTo = (target: { x: number; y: number; scale: number }, durationMs = 1200) => {
+      cancelPan();
+      const start = { ...cameraRef.current };
+      const t0 = performance.now();
+      const tick = (now: number) => {
+        const t = Math.min(1, (now - t0) / Math.max(16, durationMs));
+        const k = easeInOut(t);
+        const next = {
+          x: start.x + (target.x - start.x) * k,
+          y: start.y + (target.y - start.y) * k,
+          scale: start.scale + (target.scale - start.scale) * k,
+        };
+        scheduleCamera(next, t === 1 ? "immediate" : "idle");
+        if (t < 1) panRaf = window.requestAnimationFrame(tick);
+        else panRaf = 0;
+      };
+      panRaf = window.requestAnimationFrame(tick);
+    };
+    const flyToWorldPanned = (wx: number, wy: number, scale?: number, durationMs = 1200) => {
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
+      const targetScale = typeof scale === "number" ? scale : cameraRef.current.scale;
+      panTo({ x: rect.width / 2 - wx * targetScale, y: rect.height / 2 - wy * targetScale, scale: targetScale }, durationMs);
+    };
+    (window as unknown as { __spindrelSpatial?: object }).__spindrelSpatial = {
+      recenter: () => scheduleCamera(DEFAULT_CAMERA, "immediate"),
+      flyToNow: () => flyToWell(),
+      fitAll: () => fitAllNodes(),
+      flyToChannel: (channelId: string) => flyToChannel(channelId),
+      setCamera: (next: { x: number; y: number; scale: number }) => scheduleCamera(next, "immediate"),
+      panTo,
+      flyToPoint: flyToWorldPanned,
+      cancelPan,
+      getCamera: () => ({ ...cameraRef.current }),
+      getNodes: () =>
+        (nodesRef.current ?? []).map((n) => ({
+          id: n.id,
+          channel_id: n.channel_id,
+          bot_id: n.bot_id,
+          widget_pin_id: n.widget_pin_id,
+          world_x: n.world_x,
+          world_y: n.world_y,
+          world_w: n.world_w,
+          world_h: n.world_h,
+        })),
+    };
+    return cancelPan;
+  }, [scheduleCamera, flyToWell, fitAllNodes, flyToChannel]);
+
   const flyToWorldBounds = useCallback(
     (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06) => {
       const rect = viewportRectRef.current;
@@ -1510,6 +1586,26 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     if (viewportSize.w === 0 || viewportSize.h === 0) return undefined;
     return getViewportWorldBbox(camera, viewportSize, 200);
   }, [camera, viewportSize]);
+  const foregroundBbox = useMemo<WorldBbox | undefined>(() => {
+    if (viewportSize.w === 0 || viewportSize.h === 0) return undefined;
+    return getViewportWorldBbox(camera, viewportSize, 800);
+  }, [camera, viewportSize]);
+  const nodeInForeground = useCallback(
+    (node: SpatialNode) => {
+      if (!foregroundBbox) return true;
+      return bboxOverlaps(
+        {
+          minX: node.world_x,
+          minY: node.world_y,
+          maxX: node.world_x + node.world_w,
+          maxY: node.world_y + node.world_h,
+        },
+        foregroundBbox,
+      );
+    },
+    [foregroundBbox],
+  );
+  const interactiveZoom = cameraMoving ? Math.min(camera.scale, 0.99) : camera.scale;
 
   const nowWellLens =
     lensEngaged && focalScreen
@@ -1985,18 +2081,18 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             />
           )}
           {trailsMode !== "off" && (
-            <MovementHistoryLayer
+              <MovementHistoryLayer
               nodes={nodes ?? []}
               mode={trailsMode}
               hoveredNodeId={hoveredNodeId}
-              scale={camera.scale}
+              scale={interactiveZoom}
               viewportBbox={viewportBbox}
             />
           )}
           <MovementTraceLayer nodes={nodes ?? []} viewportBbox={viewportBbox} />
           <NowWell
             tickedNow={tickedNow}
-            zoom={camera.scale}
+            zoom={interactiveZoom}
             lens={nowWellLens}
           />
           {!channelClusterMode && (upcomingItems ?? []).map((item) => {
@@ -2011,7 +2107,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               <UpcomingTile
                 key={itemKey}
                 item={item}
-                zoom={camera.scale}
+                zoom={interactiveZoom}
                 tickedNow={tickedNow}
                 spread={spread}
                 extraScale={lens?.sizeFactor ?? 1}
@@ -2029,7 +2125,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               <TaskDefinitionTile
                 key={task.id}
                 task={task}
-                zoom={camera.scale}
+                zoom={interactiveZoom}
                 worldX={orbit.x}
                 worldY={orbit.y}
                 lens={lens}
@@ -2069,7 +2165,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               >
                 <ChannelClusterMarker
                   cluster={cluster}
-                  zoom={camera.scale}
+                  zoom={interactiveZoom}
                   showActivityGlow={densityIntensity !== "off"}
                   maxClusterTokens={maxClusterTokens}
                   widgetCount={widgetSatellitesByClusterId.get(cluster.id)?.length ?? 0}
@@ -2101,7 +2197,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             >
               <WidgetClusterMarker
                 count={cluster.nodes.length}
-                zoom={camera.scale}
+                zoom={interactiveZoom}
                 opacity={widgetOverviewOpacity}
               />
             </div>
@@ -2110,6 +2206,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             if (node.channel_id && clusteredChannelNodeIds.has(node.id)) return null;
             if (channelClusterMode && node.bot_id) return null;
             if (channelClusterMode && node.pin) return null;
+            if (draggingNodeId !== node.id && !nodeInForeground(node)) return null;
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(
@@ -2142,7 +2239,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   <ChannelTile
                     channel={channel}
                     icon={iconByChannelId.get(channel.id) ?? null}
-                    zoom={camera.scale}
+                    zoom={interactiveZoom}
                     extraScale={lens?.sizeFactor ?? 1}
                     botAvatarById={botAvatarById}
                     onDive={() =>
@@ -2198,7 +2295,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                     name={botName}
                     botId={node.bot_id}
                     avatarEmoji={node.bot?.avatar_emoji ?? null}
-                    zoom={camera.scale}
+                    zoom={interactiveZoom}
                     reduced={botsReduced}
                     onOpenChat={() => {
                       if (!channel) return;
@@ -2226,7 +2323,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             // glyph itself must stay draggable through the normal activator.
             const isFramelessGame =
               node.pin.tool_name?.startsWith("core/game_") ?? false;
-            const useScopedGrabber = isFramelessGame && camera.scale >= 0.6;
+            const useScopedGrabber = isFramelessGame && interactiveZoom >= 0.6;
             return (
               <DraggableNode
                 key={node.id}
@@ -2257,7 +2354,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               >
                 <WidgetTile
                   pin={node.pin}
-                  zoom={camera.scale}
+                  zoom={interactiveZoom}
                   extraScale={lens?.sizeFactor ?? 1}
                   inViewport={isInViewport(node)}
                   activated={activatedTileId === node.id}

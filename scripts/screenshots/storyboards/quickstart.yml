@@ -27,6 +27,10 @@ sections:
     title: "What is Spindrel?"
     scenes: [hero_spatial]
 
+  - id: spatial_explore
+    title: "Pan, zoom, dive"
+    scenes: [spatial_pan_tour, spatial_widget_dive]
+
   - id: scheduled_work
     title: "Scheduled work, on a clock"
     scenes: [heartbeat_fire]
@@ -56,30 +60,35 @@ sections:
 scenes:
   - id: hero_spatial
     kind: playwright
-    duration: 9
+    duration: 11
     color_scheme: dark
     caption: "Your workspace, as a place — every channel, every widget, every scheduled job."
     # Live recording of Spindrel's home — the spatial canvas. Stage with
     # `python -m scripts.screenshots stage --only spatial` so the canvas
     # populates with the demo cast before this clip records.
+    #
+    # Cinematic flow: snap to default, slow zoom-out to take in the whole
+    # constellation, then a smooth dive down to the Now Well. `panTo` tweens
+    # the camera with an ease-in-out cubic so the motion reads as intentional
+    # rather than a teleport — the inline-style world transform has no CSS
+    # transition, the tween lives in `window.__spindrelSpatial.panTo`.
     actions:
       - goto: "/"
       - wait_for: "css=[data-spatial-canvas=\"true\"]"
         state: visible
       # Initial settle — channels paint, halos fade in, connection lines draw.
-      - wait_ms: 2200
-      # Recenter via the radial menu — Q opens the donut, click the
-      # `recenter` wedge. The radial closes itself after a wedge fires.
-      - press: "q"
-      - wait_ms: 350
-      - click: "css=[data-radial-wedge=\"recenter\"]"
-      - wait_ms: 1900
-      # Fly to Now Well — same path through the radial. The dramatic pan
-      # downward across the constellation to the orbiting scheduled-task ring.
-      - press: "q"
-      - wait_ms: 350
-      - click: "css=[data-radial-wedge=\"now\"]"
-      - wait_ms: 3000
+      - wait_ms: 1800
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.recenter()"
+      - wait_ms: 800
+      # Slow zoom-out to a wider framing — viewport center stays at world
+      # origin, scale eases from 1.0 → 0.55 over 2.5s.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 720, y: 450, scale: 0.55 }, 2500)"
+      - wait_ms: 2700
+      # Smooth dive to the Now Well over 3s. WELL_X=0, WELL_Y=2200,
+      # WELL_R_MAX=650 (spatialGeometry.ts) — frame at scale 0.85 puts the
+      # nebula glow + orbit ring centered.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 720, y: -1420, scale: 0.85 }, 3000)"
+      - wait_ms: 3200
 
   - id: heartbeat_fire
     kind: playwright
@@ -96,11 +105,9 @@ scenes:
       - wait_for: "css=[data-spatial-canvas=\"true\"]"
         state: visible
       - wait_ms: 1500
-      # Fly to Now Well so the orbit ring fills the frame. Open the radial
-      # via Q and click the `now` wedge.
-      - press: "q"
-      - wait_ms: 350
-      - click: "css=[data-radial-wedge=\"now\"]"
+      # Fly to Now Well so the orbit ring fills the frame. Direct call
+      # via the window-exposed action.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.flyToNow()"
       - wait_ms: 2000
       # Inject an imminent heartbeat into the upcoming-activity cache. The
       # canvas's fire-pulse detector triggers when scheduled_at <= tickedNow,
@@ -135,6 +142,58 @@ scenes:
           })()
       # Hold long enough for: drift inward (~2s) + pulse (~1.4s) + settle (~2s).
       - wait_ms: 5500
+
+  # Smooth pan tour across the constellation — three cinematic stops at
+  # different zoom levels so the eye reads the structure: cluster of
+  # channels w/ halos → wider view that includes the well → tight close-up
+  # on the well showing labeled orbit rings + diamonds.
+  - id: spatial_pan_tour
+    kind: playwright
+    duration: 13
+    color_scheme: dark
+    caption: "Pan, zoom, fly anywhere — same canvas, different altitudes."
+    actions:
+      - goto: "/"
+      - wait_for: "css=[data-spatial-canvas=\"true\"]"
+        state: visible
+      - wait_ms: 1600
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.recenter()"
+      - wait_ms: 700
+      # Stop 1 — mid-zoom on a channel cluster, halos prominent.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 920, y: 650, scale: 0.55 }, 2400)"
+      - wait_ms: 2600
+      # Stop 2 — wider framing that reveals the Now Well's nebula glow at
+      # the bottom of the constellation.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 720, y: 100, scale: 0.42 }, 2200)"
+      - wait_ms: 2200
+      # Stop 3 — close-up on the well at scale ~1.1, ring labels readable.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 720, y: -1970, scale: 1.1 }, 2400)"
+      - wait_ms: 2400
+
+  # Channel-level dive: pan to a busy cluster at high zoom so the widget
+  # tiles around the channel, their connection curves, and per-channel
+  # halos are all simultaneously legible.
+  - id: spatial_widget_dive
+    kind: playwright
+    duration: 9
+    color_scheme: dark
+    caption: "Each channel pulls its widgets in close — pinned tool results live next to the conversation."
+    actions:
+      - goto: "/"
+      - wait_for: "css=[data-spatial-canvas=\"true\"]"
+        state: visible
+      - wait_ms: 1500
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.recenter()"
+      - wait_ms: 700
+      # Pan-and-zoom to the QA cluster (where stage_spatial pins Notes /
+      # Todos / Standing-order). Scale 1.5 puts the channel tile + 2-3
+      # widget tiles + connection curves in the same frame.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 1135, y: 735, scale: 1.5 }, 2800)"
+      - wait_ms: 2400
+      # Subtle drift — same scale, slightly offset to suggest manual
+      # navigation rather than a static camera.
+      - js: "window.__spindrelSpatial && window.__spindrelSpatial.panTo({ x: 1050, y: 700, scale: 1.5 }, 1600)"
+      - wait_ms: 1600
 
   - id: channel_chat
     kind: still

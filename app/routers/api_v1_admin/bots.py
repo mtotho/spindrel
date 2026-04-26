@@ -524,6 +524,9 @@ class BotUpdateIn(BaseModel):
     skill_review_extra_instructions: Optional[str] = None
     system_prompt_workspace_file: Optional[bool] = None
     system_prompt_write_protected: Optional[bool] = None
+    harness_runtime: Optional[str] = None
+    harness_workdir: Optional[str] = None
+    harness_session_state: Optional[dict] = None
 
 
 @router.api_route("/bots/{bot_id}", methods=["PUT", "PATCH"], response_model=BotOut)
@@ -713,6 +716,8 @@ class BotCreateIn(BaseModel):
     skill_review_model_provider_id: Optional[str] = None
     skill_review_target_hour: Optional[int] = None
     skill_review_extra_instructions: Optional[str] = None
+    harness_runtime: Optional[str] = None
+    harness_workdir: Optional[str] = None
 
 
 @router.post("/bots", response_model=BotOut, status_code=201)

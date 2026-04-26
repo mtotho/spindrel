@@ -12,7 +12,7 @@ export function StepTypeSelector({ value, onChange }: { value: StepType; onChang
   const Icon = meta.icon;
 
   return (
-    <div className="w-[126px] shrink-0">
+    <div className="shrink-0">
       <SelectDropdown
         value={value}
         options={STEP_TYPES.map((stepType) => {

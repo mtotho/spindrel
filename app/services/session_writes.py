@@ -192,6 +192,8 @@ def _metadata_for_row(
         meta = {**meta, "skills_in_context": msg["_skills_in_context"]}
     if msg.get("_llm_status"):
         meta = {**meta, "llm_status": msg["_llm_status"]}
+    if msg.get("_harness"):
+        meta = {**meta, "harness": msg["_harness"]}
     if msg.get("_turn_error"):
         meta = {**meta, "turn_error": True}
         if msg.get("_turn_error_message"):

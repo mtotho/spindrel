@@ -478,6 +478,33 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
                 overview = None
             if overview:
                 prompt = "\n\n".join(part for part in [prompt.strip(), overview] if part)
+        # Per-heartbeat pinned-widget block. The "heartbeat" context profile
+        # has ``allow_pinned_widgets=False`` so the chat-profile injection
+        # never fires here; this opt-in is structurally symmetric with the
+        # spatial heartbeat blocks above (composed before the agent loop runs)
+        # but routes through the system_preamble below instead of the user
+        # prompt so the bot reads it as ambient state, not as an instruction.
+        pinned_widget_preamble: str | None = None
+        if getattr(hb, "include_pinned_widgets", False):
+            try:
+                from app.services.widget_context import (
+                    build_pinned_widget_context_snapshot,
+                    fetch_channel_pin_dicts,
+                )
+
+                _pins = await fetch_channel_pin_dicts(db, channel.id)
+                if _pins:
+                    snapshot = await build_pinned_widget_context_snapshot(
+                        db,
+                        _pins,
+                        bot_id=channel.bot_id,
+                        channel_id=str(channel.id),
+                    )
+                    block_text = snapshot.get("block_text")
+                    if isinstance(block_text, str) and block_text.strip():
+                        pinned_widget_preamble = block_text
+            except Exception:
+                logger.exception("Heartbeat %s: failed to build pinned widget context", hb.id)
 
         try:
             from app.services.games.heartbeat import build_active_games_block
@@ -662,6 +689,8 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         # This keeps RAG retrieval clean — skills, tools, and memory are retrieved based
         # on the actual heartbeat prompt, not the metadata noise.
         heartbeat_preamble = metadata_header
+        if pinned_widget_preamble:
+            heartbeat_preamble = "\n\n".join(part for part in [heartbeat_preamble, pinned_widget_preamble] if part)
 
         # Create a heartbeat_run record
         run_record = HeartbeatRun(

@@ -1,6 +1,8 @@
 import { memo, useState } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { FileText, SlidersHorizontal, Clock } from "lucide-react";
+
+const INVISIBLE_HANDLE = "!w-1 !h-1 !min-w-0 !min-h-0 !opacity-0 !border-none !bg-transparent pointer-events-none";
 import {
   ContentFields,
   ExecutionFields,
@@ -41,10 +43,10 @@ function TaskNodeImpl({ data, selected }: NodeProps<TaskNodeType>) {
       className={`flex flex-col rounded-xl border border-surface-border bg-surface shadow-xl overflow-hidden ${ringClass}`}
       style={{ width: 420, maxHeight: "78vh" }}
     >
-      <Handle type="source" position={Position.Right} className="!bg-surface-border !border-surface-border" />
+      <Handle type="source" position={Position.Right} className={INVISIBLE_HANDLE} isConnectable={false} />
 
-      {/* Header — drag handle (xyflow uses data-handle by default; we also enable header drag) */}
-      <div className="flex flex-row items-center gap-2 px-3 py-2.5 border-b border-surface-border shrink-0 select-none bg-surface-raised/40">
+      {/* Header — drag handle */}
+      <div className="flex flex-row items-center gap-2 px-3 py-2.5 border-b border-surface-border shrink-0 select-none bg-surface-raised/40 cursor-grab active:cursor-grabbing">
         <span className="text-text text-[13px] font-bold flex-1 tracking-tight truncate">
           {title}
         </span>

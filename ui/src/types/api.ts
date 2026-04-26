@@ -91,6 +91,12 @@ export interface BotConfig {
   system_prompt_workspace_file?: boolean;
   system_prompt_write_protected?: boolean;
   source_type?: string;  // "system"|"file"|"manual"
+  // Agent harness — when set, this bot delegates its turn to an external
+  // harness (Claude Code, ...) instead of running the RAG loop. See
+  // docs/guides/agent-harnesses.md.
+  harness_runtime?: string | null;
+  harness_workdir?: string | null;
+  harness_session_state?: Record<string, any> | null;
   created_at?: string;
   updated_at?: string;
 }

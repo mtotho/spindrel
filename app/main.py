@@ -392,6 +392,13 @@ async def lifespan(application: FastAPI):
     discover_and_load_tools(extra_tool_dirs)
     # Import local tools to trigger @register decorators
     import app.tools.local  # noqa: F401
+    # Import harness modules from active integrations so their runtimes
+    # self-register before the bot dispatcher needs them.
+    try:
+        from app.services.agent_harnesses import discover_and_load_harnesses
+        discover_and_load_harnesses()
+    except Exception:
+        logger.exception("Failed to discover agent harness runtimes")
     _t = _tlog("Secrets, MCP, tools, orchestrator channel", _t)
 
     # Orphan cleanup needs the registry but no embedding calls — keep blocking

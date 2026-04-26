@@ -834,6 +834,65 @@ SPATIAL_SPECS: list[ScreenshotSpec] = [
             _spatial_camera_init({"x": 720, "y": -1420, "scale": 0.85}),
         ],
     ),
+    # 6. spatial-zoom-out-01.png — mid-zoom (~0.55), panned upper-left so a
+    # cluster of channels + bots fills the frame with their density halos
+    # clearly visible. Reference: user capture 2026-04-26.
+    ScreenshotSpec(
+        name="spatial-zoom-out-01",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-zoom-out-01.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 920, "y": 650, "scale": 0.55}),
+        ],
+    ),
+    # 7. spatial-zoom-out-02.png — wider view (~0.42) panned so the upper
+    # constellation AND the Now Well's nebula glow share the frame.
+    ScreenshotSpec(
+        name="spatial-zoom-out-02",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-zoom-out-02.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": 100, "scale": 0.42}),
+        ],
+    ),
+    # 8. spatial-zoom-out-in-01.png — close-up (~1.5) on a channel + its
+    # widget tiles, with curved connection lines showing relationships.
+    # Centered on the QA-channel cluster where stage_spatial pins widgets.
+    ScreenshotSpec(
+        name="spatial-zoom-out-in-01",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-zoom-out-in-01.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 1135, "y": 735, "scale": 1.5}),
+        ],
+    ),
+    # 9. spatial-zoom-well-01.png — Now Well close-up at high zoom (~1.1)
+    # showing orbit-ring labels (1m / 5m / 10m...) and labeled diamonds
+    # for any imminent heartbeats / dreaming items.
+    ScreenshotSpec(
+        name="spatial-zoom-well-01",
+        route="/",
+        viewport={"width": 1440, "height": 900},
+        wait_kind="function",
+        wait_arg=_SPATIAL_READY,
+        output="spatial-zoom-well-01.png",
+        color_scheme="dark",
+        extra_init_scripts=[
+            _spatial_camera_init({"x": 720, "y": -1970, "scale": 1.1}),
+        ],
+    ),
 ]
 
 

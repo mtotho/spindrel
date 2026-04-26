@@ -1,0 +1,5 @@
+# Bundles the `claude` CLI alongside the Python wrapper, so installing this
+# also gives the existing `run_claude_code` tool wrapper its CLI binary.
+# Loose floor — alpha SDK ships frequently; bridge mapper tests in
+# tests/unit/test_claude_code_runtime_bridge.py pin the schema, not this line.
+claude-agent-sdk>=0.1.0

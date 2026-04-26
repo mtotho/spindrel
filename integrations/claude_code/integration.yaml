@@ -27,3 +27,4 @@ settings:
 provides:
   - tools
   - skills
+  - harness

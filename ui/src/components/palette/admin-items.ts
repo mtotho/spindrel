@@ -25,6 +25,7 @@ import {
   Brain,
   Settings,
   MessageCircle,
+  Terminal,
   Zap,
 } from "lucide-react";
 import type { PaletteItem } from "./types";
@@ -32,6 +33,7 @@ import type { PaletteItem } from "./types";
 export const ADMIN_ITEMS: PaletteItem[] = [
   // -- Configure --
   { id: "nav-bots", label: "Bots", href: "/admin/bots", icon: Bot, category: "Configure" },
+  { id: "nav-harnesses", label: "Agent Harnesses", href: "/admin/harnesses", icon: Terminal, category: "Configure" },
   { id: "nav-integrations", label: "Integrations", href: "/admin/integrations", icon: Plug, category: "Configure" },
   { id: "nav-machines", label: "Machines", href: "/admin/machines", icon: Monitor, category: "Configure" },
   { id: "nav-providers", label: "Providers", href: "/admin/providers", icon: Server, category: "Configure" },

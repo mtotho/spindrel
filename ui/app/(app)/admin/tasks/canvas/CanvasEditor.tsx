@@ -373,9 +373,13 @@ function CanvasEditorInner(props: CanvasEditorProps) {
         onPaneClick={onPaneClick}
         nodesConnectable={false}
         deleteKeyCode={null}
-        selectionOnDrag
-        panOnDrag={[1, 2]}
-        panOnScroll
+        panOnDrag
+        selectionOnDrag={false}
+        selectionKeyCode="Shift"
+        zoomOnScroll
+        zoomOnPinch
+        colorMode="dark"
+        proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={24} size={1.4} />
         <Controls position="bottom-left" showInteractive={false} />

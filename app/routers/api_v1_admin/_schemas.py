@@ -96,6 +96,9 @@ class BotOut(BaseModel):
     system_prompt_workspace_file: bool = False
     system_prompt_write_protected: bool = False
     source_type: str = "manual"
+    harness_runtime: Optional[str] = None
+    harness_workdir: Optional[str] = None
+    harness_session_state: Optional[dict] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 

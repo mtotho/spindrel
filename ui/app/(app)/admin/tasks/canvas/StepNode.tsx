@@ -6,6 +6,8 @@ import type { ToolItem } from "@/src/api/hooks/useTools";
 import { stepMeta } from "@/src/components/shared/task/TaskStepEditorModel";
 import { StepCard } from "@/src/components/shared/task/step-editor/StepCard";
 
+const INVISIBLE_HANDLE = "!w-1 !h-1 !min-w-0 !min-h-0 !opacity-0 !border-none !bg-transparent pointer-events-none";
+
 export interface StepNodeData extends Record<string, unknown> {
   step: StepDef;
   stepIndex: number;
@@ -36,7 +38,6 @@ type StepNodeType = Node<StepNodeData, "step">;
 function StepNodeImpl({ data, selected }: NodeProps<StepNodeType>) {
   const d = data;
   const meta = stepMeta(d.step.type);
-  const Icon = meta.icon;
 
   const ringClass = selected
     ? "ring-2 ring-accent/60 ring-offset-2 ring-offset-surface"
@@ -45,15 +46,14 @@ function StepNodeImpl({ data, selected }: NodeProps<StepNodeType>) {
   return (
     <div
       className={`flex flex-col rounded-xl border border-surface-border bg-surface shadow-lg overflow-hidden ${ringClass}`}
-      style={{ width: d.expanded ? 360 : 260 }}
+      style={{ width: d.expanded ? 380 : 260 }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-surface-border !border-surface-border" />
-      <Handle type="source" position={Position.Right} className="!bg-surface-border !border-surface-border" />
+      <Handle type="target" position={Position.Left} className={INVISIBLE_HANDLE} isConnectable={false} />
+      <Handle type="source" position={Position.Right} className={INVISIBLE_HANDLE} isConnectable={false} />
 
-      {/* Header — index + icon + label + expand */}
-      <div className="flex flex-row items-center gap-2 px-2.5 py-1.5 bg-surface-raised/40 border-b border-surface-border select-none">
+      {/* Header — index + label + expand. Drag handle. */}
+      <div className="flex flex-row items-center gap-2 px-2.5 py-1.5 bg-surface-raised/40 border-b border-surface-border select-none cursor-grab active:cursor-grabbing">
         <span className="text-[10px] font-mono text-text-dim shrink-0">#{d.stepIndex + 1}</span>
-        <Icon size={13} className={`${meta.color} shrink-0`} />
         <span className="text-[11.5px] font-semibold text-text flex-1 truncate">
           {d.step.label?.trim() || d.step.id}
         </span>
@@ -77,7 +77,7 @@ function StepNodeImpl({ data, selected }: NodeProps<StepNodeType>) {
         </div>
       )}
 
-      {/* Expanded — full StepCard inline */}
+      {/* Expanded — full StepCard inline (compact = canvas variant) */}
       {d.expanded && (
         <div className="nodrag nowheel" onPointerDown={(e) => e.stopPropagation()}>
           <StepCard
@@ -90,6 +90,7 @@ function StepNodeImpl({ data, selected }: NodeProps<StepNodeType>) {
             onChange={d.onChange}
             onDelete={d.onDelete}
             onMove={d.onMove}
+            compact
           />
         </div>
       )}

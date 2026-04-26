@@ -310,6 +310,7 @@ class HeartbeatConfigOut(BaseModel):
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
     append_spatial_map_overview: bool = False
+    include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
@@ -336,7 +337,8 @@ class HeartbeatConfigOut(BaseModel):
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
-            "append_spatial_prompt", "append_spatial_map_overview", "execution_policy",
+            "append_spatial_prompt", "append_spatial_map_overview",
+            "include_pinned_widgets", "execution_policy",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -400,6 +402,7 @@ class HeartbeatUpdate(BaseModel):
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
     append_spatial_map_overview: bool = False
+    include_pinned_widgets: bool = False
     execution_policy: Optional[dict] = None
 
 
@@ -1375,6 +1378,8 @@ async def admin_channel_heartbeat_update(
                 cfg[SPATIAL_POLICY_KEY] = policies
                 channel.config = cfg
                 flag_modified(channel, "config")
+    if "include_pinned_widgets" in updates:
+        heartbeat.include_pinned_widgets = bool(updates["include_pinned_widgets"])
     if "append_spatial_map_overview" in updates:
         heartbeat.append_spatial_map_overview = bool(updates["append_spatial_map_overview"])
         if heartbeat.append_spatial_map_overview:

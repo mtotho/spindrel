@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDragActivator } from "./dragActivatorContext";
 import { Box, GripVertical, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -83,7 +83,7 @@ function bareToolName(toolName: string): string {
   return idx >= 0 ? toolName.slice(idx + 1) : toolName;
 }
 
-export function WidgetTile({
+function WidgetTileInner({
   pin,
   zoom,
   extraScale = 1,
@@ -106,6 +106,27 @@ export function WidgetTile({
     />
   );
 }
+
+export const WidgetTile = memo(WidgetTileInner, (prev, next) => {
+  if (prev.pin !== next.pin) return false;
+  if (prev.extraScale !== next.extraScale) return false;
+  if (prev.inViewport !== next.inViewport) return false;
+  if (prev.activated !== next.activated) return false;
+  if (prev.nodeId !== next.nodeId) return false;
+  if (prev.onActivate !== next.onActivate) return false;
+
+  const prevTier =
+    prev.zoom < CHIP_THRESHOLD ? "chip" :
+    prev.zoom < TITLE_THRESHOLD ? "title" :
+    "card";
+  const nextTier =
+    next.zoom < CHIP_THRESHOLD ? "chip" :
+    next.zoom < TITLE_THRESHOLD ? "title" :
+    "card";
+  if (prevTier !== nextTier) return false;
+
+  return prev.zoom === next.zoom;
+});
 
 /**
  * Diamond glyph (rotated 45° square) — distinct silhouette from the

@@ -52,6 +52,7 @@ nav:
     - Context Management: guides/context-management.md
     - Discovery and Enrollment: guides/discovery-and-enrollment.md
     - Sub-Agents: guides/subagents.md
+    - Agent Harnesses: guides/agent-harnesses.md
     - Delegation: guides/delegation.md
     - Heartbeats: guides/heartbeats.md
     - Self-Improving Agents: guides/bot-skills.md

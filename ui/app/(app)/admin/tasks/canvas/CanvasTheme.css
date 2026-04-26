@@ -53,6 +53,24 @@
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
   border: 1px solid rgb(var(--color-surface-border));
+  background-color: rgb(var(--color-surface-raised));
+}
+.spindrel-canvas .react-flow__controls-button {
+  background-color: rgb(var(--color-surface-raised));
+  border-bottom: 1px solid rgb(var(--color-surface-border));
+  color: rgb(var(--color-text-dim));
+  fill: rgb(var(--color-text-dim));
+}
+.spindrel-canvas .react-flow__controls-button:hover {
+  background-color: rgb(var(--color-surface-overlay));
+  color: rgb(var(--color-text));
+  fill: rgb(var(--color-text));
+}
+.spindrel-canvas .react-flow__controls-button:last-child {
+  border-bottom: none;
+}
+.spindrel-canvas .react-flow__controls-button svg {
+  fill: currentColor;
 }
 
 .spindrel-canvas .react-flow__minimap {
@@ -60,6 +78,15 @@
   overflow: hidden;
   border: 1px solid rgb(var(--color-surface-border));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  background-color: rgb(var(--color-surface-raised));
+}
+.spindrel-canvas .react-flow__minimap svg {
+  background-color: rgb(var(--color-surface-raised));
+}
+.spindrel-canvas .react-flow__minimap-mask {
+  fill: rgb(var(--color-surface) / 0.55);
+  stroke: rgb(var(--color-accent) / 0.45);
+  stroke-width: 2;
 }
 
 /* Hide the default node outline on selection — we use a Tailwind ring */

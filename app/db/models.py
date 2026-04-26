@@ -1093,6 +1093,7 @@ class ChannelHeartbeat(Base):
     skip_tool_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     append_spatial_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     append_spatial_map_overview: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
+    include_pinned_widgets: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     execution_policy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")

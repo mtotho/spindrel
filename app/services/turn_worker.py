@@ -53,6 +53,7 @@ from app.routers.chat._multibot import (
 from app.routers.chat._schemas import ChatRequest
 from app.services import session_locks
 from app.services import presence
+from app.services.agent_harnesses import ChannelEventEmitter, get_runtime
 from app.services.channel_events import publish_typed
 from app.services.compaction import maybe_compact
 from app.services.delegation import delegation_service as _ds
@@ -77,6 +78,173 @@ def _build_turn_failure_message(error_text: str, partial_text: str = "") -> str:
     if partial_text.strip():
         return f"{partial_text.rstrip()}\n\n{marker}"
     return f"The turn failed before producing a response.\n\n{marker}"
+
+
+async def _run_harness_turn(
+    *,
+    channel_id: uuid.UUID | None,
+    bus_key: uuid.UUID,
+    session_id: uuid.UUID,
+    turn_id: uuid.UUID,
+    bot: BotConfig,
+    user_message: str,
+    correlation_id: uuid.UUID,
+    msg_metadata: dict | None,
+    pre_user_msg_id: uuid.UUID | None,
+    suppress_outbox: bool,
+) -> tuple[str, str | None]:
+    """Drive a turn against an external agent harness (Claude Code, Codex, ...).
+
+    Bypasses run_stream entirely: the harness owns the agent loop, we own
+    the chat surface. SDK messages stream onto the existing channel-events
+    bus via ``ChannelEventEmitter`` so the UI renders them with no new code.
+
+    Persistence: builds a synthetic assistant message tagged with
+    ``_harness`` metadata, hands it to ``persist_turn`` (which strips the
+    underscore-prefixed key into ``Message.metadata.harness``). The next
+    turn reads ``bot.harness_session_state["session_id"]`` to resume.
+
+    Returns ``(response_text, error_text)``. ``error_text`` is None on
+    success.
+    """
+    runtime = get_runtime(bot.harness_runtime)  # type: ignore[arg-type]
+    workdir = bot.harness_workdir
+    if not workdir:
+        return "", "harness_workdir is not set on this bot"
+
+    prior_state = bot.harness_session_state or {}
+    prior_session_id = prior_state.get("session_id") if isinstance(prior_state, dict) else None
+
+    emitter = ChannelEventEmitter(
+        channel_id=bus_key,
+        turn_id=turn_id,
+        bot_id=bot.id,
+        session_id=session_id,
+    )
+
+    error_text: str | None = None
+    try:
+        result = await runtime.start_turn(
+            workdir=workdir,
+            prompt=user_message,
+            session_id=prior_session_id,
+            emit=emitter,
+        )
+    except Exception as exc:
+        logger.exception(
+            "harness '%s' turn %s failed for bot %s",
+            bot.harness_runtime, turn_id, bot.id,
+        )
+        error_text = _format_turn_exception(exc)
+        # Persist the failure as the assistant message so the chat shows
+        # what went wrong instead of a silent empty turn.
+        synthetic_messages: list[dict] = [{
+            "role": "user",
+            "content": user_message,
+        }, {
+            "role": "assistant",
+            "content": _build_turn_failure_message(error_text, ""),
+            "_turn_error": True,
+            "_turn_error_message": error_text,
+            "_harness": {
+                "runtime": bot.harness_runtime,
+                "session_id": prior_session_id,
+                "error": error_text,
+            },
+        }]
+        try:
+            async with async_session() as db:
+                await persist_turn(
+                    db, session_id, bot, synthetic_messages, from_index=0,
+                    correlation_id=correlation_id,
+                    msg_metadata=msg_metadata,
+                    channel_id=channel_id,
+                    pre_user_msg_id=pre_user_msg_id,
+                    suppress_outbox=suppress_outbox,
+                )
+        except Exception:
+            logger.exception(
+                "harness '%s': failed to persist error row for session %s",
+                bot.harness_runtime, session_id,
+            )
+        return "", error_text
+
+    # Success path: persist the assistant message + update session state.
+    synthetic_messages = [{
+        "role": "user",
+        "content": user_message,
+    }, {
+        "role": "assistant",
+        "content": result.final_text,
+        "_harness": {
+            "runtime": bot.harness_runtime,
+            "session_id": result.session_id,
+            "cost_usd": result.cost_usd,
+            "usage": result.usage,
+        },
+    }]
+    try:
+        async with async_session() as db:
+            await persist_turn(
+                db, session_id, bot, synthetic_messages, from_index=0,
+                correlation_id=correlation_id,
+                msg_metadata=msg_metadata,
+                channel_id=channel_id,
+                pre_user_msg_id=pre_user_msg_id,
+                suppress_outbox=suppress_outbox,
+            )
+    except Exception:
+        logger.exception(
+            "harness '%s': persist_turn failed for session %s",
+            bot.harness_runtime, session_id,
+        )
+        return result.final_text, "persist_turn failed"
+
+    # Persist resume state so the next turn re-enters the same SDK session.
+    try:
+        await _update_harness_session_state(bot.id, result)
+        # Mutate the in-memory BotConfig so subsequent same-process turns
+        # see the updated state without a DB round-trip.
+        bot.harness_session_state = {
+            "session_id": result.session_id,
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            "cost_total": (
+                (prior_state.get("cost_total") or 0.0)
+                + (result.cost_usd or 0.0)
+            ) if isinstance(prior_state, dict) else (result.cost_usd or 0.0),
+        }
+    except Exception:
+        logger.warning(
+            "harness '%s': failed to persist session state for bot %s",
+            bot.harness_runtime, bot.id, exc_info=True,
+        )
+
+    return result.final_text, None
+
+
+async def _update_harness_session_state(bot_id: str, result) -> None:
+    """Write the harness session_id + cost back to the bots row."""
+    from sqlalchemy import select, update
+    from app.db.models import Bot as BotRow
+
+    async with async_session() as db:
+        existing = (
+            await db.execute(select(BotRow).where(BotRow.id == bot_id))
+        ).scalar_one_or_none()
+        if existing is None:
+            return
+        prior = existing.harness_session_state or {}
+        new_state = {
+            "session_id": result.session_id,
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            "cost_total": (prior.get("cost_total") or 0.0) + (result.cost_usd or 0.0),
+        }
+        await db.execute(
+            update(BotRow)
+            .where(BotRow.id == bot_id)
+            .values(harness_session_state=new_state)
+        )
+        await db.commit()
 
 
 async def run_turn(
@@ -198,6 +366,31 @@ async def run_turn(
             event_type="turn_started",
             data={"bot_id": bot.id},
         ))
+
+        # 2b. Harness-runtime branch — bot delegates to an external agent
+        #     harness (Claude Code, Codex, ...) instead of run_stream. The
+        #     harness owns the agent loop end-to-end; we own the chat
+        #     surface. Skips @-mention fanout, supervisors, and compaction
+        #     because the harness has no Spindrel-side context to manage.
+        if bot.harness_runtime:
+            # Pre-initialize names the finally block references so its
+            # ``extra_metadata`` builder doesn't NameError on the harness path.
+            _auto_injected_skills = []
+            response_text, error_text = await _run_harness_turn(
+                channel_id=channel_id,
+                bus_key=bus_key,
+                session_id=session_id,
+                turn_id=turn_id,
+                bot=bot,
+                user_message=user_message,
+                correlation_id=correlation_id,
+                msg_metadata=req.msg_metadata,
+                pre_user_msg_id=pre_user_msg_id,
+                suppress_outbox=session_scoped or not has_channel,
+            )
+            persisted_turn = error_text is None or error_text == "persist_turn failed"
+            # Skip steps 3-8 entirely; finally-block publishes TURN_ENDED.
+            return
 
         # 3. Detect parallel multi-bot @-mentions BEFORE the primary bot
         #    starts so the auto-invoked bots run lock-free in parallel.

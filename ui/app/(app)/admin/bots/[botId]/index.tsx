@@ -207,6 +207,45 @@ function IdentitySection({ draft, editorData, isNew, update }: {
           <ModelParamsSection definitions={editorData.model_param_definitions} support={editorData.model_param_support} reasoningCapableModels={editorData.reasoning_capable_models} model={draft.model} params={draft.model_params || {}} onChange={(p) => update({ model_params: p })} />
         </SectionFrame>
       )}
+      <SectionFrame title="Agent harness" description="Delegate this bot's turn to an external agent harness instead of the Spindrel RAG loop. See /admin/harnesses.">
+        <Row>
+          <Col>
+            <FormRow label="Runtime" description="Pick a harness to make this bot a window onto Claude Code. Leave blank for a normal Spindrel bot.">
+              <SelectInput
+                value={draft.harness_runtime ?? ""}
+                onChange={(v) => update({ harness_runtime: v || null })}
+                options={[
+                  { label: "None (Spindrel agent loop)", value: "" },
+                  { label: "Claude Code", value: "claude-code" },
+                ]}
+              />
+            </FormRow>
+          </Col>
+          <Col>
+            <FormRow label="Workspace path" description="Absolute path on the Spindrel host. The harness runs with this as its cwd.">
+              <TextInput
+                value={draft.harness_workdir ?? ""}
+                onChangeText={(v) => update({ harness_workdir: v || null })}
+                placeholder="/data/harness/my-workspace"
+                disabled={!draft.harness_runtime}
+              />
+            </FormRow>
+          </Col>
+        </Row>
+        {draft.harness_runtime && (
+          <InfoBanner variant="info">
+            This bot is a harness bot. Model, system prompt, skills, tools, memory, and capabilities settings are not used — the harness owns its own context. Auth comes from <code className="text-warning-muted">claude login</code> on the Spindrel host (see /admin/harnesses).
+          </InfoBanner>
+        )}
+        {draft.harness_runtime && draft.harness_session_state && typeof draft.harness_session_state === "object" && (draft.harness_session_state as any).session_id && (
+          <div className="text-[12px] text-text-dim">
+            Last harness session: <code className="rounded bg-surface-overlay/40 px-1 py-0.5 text-[11px]">{(draft.harness_session_state as any).session_id}</code>
+            {typeof (draft.harness_session_state as any).cost_total === "number" && (
+              <> · cost so far: ${((draft.harness_session_state as any).cost_total).toFixed(4)}</>
+            )}
+          </div>
+        )}
+      </SectionFrame>
     </div>
   );
 }

@@ -368,6 +368,76 @@ class TestPinWidget:
         assert "invoke_widget_action" in todo_pin["context_hint"]
 
     @pytest.mark.asyncio
+    async def test_invoke_widget_action_folds_top_level_kwargs_into_args(
+        self, engine, channel_id, bot_with_key,
+    ):
+        """Bots routinely flatten action args to top-level kwargs. The tool
+        must merge them into ``args`` instead of crashing with TypeError.
+
+        Regression for: ``TypeError: invoke_widget_action() got an unexpected
+        keyword argument 'text'`` when calling ``append`` on a Notes widget.
+        """
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import describe_dashboard, invoke_widget_action, pin_widget
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                pin = json.loads(await pin_widget(
+                    widget="core/notes_native",
+                    source_kind="library",
+                    zone="grid",
+                ))
+                assert "error" not in pin, pin
+                # Bot mistake: passes ``body`` at top level instead of inside ``args``.
+                action = json.loads(await invoke_widget_action(
+                    pin_id=pin["pin_id"],
+                    action="replace_body",
+                    body="Top-level kwarg should be folded into args",
+                ))
+                described = json.loads(await describe_dashboard())
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert action["ok"] is True, action
+        assert action["result"]["body"] == "Top-level kwarg should be folded into args"
+        notes_pin = next(p for p in described["pins"] if p["id"] == pin["pin_id"])
+        assert notes_pin["envelope"]["body"]["state"]["body"] == "Top-level kwarg should be folded into args"
+
+    @pytest.mark.asyncio
+    async def test_invoke_widget_action_explicit_args_wins_over_top_level(
+        self, engine, channel_id, bot_with_key,
+    ):
+        """If both ``args`` and a flattened top-level kwarg are sent, the
+        explicit ``args`` payload wins — top-level is only a fallback."""
+        from app.agent.context import current_bot_id, current_channel_id
+        from app.tools.local.dashboard_tools import invoke_widget_action, pin_widget
+
+        with _patch_tool_engine(engine):
+            ch_tok = current_channel_id.set(channel_id)
+            bot_tok = current_bot_id.set("test-bot")
+            try:
+                pin = json.loads(await pin_widget(
+                    widget="core/notes_native",
+                    source_kind="library",
+                    zone="grid",
+                ))
+                action = json.loads(await invoke_widget_action(
+                    pin_id=pin["pin_id"],
+                    action="replace_body",
+                    args={"body": "from args"},
+                    body="from top-level",
+                ))
+            finally:
+                current_channel_id.reset(ch_tok)
+                current_bot_id.reset(bot_tok)
+
+        assert action["ok"] is True, action
+        assert action["result"]["body"] == "from args"
+
+    @pytest.mark.asyncio
     async def test_invoke_native_widget_action_validation_error_survives_rollback(
         self, engine, db_session, channel_id, bot_with_key,
     ):

@@ -153,7 +153,10 @@ export function DraggableNode({
     transition,
     touchAction: "none",
     pointerEvents: "none",
-    contain: "layout paint style",
+    // `paint` containment would clip CSS-transform-scaled children (e.g. the
+    // counter-scaled name label in `ChannelTile.DotView`) to the node's
+    // `world_w × world_h` box, cutting off long names laterally at low zoom.
+    contain: "layout style",
   };
   return (
     <div

@@ -14,7 +14,7 @@ import { UserPromptFields } from "./UserPromptFields";
 import { ForeachFields } from "./ForeachFields";
 import { scaffoldArgsFromSchema } from "./toolSchemaHelpers";
 
-export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove }: {
+export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, onChange, onDelete, onMove, compact }: {
   step: StepDef;
   stepIndex: number;
   steps: StepDef[];
@@ -24,6 +24,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
   onChange: (updated: StepDef) => void;
   onDelete: () => void;
   onMove: (dir: -1 | 1) => void;
+  compact?: boolean;
 }) {
   const [conditionOpen, setConditionOpen] = useState(!!step.when);
   const meta = stepMeta(step.type);
@@ -33,12 +34,17 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
 
   const update = (patch: Partial<StepDef>) => onChange({ ...step, ...patch });
 
+  const headerPad = compact ? "px-2 py-1.5" : "px-2.5 sm:px-3.5 py-2.5";
+  const bodyPad = compact ? "px-2 pb-2" : "px-2.5 sm:px-3.5 pb-3";
+  const bodyGap = compact ? "gap-2" : "gap-2.5";
+  const headerGap = compact ? "gap-2" : "gap-2.5";
+
   return (
     <div className="rounded-md bg-surface-raised/40 group transition-colors hover:bg-surface-overlay/35">
       {/* Header row */}
-      <div className="flex flex-row items-center gap-2.5 px-2.5 sm:px-3.5 py-2.5">
-        {/* Reorder controls */}
-        {!readOnly && (
+      <div className={`flex flex-row items-center ${headerGap} ${headerPad}`}>
+        {/* Reorder controls — hidden in canvas (xyflow drag is the reorder affordance) */}
+        {!readOnly && !compact && (
           <div className="flex flex-col shrink-0 -my-1 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => onMove(-1)}
@@ -83,9 +89,13 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
         {/* Status badge */}
         {stepState && <StepResultBadge state={stepState} />}
 
-        {/* Actions — always visible on mobile, hover on desktop */}
+        {/* Actions — always visible on mobile or in compact (canvas) mode; hover-only on desktop linear view */}
         {!readOnly && (
-          <div className="flex flex-row items-center gap-1.5 ml-auto shrink-0 max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className={`flex flex-row items-center gap-1.5 ml-auto shrink-0 ${
+            compact
+              ? "opacity-100"
+              : "max-sm:opacity-100 opacity-0 group-hover:opacity-100 transition-opacity"
+          }`}>
             <MiniDropdown
               value={step.on_failure ?? "abort"}
               options={ON_FAILURE_OPTIONS}
@@ -102,7 +112,7 @@ export function StepCard({ step, stepIndex, steps, stepState, readOnly, tools, o
       </div>
 
       {/* Body — type-specific fields */}
-      <div className="px-2.5 sm:px-3.5 pb-3 flex flex-col gap-2.5">
+      <div className={`${bodyPad} flex flex-col ${bodyGap}`}>
         {step.type === "exec" && (
           <>
             <textarea

@@ -17,7 +17,7 @@ import { useBots } from "@/src/api/hooks/useBots";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { prettyIntegrationName } from "@/src/utils/format";
 import type { ChannelSettings } from "@/src/types/api";
-import { SaveStatusPill, type SaveStatusTone } from "@/src/components/shared/SettingsControls";
+import { ActionButton, SaveStatusPill, type SaveStatusTone } from "@/src/components/shared/SettingsControls";
 import { saveMatchesCurrentDraft, shouldApplyServerDraft } from "./autosaveDraft";
 
 // Tab components
@@ -53,6 +53,58 @@ type ChildSaveState = {
   isError: boolean;
   lastSavedAt: number | null;
 };
+
+function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSettings> {
+  return {
+    name: settings.name,
+    private: settings.private,
+    user_id: settings.user_id,
+    bot_id: settings.bot_id,
+    require_mention: settings.require_mention,
+    passive_memory: settings.passive_memory,
+    allow_bot_messages: settings.allow_bot_messages,
+    workspace_rag: settings.workspace_rag,
+    pinned_widget_context_enabled: settings.pinned_widget_context_enabled,
+    thinking_display: settings.thinking_display,
+    tool_output_display: settings.tool_output_display,
+    max_iterations: settings.max_iterations,
+    task_max_run_seconds: settings.task_max_run_seconds,
+    context_compaction: settings.context_compaction,
+    compaction_interval: settings.compaction_interval,
+    compaction_keep_turns: settings.compaction_keep_turns,
+    history_mode: settings.history_mode,
+    compaction_model: settings.compaction_model,
+    compaction_model_provider_id: settings.compaction_model_provider_id,
+    trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
+    memory_flush_enabled: settings.memory_flush_enabled,
+    memory_flush_model: settings.memory_flush_model,
+    memory_flush_model_provider_id: settings.memory_flush_model_provider_id,
+    memory_flush_prompt: settings.memory_flush_prompt,
+    memory_flush_prompt_template_id: settings.memory_flush_prompt_template_id,
+    memory_flush_workspace_file_path: settings.memory_flush_workspace_file_path,
+    memory_flush_workspace_id: settings.memory_flush_workspace_id,
+    section_index_count: settings.section_index_count,
+    section_index_verbosity: settings.section_index_verbosity,
+    model_override: settings.model_override,
+    model_provider_id_override: settings.model_provider_id_override,
+    fallback_models: settings.fallback_models ?? [],
+    channel_prompt: settings.channel_prompt,
+    channel_prompt_workspace_file_path: settings.channel_prompt_workspace_file_path,
+    channel_prompt_workspace_id: settings.channel_prompt_workspace_id,
+    workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
+    workspace_schema_template_id: settings.workspace_schema_template_id,
+    workspace_schema_content: settings.workspace_schema_content,
+    index_segments: settings.index_segments ?? [],
+    tags: settings.tags ?? [],
+    category: settings.category ?? null,
+    chat_mode: settings.chat_mode ?? "default",
+    header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
+    layout_mode: settings.layout_mode,
+    widget_theme_ref: settings.widget_theme_ref,
+    pipeline_mode: settings.pipeline_mode,
+  };
+}
+
 const ALL_TABS: TabDef[] = [
   { key: "channel", label: "Channel" },
   { key: "agent", label: "Agent" },
@@ -95,7 +147,9 @@ export default function ChannelSettingsScreen() {
   const [channelDirty, setChannelDirty] = useState(false);
   const [channelLastSavedAt, setChannelLastSavedAt] = useState<number | null>(null);
   const channelDirtyRef = useRef(false);
-  const [heartbeatSaveState, setHeartbeatSaveState] = useState<ChildSaveState>({
+  const formRef = useRef(form);
+  formRef.current = form;
+  const [, setHeartbeatSaveState] = useState<ChildSaveState>({
     dirty: false,
     isPending: false,
     isError: false,
@@ -157,104 +211,17 @@ export default function ChannelSettingsScreen() {
       if (!shouldApplyServerDraft({
         dirty: channelDirtyRef.current,
         pending: updateMutation.isPending,
-        hasScheduledSave: saveTimeoutRef.current != null,
+        hasScheduledSave: false,
       })) {
         return;
       }
-      const nextForm = {
-        name: settings.name,
-        private: settings.private,
-        user_id: settings.user_id,
-        bot_id: settings.bot_id,
-        require_mention: settings.require_mention,
-        passive_memory: settings.passive_memory,
-        allow_bot_messages: settings.allow_bot_messages,
-        workspace_rag: settings.workspace_rag,
-        pinned_widget_context_enabled: settings.pinned_widget_context_enabled,
-        thinking_display: settings.thinking_display,
-        tool_output_display: settings.tool_output_display,
-        max_iterations: settings.max_iterations,
-        task_max_run_seconds: settings.task_max_run_seconds,
-        context_compaction: settings.context_compaction,
-        compaction_interval: settings.compaction_interval,
-        compaction_keep_turns: settings.compaction_keep_turns,
-        history_mode: settings.history_mode,
-        compaction_model: settings.compaction_model,
-        compaction_model_provider_id: settings.compaction_model_provider_id,
-        trigger_heartbeat_before_compaction: settings.trigger_heartbeat_before_compaction,
-        memory_flush_enabled: settings.memory_flush_enabled,
-        memory_flush_model: settings.memory_flush_model,
-        memory_flush_model_provider_id: settings.memory_flush_model_provider_id,
-        memory_flush_prompt: settings.memory_flush_prompt,
-        memory_flush_prompt_template_id: settings.memory_flush_prompt_template_id,
-        memory_flush_workspace_file_path: settings.memory_flush_workspace_file_path,
-        memory_flush_workspace_id: settings.memory_flush_workspace_id,
-        section_index_count: settings.section_index_count,
-        section_index_verbosity: settings.section_index_verbosity,
-        model_override: settings.model_override,
-        model_provider_id_override: settings.model_provider_id_override,
-        fallback_models: settings.fallback_models ?? [],
-        channel_prompt: settings.channel_prompt,
-        channel_prompt_workspace_file_path: settings.channel_prompt_workspace_file_path,
-        channel_prompt_workspace_id: settings.channel_prompt_workspace_id,
-        workspace_base_prompt_enabled: settings.workspace_base_prompt_enabled,
-        workspace_schema_template_id: settings.workspace_schema_template_id,
-        workspace_schema_content: settings.workspace_schema_content,
-        index_segments: settings.index_segments ?? [],
-        tags: settings.tags ?? [],
-        category: settings.category ?? null,
-        chat_mode: settings.chat_mode ?? "default",
-        header_backdrop_mode: settings.header_backdrop_mode ?? "glass",
-        layout_mode: settings.layout_mode,
-        widget_theme_ref: settings.widget_theme_ref,
-        pipeline_mode: settings.pipeline_mode,
-      };
+      const nextForm = buildChannelSettingsForm(settings);
       setForm(nextForm);
       formRef.current = nextForm;
       channelDirtyRef.current = false;
       setChannelDirty(false);
     }
   }, [settings, updateMutation.isPending]);
-
-  // Debounced auto-save: every patch() triggers a save after 800ms.
-  // Multiple rapid changes batch into one PATCH request.
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const formRef = useRef(form);
-  formRef.current = form;
-  // Stable ref to mutation so the unmount cleanup doesn't fire on every render.
-  // (useMutation returns a new object each render, so depending on it directly
-  // would re-run the effect's cleanup constantly → infinite loop.)
-  const mutationRef = useRef(updateMutation);
-  mutationRef.current = updateMutation;
-
-  const debouncedSave = useCallback(() => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      saveTimeoutRef.current = null;
-      const draft = formRef.current;
-      try {
-        await mutationRef.current.mutateAsync(draft);
-        if (saveMatchesCurrentDraft({ savedDraft: draft, currentDraft: formRef.current })) {
-          channelDirtyRef.current = false;
-          setChannelDirty(false);
-          setChannelLastSavedAt(Date.now());
-        }
-      } catch {
-        // Error state handled by updateMutation.isError
-      }
-    }, 800);
-  }, []);
-
-  // Flush pending save on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-        saveTimeoutRef.current = null;
-        mutationRef.current.mutate(formRef.current);
-      }
-    };
-  }, []);
 
   const patch = useCallback(
     <K extends keyof ChannelSettings>(key: K, value: ChannelSettings[K]) => {
@@ -265,19 +232,41 @@ export default function ChannelSettingsScreen() {
       });
       channelDirtyRef.current = true;
       setChannelDirty(true);
-      debouncedSave();
     },
-    [debouncedSave]
+    []
   );
 
+  const saveChannelSettings = useCallback(async () => {
+    const draft = formRef.current;
+    try {
+      await updateMutation.mutateAsync(draft);
+      if (saveMatchesCurrentDraft({ savedDraft: draft, currentDraft: formRef.current })) {
+        channelDirtyRef.current = false;
+        setChannelDirty(false);
+        setChannelLastSavedAt(Date.now());
+      }
+    } catch {
+      // Error state is surfaced by the header save pill.
+    }
+  }, [updateMutation]);
+
+  const revertChannelSettings = useCallback(() => {
+    if (!settings) return;
+    const nextForm = buildChannelSettingsForm(settings);
+    setForm(nextForm);
+    formRef.current = nextForm;
+    channelDirtyRef.current = false;
+    setChannelDirty(false);
+  }, [settings]);
+
   const overallSaveTone: SaveStatusTone =
-    updateMutation.isPending || heartbeatSaveState.isPending
+    updateMutation.isPending
       ? "pending"
-      : updateMutation.isError || heartbeatSaveState.isError
+      : updateMutation.isError
         ? "error"
-        : channelDirty || heartbeatSaveState.dirty
+        : channelDirty
           ? "dirty"
-          : channelLastSavedAt != null || heartbeatSaveState.lastSavedAt != null
+          : channelLastSavedAt != null
             ? "saved"
             : "idle";
   const overallSaveLabel =
@@ -286,7 +275,7 @@ export default function ChannelSettingsScreen() {
       : overallSaveTone === "error"
         ? "Save failed"
         : overallSaveTone === "dirty"
-          ? "Changes pending"
+          ? "Unsaved changes"
           : overallSaveTone === "saved"
             ? "Saved"
             : "";
@@ -340,7 +329,22 @@ export default function ChannelSettingsScreen() {
               ))}
             </div>
           </div>
-          <SaveStatusPill tone={overallSaveTone} label={overallSaveLabel} />
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+            <SaveStatusPill tone={overallSaveTone} label={overallSaveLabel} />
+            <ActionButton
+              label="Revert"
+              onPress={revertChannelSettings}
+              variant="secondary"
+              size="small"
+              disabled={!channelDirty || updateMutation.isPending}
+            />
+            <ActionButton
+              label={updateMutation.isPending ? "Saving" : "Save"}
+              onPress={saveChannelSettings}
+              size="small"
+              disabled={!channelDirty || updateMutation.isPending}
+            />
+          </div>
         </div>
       </div>
 
