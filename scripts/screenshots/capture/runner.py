@@ -134,7 +134,12 @@ async def capture_batch(
 
                     if spec.pre_capture_js:
                         try:
-                            await page.evaluate(spec.pre_capture_js)
+                            # Wrap in async IIFE so `await` at the top level
+                            # is valid. page.evaluate's bare-expression mode
+                            # rejects top-level await with a SyntaxError.
+                            await page.evaluate(
+                                f"(async () => {{ {spec.pre_capture_js} }})()"
+                            )
                             await page.wait_for_timeout(250)  # settle after synthetic click
                         except Exception as e:  # pragma: no cover
                             logger.warning("pre_capture_js failed for %s: %s", spec.name, e)

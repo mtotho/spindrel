@@ -54,6 +54,7 @@ import { ConnectionLineLayer } from "./ConnectionLineLayer";
 import { MovementHistoryLayer } from "./MovementHistoryLayer";
 import { UsageDensityLayer } from "./UsageDensityLayer";
 import { UsageDensityChrome } from "./UsageDensityChrome";
+import { Minimap } from "./Minimap";
 import { CanvasLibrarySheet } from "./CanvasLibrarySheet";
 import { SpatialContextMenu, type SpatialContextMenuItem } from "./SpatialContextMenu";
 import { DragActivatorContext, type DragActivatorBundle } from "./dragActivatorContext";
@@ -79,6 +80,7 @@ import {
   BOTS_REDUCED_KEY,
   BOTS_VISIBLE_KEY,
   TRAILS_MODE_KEY,
+  MINIMAP_VISIBLE_KEY,
   LENS_NATIVE_FRACTION,
   LENS_SETTLE_MS,
   MAX_SCALE,
@@ -98,6 +100,7 @@ import {
   loadBotsReduced,
   loadBotsVisible,
   loadTrailsMode,
+  loadMinimapVisible,
   clampCamera,
   loadStoredCamera,
   projectFisheye,
@@ -413,6 +416,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [botsVisible, setBotsVisible] = useState<boolean>(loadBotsVisible);
   const [botsReduced, setBotsReduced] = useState<boolean>(loadBotsReduced);
   const [trailsMode, setTrailsMode] = useState<TrailsMode>(loadTrailsMode);
+  const [minimapVisible, setMinimapVisible] = useState<boolean>(loadMinimapVisible);
   // Right-click context menu — single instance at a time. `worldXY` is set
   // when the user right-clicks on the empty background so "Add widget here"
   // can drop the new pin at the click position rather than camera center.
@@ -435,10 +439,11 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       localStorage.setItem(BOTS_VISIBLE_KEY, botsVisible ? "1" : "0");
       localStorage.setItem(BOTS_REDUCED_KEY, botsReduced ? "1" : "0");
       localStorage.setItem(TRAILS_MODE_KEY, trailsMode);
+      localStorage.setItem(MINIMAP_VISIBLE_KEY, minimapVisible ? "1" : "0");
     } catch {
       /* storage disabled */
     }
-  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode]);
+  }, [densityIntensity, densityWindow, densityCompare, densityAnimate, connectionsEnabled, botsVisible, botsReduced, trailsMode, minimapVisible]);
 
   const cycleTrailsMode = useCallback(() => {
     setTrailsMode((curr) => {
@@ -981,6 +986,26 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   // Pan + scale the camera so the Now Well fills the viewport with a small
   // padding margin. Uses the same scale-derivation trick as `diveToChannel`
   // but without the route change at the end.
+  // Center the camera on an arbitrary world point. Used by the minimap
+  // click-to-fly handler. Caps scale at 1.0 so a click on a distant region
+  // doesn't slam the user into max-zoom over empty space; preserves any
+  // scale below 1.0 the user has set so they don't lose context.
+  const flyToWorldPoint = useCallback(
+    (wx: number, wy: number) => {
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
+      const targetScale = Math.min(1.0, cameraRef.current.scale);
+      const targetX = rect.width / 2 - wx * targetScale;
+      const targetY = rect.height / 2 - wy * targetScale;
+      if (lensEngaged) {
+        setLensEngaged(false);
+        triggerLensSettle();
+      }
+      scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
+    },
+    [lensEngaged, triggerLensSettle, scheduleCamera],
+  );
+
   const flyToWell = useCallback(() => {
     const rect = viewportRectRef.current;
     if (!rect.width || !rect.height) return;
@@ -1854,9 +1879,19 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       <div className="absolute bottom-4 right-4 z-[2] flex flex-row items-center gap-2">
         <AddWidgetButton onClick={() => setLibraryOpen(true)} />
         <TrailsButton mode={trailsMode} onCycle={cycleTrailsMode} />
+        <MapButton visible={minimapVisible} onToggle={() => setMinimapVisible((v) => !v)} />
         <NowButton onClick={flyToWell} />
         <RecenterButton onClick={() => scheduleCamera(DEFAULT_CAMERA, "immediate")} />
       </div>
+      {minimapVisible && (
+        <Minimap
+          camera={camera}
+          viewport={viewportSize}
+          nodes={nodes ?? []}
+          onJumpTo={flyToWorldPoint}
+          onClose={() => setMinimapVisible(false)}
+        />
+      )}
       <CanvasLibrarySheet
         open={libraryOpen}
         onClose={() => {
@@ -2034,6 +2069,25 @@ function NowButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+function MapButton({ visible, onToggle }: { visible: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={visible ? "Hide minimap" : "Show minimap"}
+      aria-label={visible ? "Hide minimap" : "Show minimap"}
+      aria-pressed={visible}
+      className={`flex flex-row items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-surface-raised/85 backdrop-blur border border-surface-border text-xs cursor-pointer ${
+        visible ? "text-accent" : "text-text-dim/60 hover:text-text-dim"
+      }`}
+    >
+      <Locate size={13} />
+      <span>Map</span>
+    </button>
+  );
+}
+
 function MovementTraceLayer({ nodes, viewportBbox }: { nodes: SpatialNode[]; viewportBbox?: WorldBbox }) {
   const now = Date.now();
   const traces = nodes
@@ -2159,8 +2213,8 @@ function BotTile({
 }) {
   const compact = zoom < 0.55;
   const avatar = avatarEmoji || "🤖";
-  const markerScale = compact ? Math.min(5.6, Math.max(1, 34 / ((reduced ? 84 : 112) * Math.max(zoom, 0.05)))) : 1;
-  const labelScale = compact ? Math.min(10, Math.max(1, 14 / (14 * Math.max(zoom, 0.05)))) : 1;
+  const markerScale = compact ? Math.max(1, 34 / ((reduced ? 84 : 112) * Math.max(zoom, MIN_SCALE))) : 1;
+  const labelScale = compact ? Math.max(1, 14 / (14 * Math.max(zoom, MIN_SCALE))) : 1;
   const outerSize = reduced ? 84 : 112;
   const innerSize = reduced ? 58 : 82;
   const emojiSize = reduced ? 28 : 38;

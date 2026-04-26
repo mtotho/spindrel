@@ -11,7 +11,7 @@ export interface LensTransform {
 }
 
 export const DEFAULT_CAMERA: Camera = { x: 0, y: 0, scale: 1 };
-export const MIN_SCALE = 0.05;
+export const MIN_SCALE = 0.03;
 export const MAX_SCALE = 3.0;
 export const CAMERA_STORAGE_KEY = "spatial.camera";
 
@@ -27,6 +27,7 @@ export const DENSITY_ANIMATE_KEY = "spatial.density.animate";
 export const BOTS_VISIBLE_KEY = "spatial.bots.visible";
 export const BOTS_REDUCED_KEY = "spatial.bots.reduced";
 export const TRAILS_MODE_KEY = "spatial.trails.mode";
+export const MINIMAP_VISIBLE_KEY = "spatial.minimap.visible";
 
 export type TrailsMode = "off" | "hover" | "all";
 
@@ -105,6 +106,17 @@ export function loadTrailsMode(storage: Storage = localStorage): TrailsMode {
     /* storage disabled */
   }
   return "hover";
+}
+
+export function loadMinimapVisible(storage: Storage = localStorage): boolean {
+  try {
+    const v = storage.getItem(MINIMAP_VISIBLE_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* storage disabled */
+  }
+  return true;
 }
 
 export const WELL_X = 0;

@@ -1,5 +1,7 @@
 import { Box } from "lucide-react";
 
+const OVERVIEW_MIN_SCALE = 0.03;
+
 interface WidgetClusterMarkerProps {
   count: number;
   zoom: number;
@@ -7,8 +9,8 @@ interface WidgetClusterMarkerProps {
 }
 
 export function WidgetClusterMarker({ count, zoom, opacity }: WidgetClusterMarkerProps) {
-  const effectiveScale = Math.max(0.05, zoom);
-  const markerScale = Math.min(7, Math.max(1, 24 / (58 * effectiveScale)));
+  const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom);
+  const markerScale = Math.max(1, 24 / (58 * effectiveScale));
 
   return (
     <div

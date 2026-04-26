@@ -1,6 +1,6 @@
 """Integration tests for channel ownership (private/user_id) and visibility filtering."""
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -337,6 +337,83 @@ class TestAdminChannelsVisibility:
         row = rows.get(str(ch.id))
         assert row is not None
         assert row["last_message_at"] is None
+
+    async def test_admin_channels_enriched_recent_count_and_preview(self, client, db_session):
+        """Spatial canvas channel tile reads recent_message_count_24h and
+        last_message_preview to surface activity. Old messages must NOT
+        contribute to the count; the preview comes from the latest message."""
+        from app.db.models import Session as SessionRow, Message
+        ch = await _create_channel_row(db_session)
+        sess_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        db_session.add(SessionRow(
+            id=sess_id,
+            client_id=ch.client_id,
+            bot_id=ch.bot_id,
+            channel_id=ch.id,
+            created_at=now,
+            last_active=now,
+        ))
+        # 3 recent + 1 stale (>24h ago) — only the recent ones count
+        recents = [
+            Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="first user msg", created_at=now - timedelta(hours=2)),
+            Message(id=uuid.uuid4(), session_id=sess_id, role="assistant", content="middle assistant msg", created_at=now - timedelta(hours=1)),
+            Message(id=uuid.uuid4(), session_id=sess_id, role="user", content="hey want to grab\ndinner tonight?", created_at=now - timedelta(minutes=5)),
+        ]
+        for m in recents:
+            db_session.add(m)
+        db_session.add(Message(
+            id=uuid.uuid4(), session_id=sess_id, role="user",
+            content="ancient history", created_at=now - timedelta(hours=25),
+        ))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/admin/channels-enriched", headers=AUTH_HEADERS)
+        assert resp.status_code == 200
+        rows = {row["id"]: row for row in resp.json()["channels"]}
+        row = rows.get(str(ch.id))
+        assert row is not None
+        assert row["recent_message_count_24h"] == 3
+        # Preview is the latest message body, newlines collapsed to spaces.
+        assert row["last_message_preview"] == "hey want to grab dinner tonight?"
+
+    async def test_admin_channels_enriched_preview_truncates_long_content(self, client, db_session):
+        from app.db.models import Session as SessionRow, Message
+        ch = await _create_channel_row(db_session)
+        sess_id = uuid.uuid4()
+        now = datetime.now(timezone.utc)
+        db_session.add(SessionRow(
+            id=sess_id,
+            client_id=ch.client_id,
+            bot_id=ch.bot_id,
+            channel_id=ch.id,
+            created_at=now,
+            last_active=now,
+        ))
+        long_body = "x" * 200
+        db_session.add(Message(id=uuid.uuid4(), session_id=sess_id, role="user", content=long_body, created_at=now))
+        await db_session.commit()
+
+        resp = await client.get("/api/v1/admin/channels-enriched", headers=AUTH_HEADERS)
+        rows = {row["id"]: row for row in resp.json()["channels"]}
+        row = rows.get(str(ch.id))
+        assert row is not None
+        preview = row["last_message_preview"]
+        assert preview is not None
+        assert preview.endswith("…")
+        # 80 leading characters + ellipsis (rstrip on truncation may drop
+        # trailing content, but for an all-x body none is dropped).
+        assert len(preview) == 81
+
+    async def test_admin_channels_enriched_zero_count_and_null_preview_when_quiet(self, client, db_session):
+        ch = await _create_channel_row(db_session)
+        await db_session.commit()
+        resp = await client.get("/api/v1/admin/channels-enriched", headers=AUTH_HEADERS)
+        rows = {row["id"]: row for row in resp.json()["channels"]}
+        row = rows.get(str(ch.id))
+        assert row is not None
+        assert row["recent_message_count_24h"] == 0
+        assert row["last_message_preview"] is None
 
 
 # Widget pin CRUD moved to /api/v1/widgets/dashboard (slug=channel:<uuid>) —

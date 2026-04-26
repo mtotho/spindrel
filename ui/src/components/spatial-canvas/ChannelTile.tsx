@@ -1,17 +1,29 @@
-import { Hash } from "lucide-react";
-import { formatRelativeTime } from "../../utils/format";
+import { useMemo } from "react";
+import { Hash, Lock, MessageCircle } from "lucide-react";
 import { LucideIconByName } from "../IconPicker";
-import type { Channel } from "../../types/api";
+import { useBots } from "../../api/hooks/useBots";
+import { useChannelReadStore } from "../../stores/channelRead";
+import type { Channel, BotConfig } from "../../types/api";
 
 /**
- * Channel tile with three semantic-zoom levels (P2).
+ * Channel tile with three semantic-zoom levels (P2, redesigned).
  *
- *   - **Dot** at zoom < 0.4 — colored disc + name label, parses at distance.
- *   - **Preview** at 0.4 ≤ zoom < 1.0 — compact card: hash chip, name, last
- *     activity. The legible default.
- *   - **Snapshot** at zoom ≥ 1.0 — expanded card: name, member-bot row,
- *     last activity, double-click hint. Static — *not* live chat (decision 9
- *     in `Track - Spatial Canvas`; live channel embed is parked at P10).
+ * The card chrome is gone. Each tile is now a soft, hue-tinted **blob**
+ * with deterministic per-channel shape (border-radius hashed off the
+ * channel id) and a radial gradient backdrop in the channel hue. Identity
+ * comes from the color and the shape, not from a generic `# CHANNEL`
+ * label.
+ *
+ *   - **Dot** at zoom < 0.4 — colored disc + counter-scaled name label
+ *     below. Reads from far away.
+ *   - **Preview** at 0.4 ≤ zoom < 1.0 — blob with name on top, bot
+ *     avatar emoji row + recent-count badge + unread dot at the bottom.
+ *   - **Snapshot** at zoom ≥ 1.0 — adds a one-line message preview below
+ *     the name (progressive disclosure — the densest tier).
+ *
+ * Backend fields used: `member_bots` (existing), `recent_message_count_24h`
+ * + `last_message_preview` (added to `ChannelOut` and computed alongside
+ * `last_active_map`).
  */
 
 interface ChannelTileProps {
@@ -47,26 +59,134 @@ function ChannelGlyph({ icon, size, active }: { icon: string | null; size: numbe
 }
 
 /**
- * Stable hue per channel id. Hash → 0..360. Same id always lands the same
- * color across reloads / different viewers — no DB column needed for this.
- *
- * Exported so other canvas surfaces (e.g. orbital scheduled tiles) can color
- * themselves to match their source channel.
+ * Stable hash → 0..2^32 per channel id. Used for deterministic hue and
+ * deterministic blob shape (border-radius corners).
  */
-export function channelHue(id: string): number {
+function hashId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) {
     h = (h * 31 + id.charCodeAt(i)) >>> 0;
   }
-  return h % 360;
+  return h;
+}
+
+/**
+ * Stable hue per channel id. Same id always lands the same color across
+ * reloads / different viewers — no DB column needed for this. Exported so
+ * other canvas surfaces (orbital scheduled tiles, density halos, movement
+ * trails, minimap) can color themselves to match their source channel.
+ */
+export function channelHue(id: string): number {
+  return hashId(id) % 360;
 }
 
 export function dotColor(id: string): string {
   return `hsl(${channelHue(id)}, 55%, 58%)`;
 }
 
+/**
+ * Per-channel deterministic border-radius — eight percentages (4 corners ×
+ * 2 axes) hashed off the id. Each percentage lands in 38–62% so the shape
+ * stays "blob-like" rather than collapsing to a circle or stretching to an
+ * extreme. Stable across reloads. CSS-only — zero render cost vs. SVG
+ * filters.
+ */
+function organicBorderRadius(id: string): string {
+  const seed = hashId(id);
+  const r = (i: number) => 38 + ((seed >> (i * 4)) & 0xF) * (24 / 15);
+  return (
+    `${r(0)}% ${r(1)}% ${r(2)}% ${r(3)}%` +
+    ` / ${r(4)}% ${r(5)}% ${r(6)}% ${r(7)}%`
+  );
+}
+
 function channelName(channel: Channel): string {
   return channel.display_name || channel.name;
+}
+
+function ChannelBlob({ channelId, intensity = "normal" }: {
+  channelId: string;
+  intensity?: "soft" | "normal" | "warm";
+}) {
+  const radius = useMemo(() => organicBorderRadius(channelId), [channelId]);
+  const hue = channelHue(channelId);
+  // Three intensity tiers map to alpha ramps. "warm" used when the channel
+  // has unread activity to nudge attention without re-introducing chrome.
+  const inner = intensity === "warm" ? 0.22 : intensity === "soft" ? 0.08 : 0.14;
+  const mid = intensity === "warm" ? 0.12 : intensity === "soft" ? 0.04 : 0.08;
+  return (
+    <div
+      aria-hidden
+      className="absolute inset-0 pointer-events-none"
+      style={{
+        borderRadius: radius,
+        background: `radial-gradient(ellipse at 50% 50%, hsla(${hue}, 60%, 60%, ${inner}) 0%, hsla(${hue}, 60%, 55%, ${mid}) 55%, transparent 100%)`,
+        boxShadow: `inset 0 0 24px hsla(${hue}, 60%, 65%, ${mid * 0.6})`,
+      }}
+    />
+  );
+}
+
+function botAvatarEmoji(botId: string, bots: BotConfig[] | undefined): string {
+  const bot = bots?.find((b) => b.id === botId);
+  return bot?.avatar_emoji || "🤖";
+}
+
+function BotAvatarRow({
+  channel,
+  bots,
+  size,
+  max,
+}: {
+  channel: Channel;
+  bots: BotConfig[] | undefined;
+  size: number;
+  max: number;
+}) {
+  const members = channel.member_bots ?? [];
+  if (!members.length) return null;
+  const visible = members.slice(0, max);
+  const overflow = members.length - visible.length;
+  return (
+    <div className="flex flex-row items-center gap-1">
+      {visible.map((m) => (
+        <span
+          key={m.id}
+          title={m.bot_name || m.bot_id}
+          className="flex items-center justify-center rounded-full bg-accent/[0.10] text-accent"
+          style={{ width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.6)) }}
+        >
+          {botAvatarEmoji(m.bot_id, bots)}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="text-[10px] text-text-dim ml-0.5">+{overflow}</span>
+      )}
+    </div>
+  );
+}
+
+function RecentCountBadge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span
+      className="flex flex-row items-center gap-0.5 text-[10px] text-text-dim"
+      title={`${count} message${count === 1 ? "" : "s"} in the last 24h`}
+    >
+      <MessageCircle size={10} className="opacity-70" />
+      <span>{count}</span>
+    </span>
+  );
+}
+
+function UnreadDot() {
+  return (
+    <span
+      className="w-2 h-2 rounded-full bg-accent shrink-0"
+      title="Unread activity"
+      aria-label="Unread activity"
+    />
+  );
 }
 
 function DotView({
@@ -81,12 +201,10 @@ function DotView({
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  // Counter-scale overview marks so they stay readable at whole-map zoom.
-  // The canvas parent is world-scaled; these local scales set a lower bound
-  // in screen pixels without affecting preview/snapshot card zoom states.
   const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
   const dotScale = Math.min(5.2, Math.max(1, OVERVIEW_MIN_DOT_SCREEN_PX / (88 * effectiveScale)));
   const labelScale = Math.min(12, Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale)));
+  const radius = useMemo(() => organicBorderRadius(channel.id), [channel.id]);
   return (
     <div
       data-tile-kind="channel"
@@ -95,11 +213,12 @@ function DotView({
       style={{ width: 240, minHeight: 150 }}
     >
       <div
-        className="rounded-full shadow-md ring-2 ring-text/10"
+        className="shadow-md ring-2 ring-text/10"
         style={{
           width: 88,
           height: 88,
           background: dotColor(channel.id),
+          borderRadius: radius,
           transform: `scale(${dotScale})`,
           transformOrigin: "center center",
         }}
@@ -127,26 +246,30 @@ function PreviewView({
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  const last = formatRelativeTime(channel.last_message_at);
+  const { data: bots } = useBots();
+  const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
+  const recentCount = channel.recent_message_count_24h ?? 0;
   return (
     <div
       data-tile-kind="channel"
       onDoubleClick={onDive}
-      className="w-full h-full rounded-xl border border-surface-border bg-surface-raised text-text shadow-lg flex flex-col gap-2 p-3 cursor-grab active:cursor-grabbing overflow-hidden"
+      className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
-      <div className="flex flex-row items-center gap-1.5 text-[10px] tracking-wider text-text-dim uppercase">
-        <span
-          className="w-2.5 h-2.5 rounded-full"
-          style={{ background: dotColor(channel.id) }}
-        />
-        <ChannelGlyph icon={icon} size={14} />
-        <span>Channel</span>
-        {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}
+      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} />
+      <div className="absolute inset-0 flex flex-col gap-1.5 p-3">
+        <div className="flex flex-row items-center gap-1.5 min-w-0">
+          <ChannelGlyph icon={icon} size={14} />
+          <span className="text-base font-semibold leading-tight truncate text-text">{name}</span>
+          {channel.private && <Lock size={11} className="text-text-dim shrink-0" />}
+        </div>
+        <div className="flex flex-row items-center gap-2 mt-auto">
+          <BotAvatarRow channel={channel} bots={bots} size={18} max={4} />
+          <div className="flex flex-row items-center gap-2 ml-auto">
+            <RecentCountBadge count={recentCount} />
+            {isUnread && <UnreadDot />}
+          </div>
+        </div>
       </div>
-      <div className="text-base font-semibold leading-tight truncate">{name}</div>
-      {channel.category && (
-        <div className="text-[11px] text-text-dim truncate mt-auto">{channel.category}</div>
-      )}
     </div>
   );
 }
@@ -161,47 +284,36 @@ function SnapshotView({
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  const last = formatRelativeTime(channel.last_message_at);
-  const members = channel.member_bots ?? [];
+  const { data: bots } = useBots();
+  const isUnread = useChannelReadStore((s) => s.isUnread(channel.id, channel.updated_at));
+  const recentCount = channel.recent_message_count_24h ?? 0;
+  const preview = channel.last_message_preview?.trim() || null;
   return (
     <div
       data-tile-kind="channel"
       onDoubleClick={onDive}
-      className="w-full h-full rounded-xl border border-surface-border bg-surface-raised text-text shadow-lg flex flex-col gap-2 p-4 cursor-grab active:cursor-grabbing overflow-hidden"
+      className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
-      <div className="flex flex-row items-center gap-2 text-[10px] tracking-wider text-text-dim uppercase">
-        <span
-          className="w-3 h-3 rounded-full"
-          style={{ background: dotColor(channel.id) }}
-        />
-        <ChannelGlyph icon={icon} size={16} />
-        <span>Channel</span>
-        {channel.private && <span className="ml-1">· private</span>}
-        {last && <span className="ml-auto normal-case tracking-normal">{last}</span>}
-      </div>
-      <div className="text-lg font-semibold leading-tight truncate">{name}</div>
-      {channel.category && (
-        <div className="text-[11px] text-text-dim truncate">{channel.category}</div>
-      )}
-      {members.length > 0 && (
-        <div className="flex flex-row flex-wrap gap-1 mt-1">
-          {members.slice(0, 4).map((m) => (
-            <span
-              key={m.id}
-              title={m.bot_name || m.bot_id}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-surface border border-surface-border text-text-dim truncate max-w-[80px]"
-            >
-              {m.bot_name || m.bot_id}
-            </span>
-          ))}
-          {members.length > 4 && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded text-text-dim">
-              +{members.length - 4}
-            </span>
-          )}
+      <ChannelBlob channelId={channel.id} intensity={isUnread ? "warm" : "normal"} />
+      <div className="absolute inset-0 flex flex-col gap-1.5 p-4">
+        <div className="flex flex-row items-center gap-2 min-w-0">
+          <ChannelGlyph icon={icon} size={16} />
+          <span className="text-lg font-semibold leading-tight truncate text-text">{name}</span>
+          {channel.private && <Lock size={12} className="text-text-dim shrink-0" />}
         </div>
-      )}
-      <div className="text-[10px] text-text-dim mt-auto">Double-click to dive</div>
+        {preview && (
+          <div className="text-[11px] italic text-text-dim leading-snug line-clamp-2 pr-2">
+            {preview}
+          </div>
+        )}
+        <div className="flex flex-row items-center gap-2 mt-auto">
+          <BotAvatarRow channel={channel} bots={bots} size={20} max={4} />
+          <div className="flex flex-row items-center gap-2 ml-auto">
+            <RecentCountBadge count={recentCount} />
+            {isUnread && <UnreadDot />}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

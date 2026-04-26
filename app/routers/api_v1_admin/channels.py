@@ -57,6 +57,22 @@ def _resolve_workspace_id(bot_id: str) -> str | None:
         return None
 
 
+_PREVIEW_MAX_LEN = 80
+
+
+def _format_message_preview(content: str) -> str:
+    """Compact a message body for the channel-tile preview line.
+
+    Collapses interior whitespace to single spaces, trims, and truncates
+    to ``_PREVIEW_MAX_LEN`` chars with an ellipsis. Empty bodies become
+    ``""`` so the caller can short-circuit.
+    """
+    flat = " ".join(content.split())
+    if len(flat) <= _PREVIEW_MAX_LEN:
+        return flat
+    return flat[:_PREVIEW_MAX_LEN].rstrip() + "…"
+
+
 def _resolve_index_segment_defaults(bot_id: str) -> dict:
     """Resolve effective default values for index segment fields from bot config."""
     try:
@@ -202,6 +218,11 @@ class ChannelOut(BaseModel):
     category: Optional[str] = None
     tags: list[str] = []
     last_message_at: Optional[datetime] = None
+    # Spatial canvas + future activity-aware surfaces. Computed in the
+    # channel-list path alongside ``last_message_at``; cheap to add since the
+    # session join is already in flight.
+    recent_message_count_24h: int = 0
+    last_message_preview: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -2540,6 +2561,8 @@ async def admin_channels_enriched(
     channel_ids = [ch.id for ch in channels]
     hb_map: dict[uuid.UUID, ChannelHeartbeat] = {}
     last_active_map: dict[uuid.UUID, datetime] = {}
+    recent_count_map: dict[uuid.UUID, int] = {}
+    preview_map: dict[uuid.UUID, str] = {}
     if channel_ids:
         hb_rows = (await db.execute(
             select(ChannelHeartbeat).where(ChannelHeartbeat.channel_id.in_(channel_ids))
@@ -2559,6 +2582,53 @@ async def admin_channels_enriched(
         )).all()
         last_active_map = {r.channel_id: r.last_active for r in activity_rows if r.channel_id}
 
+        # Recent-message count over the last 24h, grouped by channel. Used by
+        # the spatial canvas channel tile + any future "is this channel hot?"
+        # surface. Joins through Session because ``Message.channel_id`` does
+        # not exist; the FK lives on the session row.
+        cutoff_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+        recent_count_rows = (await db.execute(
+            select(
+                Session.channel_id.label("channel_id"),
+                func.count(Message.id).label("cnt"),
+            )
+            .join(Message, Message.session_id == Session.id)
+            .where(Session.channel_id.in_(channel_ids))
+            .where(Message.created_at >= cutoff_24h)
+            .where(Message.role.in_(("user", "assistant")))
+            .group_by(Session.channel_id)
+        )).all()
+        recent_count_map = {r.channel_id: int(r.cnt) for r in recent_count_rows if r.channel_id}
+
+        # Latest message body per channel for the snapshot-tier preview text.
+        # ROW_NUMBER window keeps it to one query — works on PostgreSQL and
+        # SQLite (the test backend) alike. Tool-call-only assistant messages
+        # have NULL content and are excluded.
+        rn = func.row_number().over(
+            partition_by=Session.channel_id,
+            order_by=Message.created_at.desc(),
+        ).label("rn")
+        preview_subq = (
+            select(
+                Session.channel_id.label("channel_id"),
+                Message.content.label("content"),
+                rn,
+            )
+            .join(Message, Message.session_id == Session.id)
+            .where(Session.channel_id.in_(channel_ids))
+            .where(Message.role.in_(("user", "assistant")))
+            .where(Message.content.isnot(None))
+            .subquery()
+        )
+        preview_rows = (await db.execute(
+            select(preview_subq.c.channel_id, preview_subq.c.content)
+            .where(preview_subq.c.rn == 1)
+        )).all()
+        for r in preview_rows:
+            if not r.channel_id or not r.content:
+                continue
+            preview_map[r.channel_id] = _format_message_preview(r.content)
+
     from app.services.heartbeat import _is_heartbeat_in_quiet_hours
 
     enriched = []
@@ -2570,6 +2640,8 @@ async def admin_channels_enriched(
         out.category = (ch.metadata_ or {}).get("category")
         out.tags = (ch.metadata_ or {}).get("tags", [])
         out.last_message_at = last_active_map.get(ch.id)
+        out.recent_message_count_24h = recent_count_map.get(ch.id, 0)
+        out.last_message_preview = preview_map.get(ch.id)
         hb = hb_map.get(ch.id)
         if hb and hb.enabled:
             out.heartbeat_enabled = True

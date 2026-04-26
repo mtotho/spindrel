@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { dotColor } from "./ChannelTile";
 import type { ChannelCluster } from "./spatialClustering";
 
+const OVERVIEW_MIN_SCALE = 0.03;
+
 interface ChannelClusterMarkerProps {
   cluster: ChannelCluster;
   zoom: number;
@@ -36,9 +38,9 @@ export function ChannelClusterMarker({
 
   const winner = cluster.winner;
   const hiddenCount = cluster.hiddenMembers.length;
-  const effectiveScale = Math.max(0.05, zoom);
-  const markerScale = Math.min(8.5, Math.max(1, 34 / (84 * effectiveScale)));
-  const labelScale = Math.min(13, Math.max(1, 14 / (16 * effectiveScale)));
+  const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom);
+  const markerScale = Math.max(1, 34 / (84 * effectiveScale));
+  const labelScale = Math.max(1, 14 / (16 * effectiveScale));
   const ratio = maxClusterTokens > 0 ? cluster.totalTokens / maxClusterTokens : 0;
   const glow = showActivityGlow && cluster.totalTokens > 0
     ? 0.22 + Math.sqrt(ratio) * 0.34

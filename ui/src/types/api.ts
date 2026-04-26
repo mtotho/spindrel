@@ -362,6 +362,15 @@ export interface Channel {
   category?: string | null;
   tags?: string[];
   last_message_at?: string | null;
+  /** Count of messages in the channel in the last 24h. Server-computed
+   *  alongside `last_message_at`. Used by the spatial canvas channel tile
+   *  for the "X today" recent-activity badge. */
+  recent_message_count_24h?: number;
+  /** First ~80 chars of the most recent message body, with newlines
+   *  collapsed and ellipsis applied if truncated. Server-computed.
+   *  Used by the spatial canvas channel tile snapshot view for
+   *  progressive disclosure. */
+  last_message_preview?: string | null;
   created_at: string;
   updated_at: string;
 }

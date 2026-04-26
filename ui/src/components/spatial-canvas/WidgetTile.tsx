@@ -66,6 +66,7 @@ const CHIP_THRESHOLD = 0.4;
 const TITLE_THRESHOLD = 0.6;
 const OVERVIEW_MIN_CHIP_SCREEN_PX = 20;
 const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
+const OVERVIEW_MIN_SCALE = 0.03;
 
 function widgetTitle(pin: SpatialNodePin): string {
   return (
@@ -130,8 +131,8 @@ function WidgetGlyph({ size }: { size: number }) {
 }
 
 function ChipView({ zoom, extraScale }: { zoom: number; extraScale: number }) {
-  const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
-  const glyphScale = Math.min(6.4, Math.max(1, OVERVIEW_MIN_CHIP_SCREEN_PX / (64 * effectiveScale)));
+  const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom) * Math.max(0.05, extraScale);
+  const glyphScale = Math.max(1, OVERVIEW_MIN_CHIP_SCREEN_PX / (64 * effectiveScale));
   return (
     <div
       data-tile-kind="widget"
@@ -163,8 +164,8 @@ function ChipTitleView({
   // (0.4 ≤ z < 0.6). Same trick as channel DotView. `extraScale` covers
   // fisheye / lens shrinking so the label stays legible when the lens has
   // compressed the tile.
-  const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
-  const labelScale = Math.min(10, Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale)));
+  const effectiveScale = Math.max(OVERVIEW_MIN_SCALE, zoom) * Math.max(0.05, extraScale);
+  const labelScale = Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale));
   return (
     <div
       data-tile-kind="widget"
