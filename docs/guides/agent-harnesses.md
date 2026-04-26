@@ -1,8 +1,10 @@
-# Agent Harnesses
+# External Agent Harnesses
 
-A **harness bot** is a Spindrel bot whose turn is driven by an external agent harness (Claude Code today, Codex later) instead of Spindrel's own RAG loop. The chat UI is Spindrel; the agent loop, tools, file edits, and bash are the harness's. You bring your own workspace and your own OAuth login.
+An **external agent harness** lets you run a coding-agent session from Spindrel's web UI without routing the turn through Spindrel's RAG loop. Claude Code is supported today; Codex is planned on the same runtime boundary.
 
-The point: manage Claude Code sessions in your browser, alongside your Spindrel bots, with persistence across restarts — without giving up the harness's own ecosystem (its skills, hooks, MCP servers, slash commands).
+The point: manage Claude Code sessions in your browser, alongside your Spindrel channels, with workspace access and persistence across restarts — without giving up Claude Code's own ecosystem (its skills, hooks, MCP servers, slash commands). Spindrel provides the remote UI, channel transcript, terminal drawer, workspace path, auth-status surface, and resume state. The external harness owns the reasoning loop, native tools, bash, file edits, permissions, and its own session id.
+
+There is no Spindrel agent middleman in the turn. Internally the runtime is selected on a bot record so it can reuse channels, workspaces, and message persistence, but once a harness runtime is set, the normal Spindrel model, prompt, tools, skills, memory, and KB injection are bypassed for that turn.
 
 ## Quick start
 
@@ -14,9 +16,9 @@ The point: manage Claude Code sessions in your browser, alongside your Spindrel 
 
     *Old SSH workflow* (still works if you prefer): `docker exec -it spindrel claude login`.
 
-3. **Workspaces — nothing new to mount.** A harness bot reuses the bot's existing Spindrel workspace (the same `WORKSPACE_HOST_DIR` mount every other bot uses, default `~/.spindrel-workspaces/<bot_id>/`). No second mount, no parallel directory tree. The bot editor's *Workspace path (override)* field is for the rare case where you want to point the harness at a different directory — e.g. an existing repo on the host or a directory shared across multiple harness bots.
+3. **Workspaces — nothing new to mount.** A harness session reuses the bot's existing Spindrel workspace (the same `WORKSPACE_HOST_DIR` mount every other bot uses, default `~/.spindrel-workspaces/<bot_id>/`). No second mount, no parallel directory tree. The bot editor's *Workspace path (override)* field is for the rare case where you want to point the harness at a different directory — e.g. an existing repo on the host or a directory shared across multiple harness sessions.
 
-4. **Create a harness bot and seed its workspace.** `/admin/bots` → New bot. In the **Identity** group, set:
+4. **Create a harness-backed session owner and seed its workspace.** `/admin/bots` -> New bot. In the **Identity** group, set:
 
     - **Runtime:** `Claude Code`
     - **Workspace path (override):** leave blank — the bot uses its standard Spindrel workspace.
@@ -60,18 +62,20 @@ docker exec -it spindrel claude login
 
 This writes credentials inside the container's filesystem only. They're lost on a `docker compose down -v` or container rebuild. Use this when you don't want host bind-mounts (multi-tenant, etc.).
 
-## What harness bots intentionally do *not* do
+## What harness sessions intentionally do *not* do
 
 These are deliberate v1 boundaries, not oversights:
 
 - **No Spindrel skills, KB, or capability injection.** The harness reads its own skills from `~/.claude/skills/`, project `.claude/skills/`, etc. Spindrel's discovery layer is not bridged.
 - **No widgets / no tool-result envelopes.** The harness emits plain text + tool-call breadcrumbs. No `emit_html_widget`, no standing orders, no dashboard pins.
-- **No Spindrel approvals UI for tool calls.** The driver runs with `allowed_tools=["Read","Glob","Grep","Bash","Edit","Write","Task","WebFetch","WebSearch"]` and `permission_mode="acceptEdits"` — listed tools auto-approve, anything else hard-fails. To loosen, use `permission_mode="bypassPermissions"` (planned per-bot toggle in Phase 2).
+- **No Spindrel approvals UI for tool calls.** The driver runs with `allowed_tools=["Read","Glob","Grep","Bash","Edit","Write","Task","WebFetch","WebSearch"]` and `permission_mode="acceptEdits"` — listed tools auto-approve, anything else hard-fails. A future per-session permission mode will route harness approval requests into Spindrel approval cards.
 - **No `/admin/usage` integration.** Cost and token usage are persisted on the assistant message under `metadata.harness.cost_usd`/`usage`, but not aggregated in the global cost dashboard yet.
 - **No tool-call rehydration after page refresh.** The live stream shows tool calls; on reload, only the final assistant text comes back from the `Message` row.
-- **No @-mention fanout.** A harness bot owns its turn end-to-end; it doesn't trigger member-bot replies, supervisors, or context compaction.
+- **No @-mention fanout.** A harness session owns its turn end-to-end; it doesn't trigger member-bot replies, supervisors, or context compaction.
 
-If you need any of those, you want a Spindrel bot, not a harness bot.
+If you need any of those, you want a normal Spindrel bot, not an external harness session.
+
+Spindrel still applies its secret redactor at the harness host boundary, covering both registered secret values and common token/key patterns. Streamed assistant text, thinking blocks, tool arguments, tool-result summaries, and the persisted final assistant message are scrubbed before they enter the channel bus or transcript. This is defense-in-depth, not a substitute for rotating any token that a native harness command already printed.
 
 ## How session resume works
 
@@ -91,7 +95,7 @@ There is intentionally no UI for this in v1. The directory IS the contract.
 
 ## Operational notes
 
-- **Single OAuth identity per host.** All harness channels using `claude` ride the same `~/.claude/credentials.json`. There's no per-bot or per-channel auth scoping.
+- **Single OAuth identity per host.** All harness sessions using `claude` ride the same `~/.claude/credentials.json`. There's no per-bot or per-channel auth scoping.
 - **Workspace dir must exist before the first message.** The driver hard-fails if `harness_workdir` doesn't resolve to a directory. Create it (and seed it) up-front.
 - **The bundled CLI comes from the integration, not the base image.** Enabling the `claude_code` integration installs `claude-agent-sdk`, which bundles the `claude` CLI binary. The base Spindrel image installs no harness CLIs. To upgrade the SDK + CLI, reinstall the integration's deps from `/admin/integrations`.
 - **The SDK is alpha.** The integration pins a loose floor (`claude-agent-sdk>=0.1.0`) so each integration-deps reinstall picks up the latest. The bridge unit tests in `tests/unit/test_claude_code_runtime_bridge.py` import the live SDK dataclasses, so any rename of `ResultMessage.total_cost_usd` or content-block restructure surfaces as a CI failure, not a silent zero-cost / blank-text production turn.
@@ -111,6 +115,6 @@ When the integration is disabled at `/admin/integrations`, its harness module is
 
 ## What's coming
 
-- **Phase 2:** Workspace list on `/admin/harnesses` (per-bot last session id + cost), "open in shell" hint, bot-editor "Create workspace dir" button.
+- **Phase 2:** Workspace/session list on `/admin/harnesses` (per-bot last session id + cost), "open in shell" hint, bot-editor "Create workspace dir" button.
 - **Phase 3:** Per-channel plan-mode toggle (`permission_mode="plan"`); permission-request routing into Spindrel's approvals UI. Today every harness wires its own auto-approve hook (Claude SDK uses `can_use_tool`, Codex will have its analogous "ask before tool" plug). Phase 3 introduces a `HarnessApprovalRequest` event on the channel bus and a per-harness adapter that resolves the SDK's allow/deny via Spindrel approval cards — designed against both Claude and Codex APIs from day one so we don't bake in Claude-isms.
 - **Phase 4:** Codex driver. Either via the `codex-app-server-sdk` Python package once it lands on PyPI, or via subprocess to the `codex` CLI sooner — the protocol accepts both.

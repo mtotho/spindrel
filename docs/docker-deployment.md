@@ -1,6 +1,6 @@
 # Running Spindrel in Docker
 
-By default the server runs on the host with Python directly. This guide covers running the server itself inside Docker using the **sibling container pattern** — workspace and sandbox containers are peers on the host Docker daemon, not nested.
+Docker Compose is the normal self-hosted path for Spindrel. This guide covers the server container, the mounted workspace directory, and the **sibling container pattern** used by optional Docker sandboxes and integration sidecars.
 
 ## Quick Start
 
@@ -17,14 +17,14 @@ WORKSPACE_LOCAL_DIR=/workspace-data
 docker compose up
 ```
 
-That's it. Your existing workspace data at `~/.spindrel-workspaces/` is mounted into the container. Existing workspace containers keep running (they're sibling containers on the host Docker daemon).
+That's it. Workspace data at `~/.spindrel-workspaces/` is mounted into the server container at `/workspace-data`. Normal command execution runs as server-side subprocesses against that mounted directory. Optional Docker sandboxes and integration-managed sidecars are sibling containers on the host Docker daemon.
 
 ## How It Works
 
-- The host Docker socket is mounted into the server container (`/var/run/docker.sock`)
+- The host Docker socket is mounted into the server container (`/var/run/docker.sock`) for optional sandboxes and integration sidecars
 - The server container has the Docker CLI installed (not the daemon)
 - `WORKSPACE_LOCAL_DIR` (`/workspace-data`) is where the server reads/writes workspace files inside its own container
-- `WORKSPACE_HOST_DIR` (`/home/you/.spindrel-workspaces`) is what gets passed to `docker -v` for child containers, since those mounts are resolved by the host daemon
+- `WORKSPACE_HOST_DIR` (`/home/you/.spindrel-workspaces`) is the host-side path used when optional sibling containers need the same workspace mounted, since those mounts are resolved by the host daemon
 - When both vars are empty (default), the path translation is a no-op — identical to running on the host
 
 ## Switching Back to Host Mode
@@ -44,8 +44,8 @@ Your workspace data at `~/.spindrel-workspaces/` is untouched either way.
 | Component | Before | After |
 |-----------|--------|-------|
 | Docker CLI | Not in image | Installed (`docker-ce-cli` from official Docker repo) |
-| docker-compose.yml | No socket mount | Mounts `/var/run/docker.sock` + workspace volume |
-| Path handling | `os.path.expanduser(WORKSPACE_BASE_DIR)` everywhere | `local_workspace_base()` for file I/O, `local_to_host()` for docker `-v` args |
+| docker-compose.yml | Host/dev server only | Mounts `/var/run/docker.sock` + workspace volume |
+| Path handling | Single host path | `local_workspace_base()` for server file I/O, `local_to_host()` for optional sibling container `-v` args |
 | Config | — | `WORKSPACE_HOST_DIR`, `WORKSPACE_LOCAL_DIR` in `app/config.py` |
 
 ## Networking

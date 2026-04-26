@@ -9,7 +9,7 @@ It is meant to answer questions like:
 - Which ones are still rough, partial, or advanced-user territory?
 - Which ones are tested heavily in real use versus only "seem to work"?
 
-**Snapshot date:** 2026-04-21
+**Snapshot date:** 2026-04-26
 
 ## Status meanings
 
@@ -59,6 +59,7 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 | Approval-aware tool gating | `working` | `medium` | Tool discovery respects availability and approval constraints instead of blindly exposing everything. |
 | Tool approval flow | `working` | `medium` | Approval queues, inline approval states, and integration-aware approval handling are real parts of the product, even if some policy UX is still rough. |
 | Parallel tool execution / sub-agents | `working` | `medium` | Parallel sub-agent execution exists and the sub-agent system is a completed track. |
+| External agent harnesses | `working (beta)` | `medium` | Claude Code can run as a persistent remote session in the Spindrel UI without a Spindrel agent/RAG middleman. Spindrel owns UI/session/workspace/auth management; Claude owns the coding-agent loop. Codex is planned, not shipped. |
 | LLM fallbacks + retries | `working` | `high` | Retry, cooldown skip, fallback model routing, and rate-limit waits are part of the normal stack and are believed to be working well. |
 | Temporal context awareness | `working` | `medium` | The system intentionally feeds date/time context into reasoning so agents can anchor work to when things happened, not just what happened. |
 | Prompt caching respect | `working` | `medium` | The system is designed to preserve provider-side prompt caching wins rather than casually defeating them. |
@@ -72,6 +73,7 @@ The product is powerful now, but the honest framing is "serious self-hosted oper
 | Automatic dreaming / skill review | `working (beta)` | `low` | Maintenance + Skill Review jobs are real and seem to be working, but there has not been enough evaluation time or long-run evidence yet to call them well-proven. |
 | Learning from corrections / repeated lookup / reflection | `working` | `medium` | The learning nudges are real and wired into the self-improving-agent loop. |
 | Skill quality analytics / learning center | `working (beta)` | `medium` | There is visibility into skills and surfacing analytics, though parts of the UI are still being polished. |
+| Memory Observatory | `working (beta)` | `medium` | The spatial canvas exposes a memory-observatory landmark with memory-file bodies, bot lanes, recent-write sparks, memory-only search, and file inspection. Fresh surface; useful but still settling. |
 
 ## Memory, files, and history
 
@@ -152,6 +154,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | HTML widgets authored by bots | `working (beta)` | `medium` | Bot-authored interactive HTML widgets are real and useful, with bot-scoped auth. |
 | Widget templates / component widgets | `working` | `medium` | Declarative widget templates and state polling are a real platform surface. |
 | Customizable widget dashboards | `working (beta)` | `medium` | Named dashboards, channel dashboards, panel mode, and chat-zone placement are workable today, but the surface is still fresh, not yet super robust, and needs tuning plus more bug-finding. |
+| Spatial Canvas | `working (beta)` | `medium` | Desktop home can operate as an infinite workspace plane with draggable channels, widgets, bot nodes, connection lines, activity halos, Now Well, Memory Observatory, and edge beacons. Powerful but still new. |
 | Chat panels / HUD / channel widget zones | `working (beta)` | `medium` | Left rail, center dashboard, right rail, and top-center chips are real, but layout polish is still ongoing. |
 | Developer panel / widget authoring workbench | `working (beta)` | `medium` | `/widgets/dev` is useful and real, but still under active polish. |
 | Quick navigation with Ctrl/Cmd-K | `working` | `high` | Command palette is a first-class navigation surface and is heavily used in practice. |
@@ -168,6 +171,8 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 | Programmatic tool orchestration (`run_script`) | `working (beta)` | `medium` | Bots can script many tool calls in one turn instead of forcing everything through long chat loops, but this is still a power-user surface. |
 | Remote client / voice assistant path | `partial` | `low` | The separate client still exists, but it has not been exercised recently enough to promote as a current flagship surface. |
 | Raw shell / exec command path | `working` | `high` | Host-side subprocess execution is part of the current product. |
+| Admin Terminal | `working (beta)` | `medium` | Browser PTY for admin setup and harness authentication is available and useful, but should be treated as an admin-only remote-code-execution surface. |
+| Local Machine Control | `working (beta)` | `medium` | Machine providers can pair a target and grant session-scoped command leases. Useful for controlled local execution, still fresh. |
 | Docker sidecars / integration processes | `working` | `medium` | Docker deployment and sidecar-style service patterns are part of the system design. |
 | Channel integration bindings / outbound delivery | `working` | `medium` | Channels can bind integrations and deliver events/results outward, but the depth and polish still vary by integration. |
 | Webhooks | `working (beta)` | `low` | Outgoing lifecycle webhooks are supported and documented, but current confidence is lower because this surface has not been exercised much recently. |
@@ -189,7 +194,7 @@ This is not a theoretical compatibility list. It is the set of provider/model pa
 
 | Feature | What replaced it |
 |---|---|
-| Workflows (`Workflow` model + `manage_workflow` tool + visual editor) | [Pipelines](pipelines.md). The old workflow surface is gone — admin UI hidden, YAML directory no longer loaded, bot tool removed. |
+| Workflows (`Workflow` model + `manage_workflow` tool + visual editor) | [Pipelines](pipelines.md). Pipelines are the recommended path. Some legacy workflow UI/YAML surfaces may still be visible in current builds; treat them as deprecated compatibility surfaces until cleanup lands. |
 | Capabilities / carapaces (composition pipeline) | Skills + the regular tool/skill RAG. There is no separate capability bundle to activate or compose. |
 
 ## Notes

@@ -19,10 +19,13 @@ import logging
 import os
 from typing import Any
 
-from app.services.agent_harnesses.base import (
+from integrations.sdk import (
+    AllowDeny,
     AuthStatus,
     ChannelEventEmitter,
+    TurnContext,
     TurnResult,
+    request_harness_approval,
 )
 
 # Probe-import the SDK at module load. The actual SDK calls live inside
@@ -35,21 +38,27 @@ import claude_agent_sdk as _claude_agent_sdk_probe  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
-# v1 default tool allowlist. ``acceptEdits`` only auto-approves Edit/Write;
-# anything else (Bash, Glob, etc.) hits the SDK's prompter and would hang
-# when there's no TUI on the other end. An explicit allowlist short-circuits
-# the prompter for the listed tools.
-DEFAULT_ALLOWED_TOOLS: tuple[str, ...] = (
-    "Read",
-    "Glob",
-    "Grep",
-    "Bash",
-    "Edit",
-    "Write",
-    "Task",
-    "WebFetch",
-    "WebSearch",
+# Per-mode SDK ``allowed_tools`` resolver.
+#
+# ``allowed_tools`` short-circuits the SDK's permission prompter — listed
+# tools never hit ``can_use_tool`` regardless of ``permission_mode``. So the
+# allowlist itself is mode-driven:
+#
+#   bypassPermissions: full set; SDK runs everything, can_use_tool short-circuits in helper
+#   acceptEdits / default / plan: read-only set; everything else routes to can_use_tool
+#
+# Edit/Write are NOT in the restricted set — the SDK's ``acceptEdits``
+# permission_mode auto-approves them through a separate gate (verified
+# against SDK 0.1.68 source).
+_BYPASS_ALLOWED: tuple[str, ...] = (
+    "Read", "Glob", "Grep", "Bash", "Edit", "Write",
+    "Task", "WebFetch", "WebSearch", "ExitPlanMode",
 )
+_RESTRICTED_ALLOWED: tuple[str, ...] = ("Read", "Glob", "Grep", "WebSearch")
+
+
+def _allowed_tools_for_mode(mode: str) -> list[str]:
+    return list(_BYPASS_ALLOWED) if mode == "bypassPermissions" else list(_RESTRICTED_ALLOWED)
 
 
 def _credential_path() -> str:
@@ -68,12 +77,31 @@ class ClaudeCodeRuntime:
 
     name = "claude-code"
 
+    # ------------------------------------------------------------------
+    # Tool classification — consumed by request_harness_approval (Phase 3).
+    # Phase 2 ships these as no-ops effectively (start_turn still hardcodes
+    # bypass-equivalent allowlist); Phase 3 wires them into the SDK options
+    # and the can_use_tool callback.
+    # ------------------------------------------------------------------
+
+    _READONLY: frozenset[str] = frozenset({"Read", "Glob", "Grep", "WebSearch"})
+    _SDK_ACCEPT_EDITS_NATIVE: frozenset[str] = frozenset({"Edit", "Write"})
+    _PLAN_AUTOAPPROVE: frozenset[str] = frozenset({"ExitPlanMode"})
+
+    def readonly_tools(self) -> frozenset[str]:
+        return self._READONLY
+
+    def prompts_in_accept_edits(self, tool_name: str) -> bool:
+        return tool_name not in self._READONLY and tool_name not in self._SDK_ACCEPT_EDITS_NATIVE
+
+    def autoapprove_in_plan(self, tool_name: str) -> bool:
+        return tool_name in self._PLAN_AUTOAPPROVE
+
     async def start_turn(
         self,
         *,
-        workdir: str,
+        ctx: TurnContext,
         prompt: str,
-        session_id: str | None,
         emit: ChannelEventEmitter,
     ) -> TurnResult:
         # Late import keeps the SDK out of cold-startup paths and lets the
@@ -81,23 +109,26 @@ class ClaudeCodeRuntime:
         from claude_agent_sdk import (  # type: ignore
             ClaudeAgentOptions,
             ClaudeSDKClient,
-            PermissionResultAllow,
         )
 
-        if not os.path.isdir(workdir):
+        if not os.path.isdir(ctx.workdir):
             raise RuntimeError(
-                f"Harness workdir does not exist: {workdir!r}. "
+                f"Harness workdir does not exist: {ctx.workdir!r}. "
                 "Create it (mkdir + git clone your repo) before sending a message."
             )
 
         options_kwargs: dict[str, Any] = {
-            "cwd": workdir,
-            "allowed_tools": list(DEFAULT_ALLOWED_TOOLS),
-            "permission_mode": "acceptEdits",
-            "can_use_tool": _make_auto_approve(emit, PermissionResultAllow),
+            "cwd": ctx.workdir,
+            "allowed_tools": _allowed_tools_for_mode(ctx.permission_mode),
+            "permission_mode": ctx.permission_mode,
+            # ``can_use_tool`` is set unconditionally — even in bypassPermissions
+            # the helper short-circuits in O(1). This is defensive: if a future
+            # SDK change surfaces a tool through the prompter despite the full
+            # allowlist, we get a quick allow rather than a stall.
+            "can_use_tool": _make_can_use_tool(ctx, runtime=self),
         }
-        if session_id:
-            options_kwargs["resume"] = session_id
+        if ctx.harness_session_id:
+            options_kwargs["resume"] = ctx.harness_session_id
 
         opts = ClaudeAgentOptions(**options_kwargs)
 
@@ -112,6 +143,7 @@ class ClaudeCodeRuntime:
             async for msg in client.receive_response():
                 _bridge_message(
                     msg,
+                    ctx=ctx,
                     emit=emit,
                     tool_name_by_use_id=tool_name_by_use_id,
                     final_text_parts=final_text_parts,
@@ -121,7 +153,7 @@ class ClaudeCodeRuntime:
         # SDK guarantees a ResultMessage at end of stream; if it didn't fire
         # (network drop, etc.), fall back to the resume id we were given so
         # we don't lose the conversation thread.
-        final_session_id = result_meta.get("session_id") or session_id or ""
+        final_session_id = result_meta.get("session_id") or ctx.harness_session_id or ""
         if not final_session_id:
             logger.warning(
                 "claude-code driver: no session_id reported and no prior "
@@ -156,48 +188,45 @@ class ClaudeCodeRuntime:
         )
 
 
-def _make_auto_approve(emit: ChannelEventEmitter, allow_cls: Any) -> Any:
-    """Build a ``can_use_tool`` callback that auto-approves everything.
+def _make_can_use_tool(ctx: TurnContext, *, runtime: ClaudeCodeRuntime) -> Any:
+    """Build a ``can_use_tool`` callback that delegates to the shared helper.
 
-    Without this the SDK hangs forever on tools outside ``allowed_tools``
-    (e.g. ``ExitPlanMode``) waiting for a TUI prompt that doesn't exist in
-    our headless container. ``allow_cls`` is the SDK's ``PermissionResultAllow``
-    class — passed in so this helper stays testable without importing the SDK
-    at module load.
+    The helper (``request_harness_approval``) reads ``ctx.permission_mode``
+    and the runtime's tool classification methods (``readonly_tools``,
+    ``prompts_in_accept_edits``, ``autoapprove_in_plan``) to decide allow /
+    deny / ask. On ask, it writes a ``ToolApproval`` row, registers a
+    Future, publishes ``APPROVAL_REQUESTED``, and awaits the user's
+    decision.
 
-    Phase 3 replaces this with a real approvals UI. Until then each
-    auto-approval shows up in the channel's tool feed as an ``auto-approved``
-    entry so the operator can see what was waved through.
-
-    NOTE for Codex harness: each harness owns its own approvals hook. Codex's
-    loop has an analogous "ask before tool" plug; the auto-approve pattern
-    is the same, the API is harness-specific. Keep this helper colocated with
-    the harness that uses it until a real approvals abstraction lands.
+    Returns: an async callback matching the Claude SDK's ``CanUseTool``
+    signature ``(str, dict, ToolPermissionContext) -> Awaitable[PermissionResult]``.
     """
 
-    async def _auto_approve(
-        tool_name: str, _input: dict[str, Any], context: Any
+    async def _can_use_tool(
+        tool_name: str, tool_input: dict[str, Any], _sdk_ctx: Any
     ) -> Any:
-        call_id = getattr(context, "tool_use_id", None) or f"auto:{tool_name}"
-        emit.tool_start(
-            tool_name="auto-approved",
-            tool_call_id=call_id,
-            arguments={"tool": tool_name},
+        # Late import — SDK is loaded inside the integration's venv.
+        from claude_agent_sdk import (  # type: ignore
+            PermissionResultAllow,
+            PermissionResultDeny,
         )
-        emit.tool_result(
-            tool_name="auto-approved",
-            tool_call_id=call_id,
-            result_summary=f"Auto-approved {tool_name} (Phase 3 will add real approvals UI)",
-            is_error=False,
-        )
-        return allow_cls()
 
-    return _auto_approve
+        decision: AllowDeny = await request_harness_approval(
+            ctx=ctx, runtime=runtime, tool_name=tool_name, tool_input=tool_input,
+        )
+        if decision.allow:
+            return PermissionResultAllow()
+        return PermissionResultDeny(
+            message=decision.reason or "denied", interrupt=False,
+        )
+
+    return _can_use_tool
 
 
 def _bridge_message(
     msg: Any,
     *,
+    ctx: TurnContext,
     emit: ChannelEventEmitter,
     tool_name_by_use_id: dict[str, str],
     final_text_parts: list[str],
@@ -208,6 +237,11 @@ def _bridge_message(
     Pure function — all state mutation happens through the kwargs (the dicts
     and lists). Tested in ``tests/unit/test_claude_code_runtime_bridge.py``
     against real SDK dataclass instances.
+
+    In ``bypassPermissions`` mode there's no approval card to provide visible
+    audit, so we synthesize a paired ``tool_start`` + ``tool_result`` for
+    every tool use under a separate ``auto:<id>`` ``tool_call_id``. The pair
+    matches the UI reducer's ``tool_call_id`` correlation requirement.
     """
     from claude_agent_sdk import (  # type: ignore
         AssistantMessage,
@@ -234,6 +268,21 @@ def _bridge_message(
                     tool_call_id=block.id,
                     arguments=block.input or {},
                 )
+                if ctx.permission_mode == "bypassPermissions":
+                    audit_id = f"auto:{block.id}"
+                    emit.tool_start(
+                        tool_name="auto-approved",
+                        tool_call_id=audit_id,
+                        arguments={"tool": block.name},
+                    )
+                    emit.tool_result(
+                        tool_name="auto-approved",
+                        tool_call_id=audit_id,
+                        result_summary=(
+                            f"Auto-approved {block.name} (bypassPermissions mode)"
+                        ),
+                        is_error=False,
+                    )
             # Server-side blocks (ServerToolUseBlock etc.) are intentionally
             # skipped in v1 — they're rare and the SDK reports them as part
             # of the assistant text anyway.
@@ -296,7 +345,7 @@ def _summarize_tool_result(content: Any) -> str:
 # SDK isn't installed yet, the import is skipped and ``claude-code`` simply
 # won't appear in the bot-editor dropdown / /admin/harnesses listing.
 def _register() -> None:
-    from app.services.agent_harnesses import register_runtime
+    from integrations.sdk import register_runtime
 
     register_runtime(ClaudeCodeRuntime.name, ClaudeCodeRuntime())
 

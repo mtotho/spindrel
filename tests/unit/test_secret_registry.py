@@ -242,6 +242,17 @@ def test_redact_no_secrets():
         assert result == "some text"
 
 
+def test_redact_replaces_common_secret_patterns_without_registry_match():
+    secret_registry._known_secrets = set()
+    secret_registry._pattern = None
+
+    with patch("app.services.secret_registry.settings", _fake_settings()):
+        result = secret_registry.redact(
+            "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz123456"
+        )
+        assert result == "GITHUB_TOKEN=[REDACTED]"
+
+
 # ---------------------------------------------------------------------------
 # detect_patterns — heuristic matching
 # ---------------------------------------------------------------------------

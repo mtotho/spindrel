@@ -70,7 +70,7 @@ Spindrel defines **51 scopes** across **22 groups**:
 | **Usage** | `usage:read` | Cost analytics and usage limits |
 | **Workflows** | `workflows:read`, `workflows:write` | Deprecated workflow routes (see [Pipelines](pipelines.md)). Scope retained for historical API compatibility. |
 | **LLM** | `llm:completions` | Direct LLM calls through the server's provider system |
-| **Mission Control** | `mission_control:read`, `mission_control:write` | Dashboard data (kanban, journal, etc.) |
+| **Legacy dashboards** | `mission_control:read`, `mission_control:write` | Legacy dashboard data scopes retained for compatibility |
 
 !!! note "Pipelines use `tasks:*` scopes"
     Task pipelines are stored as `Task` rows, so pipeline CRUD and run management are authorized by `tasks:read` / `tasks:write`. The `workflows:*` scope guards the legacy workflows router only.
@@ -87,7 +87,7 @@ The admin UI offers one-click presets for common use cases:
 | **Chat Client** | Custom chat frontends | `chat`, `bots:read`, `channels:read/write`, `sessions:read`, `attachments:read/write` |
 | **Container Bot** | Bots in their container environment | `chat`, `bots:read`, `channels:read/write`, `tasks:read/write`, `documents:read/write`, `todos:read/write`, `workspaces.files:read/write`, `attachments:read/write`, `tools:read/execute` |
 | **Read-Only Monitor** | Dashboards | `bots:read`, `channels:read`, `sessions:read`, `tasks:read`, `todos:read`, `attachments:read`, `logs:read` |
-| **Mission Control** | MC dashboard | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write` |
+| **Legacy dashboard** | Older dashboard clients | `bots:read`, `channels:read`, `sessions:read`, `tasks:read/write`, `todos:read/write`, `workspaces:read`, `workspaces.files:read/write`, `attachments:read`, `logs:read`, `mission_control:read/write` |
 
 ### JWT (User Authentication)
 
@@ -368,6 +368,34 @@ Lists currently paired browser connections. Admin auth required.
 `POST /integrations/browser_live/admin/token/rotate`
 
 Generates a new global pairing token for the integration. Rotating the token disconnects existing paired browsers until they re-pair. Admin auth required.
+
+## Admin status endpoints
+
+These endpoints back operator dashboards and recent release-facing admin surfaces.
+
+### Provider health
+
+`GET /api/v1/admin/usage/provider-health`
+
+Returns provider/model health and fallback state used by the admin usage/provider UI. Admin auth required.
+
+### Refresh provider models now
+
+`POST /api/v1/admin/providers/{provider_id}/refresh-now`
+
+Triggers an immediate model-catalog refresh for one provider. Admin auth required.
+
+### Memory Observatory
+
+`GET /api/v1/admin/learning/memory-observatory`
+
+Returns the spatial-canvas memory observatory payload: hot memory-file bodies, bot lanes, recent write activity, and search/inspection metadata. Admin auth required.
+
+### Harness runtimes
+
+`GET /api/v1/admin/harnesses`
+
+Lists registered external-agent harness runtimes and their auth status. Used by `/admin/harnesses` to expose commands such as `claude login`. Admin auth required.
 
 ## Machine control endpoints
 

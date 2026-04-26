@@ -139,6 +139,18 @@ async def _run_harness_turn(
 
     prior_session_id = await _load_prior_harness_session_id(session_id)
 
+    # Per-session approval mode (default ``bypassPermissions``). Captured at
+    # turn start and immutable for this turn — pill changes apply to the next
+    # turn. Phase 3.
+    from app.services.agent_harnesses.approvals import (
+        load_session_mode,
+        revoke_turn_bypass,
+    )
+    from app.services.agent_harnesses.base import TurnContext
+
+    async with async_session() as db:
+        permission_mode = await load_session_mode(db, session_id)
+
     emitter = ChannelEventEmitter(
         channel_id=bus_key,
         turn_id=turn_id,
@@ -146,14 +158,29 @@ async def _run_harness_turn(
         session_id=session_id,
     )
 
+    ctx = TurnContext(
+        spindrel_session_id=session_id,
+        channel_id=channel_id,
+        bot_id=bot.id,
+        turn_id=turn_id,
+        workdir=workdir,
+        harness_session_id=prior_session_id,
+        permission_mode=permission_mode,
+        db_session_factory=async_session,
+    )
+
     error_text: str | None = None
     try:
-        result = await runtime.start_turn(
-            workdir=workdir,
-            prompt=user_message,
-            session_id=prior_session_id,
-            emit=emitter,
-        )
+        try:
+            result = await runtime.start_turn(
+                ctx=ctx,
+                prompt=user_message,
+                emit=emitter,
+            )
+        finally:
+            # Per-turn bypass grants ("Approve all this turn") are scoped to
+            # this turn ONLY. Always revoke — covers success, error, cancel.
+            revoke_turn_bypass(turn_id)
     except Exception as exc:
         logger.exception(
             "harness '%s' turn %s failed for bot %s",
@@ -194,12 +221,15 @@ async def _run_harness_turn(
         return "", error_text
 
     # Success path: persist the assistant message + update session state.
+    from app.services.secret_registry import redact as _redact_secrets
+
+    final_text = _redact_secrets(result.final_text)
     synthetic_messages = [{
         "role": "user",
         "content": user_message,
     }, {
         "role": "assistant",
-        "content": result.final_text,
+        "content": final_text,
         "_harness": {
             "runtime": bot.harness_runtime,
             "session_id": result.session_id,
@@ -222,7 +252,7 @@ async def _run_harness_turn(
             "harness '%s': persist_turn failed for session %s",
             bot.harness_runtime, session_id,
         )
-        return result.final_text, "persist_turn failed"
+        return final_text, "persist_turn failed"
 
     # No bookkeeping write-back: resume state lives ON the persisted assistant
     # message (`metadata.harness.session_id`), and per-session cumulative cost
@@ -231,7 +261,7 @@ async def _run_harness_turn(
     # global pointer that broke the moment the same harness bot was used in two
     # channels. See `_load_prior_harness_session_id`.
 
-    return result.final_text, None
+    return final_text, None
 
 
 async def _load_prior_harness_session_id(session_id: uuid.UUID) -> str | None:

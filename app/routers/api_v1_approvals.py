@@ -53,6 +53,10 @@ class DecideRequest(BaseModel):
     # Optional: create an allow rule along with the approval
     # {tool_name, conditions, scope ("bot"|"global"), priority}
     create_rule: Optional[dict] = None
+    # Phase 3 (harness only): when True + approved, grant per-turn bypass for
+    # the rest of the harness turn so subsequent tool calls don't ask. Ignored
+    # for non-harness approvals (rejected at the endpoint).
+    bypass_rest_of_turn: bool = False
 
 
 class DecideResponse(BaseModel):
@@ -115,6 +119,13 @@ async def get_approval_suggestions(
     if not row:
         raise HTTPException(status_code=404, detail="Approval not found")
 
+    # Harness approvals don't consult ToolPolicyRule (see decide endpoint
+    # rejection of create_rule for tool_type='harness'), so suggesting rules
+    # here would be misleading — they wouldn't take effect on the next
+    # harness request anyway.
+    if row.tool_type == "harness":
+        return []
+
     # Count recent approvals for this bot+tool to power escalation hints
     recent_count = await _count_recent_approvals(db, row.bot_id, row.tool_name)
 
@@ -161,6 +172,23 @@ async def decide_approval(
         raise HTTPException(status_code=404, detail="Approval not found")
     if row.status != "pending":
         raise HTTPException(status_code=409, detail=f"Approval already {row.status}")
+
+    is_harness = (row.tool_type == "harness")
+    # Harness approvals don't consult ToolPolicyRule, so creating a rule here
+    # would be misleading (the rule never short-circuits the next harness
+    # request). Reject up front rather than silently accept the rule and
+    # leave the user thinking it took effect.
+    if is_harness and body.create_rule:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "create_rule is not supported for harness approvals. The "
+                "harness approval helper does not consult ToolPolicyRule. "
+                "Use 'Approve all this turn' (bypass_rest_of_turn) for the "
+                "per-turn shortcut, or change the session approval mode for "
+                "a more durable change."
+            ),
+        )
 
     verdict = "approved" if body.approved else "denied"
     now = datetime.now(timezone.utc)
@@ -211,11 +239,50 @@ async def decide_approval(
     await db.commit()
     await db.refresh(row)
 
+    # Phase 3: for harness approvals, grant per-turn bypass BEFORE resolving the
+    # future. Otherwise the harness wakes up on resolve, dispatches the next
+    # tool, and asks again before the bypass takes effect.
+    if (
+        is_harness
+        and body.approved
+        and body.bypass_rest_of_turn
+        and row.correlation_id
+    ):
+        from app.services.agent_harnesses.approvals import grant_turn_bypass
+        grant_turn_bypass(row.correlation_id)
+
     # Resolve the in-process Future (if the agent loop is still waiting)
     from app.agent.approval_pending import resolve_approval
     resolved = resolve_approval(str(approval_id), verdict)
     if not resolved:
         logger.info("Approval %s decided but no waiting future (may have expired)", approval_id)
+
+    # Phase 3: emit APPROVAL_RESOLVED for harness rows. The standard tool-
+    # dispatch loop emits this via loop_dispatch's approval_resolved event;
+    # harness has no such loop, so the decide endpoint emits directly so the
+    # UI card flips out of the awaiting state.
+    if is_harness and row.channel_id is not None:
+        try:
+            from app.domain.channel_events import ChannelEvent, ChannelEventKind
+            from app.domain.payloads import ApprovalResolvedPayload
+            from app.services.channel_events import publish_typed
+            publish_typed(
+                row.channel_id,
+                ChannelEvent(
+                    channel_id=row.channel_id,
+                    kind=ChannelEventKind.APPROVAL_RESOLVED,
+                    payload=ApprovalResolvedPayload(
+                        approval_id=str(approval_id),
+                        decision=verdict,
+                        session_id=row.session_id,
+                    ),
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to publish APPROVAL_RESOLVED for harness approval %s",
+                approval_id,
+            )
 
     return DecideResponse(
         id=row.id,

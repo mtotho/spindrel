@@ -675,6 +675,19 @@ async def chat_cancel(
     queued_cancelled = result.rowcount  # type: ignore[attr-defined]
     await db.commit()
 
+    # Phase 3: also expire any pending harness approvals so the UI flips them
+    # to expired immediately instead of waiting on the 300s row timeout.
+    from app.services.agent_harnesses.approvals import (
+        cancel_pending_harness_approvals_for_session,
+    )
+    try:
+        await cancel_pending_harness_approvals_for_session(session_id)
+    except Exception:
+        logger.exception(
+            "chat/cancel: failed to cancel pending harness approvals for %s",
+            session_id,
+        )
+
     logger.info(
         "POST /chat/cancel  client=%s  bot=%s  session=%s  active_cancelled=%s  queued=%d",
         req.client_id, req.bot_id, session_id, cancelled, queued_cancelled,

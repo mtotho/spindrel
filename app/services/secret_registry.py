@@ -172,10 +172,14 @@ async def rebuild() -> None:
 
 
 def redact(text: str) -> str:
-    """Replace any known secret in text with [REDACTED]. No-op if disabled or no secrets."""
-    if not is_enabled() or _pattern is None:
+    """Replace known and common-pattern secrets in text with [REDACTED]."""
+    if not is_enabled():
         return text
-    return _pattern.sub("[REDACTED]", text)
+    if _pattern is not None:
+        text = _pattern.sub("[REDACTED]", text)
+    for _label, pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
 
 
 def detect_patterns(text: str) -> list[dict[str, Any]]:

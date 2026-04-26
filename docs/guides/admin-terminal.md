@@ -2,7 +2,7 @@
 
 A browser-based shell into the Spindrel container. Admin-only. Same effective access as `docker exec -it spindrel bash` — exposed through the same web session you're already authenticated to, so you don't have to context-switch to a terminal application.
 
-It exists to kill the SSH-to-fiddle-with-things workflow that used to be the only way to set up a harness bot, install a system package, peek at logs, or run a one-off `git clone`. Open it from the admin nav, or trigger a pre-seeded shell from the harnesses page or a harness bot's edit page.
+It exists to kill the SSH-to-fiddle-with-things workflow that used to be the only way to set up an external-agent harness session, install a system package, peek at logs, or run a one-off `git clone`. Open it from the admin nav, or trigger a pre-seeded shell from the harnesses page or a harness-backed bot's edit page.
 
 ## Where it shows up
 
@@ -11,7 +11,7 @@ It exists to kill the SSH-to-fiddle-with-things workflow that used to be the onl
 | `/admin/terminal` | Full-page shell. The "I just want to poke around" entry point. |
 | `/admin/harnesses` → "Run `claude login`" button | Drawer opens with `claude login` already running. Complete OAuth, paste code, close drawer. The harness card auto-refreshes to ✓. |
 | `/admin/harnesses` → workspace-root banner → "Open shell" | Drawer opens at the workspace root path so you can mkdir + git clone in one place. |
-| `/admin/bots/<harness-bot>` → "Open shell" / "Create workspace dir" / "Clone a repo" | Drawer opens scoped to the bot's workspace path. |
+| `/admin/bots/<harness-backed bot>` -> "Open shell" / "Create workspace dir" / "Clone a repo" | Drawer opens scoped to the bot's workspace path. |
 
 The drawer and the full page render the same `<TerminalPanel>` (xterm.js + WebSocket). Closing the drawer or navigating away kills the PTY — there's no session resume in v1.
 

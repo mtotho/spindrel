@@ -190,7 +190,7 @@ spindrel start
 curl http://localhost:8000/health
 
 # Check the UI
-open http://localhost:8081
+open http://localhost:8000
 
 # Check logs
 docker compose logs agent-server --tail 50    # Docker mode

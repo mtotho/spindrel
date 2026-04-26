@@ -708,6 +708,70 @@ async def update_session(
     return SessionOutDetail(session_id=session.id, title=session.title, summary=session.summary)
 
 
+class ApprovalModeOut(BaseModel):
+    mode: str
+
+
+class ApprovalModeIn(BaseModel):
+    mode: str
+
+
+@router.get("/{session_id}/approval-mode", response_model=ApprovalModeOut)
+async def get_approval_mode(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("approvals:read")),
+):
+    """Return the current harness approval mode for the session.
+
+    One of ``bypassPermissions`` (default) | ``acceptEdits`` | ``default`` |
+    ``plan``. Authorized through ``_authorize_session_read`` so a valid
+    scoped key alone isn't enough — the caller must also have visibility
+    into the session's channel/owner.
+    """
+    from app.services.agent_harnesses.approvals import (
+        DEFAULT_MODE,
+        HARNESS_APPROVAL_MODE_KEY,
+    )
+
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    mode = (session.metadata_ or {}).get(HARNESS_APPROVAL_MODE_KEY) or DEFAULT_MODE
+    return ApprovalModeOut(mode=mode)
+
+
+@router.post("/{session_id}/approval-mode", response_model=ApprovalModeOut)
+async def set_approval_mode(
+    session_id: uuid.UUID,
+    body: ApprovalModeIn,
+    db: AsyncSession = Depends(get_db),
+    auth=Depends(require_scopes("approvals:write")),
+):
+    """Update the harness approval mode for the session.
+
+    Mode changes apply to the **next** turn — the in-flight turn (if any)
+    captured its mode in ``TurnContext`` at start.
+    """
+    from app.services.agent_harnesses.approvals import (
+        VALID_MODES,
+        set_session_mode,
+    )
+
+    if body.mode not in VALID_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown approval mode: {body.mode!r}",
+        )
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await _authorize_session_read(db, session, auth)
+    await set_session_mode(db, session_id, body.mode)
+    return ApprovalModeOut(mode=body.mode)
+
+
 @router.get("/{session_id}/summary", response_model=SessionSummaryOut)
 async def get_session_summary(
     session_id: uuid.UUID,

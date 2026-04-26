@@ -44,13 +44,17 @@ nav:
     - Development Process: guides/development-process.md
     - How Spindrel Works: guides/how-spindrel-works.md
     - UI Design: guides/ui-design.md
+    - UI Components: guides/ui-components.md
+    - Ubiquitous Language: guides/ubiquitous-language.md
     - Integrations: guides/integrations.md
     - Programmatic Tool Calling: guides/programmatic-tool-calling.md
+    - Knowledge Bases: guides/knowledge-bases.md
     - Workspace Templates & Activation: guides/templates-and-activation.md
     - Pipelines: guides/pipelines.md
     - Task Sub-Sessions: guides/task-sub-sessions.md
     - Context Management: guides/context-management.md
     - Discovery and Enrollment: guides/discovery-and-enrollment.md
+    - Plan Mode: guides/plan-mode.md
     - Sub-Agents: guides/subagents.md
     - Agent Harnesses: guides/agent-harnesses.md
     - Admin Terminal: guides/admin-terminal.md

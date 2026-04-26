@@ -284,6 +284,29 @@ from app.services.sessions import load_or_create, store_passive_message  # noqa:
 from app.services.time_coercion import to_iso_z_or_none  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
+# Agent harnesses — runtime contract + approvals helper
+# ---------------------------------------------------------------------------
+# Integration-side harnesses (claude_code, future codex, ...) plug into the
+# Spindrel turn pipeline through this surface. The boundary test in
+# tests/unit/test_integration_import_boundary.py forbids direct app.* imports
+# from harness modules — they go through these re-exports instead.
+
+from app.services.agent_harnesses.base import (  # noqa: E402, F401
+    AuthStatus,
+    ChannelEventEmitter,
+    HarnessRuntime,
+    TurnContext,
+    TurnResult,
+)
+from app.services.agent_harnesses import register_runtime  # noqa: E402, F401
+from app.services.agent_harnesses.approvals import (  # noqa: E402, F401
+    AllowDeny,
+    grant_turn_bypass,
+    request_harness_approval,
+    revoke_turn_bypass,
+)
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 

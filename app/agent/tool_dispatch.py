@@ -1691,6 +1691,7 @@ async def _create_approval_state(
             approval_id=str(approval_id),
             bot_id=bot_id,
             tool_name=tool_name,
+            tool_type=tool_type,
             arguments=arguments,
             reason=reason,
             extra_metadata=extra_metadata,
@@ -1705,6 +1706,7 @@ async def _notify_approval_request(
     approval_id: str,
     bot_id: str,
     tool_name: str,
+    tool_type: str | None = None,
     arguments: dict,
     reason: str | None,
     extra_metadata: dict | None = None,
@@ -1737,6 +1739,7 @@ async def _notify_approval_request(
                     reason=reason,
                     capability=cap if isinstance(cap, dict) else None,
                     turn_id=current_turn_id.get(),
+                    tool_type=tool_type,
                 ),
             ),
         )

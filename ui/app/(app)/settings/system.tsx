@@ -305,7 +305,9 @@ function SettingControl({
     return (
       <Toggle
         value={value === "true"}
-        onChange={(next) => onChange(next ? "true" : "false")}
+        onChange={(next) => {
+          if (!item.read_only) onChange(next ? "true" : "false");
+        }}
         label={value === "true" ? "Enabled" : "Disabled"}
       />
     );
@@ -315,7 +317,9 @@ function SettingControl({
     return (
       <SelectInput
         value={value}
-        onChange={onChange}
+        onChange={(next) => {
+          if (!item.read_only) onChange(next);
+        }}
         options={item.options.map((option) => ({ label: option, value: option }))}
       />
     );
@@ -332,7 +336,9 @@ function SettingControl({
       <div className="max-w-[420px]">
         <LlmModelDropdown
           value={value}
-          onChange={(model) => onChange(model)}
+          onChange={(model) => {
+            if (!item.read_only) onChange(model);
+          }}
           placeholder={placeholder}
           allowClear={item.nullable}
           variant={item.widget === "embedding_model" ? "embedding" : "llm"}
@@ -380,47 +386,31 @@ function SettingsDomainSection({
   title,
   description,
   settings,
+  values,
+  dirtyKeys,
+  status,
+  updatePending,
+  resetPending,
+  onChange,
+  onSave,
+  onReset,
 }: {
   title: string;
   description: string;
   settings: SettingItem[];
+  values: Record<string, string>;
+  dirtyKeys: Set<string>;
+  status: "idle" | "dirty" | "pending" | "saved" | "error";
+  updatePending: boolean;
+  resetPending: boolean;
+  onChange: (key: string, value: string) => void;
+  onSave: (keys?: string[]) => void;
+  onReset: (item: SettingItem) => void;
 }) {
-  const updateSettings = useUpdateSettings();
-  const resetSetting = useResetSetting();
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(settings.map((item) => [item.key, formatSettingValue(item.value)])),
-  );
-  const [status, setStatus] = useState<"idle" | "dirty" | "pending" | "saved" | "error">("idle");
-  const settingsSignature = settings.map((item) => `${item.key}:${formatSettingValue(item.value)}`).join("|");
-
-  useEffect(() => {
-    setValues(Object.fromEntries(settings.map((item) => [item.key, formatSettingValue(item.value)])));
-    setStatus("idle");
-  }, [settingsSignature]);
-
-  const dirtyKeys = settings
-    .filter((item) => values[item.key] !== formatSettingValue(item.value))
+  const sectionDirtyKeys = settings
+    .filter((item) => dirtyKeys.has(item.key))
     .map((item) => item.key);
-
-  const save = async () => {
-    const updates: Record<string, unknown> = {};
-    for (const item of settings) {
-      if (!dirtyKeys.includes(item.key)) continue;
-      updates[item.key] = parseSettingValue(item, values[item.key] ?? "");
-    }
-    setStatus("pending");
-    try {
-      await updateSettings.mutateAsync(updates);
-      setStatus("saved");
-      window.setTimeout(() => setStatus("idle"), 1800);
-    } catch {
-      setStatus("error");
-    }
-  };
-
-  const reset = async (item: SettingItem) => {
-    await resetSetting.mutateAsync(item.key);
-  };
+  const sectionStatus = status === "dirty" && sectionDirtyKeys.length === 0 ? "idle" : status;
 
   return (
     <Section
@@ -429,22 +419,22 @@ function SettingsDomainSection({
       action={
         <div className="flex items-center gap-2">
           <SaveStatusPill
-            tone={saveTone(status === "idle" && dirtyKeys.length ? "dirty" : status)}
+            tone={saveTone(sectionStatus)}
             label={
-              status === "pending"
+              sectionStatus === "pending"
                 ? "Saving"
-                : status === "saved"
+                : sectionStatus === "saved"
                   ? "Saved"
-                  : status === "error"
+                  : sectionStatus === "error"
                     ? "Save failed"
-                    : `${dirtyKeys.length} pending`
+                    : `${sectionDirtyKeys.length} pending`
             }
           />
           <ActionButton
             label="Save"
-            onPress={save}
-            disabled={!dirtyKeys.length || updateSettings.isPending}
-            icon={updateSettings.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            onPress={() => onSave(sectionDirtyKeys)}
+            disabled={!sectionDirtyKeys.length || updatePending}
+            icon={updatePending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
           />
         </div>
       }
@@ -470,8 +460,8 @@ function SettingsDomainSection({
                     label="Reset"
                     size="small"
                     variant="ghost"
-                    onPress={() => reset(item)}
-                    disabled={resetSetting.isPending}
+                    onPress={() => onReset(item)}
+                    disabled={resetPending}
                     icon={<RotateCcw size={12} />}
                   />
                 )}
@@ -480,10 +470,7 @@ function SettingsDomainSection({
                 <SettingControl
                   item={item}
                   value={values[item.key] ?? ""}
-                  onChange={(next) => {
-                    setValues((prev) => ({ ...prev, [item.key]: next }));
-                    setStatus("dirty");
-                  }}
+                  onChange={(next) => onChange(item.key, next)}
                 />
               </div>
             </div>
@@ -618,7 +605,27 @@ function OverviewPanel({ groups, settingsByKey }: { groups: SettingsGroup[]; set
   );
 }
 
-function AdvancedPanel({ groups }: { groups: SettingsGroup[] }) {
+function AdvancedPanel({
+  groups,
+  values,
+  dirtyKeys,
+  status,
+  updatePending,
+  resetPending,
+  onChange,
+  onSave,
+  onReset,
+}: {
+  groups: SettingsGroup[];
+  values: Record<string, string>;
+  dirtyKeys: Set<string>;
+  status: "idle" | "dirty" | "pending" | "saved" | "error";
+  updatePending: boolean;
+  resetPending: boolean;
+  onChange: (key: string, value: string) => void;
+  onSave: (keys?: string[]) => void;
+  onReset: (item: SettingItem) => void;
+}) {
   const [query, setQuery] = useState("");
   const filteredGroups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -648,6 +655,14 @@ function AdvancedPanel({ groups }: { groups: SettingsGroup[] }) {
             title={group.group}
             description={`${group.settings.length} registry setting${group.settings.length === 1 ? "" : "s"}.`}
             settings={group.settings}
+            values={values}
+            dirtyKeys={dirtyKeys}
+            status={status}
+            updatePending={updatePending}
+            resetPending={resetPending}
+            onChange={onChange}
+            onSave={onSave}
+            onReset={onReset}
           />
         ))
       )}
@@ -655,7 +670,29 @@ function AdvancedPanel({ groups }: { groups: SettingsGroup[] }) {
   );
 }
 
-function DomainPanel({ tab, settingsByKey }: { tab: Exclude<SystemTab, "Overview" | "Advanced">; settingsByKey: Map<string, SettingItem> }) {
+function DomainPanel({
+  tab,
+  settingsByKey,
+  values,
+  dirtyKeys,
+  status,
+  updatePending,
+  resetPending,
+  onChange,
+  onSave,
+  onReset,
+}: {
+  tab: Exclude<SystemTab, "Overview" | "Advanced">;
+  settingsByKey: Map<string, SettingItem>;
+  values: Record<string, string>;
+  dirtyKeys: Set<string>;
+  status: "idle" | "dirty" | "pending" | "saved" | "error";
+  updatePending: boolean;
+  resetPending: boolean;
+  onChange: (key: string, value: string) => void;
+  onSave: (keys?: string[]) => void;
+  onReset: (item: SettingItem) => void;
+}) {
   const settings = useMemo(() => settingsForDomain(tab, settingsByKey), [tab, settingsByKey]);
   const overriddenCount = settings.filter((item) => item.overridden).length;
   const readOnlyCount = settings.filter((item) => item.read_only).length;
@@ -686,13 +723,27 @@ function DomainPanel({ tab, settingsByKey }: { tab: Exclude<SystemTab, "Overview
           ))}
         </div>
       </Section>
-      <SettingsDomainSection title={tab} description={DOMAIN_DESCRIPTIONS[tab]} settings={settings} />
+      <SettingsDomainSection
+        title={tab}
+        description={DOMAIN_DESCRIPTIONS[tab]}
+        settings={settings}
+        values={values}
+        dirtyKeys={dirtyKeys}
+        status={status}
+        updatePending={updatePending}
+        resetPending={resetPending}
+        onChange={onChange}
+        onSave={onSave}
+        onReset={onReset}
+      />
     </div>
   );
 }
 
 export default function SystemSettingsPage() {
   const { data, isLoading, error } = useSettings();
+  const updateSettings = useUpdateSettings();
+  const resetSetting = useResetSetting();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -702,7 +753,62 @@ export default function SystemSettingsPage() {
     : LEGACY_HASH_MAP[requested] ?? "Overview";
 
   const groups = data?.groups ?? [];
+  const allSettings = useMemo(() => groups.flatMap((group) => group.settings), [groups]);
   const settingsByKey = useMemo(() => settingMap(groups), [groups]);
+  const settingsSignature = useMemo(
+    () => allSettings.map((item) => `${item.key}:${formatSettingValue(item.value)}`).join("|"),
+    [allSettings],
+  );
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<"idle" | "dirty" | "pending" | "saved" | "error">("idle");
+
+  useEffect(() => {
+    setValues(Object.fromEntries(allSettings.map((item) => [item.key, formatSettingValue(item.value)])));
+    setStatus("idle");
+  }, [settingsSignature, allSettings]);
+
+  const dirtyKeys = useMemo(() => new Set(
+    allSettings
+      .filter((item) => !item.read_only && values[item.key] !== formatSettingValue(item.value))
+      .map((item) => item.key),
+  ), [allSettings, values]);
+
+  const handleSettingChange = (key: string, value: string) => {
+    setValues((prev) => ({ ...prev, [key]: value }));
+    setStatus("dirty");
+  };
+
+  const saveSettings = async (keys?: string[]) => {
+    const keysToSave = keys?.length ? keys.filter((key) => dirtyKeys.has(key)) : Array.from(dirtyKeys);
+    if (!keysToSave.length) return;
+    const updates: Record<string, unknown> = {};
+    for (const key of keysToSave) {
+      const item = settingsByKey.get(key);
+      if (!item || item.read_only) continue;
+      updates[key] = parseSettingValue(item, values[key] ?? "");
+    }
+    if (Object.keys(updates).length === 0) return;
+    setStatus("pending");
+    try {
+      await updateSettings.mutateAsync(updates);
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1800);
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  const revertSettings = () => {
+    setValues(Object.fromEntries(allSettings.map((item) => [item.key, formatSettingValue(item.value)])));
+    setStatus("idle");
+  };
+
+  const resetSystemSetting = async (item: SettingItem) => {
+    await resetSetting.mutateAsync(item.key);
+  };
+
+  const effectiveStatus: "idle" | "dirty" | "pending" | "saved" | "error" =
+    status === "idle" && dirtyKeys.size ? "dirty" : status;
 
   const setTab = (tab: SystemTab) => {
     navigate(`/settings/system#${encodeURIComponent(tab)}`, { replace: true });
@@ -734,7 +840,33 @@ export default function SystemSettingsPage() {
           <h2 className="mt-1 text-[18px] font-semibold tracking-[-0.01em] text-text">System control center</h2>
           <p className="mt-1 max-w-[72ch] text-[12px] leading-relaxed text-text-dim">{DOMAIN_DESCRIPTIONS[activeTab]}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <SaveStatusPill
+            tone={saveTone(effectiveStatus)}
+            label={
+              effectiveStatus === "pending"
+                ? "Saving changes"
+                : effectiveStatus === "saved"
+                  ? "Saved"
+                  : effectiveStatus === "error"
+                    ? "Save failed"
+                    : effectiveStatus === "dirty"
+                      ? `${dirtyKeys.size} unsaved`
+                      : ""
+            }
+          />
+          <ActionButton
+            label="Revert"
+            onPress={revertSettings}
+            variant="secondary"
+            disabled={!dirtyKeys.size || updateSettings.isPending}
+          />
+          <ActionButton
+            label={updateSettings.isPending ? "Saving" : "Save"}
+            onPress={() => saveSettings()}
+            disabled={!dirtyKeys.size || updateSettings.isPending}
+            icon={updateSettings.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+          />
           <Link to="/admin/config-state" className="inline-flex min-h-[34px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold text-text-muted hover:bg-surface-overlay/60 hover:text-text">
             Config state <ExternalLink size={12} />
           </Link>
@@ -745,21 +877,68 @@ export default function SystemSettingsPage() {
       </div>
 
       <div className="sticky top-0 z-10 -mx-4 bg-surface/95 px-4 py-2 backdrop-blur md:-mx-6 md:px-6">
-        <SettingsSegmentedControl<SystemTab>
-          value={activeTab}
-          onChange={setTab}
-          options={TABS.map((tab) => ({ value: tab, label: tab }))}
-          className="max-w-full overflow-x-auto"
-        />
+        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+          <div className="-mx-1 min-w-0 overflow-x-auto px-1 xl:flex-1">
+            <SettingsSegmentedControl<SystemTab>
+              value={activeTab}
+              onChange={setTab}
+              options={TABS.map((tab) => ({ value: tab, label: tab }))}
+              className="w-max min-w-full"
+            />
+          </div>
+          <div className="flex shrink-0 items-center justify-end gap-2 xl:ml-auto">
+            <SaveStatusPill
+              tone={saveTone(effectiveStatus)}
+              label={
+                effectiveStatus === "pending"
+                  ? "Saving changes"
+                  : effectiveStatus === "saved"
+                    ? "Saved"
+                    : effectiveStatus === "error"
+                      ? "Save failed"
+                      : effectiveStatus === "dirty"
+                        ? `${dirtyKeys.size} unsaved`
+                        : ""
+              }
+            />
+            <ActionButton
+              label={updateSettings.isPending ? "Saving" : "Save"}
+              onPress={() => saveSettings()}
+              disabled={!dirtyKeys.size || updateSettings.isPending}
+              icon={updateSettings.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            />
+          </div>
+        </div>
       </div>
 
       <div className={cn("flex flex-col gap-6", activeTab === "Advanced" && "pb-8")}>
         {activeTab === "Overview" ? (
           <OverviewPanel groups={groups} settingsByKey={settingsByKey} />
         ) : activeTab === "Advanced" ? (
-          <AdvancedPanel groups={groups} />
+          <AdvancedPanel
+            groups={groups}
+            values={values}
+            dirtyKeys={dirtyKeys}
+            status={effectiveStatus}
+            updatePending={updateSettings.isPending}
+            resetPending={resetSetting.isPending}
+            onChange={handleSettingChange}
+            onSave={saveSettings}
+            onReset={resetSystemSetting}
+          />
         ) : (
-          <DomainPanel tab={activeTab} settingsByKey={settingsByKey} />
+          <DomainPanel
+            tab={activeTab}
+            settingsByKey={settingsByKey}
+            values={values}
+            dirtyKeys={dirtyKeys}
+            status={effectiveStatus}
+            updatePending={updateSettings.isPending}
+            resetPending={resetSetting.isPending}
+            onChange={handleSettingChange}
+            onSave={saveSettings}
+            onReset={resetSystemSetting}
+          />
         )}
       </div>
     </div>

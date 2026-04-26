@@ -87,7 +87,7 @@ Spindrel ships capabilities designed for popular MCP servers:
 |----------|-----------|--------------|
 | Home Assistant skill + activated tools | [ha-mcp](https://github.com/homeassistant-ai/ha-mcp) | Preference learning, routine tracking, device inventory, automation management, daily health checks |
 
-These live as ordinary integration tools plus normal skills and are Mission Control compatible (task boards, timelines).
+These live as ordinary integration tools plus normal skills and can render through the current dashboard/widget surfaces where an integration provides a widget.
 
 ### Using shipped tools + skills
 

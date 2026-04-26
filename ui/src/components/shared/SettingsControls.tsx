@@ -361,7 +361,7 @@ export function SettingsSegmentedControl<T extends string>({
             type="button"
             onClick={() => onChange(optionValue)}
             className={
-              `inline-flex min-h-[30px] items-center gap-1.5 rounded-md px-2.5 text-[12px] font-semibold transition-colors ` +
+              `inline-flex min-h-[30px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-[12px] font-semibold transition-colors ` +
               `focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 ` +
               (active
                 ? "bg-surface-overlay text-text"

@@ -14,6 +14,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Workspace-driven memory** — Bots maintain `MEMORY.md`, daily logs, and reference documents on disk — all indexed for RAG retrieval. No opaque vector-only memory.
 - **Channel workspaces** — Per-channel file stores on disk. Optional workspace schema templates can give the bot a starting structure, but the core model is file-backed memory, not template lock-in.
 - **Conversation continuity** — Conversations are automatically archived into titled, searchable sections. Chat state rehydrates on reconnect, and task runs render as dedicated sub-sessions with their own transcripts.
+- **External agent harnesses** — Run Claude Code from Spindrel's web UI as a persistent remote coding session. Spindrel manages the channel, workspace, auth setup, terminal access, and resume state; Claude Code owns the actual agent loop, tools, bash, and file edits. Codex support is planned on the same runtime boundary.
 - **Task pipelines** — Reusable multi-step automations with `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps, plus conditions, approval gates, parameters, and cross-bot delegation. Pipelines replace the older workflow system.
 - **Heartbeats + task scheduling** — Periodic autonomous check-ins with quiet hours and repetition detection. Schedule one-off or recurring tasks. Bots can self-schedule.
 - **Widget dashboards + HTML widgets** — Tool results render as live widgets. Pin them to channel dashboards or named dashboards, or have bots author interactive HTML widgets with bot-scoped auth.
@@ -23,7 +24,7 @@ Self-hosted AI agent server with persistent channels, composable expertise, work
 - **Usage tracking + cost budgeting** — Per-bot token usage, cost tracking (with LiteLLM pricing data), and configurable budget limits. *Cost data is best-effort — always verify against your provider's billing dashboard.*
 - **Smart orchestrator bot** — Ships with an orchestrator that guides you through setup conversationally.
 - **Web search** — SearXNG or DuckDuckGo, switchable at runtime from the admin UI.
-- **Sub-agents + delegation** — Orchestrator bots delegate to specialists, synchronously or as background tasks, with built-in presets, depth limits, and parallel execution.
+- **Sub-agents + delegation** — Experimental bounded side work for research, planning, summarization, quality checks, and code review. Depth and rate limits keep parallel execution contained.
 - **Command execution** — Host-side subprocess execution via `exec_tool`, plus optional Docker sandboxes when you want a controlled execution environment.
 - **PWA + push notifications** — Install the web app and let bots send explicit push notifications to subscribed devices.
 - **Custom tools & extensions** — Drop a `.py` file in `tools/` to add a tool. Keep a personal extensions repo with tools and skills — load it via `INTEGRATION_DIRS` with no boilerplate.
@@ -38,9 +39,9 @@ bash setup.sh          # interactive wizard — provider, model, search, auth
 
 Or as a one-liner: `curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | bash`
 
-The interactive setup wizard checks prerequisites, configures your LLM provider and model, sets up web search, generates an API key, and offers to start Docker for you. Open the web UI and the Orchestrator bot will guide you through the rest conversationally.
+The interactive setup wizard checks prerequisites, configures your LLM provider and model, sets up web search, generates an API key, and offers to start Docker for you. On first web visit, create the local admin account, then the Orchestrator bot will guide you through the rest conversationally.
 
-See [docs/setup.md](docs/setup.md) for manual configuration, provider options, and troubleshooting.
+See [docs/setup.md](docs/setup.md) for manual configuration, provider options, first-admin login, and troubleshooting.
 
 ## Screenshots
 
@@ -94,9 +95,17 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | Guide | Description |
 |-------|-------------|
 | [Setup Guide](docs/setup.md) | Installation, providers, workspaces, integrations |
+| [Feature Status](docs/guides/feature-status.md) | Honest product-readiness snapshot before you deploy |
+| [Integration Status](docs/guides/integration-status.md) | Current readiness by integration |
 | [How Spindrel Works](docs/guides/how-spindrel-works.md) | Mental model — channels, capabilities, workspaces, and how they compose |
 | [LLM Providers](docs/guides/providers.md) | Provider types, ChatGPT Subscription OAuth, Ollama, LiteLLM |
+| [Agent Harnesses](docs/guides/agent-harnesses.md) | Remote Claude Code sessions in the Spindrel UI; Codex runtime boundary |
+| [Admin Terminal](docs/guides/admin-terminal.md) | Browser terminal used for harness login, workspace setup, and admin ops |
+| [Local Machine Control](docs/guides/local-machine-control.md) | Session-scoped leases for paired local-machine command execution |
 | [Programmatic Tool Calling](docs/guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and multi-tool orchestration inside one turn |
+| [Command Execution](docs/guides/command-execution.md) | Server subprocess execution, Docker sandboxes, and local machine control boundaries |
+| [Knowledge Bases](docs/guides/knowledge-bases.md) | Channel KB vs bot KB vs markdown memory |
+| [Tool Policies](docs/guides/tool-policies.md) | Approval and tool-availability controls |
 | [Workspace Templates & Activation](docs/guides/templates-and-activation.md) | Optional workspace templates and per-channel integration activation |
 | [Slack Integration](docs/guides/slack.md) | Slack bot setup and channel config |
 | [Discord Integration](docs/guides/discord.md) | Discord bot setup |
@@ -125,6 +134,7 @@ See [docs/setup.md](docs/setup.md) for manual configuration, provider options, a
 | [Creating Integrations](docs/integrations/index.md) | Build custom integrations |
 | [Backup & Restore](docs/backup.md) | Automated Postgres + config backups to S3 |
 | [Docker Deployment](docs/docker-deployment.md) | Production Docker setup |
+| [Security Policy](SECURITY.md) | Reporting, self-hosted security posture, and hardening notes |
 
 ## Development
 

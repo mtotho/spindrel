@@ -1,13 +1,21 @@
 ---
 tags: [agent-server, track, docs, active]
 status: active
-updated: 2026-04-25 (setup guide refreshed for single-port Docker + subscription OAuth wizard)
+updated: 2026-04-26 (public-release docs audit + harness positioning)
 ---
 
 # Track - Docs Refresh
 
 ## North Star
 `docs/` reflects the post-polish product: fresh screenshots of the web-native UI, complete coverage of the April 12–19 feature wave, no references to deprecated features (workflows, per-bot workspaces, old HUD), and a clear showcase of widgets, pipelines, providers, and integrations.
+
+## 2026-04-26 public-release audit pass
+- Public entry points now surface release-readiness docs and new external-agent harnesses: README/docs index link Feature Status, Integration Status, Agent Harnesses, Admin Terminal, Local Machine Control, Command Execution, Knowledge Bases, Tool Policies, and SECURITY.
+- Harness docs now frame the feature as a remote Claude Code session wrapper with no Spindrel agent/RAG middleman: Spindrel owns UI/session/workspace/auth/resume; Claude Code owns the actual coding-agent loop. Codex remains planned, not shipped.
+- Setup docs now include first-admin account creation, `JWT_SECRET` persistence guidance, PyPI/network requirement for setup helpers, and corrected CORS wording/examples for separate UI origins.
+- Refreshed stale command/security docs around the current server-subprocess model, optional Docker sandboxes, admin terminal, local-machine leases, and harness risk.
+- Feature and integration status pages bumped to 2026-04-26 and now include Spatial Canvas, Memory Observatory, external harnesses, Admin Terminal, Local Machine Control, Claude Code harness, and Local Companion.
+- Remaining release-doc blockers: screenshot hero gate still needs fresh images/allow-listing, workflow deprecation still has visible legacy product surfaces, and docs build needs to be run in an environment with MkDocs installed.
 
 ## 2026-04-25 setup refresh
 - `docs/setup.md` now matches the current single-container Docker UI: production users open `http://localhost:8000`; `8081` is no longer presented as the Docker quickstart UI.

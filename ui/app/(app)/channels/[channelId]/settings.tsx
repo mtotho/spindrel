@@ -53,6 +53,17 @@ type ChildSaveState = {
   isError: boolean;
   lastSavedAt: number | null;
 };
+type HeartbeatActions = {
+  save: () => Promise<void>;
+  revert: () => void;
+};
+
+const IDLE_CHILD_SAVE_STATE: ChildSaveState = {
+  dirty: false,
+  isPending: false,
+  isError: false,
+  lastSavedAt: null,
+};
 
 function buildChannelSettingsForm(settings: ChannelSettings): Partial<ChannelSettings> {
   return {
@@ -149,12 +160,8 @@ export default function ChannelSettingsScreen() {
   const channelDirtyRef = useRef(false);
   const formRef = useRef(form);
   formRef.current = form;
-  const [, setHeartbeatSaveState] = useState<ChildSaveState>({
-    dirty: false,
-    isPending: false,
-    isError: false,
-    lastSavedAt: null,
-  });
+  const [heartbeatSaveState, setHeartbeatSaveState] = useState<ChildSaveState>(IDLE_CHILD_SAVE_STATE);
+  const heartbeatActionsRef = useRef<HeartbeatActions | null>(null);
 
   // Tab bar horizontal scroll: translate vertical wheel → horizontal,
   // track edge overflow for fade indicators, and keep the active tab visible.
@@ -236,7 +243,7 @@ export default function ChannelSettingsScreen() {
     []
   );
 
-  const saveChannelSettings = useCallback(async () => {
+  const saveChannelSettingsOnly = useCallback(async () => {
     const draft = formRef.current;
     try {
       await updateMutation.mutateAsync(draft);
@@ -250,7 +257,7 @@ export default function ChannelSettingsScreen() {
     }
   }, [updateMutation]);
 
-  const revertChannelSettings = useCallback(() => {
+  const revertChannelSettingsOnly = useCallback(() => {
     if (!settings) return;
     const nextForm = buildChannelSettingsForm(settings);
     setForm(nextForm);
@@ -259,14 +266,45 @@ export default function ChannelSettingsScreen() {
     setChannelDirty(false);
   }, [settings]);
 
+  const saveAllSettings = useCallback(async () => {
+    const saves: Promise<void>[] = [];
+    if (channelDirty) saves.push(saveChannelSettingsOnly());
+    if (heartbeatSaveState.dirty && heartbeatActionsRef.current) {
+      saves.push(heartbeatActionsRef.current.save());
+    }
+    await Promise.all(saves);
+  }, [channelDirty, heartbeatSaveState.dirty, saveChannelSettingsOnly]);
+
+  const revertAllSettings = useCallback(() => {
+    if (channelDirty) revertChannelSettingsOnly();
+    if (heartbeatSaveState.dirty && heartbeatActionsRef.current) {
+      heartbeatActionsRef.current.revert();
+    }
+  }, [channelDirty, heartbeatSaveState.dirty, revertChannelSettingsOnly]);
+
+  const handleHeartbeatActionsChange = useCallback((actions: HeartbeatActions | null) => {
+    heartbeatActionsRef.current = actions;
+  }, []);
+
+  const handleSetTab = useCallback((nextTab: string) => {
+    if (nextTab === tab) return;
+    if (tab === "automation" && heartbeatSaveState.dirty) {
+      const discard = window.confirm("Discard unsaved heartbeat changes?");
+      if (!discard) return;
+      heartbeatActionsRef.current?.revert();
+      setHeartbeatSaveState(IDLE_CHILD_SAVE_STATE);
+    }
+    setTab(nextTab);
+  }, [heartbeatSaveState.dirty, setTab, tab]);
+
   const overallSaveTone: SaveStatusTone =
-    updateMutation.isPending
+    updateMutation.isPending || heartbeatSaveState.isPending
       ? "pending"
-      : updateMutation.isError
+      : updateMutation.isError || heartbeatSaveState.isError
         ? "error"
-        : channelDirty
+        : channelDirty || heartbeatSaveState.dirty
           ? "dirty"
-          : channelLastSavedAt != null
+          : channelLastSavedAt != null || heartbeatSaveState.lastSavedAt != null
             ? "saved"
             : "idle";
   const overallSaveLabel =
@@ -333,16 +371,16 @@ export default function ChannelSettingsScreen() {
             <SaveStatusPill tone={overallSaveTone} label={overallSaveLabel} />
             <ActionButton
               label="Revert"
-              onPress={revertChannelSettings}
+              onPress={revertAllSettings}
               variant="secondary"
               size="small"
-              disabled={!channelDirty || updateMutation.isPending}
+              disabled={(!channelDirty && !heartbeatSaveState.dirty) || updateMutation.isPending || heartbeatSaveState.isPending}
             />
             <ActionButton
-              label={updateMutation.isPending ? "Saving" : "Save"}
-              onPress={saveChannelSettings}
+              label={updateMutation.isPending || heartbeatSaveState.isPending ? "Saving" : "Save"}
+              onPress={saveAllSettings}
               size="small"
-              disabled={!channelDirty || updateMutation.isPending}
+              disabled={(!channelDirty && !heartbeatSaveState.dirty) || updateMutation.isPending || heartbeatSaveState.isPending}
             />
           </div>
         </div>
@@ -371,7 +409,7 @@ export default function ChannelSettingsScreen() {
                 )}
                 <button
                   ref={(el) => { tabButtonRefs.current[tb.key] = el; }}
-                  onClick={() => setTab(tb.key)}
+                  onClick={() => handleSetTab(tb.key)}
                   data-active={isActive ? "true" : "false"}
                   className="relative px-3.5 pt-3 pb-[11px] text-[13px] whitespace-nowrap bg-transparent border-none cursor-pointer transition-colors text-text-dim hover:text-text-muted data-[active=true]:text-text data-[active=true]:font-semibold font-medium data-[active=true]:after:content-[''] data-[active=true]:after:absolute data-[active=true]:after:left-2.5 data-[active=true]:after:right-2.5 data-[active=true]:after:-bottom-px data-[active=true]:after:h-0.5 data-[active=true]:after:bg-accent data-[active=true]:after:rounded-t-sm"
                 >
@@ -457,6 +495,7 @@ export default function ChannelSettingsScreen() {
               workspaceId={currentBot?.shared_workspace_id}
               botModel={currentBot?.model}
               onSaveStateChange={setHeartbeatSaveState}
+              onActionsChange={handleHeartbeatActionsChange}
             />
             <PipelinesTab channelId={channelId!} />
             <TasksTab channelId={channelId!} botId={channel?.bot_id} />

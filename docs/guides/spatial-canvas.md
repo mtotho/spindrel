@@ -132,6 +132,17 @@ Scheduled work orbits the well. Each upcoming item — a scheduled task, a heart
 
 Orbital tiles are **rendered**, not stored. They are not `WorkspaceSpatialNode` rows.
 
+## Memory Observatory and edge beacons
+
+The canvas also has a fixed far-left **Memory Observatory** landmark. It gives the workspace memory system a visible place on the map instead of hiding it behind admin tables:
+
+- Hot memory files render as bodies grouped by bot lane.
+- Recent writes emit small sparks so new memory activity is visible while scanning the canvas.
+- Memory-only search can fly the camera to matching memory bodies.
+- Source inspection opens the selected memory file body without leaving the canvas.
+
+The canvas can also show **edge beacons** for important off-screen landmarks and active surfaces: Memory Observatory, Now Well, channels, widgets, and bots. Beacons sit on the viewport edge and can fly the camera to their target. The beacon toggle persists in `localStorage`.
+
 ## Reserved dashboard slug
 
 Internally, canvas widget pins live under a reserved widget-dashboard slug, `workspace:spatial`. This slug is filtered out of every UI surface that lists dashboards (tabs, target pickers, recents, sidebar). It exists so canvas pins reuse the entire existing widget-dashboard plumbing — envelope, contract snapshot, presentation snapshot, source bot, iframe auth — without a parallel widget host path.
@@ -145,7 +156,7 @@ You will never see `workspace:spatial` in the UI. If you ever do, that is a bug.
 - **Auto-edges.** Edges between tiles are limited to widget→channel connection lines today. User-drawn edges, shared-bot edges, etc. are backlog.
 - **Multi-select / undo / snap-to-grid.** Single-tile drag only.
 - **Activity pulses.** Halos summarize *historical* token usage; there is no SSE-driven live pulse on tile updates yet.
-- **Other node types.** Files, workflows, pinned sessions are backlog. The schema reserves room for them.
+- **Other node types.** Files, pipelines, automations, and pinned sessions are backlog. The schema reserves room for them.
 
 ## Data model
 

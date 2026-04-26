@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/mtotho/spindrel/master/setup.sh | b
 
 ### What the wizard does
 
-The setup wizard generates two files and optionally starts the server:
+The setup wizard installs a small Python helper environment, generates two files, and optionally starts the server:
 
 1. **`.env`** — runtime configuration (database URL, API key, web search mode)
 2. **`provider-seed.yaml`** — LLM provider config, consumed on first server boot and then deleted
@@ -31,6 +31,7 @@ It does **not** create bot YAML files or modify any code. Two system bots (`defa
 - **Python 3.12+** with `pip` or `ensurepip` (on Debian/Ubuntu: `apt install python3-pip python3-venv`)
 - **Docker** with the Compose v2 plugin
 - **git**
+- **Network access** to GitHub and PyPI for the one-line installer and setup helper dependencies, unless those packages are already cached locally
 
 The setup wizard is an interactive TUI that checks these prerequisites, then walks you through:
 
@@ -44,7 +45,7 @@ The wizard generates `.env` and a `provider-seed.yaml` file. On first server boo
 
 ### After setup
 
-Open `http://localhost:8000` and the **Orchestrator** bot will greet you in the Home channel. It walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
+Open `http://localhost:8000`. On the first visit, Spindrel redirects to `/setup` so you can create the local admin account. After you log in, the **Orchestrator** bot greets you in the Home channel and walks you through creating your first bot, enabling integrations, and configuring workspaces — all conversationally.
 
 > **Tip:** You can add more LLM providers later via **Admin UI > Providers**. The wizard just configures the first one.
 
@@ -65,6 +66,9 @@ Edit `.env` with your settings. Required fields:
 | `API_KEY` | Bearer token for API authentication |
 | `DATABASE_URL` | PostgreSQL connection string |
 | `DEFAULT_MODEL` | Default LLM model (e.g. `gemma4:e4b` for Ollama) |
+| `JWT_SECRET` | Persistent web-login signing secret; generate a long random value for real deployments |
+
+If `JWT_SECRET` is unset, Spindrel falls back to an ephemeral secret. That is acceptable for a quick local trial, but all browser sessions are invalidated on restart.
 
 Then configure your LLM provider via **Admin UI > Providers**, or create a `provider-seed.yaml` for first-boot seeding:
 
@@ -527,7 +531,7 @@ When the UI and server are on different origins (different hostnames or ports), 
 
 The Docker image serves the built UI from the same FastAPI origin on port 8000, so no CORS setting is needed for the default Docker install. Local Vite development still uses a separate origin and is allowed from `http://localhost:5173`.
 
-**For LAN or remote access**, add your origins to `CORS_ORIGINS`:
+If you serve the UI from a separate origin, add that UI origin to `CORS_ORIGINS`:
 
 ```bash
 # .env

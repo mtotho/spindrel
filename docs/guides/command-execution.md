@@ -2,19 +2,20 @@
 
 ![Chat command execution — Orion runs a Python snippet via `exec_command` and the assistant turn shows the EXEC COMMAND tool badge plus the raw stdout in a fenced code block](../images/chat-command-execution.png)
 
-Spindrel bots can execute shell commands in several ways, each with different isolation levels, security controls, and client compatibility. This guide explains when to use each mode and how to configure them.
+Spindrel bots can execute shell commands in several ways, each with different trust boundaries. This guide describes the current execution model: server-side subprocess tools are the default, Docker sandboxes are optional isolation, local machine control is lease-based, and the older CLI client tools remain legacy.
 
 ## Quick Decision Guide
 
 | I want to... | Use | Works from |
 |---|---|---|
-| Run code in an isolated container | [Docker Workspace](#docker-workspace) | All clients |
-| Run commands on the server host | [Host Workspace](#host-workspace) or [Host Exec](#host-exec-legacy) | All clients |
-| Run commands on the user's local machine | [Client Tools](#client-tools-shell_exec) | CLI only |
+| Run normal workspace commands on the server | [Server subprocess execution](#server-subprocess-execution) | All clients |
+| Run code in an isolated container | [Docker sandboxes](#docker-sandboxes) | All clients |
+| Run commands on a paired local machine | [Local machine control](#local-machine-control) | Web UI sessions with a machine lease |
+| Run commands from the legacy CLI client | [Client Tools](#client-tools-shell_exec) | CLI only |
 | Run commands asynchronously (fire-and-forget) | [Deferred Execution](#deferred-execution) | All clients |
 
 !!! tip "Recommended default"
-    **Docker Workspace** is the safest and most portable option. Start here unless you have a specific reason to use host execution.
+    Start with server subprocess execution for trusted personal workspaces. Use Docker sandboxes or local machine leases when you need a different isolation or locality boundary.
 
 ---
 
@@ -26,164 +27,52 @@ Understanding **where** a command executes is the most important distinction:
 ┌─────────────────────────────────────────────────────────┐
 │  Server Host                                            │
 │  ┌──────────────────────┐  ┌─────────────────────────┐  │
-│  │  Docker Workspace    │  │  Host Workspace /       │  │
-│  │  (container)         │  │  Host Exec              │  │
-│  │                      │  │  (native process)       │  │
-│  │  Isolated filesystem │  │  Direct host access     │  │
-│  │  Optional network    │  │  Configurable allowlist │  │
+│  │  Docker Sandbox      │  │  Server subprocess      │  │
+│  │  (optional container)│  │  (native process)       │  │
+│  │  Isolated filesystem │  │  Shared workspace path  │  │
+│  │  Optional network    │  │  Server permissions     │  │
 │  └──────────────────────┘  └─────────────────────────┘  │
 └─────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────┐
-│  User's Machine (CLI client only)                       │
+│  User's Machine                                         │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │  Client Tool: shell_exec                         │   │
-│  │  Runs with user's full permissions               │   │
-│  │  Only accessible from the CLI agent client       │   │
+│  │  Local machine control lease                     │   │
+│  │  Paired provider transport, session scoped       │   │
 │  └──────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-**Key point:** Docker Workspace and Host Workspace/Host Exec run on the **server** and work from **any client** (Slack, Discord, web UI, CLI). Client tools (`shell_exec`) run on the **user's local machine** and only work from the **CLI client**.
+**Key point:** server subprocess tools and Docker sandboxes run where the Spindrel server runs. Local machine control runs on a paired target machine only after a session is granted a lease. Legacy client tools (`shell_exec`) run only through the old CLI client path.
 
 ---
 
-## Docker Workspace
+## Server subprocess execution
 
-The recommended approach. Commands run inside a Docker container on the server.
+The normal `exec_tool` path runs a subprocess from the Spindrel server process against the configured workspace path. In Docker deployments, that means the command runs inside the Spindrel container against the mounted workspace directory. In local-dev deployments, it runs on the host process.
 
-### Bot YAML Configuration
+Use this for trusted personal project work, repo inspection, tests, and command output you want in the chat transcript. It is available from every client because execution happens server-side.
 
-```yaml
-workspace:
-  enabled: true
-  type: docker
-  docker:
-    image: python:3.12-slim     # any Docker image
-    network: none               # "none" (isolated) or "bridge" (internet access)
-    env:                        # environment variables inside container
-      PYTHONUNBUFFERED: "1"
-    mounts:                     # host directories to mount
-      - host_path: /home/user/projects
-        container_path: /workspace/projects
-        mode: rw                # "ro" or "rw"
-    user: ""                    # container user (empty = image default)
-    read_only_root: false       # lock down root filesystem
-    cpus: 2.0                   # CPU limit
-    memory: 1gb                 # memory limit
-  timeout: 60                   # command timeout (seconds)
-  max_output_bytes: 1048576     # output size cap
+Security posture:
 
-local_tools:
-  - exec_command                # synchronous execution
-  - delegate_to_exec            # supports async/deferred mode
-```
+- Treat it as trusted-operator remote command execution.
+- Use scoped tool policies and approvals for risky bots.
+- Keep Spindrel on a private/LAN/VPN surface unless you have added your own hardening.
+- Use Docker sandboxes or local machine leases when the command should not run in the server process environment.
 
-### What You Get
+## Docker sandboxes
 
-- **Isolation**: Commands run in a container, not on the host
-- **Reproducible environment**: Pin the image version for consistent behavior
-- **Startup scripts**: Place a `startup.sh` in the workspace root to install dependencies on container start
-- **File indexing**: Enable `workspace.indexing.enabled: true` for semantic search over workspace files
-- **Works from all clients**: Slack, Discord, web UI, CLI — any way you talk to the bot
+Docker sandboxes are optional long-lived containers for more isolated code execution. They are configured from the Admin UI and use the host Docker daemon when Spindrel itself runs in Docker.
 
-### When to Use
+Use them when you need a pinned image, a constrained filesystem, network isolation, or resource limits. They are not the default workspace model anymore.
 
-- Code execution (Python, Node, etc.)
-- Build and test pipelines
-- Any untrusted or experimental command
-- When you want network isolation (`network: none`)
+## Local machine control
 
----
+Local machine control pairs a target machine with Spindrel and grants a specific chat session a lease to that target. After a lease is granted, tools such as `machine_status`, `machine_inspect_command`, and `machine_exec_command` run through the provider transport on that target.
 
-## Host Workspace
+Use this when the command needs your actual laptop or workstation: local credentials, GUI-adjacent files, hardware access, or an existing dev checkout that is not mounted into the server.
 
-Commands run directly on the server host, scoped to a workspace directory.
-
-### Bot YAML Configuration
-
-```yaml
-workspace:
-  enabled: true
-  type: host
-  host:
-    working_dirs:               # directories the bot can execute in
-      - /home/user/projects
-    commands:                   # optional command allowlist
-      - name: git
-        subcommands: [pull, push, commit, log, status, diff]
-      - name: python
-        subcommands: []         # empty = all subcommands
-    blocked_patterns: []        # additional regex patterns to block
-    env_passthrough:            # env vars to expose to commands
-      - PATH
-      - HOME
-      - PYTHONPATH
-  timeout: 30
-  max_output_bytes: 65536
-
-local_tools:
-  - exec_command
-```
-
-### Security Controls
-
-Host execution is protected by multiple layers:
-
-1. **Hardcoded blocklist** (always active, cannot be overridden):
-    - `rm -rf /`, `sudo`, `su`
-    - `curl|bash`, `wget|bash` (piped execution)
-    - `mkfs`, `dd of=/dev/` (destructive operations)
-    - `curl localhost`, `wget 127.0.0.*` (SSRF prevention)
-    - Fork bombs
-
-2. **Directory allowlist**: Commands can only run in directories listed in `working_dirs`
-
-3. **Command allowlist** (optional): If `commands` is non-empty, only listed binaries are allowed. Use `subcommands` to further restrict (e.g., allow `git pull` but not `git push`).
-
-4. **Environment sanitization**: Only env vars listed in `env_passthrough` are visible to commands
-
-### When to Use
-
-- Interacting with host-level services (systemd, Docker CLI, etc.)
-- Running commands that need host networking or devices
-- When Docker overhead is undesirable
-- **Be careful**: Host execution has a larger blast radius than Docker
-
----
-
-## Host Exec (Legacy)
-
-The original host execution mechanism — still functional but superseded by Host Workspace for new setups. Configured as a standalone block rather than through the workspace system.
-
-### Bot YAML Configuration
-
-```yaml
-host_exec:
-  enabled: true
-  dry_run: false                # true = log commands without executing
-  working_dirs:
-    - /home/user/projects
-  commands:
-    - name: git
-      subcommands: [pull, commit]
-    - name: "*"                 # wildcard: allow all commands
-      subcommands: []
-  blocked_patterns:
-    - "npm publish"             # custom blocklist
-  env_passthrough:
-    - PATH
-    - HOME
-  timeout: 30
-  max_output_bytes: 65536
-
-local_tools:
-  - exec_command
-```
-
-Same security controls as Host Workspace (hardcoded blocklist, directory/command allowlists, env sanitization). The difference is configuration location — `host_exec` is a standalone bot config block while Host Workspace integrates with the unified workspace system (indexing, file management, etc.).
-
----
+See [Local Machine Control](local-machine-control.md) for enrollment, leases, and the provider security model.
 
 ## Client Tools (`shell_exec`)
 
@@ -266,7 +155,7 @@ See the [Pipelines guide](pipelines.md) for details.
 
 ## Docker Sandbox Profiles
 
-An older mechanism for per-bot isolated containers with configurable scope (session, client, agent, shared). Still supported but Docker Workspace is preferred for new setups.
+Docker sandbox profiles provide per-bot isolated containers with configurable scope (session, client, agent, shared). Use them when the server subprocess environment is too broad for the work or when you need a pinned image/resource boundary.
 
 ### Enable
 
@@ -297,17 +186,16 @@ Sandbox profiles are managed via the admin API (`sandbox_profiles` table) and ca
 
 ## Comparison
 
-| Feature | Docker Workspace | Host Workspace | Host Exec | Client `shell_exec` | Docker Sandbox |
-|---|---|---|---|---|---|
-| **Runs on** | Server (container) | Server (host) | Server (host) | User's machine | Server (container) |
-| **Works from Slack/Discord** | Yes | Yes | Yes | **No** | Yes |
-| **Works from CLI** | Yes | Yes | Yes | Yes | Yes |
-| **Isolation** | Container | Directory allowlist | Directory allowlist | None | Container |
-| **Network control** | Yes (`none`/`bridge`) | No | No | No | Yes |
-| **File indexing** | Yes | Yes | No | No | No |
-| **Async/deferred** | Via `delegate_to_exec` | Via `delegate_to_exec` | No | No | No |
-| **Command allowlist** | No (container is the boundary) | Yes | Yes | No | No |
-| **Setup complexity** | Medium (needs Docker) | Low | Low | Low | Medium |
+| Feature | Server subprocess | Local machine lease | Client `shell_exec` | Docker Sandbox |
+|---|---|---|---|---|
+| **Runs on** | Spindrel server process/container | Paired target machine | User's CLI machine | Server-side container |
+| **Works from Slack/Discord** | Yes | Only if a session lease exists | **No** | Yes |
+| **Works from web UI** | Yes | Yes, with session lease | **No** | Yes |
+| **Isolation** | Server process permissions | Provider/session lease boundary | None beyond CLI user | Container |
+| **Network control** | No dedicated network sandbox | Target machine's network | CLI machine's network | Yes |
+| **File indexing** | Yes, via workspace files | Target-specific | No | Depends on mounted paths |
+| **Async/deferred** | Via `delegate_to_exec` / pipeline exec | Tool-specific | No | Tool-specific |
+| **Setup complexity** | Low | Medium | Low but legacy | Medium |
 
 ---
 
@@ -317,11 +205,6 @@ These `.env` settings apply globally:
 
 | Setting | Description | Default |
 |---|---|---|
-| `HOST_EXEC_BLOCKED_PATTERNS` | Additional regex patterns to block (server-wide) | `""` |
-| `HOST_EXEC_WORKING_DIR_ALLOWLIST` | Comma-separated allowed directories (server-wide) | `""` |
-| `HOST_EXEC_ENV_PASSTHROUGH` | Default env vars to pass through | `""` |
-| `HOST_EXEC_DEFAULT_TIMEOUT` | Default command timeout (seconds) | `30` |
-| `HOST_EXEC_MAX_OUTPUT_BYTES` | Default output size cap | `65536` |
 | `DOCKER_SANDBOX_ENABLED` | Enable Docker sandbox system | `false` |
 | `DOCKER_SANDBOX_MOUNT_ALLOWLIST` | Allowed mount source paths | `""` |
 | `DOCKER_SANDBOX_MAX_CONCURRENT` | Max concurrent sandbox containers | `10` |

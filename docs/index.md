@@ -44,6 +44,10 @@ Bots need only `model` + `system_prompt` — everything else is surfaced through
 
 Tool results become **live, interactive control surfaces**. Pin them to a **channel dashboard** (lazy-created per channel and mapped onto the channel layout zones: left rail, center dashboard, right rail, and top-center chips), to a **user dashboard** (Home Assistant-style grid, drag + resize), or onto the **[spatial canvas](guides/spatial-canvas.md)** — a workspace-scope infinite plane that replaces the desktop home with draggable channel + widget tiles, semantic zoom (dot → preview → live iframe), a fisheye lens, and a Now Well with scheduled work in orbit. Bots can author their own HTML widgets via `emit_html_widget` — full-iframe dashboards with `window.spindrel.*` helpers for tool dispatch, workspace file read/write, and deep-merge RMW over JSON state. Widgets authenticate as the emitting bot via short-lived JWTs, not the viewer.
 
+### External Agent Harnesses
+
+Claude Code can run inside a Spindrel-managed remote session today: authenticate from `/admin/harnesses`, attach a workspace, open a channel, and manage the coding session from the browser. Spindrel provides the UI, channel transcript, terminal drawer, workspace path, and resume state; Claude Code owns the agent loop, native tools, bash, file edits, and its own OAuth identity. Codex support is planned on the same runtime boundary.
+
 ### Task Pipelines + Sub-Sessions
 
 Reusable multi-step automations defined as `Task` rows: `exec`, `tool`, `agent`, `user_prompt`, and `foreach` steps with conditions, parameters, approval gates, and cross-bot delegation. Pipeline runs render as a **chat-native sub-session** — a modal or docked transcript showing every step's LLM thinking, tool widgets, and output. Bind pipelines to a channel with per-channel cron schedules. The `analyze_discovery` audit pipeline lets bots self-inspect their own tool/skill discovery quality.
@@ -66,7 +70,7 @@ Bots create their own skills at runtime via `manage_bot_skill`. Three learning n
 
 ### Integration Framework
 
-Pluggable integrations with auto-discovery. Shipped: Slack (with App Home, modals, ephemeral messages, reaction intents), GitHub, Discord, Frigate (cameras + event timeline), Home Assistant (device control), Excalidraw (collaborative whiteboard), Browser Live (real logged-in browser control), OpenWeather, Web Search, Wyoming (STT/TTS), Arr, Claude Code, BlueBubbles, Google Workspace, Firecrawl, VS Code, Ingestion. Each provides routers, dispatchers, tools, lifecycle hooks, and in-chat HUD widgets. Extend with your own via `INTEGRATION_DIRS`.
+Pluggable integrations with auto-discovery. Shipped: Slack (with App Home, modals, ephemeral messages, reaction intents), GitHub, Discord, Frigate (cameras + event timeline), Home Assistant (device control), Excalidraw (collaborative whiteboard), Browser Live (real logged-in browser control), OpenWeather, Web Search, Wyoming (STT/TTS), Arr, Claude Code, BlueBubbles, Google Workspace, Firecrawl, VS Code, Ingestion. Integrations can provide routers, dispatchers, tools, lifecycle hooks, widgets, and external-agent harness runtimes. Extend with your own via `INTEGRATION_DIRS`.
 
 ### Sub-Agents
 
@@ -99,7 +103,7 @@ bash setup.sh          # interactive wizard: deployment, LLM provider, auth
 docker compose up -d
 ```
 
-The setup wizard configures `.env`, starts services, and creates a default bot. The Orchestrator bot guides you through the rest conversationally.
+The setup wizard configures `.env`, seeds your first provider, and offers to start services. If you skip that prompt, run `docker compose up -d`. On first web visit, create the local admin account; then the Orchestrator bot guides you through the rest conversationally.
 
 [Full setup guide &rarr;](setup.md)
 
@@ -113,6 +117,9 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Feature Status](guides/feature-status.md) | High-level product-feature snapshot: what is working, partial, advanced, experimental, or deprecated. |
 | [Integration Status](guides/integration-status.md) | Honest snapshot of which integrations are working, partial, untested, or experimental. |
 | [LLM Providers](guides/providers.md) | All seven provider types, feature matrix, ChatGPT Subscription OAuth walkthrough. |
+| [Agent Harnesses](guides/agent-harnesses.md) | Remote Claude Code sessions in the web UI; Codex-compatible runtime boundary. |
+| [Admin Terminal](guides/admin-terminal.md) | Browser terminal for harness auth, workspace setup, and operator commands. |
+| [Local Machine Control](guides/local-machine-control.md) | Pair local machines and grant session-scoped command leases. |
 | [Programmatic Tool Calling](guides/programmatic-tool-calling.md) | `run_script` for batching, filtering, and compact multi-tool orchestration inside one turn. |
 | [Knowledge Bases](guides/knowledge-bases.md) | Channel KB vs bot KB vs `memory.md`, retrieval behavior, and write-where guidance. |
 | [Workspace Templates & Activation](guides/templates-and-activation.md) | Optional workspace templates and per-channel integration activation when you want them. |
@@ -131,11 +138,14 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Context Management](guides/context-management.md) | Canonical guide for replay policy, compaction, live-history budgeting, context profiles, and prompt admission. |
 | [Discovery and Enrollment](guides/discovery-and-enrollment.md) | Canonical guide for tool/skill discovery, working-set enrollment, `get_skill` / `get_tool_info`, and runtime residency semantics. |
 | [Sub-Agents](guides/subagents.md) | Five presets, parallel execution, depth and rate limits. |
+| [Plan Mode](guides/plan-mode.md) | Session-level planning workflow and public UX contract. |
 | [Heartbeats](guides/heartbeats.md) | Periodic autonomous check-ins with quiet hours, dispatch modes, repetition detection, and pipeline triggers. |
 | [MCP Servers](guides/mcp-servers.md) | Connect external tool servers (Home Assistant, databases, APIs). Pair them with skills and normal tool enrollment. |
+| [Tool Policies](guides/tool-policies.md) | Tool availability, approvals, and policy controls. |
 | [Self-Improving Agents](guides/bot-skills.md) | Bot-authored skills, the RAG pipeline, skill hygiene, and admin visibility. |
 | [Custom Tools & Extensions](guides/custom-tools.md) | Create custom tools, manage a personal extensions repo, and load external tools and skills. |
 | [Widget Dashboards](guides/widget-dashboards.md) | Named dashboards plus channel-dashboard zones: left rail, center dashboard, right rail, and top-center chips. |
+| [Widget System](guides/widget-system.md) | Canonical widget contract, envelopes, renderers, and standing-order surfaces. |
 | [Spatial Canvas](guides/spatial-canvas.md) | Workspace-scope infinite plane on the desktop home: channel + widget tiles, fisheye lens, Now Well, density halos, connection lines. |
 | [HTML Widgets](guides/html-widgets.md) | Bot-authored live dashboards. How the bot-scoped iframe auth works and how to provision bots that can build them. |
 | [Widget Templates](widget-templates.md) | YAML widget templates that render tool results as live, interactive UI. Component templates, HTML templates, and the `state_poll` field. |
@@ -145,12 +155,16 @@ The setup wizard configures `.env`, starts services, and creates a default bot. 
 | [Chat State Rehydration](guides/chat-state-rehydration.md) | Snapshot endpoint, `useChannelState` + `rehydrateTurn`, reconnect / tab-wake / replay-lapsed recovery. |
 | [PWA & Push Notifications](guides/pwa-push.md) | Install the PWA, subscribe a device, `send_push_notification` tool, scoped `/api/v1/push/send` endpoint. |
 | [Developer API](guides/api.md) | Authentication, scoped keys, streaming, SSE events. |
+| [Ubiquitous Language](guides/ubiquitous-language.md) | Product vocabulary and terms to prefer in docs/UI. |
+| [UI Components](guides/ui-components.md) | Shared component patterns and frontend conventions. |
+| [UI Design](guides/ui-design.md) | Visual system, layout principles, and design constraints. |
 | [Lifecycle Webhooks](guides/webhooks.md) | Outgoing events for monitoring, cost analytics, and audit. |
-| [Command Execution](guides/command-execution.md) | Docker workspaces, host execution, client-side shell, deferred tasks — when to use each and how they differ. |
+| [Command Execution](guides/command-execution.md) | Server subprocess execution, optional Docker sandboxes, local machine leases, and legacy client tools. |
 | [Agent Client](guides/clients.md) | Older remote client / voice-assistant path plus local tool execution. |
 | [E2E Testing](guides/e2e-testing.md) | YAML scenario framework, ad-hoc agent testing, assertion reference, and LLM provider config. |
 | [Backup & Restore](backup.md) | Automated Postgres + config backups to S3. |
 | [Docker Deployment](docker-deployment.md) | Production setup with the sibling container pattern. |
+| [Security Policy](../SECURITY.md) | Reporting, self-hosted threat model, and operator hardening notes. |
 
 ## Reference
 

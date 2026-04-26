@@ -198,6 +198,10 @@ class ApprovalRequestedPayload:
     member-bot turn requesting approval while the primary turn is still
     active would land in the primary's slot and never resolve."""
     session_id: uuid.UUID | None = None
+    tool_type: str | None = None
+    """One of 'local' | 'client' | 'mcp' | 'harness'. UI dispatches on this
+    to pick the right approval card renderer (e.g. HarnessApprovalCard for
+    'harness'). None on legacy events that predate the field."""
 
 
 @dataclass(frozen=True)
@@ -206,7 +210,9 @@ class ApprovalResolvedPayload:
 
     approval_id: str
     decision: str
-    """'approved' | 'denied' | 'allow_always'."""
+    """'approved' | 'denied' | 'allow_always' | 'expired'.
+    'expired' is published when a pending harness approval times out or is
+    cancelled by Stop-turn — UI flips card to grey 'Expired' badge."""
     session_id: uuid.UUID | None = None
 
 

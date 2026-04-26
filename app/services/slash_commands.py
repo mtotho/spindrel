@@ -12,7 +12,10 @@ hardcoded registries.
 from __future__ import annotations
 
 import copy as _copy
+import logging
 import uuid
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Literal
 
@@ -492,6 +495,19 @@ async def _stop_session(
     )
     queued_cancelled = result.rowcount or 0
     await db.commit()
+    # Phase 3: also expire any pending harness approvals on this session so the
+    # UI flips them to expired immediately instead of waiting on the 300s row
+    # timeout. Cheap when nothing is pending.
+    from app.services.agent_harnesses.approvals import (
+        cancel_pending_harness_approvals_for_session,
+    )
+    try:
+        await cancel_pending_harness_approvals_for_session(session_id)
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "stop-session: failed to cancel pending harness approvals for %s",
+            session_id,
+        )
     payload = SideEffectPayload(
         effect="stop",
         scope_kind=scope_kind,

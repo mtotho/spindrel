@@ -1,6 +1,6 @@
 # Secret Redaction & Secret Values
 
-Spindrel includes a secret redaction system that prevents known secrets from leaking through tool results, LLM output, or conversation history. It also provides a **Secret Values vault** for storing encrypted environment variables that are injected into workspace containers but never visible to the LLM.
+Spindrel includes a secret redaction system that prevents known secrets and common secret-shaped values from leaking through tool results, LLM output, or conversation history. It also provides a **Secret Values vault** for storing encrypted environment variables that can be injected into server-side tools and sandboxed execution without exposing plaintext through the API.
 
 ![Secret Values vault showing encrypted secrets with names, descriptions, and management controls](../images/secret-store.png)
 *The Secret Values vault in Admin > Security — encrypted at rest, never returned in plaintext via the API.*
@@ -9,7 +9,7 @@ Spindrel includes a secret redaction system that prevents known secrets from lea
 
 ### Redaction Engine
 
-The redaction engine collects known secret values from all configured sources and replaces them with `[REDACTED]` in:
+The redaction engine collects known secret values from all configured sources, also checks common token/key patterns, and replaces matches with `[REDACTED]` in:
 
 - **Tool results** — before the LLM sees them (and before summarization)
 - **LLM response text** — at all output paths (final response, forced retry, intermediate text, max-iterations)
@@ -17,7 +17,7 @@ The redaction engine collects known secret values from all configured sources an
 
 This means if a bot runs `env` or `cat .env` via a tool, the output reaching the LLM and stored in history will have secret values replaced.
 
-> **Note:** Streaming `text_delta` events are not individually redacted. Since tool results are redacted before the LLM sees them, the LLM should not reproduce secrets in its output. If you need streaming redaction, this is a trade-off to be aware of.
+> **Note:** Normal-agent streaming `text_delta` events are not individually redacted. Since normal tool results are redacted before the LLM sees them, the LLM should not reproduce secrets in its output. External harness streams are redacted at the host event boundary because their native tool loop bypasses Spindrel's normal tool dispatcher.
 
 ### Secret Sources
 
@@ -48,13 +48,13 @@ The registry rebuilds automatically:
 The vault stores user-managed encrypted environment variables. These are:
 
 - **Encrypted at rest** using Fernet symmetric encryption (same system as provider API keys)
-- **Injected into workspace containers** as environment variables (available to scripts and tools)
+- **Injected into tool execution environments** as environment variables where that execution path supports it
 - **Registered with the redaction engine** so their values never appear in tool results or LLM output
 - **Never returned in plaintext** via the API — list/get endpoints only return metadata
 
 ### Secrets vs. Workspace Environment Variables
 
-Both Secrets and workspace env vars (configured in **Bot > Workspace** or **Workspace > Docker** settings) are injected into containers. The difference is security:
+Both Secrets and ordinary workspace env vars can reach command execution environments. The difference is security:
 
 | | **Secret Values** | **Workspace Env Vars** |
 |---|---|---|
@@ -105,15 +105,15 @@ curl -X DELETE -H "Authorization: Bearer $API_KEY" \
   http://localhost:8000/api/v1/admin/secret-values/{id}
 ```
 
-### Container Injection
+### Execution Environment Injection
 
 Secret values are injected as environment variables into:
 
 - **Docker sandbox containers** — via `docker exec -e` flags
-- **Shared workspace containers** — same mechanism
-- **Host exec** — added to the process environment
+- **Server subprocess execution** — added to the process environment where the tool path supports secret injection
+- **Legacy host/client execution paths** — added when that path explicitly supports the secret registry
 
-Inside a workspace container, a bot's tool can use `$GITHUB_TOKEN` in a script without the LLM ever seeing the token value.
+Inside a supported execution environment, a bot's tool can use `$GITHUB_TOKEN` in a script without the LLM ever seeing the token value.
 
 ## User Input Secret Detection
 

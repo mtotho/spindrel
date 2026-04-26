@@ -100,7 +100,7 @@ Fork a seed to produce a user package; edits land on the fork, the seed stays ca
 
 ### Cross-reference to Widget Templates
 
-The package model, YAML grammar, substitution syntax, `state_poll`, transforms, trust model — all live in the [Widget Templates](widget-templates.md) reference. The dev panel is the interactive shell over that grammar.
+The package model, YAML grammar, substitution syntax, `state_poll`, transforms, trust model — all live in the [Widget Templates](../widget-templates.md) reference. The dev panel is the interactive shell over that grammar.
 
 ---
 
@@ -158,7 +158,7 @@ Use Library when you want a concrete widget asset. Use Templates when you want "
 ## Keyboard + UX tips
 
 - `/widgets/dev` remembers the last-visited tab via the URL hash — deep link to `/widgets/dev#tools` to land directly in the sandbox.
-- The tab bar's Docs button opens an in-page modal with the full [Widget Templates](widget-templates.md) reference. No round-trip to an external site.
+- The tab bar's Docs button opens an in-page modal with the full [Widget Templates](../widget-templates.md) reference. No round-trip to an external site.
 - Collapsed tool groups in the sandbox persist to `localStorage` — your usual working set stays expanded.
 - The DashboardTargetPicker is contextual: when you land from `?from=<slug>`, it pre-selects that dashboard so a pin goes home.
 
@@ -178,7 +178,7 @@ Use Library when you want a concrete widget asset. Use Templates when you want "
 
 ## See also
 
-- [Widget Templates](widget-templates.md) — the declarative package grammar.
+- [Widget Templates](../widget-templates.md) — the declarative package grammar.
 - [HTML Widgets](html-widgets.md) — bot-authored HTML, runtime `emit_html_widget`.
 - [Widget Dashboards](widget-dashboards.md) — where pins live, the OmniPanel rail, edit mode.
 - [Custom Tools & Extensions](custom-tools.md) — writing local tools with `@register`.

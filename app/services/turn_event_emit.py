@@ -240,6 +240,7 @@ async def emit_run_stream_events(
                         reason=event.get("reason"),
                         turn_id=turn_id,
                         session_id=session_id,
+                        tool_type=event.get("tool_type"),
                     ),
                 ),
             )

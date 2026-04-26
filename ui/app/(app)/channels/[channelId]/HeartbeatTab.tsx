@@ -65,16 +65,19 @@ function RunNowButton({
   label,
   onClick,
   disabled,
+  title,
 }: {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
+      title={title}
       className={
         "inline-flex min-h-[38px] shrink-0 items-center justify-center gap-1.5 rounded-md " +
         "border border-accent/35 bg-accent/[0.08] px-3.5 text-[13px] font-semibold text-accent " +
@@ -241,16 +244,23 @@ type HeartbeatSaveState = {
   lastSavedAt: number | null;
 };
 
+type HeartbeatActions = {
+  save: () => Promise<void>;
+  revert: () => void;
+};
+
 export function HeartbeatTab({
   channelId,
   workspaceId,
   botModel,
   onSaveStateChange,
+  onActionsChange,
 }: {
   channelId: string;
   workspaceId?: string | null;
   botModel?: string;
   onSaveStateChange?: (state: HeartbeatSaveState) => void;
+  onActionsChange?: (actions: HeartbeatActions | null) => void;
 }) {
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
@@ -306,6 +316,7 @@ export function HeartbeatTab({
     }
     if (data?.config) {
       const nextForm = {
+        enabled: data.config.enabled ?? false,
         interval_minutes: data.config.interval_minutes ?? 60,
         model: data.config.model ?? "",
         model_provider_id: data.config.model_provider_id ?? "",
@@ -342,6 +353,7 @@ export function HeartbeatTab({
       setHbDirty(false);
     } else if (data && !data.config) {
       const nextForm = {
+        enabled: false,
         interval_minutes: 60,
         model: "",
         model_provider_id: "",
@@ -378,15 +390,6 @@ export function HeartbeatTab({
       setHbDirty(false);
     }
   }, [data, isFetching]);
-
-  const toggleMutation = useMutation({
-    mutationFn: () => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat/toggle`, { method: "POST" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["channel-heartbeat", channelId] });
-      queryClient.invalidateQueries({ queryKey: ["channels"] });
-      setHbLastSavedAt(Date.now());
-    },
-  });
 
   const saveMutation = useMutation({
     mutationFn: (body: any) => apiFetch(`/api/v1/admin/channels/${channelId}/heartbeat`, {
@@ -437,6 +440,7 @@ export function HeartbeatTab({
     if (!data) return;
     const source = data.config;
     const nextForm = source ? {
+      enabled: source.enabled ?? false,
       interval_minutes: source.interval_minutes ?? 60,
       model: source.model ?? "",
       model_provider_id: source.model_provider_id ?? "",
@@ -466,6 +470,7 @@ export function HeartbeatTab({
         data.execution_policy_presets,
       ),
     } : {
+      enabled: false,
       interval_minutes: 60,
       model: "",
       model_provider_id: "",
@@ -553,8 +558,8 @@ export function HeartbeatTab({
   useEffect(() => {
     onSaveStateChange?.({
       dirty: hbDirty,
-      isPending: saveMutation.isPending || toggleMutation.isPending,
-      isError: saveMutation.isError || toggleMutation.isError,
+      isPending: saveMutation.isPending,
+      isError: saveMutation.isError,
       lastSavedAt: hbLastSavedAt,
     });
   }, [
@@ -563,9 +568,12 @@ export function HeartbeatTab({
     onSaveStateChange,
     saveMutation.isError,
     saveMutation.isPending,
-    toggleMutation.isError,
-    toggleMutation.isPending,
   ]);
+
+  useEffect(() => {
+    onActionsChange?.({ save: saveHeartbeat, revert: revertHeartbeat });
+    return () => onActionsChange?.(null);
+  }, [onActionsChange, revertHeartbeat, saveHeartbeat]);
 
   const [hbFired, setHbFired] = useState(false);
   const fireMutation = useMutation({
@@ -606,12 +614,18 @@ export function HeartbeatTab({
     );
   }
 
-  const enabled = data?.config?.enabled ?? false;
+  const enabled = hbForm.enabled ?? false;
   const isWorkflowMode = !!hbForm.workflow_id;
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
     : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt || hbForm.append_spatial_map_overview);
   const runNowLabel = hbFirePollStartedAt ? "Running..." : hbFired ? "Fired" : fireMutation.isPending ? "Firing..." : "Run Now";
+  const runNowDisabled = hbDirty || !hasAction || fireMutation.isPending || !!hbFirePollStartedAt;
+  const runNowTitle = hbDirty
+    ? "Save heartbeat changes before running manually."
+    : !hasAction
+      ? "Add a prompt or workflow before running heartbeat manually."
+      : undefined;
 
   return (
     <>
@@ -631,32 +645,30 @@ export function HeartbeatTab({
             <RunNowButton
               label={runNowLabel}
               onClick={() => fireMutation.mutate()}
-              disabled={!hasAction || fireMutation.isPending || !!hbFirePollStartedAt}
-            />
-            <ActionButton
-              label="Revert"
-              onPress={revertHeartbeat}
-              variant="secondary"
-              size="small"
-              disabled={!hbDirty || saveMutation.isPending}
-            />
-            <ActionButton
-              label={saveMutation.isPending ? "Saving..." : "Save"}
-              onPress={saveHeartbeat}
-              size="small"
-              disabled={!hbDirty || saveMutation.isPending}
-            />
-            <ActionButton
-              label={toggleMutation.isPending ? "Updating..." : enabled ? "Disable" : "Enable"}
-              onPress={() => toggleMutation.mutate()}
-              variant="secondary"
-              size="small"
-              disabled={toggleMutation.isPending}
+              disabled={runNowDisabled}
+              title={runNowTitle}
             />
           </div>
         }
       >
-        {null}
+        <div className="flex flex-col gap-1">
+          <Toggle
+            value={enabled}
+            onChange={(v) => updateHbForm((f: any) => ({ ...f, enabled: v }))}
+            label="Enabled"
+            description="Runs on the configured schedule after these settings are saved."
+          />
+          {hbDirty && (
+            <span className="text-[11px] text-text-dim">
+              Save changes before running heartbeat manually.
+            </span>
+          )}
+          {!hbDirty && !hasAction && (
+            <span className="text-[11px] text-text-dim">
+              Add a prompt or workflow before running heartbeat manually.
+            </span>
+          )}
+        </div>
       </Section>
 
       <div className="flex flex-col gap-5">
@@ -916,20 +928,6 @@ export function HeartbeatTab({
             </div>
           </Section>
         )}
-
-        {/* Run controls */}
-        <div className="mt-1 flex flex-wrap gap-2">
-          <RunNowButton
-            label={runNowLabel}
-            onClick={() => fireMutation.mutate()}
-            disabled={!hasAction || fireMutation.isPending || !!hbFirePollStartedAt}
-          />
-          {!hasAction && (
-            <span className="self-center text-[11px] text-text-dim">
-              Add a prompt or workflow before running heartbeat manually.
-            </span>
-          )}
-        </div>
 
         {/* ---- Advanced Section (only for prompt mode) ---- */}
         {!isWorkflowMode && (

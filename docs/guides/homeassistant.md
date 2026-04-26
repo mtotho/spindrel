@@ -157,7 +157,7 @@ state_poll:
 
 Community `ha_get_state` pins instead re-call `ha_get_state` with `{{widget_config.entity_id}}`. Preset-created official pins render through `GetLiveContext` with empty tool args and keep their selected entity in `widget_config`.
 
-See [Widget Templates → State polling](widget-templates.md#state-polling) for the underlying mechanism.
+See [Widget Templates -> State polling](../widget-templates.md#state-polling) for the underlying mechanism.
 
 ---
 
@@ -198,5 +198,5 @@ The [MCP Servers guide](mcp-servers.md) is the general walkthrough for any MCP s
 ## See also
 
 - [MCP Servers](mcp-servers.md) — generic MCP setup, first-boot seed, admin UI walkthrough.
-- [Widget Templates](widget-templates.md) — substitution syntax, `state_poll`, Python transforms, the `where`/`pluck`/`first`/`map` filter chain.
+- [Widget Templates](../widget-templates.md) — substitution syntax, `state_poll`, Python transforms, the `where`/`pluck`/`first`/`map` filter chain.
 - [Widget Dashboards](widget-dashboards.md) — pin HA widgets to a live dashboard, OmniPanel rail.

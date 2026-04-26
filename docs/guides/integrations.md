@@ -126,7 +126,7 @@ One row per top-level key in `app/services/integration_manifests.py::_KNOWN_KEYS
 | `docker_compose` | Sidecar stack file + project name template + allowed bind mounts. | `app/services/docker_stacks.py` | active |
 | `web_ui` | Static build directory + dev port for an integration-owned web UI. | `integrations/__init__.py::discover_web_uis` | active |
 | `sidebar_section` | Navigation section added to the main sidebar. | `/api/v1/admin/integrations/sidebar` | active |
-| `dashboard_modules` | Pluggable panels on Mission Control / integration dashboards. | `integrations/__init__.py::discover_dashboard_modules` | active |
+| `dashboard_modules` | Pluggable panels for integration dashboards. Legacy naming may still appear around older dashboard modules. | `integrations/__init__.py::discover_dashboard_modules` | active |
 | `debug_actions` | Admin-only debug/test actions. | `integrations/__init__.py::discover_debug_actions` | active |
 | `api_permissions` | API scopes required for the integration's router. | `app/services/api_keys.py` | active |
 | `tool_widgets` | Per-tool widget templates. **Owned by the widget system** — see [`widget-system.md`](widget-system.md). | `app/services/widget_templates.py` | active |

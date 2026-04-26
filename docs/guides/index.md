@@ -26,7 +26,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | Guide | About |
 |---|---|
 | [Admin Terminal](admin-terminal.md) | Browser-based shell into the Spindrel container — admin-only |
-| [Agent Harnesses](agent-harnesses.md) | Run Claude Code (or future Codex) sessions inside a Spindrel chat thread |
+| [Agent Harnesses](agent-harnesses.md) | Remote Claude Code sessions in the Spindrel UI; Codex-compatible runtime boundary |
 | [API](api.md) | Public REST API for external callers |
 | [BlueBubbles](bluebubbles.md) | iMessage integration specifics |
 | [Bot Skills](bot-skills.md) | Self-improving agents + skill authoring |
@@ -58,7 +58,7 @@ Per-feature writeups, alphabetical. Not north-star; a canonical guide wins when 
 | [PWA & Push](pwa-push.md) | PWA installation + Web Push |
 | [Secrets & Redaction](secrets.md) | Secret stores + redaction rules |
 | [Slack](slack.md) | Slack integration specifics |
-| [Spatial Canvas](spatial-canvas.md) | Workspace-scope infinite plane that replaces the desktop home — channel + widget tiles, fisheye lens, Now Well |
+| [Spatial Canvas](spatial-canvas.md) | Workspace-scope infinite plane — channel + widget tiles, bot nodes, Now Well, Memory Observatory |
 | [Sub-Agents](subagents.md) | Readonly sidecar sub-agents |
 | [Task Sub-Sessions](task-sub-sessions.md) | Pipeline-as-chat + threads + scratch chat |
 | [Templates and Activation](templates-and-activation.md) | Workspace templates + activation manifests |

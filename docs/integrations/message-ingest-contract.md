@@ -1,7 +1,7 @@
 # Message Ingest Contract
 
 When your integration receives a human-authored message and submits it to the
-agent — via [`submit_chat`](../api/chat.md), `inject_message`, or
+agent — via [`submit_chat`](../guides/api.md), `inject_message`, or
 `store_passive_message_http` — it MUST follow this rule:
 
 > `content` is the raw text the human typed. Nothing else.

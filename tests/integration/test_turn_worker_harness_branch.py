@@ -171,12 +171,26 @@ class _FakeRuntime:
     def name(self) -> str:
         return "claude-code"
 
-    async def start_turn(self, *, workdir, prompt, session_id, emit):
+    # Phase 3 classification methods — required by the HarnessRuntime Protocol.
+    def readonly_tools(self):
+        return frozenset({"Read", "Glob", "Grep", "WebSearch"})
+
+    def prompts_in_accept_edits(self, tool_name: str) -> bool:
+        return tool_name not in {"Read", "Glob", "Grep", "WebSearch", "Edit", "Write"}
+
+    def autoapprove_in_plan(self, tool_name: str) -> bool:
+        return tool_name == "ExitPlanMode"
+
+    async def start_turn(self, *, ctx, prompt, emit):
+        # Capture both the legacy-shaped fields (for existing assertions) and
+        # the new ctx itself (for Phase 3 assertions).
         self.captured = {
-            "workdir": workdir,
+            "ctx": ctx,
+            "workdir": ctx.workdir,
             "prompt": prompt,
-            "session_id": session_id,
+            "session_id": ctx.harness_session_id,
             "emit": emit,
+            "permission_mode": ctx.permission_mode,
         }
         if self._raises is not None:
             raise self._raises

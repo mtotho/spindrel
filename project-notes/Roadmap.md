@@ -1,7 +1,7 @@
 ---
 tags: [agent-server, roadmap, master]
 status: active
-updated: 2026-04-26 (Spatial heartbeat controls + bot widget management shipped)
+updated: 2026-04-26 (public-release docs audit + harness positioning)
 ---
 # Agent Server — Roadmap
 
@@ -34,6 +34,9 @@ Full detail in [[Completed Tracks]]. `run_script` follow-up on 2026-04-21: bot-a
 
 ## Active
 
+### Harness SDK (2026-04-26)
+External agent harnesses are becoming a first-class runtime lane rather than a one-off Claude Code bridge. Current direction: per-session harness approval modes, a runtime capability/settings surface for model + effort + slash-command filtering, Codex on the same contract, and later opt-in Spindrel tool/skill bridges that preserve dispatch, policy, approvals, traces, and result envelopes. See [[Track - Harness SDK]].
+
 ### Spatial Canvas (2026-04-26)
 Workspace-scope infinite plane replacing `HomeGrid` on desktop. Channels auto-populate as draggable tiles seeded by phyllotaxis; widgets are opt-in via "Pin to workspace canvas"; participating bots auto-seed as larger emoji actor nodes with channel-scoped spatial policy, heartbeat-owned canned spatial prompting, awareness context, bounded movement, nearby inspect, auditable object tugs, and bot-owned spatial widget tools. Double-click a channel tile → animated zoom-dive (~300ms) to its existing dashboard; clicking a bot opens a docked chat. `Ctrl+Shift+Space` toggles canvas as an overlay from any route (swaps main content; sidebar stays; contextual camera). `workspace_spatial_nodes` is the single source of truth for world positions; fixed system landmarks like Now Well and Memory Observatory sit outside that draggable-node table. Memory Observatory renders `/admin/learning#Memory` activity as active bot lanes, hot memory-file bodies, recent write sparks, memory search, and source inspection. Custom DOM + CSS transforms + dnd-kit drag for ordinary nodes; bots use pointer-to-world dragging to avoid zoom drift. Edges, activity pulses, Gossamer HUD, minimap, embedded-live-channel-at-max-zoom all stacked as Phase 2+. Mobile keeps `HomeChannelsList`. See [[Track - Spatial Canvas]]. Prototype: `scratch/alt-ui-prototypes/spatial-canvas.html`.
 
@@ -64,8 +67,8 @@ Phase 1 shipped: unified reasoning/effort knob + `/effort <off|low|medium|high>`
 ### Knowledge Base convention — shipped 2026-04-19 (session 22)
 Every channel and bot gets an auto-created `knowledge-base/` folder, auto-indexed + auto-retrieved. Two narrow search tools: `search_channel_knowledge(query)` and `search_bot_knowledge(query)`. Replaces the 4-knob segment mudball. See [[Track - Indexing & Search]] Phase 4 + [[Architecture Decisions#Knowledge-base convention replaces manual segment UI as the default]].
 
-### Docs Refresh — Phase B + D + E text work shipped 2026-04-19 (session 19)
-Seven new guides landed + `docs/index.md` table + `mkdocs.yml` nav rebuilt. Phase A (screenshots — needs e2e staging) and Phase F (grep-sweep cleanup) remain. See [[Track - Docs Refresh]].
+### Docs Refresh — public-release audit pass 2026-04-26
+README/docs index now surface status pages, security, local machine control, admin terminal, and external-agent harnesses. Harness docs are positioned as remote Claude Code sessions with no Spindrel agent/RAG middleman; Codex remains planned. Setup/security/execution/status docs received release-readiness corrections. Remaining: screenshot hero gate, workflow deprecation/product-surface mismatch, and MkDocs build verification. See [[Track - Docs Refresh]].
 
 ### ChatGPT Subscription OAuth Provider — shipped 2026-04-19
 New `openai-subscription` provider type authenticates against OpenAI's Codex Responses API with a ChatGPT OAuth Bearer token (no API key). Device-code flow + `OpenAIResponsesAdapter` + allowlisted model autoseed. See [[Architecture Decisions#ChatGPT Subscription OAuth — Codex Device-Code Flow, Responses-API-Only]].

@@ -1022,8 +1022,8 @@ integration's settings page).
 
 ### `dashboard_modules` — Pluggable dashboard panels
 
-Integrations can register custom modules that appear on the Mission Control
-dashboard (or any integration-owned dashboard).
+Integrations can register custom modules that appear on integration-owned
+dashboards. Older code and configs may still use the `dashboard_modules` name.
 
 ```yaml
 dashboard_modules:

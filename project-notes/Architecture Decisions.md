@@ -10,6 +10,16 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 
 ## Key Decisions
 
+### Harness SDK is a host contract; runtime specifics stay in integrations
+**Decided 2026-04-26.** External agent harnesses are a separate runtime lane from normal Spindrel bots. They reuse Spindrel channels, workspaces, session persistence, approvals, and UI chrome, but the harness owns its native reasoning loop, native tools, file edits, and native session id. The planning home is [[Track - Harness SDK]].
+
+**Load-bearing invariants.**
+- Harness runtime modules live under `integrations/<id>/` and import stable host contracts through `integrations.sdk`, not directly from `app.*`.
+- Core `app/` code must not bake in Claude-only tool names or permission semantics. Runtime adapters own tool classification and SDK-native translation.
+- Harness approvals reuse `ToolApproval` but native harness tool prompts do not create linked `ToolCall` rows.
+- Harness model, effort, and approval settings are session-scoped first so split panes, scratch sessions, and concurrent harness sessions do not trample each other.
+- Any future bridge from a harness into Spindrel tools must route through existing Spindrel dispatch, policy, approval, trace, and result-envelope paths.
+
 ### `schedule_task` split into `schedule_prompt` + `define_pipeline`; `/admin/tasks` → `/admin/automations`
 **Decided 2026-04-25.** "Task" was overloaded across six execution models in the codebase. The single dual-purpose `schedule_task(prompt=..., steps=...)` tool was the worst LLM-confusion failure mode — the model had to know that omitting `steps` produced a Scheduled prompt and including `steps` produced a Pipeline definition, with no schema-level signal of the discriminator.
 
