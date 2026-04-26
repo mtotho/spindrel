@@ -33,6 +33,10 @@ export interface DecideRequest {
     scope?: "bot" | "global";
     priority?: number;
   };
+  /** Harness-only: when approving, also auto-approve every subsequent tool
+   *  call in the SAME turn. Reverted by the turn-finally cleanup. The backend
+   *  rejects this for non-harness approvals. */
+  bypass_rest_of_turn?: boolean;
 }
 
 export interface DecideResponse {
@@ -129,6 +133,39 @@ export function usePendingApprovalCount(excludeChannelId?: string) {
       excludeChannelId
         ? data.filter((a) => a.channel_id !== excludeChannelId).length
         : data.length,
+  });
+}
+
+export type HarnessApprovalMode =
+  | "bypassPermissions"
+  | "acceptEdits"
+  | "default"
+  | "plan";
+
+interface ApprovalModeResponse {
+  mode: HarnessApprovalMode;
+}
+
+export function useSessionApprovalMode(sessionId: string | null | undefined) {
+  return useQuery({
+    queryKey: ["session-approval-mode", sessionId],
+    queryFn: () =>
+      apiFetch<ApprovalModeResponse>(`/api/v1/sessions/${sessionId}/approval-mode`),
+    enabled: !!sessionId,
+  });
+}
+
+export function useSetSessionApprovalMode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId, mode }: { sessionId: string; mode: HarnessApprovalMode }) =>
+      apiFetch<ApprovalModeResponse>(`/api/v1/sessions/${sessionId}/approval-mode`, {
+        method: "POST",
+        body: JSON.stringify({ mode }),
+      }),
+    onSuccess: (data, variables) => {
+      qc.setQueryData(["session-approval-mode", variables.sessionId], data);
+    },
   });
 }
 

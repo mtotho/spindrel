@@ -40,16 +40,18 @@ This track covers the stable host contract used by Claude Code today and Codex l
 |---|---|---|---|
 | 1 | Claude Code web harness baseline | shipped | Remote Claude Code sessions from the web UI, workspace reuse, auth-status surface, terminal login, resume/cost persistence. |
 | 2 | Resume + broad auto-approval cleanup | shipped | Per-session resume keying and auto-approve `can_use_tool` shim to avoid SDK permission stalls. |
-| 3 | Harness approvals | planning | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. |
+| 3 | Harness approvals | shipped | Per-session approval modes: `bypassPermissions`, `acceptEdits`, `default`, `plan`; approval cards for ask paths; stop-turn cancellation; boundary re-exports. Phase 3a (backend) and Phase 3b (UI) both shipped 2026-04-26. |
 | 4 | Harness control surface | planning | Runtime capabilities, per-session model/effort/settings endpoints, header/composer dropdowns, harness-aware `/model` and `/effort`, filtered slash-command UX. |
 | 5 | Codex runtime | planned | Implement Codex against the same `TurnContext`, approval, settings, and runtime-capability contracts. |
 | 6 | Spindrel tool bridge | planned | Adapter/MCP layer that exposes selected Spindrel tools to harnesses while preserving dispatch, policy, approval, traces, and result envelopes. |
 | 7 | Skill bridge | planned | Export simple skills to harness-native skill folders and/or expose searchable Spindrel skills as bridged tools/resources. |
 | 8 | Usage + observability | planned | Aggregate harness usage/cost into admin usage, expose runtime version/auth/health, and improve post-refresh tool-call rehydration. |
 
-## Phase 3 - Approval Contract
+## Phase 3 - Approval Contract — shipped 2026-04-26
 
-Phase 3 introduces a shared approval helper in `app/services/agent_harnesses/approvals.py` and lets each runtime translate Spindrel's `AllowDeny` result into its SDK-native permission shape.
+Phase 3a (backend) and Phase 3b (UI) shipped same day. Shared approval helper in `app/services/agent_harnesses/approvals.py`. Each runtime translates Spindrel's `AllowDeny` result into its SDK-native permission shape (Claude → `PermissionResultAllow`/`PermissionResultDeny`).
+
+UI surface: per-session mode pill in `ChannelHeader` (cycles `bypass → edits → ask → plan`), live + orphan harness approval cards with tool-specific arg previews (Bash command, Edit diff, Write file/content, ExitPlanMode plan), `Approve all this turn` button that sends `bypass_rest_of_turn` and grants the in-memory turn bypass, `expired` decision wired through the chat reducer.
 
 Planned shape:
 

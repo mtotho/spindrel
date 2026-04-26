@@ -47,19 +47,22 @@ function OrphanApprovalCard({
   t: ReturnType<typeof useThemeTokens>;
 }) {
   const decide = useDecideApproval();
+  const isHarness = approval.tool_type === "harness";
 
-  const handle = (approved: boolean) => {
+  const handle = (approved: boolean, bypassRestOfTurn = false) => {
     decide.mutate({
       approvalId: approval.id,
       data: {
         approved,
         decided_by: "user",
+        ...(bypassRestOfTurn ? { bypass_rest_of_turn: true } : {}),
       },
     });
   };
 
   const label = approval.tool_name;
   const description = approval.reason;
+  const argsPreview = isHarness ? buildHarnessOrphanPreview(approval) : null;
 
   return (
     <div
@@ -93,6 +96,14 @@ function OrphanApprovalCard({
           {description}
         </div>
       )}
+      {argsPreview && (
+        <pre
+          className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words px-2.5 pb-2 text-[11px]"
+          style={{ fontFamily: "'Menlo', monospace", color: t.text }}
+        >
+          {argsPreview}
+        </pre>
+      )}
       <div
         className="flex flex-row flex-wrap items-center gap-2 px-2.5 py-2"
         style={{ borderTop: `1px solid ${t.warningBorder}` }}
@@ -116,6 +127,23 @@ function OrphanApprovalCard({
         >
           Approve
         </button>
+        {isHarness && (
+          <button
+            disabled={decide.isPending}
+            onClick={() => handle(true, true)}
+            className="rounded text-xs font-semibold px-3 py-1 inline-flex items-center gap-1"
+            style={{
+              backgroundColor: "transparent",
+              color: t.success,
+              border: `1px solid ${t.successBorder}`,
+              opacity: decide.isPending ? 0.6 : 1,
+              cursor: decide.isPending ? "default" : "pointer",
+            }}
+            title="Approve this call AND auto-approve every remaining tool call in this turn."
+          >
+            Approve all this turn
+          </button>
+        )}
         <button
           disabled={decide.isPending}
           onClick={() => handle(false)}
@@ -133,4 +161,30 @@ function OrphanApprovalCard({
       </div>
     </div>
   );
+}
+
+function buildHarnessOrphanPreview(approval: ToolApproval): string | null {
+  const args = (approval.arguments ?? {}) as Record<string, unknown>;
+  const str = (key: string): string | null => {
+    const v = args[key];
+    return typeof v === "string" && v.trim() ? v : null;
+  };
+  if (approval.tool_name === "Bash") {
+    const cmd = str("command");
+    if (cmd) return cmd.length > 600 ? `${cmd.slice(0, 600)}…` : cmd;
+  } else if (approval.tool_name === "Edit") {
+    const file = str("file_path") ?? str("path") ?? "";
+    const oldS = str("old_string") ?? "";
+    const newS = str("new_string") ?? "";
+    return [file, oldS && `- ${oldS}`, newS && `+ ${newS}`].filter(Boolean).join("\n");
+  } else if (approval.tool_name === "Write") {
+    const file = str("file_path") ?? str("path") ?? "";
+    const content = str("content") ?? "";
+    const lines = content.split(/\r?\n/).slice(0, 20);
+    return [file, lines.join("\n")].filter(Boolean).join("\n");
+  } else if (approval.tool_name === "ExitPlanMode") {
+    return str("plan");
+  }
+  if (Object.keys(args).length === 0) return null;
+  return JSON.stringify(args, null, 2);
 }

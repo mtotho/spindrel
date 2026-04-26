@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Brain, ExternalLink, FileText, Search, Sparkles, X } from "lucide-react";
+import { AlertTriangle, Brain, ExternalLink, FileText, Search, Sparkles, X } from "lucide-react";
 import {
   type LearningSearchResult,
   type MemoryFileActivity,
+  type MemoryObservatoryFinding,
   type MemoryObservatoryFile,
   useLearningSearch,
   useMemoryObservatory,
@@ -22,7 +23,8 @@ import {
 export type MemoryObservationSelection =
   | { kind: "event"; event: MemoryFileActivity }
   | { kind: "file"; file: MemoryObservatoryFile }
-  | { kind: "search"; result: LearningSearchResult };
+  | { kind: "search"; result: LearningSearchResult }
+  | { kind: "finding"; finding: MemoryObservatoryFinding };
 
 interface MemoryObservatoryProps {
   zoom: number;
@@ -50,18 +52,25 @@ function fmtRelative(value?: string | null) {
 
 function sourceTitle(selection: MemoryObservationSelection) {
   if (selection.kind === "search") return selection.result.title;
+  if (selection.kind === "finding") return selection.finding.title;
   if (selection.kind === "file") return selection.file.file_path;
   return selection.event.file_path;
 }
 
 function selectionSourceFile(selection: MemoryObservationSelection) {
   if (selection.kind === "search") return selection.result.source_file ?? null;
+  if (selection.kind === "finding") return selection.finding.source_file ?? null;
   if (selection.kind === "file") return selection.file.source_file ?? null;
   return selection.event.source_file ?? null;
 }
 
 function selectionFallback(selection: MemoryObservationSelection) {
   if (selection.kind === "search") return selection.result.open_url ?? "/admin/learning#Memory";
+  if (selection.kind === "finding") {
+    return selection.finding.bot_id
+      ? `/admin/bots/${encodeURIComponent(selection.finding.bot_id)}#learning`
+      : "/admin/learning#Memory";
+  }
   if (selection.kind === "file") return `/admin/bots/${encodeURIComponent(selection.file.bot_id)}#learning`;
   return selection.event.bot_id ? `/admin/bots/${encodeURIComponent(selection.event.bot_id)}#learning` : "/admin/learning#Memory";
 }
@@ -80,6 +89,22 @@ function fileMarkKey(file: MemoryObservatoryFile) {
 
 function eventMarkKey(event: MemoryFileActivity, index: number) {
   return `event:${event.correlation_id ?? event.created_at}:${event.file_path}:${index}`;
+}
+
+function findingTone(finding: MemoryObservatoryFinding) {
+  if (finding.kind === "burst") return "border-orange-300/55 text-orange-100 bg-orange-500/[0.10]";
+  if (finding.kind === "hot_churn") return "border-amber-300/55 text-amber-100 bg-amber-500/[0.10]";
+  if (finding.kind === "hygiene_heavy") return "border-purple-300/55 text-purple-100 bg-purple-500/[0.10]";
+  if (finding.kind === "dated_log_scatter") return "border-cyan-300/45 text-cyan-100 bg-cyan-500/[0.08]";
+  return "border-surface-border text-text-muted bg-surface-overlay/35";
+}
+
+function findingStroke(finding: MemoryObservatoryFinding) {
+  if (finding.kind === "burst") return "rgb(251 146 60)";
+  if (finding.kind === "hot_churn") return "rgb(251 191 36)";
+  if (finding.kind === "hygiene_heavy") return "rgb(192 132 252)";
+  if (finding.kind === "dated_log_scatter") return "rgb(34 211 238)";
+  return "rgb(var(--color-text-muted))";
 }
 
 export function MemoryObservationPanel({
@@ -124,6 +149,8 @@ export function MemoryObservationPanel({
   const botName =
     selection.kind === "search"
       ? selection.result.bot_name
+      : selection.kind === "finding"
+      ? selection.finding.bot_name
       : selection.kind === "file"
       ? selection.file.bot_name
       : selection.event.bot_name;
@@ -133,6 +160,13 @@ export function MemoryObservationPanel({
           selection.event.operation,
           selection.event.job_type?.replace("_", " "),
           fmtRelative(selection.event.created_at),
+        ].filter(Boolean).join(" · ")
+      : selection.kind === "finding"
+      ? [
+          selection.finding.kind.replaceAll("_", " "),
+          selection.finding.severity,
+          selection.finding.write_count ? `${selection.finding.write_count} writes` : null,
+          selection.finding.file_count ? `${selection.finding.file_count} files` : null,
         ].filter(Boolean).join(" · ")
       : selection.kind === "file"
       ? [`${selection.file.write_count} writes`, `${selection.file.hygiene_count} hygiene`, fmtRelative(selection.file.last_updated_at)].join(" · ")
@@ -164,6 +198,9 @@ export function MemoryObservationPanel({
       {selection.kind === "search" && selection.result.snippet && (
         <p className="line-clamp-4 text-[12px] leading-relaxed text-text-muted">{selection.result.snippet}</p>
       )}
+      {selection.kind === "finding" && (
+        <p className="text-[12px] leading-relaxed text-text-muted">{selection.finding.detail}</p>
+      )}
       <div>
         <ActionButton
           label="Open Memory Center"
@@ -182,10 +219,19 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
   const [days, setDays] = useState(30);
   const [query, setQuery] = useState("");
   const [hoveredMarkKey, setHoveredMarkKey] = useState<string | null>(null);
+  const [activeFindingId, setActiveFindingId] = useState<string | null>(null);
   const observatory = useMemoryObservatory(days);
   const search = useLearningSearch();
 
   const data = observatory.data;
+  const activeFinding = useMemo(
+    () => data?.findings.find((finding) => finding.id === activeFindingId) ?? null,
+    [activeFindingId, data?.findings],
+  );
+  const activeFindingFiles = useMemo(
+    () => new Set(activeFinding?.related_file_ids ?? []),
+    [activeFinding],
+  );
   const horizonDays = observatoryHorizonDays(days);
   const maxWriteCount = Math.max(1, ...(data?.hot_files.map((file) => file.write_count) ?? [1]));
   const lanes = useMemo(
@@ -211,6 +257,25 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
       days,
       top_k_per_source: 10,
     });
+  };
+
+  const inspectFinding = (finding: MemoryObservatoryFinding) => {
+    setActiveFindingId(finding.id);
+    if (finding.file_path && finding.bot_id) {
+      const file = data?.hot_files.find((candidate) => candidate.id === `${finding.bot_id}:${finding.file_path}`);
+      if (file) {
+        onInspect({ kind: "file", file });
+        return;
+      }
+    }
+    if (finding.correlation_id) {
+      const event = data?.recent_events.find((candidate) => candidate.correlation_id === finding.correlation_id);
+      if (event) {
+        onInspect({ kind: "event", event });
+        return;
+      }
+    }
+    onInspect({ kind: "finding", finding });
   };
 
   const showMid = zoom >= FAR_THRESHOLD;
@@ -308,14 +373,16 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
             {lane.files.map((mark) => {
               const markKey = fileMarkKey(mark.file);
               const matched = matchedKeys.has(markKey);
+              const findingMatched = activeFindingFiles.has(mark.file.id);
               const hovered = hoveredMarkKey === markKey;
-              const prominent = mark.rank === 0 || mark.file.write_count >= 4 || mark.file.hygiene_count >= 2 || matched;
+              const prominent = mark.rank === 0 || mark.file.write_count >= 4 || mark.file.hygiene_count >= 2 || matched || findingMatched;
               const showLabel = showRichDetail && (prominent || hovered);
               const markerRadius = showDetail
-                ? Math.max(detailWorldSize(zoom, 10), Math.min(detailWorldSize(zoom, hovered || prominent ? 28 : 20), mark.r * 0.4))
+                ? Math.max(detailWorldSize(zoom, 10), Math.min(detailWorldSize(zoom, hovered || prominent ? 28 : 20), mark.r * (findingMatched ? 0.52 : 0.4)))
                 : mark.r;
               const labelX = mark.x + markerRadius + detailGap;
               const labelY = mark.y - detailGap * 0.25;
+              const highlightStroke = findingMatched && activeFinding ? findingStroke(activeFinding) : mark.color;
               return (
                 <g
                   key={mark.file.id}
@@ -332,18 +399,29 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
                     cy={mark.y}
                     r={markerRadius}
                     fill={mark.color}
-                    fillOpacity={matched ? 0.75 : showDetail ? 0.38 : 0.28}
-                    stroke={mark.color}
-                    strokeOpacity={matched ? 0.95 : showDetail ? 0.62 : 0.42}
-                    strokeWidth={detailWorldSize(zoom, matched ? 2.2 : hovered ? 2 : 1.4)}
+                    fillOpacity={matched || findingMatched ? 0.75 : showDetail ? 0.38 : 0.28}
+                    stroke={highlightStroke}
+                    strokeOpacity={matched || findingMatched ? 0.95 : showDetail ? 0.62 : 0.42}
+                    strokeWidth={detailWorldSize(zoom, findingMatched ? 3 : matched ? 2.2 : hovered ? 2 : 1.4)}
                   />
+                  {findingMatched && (
+                    <circle
+                      cx={mark.x}
+                      cy={mark.y}
+                      r={markerRadius + detailWorldSize(zoom, 8)}
+                      fill="none"
+                      stroke={highlightStroke}
+                      strokeOpacity={0.52}
+                      strokeWidth={detailWorldSize(zoom, 1.4)}
+                    />
+                  )}
                   {showLabel && (
                     <>
                       <text
                         x={labelX}
                         y={labelY}
                         fill="rgb(var(--color-text))"
-                        fillOpacity={hovered || matched ? 0.98 : 0.78}
+                        fillOpacity={hovered || matched || findingMatched ? 0.98 : 0.78}
                         fontSize={detailLabelSize}
                         fontWeight={650}
                         paintOrder="stroke"
@@ -357,7 +435,7 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
                         x={labelX}
                         y={labelY + detailLabelSize + detailWorldSize(zoom, 2, 1)}
                         fill="rgb(var(--color-text-muted))"
-                        fillOpacity={hovered || matched ? 0.78 : 0.58}
+                        fillOpacity={hovered || matched || findingMatched ? 0.78 : 0.58}
                         fontSize={detailMetaSize}
                         paintOrder="stroke"
                         stroke="rgb(var(--color-surface-base))"
@@ -375,11 +453,14 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
         ))}
         {showMid && eventMarks.map((mark, index) => {
           const matched = matchedKeys.has(mark.matchKey);
+          const findingMatched = Boolean(activeFinding?.correlation_id && activeFinding.correlation_id === mark.event.correlation_id)
+            || activeFindingFiles.has(memoryFileKey(mark.event.bot_id, mark.event.file_path));
           const markKey = eventMarkKey(mark.event, index);
           const hovered = hoveredMarkKey === markKey;
           const eventRadius = showDetail
-            ? detailWorldSize(zoom, hovered || matched ? 8 : mark.event.is_hygiene ? 6 : 4)
-            : (matched ? mark.r + 2 : mark.r);
+            ? detailWorldSize(zoom, hovered || matched || findingMatched ? 8 : mark.event.is_hygiene ? 6 : 4)
+            : (matched || findingMatched ? mark.r + 2 : mark.r);
+          const highlightStroke = findingMatched && activeFinding ? findingStroke(activeFinding) : mark.color;
           return (
             <g
               key={`${mark.event.correlation_id ?? mark.event.created_at}:${mark.event.file_path}:${index}`}
@@ -397,8 +478,8 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
                   cy={mark.y}
                   r={eventRadius + detailWorldSize(zoom, 6)}
                   fill="none"
-                  stroke={mark.color}
-                  strokeOpacity={matched ? 0.9 : 0.36}
+                  stroke={highlightStroke}
+                  strokeOpacity={matched || findingMatched ? 0.9 : 0.36}
                   strokeWidth={detailWorldSize(zoom, 1.1)}
                 />
               )}
@@ -406,10 +487,21 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
                 cx={mark.x}
                 cy={mark.y}
                 r={eventRadius}
-                fill={mark.color}
-                fillOpacity={matched ? 0.95 : 0.72}
+                fill={highlightStroke}
+                fillOpacity={matched || findingMatched ? 0.95 : 0.72}
               />
-              {showRichDetail && (hovered || matched) && (
+              {findingMatched && (
+                <circle
+                  cx={mark.x}
+                  cy={mark.y}
+                  r={eventRadius + detailWorldSize(zoom, 5)}
+                  fill="none"
+                  stroke={highlightStroke}
+                  strokeOpacity={0.58}
+                  strokeWidth={detailWorldSize(zoom, 1.2)}
+                />
+              )}
+              {showRichDetail && (hovered || matched || findingMatched) && (
                 <text
                   x={mark.x + eventRadius + detailGap * 0.6}
                   y={mark.y + detailMetaSize * 0.35}
@@ -458,6 +550,49 @@ export function MemoryObservatory({ zoom, lens = null, onInspect }: MemoryObserv
           {lane.bot.bot_name} · {lane.bot.write_count}
         </button>
       ))}
+
+      {showClose && !accessDenied && Boolean(data?.findings?.length) && (
+        <div
+          className="absolute flex w-[360px] flex-col gap-2 rounded-md bg-surface-raised/88 p-3 text-[12px] text-text-muted shadow-lg ring-1 ring-surface-border backdrop-blur pointer-events-auto"
+          style={{ left: W / 2 - 590, top: H / 2 + 170 }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+              <AlertTriangle size={13} />
+              Top findings
+            </div>
+            <span className="text-[10px] text-text-dim">{data?.findings.length ?? 0}</span>
+          </div>
+          <div className="flex max-h-48 flex-col gap-1 overflow-auto">
+            {data?.findings.slice(0, 5).map((finding) => {
+              const active = activeFindingId === finding.id;
+              return (
+                <button
+                  key={finding.id}
+                  type="button"
+                  onMouseEnter={() => setActiveFindingId(finding.id)}
+                  onFocus={() => setActiveFindingId(finding.id)}
+                  onClick={() => inspectFinding(finding)}
+                  className={`rounded-md border px-2.5 py-2 text-left transition-colors ${findingTone(finding)} ${
+                    active ? "ring-1 ring-current/45" : "opacity-[0.82] hover:opacity-100"
+                  }`}
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12px] font-semibold text-text">{finding.title}</span>
+                      <span className="line-clamp-2 text-[11px] leading-snug text-text-muted">{finding.detail}</span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-surface/55 px-1.5 py-0.5 text-[10px] uppercase text-text-dim">
+                      {finding.severity}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {showClose && !accessDenied && (
         <div

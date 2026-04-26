@@ -179,6 +179,24 @@ class MemoryObservatoryBurst(BaseModel):
     file_count: int = 0
     created_at: datetime
 
+class MemoryObservatoryFinding(BaseModel):
+    id: str
+    kind: Literal["hot_churn", "hygiene_heavy", "burst", "dated_log_scatter", "quiet_bots"]
+    severity: Literal["high", "medium", "low"] = "medium"
+    title: str
+    detail: str
+    bot_id: Optional[str] = None
+    bot_name: Optional[str] = None
+    file_path: Optional[str] = None
+    source_file: Optional[SourceFileTarget] = None
+    correlation_id: Optional[str] = None
+    job_type: Optional[str] = None
+    write_count: int = 0
+    file_count: int = 0
+    related_file_ids: list[str] = []
+    created_at: Optional[datetime] = None
+    last_updated_at: Optional[datetime] = None
+
 class MemoryObservatoryResponse(BaseModel):
     days: int
     total_writes: int = 0
@@ -188,6 +206,7 @@ class MemoryObservatoryResponse(BaseModel):
     hot_files: list[MemoryObservatoryFile] = []
     recent_events: list[MemoryFileActivity] = []
     bursts: list[MemoryObservatoryBurst] = []
+    findings: list[MemoryObservatoryFinding] = []
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +571,7 @@ def _build_memory_observatory(
     lane_limit: int = 12,
     hot_file_limit: int = 6,
     event_limit: int = 150,
+    known_bots: dict[str, str] | None = None,
 ) -> MemoryObservatoryResponse:
     by_bot: dict[str, dict] = {}
     by_file: dict[tuple[str, str], dict] = {}
@@ -655,6 +675,13 @@ def _build_memory_observatory(
         if entry["write_count"] > 1 or entry["job_type"]
     ]
     bursts.sort(key=lambda item: (item.write_count, item.created_at), reverse=True)
+    findings = _build_memory_observatory_findings(
+        files=files,
+        bots=bot_rows,
+        bursts=bursts,
+        days=days,
+        known_bots=known_bots,
+    )
 
     return MemoryObservatoryResponse(
         days=days,
@@ -665,7 +692,142 @@ def _build_memory_observatory(
         hot_files=files[:hot_file_limit * 2],
         recent_events=activity[:event_limit],
         bursts=bursts[:12],
+        findings=findings,
     )
+
+_SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2}
+
+def _is_dated_memory_file(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    if len(name) < 13 or not name.endswith(".md"):
+        return False
+    stem = name[:-3]
+    if len(stem) != 10:
+        return False
+    return stem[4] == "-" and stem[7] == "-" and stem.replace("-", "").isdigit()
+
+def _build_memory_observatory_findings(
+    *,
+    files: list[MemoryObservatoryFile],
+    bots: list[MemoryObservatoryBot],
+    bursts: list[MemoryObservatoryBurst],
+    days: int,
+    known_bots: dict[str, str] | None = None,
+    limit: int = 8,
+) -> list[MemoryObservatoryFinding]:
+    findings: list[MemoryObservatoryFinding] = []
+    bot_write_counts = {bot.bot_id: max(1, bot.write_count) for bot in bots}
+    files_by_bot: dict[str, list[MemoryObservatoryFile]] = {}
+    for file in files:
+        files_by_bot.setdefault(file.bot_id, []).append(file)
+        bot_total = bot_write_counts.get(file.bot_id, 1)
+        is_hot_churn = file.write_count >= 6 or (file.write_count >= 4 and file.write_count / bot_total >= 0.25)
+        if is_hot_churn:
+            findings.append(MemoryObservatoryFinding(
+                id=f"finding:hot_churn:{file.id}",
+                kind="hot_churn",
+                severity="high" if file.write_count >= 8 else "medium",
+                title=f"Hot memory churn in {file.bot_name}",
+                detail=f"{file.file_path} absorbed {file.write_count} writes in this window.",
+                bot_id=file.bot_id,
+                bot_name=file.bot_name,
+                file_path=file.file_path,
+                source_file=file.source_file,
+                write_count=file.write_count,
+                file_count=1,
+                related_file_ids=[file.id],
+                last_updated_at=file.last_updated_at,
+            ))
+        is_hygiene_heavy = file.hygiene_count >= 2 or (file.write_count >= 3 and file.hygiene_count / file.write_count >= 0.5)
+        if is_hygiene_heavy:
+            findings.append(MemoryObservatoryFinding(
+                id=f"finding:hygiene_heavy:{file.id}",
+                kind="hygiene_heavy",
+                severity="medium" if file.hygiene_count < 4 else "high",
+                title=f"Hygiene is repeatedly touching {file.bot_name}",
+                detail=f"{file.file_path} has {file.hygiene_count} hygiene writes out of {file.write_count} total writes.",
+                bot_id=file.bot_id,
+                bot_name=file.bot_name,
+                file_path=file.file_path,
+                source_file=file.source_file,
+                job_type="memory_hygiene",
+                write_count=file.write_count,
+                file_count=1,
+                related_file_ids=[file.id],
+                last_updated_at=file.last_updated_at,
+            ))
+
+    for burst in bursts:
+        if burst.write_count < 5 and burst.file_count < 4:
+            continue
+        related = [
+            file.id
+            for file in files_by_bot.get(burst.bot_id, [])
+            if file.file_path
+        ][:6]
+        findings.append(MemoryObservatoryFinding(
+            id=f"finding:burst:{burst.correlation_id}",
+            kind="burst",
+            severity="high" if burst.write_count >= 8 or burst.file_count >= 6 else "medium",
+            title=f"Large memory burst from {burst.bot_name}",
+            detail=f"{burst.write_count} writes touched {burst.file_count} files in one {burst.job_type or 'run'}.",
+            bot_id=burst.bot_id,
+            bot_name=burst.bot_name,
+            correlation_id=burst.correlation_id,
+            job_type=burst.job_type,
+            write_count=burst.write_count,
+            file_count=burst.file_count,
+            related_file_ids=related,
+            created_at=burst.created_at,
+            last_updated_at=burst.created_at,
+        ))
+
+    for bot in bots:
+        dated_files = [file for file in files_by_bot.get(bot.bot_id, []) if _is_dated_memory_file(file.file_path)]
+        if len(dated_files) < 4:
+            continue
+        dated_files.sort(key=lambda file: file.last_updated_at, reverse=True)
+        findings.append(MemoryObservatoryFinding(
+            id=f"finding:dated_log_scatter:{bot.bot_id}",
+            kind="dated_log_scatter",
+            severity="low" if len(dated_files) < 7 else "medium",
+            title=f"Dated memory scatter for {bot.bot_name}",
+            detail=f"{len(dated_files)} dated memory files were written in this window.",
+            bot_id=bot.bot_id,
+            bot_name=bot.bot_name,
+            write_count=sum(file.write_count for file in dated_files),
+            file_count=len(dated_files),
+            related_file_ids=[file.id for file in dated_files[:6]],
+            last_updated_at=dated_files[0].last_updated_at,
+        ))
+
+    if known_bots and days >= 7:
+        active = {bot.bot_id for bot in bots}
+        quiet = sorted((bot_id, name) for bot_id, name in known_bots.items() if bot_id not in active)
+        if quiet:
+            title = "Bots with quiet memory"
+            detail = f"{len(quiet)} registered bot{'s' if len(quiet) != 1 else ''} had no memory writes in {days}d."
+            findings.append(MemoryObservatoryFinding(
+                id="finding:quiet_bots",
+                kind="quiet_bots",
+                severity="low",
+                title=title,
+                detail=detail,
+                bot_id=quiet[0][0] if len(quiet) == 1 else None,
+                bot_name=quiet[0][1] if len(quiet) == 1 else None,
+                file_count=len(quiet),
+                last_updated_at=None,
+            ))
+
+    findings.sort(
+        key=lambda finding: (
+            _SEVERITY_RANK.get(finding.severity, 9),
+            -max(finding.write_count, finding.file_count),
+            -(finding.last_updated_at or finding.created_at or datetime.min.replace(tzinfo=timezone.utc)).timestamp(),
+            finding.id,
+        )
+    )
+    return findings[:limit]
 
 
 # ---------------------------------------------------------------------------
@@ -734,8 +896,13 @@ async def learning_memory_observatory(
     _auth=Depends(require_scopes("admin")),
 ):
     """Observatory-ready aggregate for the spatial memory landmark."""
+    from app.agent.bots import list_bots
+
     activity = await _memory_activity(db, days=days, limit=limit)
-    return _build_memory_observatory(activity, days=days, lane_limit=lane_limit)
+    known_bots = {bot.id: bot.name for bot in list_bots()}
+    for row in (await db.execute(select(BotRow.id, BotRow.name))).all():
+        known_bots.setdefault(row.id, row.name)
+    return _build_memory_observatory(activity, days=days, lane_limit=lane_limit, known_bots=known_bots)
 
 
 @router.get("/knowledge-library", response_model=KnowledgeLibraryResponse)

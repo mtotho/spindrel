@@ -29,6 +29,15 @@ export type SharedToolTranscriptEntry = {
     approvalId: string;
     capabilityId?: string;
     reason?: string;
+    /** "local" | "client" | "mcp" | "harness". Drives harness-specific
+     *  affordances on the approval row (Approve all this turn, tool-arg
+     *  preview tailored to Bash / Edit / Write / ExitPlanMode). */
+    toolType?: string;
+    /** The actual tool name the harness wants to invoke (e.g. "Bash", "Edit").
+     *  May differ from the entry's `label`, which is summary-style copy. */
+    toolName?: string;
+    /** Raw tool-input arguments the harness supplied for the approval prompt. */
+    arguments?: Record<string, unknown>;
   };
 };
 
@@ -76,9 +85,10 @@ export type OrderedLiveToolCall = {
   summary?: ToolCallSummary | null;
   envelope?: ToolResultEnvelope;
   surface?: ToolSurface;
-  status: "running" | "done" | "awaiting_approval" | "denied";
+  status: "running" | "done" | "awaiting_approval" | "denied" | "expired";
   approvalId?: string;
   approvalReason?: string;
+  tool_type?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
 };
 
@@ -860,9 +870,10 @@ export function buildLiveToolEntries(toolCalls: {
   args?: string;
   summary?: ToolCallSummary | null;
   envelope?: ToolResultEnvelope;
-  status: "running" | "done" | "awaiting_approval" | "denied";
+  status: "running" | "done" | "awaiting_approval" | "denied" | "expired";
   approvalId?: string;
   approvalReason?: string;
+  tool_type?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
 }[]): SharedToolTranscriptEntry[] {
   return toolCalls.map((tc, index) => {
@@ -871,25 +882,38 @@ export function buildLiveToolEntries(toolCalls: {
       ? buildEntryFromSummary(toolName, tc.summary, tc.envelope)
       : buildPersistedEntry(toolName, tc.args, tc.envelope, null);
 
+    let parsedArgs: Record<string, unknown> | undefined;
+    if (tc.args) {
+      const parsed = parseJsonObject(tc.args);
+      if (parsed) parsedArgs = parsed;
+    }
+
     return {
       ...base,
       id: `stream:${toolName}:${tc.status}:${index}`,
       kind: tc.status === "awaiting_approval" && tc.approvalId ? "approval" : base.kind,
       label: tc.status === "awaiting_approval"
         ? `Approval required: ${toolName}`
-        : base.label,
+        : tc.status === "expired"
+          ? `Expired: ${toolName}`
+          : base.label,
       detail: formatSimpleParams(tc.args) || tc.approvalReason || tc.capability?.description || base.detail || null,
       tone: tc.status === "awaiting_approval"
           ? "warning"
           : tc.status === "denied"
             ? "danger"
-            : tc.status === "running"
+            : tc.status === "expired"
               ? "muted"
-              : base.tone,
-      approval: tc.approvalId ? {
+              : tc.status === "running"
+                ? "muted"
+                : base.tone,
+      approval: tc.approvalId && tc.status === "awaiting_approval" ? {
         approvalId: tc.approvalId,
         capabilityId: tc.capability?.id,
         reason: tc.approvalReason,
+        toolType: tc.tool_type,
+        toolName: tc.name,
+        arguments: parsedArgs,
       } : undefined,
     };
   });

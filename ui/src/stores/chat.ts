@@ -16,9 +16,13 @@ export type ToolCall = {
   args?: string;
   surface?: ToolSurface;
   summary?: ToolCallSummary | null;
-  status: "running" | "done" | "awaiting_approval" | "denied";
+  status: "running" | "done" | "awaiting_approval" | "denied" | "expired";
   approvalId?: string;
   approvalReason?: string;
+  /** Approval discriminator: "local" | "client" | "mcp" | "harness". Set when
+   *  the SSE approval_request event populates it. Drives harness-specific
+   *  affordances (Approve all this turn, tool-specific arg preview). */
+  tool_type?: string;
   capability?: { id: string; name: string; description: string; tools_count: number; skills_count: number };
   isError?: boolean;
   /** Rendered tool result envelope (set on tool_result event). Drives the
@@ -461,6 +465,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
             approval_id?: string;
             tool?: string;
             reason?: string;
+            tool_type?: string;
             capability?: TurnState["toolCalls"][number]["capability"];
           };
           const tcs = [...turn.toolCalls];
@@ -478,6 +483,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               approvalId: data.approval_id,
               approvalReason: data.reason ?? undefined,
               capability: data.capability ?? undefined,
+              tool_type: data.tool_type ?? tcs[idx].tool_type,
             };
           } else {
             // Approval arrived without a preceding tool_start (capability
@@ -489,6 +495,7 @@ export const useChatStore = create<ChatState>()((set, get) => ({
               approvalId: data.approval_id,
               approvalReason: data.reason ?? undefined,
               capability: data.capability ?? undefined,
+              tool_type: data.tool_type,
             };
             tcs.push(toolCall);
             updated = {
@@ -507,7 +514,10 @@ export const useChatStore = create<ChatState>()((set, get) => ({
           const tcs = [...turn.toolCalls];
           const idx = tcs.findIndex((t) => t.approvalId === data.approval_id);
           if (idx >= 0) {
-            const newStatus = verdict === "approved" ? ("running" as const) : ("denied" as const);
+            const newStatus =
+              verdict === "approved" ? ("running" as const)
+              : verdict === "expired" ? ("expired" as const)
+              : ("denied" as const);
             tcs[idx] = { ...tcs[idx], status: newStatus };
           }
           updated = { ...turn, toolCalls: tcs };

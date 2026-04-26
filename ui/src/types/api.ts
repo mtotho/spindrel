@@ -1035,6 +1035,10 @@ export interface ToolCall {
   arguments?: string;
   args?: string;
   tool_name?: string;
+  /** Approval-side discriminator for harness vs local/client/mcp. Only set for
+   *  rows that carry an approval (the SSE `approval_request` event populates
+   *  it; persisted ToolCall rows don't carry it). */
+  tool_type?: string;
   surface?: ToolSurface;
   summary?: ToolCallSummary | null;
 }

@@ -6,7 +6,7 @@
  * messages keep rendering.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Wrench, ChevronRight, ChevronDown, AlertCircle, CheckCircle2 } from "lucide-react";
 import { formatToolArgs } from "./toolCallUtils";
 import type { ToolCall, ToolResultEnvelope } from "../../types/api";
@@ -245,7 +245,7 @@ export function DefaultToolRows({
   sessionId?: string;
   channelId?: string;
   botId?: string;
-  onApproval?: (approvalId: string, approved: boolean) => void;
+  onApproval?: (approvalId: string, approved: boolean, options?: { bypassRestOfTurn?: boolean }) => void;
   decidingIds?: Set<string>;
 }) {
   const isTerminalMode = chatMode === "terminal";
@@ -382,47 +382,12 @@ export function DefaultToolRows({
             {entry.detailKind === "inline-diff" && entry.detail && renderDiffBlock(entry.detail, t, entry.id, isTerminalMode, entry.label, entry.metaLabel)}
 
             {entry.approval && onApproval && (
-              <div
-                className="rounded-b-lg border border-t-0 overflow-hidden px-3 py-2 flex items-center gap-2 flex-wrap"
-                style={{
-                  borderColor: t.surfaceBorder,
-                  backgroundColor: t.surfaceRaised,
-                }}
-              >
-                <span className="text-[11px]" style={{ color: t.textMuted, flex: 1, minWidth: 120 }}>
-                  {entry.approval.reason || "Tool policy requires approval before execution"}
-                </span>
-                <button
-                  type="button"
-                  disabled={decidingIds?.has(entry.approval.approvalId)}
-                  onClick={() => onApproval(entry.approval!.approvalId, true)}
-                  className="text-[12px] font-semibold px-3 py-1 rounded"
-                  style={{
-                    border: "none",
-                    cursor: decidingIds?.has(entry.approval.approvalId) ? "default" : "pointer",
-                    backgroundColor: t.success,
-                    color: "#fff",
-                    opacity: decidingIds?.has(entry.approval.approvalId) ? 0.6 : 1,
-                  }}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  disabled={decidingIds?.has(entry.approval.approvalId)}
-                  onClick={() => onApproval(entry.approval!.approvalId, false)}
-                  className="text-[12px] font-semibold px-3 py-1 rounded"
-                  style={{
-                    border: "none",
-                    cursor: decidingIds?.has(entry.approval.approvalId) ? "default" : "pointer",
-                    backgroundColor: t.danger,
-                    color: "#fff",
-                    opacity: decidingIds?.has(entry.approval.approvalId) ? 0.6 : 1,
-                  }}
-                >
-                  Deny
-                </button>
-              </div>
+              <HarnessAwareApprovalRow
+                approval={entry.approval}
+                onApproval={onApproval}
+                decidingIds={decidingIds}
+                t={t}
+              />
             )}
 
             {isExpanded && expandable && (
@@ -540,5 +505,215 @@ function ErrorResult({
       chromeMode="embedded"
       t={t}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HarnessAwareApprovalRow
+//
+// Single approval row that adapts based on whether the underlying ToolApproval
+// row is from a Spindrel-loop tool (`local`/`client`/`mcp`) or from a harness
+// (`harness`). Harness rows get:
+//   * a tool-arg preview tailored to the tool name (Bash command, Edit diff,
+//     Write content, ExitPlanMode plan markdown, fallback JSON);
+//   * an "Approve all this turn" button that sends `bypass_rest_of_turn=true`
+//     so the harness stops asking for the rest of the current turn.
+// ---------------------------------------------------------------------------
+
+function HarnessAwareApprovalRow({
+  approval,
+  onApproval,
+  decidingIds,
+  t,
+}: {
+  approval: NonNullable<SharedToolTranscriptEntry["approval"]>;
+  onApproval: (approvalId: string, approved: boolean, options?: { bypassRestOfTurn?: boolean }) => void;
+  decidingIds?: Set<string>;
+  t: ThemeTokens;
+}) {
+  const isHarness = approval.toolType === "harness";
+  const busy = !!decidingIds?.has(approval.approvalId);
+  return (
+    <div
+      className="rounded-b-lg border border-t-0 overflow-hidden"
+      style={{
+        borderColor: t.surfaceBorder,
+        backgroundColor: t.surfaceRaised,
+      }}
+    >
+      {isHarness && approval.toolName && (
+        <HarnessToolPreview
+          toolName={approval.toolName}
+          args={approval.arguments ?? {}}
+          t={t}
+        />
+      )}
+      <div className="px-3 py-2 flex items-center gap-2 flex-wrap">
+        <span className="text-[11px]" style={{ color: t.textMuted, flex: 1, minWidth: 120 }}>
+          {approval.reason || "Tool policy requires approval before execution"}
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onApproval(approval.approvalId, true)}
+          className="text-[12px] font-semibold px-3 py-1 rounded"
+          style={{
+            border: "none",
+            cursor: busy ? "default" : "pointer",
+            backgroundColor: t.success,
+            color: "#fff",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          Approve
+        </button>
+        {isHarness && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onApproval(approval.approvalId, true, { bypassRestOfTurn: true })}
+            className="text-[12px] font-semibold px-3 py-1 rounded"
+            style={{
+              border: `1px solid ${t.successBorder}`,
+              cursor: busy ? "default" : "pointer",
+              backgroundColor: "transparent",
+              color: t.success,
+              opacity: busy ? 0.6 : 1,
+            }}
+            title="Approve this call AND auto-approve every remaining tool call in this turn. Reverts at end of turn."
+          >
+            Approve all this turn
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onApproval(approval.approvalId, false)}
+          className="text-[12px] font-semibold px-3 py-1 rounded"
+          style={{
+            border: "none",
+            cursor: busy ? "default" : "pointer",
+            backgroundColor: t.danger,
+            color: "#fff",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          Deny
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HarnessToolPreview({
+  toolName,
+  args,
+  t,
+}: {
+  toolName: string;
+  args: Record<string, unknown>;
+  t: ThemeTokens;
+}) {
+  const stringArg = (key: string): string | null => {
+    const v = args[key];
+    return typeof v === "string" && v.trim() ? v : null;
+  };
+  let body: ReactNode = null;
+  if (toolName === "Bash") {
+    const cmd = stringArg("command");
+    const desc = stringArg("description");
+    body = (
+      <div className="flex flex-col gap-1">
+        {desc && (
+          <div className="text-[11px]" style={{ color: t.textMuted }}>
+            {desc}
+          </div>
+        )}
+        {cmd && (
+          <pre
+            className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
+            style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+          >
+            {cmd.length > 800 ? `${cmd.slice(0, 800)}…` : cmd}
+          </pre>
+        )}
+      </div>
+    );
+  } else if (toolName === "Edit") {
+    const file = stringArg("file_path") ?? stringArg("path");
+    const oldS = stringArg("old_string") ?? "";
+    const newS = stringArg("new_string") ?? "";
+    body = (
+      <div className="flex flex-col gap-1">
+        {file && (
+          <div className="text-[11px] font-mono" style={{ color: t.textMuted }}>
+            {file}
+          </div>
+        )}
+        <pre
+          className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
+          style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+        >
+          {oldS && (
+            <span style={{ color: t.danger }}>{`- ${oldS.replace(/\n/g, "\n- ")}\n`}</span>
+          )}
+          {newS && (
+            <span style={{ color: t.success }}>{`+ ${newS.replace(/\n/g, "\n+ ")}`}</span>
+          )}
+        </pre>
+      </div>
+    );
+  } else if (toolName === "Write") {
+    const file = stringArg("file_path") ?? stringArg("path");
+    const content = stringArg("content") ?? "";
+    const lines = content.split(/\r?\n/);
+    const previewLines = lines.slice(0, 40);
+    const truncated = lines.length > 40;
+    body = (
+      <div className="flex flex-col gap-1">
+        {file && (
+          <div className="text-[11px] font-mono" style={{ color: t.textMuted }}>
+            {file}
+          </div>
+        )}
+        <pre
+          className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
+          style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+        >
+          {previewLines.join("\n")}
+          {truncated && <span style={{ color: t.textDim }}>{`\n… (${lines.length - 40} more lines)`}</span>}
+        </pre>
+      </div>
+    );
+  } else if (toolName === "ExitPlanMode") {
+    const plan = stringArg("plan") ?? "";
+    body = (
+      <pre
+        className="m-0 max-h-72 overflow-auto whitespace-pre-wrap break-words text-[11.5px]"
+        style={{ fontFamily: CODE_FONT_STACK, color: t.text }}
+      >
+        {plan}
+      </pre>
+    );
+  } else {
+    body = (
+      <pre
+        className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[10.5px]"
+        style={{ fontFamily: CODE_FONT_STACK, color: t.textMuted }}
+      >
+        {JSON.stringify(args, null, 2)}
+      </pre>
+    );
+  }
+  return (
+    <div
+      className="border-b px-3 py-2"
+      style={{ borderColor: t.surfaceBorder, backgroundColor: t.overlayLight }}
+    >
+      <div className="text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: t.textDim }}>
+        {toolName}
+      </div>
+      {body}
+    </div>
   );
 }

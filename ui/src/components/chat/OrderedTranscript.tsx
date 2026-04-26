@@ -34,9 +34,17 @@ export function OrderedTranscript({
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const isTerminalMode = chatMode === "terminal";
 
-  const handleDecide = (approvalId: string, approved: boolean) => {
+  const handleDecide = (
+    approvalId: string,
+    approved: boolean,
+    options?: { bypassRestOfTurn?: boolean },
+  ) => {
     setDecidingIds((prev) => new Set(prev).add(approvalId));
-    const data: DecideRequest = { approved, decided_by: "web:admin" };
+    const data: DecideRequest = {
+      approved,
+      decided_by: "web:admin",
+      ...(options?.bypassRestOfTurn ? { bypass_rest_of_turn: true } : {}),
+    };
     decideApproval.mutate(
       { approvalId, data },
       {

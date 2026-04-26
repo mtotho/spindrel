@@ -11,9 +11,35 @@ import { useUIStore } from "@/src/stores/ui";
 import { useChannel } from "@/src/api/hooks/useChannels";
 import { useAdminUsers } from "@/src/api/hooks/useAdminUsers";
 import { useScratchHistory, useScratchSession } from "@/src/api/hooks/useChannelSessions";
+import {
+  useSessionApprovalMode,
+  useSetSessionApprovalMode,
+  type HarnessApprovalMode,
+} from "@/src/api/hooks/useApprovals";
 import { useIsAdmin } from "@/src/hooks/useScope";
 import { useAuthStore } from "@/src/stores/auth";
 import { resolveHeaderMetrics, resolveRouteSessionChrome } from "./sessionHeaderChrome";
+
+const HARNESS_MODE_CYCLE: HarnessApprovalMode[] = [
+  "bypassPermissions",
+  "acceptEdits",
+  "default",
+  "plan",
+];
+
+const HARNESS_MODE_LABEL: Record<HarnessApprovalMode, string> = {
+  bypassPermissions: "bypass",
+  acceptEdits: "edits",
+  default: "ask",
+  plan: "plan",
+};
+
+const HARNESS_MODE_DESCRIPTION: Record<HarnessApprovalMode, string> = {
+  bypassPermissions: "Bypass — every tool call auto-approved (default).",
+  acceptEdits: "Accept edits — Edit/Write auto-approved; Bash and others ask.",
+  default: "Ask — every write/exec needs approval.",
+  plan: "Plan — read-only; harness must call ExitPlanMode to act.",
+};
 
 export interface ChannelHeaderProps {
   channelId: string;
@@ -494,6 +520,13 @@ export function ChannelHeader({
             >
               {bot.name}
             </a>
+            {bot.harness_runtime && (
+              <HarnessHeaderChrome
+                runtime={bot.harness_runtime}
+                sessionId={sessionId ?? null}
+                t={t}
+              />
+            )}
             {(isMobile ? [tokenUsageBit].filter(Boolean) : headerMetaBits).map((bit, idx) => (
               <React.Fragment key={idx}>{bit}</React.Fragment>
             ))}
@@ -716,5 +749,63 @@ export function ChannelHeader({
         </div>
       )}
     </header>
+  );
+}
+
+/**
+ * Harness chrome — runtime badge + clickable mode pill, scoped to a single
+ * session. Per-session: each chat surface (primary, scratch split, thread)
+ * passes its own `sessionId`, so the pill always controls THIS surface's
+ * approval mode and not the channel's "active" session.
+ */
+function HarnessHeaderChrome({
+  runtime,
+  sessionId,
+  t,
+}: {
+  runtime: string;
+  sessionId: string | null;
+  t: ReturnType<typeof useThemeTokens>;
+}) {
+  const { data, isLoading } = useSessionApprovalMode(sessionId);
+  const setMode = useSetSessionApprovalMode();
+  const mode: HarnessApprovalMode = (data?.mode as HarnessApprovalMode | undefined) ?? "bypassPermissions";
+  const handleCycle = () => {
+    if (!sessionId || setMode.isPending) return;
+    const idx = HARNESS_MODE_CYCLE.indexOf(mode);
+    const next = HARNESS_MODE_CYCLE[(idx + 1) % HARNESS_MODE_CYCLE.length];
+    setMode.mutate({ sessionId, mode: next });
+  };
+  return (
+    <>
+      <span
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
+        style={{
+          backgroundColor: t.surfaceOverlay,
+          color: t.textMuted,
+        }}
+        title={`Harness runtime: ${runtime}`}
+      >
+        🤖 {runtime}
+      </span>
+      {sessionId && (
+        <button
+          type="button"
+          onClick={handleCycle}
+          disabled={!sessionId || setMode.isPending || isLoading}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider shrink-0"
+          style={{
+            backgroundColor: mode === "bypassPermissions" ? t.successSubtle : t.warningSubtle,
+            color: mode === "bypassPermissions" ? t.success : t.warningMuted,
+            border: "none",
+            cursor: setMode.isPending ? "default" : "pointer",
+            opacity: setMode.isPending ? 0.6 : 1,
+          }}
+          title={`${HARNESS_MODE_DESCRIPTION[mode]} Click to cycle.`}
+        >
+          🛡 {HARNESS_MODE_LABEL[mode]}
+        </button>
+      )}
+    </>
   );
 }

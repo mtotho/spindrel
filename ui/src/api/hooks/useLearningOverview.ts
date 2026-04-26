@@ -99,6 +99,32 @@ export interface MemoryObservatoryBurst {
   created_at: string;
 }
 
+export type MemoryObservatoryFindingKind =
+  | "hot_churn"
+  | "hygiene_heavy"
+  | "burst"
+  | "dated_log_scatter"
+  | "quiet_bots";
+
+export interface MemoryObservatoryFinding {
+  id: string;
+  kind: MemoryObservatoryFindingKind;
+  severity: "high" | "medium" | "low";
+  title: string;
+  detail: string;
+  bot_id?: string | null;
+  bot_name?: string | null;
+  file_path?: string | null;
+  source_file?: SourceFileTarget | null;
+  correlation_id?: string | null;
+  job_type?: string | null;
+  write_count: number;
+  file_count: number;
+  related_file_ids: string[];
+  created_at?: string | null;
+  last_updated_at?: string | null;
+}
+
 export interface MemoryObservatoryResponse {
   days: number;
   total_writes: number;
@@ -108,6 +134,7 @@ export interface MemoryObservatoryResponse {
   hot_files: MemoryObservatoryFile[];
   recent_events: MemoryFileActivity[];
   bursts: MemoryObservatoryBurst[];
+  findings: MemoryObservatoryFinding[];
 }
 
 export type LearningSearchSource = "memory" | "bot_knowledge" | "channel_knowledge" | "history";
