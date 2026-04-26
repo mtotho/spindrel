@@ -34,6 +34,7 @@ async def patched_session(engine):
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     with (
         patch("app.services.tool_enrollment.async_session", factory),
+        patch("app.db.engine.async_session", factory),
     ):
         yield factory
 
@@ -150,6 +151,23 @@ class TestToolEnrollService:
 # Tool: prune_enrolled_tools
 # ---------------------------------------------------------------------------
 
+async def _age_enrollments(db: AsyncSession, bot_id: str, days: int) -> None:
+    """Push enrolled_at back by N days so protection rule doesn't fire."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import update
+
+    from app.db.models import BotToolEnrollment
+
+    backdated = datetime.now(timezone.utc) - timedelta(days=days)
+    await db.execute(
+        update(BotToolEnrollment)
+        .where(BotToolEnrollment.bot_id == bot_id)
+        .values(enrolled_at=backdated)
+    )
+    await db.commit()
+
+
 class TestPruneTool:
     async def test_prune_removes_enrollments(self, patched_session, db_session):
         from app.agent.context import current_bot_id
@@ -158,6 +176,8 @@ class TestPruneTool:
 
         await _create_bot(db_session, "prune-bot")
         await enroll_many("prune-bot", ["a", "b", "c"], source="fetched")
+        # Bypass the <7d recency protection so the rows are freely prunable.
+        await _age_enrollments(db_session, "prune-bot", days=30)
         invalidate_enrolled_cache()
 
         tok = current_bot_id.set("prune-bot")
@@ -190,7 +210,225 @@ class TestPruneTool:
             result = await prune_enrolled_tools([])
         finally:
             current_bot_id.reset(tok)
-        assert "No tool names" in result
+        assert "no tool names provided" in result.lower()
+
+    async def test_prune_blocks_recent_enrollment(self, patched_session, db_session):
+        """Tools enrolled <7 days ago are protected without an override."""
+        import json as _json
+
+        from app.agent.context import current_bot_id
+        from app.services.tool_enrollment import enroll_many, invalidate_enrolled_cache
+        from app.tools.local.discovery import prune_enrolled_tools
+
+        await _create_bot(db_session, "prune-recent")
+        await enroll_many("prune-recent", ["x"], source="fetched")
+        invalidate_enrolled_cache()
+
+        tok = current_bot_id.set("prune-recent")
+        try:
+            result = await prune_enrolled_tools(["x"])
+        finally:
+            current_bot_id.reset(tok)
+
+        payload = _json.loads(result)
+        assert payload["removed"] == 0
+        assert payload["blocked"] == 1
+        assert "blocked" in payload["message"].lower()
+
+    async def test_prune_accepts_override_for_recent(self, patched_session, db_session):
+        """Recent enrollment can be pruned with an override reason."""
+        import json as _json
+
+        from app.agent.context import current_bot_id
+        from app.services.tool_enrollment import enroll_many, get_enrolled_tool_names, invalidate_enrolled_cache
+        from app.tools.local.discovery import prune_enrolled_tools
+
+        await _create_bot(db_session, "prune-recent2")
+        await enroll_many("prune-recent2", ["y"], source="fetched")
+        invalidate_enrolled_cache()
+
+        tok = current_bot_id.set("prune-recent2")
+        try:
+            result = await prune_enrolled_tools(["y"], overrides={"y": "stale"})
+        finally:
+            current_bot_id.reset(tok)
+
+        payload = _json.loads(result)
+        assert payload["removed"] == 1
+        assert payload["blocked"] == 0
+        invalidate_enrolled_cache()
+        assert await get_enrolled_tool_names("prune-recent2") == []
+
+    async def test_prune_blocks_pinned_tool_without_override(
+        self, patched_session, db_session,
+    ):
+        """A tool listed in Bot.pinned_tools is protected even if old."""
+        import json as _json
+
+        from app.agent.context import current_bot_id
+        from app.db.models import Bot as BotRow
+        from app.services.tool_enrollment import enroll_many, invalidate_enrolled_cache
+        from app.tools.local.discovery import prune_enrolled_tools
+
+        await _create_bot(db_session, "prune-pinned")
+        bot = await db_session.get(BotRow, "prune-pinned")
+        bot.pinned_tools = ["pinned_one"]
+        await db_session.commit()
+        await enroll_many("prune-pinned", ["pinned_one"], source="fetched")
+        await _age_enrollments(db_session, "prune-pinned", days=30)
+        invalidate_enrolled_cache()
+
+        tok = current_bot_id.set("prune-pinned")
+        try:
+            result = await prune_enrolled_tools(["pinned_one"])
+        finally:
+            current_bot_id.reset(tok)
+
+        payload = _json.loads(result)
+        assert payload["removed"] == 0
+        assert payload["blocked"] == 1
+        assert "pinned" in payload["message"].lower()
+
+    async def test_prune_partial_blocked_with_allowed(
+        self, patched_session, db_session,
+    ):
+        """Atomic batch: when some are protected, allowed names still prune."""
+        import json as _json
+
+        from app.agent.context import current_bot_id
+        from app.services.tool_enrollment import enroll_many, get_enrolled_tool_names, invalidate_enrolled_cache
+        from app.tools.local.discovery import prune_enrolled_tools
+
+        await _create_bot(db_session, "prune-mix")
+        await enroll_many("prune-mix", ["old_one", "new_one"], source="fetched")
+        # Backdate only old_one (we'll fake-age all then re-fresh new_one).
+        await _age_enrollments(db_session, "prune-mix", days=30)
+        # Now overwrite new_one's enrolled_at back to "now" so it's protected.
+        from datetime import datetime, timezone
+        from sqlalchemy import update
+
+        from app.db.models import BotToolEnrollment as BTE
+        await db_session.execute(
+            update(BTE)
+            .where(BTE.bot_id == "prune-mix", BTE.tool_name == "new_one")
+            .values(enrolled_at=datetime.now(timezone.utc))
+        )
+        await db_session.commit()
+        invalidate_enrolled_cache()
+
+        tok = current_bot_id.set("prune-mix")
+        try:
+            result = await prune_enrolled_tools(["old_one", "new_one"])
+        finally:
+            current_bot_id.reset(tok)
+
+        payload = _json.loads(result)
+        assert payload["removed"] == 1
+        assert payload["blocked"] == 1
+        invalidate_enrolled_cache()
+        assert await get_enrolled_tool_names("prune-mix") == ["new_one"]
+
+
+class TestRecordUse:
+    """Usage telemetry — fetch_count + last_used_at on every successful call."""
+
+    async def test_record_use_creates_enrollment_if_missing(
+        self, patched_session, db_session,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.tool_enrollment import invalidate_enrolled_cache, record_use
+        from sqlalchemy import select
+
+        await _create_bot(db_session, "ru-bot")
+        invalidate_enrolled_cache()
+
+        await record_use("ru-bot", "fresh_tool")
+
+        rows = (await db_session.execute(
+            select(BotToolEnrollment).where(BotToolEnrollment.bot_id == "ru-bot")
+        )).scalars().all()
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.tool_name == "fresh_tool"
+        assert row.source == "fetched"
+        assert row.fetch_count == 1
+        assert row.last_used_at is not None
+
+    async def test_record_use_increments_fetch_count(
+        self, patched_session, db_session,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.tool_enrollment import invalidate_enrolled_cache, record_use
+        from sqlalchemy import select
+
+        await _create_bot(db_session, "ru-bot2")
+        invalidate_enrolled_cache()
+
+        await record_use("ru-bot2", "tool_a")
+        await record_use("ru-bot2", "tool_a")
+        await record_use("ru-bot2", "tool_a")
+
+        row = (await db_session.execute(
+            select(BotToolEnrollment).where(
+                BotToolEnrollment.bot_id == "ru-bot2",
+                BotToolEnrollment.tool_name == "tool_a",
+            )
+        )).scalar_one()
+        assert row.fetch_count == 3
+
+    async def test_record_use_preserves_existing_source(
+        self, patched_session, db_session,
+    ):
+        """Calling record_use on a 'starter' tool must not overwrite source='fetched'."""
+        from app.db.models import BotToolEnrollment
+        from app.services.tool_enrollment import (
+            enroll_starter_tools, invalidate_enrolled_cache, record_use,
+        )
+        from sqlalchemy import select
+
+        await _create_bot(db_session, "ru-starter")
+        await enroll_starter_tools("ru-starter", ["starter_tool"])
+        invalidate_enrolled_cache()
+
+        await record_use("ru-starter", "starter_tool")
+
+        row = (await db_session.execute(
+            select(BotToolEnrollment).where(
+                BotToolEnrollment.bot_id == "ru-starter",
+                BotToolEnrollment.tool_name == "starter_tool",
+            )
+        )).scalar_one()
+        assert row.source == "starter"
+        assert row.fetch_count == 1
+
+    async def test_record_use_many_counts_duplicates(
+        self, patched_session, db_session,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.tool_enrollment import invalidate_enrolled_cache, record_use_many
+        from sqlalchemy import select
+
+        await _create_bot(db_session, "ru-many")
+        invalidate_enrolled_cache()
+
+        await record_use_many("ru-many", ["alpha", "beta", "alpha", "alpha"])
+
+        rows = {
+            r.tool_name: r for r in (await db_session.execute(
+                select(BotToolEnrollment).where(BotToolEnrollment.bot_id == "ru-many")
+            )).scalars().all()
+        }
+        assert rows["alpha"].fetch_count == 3
+        assert rows["beta"].fetch_count == 1
+
+    async def test_record_use_empty_inputs_noop(self, patched_session, db_session):
+        from app.services.tool_enrollment import record_use, record_use_many
+
+        # No exception on empty/None inputs
+        await record_use("", "tool")
+        await record_use("bot", "")
+        await record_use_many("bot", [])
+        await record_use_many("", ["x"])
 
 
 # ---------------------------------------------------------------------------

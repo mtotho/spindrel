@@ -1354,6 +1354,160 @@ class TestWorkingSetSnapshotEnrichment:
         assert "scripts=" not in catalog_line
 
 
+class TestToolsWorkingSetSnapshot:
+    """The tools snapshot is the parallel of ``_build_working_set_snapshot``
+    for ``BotToolEnrollment``. Memory hygiene reads it to decide which tool
+    enrollments to prune."""
+
+    @pytest.mark.asyncio
+    async def test_empty_state_returns_skip_message(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="empty-tools-bot", pinned_tools=[])
+        db_session.add(bot)
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("empty-tools-bot", db_session)
+        assert "no enrolled tools" in out
+
+    @pytest.mark.asyncio
+    async def test_renders_fetch_count_and_age(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-1", pinned_tools=[])
+        db_session.add(bot)
+        # Old enrollment, used 5 times — prunable.
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-1", tool_name="get_weather", source="fetched",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=30),
+            fetch_count=5,
+            last_used_at=datetime.now(timezone.utc) - timedelta(days=2),
+        ))
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-1", db_session)
+        assert "## Working set — tools" in out
+        assert "`get_weather`" in out
+        assert "you used 5x" in out
+        assert "30d ago" in out
+        assert "source=fetched" in out
+        assert "**[protected]**" not in out  # 30d old, not pinned, not protected
+        assert "prune_enrolled_tools" in out
+
+    @pytest.mark.asyncio
+    async def test_recent_enrollment_marked_protected(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-2", pinned_tools=[])
+        db_session.add(bot)
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-2", tool_name="new_tool", source="fetched",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=1),
+            fetch_count=0,
+        ))
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-2", db_session)
+        line = next(l for l in out.splitlines() if "`new_tool`" in l)
+        assert "**[protected]**" in line
+        assert "**[pinned]**" not in line
+
+    @pytest.mark.asyncio
+    async def test_pinned_tool_marked_protected_and_pinned(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-3", pinned_tools=["sticky_tool"])
+        db_session.add(bot)
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-3", tool_name="sticky_tool", source="manual",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=60),
+            fetch_count=12,
+            last_used_at=datetime.now(timezone.utc) - timedelta(days=1),
+        ))
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-3", db_session)
+        line = next(l for l in out.splitlines() if "`sticky_tool`" in l)
+        assert "**[pinned]**" in line
+        assert "**[protected]**" in line
+
+    @pytest.mark.asyncio
+    async def test_pinned_tool_with_no_enrollment_renders_as_never_used(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-4", pinned_tools=["never_called"])
+        db_session.add(bot)
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-4", db_session)
+        assert "Pinned tools with no recorded use" in out
+        assert "`never_called`" in out
+        assert "never used" in out
+
+    @pytest.mark.asyncio
+    async def test_sorts_lowest_fetch_first(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-5", pinned_tools=[])
+        db_session.add(bot)
+        old = datetime.now(timezone.utc) - timedelta(days=30)
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-5", tool_name="hot", source="fetched",
+            enrolled_at=old, fetch_count=99,
+        ))
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-5", tool_name="cold", source="fetched",
+            enrolled_at=old, fetch_count=0,
+        ))
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-5", db_session)
+        cold_idx = out.find("`cold`")
+        hot_idx = out.find("`hot`")
+        assert cold_idx > 0 and hot_idx > 0
+        assert cold_idx < hot_idx
+
+    @pytest.mark.asyncio
+    async def test_all_protected_emits_skip_message(
+        self, db_session, patched_async_sessions,
+    ):
+        from app.db.models import BotToolEnrollment
+        from app.services.memory_hygiene import _build_tools_working_set_snapshot
+
+        bot = build_bot(id="ws-tools-6", pinned_tools=["pinned_a"])
+        db_session.add(bot)
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-6", tool_name="pinned_a", source="manual",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=30),
+            fetch_count=4,
+        ))
+        db_session.add(BotToolEnrollment(
+            bot_id="ws-tools-6", tool_name="recent_b", source="fetched",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=1),
+            fetch_count=1,
+        ))
+        await db_session.commit()
+
+        out = await _build_tools_working_set_snapshot("ws-tools-6", db_session)
+        assert "All tools are protected" in out
+
+
 class TestInjectedSkillsSnapshot:
     """The snapshot inlines stable core-skill bodies into the task prompt so
     scheduled bots don't pay a full iteration re-hydrating them via

@@ -731,17 +731,38 @@ class TestPruneEnrolledToolsSchema:
         assert "error" in data
 
     @pytest.mark.asyncio
-    async def test_successful_prune_matches_schema(self):
+    async def test_successful_prune_matches_schema(self, db_session, patched_async_sessions):
+        """Happy-path prune: enrollment exists, no protections, returns the
+        declared schema shape (removed, blocked, requested, message)."""
+        from datetime import datetime, timedelta, timezone
+
+        from app.db.models import Bot, BotToolEnrollment
         from app.tools.local.discovery import prune_enrolled_tools
 
-        with patch("app.tools.local.discovery.current_bot_id") as mock_bot, \
-             patch("app.tools.local.discovery.unenroll_many", new=AsyncMock(return_value=2), create=True):
-            mock_bot.get.return_value = "crumb"
-            with patch("app.services.tool_enrollment.unenroll_many", new=AsyncMock(return_value=2)):
-                result = await prune_enrolled_tools(["tool_a", "tool_b"])
+        # Seed bot + an old enrollment so it isn't protected by recency
+        db_session.add(Bot(
+            id="schema-bot", name="schema-bot", model="test/m",
+            system_prompt="t", source_type="manual",
+        ))
+        db_session.add(BotToolEnrollment(
+            bot_id="schema-bot", tool_name="tool_a", source="fetched",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=30),
+            fetch_count=5,
+        ))
+        db_session.add(BotToolEnrollment(
+            bot_id="schema-bot", tool_name="tool_b", source="fetched",
+            enrolled_at=datetime.now(timezone.utc) - timedelta(days=30),
+            fetch_count=2,
+        ))
+        await db_session.commit()
+
+        with patch("app.tools.local.discovery.current_bot_id") as mock_bot:
+            mock_bot.get.return_value = "schema-bot"
+            result = await prune_enrolled_tools(["tool_a", "tool_b"])
 
         data = _validate(result, "prune_enrolled_tools")
-        assert "removed" in data or "error" in data
+        assert data["removed"] == 2
+        assert data["blocked"] == 0
 
 
 # ---------------------------------------------------------------------------
