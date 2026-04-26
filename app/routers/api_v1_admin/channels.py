@@ -288,6 +288,7 @@ class HeartbeatConfigOut(BaseModel):
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
+    append_spatial_map_overview: bool = False
     execution_policy: Optional[dict] = None
     last_run_at: Optional[datetime] = None
     next_run_at: Optional[datetime] = None
@@ -314,7 +315,7 @@ class HeartbeatConfigOut(BaseModel):
             "dispatch_results", "dispatch_mode", "trigger_response",
             "timezone", "max_run_seconds", "previous_result_max_chars", "repetition_detection",
             "workflow_id", "workflow_session_mode", "skip_tool_approval",
-            "append_spatial_prompt", "execution_policy",
+            "append_spatial_prompt", "append_spatial_map_overview", "execution_policy",
             "last_run_at", "next_run_at", "created_at", "updated_at",
         ]}
         data["quiet_start"] = hb.quiet_start.strftime("%H:%M") if hb.quiet_start else None
@@ -377,6 +378,7 @@ class HeartbeatUpdate(BaseModel):
     workflow_session_mode: Optional[str] = None
     skip_tool_approval: bool = False
     append_spatial_prompt: bool = False
+    append_spatial_map_overview: bool = False
     execution_policy: Optional[dict] = None
 
 
@@ -1352,6 +1354,27 @@ async def admin_channel_heartbeat_update(
                 cfg[SPATIAL_POLICY_KEY] = policies
                 channel.config = cfg
                 flag_modified(channel, "config")
+    if "append_spatial_map_overview" in updates:
+        heartbeat.append_spatial_map_overview = bool(updates["append_spatial_map_overview"])
+        if heartbeat.append_spatial_map_overview:
+            from app.services.workspace_spatial import (
+                DEFAULT_SPATIAL_POLICY,
+                SPATIAL_POLICY_KEY,
+                normalize_spatial_policy,
+            )
+
+            cfg = dict(channel.config or {})
+            policies = dict(cfg.get(SPATIAL_POLICY_KEY) or {})
+            current = policies.get(channel.bot_id)
+            policies[channel.bot_id] = normalize_spatial_policy({
+                **DEFAULT_SPATIAL_POLICY,
+                **(current if isinstance(current, dict) else {}),
+                "enabled": True,
+                "allow_map_view": True,
+            })
+            cfg[SPATIAL_POLICY_KEY] = policies
+            channel.config = cfg
+            flag_modified(channel, "config")
     heartbeat.updated_at = now
 
     if heartbeat.enabled:

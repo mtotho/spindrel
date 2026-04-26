@@ -90,6 +90,9 @@ export function SpatialPolicyCard({
           <FormRow label="Allow nearby inspection" description="Read-only summaries for nearby channels, bots, and widgets.">
             <Toggle value={p.allow_nearby_inspect} onChange={(allow_nearby_inspect) => patch({ allow_nearby_inspect })} />
           </FormRow>
+          <FormRow label="Allow map view" description="Read-only viewport summaries of the whole canvas at different zoom levels.">
+            <Toggle value={p.allow_map_view} onChange={(allow_map_view) => patch({ allow_map_view })} />
+          </FormRow>
           <div className="grid gap-3 md:grid-cols-2">
             <NumberPolicyInput
               label="Step size"

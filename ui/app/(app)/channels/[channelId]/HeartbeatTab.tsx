@@ -319,6 +319,7 @@ export function HeartbeatTab({
         workflow_session_mode: data.config.workflow_session_mode ?? null,
         skip_tool_approval: data.config.skip_tool_approval ?? false,
         append_spatial_prompt: data.config.append_spatial_prompt ?? false,
+        append_spatial_map_overview: data.config.append_spatial_map_overview ?? false,
         execution_policy: normalizeExecutionPolicy(
           data.config.execution_policy,
           data.default_execution_policy,
@@ -353,6 +354,7 @@ export function HeartbeatTab({
         workflow_session_mode: null,
         skip_tool_approval: false,
         append_spatial_prompt: false,
+        append_spatial_map_overview: false,
         execution_policy: normalizeExecutionPolicy(
           null,
           data.default_execution_policy,
@@ -539,7 +541,7 @@ export function HeartbeatTab({
   const isWorkflowMode = !!hbForm.workflow_id;
   const hasAction = isWorkflowMode
     ? !!hbForm.workflow_id
-    : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt);
+    : !!(hbForm.prompt || hbForm.prompt_template_id || hbForm.workspace_file_path || hbForm.append_spatial_prompt || hbForm.append_spatial_map_overview);
   const runNowLabel = hbFirePollStartedAt ? "Running..." : hbFired ? "Fired" : fireMutation.isPending ? "Firing..." : "Run Now";
 
   return (
@@ -628,6 +630,12 @@ export function HeartbeatTab({
                 onChange={(v) => updateHbForm((f: any) => ({ ...f, append_spatial_prompt: v }))}
                 label="Use spatial heartbeat prompt"
                 description="Adds a standard prompt that tells the bot how to use its canvas context without posting routine status updates."
+              />
+              <Toggle
+                value={hbForm.append_spatial_map_overview ?? false}
+                onChange={(v) => updateHbForm((f: any) => ({ ...f, append_spatial_map_overview: v }))}
+                label="Include map overview"
+                description="Injects a compact far-zoom canvas summary for bots with map-view permission."
               />
               {spatialBots.length > 0 && (
                 <div className="flex flex-col gap-2">

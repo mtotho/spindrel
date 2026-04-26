@@ -40,6 +40,7 @@ interface UsageDensityLayerProps {
   window: DensityWindow;
   compare: boolean;
   animate: boolean;
+  suppressedChannelIds?: Set<string>;
 }
 
 const WINDOW_HOURS: Record<DensityWindow, number> = {
@@ -104,6 +105,7 @@ export function UsageDensityLayer({
   window: densityWindow,
   compare,
   animate,
+  suppressedChannelIds,
 }: UsageDensityLayerProps) {
   const after = useMemo(() => isoHoursAgo(WINDOW_HOURS[densityWindow]), [densityWindow]);
   const before = useMemo(() => nowIso(), [densityWindow]);
@@ -156,6 +158,7 @@ export function UsageDensityLayer({
     <>
       {nodes.map((node) => {
         if (!node.channel_id) return null;
+        if (suppressedChannelIds?.has(node.channel_id)) return null;
         const g = groupsByChannel.get(node.channel_id);
         if (!g || g.tokens === 0) return null;
 

@@ -84,6 +84,7 @@ DEFAULT_SPATIAL_POLICY: dict[str, Any] = {
     "nearest_neighbor_floor": 3,
     "allow_moving_spatial_objects": False,
     "allow_spatial_widget_management": False,
+    "allow_map_view": False,
     "tug_radius_steps": 2,
     "max_tug_steps_per_turn": 1,
     "allow_nearby_inspect": False,
@@ -569,6 +570,7 @@ def normalize_spatial_policy(raw: dict | None) -> dict[str, Any]:
         "allow_movement",
         "allow_moving_spatial_objects",
         "allow_spatial_widget_management",
+        "allow_map_view",
         "allow_nearby_inspect",
     ):
         policy[key] = bool(policy.get(key))
@@ -1078,6 +1080,8 @@ async def build_canvas_neighborhood_block(
         lines.append("You may use tug_spatial_object on tuggable nearby objects only.")
     if policy["allow_nearby_inspect"]:
         lines.append("You may use inspect_nearby_spatial_object for nearby object details.")
+    if policy["allow_map_view"]:
+        lines.append("You may use view_spatial_canvas for read-only whole-map viewport summaries and focus targets.")
     if policy["allow_spatial_widget_management"]:
         lines.append("You may use pin_spatial_widget plus move/resize/remove spatial-widget tools for widgets you own.")
     lines.append(

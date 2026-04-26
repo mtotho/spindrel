@@ -16,6 +16,7 @@ import type { SpatialNode } from "../../api/hooks/useWorkspaceSpatial";
 interface ConnectionLineLayerProps {
   nodes: SpatialNode[];
   hoveredNodeId: string | null;
+  suppressedChannelIds?: Set<string>;
 }
 
 interface LinePair {
@@ -27,7 +28,7 @@ interface LinePair {
   highlighted: boolean;
 }
 
-export function ConnectionLineLayer({ nodes, hoveredNodeId }: ConnectionLineLayerProps) {
+export function ConnectionLineLayer({ nodes, hoveredNodeId, suppressedChannelIds }: ConnectionLineLayerProps) {
   const lines = useMemo<LinePair[]>(() => {
     const channelCenterById = new Map<string, { x: number; y: number }>();
     for (const n of nodes) {
@@ -42,6 +43,7 @@ export function ConnectionLineLayer({ nodes, hoveredNodeId }: ConnectionLineLaye
     for (const n of nodes) {
       const sourceChannelId = n.pin?.source_channel_id;
       if (!sourceChannelId) continue;
+      if (suppressedChannelIds?.has(sourceChannelId)) continue;
       const target = channelCenterById.get(sourceChannelId);
       if (!target) continue; // deleted/missing source channel — skip
       const fromX = n.world_x + n.world_w / 2;
@@ -56,7 +58,7 @@ export function ConnectionLineLayer({ nodes, hoveredNodeId }: ConnectionLineLaye
       });
     }
     return out;
-  }, [nodes, hoveredNodeId]);
+  }, [nodes, hoveredNodeId, suppressedChannelIds]);
 
   // Compute viewBox bounds large enough to cover all endpoints + a margin.
   // SVG sized to fit the world-rect of the lines; positioned absolutely at

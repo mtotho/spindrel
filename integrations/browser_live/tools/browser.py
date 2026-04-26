@@ -12,7 +12,7 @@ import json
 
 from integrations.sdk import register_tool as register
 
-from ..bridge import bridge
+from integrations.browser_live.bridge import bridge
 
 
 @register(

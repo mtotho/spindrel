@@ -462,6 +462,8 @@ async def assemble_config_state(db) -> dict:
             "workspace_file_path": h.workspace_file_path,
             "workspace_id": _str(h.workspace_id),
             "max_run_seconds": h.max_run_seconds,
+            "append_spatial_prompt": h.append_spatial_prompt,
+            "append_spatial_map_overview": h.append_spatial_map_overview,
             "execution_policy": h.execution_policy,
         }
         for h in ch_rows

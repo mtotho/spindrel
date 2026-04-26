@@ -86,6 +86,37 @@ _INSPECT_SCHEMA = {
     },
 }
 
+_MAP_VIEW_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "view_spatial_canvas",
+        "description": (
+            "Read a human-visible Spatial Canvas viewport at a chosen zoom. "
+            "Returns surface labels, clusters, counts, screen ratios, and focus "
+            "tokens only; it does not expose hidden cluster members or widget contents."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "preset": {
+                    "type": "string",
+                    "enum": ["whole_map", "cluster", "dot", "preview", "snapshot"],
+                },
+                "center_world_x": {"type": "number"},
+                "center_world_y": {"type": "number"},
+                "scale": {"type": "number"},
+                "viewport_w": {"type": "integer"},
+                "viewport_h": {"type": "integer"},
+                "focus_token": {"type": "string"},
+                "activity_window": {
+                    "type": "string",
+                    "enum": ["24h", "7d", "30d"],
+                },
+            },
+        },
+    },
+}
+
 _PIN_WIDGET_SCHEMA = {
     "type": "function",
     "function": {
@@ -274,6 +305,46 @@ async def inspect_nearby_spatial_object(target_node_id: str) -> str:
         from app.services.workspace_spatial import inspect_nearby_spatial_object as inspect
         try:
             payload = await inspect(db, channel_id=channel_id, bot_id=bot_id, target_node_id=node_id)
+        except (NotFoundError, ValidationError) as exc:
+            return json.dumps({"error": str(exc)})
+    return json.dumps(payload, default=str)
+
+
+@register(_MAP_VIEW_SCHEMA, safety_tier="readonly", requires_bot_context=True, requires_channel_context=True)
+async def view_spatial_canvas(
+    preset: str = "whole_map",
+    center_world_x: float | None = None,
+    center_world_y: float | None = None,
+    scale: float | None = None,
+    viewport_w: int = 1400,
+    viewport_h: int = 900,
+    focus_token: str | None = None,
+    activity_window: str = "24h",
+) -> str:
+    bot_id, channel_id, err = _scope()
+    if err:
+        return json.dumps({"error": err})
+    assert bot_id and channel_id
+    if preset not in {"whole_map", "cluster", "dot", "preview", "snapshot"}:
+        return json.dumps({"error": f"Invalid preset: {preset!r}"})
+    if activity_window not in {"24h", "7d", "30d"}:
+        return json.dumps({"error": f"Invalid activity_window: {activity_window!r}"})
+    async with async_session() as db:
+        from app.services.spatial_map_view import build_spatial_map_view
+        try:
+            payload = await build_spatial_map_view(
+                db,
+                channel_id=channel_id,
+                bot_id=bot_id,
+                preset=preset,  # type: ignore[arg-type]
+                center_world_x=center_world_x,
+                center_world_y=center_world_y,
+                scale=scale,
+                viewport_w=viewport_w,
+                viewport_h=viewport_h,
+                focus_token=focus_token,
+                activity_window=activity_window,  # type: ignore[arg-type]
+            )
         except (NotFoundError, ValidationError) as exc:
             return json.dumps({"error": str(exc)})
     return json.dumps(payload, default=str)

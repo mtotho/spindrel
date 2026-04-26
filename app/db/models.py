@@ -1092,6 +1092,7 @@ class ChannelHeartbeat(Base):
     workflow_session_mode: Mapped[str | None] = mapped_column(Text, nullable=True)
     skip_tool_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     append_spatial_prompt: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
+    append_spatial_map_overview: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"), default=False)
     execution_policy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     channel: Mapped["Channel"] = relationship("Channel")

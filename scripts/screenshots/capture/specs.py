@@ -854,7 +854,7 @@ INTEGRATION_CHAT_SPECS: list[ScreenshotSpec] = [
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
         wait_arg=(
-            '/MERMAID TO EXCALIDRAW|CREATE EXCALIDRAW/i.test(document.body.innerText)'
+            '/MERMAID[ _]TO[ _]EXCALIDRAW|CREATE[ _]EXCALIDRAW/i.test(document.body.innerText)'
             ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
         output="chat-excalidraw.png",

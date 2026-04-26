@@ -30,15 +30,18 @@ The route underneath the overlay **stays mounted**. SSE streams, in-flight bot r
 
 Channels auto-populate. The first time a channel appears, the server assigns it a deterministic position via golden-angle phyllotaxis (a sunflower-seed spiral), so layout is stable across reloads and across tabs. Drag a tile to pin it forever — the new position is persisted server-side and never recomputed.
 
-Each channel renders at one of three semantic-zoom levels — the bounding box stays the same; only the content swaps:
+Each channel renders at semantic-zoom levels. The authored bounding boxes stay the same; only the presentation swaps:
 
 ![Channel tile zoomed out — colored dots](../images/spatial-channel-zoomed-out.png)
 
 | Zoom range | What you see |
 |---|---|
+| `< 0.22` (**cluster**) | Nearby channel dots collapse by screen proximity. The highest-usage channel is the main dot, small satellite dots hint at the hidden neighbors, and a `+N` badge shows the hidden count. Usage wins the cluster anchor; most-recent activity breaks ties. |
 | `< 0.4` (**dot**) | A colored disc + name label. Color is a stable hash of the channel ID, so the same channel always reads the same hue. |
 | `0.4 – 1.0` (**preview**) | Compact card: hash chip, colored bullet, name, last activity timestamp. |
 | `≥ 1.0` (**snapshot**) | Expanded card with member-bot chips, private flag, and a "double-click to dive" hint. |
+
+Clicking a cluster frames its member neighborhood; double-clicking dives into the cluster's winner channel. Cluster halos respect the **Activity** toggle. When Activity is enabled, member halos collapse into the cluster marker; when Activity is off, the winner is still selected from recent usage, but no glow is shown.
 
 **Double-click a channel tile to dive in.** A ~300ms zoom-and-translate animation runs to completion, then the route changes to `/channels/:id`. The canvas never embeds the channel page — diving is always a route change.
 
@@ -69,11 +72,13 @@ Widgets on the canvas use the same iframe contract, SDK, theme, and bot-scoped a
 
 ## Bot nodes
 
-Bots that participate in channels can appear as actor nodes on the canvas when a channel's spatial-bot policy enables them. Their world position is global per bot, while awareness, self-movement, object tugging, inspection, and bot-owned widget management are gated per channel.
+Bots that participate in channels can appear as actor nodes on the canvas when a channel's spatial-bot policy enables them. Their world position is global per bot, while awareness, self-movement, object tugging, inspection, map view, and bot-owned widget management are gated per channel.
 
 Bot nodes are seeded near their primary or member channel, but not inside the channel/widget cluster. The server tests candidate spawn positions against existing canvas rectangles and keeps at least the default edge-clearance gap, so a bot is not born already crowding another object. Older untouched bot rows that still match the former overlapping spawn distance are repaired the next time the bot node is ensured.
 
 `move_on_canvas` moves by bounded grid steps. If a move would worsen under-clearance crowding, the tool rejects it and names the blocking object plus the before/after edge gap in policy steps.
+
+`view_spatial_canvas` is a read-only map-view tool gated by `allow_map_view`. It accepts presets (`whole_map`, `cluster`, `dot`, `preview`, `snapshot`) plus optional camera coordinates, or a focus token returned by a prior call. The result mirrors what a human-visible viewport would expose at that zoom: surface labels, semantic tiers, cluster counts, satellite hues, connection summaries, world bounds, and screen-relative coordinates. It does not expose hidden cluster member names or widget iframe contents. Heartbeats can opt into a compact far-zoom overview with the separate **Include map overview** toggle.
 
 ## Connection lines
 

@@ -1,5 +1,7 @@
 # Browser Live
 
+![Bot navigating example.com and capturing the rendered page in chat](../images/chat-browser-live.png)
+
 The `browser_live` integration lets a bot drive **your real logged-in browser** through a paired Chrome extension. It is not a headless browser, a screenshot-only mirror, or a remote test harness. When a bot clicks a tab, evaluates JS, or takes a screenshot, it is acting on the same browser session you use day to day.
 
 That makes it unusually powerful and unusually sensitive.

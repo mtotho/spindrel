@@ -42,8 +42,10 @@ import {
   type SpatialNode,
 } from "../../api/hooks/useWorkspaceSpatial";
 import { useSpatialUpcomingActivity } from "../../api/hooks/useUpcomingActivity";
+import { useUsageBreakdown } from "../../api/hooks/useUsage";
 import type { Channel } from "../../types/api";
 import { ChannelTile } from "./ChannelTile";
+import { ChannelClusterMarker } from "./ChannelClusterMarker";
 import { WidgetTile } from "./WidgetTile";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
@@ -106,6 +108,13 @@ import {
   upcomingOrbit,
   upcomingReactKey,
 } from "./spatialActivity";
+import {
+  CHANNEL_CLUSTER_ENTER_SCALE,
+  CHANNEL_CLUSTER_EXIT_SCALE,
+  buildChannelClusters,
+  clusterSuppressedChannelIds,
+  clusterSuppressedNodeIds,
+} from "./spatialClustering";
 
 /**
  * Backend-driven spatial canvas. Renders one tile per `WorkspaceSpatialNode`
@@ -127,6 +136,16 @@ const CAMERA_MOVING_CLASS_MS = 180;
 
 function cameraTransform(camera: Camera): string {
   return `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})`;
+}
+
+const DENSITY_WINDOW_HOURS: Record<DensityWindow, number> = {
+  "24h": 24,
+  "7d": 24 * 7,
+  "30d": 24 * 30,
+};
+
+function isoHoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 3_600_000).toISOString();
 }
 
 interface SpatialCanvasProps {
@@ -346,6 +365,32 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   const [densityWindow, setDensityWindow] = useState<DensityWindow>(loadDensityWindow);
   const [densityCompare, setDensityCompare] = useState<boolean>(loadDensityCompare);
   const [densityAnimate, setDensityAnimate] = useState<boolean>(loadDensityAnimate);
+  const activityAfter = useMemo(
+    () => isoHoursAgo(DENSITY_WINDOW_HOURS[densityWindow]),
+    [densityWindow],
+  );
+  const activityBefore = useMemo(() => new Date().toISOString(), [densityWindow]);
+  const channelActivity = useUsageBreakdown({
+    group_by: "channel",
+    after: activityAfter,
+    before: activityBefore,
+  });
+  const activityByChannelId = useMemo(() => {
+    const m = new Map<string, { tokens: number; calls: number }>();
+    for (const group of channelActivity.data?.groups ?? []) {
+      if (group.key) m.set(group.key, { tokens: group.tokens, calls: group.calls });
+    }
+    return m;
+  }, [channelActivity.data]);
+  const [channelClusterMode, setChannelClusterMode] = useState(
+    () => cameraRef.current.scale < CHANNEL_CLUSTER_ENTER_SCALE,
+  );
+  useEffect(() => {
+    setChannelClusterMode((enabled) => {
+      if (enabled) return camera.scale <= CHANNEL_CLUSTER_EXIT_SCALE;
+      return camera.scale < CHANNEL_CLUSTER_ENTER_SCALE;
+    });
+  }, [camera.scale]);
   // Connection-line layer (widget → source channel curves). On by default —
   // the relationship is most of the value of pinning a widget to the canvas.
   const [connectionsEnabled, setConnectionsEnabled] = useState<boolean>(loadConnectionsEnabled);
@@ -934,6 +979,32 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     scheduleCamera({ x: targetX, y: targetY, scale: targetScale }, "immediate");
   }, [scheduleCamera]);
 
+  const flyToWorldBounds = useCallback(
+    (bounds: { x: number; y: number; w: number; h: number }, minScale = CHANNEL_CLUSTER_EXIT_SCALE + 0.06) => {
+      const rect = viewportRectRef.current;
+      if (!rect.width || !rect.height) return;
+      const margin = 0.18;
+      const targetScale = Math.max(
+        minScale,
+        Math.min(
+          0.62,
+          Math.min(
+            rect.width / Math.max(1, bounds.w * (1 + margin * 2)),
+            rect.height / Math.max(1, bounds.h * (1 + margin * 2)),
+          ),
+        ),
+      );
+      const cx = bounds.x + bounds.w / 2;
+      const cy = bounds.y + bounds.h / 2;
+      scheduleCamera({
+        scale: targetScale,
+        x: rect.width / 2 - cx * targetScale,
+        y: rect.height / 2 - cy * targetScale,
+      }, "immediate");
+    },
+    [scheduleCamera],
+  );
+
   // dnd-kit sensor with a modest activation distance so exploratory clicks
   // and tiny pointer drift pan/select space instead of immediately moving a
   // nearby tile.
@@ -1063,6 +1134,29 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       ? projectFisheye(WELL_X, WELL_Y, camera, focalScreen, lensRadius)
       : null;
 
+  const channelClusters = useMemo(
+    () => buildChannelClusters({
+      nodes: nodes ?? [],
+      channelsById,
+      activityByChannelId,
+      camera,
+      enabled: channelClusterMode,
+    }),
+    [nodes, channelsById, activityByChannelId, camera, channelClusterMode],
+  );
+  const clusteredChannelNodeIds = useMemo(
+    () => clusterSuppressedNodeIds(channelClusters),
+    [channelClusters],
+  );
+  const clusteredChannelIds = useMemo(
+    () => clusterSuppressedChannelIds(channelClusters),
+    [channelClusters],
+  );
+  const maxClusterTokens = useMemo(
+    () => channelClusters.reduce((max, cluster) => Math.max(max, cluster.totalTokens), 0),
+    [channelClusters],
+  );
+
   const upcomingSpreadByKey = useMemo(() => {
     const buckets = new Map<string, string[]>();
     for (const item of upcomingItems ?? []) {
@@ -1106,9 +1200,39 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               world.y <= n.world_y + n.world_h,
           ) ?? null
         : null;
+      const hitCluster = tileKind === "channel-cluster" && world
+        ? channelClusters.find((cluster) => {
+            const n = cluster.winner.node;
+            return (
+              world.x >= n.world_x &&
+              world.x <= n.world_x + n.world_w &&
+              world.y >= n.world_y &&
+              world.y <= n.world_y + n.world_h
+            );
+          }) ?? null
+        : null;
       e.preventDefault();
       const items: SpatialContextMenuItem[] = [];
-      if (tileKind === "channel" && hitNode?.channel_id) {
+      if (hitCluster) {
+        const winnerNode = hitCluster.winner.node;
+        const winnerName = hitCluster.winner.channel.name;
+        items.push({
+          label: "Fly to cluster members",
+          icon: <Locate size={14} />,
+          onClick: () => flyToWorldBounds(hitCluster.worldBounds),
+        });
+        items.push({
+          label: `Dive into #${winnerName}`,
+          icon: <ZoomIn size={14} />,
+          onClick: () =>
+            diveToChannel(hitCluster.winner.channel.id, {
+              x: winnerNode.world_x,
+              y: winnerNode.world_y,
+              w: winnerNode.world_w,
+              h: winnerNode.world_h,
+            }),
+        });
+      } else if (tileKind === "channel" && hitNode?.channel_id) {
         const channelId = hitNode.channel_id;
         const channel = channelsById.get(channelId) ?? null;
         const channelName = channel?.name ?? "channel";
@@ -1336,6 +1460,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
       cycleTrailsMode,
       connectionsEnabled,
       scheduleCamera,
+      channelClusters,
+      flyToWorldBounds,
     ],
   );
 
@@ -1376,12 +1502,14 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               window={densityWindow}
               compare={densityCompare}
               animate={densityAnimate}
+              suppressedChannelIds={clusteredChannelIds}
             />
           )}
           {connectionsEnabled && (
             <ConnectionLineLayer
               nodes={nodes ?? []}
               hoveredNodeId={hoveredNodeId}
+              suppressedChannelIds={clusteredChannelIds}
             />
           )}
           {trailsMode !== "off" && (
@@ -1418,7 +1546,40 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               />
             );
           })}
+          {channelClusters.map((cluster) => {
+            const winnerNode = cluster.winner.node;
+            return (
+              <div
+                key={cluster.id}
+                className="absolute"
+                style={{
+                  left: winnerNode.world_x,
+                  top: winnerNode.world_y,
+                  width: winnerNode.world_w,
+                  height: winnerNode.world_h,
+                  zIndex: winnerNode.z_index,
+                }}
+              >
+                <ChannelClusterMarker
+                  cluster={cluster}
+                  zoom={camera.scale}
+                  showActivityGlow={densityIntensity !== "off"}
+                  maxClusterTokens={maxClusterTokens}
+                  onFocus={() => flyToWorldBounds(cluster.worldBounds)}
+                  onDiveWinner={() =>
+                    diveToChannel(cluster.winner.channel.id, {
+                      x: winnerNode.world_x,
+                      y: winnerNode.world_y,
+                      w: winnerNode.world_w,
+                      h: winnerNode.world_h,
+                    })
+                  }
+                />
+              </div>
+            );
+          })}
           {(nodes ?? []).map((node) => {
+            if (node.channel_id && clusteredChannelNodeIds.has(node.id)) return null;
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(

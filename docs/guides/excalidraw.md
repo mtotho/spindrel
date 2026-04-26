@@ -1,5 +1,7 @@
 # Excalidraw
 
+![Excalidraw rendering a diagram inline in chat](../images/chat-excalidraw.png)
+
 The `excalidraw` integration lets bots render **hand-drawn-style diagrams** directly in chat — system architectures, flowcharts, sequence diagrams, state machines. Two input flavors are supported: native Excalidraw JSON, or Mermaid syntax automatically converted to Excalidraw's hand-drawn aesthetic.
 
 Output is an inline image (SVG by default, PNG on request), pinnable to a widget dashboard like any other tool result.

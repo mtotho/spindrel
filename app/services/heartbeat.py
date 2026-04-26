@@ -416,6 +416,19 @@ async def fire_heartbeat(hb: ChannelHeartbeat) -> None:
         )
         if getattr(hb, "append_spatial_prompt", False):
             prompt = "\n\n".join(part for part in [prompt.strip(), SPATIAL_HEARTBEAT_PROMPT] if part)
+        if getattr(hb, "append_spatial_map_overview", False):
+            try:
+                from app.services.spatial_map_view import build_spatial_map_overview_block
+                overview = await build_spatial_map_overview_block(
+                    db,
+                    channel_id=channel.id,
+                    bot_id=channel.bot_id,
+                )
+            except Exception:
+                logger.exception("Heartbeat %s: failed to build spatial map overview", hb.id)
+                overview = None
+            if overview:
+                prompt = "\n\n".join(part for part in [prompt.strip(), overview] if part)
 
         try:
             from app.services.games.heartbeat import build_active_games_block

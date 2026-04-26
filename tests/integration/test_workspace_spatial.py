@@ -18,6 +18,7 @@ from app.db.models import (
     Channel,
     ChannelHeartbeat,
     Task,
+    TraceEvent,
     WidgetDashboard,
     WidgetDashboardPin,
     WidgetInstance,
@@ -33,6 +34,7 @@ from app.services.workspace_spatial import (
     move_bot_node,
     update_channel_bot_spatial_policy,
 )
+from app.services.spatial_map_view import build_spatial_map_view
 from tests.integration.conftest import AUTH_HEADERS
 
 
@@ -216,6 +218,49 @@ class TestSpatialNodesAutoSeed:
             bot_id="test-bot",
         )
         assert neighborhood["bot"]["bot_id"] == "test-bot"
+
+    async def test_map_view_requires_policy(self, client, db_session):
+        ch = await _create_channel(client)
+        with pytest.raises(Exception) as exc:
+            await build_spatial_map_view(
+                db_session,
+                channel_id=uuid.UUID(ch["id"]),
+                bot_id="test-bot",
+            )
+        assert "Spatial map view is not enabled" in str(exc.value)
+
+    async def test_map_view_cluster_exposes_surface_only(self, client, db_session):
+        ch1 = await _create_channel(client, name="Alpha")
+        ch2 = await _create_channel(client, name="Beta")
+        channel_id = uuid.UUID(ch1["id"])
+        await update_channel_bot_spatial_policy(
+            db_session,
+            channel_id,
+            "test-bot",
+            {"enabled": True, "allow_map_view": True},
+        )
+        db_session.add(
+            TraceEvent(
+                event_type="token_usage",
+                bot_id="test-bot",
+                data={"channel_id": ch2["id"], "total_tokens": 2000},
+            )
+        )
+        await db_session.commit()
+
+        view = await build_spatial_map_view(
+            db_session,
+            channel_id=channel_id,
+            bot_id="test-bot",
+            preset="whole_map",
+        )
+        clusters = [item for item in view["items"] if item["kind"] == "channel_cluster"]
+        assert clusters
+        assert clusters[0]["label"] == "Beta"
+        assert clusters[0]["hidden_count"] >= 1
+        encoded = str(view)
+        assert "Alpha" not in encoded
+        assert "focus_token" in clusters[0]
 
 
 class TestSpatialUpcomingActivity:

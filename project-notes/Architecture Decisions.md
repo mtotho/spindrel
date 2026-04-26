@@ -36,6 +36,7 @@ For the canonical runtime context-policy guide, see [Context Management](../../.
 - Object tugs require proximity, leave `last_movement` trace metadata on the target node, and publish a synthetic assistant message into the channel so the change is visible in normal chat history.
 - Bot nodes render on the canvas and open a docked `ChatSession` resolved through an existing channel for that bot.
 - `ChannelHeartbeat.append_spatial_prompt` is the opt-in canned context path for heartbeat runs. It appends a standard spatial-turn instruction block and seeds awareness-only policy defaults for the primary bot if no policy exists.
+- Whole-map spatial viewing is also channel-scoped. `allow_map_view` gates the read-only `view_spatial_canvas` tool, which may only return the same surface-level viewport information a human would see at that zoom. Heartbeat map-overview injection is a separate heartbeat toggle and still requires `allow_map_view`.
 - Spatial runtime controls live in the channel Heartbeat tab. Participants is a roster/status surface, not the primary place to configure movement, inspection, tugging, or widget-management behavior.
 - Bots use `bots.avatar_emoji` for Spindrel bot presentation. The old URL field remains a data field, but current bot list/canvas UI does not fall back to it for spatial identity.
 - Spatial widget management is distinct from object tugging. A bot can create/move/resize/remove only widgets it owns (`source_bot_id == acting bot`) and only when `allow_spatial_widget_management` is enabled.
