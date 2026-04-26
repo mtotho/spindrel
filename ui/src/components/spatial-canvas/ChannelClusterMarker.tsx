@@ -7,6 +7,8 @@ interface ChannelClusterMarkerProps {
   zoom: number;
   showActivityGlow: boolean;
   maxClusterTokens: number;
+  widgetCount?: number;
+  widgetOpacity?: number;
   onFocus: () => void;
   onDiveWinner: () => void;
 }
@@ -20,6 +22,8 @@ export function ChannelClusterMarker({
   zoom,
   showActivityGlow,
   maxClusterTokens,
+  widgetCount = 0,
+  widgetOpacity = 0,
   onFocus,
   onDiveWinner,
 }: ChannelClusterMarkerProps) {
@@ -33,11 +37,13 @@ export function ChannelClusterMarker({
   const winner = cluster.winner;
   const hiddenCount = cluster.hiddenMembers.length;
   const effectiveScale = Math.max(0.05, zoom);
-  const labelScale = Math.min(4.4, 1 / effectiveScale);
+  const markerScale = Math.min(8.5, Math.max(1, 34 / (84 * effectiveScale)));
+  const labelScale = Math.min(13, Math.max(1, 14 / (16 * effectiveScale)));
   const ratio = maxClusterTokens > 0 ? cluster.totalTokens / maxClusterTokens : 0;
   const glow = showActivityGlow && cluster.totalTokens > 0
     ? 0.22 + Math.sqrt(ratio) * 0.34
     : 0;
+  const widgetSatelliteCount = Math.min(widgetCount, 5);
 
   return (
     <button
@@ -64,7 +70,13 @@ export function ChannelClusterMarker({
         onDiveWinner();
       }}
     >
-      <div className="relative flex h-[104px] w-[104px] items-center justify-center">
+      <div
+        className="relative flex h-[104px] w-[104px] items-center justify-center"
+        style={{
+          transform: `scale(${markerScale})`,
+          transformOrigin: "center center",
+        }}
+      >
         {glow > 0 && (
           <div
             className="absolute inset-[-34px] rounded-full blur-xl"
@@ -97,6 +109,30 @@ export function ChannelClusterMarker({
         <span className="absolute -right-2 -top-1 rounded-full border border-surface-border bg-surface-raised px-2 py-0.5 text-xs font-semibold text-text shadow-sm">
           +{hiddenCount}
         </span>
+        {Array.from({ length: widgetSatelliteCount }).map((_, index) => {
+          const angle = 100 + index * (widgetSatelliteCount > 1 ? 28 : 0);
+          const r = 72;
+          const x = Math.cos((angle * Math.PI) / 180) * r;
+          const y = Math.sin((angle * Math.PI) / 180) * r;
+          return (
+            <span
+              key={`widget-${index}`}
+              className="absolute h-4 w-4 rotate-45 rounded-[4px] border border-accent/70 bg-accent/15 shadow-sm"
+              style={{
+                transform: `translate(${x}px, ${y}px) rotate(45deg)`,
+                opacity: widgetOpacity,
+              }}
+            />
+          );
+        })}
+        {widgetCount > 5 && (
+          <span
+            className="absolute -bottom-7 left-1/2 -translate-x-1/2 rounded-full border border-surface-border bg-surface-raised px-2 py-0.5 text-[10px] font-semibold text-text shadow-sm"
+            style={{ opacity: widgetOpacity }}
+          >
+            +{widgetCount - 5} widgets
+          </span>
+        )}
       </div>
       <div
         className="max-w-full truncate px-2 text-base font-semibold whitespace-nowrap"

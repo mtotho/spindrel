@@ -55,10 +55,13 @@ async def _op_goto(page: Page, args: dict) -> dict:
 async def _op_screenshot(page: Page, args: dict) -> dict:
     png = await page.screenshot(full_page=False)
     data_url = "data:image/png;base64," + base64.b64encode(png).decode("ascii")
+    viewport = page.viewport_size or {"width": 1280, "height": 800}
     return {
-        "data_url": data_url,
+        "image_data_url": data_url,
         "url": page.url,
         "title": await page.title(),
+        "width": viewport.get("width"),
+        "height": viewport.get("height"),
     }
 
 

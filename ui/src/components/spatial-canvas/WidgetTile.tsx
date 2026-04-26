@@ -64,6 +64,8 @@ const MIN_H = 140;
 
 const CHIP_THRESHOLD = 0.4;
 const TITLE_THRESHOLD = 0.6;
+const OVERVIEW_MIN_CHIP_SCREEN_PX = 20;
+const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
 
 function widgetTitle(pin: SpatialNodePin): string {
   return (
@@ -89,7 +91,7 @@ export function WidgetTile({
   nodeId,
   onActivate,
 }: WidgetTileProps) {
-  if (zoom < CHIP_THRESHOLD) return <ChipView />;
+  if (zoom < CHIP_THRESHOLD) return <ChipView zoom={zoom} extraScale={extraScale} />;
   if (zoom < TITLE_THRESHOLD)
     return <ChipTitleView pin={pin} zoom={zoom} extraScale={extraScale} />;
   return (
@@ -127,14 +129,23 @@ function WidgetGlyph({ size }: { size: number }) {
   );
 }
 
-function ChipView() {
+function ChipView({ zoom, extraScale }: { zoom: number; extraScale: number }) {
+  const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
+  const glyphScale = Math.min(6.4, Math.max(1, OVERVIEW_MIN_CHIP_SCREEN_PX / (64 * effectiveScale)));
   return (
     <div
       data-tile-kind="widget"
       className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 cursor-grab flex-col items-center justify-center active:cursor-grabbing"
       style={{ width: 76, height: 76 }}
     >
-      <WidgetGlyph size={64} />
+      <div
+        style={{
+          transform: `scale(${glyphScale})`,
+          transformOrigin: "center center",
+        }}
+      >
+        <WidgetGlyph size={64} />
+      </div>
     </div>
   );
 }
@@ -153,7 +164,7 @@ function ChipTitleView({
   // fisheye / lens shrinking so the label stays legible when the lens has
   // compressed the tile.
   const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
-  const labelScale = Math.min(3, 1 / effectiveScale);
+  const labelScale = Math.min(10, Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale)));
   return (
     <div
       data-tile-kind="widget"

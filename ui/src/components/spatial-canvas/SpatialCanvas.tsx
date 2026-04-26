@@ -47,6 +47,7 @@ import type { Channel } from "../../types/api";
 import { ChannelTile } from "./ChannelTile";
 import { ChannelClusterMarker } from "./ChannelClusterMarker";
 import { WidgetTile } from "./WidgetTile";
+import { WidgetClusterMarker } from "./WidgetClusterMarker";
 import { NowWell } from "./NowWell";
 import { UpcomingTile } from "./UpcomingTile";
 import { ConnectionLineLayer } from "./ConnectionLineLayer";
@@ -1156,6 +1157,45 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
     () => channelClusters.reduce((max, cluster) => Math.max(max, cluster.totalTokens), 0),
     [channelClusters],
   );
+  const widgetOverviewOpacity = channelClusterMode
+    ? Math.max(0.16, Math.min(0.62, (camera.scale - MIN_SCALE) / (CHANNEL_CLUSTER_EXIT_SCALE - MIN_SCALE) * 0.62))
+    : 1;
+  const widgetSatellitesByClusterId = useMemo(() => {
+    const map = new Map<string, SpatialNode[]>();
+    if (!channelClusterMode) return map;
+    const clusterByChannelId = new Map<string, string>();
+    for (const cluster of channelClusters) {
+      for (const member of cluster.members) {
+        clusterByChannelId.set(member.channel.id, cluster.id);
+      }
+    }
+    for (const node of nodes ?? []) {
+      const sourceChannelId = node.pin?.source_channel_id;
+      if (!sourceChannelId) continue;
+      const clusterId = clusterByChannelId.get(sourceChannelId);
+      if (!clusterId) continue;
+      const list = map.get(clusterId) ?? [];
+      list.push(node);
+      map.set(clusterId, list);
+    }
+    return map;
+  }, [channelClusterMode, channelClusters, nodes]);
+  const satellitedWidgetNodeIds = useMemo(() => {
+    const out = new Set<string>();
+    for (const list of widgetSatellitesByClusterId.values()) {
+      for (const node of list) out.add(node.id);
+    }
+    return out;
+  }, [widgetSatellitesByClusterId]);
+  const standaloneWidgetClusters = useMemo(
+    () => buildWidgetOverviewClusters({
+      nodes: nodes ?? [],
+      camera,
+      excludedNodeIds: satellitedWidgetNodeIds,
+      enabled: channelClusterMode,
+    }),
+    [nodes, camera, satellitedWidgetNodeIds, channelClusterMode],
+  );
 
   const upcomingSpreadByKey = useMemo(() => {
     const buckets = new Map<string, string[]>();
@@ -1526,7 +1566,7 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
             zoom={camera.scale}
             lens={nowWellLens}
           />
-          {(upcomingItems ?? []).map((item) => {
+          {!channelClusterMode && (upcomingItems ?? []).map((item) => {
             const itemKey = upcomingReactKey(item);
             const spread = upcomingSpreadByKey.get(itemKey) ?? { index: 0, count: 1 };
             const orbit = upcomingOrbit(item, tickedNow, spread);
@@ -1565,6 +1605,8 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
                   zoom={camera.scale}
                   showActivityGlow={densityIntensity !== "off"}
                   maxClusterTokens={maxClusterTokens}
+                  widgetCount={widgetSatellitesByClusterId.get(cluster.id)?.length ?? 0}
+                  widgetOpacity={widgetOverviewOpacity}
                   onFocus={() => flyToWorldBounds(cluster.worldBounds)}
                   onDiveWinner={() =>
                     diveToChannel(cluster.winner.channel.id, {
@@ -1578,8 +1620,29 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
               </div>
             );
           })}
+          {standaloneWidgetClusters.map((cluster) => (
+            <div
+              key={cluster.id}
+              className="absolute"
+              style={{
+                left: cluster.worldX - 43,
+                top: cluster.worldY - 43,
+                width: 86,
+                height: 86,
+                zIndex: 2,
+              }}
+            >
+              <WidgetClusterMarker
+                count={cluster.nodes.length}
+                zoom={camera.scale}
+                opacity={widgetOverviewOpacity}
+              />
+            </div>
+          ))}
           {(nodes ?? []).map((node) => {
             if (node.channel_id && clusteredChannelNodeIds.has(node.id)) return null;
+            if (channelClusterMode && node.bot_id) return null;
+            if (channelClusterMode && node.pin) return null;
             const lens =
               lensEngaged && focalScreen
                 ? projectFisheye(
@@ -1825,6 +1888,64 @@ export function SpatialCanvas({ onAfterDive, initialFlyToChannelId }: SpatialCan
   );
 }
 
+interface WidgetOverviewCluster {
+  id: string;
+  nodes: SpatialNode[];
+  worldX: number;
+  worldY: number;
+}
+
+function buildWidgetOverviewClusters({
+  nodes,
+  camera,
+  excludedNodeIds,
+  enabled,
+  radius = 92,
+}: {
+  nodes: SpatialNode[];
+  camera: Camera;
+  excludedNodeIds: Set<string>;
+  enabled: boolean;
+  radius?: number;
+}): WidgetOverviewCluster[] {
+  if (!enabled) return [];
+  const candidates = nodes
+    .filter((node) => node.pin && !excludedNodeIds.has(node.id))
+    .map((node) => {
+      const cx = node.world_x + node.world_w / 2;
+      const cy = node.world_y + node.world_h / 2;
+      return {
+        node,
+        worldX: cx,
+        worldY: cy,
+        screenX: camera.x + cx * camera.scale,
+        screenY: camera.y + cy * camera.scale,
+      };
+    })
+    .sort((a, b) => a.node.id.localeCompare(b.node.id));
+  const claimed = new Set<string>();
+  const clusters: WidgetOverviewCluster[] = [];
+  for (const seed of candidates) {
+    if (claimed.has(seed.node.id)) continue;
+    const members = candidates.filter((candidate) => {
+      if (claimed.has(candidate.node.id)) return false;
+      const dx = candidate.screenX - seed.screenX;
+      const dy = candidate.screenY - seed.screenY;
+      return Math.hypot(dx, dy) <= radius;
+    });
+    for (const member of members) claimed.add(member.node.id);
+    const worldX = members.reduce((sum, member) => sum + member.worldX, 0) / members.length;
+    const worldY = members.reduce((sum, member) => sum + member.worldY, 0) / members.length;
+    clusters.push({
+      id: `widget-cluster:${members.map((member) => member.node.id).join(":")}`,
+      nodes: members.map((member) => member.node),
+      worldX,
+      worldY,
+    });
+  }
+  return clusters;
+}
+
 function AddWidgetButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -1985,7 +2106,8 @@ function BotTile({
 }) {
   const compact = zoom < 0.55;
   const avatar = avatarEmoji || "🤖";
-  const labelScale = compact ? Math.min(5, Math.max(1, 1 / Math.max(zoom, 0.2))) : 1;
+  const markerScale = compact ? Math.min(5.6, Math.max(1, 34 / ((reduced ? 84 : 112) * Math.max(zoom, 0.05)))) : 1;
+  const labelScale = compact ? Math.min(10, Math.max(1, 14 / (14 * Math.max(zoom, 0.05)))) : 1;
   const outerSize = reduced ? 84 : 112;
   const innerSize = reduced ? 58 : 82;
   const emojiSize = reduced ? 28 : 38;
@@ -1999,11 +2121,11 @@ function BotTile({
     >
       <div
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/55 bg-surface-raised shadow-[0_10px_28px_rgb(var(--color-accent)/0.12)]"
-        style={{ width: outerSize, height: outerSize }}
+        style={{ width: outerSize, height: outerSize, scale: markerScale }}
       />
       <div
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-surface-border/70 bg-surface flex items-center justify-center"
-        style={{ width: innerSize, height: innerSize, fontSize: emojiSize }}
+        style={{ width: innerSize, height: innerSize, fontSize: emojiSize, scale: markerScale }}
       >
         <span aria-hidden>{avatar}</span>
       </div>

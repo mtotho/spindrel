@@ -29,6 +29,8 @@ interface ChannelTileProps {
 
 const DOT_THRESHOLD = 0.4;
 const SNAPSHOT_THRESHOLD = 1.0;
+const OVERVIEW_MIN_DOT_SCREEN_PX = 22;
+const OVERVIEW_MIN_LABEL_SCREEN_PX = 13;
 
 export function ChannelTile({ channel, icon, zoom, extraScale = 1, onDive }: ChannelTileProps) {
   if (zoom < DOT_THRESHOLD)
@@ -79,14 +81,12 @@ function DotView({
   onDive: () => void;
 }) {
   const name = channelName(channel);
-  // Counter-scale the label so it stays at a constant *screen* size as the
-  // user zooms out — the world is being scaled by `zoom`, so we scale the
-  // label by `1/zoom` to compensate. `extraScale` covers fisheye / lens
-  // shrinking — when the lens compresses a tile, the label shrinks with it
-  // unless we compensate. Capped at 4× to keep edge cases sane when the user
-  // zooms below MIN_SCALE recovery edges.
+  // Counter-scale overview marks so they stay readable at whole-map zoom.
+  // The canvas parent is world-scaled; these local scales set a lower bound
+  // in screen pixels without affecting preview/snapshot card zoom states.
   const effectiveScale = Math.max(0.05, zoom) * Math.max(0.05, extraScale);
-  const labelScale = Math.min(4, 1 / effectiveScale);
+  const dotScale = Math.min(5.2, Math.max(1, OVERVIEW_MIN_DOT_SCREEN_PX / (88 * effectiveScale)));
+  const labelScale = Math.min(12, Math.max(1, OVERVIEW_MIN_LABEL_SCREEN_PX / (16 * effectiveScale)));
   return (
     <div
       data-tile-kind="channel"
@@ -100,6 +100,8 @@ function DotView({
           width: 88,
           height: 88,
           background: dotColor(channel.id),
+          transform: `scale(${dotScale})`,
+          transformOrigin: "center center",
         }}
       />
       <div

@@ -857,6 +857,16 @@ INTEGRATION_CHAT_SPECS: list[ScreenshotSpec] = [
             '/MERMAID[ _]TO[ _]EXCALIDRAW|CREATE[ _]EXCALIDRAW/i.test(document.body.innerText)'
             ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
+        pre_capture_js=(
+            "document.querySelectorAll('img[loading=\"lazy\"]').forEach(i => { i.loading = 'eager'; i.removeAttribute('loading'); });"
+            " const imgs = Array.from(document.images);"
+            " imgs.forEach(i => { try { i.scrollIntoView({block:'center'}); } catch(_){} });"
+            " await Promise.race(["
+            "   Promise.all(imgs.map(i => i.complete ? Promise.resolve() : new Promise(r => { i.addEventListener('load', r, {once:true}); i.addEventListener('error', r, {once:true}); }))),"
+            "   new Promise(r => setTimeout(r, 4000))"
+            " ]);"
+            " await new Promise(r => setTimeout(r, 600));"
+        ),
         output="chat-excalidraw.png",
     ),
     # chat-marp — feeds `docs/guides/marp-slides.md` (or a future slides guide).
@@ -884,10 +894,14 @@ INTEGRATION_CHAT_SPECS: list[ScreenshotSpec] = [
         route="/channels/{chat_browser_live}",
         viewport={"width": 1440, "height": 900},
         wait_kind="function",
+        # Widget renders inside a same-origin iframe; we can't peek at its
+        # <img> from the parent (sandboxed), so we settle for the badge text
+        # and one extra second for the iframe to paint.
         wait_arg=(
-            '/BROWSER STATUS|BROWSER GOTO|BROWSER SCREENSHOT/i.test(document.body.innerText)'
+            '/BROWSER[ _]SCREENSHOT/i.test(document.body.innerText)'
             ' && document.querySelectorAll(\'a[href^="/channels/"]\').length >= 4'
         ),
+        pre_capture_js="await new Promise(r => setTimeout(r, 1800));",
         output="chat-browser-live.png",
     ),
 ]
