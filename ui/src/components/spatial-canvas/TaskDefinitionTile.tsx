@@ -71,6 +71,7 @@ export function TaskDefinitionTile({ task, zoom, worldX, worldY, lens = null, on
       <button
         title={tooltip}
         onClick={() => onDive(task.id)}
+        data-tile-kind="task-definition"
         className="absolute z-10 flex items-center justify-center rounded-full border-none cursor-pointer bg-accent/55 hover:bg-accent transition-colors p-0"
         style={{
           left: worldX - r / 2,
@@ -92,6 +93,7 @@ export function TaskDefinitionTile({ task, zoom, worldX, worldY, lens = null, on
       <button
         title={tooltip}
         onClick={() => onDive(task.id)}
+        data-tile-kind="task-definition"
         className="absolute z-10 flex flex-col items-center justify-center gap-0.5 rounded-xl border border-accent/30 bg-surface-raised text-text shadow cursor-pointer hover:border-accent hover:bg-surface-overlay transition-colors p-0"
         style={{
           left: worldX - MID_W / 2,
@@ -121,6 +123,7 @@ export function TaskDefinitionTile({ task, zoom, worldX, worldY, lens = null, on
     <button
       title={tooltip}
       onClick={() => onDive(task.id)}
+      data-tile-kind="task-definition"
       className="absolute z-10 flex flex-row items-center gap-2.5 rounded-xl border border-accent/30 bg-surface-raised text-text shadow-md hover:border-accent hover:bg-surface-overlay cursor-pointer transition-colors px-3 py-2"
       style={{
         left: worldX - CLOSE_W / 2,

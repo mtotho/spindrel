@@ -68,15 +68,18 @@ scenes:
         state: visible
       # Initial settle — channels paint, halos fade in, connection lines draw.
       - wait_ms: 2200
-      # Recenter is a no-op camera nudge if no prior camera; at default
-      # scale 1.0 it's a quiet beat that lets viewers register the layout.
-      - click: "css=[aria-label=\"Recenter canvas\"]"
-      - wait_ms: 2200
-      # Fly to Now Well — the dramatic pan downward across the constellation
-      # to the orbiting scheduled-task ring. Long hold so the viewer can
-      # actually read the orbits before the cut.
-      - click: "css=[aria-label=\"Fly to Now Well\"]"
-      - wait_ms: 3500
+      # Recenter via the radial menu — Q opens the donut, click the
+      # `recenter` wedge. The radial closes itself after a wedge fires.
+      - press: "q"
+      - wait_ms: 350
+      - click: "css=[data-radial-wedge=\"recenter\"]"
+      - wait_ms: 1900
+      # Fly to Now Well — same path through the radial. The dramatic pan
+      # downward across the constellation to the orbiting scheduled-task ring.
+      - press: "q"
+      - wait_ms: 350
+      - click: "css=[data-radial-wedge=\"now\"]"
+      - wait_ms: 3000
 
   - id: heartbeat_fire
     kind: playwright
@@ -93,8 +96,11 @@ scenes:
       - wait_for: "css=[data-spatial-canvas=\"true\"]"
         state: visible
       - wait_ms: 1500
-      # Fly to Now Well so the orbit ring fills the frame.
-      - click: "css=[aria-label=\"Fly to Now Well\"]"
+      # Fly to Now Well so the orbit ring fills the frame. Open the radial
+      # via Q and click the `now` wedge.
+      - press: "q"
+      - wait_ms: 350
+      - click: "css=[data-radial-wedge=\"now\"]"
       - wait_ms: 2000
       # Inject an imminent heartbeat into the upcoming-activity cache. The
       # canvas's fire-pulse detector triggers when scheduled_at <= tickedNow,

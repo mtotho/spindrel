@@ -187,8 +187,12 @@ function ChannelPlanet({
         </clipPath>
       </defs>
 
-      {/* Atmosphere halo — covers the SVG out to viewBox edge. */}
-      <rect x="-10" y="-10" width="120" height="120" fill={`url(#atm-${uid})`} />
+      {/* Atmosphere halo — circle (not rect) so the radial gradient's outer
+          stops don't pad to corners and produce a giant square halo. The
+          gradient itself is already donut-shaped (peak just outside the
+          planet, alpha 0 at the edge); painting on a circle keeps it that
+          way visually. */}
+      <circle cx="50" cy="50" r="60" fill={`url(#atm-${uid})`} />
 
       {/* Ring back-half: full ellipse drawn behind the planet; the sphere
           occludes the front arc, leaving only the back arc visible. */}
@@ -395,7 +399,7 @@ function PreviewView({
       className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
       <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="preview" />
-      <div className="absolute inset-0 flex flex-col gap-1.5 p-3">
+      <div className="absolute inset-0 flex flex-col gap-1.5 p-3" >
         <div className="flex flex-row items-center gap-1.5 min-w-0">
           <ChannelGlyph icon={icon} size={14} />
           <span className="text-base font-semibold leading-tight truncate text-text">{name}</span>
@@ -434,14 +438,14 @@ function SnapshotView({
       className="relative w-full h-full cursor-grab active:cursor-grabbing"
     >
       <ChannelPlanet channelId={channel.id} intensity={isUnread ? "warm" : "normal"} tier="snapshot" />
-      <div className="absolute inset-0 flex flex-col gap-1.5 p-4">
+      <div className="absolute inset-0 flex flex-col gap-1.5 p-4" >
         <div className="flex flex-row items-center gap-2 min-w-0">
           <ChannelGlyph icon={icon} size={16} />
           <span className="text-lg font-semibold leading-tight truncate text-text">{name}</span>
           {channel.private && <Lock size={12} className="text-text-dim shrink-0" />}
         </div>
         {preview && (
-          <div className="text-[11px] italic text-text-dim leading-snug line-clamp-2 pr-2">
+          <div className="text-xs leading-snug line-clamp-2 pr-2 text-text/85">
             {preview}
           </div>
         )}

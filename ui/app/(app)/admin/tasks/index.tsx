@@ -388,7 +388,7 @@ function TasksListScreen() {
               </button>
             )}
             <button
-              onClick={() => setEditorState({ mode: "create" })}
+              onClick={() => navigate("/admin/automations?canvas=1&new=1")}
               title="New Task"
               className="flex flex-row items-center gap-1.5 px-3 py-[5px] text-xs font-semibold border-none cursor-pointer rounded-md bg-transparent text-accent hover:bg-accent/[0.08] transition-colors"
             >

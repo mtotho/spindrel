@@ -67,14 +67,20 @@ test("moon center lies outside the planet (≥40) but inside extended viewBox (�
   }
 });
 
-test("planetAtmosphereStops 'warm' has higher final-stop alpha than 'normal'", () => {
+test("planetAtmosphereStops 'warm' has higher peak alpha than 'normal'", () => {
+  // Atmosphere is donut-shaped — peak alpha sits at an interior stop (~73%)
+  // and the outer stop (100%) is fully transparent so the halo doesn't pad
+  // into the tile's corners. So we compare the MAX alpha across all stops,
+  // not the final-stop alpha.
   const warm = planetAtmosphereStops(120, "warm");
   const normal = planetAtmosphereStops(120, "normal");
-  const lastAlpha = (stops: { color: string }[]) =>
-    parseFloat(stops[stops.length - 1].color.match(/,\s*([\d.]+)\)$/)?.[1] ?? "0");
+  const peakAlpha = (stops: { color: string }[]) =>
+    Math.max(
+      ...stops.map((s) => parseFloat(s.color.match(/,\s*([\d.]+)\)$/)?.[1] ?? "0")),
+    );
   assert.ok(
-    lastAlpha(warm) > lastAlpha(normal),
-    `warm alpha ${lastAlpha(warm)} should exceed normal alpha ${lastAlpha(normal)}`,
+    peakAlpha(warm) > peakAlpha(normal),
+    `warm peak ${peakAlpha(warm)} should exceed normal peak ${peakAlpha(normal)}`,
   );
 });
 

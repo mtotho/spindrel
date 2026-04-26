@@ -176,18 +176,27 @@ export interface GradientStop {
 }
 
 /**
- * Atmosphere glow: transparent through 78%, ramps to a soft outer halo in
- * the channel hue at 100%. Replaces the old `boxShadow: inset 0 0 28px ...`
- * — this halo is what makes a read tile distinguishable from the dark
- * canvas background. Warm intensity (unread) roughly doubles the outer alpha.
+ * Atmosphere glow: a donut concentrated just outside the planet's edge,
+ * fading to fully transparent at the gradient's outer radius. Earlier
+ * version had its peak alpha at 100% (the gradient's outer ring) and was
+ * painted on a `<rect>` filling the viewBox — `radial-gradient`'s default
+ * `spreadMethod="pad"` then carried that peak alpha into the rect's
+ * corners, producing a giant blue square halo around the tile. Painting
+ * onto a `<circle>` instead avoids the corner-pad, and pulling the peak
+ * inward (~73%) with the outer stop at alpha 0 makes the halo a real ring
+ * around the planet rather than a saturated outer glow.
+ *
+ * Planet sphere is at radius 40 in viewBox coords; the atmosphere circle
+ * uses radius 60, so 73% of that = 43.8 viewBox units — right at the
+ * planet's edge, which is where atmospheric scattering would peak.
  */
 export function planetAtmosphereStops(hue: number, intensity: CosmicIntensity): GradientStop[] {
-  const finalAlpha = intensity === "warm" ? 0.5 : intensity === "soft" ? 0.1 : 0.22;
+  const peakAlpha = intensity === "warm" ? 0.55 : intensity === "soft" ? 0.12 : 0.28;
   return [
     { offset: "0%", color: `hsla(${hue}, 70%, 60%, 0)` },
-    { offset: "78%", color: `hsla(${hue}, 70%, 60%, 0)` },
-    { offset: "92%", color: `hsla(${hue}, 80%, 70%, ${(finalAlpha * 0.55).toFixed(3)})` },
-    { offset: "100%", color: `hsla(${hue}, 80%, 72%, ${finalAlpha.toFixed(3)})` },
+    { offset: "55%", color: `hsla(${hue}, 70%, 60%, 0)` },
+    { offset: "73%", color: `hsla(${hue}, 80%, 72%, ${peakAlpha.toFixed(3)})` },
+    { offset: "100%", color: `hsla(${hue}, 80%, 72%, 0)` },
   ];
 }
 

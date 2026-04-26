@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import {
   Footprints,
   Home,
-  LocateFixed,
   Map as MapIcon,
   Maximize2,
   Link2,
@@ -33,7 +32,7 @@ import type { TrailsMode, DensityIntensity } from "./spatialGeometry";
 const SIZE = 200;
 const INNER_R = 36;
 const OUTER_R = 96;
-const WEDGE_GAP_DEG = 3;
+const WEDGE_GAP_DEG = 1.0;
 
 export type ActivityState = DensityIntensity;
 export type TrailsState = TrailsMode;
@@ -90,7 +89,7 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
       // 1:30 — Activity
       {
         id: "activity",
-        label: state.activity === "off" ? "Activity off" : state.activity === "bold" ? "Activity bold" : "Activity",
+        label: "Activity",
         glyph: <Sparkles size={18} strokeWidth={1.7} />,
         active: state.activity !== "off",
         onClick: actions.cycleActivity,
@@ -98,7 +97,7 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
       // 3:00 — Lines
       {
         id: "lines",
-        label: state.lines ? "Lines on" : "Lines off",
+        label: "Lines",
         glyph: <Link2 size={18} strokeWidth={1.7} />,
         active: state.lines,
         onClick: actions.toggleLines,
@@ -106,7 +105,7 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
       // 4:30 — Trails
       {
         id: "trails",
-        label: state.trails === "off" ? "Trails off" : state.trails === "all" ? "Trails all" : "Trails hover",
+        label: "Trails",
         glyph: <Footprints size={18} strokeWidth={1.7} />,
         active: state.trails !== "off",
         onClick: actions.cycleTrails,
@@ -122,7 +121,7 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
       // 7:30 — Map
       {
         id: "map",
-        label: state.map ? "Map on" : "Map off",
+        label: "Map",
         glyph: <MapIcon size={18} strokeWidth={1.7} />,
         active: state.map,
         onClick: actions.toggleMap,
@@ -130,7 +129,7 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
       // 9:00 — Bots
       {
         id: "bots",
-        label: state.bots ? "Bots on" : "Bots off",
+        label: "Bots",
         glyph: <Users size={18} strokeWidth={1.7} />,
         active: state.bots,
         onClick: actions.toggleBots,
@@ -203,12 +202,9 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
         width={SIZE}
         height={SIZE}
         viewBox={`0 0 ${SIZE} ${SIZE}`}
-        className="pointer-events-auto drop-shadow-[0_8px_24px_rgba(0,0,0,0.45)]"
+        className="pointer-events-auto"
       >
         {wedges.map((wedge, i) => {
-          // Wedge sweeps from (i*stepDeg - 90 - stepDeg/2) to
-          // (i*stepDeg - 90 + stepDeg/2). The -90° offset places wedge 0 at
-          // 12 o'clock instead of 3 o'clock.
           const startDeg = i * stepDeg - 90 - stepDeg / 2 + padDeg;
           const endDeg = i * stepDeg - 90 + stepDeg / 2 - padDeg;
           const midDeg = (startDeg + endDeg) / 2;
@@ -228,20 +224,19 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
             />
           );
         })}
-        {/* Center hole — Q glyph + Esc hint. Pure visual; pointer-events on
-         *  the surrounding wedges still receive clicks through the empty
-         *  center because the wedge paths cover the donut, and the center is
-         *  outside any wedge fill so it doesn't intercept. */}
+        {/* Center hub — flat tonal step, single neutral hairline. Same chrome
+         *  vocabulary as the surrounding wedges. */}
         <circle
           cx={cx}
           cy={cy}
-          r={INNER_R - 2}
-          fill="rgb(var(--color-surface-raised) / 0.92)"
+          r={INNER_R - 1}
+          fill="rgb(var(--color-surface-raised) / 0.96)"
           stroke="rgb(var(--color-surface-border))"
+          strokeWidth={1}
         />
         <text
           x={cx}
-          y={cy - 4}
+          y={cy - 3}
           textAnchor="middle"
           dominantBaseline="central"
           className="fill-text"
@@ -255,9 +250,9 @@ export function SpatialRadialMenu({ anchor, state, actions, onClose }: SpatialRa
           textAnchor="middle"
           dominantBaseline="central"
           className="fill-text-dim"
-          style={{ font: "9px ui-sans-serif, system-ui, sans-serif" }}
+          style={{ font: "9px ui-sans-serif, system-ui, sans-serif", letterSpacing: "0.06em" }}
         >
-          Esc to close
+          ESC
         </text>
       </svg>
     </div>,
@@ -277,23 +272,34 @@ function Wedge({
   onSelect: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  // Same vocabulary as `.sidebar-item-active` (`global.css:11-13`) — flat
+  // tonal step for idle, slight tonal lift on hover, low-opacity accent fill
+  // for active. No decorative gradients, no accent borders on idle wedges.
+  // Single neutral hairline does the divider job between wedges (§2.4).
   const fill = wedge.active
-    ? "rgb(var(--color-accent) / 0.22)"
+    ? "rgb(var(--color-accent) / 0.10)"
     : hovered
-      ? "rgb(var(--color-accent) / 0.15)"
-      : "rgb(var(--color-surface-raised) / 0.92)";
-  const stroke = wedge.active || hovered
-    ? "rgb(var(--color-accent) / 0.7)"
-    : "rgb(var(--color-surface-border))";
-  const labelColor = wedge.active || hovered ? "fill-accent" : "fill-text-dim";
+      ? "rgb(var(--color-surface-overlay) / 0.92)"
+      : "rgb(var(--color-surface-raised) / 0.96)";
+  const iconColor = wedge.active ? "text-accent" : hovered ? "text-text" : "text-text-muted";
+  const labelColor = wedge.active ? "fill-accent" : hovered ? "fill-text" : "fill-text-muted";
   return (
     <g
       className="cursor-pointer"
+      data-radial-wedge={wedge.id}
+      aria-label={wedge.label}
+      role="button"
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
       onClick={onSelect}
     >
-      <path d={path} fill={fill} stroke={stroke} strokeWidth={1} />
+      <path
+        d={path}
+        fill={fill}
+        stroke="rgb(var(--color-surface-border))"
+        strokeWidth={1}
+        strokeLinejoin="round"
+      />
       <foreignObject
         x={labelMid.x - 12}
         y={labelMid.y - 22}
@@ -301,7 +307,7 @@ function Wedge({
         height={22}
         style={{ pointerEvents: "none" }}
       >
-        <div className={`flex items-center justify-center w-full h-full ${labelColor === "fill-accent" ? "text-accent" : "text-text-dim"}`}>
+        <div className={`flex items-center justify-center w-full h-full ${iconColor}`}>
           {wedge.glyph}
         </div>
       </foreignObject>
